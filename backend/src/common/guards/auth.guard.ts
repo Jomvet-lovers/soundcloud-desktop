@@ -1,10 +1,5 @@
-import {
-  type CanActivate,
-  type ExecutionContext,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { AuthService } from '../../auth/auth.service.js';
+import {type CanActivate, type ExecutionContext, Injectable, UnauthorizedException,} from '@nestjs/common';
+import {AuthService} from '../../auth/auth.service.js';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -18,8 +13,7 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Missing x-session-id header');
     }
 
-    const accessToken = await this.authService.getValidAccessToken(sessionId);
-    request.accessToken = accessToken;
+    request.accessToken = await this.authService.getValidAccessToken(sessionId);
     request.sessionId = sessionId;
 
     return true;
