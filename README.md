@@ -56,6 +56,11 @@
 
 ... и другие возможные проблемы и способы их решения в [дискуссиях](https://github.com/zxcloli666/SoundCloud-Desktop/discussions).
 
+> [!WARNING]
+> Саунд более активно стал бороться со сторониими клиентами.
+> Чтобы решить проблему, приложение в данный момент переписывается.
+> Временно можете использовать обходы [#107](https://github.com/zxcloli666/SoundCloud-Desktop/issues/107) или отключение прокси + запрет ( [#112](https://github.com/zxcloli666/SoundCloud-Desktop/issues/112) )
+
 ---
 
 
