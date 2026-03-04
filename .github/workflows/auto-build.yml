@@ -109,14 +109,19 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: ""
+            job_name: linux-amd64
           - platform: ubuntu-22.04-arm
             args: ""
+            job_name: linux-arm64
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
+            job_name: macos-arm64
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
+            job_name: macos-amd64
           - platform: windows-latest
             args: ""
+            job_name: windows-amd64
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -130,7 +135,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-22.04-arm'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
 
       - uses: pnpm/action-setup@v4
         with:
@@ -166,11 +171,26 @@ jobs:
           projectPath: desktop
           args: ${{ matrix.args }}
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-builds-${{ matrix.job_name }}
+          path: |
+            desktop/src-tauri/target/**/release/bundle/**/*.deb
+            desktop/src-tauri/target/**/release/bundle/**/*.rpm
+            desktop/src-tauri/target/**/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/**/release/bundle/**/*.exe
+            desktop/src-tauri/target/**/release/bundle/**/*.msi
+            desktop/src-tauri/target/**/release/bundle/**/*.dmg
+            desktop/src-tauri/target/**/release/bundle/**/*.zip
+            desktop/src-tauri/target/**/release/bundle/**/*.tar.gz
+          retention-days: 2
+
   flatpak:
     needs: version
     runs-on: ubuntu-latest
     container:
-      image: bilelmoussaoui/flatpak-github-actions:gnome-49
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
       options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -221,6 +241,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
+
+      - name: Display structure of downloaded files
+        run: ls -la artifacts/
 
       - name: Publish release
         uses: zxcloli666/release-helper@main
@@ -232,4 +256,4 @@ jobs:
           OPENAI_API_BASE_URL: ${{ secrets.AI_BASE_URL }}
           OPENAI_API_KEY: ${{ secrets.AI_API_KEY }}
           OPENAI_API_MODEL: deep-think
-          LANGUAGE: "\U0001F1F7\U0001F1FA \u0420\u0443\u0441\u0441\u043A\u0438\u0439"
+          LANGUAGE: "РУССКИЙ"
