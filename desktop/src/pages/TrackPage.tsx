@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -29,6 +29,7 @@ import {
 } from "../lib/hooks";
 import type { Comment } from "../lib/hooks";
 import { preloadTrack } from "../lib/audio";
+import {useShallow} from "zustand/shallow";
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -97,7 +98,7 @@ function parseTags(tagList?: string): string[] {
 
 /* ── Like Button ─────────────────────────────────────────── */
 
-function LikeBtn({
+const LikeBtn = React.memo(({
   trackUrn,
   initialLiked,
   count,
@@ -105,7 +106,7 @@ function LikeBtn({
   trackUrn: string;
   initialLiked?: boolean;
   count?: number;
-}) {
+}) => {
   const [liked, setLiked] = useState(initialLiked ?? false);
   const [localCount, setLocalCount] = useState(count ?? 0);
   const qc = useQueryClient();
@@ -144,17 +145,17 @@ function LikeBtn({
       <span className="tabular-nums">{fc(localCount)}</span>
     </button>
   );
-}
+})
 
 /* ── Repost Button ───────────────────────────────────────── */
 
-function RepostBtn({
+const RepostBtn = React.memo(({
   trackUrn,
   count,
 }: {
   trackUrn: string;
   count?: number;
-}) {
+}) => {
   const [reposted, setReposted] = useState(false);
   const [localCount, setLocalCount] = useState(count ?? 0);
 
@@ -186,11 +187,11 @@ function RepostBtn({
       <span className="tabular-nums">{fc(localCount)}</span>
     </button>
   );
-}
+})
 
 /* ── Comment Item ────────────────────────────────────────── */
 
-function CommentItem({ comment }: { comment: Comment }) {
+const CommentItem = React.memo(({ comment }: { comment: Comment }) => {
   const navigate = useNavigate();
   const avatar = art(comment.user.avatar_url, "small");
 
@@ -226,19 +227,19 @@ function CommentItem({ comment }: { comment: Comment }) {
       </div>
     </div>
   );
-}
+});
 
 /* ── Comment Form ────────────────────────────────────────── */
 
-function CommentForm({ trackUrn }: { trackUrn: string }) {
+const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
   const { t } = useTranslation();
   const [body, setBody] = useState("");
-  const { progress } = usePlayerStore();
   const mutation = usePostComment(trackUrn);
 
   const submit = () => {
     const text = body.trim();
     if (!text) return;
+    const progress = usePlayerStore.getState().progress;
     const ts = progress > 0 ? Math.floor(progress * 1000) : undefined;
     mutation.mutate({ body: text, timestamp: ts });
     setBody("");
@@ -273,18 +274,24 @@ function CommentForm({ trackUrn }: { trackUrn: string }) {
       </button>
     </div>
   );
-}
+});
 
 /* ── Related Track Row ───────────────────────────────────── */
 
-function RelatedRow({
+const RelatedRow = React.memo(({
   track,
   queue,
 }: {
   track: Track;
   queue: Track[];
-}) {
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+}) => {
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
   const navigate = useNavigate();
   const isThis = currentTrack?.urn === track.urn;
   const cover = art(track.artwork_url, "t200x200");
@@ -361,15 +368,21 @@ function RelatedRow({
       </div>
     </div>
   );
-}
+});
 
 /* ── Main: TrackPage ─────────────────────────────────────── */
 
-export function TrackPage() {
+export const TrackPage = React.memo(() => {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore();
+  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore(useShallow(s => ({
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+  })));
   const [descExpanded, setDescExpanded] = useState(false);
 
   const { data: track, isLoading } = useQuery({
@@ -719,4 +732,4 @@ export function TrackPage() {
       </div>
     </div>
   );
-}
+})

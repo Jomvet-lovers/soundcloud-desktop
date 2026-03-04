@@ -10,7 +10,7 @@ import {
 import { appCacheDir, join } from "@tauri-apps/api/path";
 import { getSessionId } from "./api";
 
-const API_BASE = "http://localhost:3000";
+import { API_BASE, getCacheServerPort } from "./constants";
 const AUDIO_DIR = "audio";
 const MIN_MP3_SIZE = 8192;
 
@@ -176,4 +176,11 @@ export async function getCacheFilePath(urn: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** Возвращает HTTP URL на локальный кэш-сервер для трека */
+export function getCacheUrl(urn: string): string | null {
+  const port = getCacheServerPort();
+  if (!port) return null;
+  return `http://127.0.0.1:${port}/audio/${urnToFilename(urn)}`;
 }

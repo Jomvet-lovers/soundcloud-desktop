@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -23,6 +23,7 @@ import {
 } from "../lib/hooks";
 import { usePlayerStore, type Track } from "../stores/player";
 import { preloadTrack } from "../lib/audio";
+import {useShallow} from "zustand/shallow";
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -44,8 +45,14 @@ function art(url: string | null | undefined, size = "t500x500") {
 
 /* ── Components ───────────────────────────────────────────── */
 
-function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
-    const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+const TrackRow = React.memo(({ track, queue }: { track: Track; queue: Track[] }) => {
+    const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+        play: s.play,
+        pause: s.pause,
+        resume: s.resume,
+        currentTrack: s.currentTrack,
+        isPlaying: s.isPlaying,
+    })));
     const navigate = useNavigate();
     const isThis = currentTrack?.urn === track.urn;
     const cover = art(track.artwork_url, "t200x200");
@@ -126,9 +133,9 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
       </span>
         </div>
     );
-}
+})
 
-function PlaylistCard({ playlist }: { playlist: Playlist }) {
+const PlaylistCard = React.memo(({ playlist }: { playlist: Playlist }) => {
     const navigate = useNavigate();
     const cover = art(playlist.artwork_url, "t300x300");
 
@@ -171,9 +178,9 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
             </div>
         </div>
     );
-}
+});
 
-function UserCard({ user }: { user: SCUser }) {
+const UserCard = React.memo(({ user }: { user: SCUser }) => {
     const navigate = useNavigate();
     const avatar = art(user.avatar_url, "t300x300");
 
@@ -205,11 +212,11 @@ function UserCard({ user }: { user: SCUser }) {
             </div>
         </div>
     );
-}
+});
 
 /* ── Search Page ──────────────────────────────────────────── */
 
-export function Search() {
+export const Search = React.memo(() => {
     const { t } = useTranslation();
     const [inputValue, setInputValue] = useState("");
     const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -265,7 +272,7 @@ export function Search() {
             return (
                 <div className="flex flex-col gap-1">
                     {uniqueTracks.map((track, i) => (
-                        <TrackRow key={`${track.urn}-${i}`} track={track} index={i} queue={uniqueTracks} />
+                        <TrackRow key={`${track.urn}-${i}`} track={track} queue={uniqueTracks} />
                     ))}
                 </div>
             );
@@ -362,4 +369,4 @@ export function Search() {
             </div>
         </div>
     );
-}
+});

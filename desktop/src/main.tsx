@@ -1,10 +1,18 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
+import { setCacheServerPort } from "./lib/constants";
 import "./i18n";
 import "./lib/audio";
+import "./lib/discord";
 import "./index.css";
+
+invoke<number>("get_cache_server_port").then((port) => {
+  setCacheServerPort(port);
+  console.log(`[CacheServer] Port received: ${port}`);
+}).catch((e) => console.warn("[CacheServer] Failed to get port:", e));
 
 const queryClient = new QueryClient({
   defaultOptions: {

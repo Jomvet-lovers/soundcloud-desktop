@@ -8,10 +8,16 @@ import { TrackPage } from "./pages/TrackPage";
 import { PlaylistPage } from "./pages/PlaylistPage";
 import { UserPage } from "./pages/UserPage";
 import { Login } from "./pages/Login";
+import { UpdateChecker } from "./components/UpdateChecker";
 import { useAuthStore } from "./stores/auth";
+import {useShallow} from "zustand/shallow";
 
 export default function App() {
-  const { isAuthenticated, sessionId, fetchUser } = useAuthStore();
+  const { isAuthenticated, sessionId, fetchUser } = useAuthStore(useShallow(s => ({
+    isAuthenticated: s.isAuthenticated,
+    sessionId: s.sessionId,
+    fetchUser: s.fetchUser,
+  })));
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -38,6 +44,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <UpdateChecker />
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<Home />} />

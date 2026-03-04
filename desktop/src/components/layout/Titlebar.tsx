@@ -1,7 +1,8 @@
 import { Minus, Square, X, Disc3 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import React from "react";
 
-export function Titlebar() {
+export const Titlebar = React.memo(() => {
   const minimize = () => getCurrentWindow().minimize();
   const toggleMaximize = () => getCurrentWindow().toggleMaximize();
   const close = () => getCurrentWindow().close();
@@ -43,4 +44,4 @@ export function Titlebar() {
       </div>
     </div>
   );
-}
+});

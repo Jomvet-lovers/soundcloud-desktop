@@ -33,6 +33,7 @@ import {
 import { useAuthStore } from "../stores/auth";
 import { usePlayerStore, type Track } from "../stores/player";
 import { preloadTrack } from "../lib/audio";
+import {useShallow} from "zustand/shallow";
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -138,7 +139,13 @@ function FollowBtn({ userUrn }: { userUrn: string }) {
 /* ── Track Row (For Tracks & Likes) ───────────────────────── */
 
 function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
   const navigate = useNavigate();
   const isThis = currentTrack?.urn === track.urn;
   const cover = art(track.artwork_url, "t200x200");
@@ -236,7 +243,13 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
 
 function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
   const navigate = useNavigate();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
   const cover = art(playlist.artwork_url, "t300x300");
 
   const isPlayingFromThis = currentTrack

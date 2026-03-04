@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Home, Search, Library, Globe } from "lucide-react";
 import { Avatar } from "../ui/Avatar";
 import { useAuthStore } from "../../stores/auth";
+import React from "react";
 
 const languages = [
   { code: "en", label: "English" },
@@ -15,7 +16,7 @@ const navItems = [
   { to: "/library", icon: Library, label: "nav.library" },
 ];
 
-export function Sidebar() {
+export const Sidebar = React.memo(()=> {
   const { t, i18n } = useTranslation();
   const user = useAuthStore((s) => s.user);
 
@@ -72,4 +73,4 @@ export function Sidebar() {
       )}
     </aside>
   );
-}
+});

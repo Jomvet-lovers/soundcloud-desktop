@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import type { Track } from "../../stores/player";
 import { usePlayerStore } from "../../stores/player";
 import { preloadTrack } from "../../lib/audio";
+import {useShallow} from "zustand/shallow";
+import React from "react";
 
 interface TrackCardProps {
   track: Track;
@@ -23,9 +25,15 @@ function formatCount(n?: number) {
   return n.toString();
 }
 
-export function TrackCard({ track, queue }: TrackCardProps) {
+export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
   const navigate = useNavigate();
-  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore();
+  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore(useShallow(s => ({
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+  })));
   const isThis = currentTrack?.urn === track.urn;
   const artwork = track.artwork_url?.replace("-large", "-t300x300");
 
@@ -108,4 +116,4 @@ export function TrackCard({ track, queue }: TrackCardProps) {
       </div>
     </div>
   );
-}
+});

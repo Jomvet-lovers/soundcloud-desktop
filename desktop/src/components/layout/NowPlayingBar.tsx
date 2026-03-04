@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import React, {useRef, useState, useCallback, useEffect} from "react";
 import {
   Play,
   Pause,
@@ -17,6 +17,8 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePlayerStore, type Track } from "../../stores/player";
 import { api } from "../../lib/api";
+import {useShallow} from "zustand/shallow";
+import {throttle} from "lodash";
 
 function formatTime(seconds: number) {
   if (!seconds || !isFinite(seconds)) return "0:00";
@@ -26,15 +28,34 @@ function formatTime(seconds: number) {
 }
 
 /* ── Progress Slider (full-width, two-tone) ──────────────────────── */
-function ProgressSlider({
-  value,
-  max,
-  onChange,
-}: {
-  value: number;
-  max: number;
-  onChange: (v: number) => void;
-}) {
+const ProgressSlider = React.memo(() => {
+  const {
+    duration: max,
+    seek: onChange,
+  } = usePlayerStore(useShallow(s => ({
+    duration: s.duration,
+    seek: s.seek,
+  })));
+
+  const[value, setValue] = useState(() => usePlayerStore.getState().progress);
+
+  useEffect(() => {
+    const throttledUpdate = throttle((newProgress) => {
+      setValue(newProgress);
+    }, 200);
+
+    const unsubscribe = usePlayerStore.subscribe((state, prevState) => {
+      if (state.progress !== prevState.progress) {
+        throttledUpdate(state.progress);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      throttledUpdate.cancel();
+    };
+  },[]);
+
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const [hoverRatio, setHoverRatio] = useState<number | null>(null);
@@ -103,18 +124,18 @@ function ProgressSlider({
       />
     </div>
   );
-}
+})
 
 /* ── Volume Slider (0-200%, extra zone after 100%) ──────────────── */
-function VolumeSlider({
-  volume,
-  onChange,
-  className = "",
-}: {
-  volume: number; // 0-200
-  onChange: (v: number) => void;
-  className?: string;
-}) {
+const VolumeSlider = React.memo(({ className = "" }: { className?: string; }) => {
+  const {
+    volume,
+    setVolume: onChange,
+  } = usePlayerStore(useShallow(s => ({
+    volume: s.volume,
+    setVolume: s.setVolume,
+  })));
+
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -174,7 +195,7 @@ function VolumeSlider({
       />
     </div>
   );
-}
+})
 
 /* ── Control button ──────────────────────────────────────────────── */
 function ControlBtn({
@@ -201,6 +222,51 @@ function ControlBtn({
     </button>
   );
 }
+
+const ControlVolumeBtn = React.memo(({
+                                       size = "default",
+                                     }: {
+  size?: "default" | "sm";
+}) => {
+  const {setVolume, volume} = usePlayerStore(useShallow(s => ({
+    setVolume: s.setVolume,
+    volume: s.volume
+  })));
+  const s = size === "sm" ? "w-9 h-9" : "w-10 h-10";
+  return (
+      <button
+          type="button"
+          onClick={() => setVolume(volume > 0 ? 0 : 50)}
+          className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
+              volume === 0 ? "text-accent" : "text-white/40 hover:text-white/70"
+          }`}
+      >
+        {volume === 0 ? <VolumeX size={16} /> : volume < 50 ? <Volume1 size={16} /> : <Volume2 size={16} />}
+      </button>
+  );
+});
+
+const ProgressTime = React.memo(() => {
+  const {
+    progress,
+    duration,
+  } = usePlayerStore(useShallow(s => ({
+    progress: Math.floor(s.progress),
+    duration: Math.floor(s.duration),
+  })));
+
+  return (
+      <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-white/50 tabular-nums font-medium">
+              {formatTime(progress)}
+            </span>
+        <span className="text-[11px] text-white/20">/</span>
+        <span className="text-[11px] text-white/30 tabular-nums font-medium">
+              {formatTime(duration)}
+            </span>
+      </div>
+  );
+})
 
 /* ── Like button ─────────────────────────────────────────────────── */
 function LikeButton({ trackUrn }: { trackUrn: string }) {
@@ -253,24 +319,31 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
 }
 
 /* ── NowPlayingBar ───────────────────────────────────────────────── */
-export function NowPlayingBar({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) {
+export const NowPlayingBar =  React.memo(({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
   const navigate = useNavigate();
   const {
     currentTrack,
     isPlaying,
-    progress,
-    duration,
     volume,
     shuffle,
     repeat,
     togglePlay,
     next,
     prev,
-    seek,
-    setVolume,
     toggleShuffle,
     toggleRepeat,
-  } = usePlayerStore();
+  } = usePlayerStore(useShallow(s => ({
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+    volume: s.volume,
+    shuffle: s.shuffle,
+    repeat: s.repeat,
+    togglePlay: s.togglePlay,
+    next: s.next,
+    prev: s.prev,
+    toggleShuffle: s.toggleShuffle,
+    toggleRepeat: s.toggleRepeat,
+  })));
 
   const artwork = currentTrack?.artwork_url?.replace("-large", "-t200x200");
 
@@ -285,7 +358,7 @@ export function NowPlayingBar({ onQueueToggle, queueOpen }: { onQueueToggle: () 
       )}
 
       {/* Progress bar — full width on top */}
-      <ProgressSlider value={progress} max={duration} onChange={seek} />
+      <ProgressSlider />
 
       <div className="h-[76px] flex items-center px-5 gap-3 relative">
         {/* ── Left: track info ── */}
@@ -355,15 +428,7 @@ export function NowPlayingBar({ onQueueToggle, queueOpen }: { onQueueToggle: () 
           </div>
 
           {/* Time */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-white/50 tabular-nums font-medium">
-              {formatTime(progress)}
-            </span>
-            <span className="text-[11px] text-white/20">/</span>
-            <span className="text-[11px] text-white/30 tabular-nums font-medium">
-              {formatTime(duration)}
-            </span>
-          </div>
+          <ProgressTime/>
         </div>
 
         {/* ── Right: volume + queue ── */}
@@ -371,10 +436,8 @@ export function NowPlayingBar({ onQueueToggle, queueOpen }: { onQueueToggle: () 
           <ControlBtn onClick={onQueueToggle} active={queueOpen} size="sm">
             <ListMusic size={16} />
           </ControlBtn>
-          <ControlBtn onClick={() => setVolume(volume > 0 ? 0 : 50)} size="sm">
-            {volume === 0 ? <VolumeX size={16} /> : volume < 50 ? <Volume1 size={16} /> : <Volume2 size={16} />}
-          </ControlBtn>
-          <VolumeSlider volume={volume} onChange={setVolume} className="w-[100px]" />
+          <ControlVolumeBtn size="sm"/>
+          <VolumeSlider className="w-[100px]" />
           <span className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? "text-amber-400/70" : "text-white/30"}`}>
             {volume}%
           </span>
@@ -382,4 +445,4 @@ export function NowPlayingBar({ onQueueToggle, queueOpen }: { onQueueToggle: () 
       </div>
     </div>
   );
-}
+})

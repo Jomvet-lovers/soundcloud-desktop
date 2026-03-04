@@ -1,7 +1,6 @@
 import { Howl } from "howler";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { streamUrl, api } from "./api";
-import { getCacheFilePath, fetchAndCacheTrack, isCached } from "./cache";
+import { getCacheFilePath, getCacheUrl, fetchAndCacheTrack, isCached } from "./cache";
 import { usePlayerStore } from "../stores/player";
 import type { Track } from "../stores/player";
 
@@ -85,8 +84,14 @@ async function loadTrack(track: Track) {
   };
 
   if (cachedPath) {
-    console.log(`[Audio] Cache hit: ${urn}`);
-    playHowl(createHowl(convertFileSrc(cachedPath), urn, fallbackToStream));
+    const cacheUrl = getCacheUrl(urn);
+    if (cacheUrl) {
+      console.log(`[Audio] Cache hit (local server): ${urn}`);
+      playHowl(createHowl(cacheUrl, urn, fallbackToStream));
+    } else {
+      console.log(`[Audio] Cache hit (stream fallback, no server port): ${urn}`);
+      playHowl(createHowl(httpUrl, urn));
+    }
   } else {
     console.log(`[Audio] Stream: ${urn}`);
     playHowl(createHowl(httpUrl, urn));

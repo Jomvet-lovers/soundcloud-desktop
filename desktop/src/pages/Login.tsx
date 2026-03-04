@@ -4,6 +4,7 @@ import { Disc3 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../lib/api";
+import { API_BASE } from "../lib/constants";
 
 interface LoginResponse {
   url: string;
@@ -27,7 +28,7 @@ export function Login() {
 
       const poll = setInterval(async () => {
         try {
-          const res = await fetch("http://localhost:3000/auth/session", {
+          const res = await fetch(`${API_BASE}/auth/session`, {
             headers: { "x-session-id": sessionId },
           });
           const data: SessionResponse = await res.json();

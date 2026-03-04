@@ -329,7 +329,7 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
     queryKey: ["playlist", playlistUrn, "tracks"],
     queryFn: () =>
       api<TrackListResponse>(
-        `/playlists/${encodeURIComponent(playlistUrn!)}/tracks`,
+        `/playlists/${encodeURIComponent(playlistUrn!)}/tracks?limit=500`,
       ),
     enabled: !!playlistUrn,
     refetchOnMount: "always",
@@ -352,7 +352,7 @@ export function useUserTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ["user", userUrn, "tracks"],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "20", access: "playable" });
+      const params = new URLSearchParams({ limit: "200", access: "playable" });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -386,7 +386,7 @@ export function useUserPlaylists(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ["user", userUrn, "playlists"],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "20" });
+      const params = new URLSearchParams({ limit: "200" });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -420,7 +420,7 @@ export function useUserLikedTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ["user", userUrn, "likes", "tracks"],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "20", access: "playable" });
+      const params = new URLSearchParams({ limit: "100", access: "playable" });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -462,14 +462,14 @@ export function useUserWebProfiles(userUrn: string | undefined) {
 
 /* ── My Library ────────────────────────────────────────────────── */
 
-export function useMyFollowings(limit = 50) {
+export function useMyFollowings(limit = 100) {
   return useQuery({
     queryKey: ["me", "followings", limit],
     queryFn: () => api<UserListResponse>(`/me/followings?limit=${limit}`),
   });
 }
 
-export function useMyLikedPlaylists(limit = 50) {
+export function useMyLikedPlaylists(limit = 100) {
   return useQuery({
     queryKey: ["me", "likes", "playlists", limit],
     queryFn: () => api<PlaylistListResponse>(`/me/likes/playlists?limit=${limit}`),

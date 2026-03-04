@@ -15,6 +15,8 @@ import {
 import { usePlayerStore, type Track } from "../stores/player";
 import { usePlaylist, usePlaylistTracks } from "../lib/hooks";
 import { preloadTrack } from "../lib/audio";
+import {useShallow} from "zustand/shallow";
+import React from "react";
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -55,7 +57,7 @@ function dateFormatted(dateStr: string) {
 
 /* ── Track Row ────────────────────────────────────────────── */
 
-function TrackRow({
+const TrackRow = React.memo(({
   track,
   index,
   queue,
@@ -63,8 +65,14 @@ function TrackRow({
   track: Track;
   index: number;
   queue: Track[];
-}) {
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+})=> {
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
   const navigate = useNavigate();
   const isThis = currentTrack?.urn === track.urn;
   const cover = art(track.artwork_url, "t200x200");
@@ -82,12 +90,12 @@ function TrackRow({
           ? "bg-accent/[0.05] ring-1 ring-accent/15"
           : "hover:bg-white/[0.03]"
       }`}
-      onMouseEnter={() => preloadTrack(track.urn)}
     >
       {/* Index / play */}
       <div
         className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
         onClick={handlePlay}
+        onMouseEnter={() => preloadTrack(track.urn)}
       >
         {isThis && isPlaying ? (
           <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
@@ -156,15 +164,21 @@ function TrackRow({
       </span>
     </div>
   );
-}
+});
 
 /* ── Main: PlaylistPage ──────────────────────────────────── */
 
-export function PlaylistPage() {
+export const PlaylistPage = React.memo(() => {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
 
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
   const { data: tracksData, isLoading: tracksLoading } = usePlaylistTracks(urn);
@@ -384,4 +398,4 @@ export function PlaylistPage() {
       </section>
     </div>
   );
-}
+});

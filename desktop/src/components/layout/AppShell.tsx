@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { Titlebar } from "./Titlebar";
 import { Sidebar } from "./Sidebar";
@@ -6,7 +6,7 @@ import { NowPlayingBar } from "./NowPlayingBar";
 import { QueuePanel } from "../music/QueuePanel";
 import { usePlayerStore } from "../../stores/player";
 
-export function AppShell() {
+export const AppShell = React.memo(() => {
   const [queueOpen, setQueueOpen] = useState(false);
   const artwork = usePlayerStore((s) => s.currentTrack?.artwork_url?.replace("-large", "-t500x500"));
 
@@ -31,4 +31,4 @@ export function AppShell() {
       <QueuePanel open={queueOpen} onClose={() => setQueueOpen(false)} />
     </div>
   );
-}
+});

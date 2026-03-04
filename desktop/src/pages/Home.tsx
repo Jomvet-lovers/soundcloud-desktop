@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Heart,
@@ -26,6 +26,7 @@ import { useAuthStore } from "../stores/auth";
 import { usePlayerStore } from "../stores/player";
 import type { Track } from "../stores/player";
 import { preloadTrack } from "../lib/audio";
+import {useShallow} from "zustand/shallow";
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -165,7 +166,13 @@ function FeaturedCard({
   queue: Track[];
 }) {
   const { t } = useTranslation();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
   const navigate = useNavigate();
   const track = item.origin as Track;
   const isThis = currentTrack?.urn === track.urn;
@@ -329,15 +336,21 @@ function FeaturedCard({
 
 /* ── Feed Track Card (compact horizontal) ─────────────────── */
 
-function FeedTrackCard({
+const FeedTrackCard = React.memo(({
   item,
   queue,
 }: {
   item: FeedItem;
   queue: Track[];
-}) {
+})  => {
   const { t } = useTranslation();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
   const navigate = useNavigate();
   const track = item.origin as Track;
   const isThis = currentTrack?.urn === track.urn;
@@ -456,14 +469,20 @@ function FeedTrackCard({
       </div>
     </div>
   );
-}
+})
 
 /* ── Feed Playlist Card ───────────────────────────────────── */
 
 function FeedPlaylistCard({ item }: { item: FeedItem }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
+    play: s.play,
+    pause: s.pause,
+    resume: s.resume,
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+  })));
   const [loading, setLoading] = useState(false);
   const origin = item.origin;
   const isRepost = item.type.includes("repost");

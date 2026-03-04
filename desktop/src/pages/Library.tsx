@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -23,6 +23,7 @@ import {
     type SCUser
 } from "../lib/hooks";
 import { preloadTrack } from "../lib/audio";
+import {useShallow} from "zustand/shallow";
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -44,8 +45,14 @@ function art(url: string | null | undefined, size = "t500x500") {
 
 /* ── Components ───────────────────────────────────────────── */
 
-function LibraryTrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
-    const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore();
+const LibraryTrackRow = React.memo(({ track, index, queue }: { track: Track; index: number; queue: Track[] }) => {
+    const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow((s) => ({
+        play: s.play,
+        pause: s.pause,
+        resume: s.resume,
+        currentTrack: s.currentTrack,
+        isPlaying: s.isPlaying,
+    })));
     const navigate = useNavigate();
     const isThis = currentTrack?.urn === track.urn;
     const cover = art(track.artwork_url, "t200x200");
@@ -64,11 +71,11 @@ function LibraryTrackRow({ track, index, queue }: { track: Track; index: number;
                     ? "bg-accent/[0.06] ring-1 ring-accent/20 shadow-[inset_0_0_20px_rgba(255,85,0,0.05)]"
                     : "hover:bg-white/[0.04]"
             }`}
-            onMouseEnter={() => preloadTrack(track.urn)}
         >
             <div
                 className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
                 onClick={handlePlay}
+                onMouseEnter={() => preloadTrack(track.urn)}
             >
                 {isThis && isPlaying ? (
                     <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
@@ -131,9 +138,9 @@ function LibraryTrackRow({ track, index, queue }: { track: Track; index: number;
       </span>
         </div>
     );
-}
+})
 
-function PlaylistCard({ playlist }: { playlist: Playlist }) {
+const PlaylistCard = React.memo(({ playlist }: { playlist: Playlist }) => {
     const navigate = useNavigate();
     const cover = art(playlist.artwork_url, "t300x300");
 
@@ -177,9 +184,9 @@ function PlaylistCard({ playlist }: { playlist: Playlist }) {
             </div>
         </div>
     );
-}
+})
 
-function UserCard({ user }: { user: SCUser }) {
+const UserCard = React.memo(({ user }: { user: SCUser }) => {
     const navigate = useNavigate();
     const avatar = art(user.avatar_url, "t300x300");
 
@@ -211,18 +218,18 @@ function UserCard({ user }: { user: SCUser }) {
             </div>
         </div>
     );
-}
+})
 
 /* ── Main Page ────────────────────────────────────────────── */
 
-export function Library() {
+export const Library = React.memo(() => {
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<"playlists" | "likes" | "following">("likes");
     const user = useAuthStore((s) => s.user);
-    const { play } = usePlayerStore();
+    const play = usePlayerStore(s => s.play);
 
     // Data Fetching
-    const { data: likedTracksData, isLoading: likesLoading } = useLikedTracks(50);
+    const { data: likedTracksData, isLoading: likesLoading } = useLikedTracks(200);
     const { data: followingsData, isLoading: followingsLoading } = useMyFollowings(50);
     const { data: likedPlaylistsData, isLoading: likedPlaylistsLoading } = useMyLikedPlaylists(50);
     const { data: myPlaylists, isLoading: myPlaylistsLoading } = useMyPlaylists();
@@ -416,4 +423,4 @@ export function Library() {
             </div>
         </div>
     );
-}
+});

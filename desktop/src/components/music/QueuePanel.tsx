@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { X, Play, Pause, GripVertical, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { usePlayerStore, type Track } from "../../stores/player";
+import {useShallow} from "zustand/shallow";
 
 function formatDuration(ms: number) {
   const totalSec = Math.floor(ms / 1000);
@@ -11,8 +12,13 @@ function formatDuration(ms: number) {
 }
 
 /* ── Now Playing (single, non-draggable) ─────────────────────────── */
-function NowPlayingItem() {
-  const { currentTrack, isPlaying, pause, resume } = usePlayerStore();
+const NowPlayingItem = React.memo(() => {
+  const { currentTrack, isPlaying, pause, resume } = usePlayerStore(useShallow(s => ({
+    currentTrack: s.currentTrack,
+    isPlaying: s.isPlaying,
+    pause: s.pause,
+    resume: s.resume,
+  })));
   if (!currentTrack) return null;
   const artwork = currentTrack.artwork_url?.replace("-large", "-t200x200");
 
@@ -52,12 +58,21 @@ function NowPlayingItem() {
       </span>
     </div>
   );
-}
+})
 
 /* ── Draggable queue list ────────────────────────────────────────── */
-function DraggableQueue({ startIndex }: { startIndex: number }) {
+const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
   const { queue, queueIndex, isPlaying, play, pause, resume, removeFromQueue, moveInQueue } =
-    usePlayerStore();
+    usePlayerStore(useShallow(s => ({
+      queue: s.queue,
+      queueIndex: s.queueIndex,
+      isPlaying: s.isPlaying,
+      play: s.play,
+      pause: s.pause,
+      resume: s.resume,
+      removeFromQueue: s.removeFromQueue,
+      moveInQueue: s.moveInQueue,
+    })));
 
   const items = queue.slice(startIndex);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -199,12 +214,17 @@ function DraggableQueue({ startIndex }: { startIndex: number }) {
       })}
     </div>
   );
-}
+})
 
 /* ── Panel ───────────────────────────────────────────────────────── */
-export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export const QueuePanel = React.memo(({ open, onClose }: { open: boolean; onClose: () => void }) => {
   const { t } = useTranslation();
-  const { queue, queueIndex, currentTrack, clearQueue } = usePlayerStore();
+  const { queue, queueIndex, currentTrack, clearQueue } = usePlayerStore(useShallow(s => ({
+    queue: s.queue,
+    queueIndex: s.queueIndex,
+    currentTrack: s.currentTrack,
+    clearQueue: s.clearQueue,
+  })));
 
   const upNextCount = queue.length - queueIndex - 1;
 
@@ -284,4 +304,4 @@ export function QueuePanel({ open, onClose }: { open: boolean; onClose: () => vo
       </div>
     </>
   );
-}
+})
