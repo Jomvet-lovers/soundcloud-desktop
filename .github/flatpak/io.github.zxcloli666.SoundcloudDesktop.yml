@@ -41,7 +41,7 @@ modules:
       # Install node deps offline (npm, not pnpm — flatpak-node-generator doesn't support pnpm)
       - cd desktop && npm ci --offline --legacy-peer-deps
       # Patch beforeBuildCommand (pnpm not available in flatpak)
-      - sed -i 's/"beforeBuildCommand":\s*".*"/"beforeBuildCommand": "true"/' desktop/src-tauri/tauri.conf.json
+      - python3 -c "import json,pathlib;p=pathlib.Path('desktop/src-tauri/tauri.conf.json');c=json.loads(p.read_text());c['build']['beforeBuildCommand']='true';p.write_text(json.dumps(c,indent=2))"
       # Build frontend
       - cd desktop && npx tsc && npx vite build
       # Fetch cargo crates from vendored sources
