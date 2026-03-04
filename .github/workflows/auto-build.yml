@@ -197,36 +197,29 @@ jobs:
         with:
           ref: main
 
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            xdg-utils \
-            libjavascriptcoregtk-4.1-dev \
-            libsoup-3.0-dev
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      - name: Pull latest
+        run: git pull origin main
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install flatpak source generators
+        run: |
+          pip3 install tomlkit aiohttp
+          pip3 install git+https://github.com/nicoboss/flatpak-builder-tools.git#subdirectory=node
 
-      - name: Install frontend dependencies
+      - name: Generate package-lock.json
         working-directory: desktop
-        run: pnpm install --frozen-lockfile
+        run: npm install --package-lock-only --legacy-peer-deps
 
-      - name: Build frontend
-        working-directory: desktop
-        run: pnpm run tauri build || true
+      - name: Generate node sources
+        run: flatpak-node-generator npm desktop/package-lock.json -o .github/flatpak/node-sources.json
+
+      - name: Generate cargo sources
+        run: |
+          curl -sL https://raw.githubusercontent.com/nicoboss/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py -o /tmp/flatpak-cargo-generator.py
+          python3 /tmp/flatpak-cargo-generator.py desktop/src-tauri/Cargo.lock -o .github/flatpak/cargo-sources.json
 
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6

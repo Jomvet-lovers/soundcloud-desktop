@@ -2,6 +2,9 @@ app-id: io.github.zxcloli666.SoundcloudDesktop
 runtime: org.gnome.Platform
 runtime-version: "49"
 sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
 
 command: soundcloud-desktop
 
@@ -20,17 +23,29 @@ finish-args:
   - --filesystem=xdg-run/app/com.discordapp.Discord
 
 build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin
+  append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin
   env:
     CARGO_HOME: /run/build/soundcloud-desktop/cargo
+    npm_config_nodedir: /usr/lib/sdk/node22
 
 modules:
   - name: soundcloud-desktop
     buildsystem: simple
     build-options:
       env:
-        XDG_CACHE_HOME: /run/build/soundcloud-desktop/cache
+        XDG_CACHE_HOME: /run/build/soundcloud-desktop/flatpak-node/cache
+        npm_config_cache: /run/build/soundcloud-desktop/flatpak-node/npm-cache
+        npm_config_offline: "true"
+        NODE_OPTIONS: --max_old_space_size=4096
     build-commands:
+      # Install node deps offline (npm, not pnpm — flatpak-node-generator doesn't support pnpm)
+      - cd desktop && npm ci --offline --legacy-peer-deps
+      # Build frontend
+      - cd desktop && npx tsc && npx vite build
+      # Fetch cargo crates from vendored sources
+      - cargo --offline fetch --manifest-path desktop/src-tauri/Cargo.toml
+      # Build Tauri binary
+      - cd desktop/src-tauri && cargo build --release --offline
       # Install binary
       - install -Dm755 desktop/src-tauri/target/release/soundcloud-desktop /app/bin/soundcloud-desktop
       # Install icons
@@ -42,3 +57,5 @@ modules:
     sources:
       - type: dir
         path: ../../
+      - cargo-sources.json
+      - node-sources.json
