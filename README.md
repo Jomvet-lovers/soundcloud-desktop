@@ -1,6 +1,6 @@
 <p align="center">
 <a href="https://soundcloud.com">
-<img src="https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/main/icons/appLogo.png" width="180px" style="border-radius: 50%;" />
+<img src="https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/legacy/icons/appLogo.png" width="180px" style="border-radius: 50%;" />
 </a>
 </p>
 
