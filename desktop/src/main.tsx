@@ -9,6 +9,13 @@ import "./lib/audio";
 import "./lib/discord";
 import "./index.css";
 
+if (import.meta.env.DEV) {
+  const script = document.createElement('script');
+  script.src = 'https://unpkg.com/react-scan/dist/auto.global.js';
+  script.crossOrigin = 'anonymous';
+  document.head.appendChild(script);
+}
+
 invoke<number>("get_cache_server_port").then((port) => {
   setCacheServerPort(port);
   console.log(`[CacheServer] Port received: ${port}`);
