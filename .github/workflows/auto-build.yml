@@ -208,8 +208,8 @@ jobs:
 
       - name: Install flatpak-builder-tools
         run: |
-          pip3 install --root-user-action=ignore aiohttp tomlkit
-          pip3 install --root-user-action=ignore 'git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node'
+          pip3 install --root-user-action=ignore --break-system-packages aiohttp tomlkit
+          pip3 install --root-user-action=ignore --break-system-packages 'git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node'
           curl -sL 'https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py' -o /usr/local/bin/flatpak-cargo-generator
           chmod +x /usr/local/bin/flatpak-cargo-generator
 
