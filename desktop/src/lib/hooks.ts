@@ -542,7 +542,7 @@ export function useSearchPlaylists(q: string) {
       return api<PlaylistListResponse>(`/playlists?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
-    getNextPageParam: (last, _all, lastPageParam) => extractPagination(last.next_href),
+    getNextPageParam: (last, _all, _lastPageParam) => extractPagination(last.next_href),
     enabled: !!q.trim(),
   });
 
@@ -568,7 +568,7 @@ export function useSearchUsers(q: string) {
       return api<UserListResponse>(`/users?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
-    getNextPageParam: (last, _all, lastPageParam) => extractPagination(last.next_href),
+    getNextPageParam: (last, _all, _lastPageParam) => extractPagination(last.next_href),
     enabled: !!q.trim(),
   });
 

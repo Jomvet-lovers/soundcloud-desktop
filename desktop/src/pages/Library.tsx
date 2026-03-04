@@ -282,7 +282,7 @@ export const Library = React.memo(() => {
 
                     <div className="relative z-10 flex items-center justify-between mt-auto">
                         <div className="flex -space-x-3">
-                            {likedTracks.slice(0, 4).map((track, i) => (
+                            {likedTracks.slice(0, 4).map((track) => (
                                 <div key={track.id} className="w-10 h-10 rounded-full ring-2 ring-[#121214] bg-neutral-800 overflow-hidden relative z-[1]">
                                     <img src={art(track.artwork_url, "small") || ""} className="w-full h-full object-cover" alt="" />
                                 </div>
@@ -357,7 +357,7 @@ export const Library = React.memo(() => {
                         {/* Created Playlists */}
                         {(myPlaylistsLoading) ? (
                             <div className="flex justify-center py-10"><Loader2 size={24} className="animate-spin text-white/20" /></div>
-                        ) : createdPlaylists.length > 0 ? (
+                        ) : Array.isArray(createdPlaylists) && createdPlaylists.length > 0 ? (
                             <section>
                                 <h3 className="text-lg font-bold text-white/80 mb-5 px-1">{t("library.yourPlaylists")}</h3>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">

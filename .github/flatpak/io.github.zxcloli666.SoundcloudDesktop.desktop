@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=SoundCloud Desktop
+Comment=SoundCloud music player
+Exec=soundcloud-desktop
+Icon=com.soundcloud.desktop
+Type=Application
+Categories=Audio;Music;Player;
+Keywords=soundcloud;music;player;

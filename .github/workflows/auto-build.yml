@@ -1,189 +1,217 @@
 name: Release
+
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
     inputs:
       version_type:
-        description: 'Version bump type'
+        description: "Version bump type"
         required: true
         type: choice
         options:
           - patch
           - minor
           - major
-        default: 'patch'
+        default: "patch"
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   version:
     if: contains(github.event.head_commit.message, '!release') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Bump version
-        run: |
-          # Determine release type: manual input or from commit message
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RELEASE_TYPE="${{ github.event.inputs.version_type }}"
-          else
-            RELEASE_TYPE=$(echo "${{ github.event.head_commit.message }}" | grep -oP '!release:\s*\K(major|minor|patch)' || echo "patch")
-          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-          echo "Release type: $RELEASE_TYPE"
+      - name: Bump version
+        id: bump
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION_INPUT: ${{ github.event.inputs.version_type }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            RELEASE_TYPE="${VERSION_INPUT:-patch}"
+          else
+            RELEASE_TYPE=$(echo "$COMMIT_MSG" | grep -oP '!release:\s*\K(major|minor|patch)' || echo "patch")
+          fi
 
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          # Get last tag version and remove 'v' prefix if present
           LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
           LAST_VERSION=${LAST_TAG#v}
 
-          # Update package.json to match last tag version
-          npm version $LAST_VERSION --no-git-tag-version --allow-same-version
+          cd desktop
+          npm version "$LAST_VERSION" --no-git-tag-version --allow-same-version
+          npm version "$RELEASE_TYPE" --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          cd ..
 
-          # Now bump to new version
-          npm version $RELEASE_TYPE --no-git-tag-version
+          sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" desktop/src-tauri/tauri.conf.json
 
-          # Check if version changed
-          if git diff --quiet package.json; then
-            echo "Version already up to date, skipping commit"
-          else
-            git add package.json
-            git commit -m "chore: bump version to $(node -p "require('./package.json').version") [skip ci]"
-            git pull --rebase origin ${{ github.head_ref || github.ref_name }}
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+          if ! git diff --quiet; then
+            git add desktop/package.json desktop/src-tauri/tauri.conf.json
+            git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
             git push origin HEAD:main
           fi
 
-  build:
-    needs: version
-    if: contains(github.event.head_commit.message, '!release') || github.event_name == 'workflow_dispatch'
-    strategy:
-      matrix:
-        os: [ windows-latest, ubuntu-latest, macos-latest ]
+  # ── Docker (backend) ────────────────────────────────────────
 
-    runs-on: ${{ matrix.os }}
+  docker:
+    needs: version
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: main
 
-      - name: Pull latest changes
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase image name
+        id: repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ghcr.io/${{ steps.repo.outputs.name }}/backend:${{ needs.version.outputs.version }}
+            ghcr.io/${{ steps.repo.outputs.name }}/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Tauri (desktop) — only build, no release ────────────────
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: ubuntu-22.04-arm
+            args: ""
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Pull latest
         run: git pull origin main
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Get pnpm store directory
-        shell: bash
+      - name: Install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-22.04-arm'
         run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - uses: actions/cache@v4
-        name: Setup pnpm cache
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ matrix.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-${{ matrix.os }}-
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
 
-      - name: Install dependencies
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: desktop
         run: pnpm install --frozen-lockfile
 
-      - name: Rebuild electron-winstaller (Windows only)
-        if: matrix.os == 'windows-latest'
-        run: pnpm rebuild electron-winstaller
-
-      - name: Setup build tools & rebuild (macOS only)
-        if: matrix.os == 'macos-latest'
-        run: |
-          npm install -g node-gyp
-          cd node_modules/macos-alias && node-gyp rebuild && cd ../..
-          cd node_modules/fs-xattr && node-gyp rebuild && cd ../..
-
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
+          projectPath: desktop
+          args: ${{ matrix.args }}
 
-      - name: Build application (macOS Universal)
-        if: matrix.os == 'macos-latest'
-        run: pnpm run build:production && node scripts/forge-make.cjs --arch=universal
+  flatpak:
+    needs: version
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-49
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
 
-      - name: Build application (Windows)
-        if: matrix.os == 'windows-latest'
-        run: pnpm build
+      - uses: pnpm/action-setup@v4
 
-      - name: Build application (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: pnpm build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-      - name: List build output (debug)
-        shell: bash
-        run: |
-          echo "=== Current directory ==="
-          pwd
-          echo "=== Listing all out directories ==="
-          find . -type d -name "out" 2>/dev/null || echo "No out dirs"
-          echo "=== Listing all dist directories ==="
-          find . -type d -name "dist" 2>/dev/null || echo "No dist dirs"
-          echo "=== Finding all .exe, .dmg, .deb, .rpm, .AppImage, .zip files ==="
-          find . -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.zip" \) 2>/dev/null || echo "No files found"
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Upload Windows artifacts
-        if: matrix.os == 'windows-latest'
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: desktop
+        run: pnpm run tauri build || true
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: .github/flatpak/io.github.zxcloli666.SoundcloudDesktop.yml
+          bundle: soundcloud-desktop.flatpak
+
+      - name: Upload Flatpak
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: |
-            dist/out/make/**/*.exe
-            dist/out/make/**/*.zip
-            out/make/**/*.exe
-            out/make/**/*.zip
-
-      - name: Upload Linux artifacts
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-build
-          path: |
-            dist/out/make/**/*.AppImage
-            dist/out/make/**/*.deb
-            dist/out/make/**/*.rpm
-            dist/out/make/**/*.zip
-            out/make/**/*.AppImage
-            out/make/**/*.deb
-            out/make/**/*.rpm
-            out/make/**/*.zip
-
-      - name: Upload macOS artifacts
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-build
-          path: |
-            dist/out/make/**/*.dmg
-            dist/out/make/**/*.zip
-            out/make/**/*.dmg
-            out/make/**/*.zip
+          name: linux-flatpak
+          path: soundcloud-desktop.flatpak
 
   release:
-    needs: build
+    needs: [version, build, docker, flatpak]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -194,14 +222,14 @@ jobs:
         with:
           path: artifacts
 
-      - name: Auto Release
+      - name: Publish release
         uses: zxcloli666/release-helper@main
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION_TYPE: ${{ github.event.inputs.version_type }}
-          BUILD_COMMAND: "echo 'Using pre-built artifacts'"
+          BUILD_COMMAND: "echo 'skip'"
           ASSET_PATTERNS: "artifacts/**/*"
           OPENAI_API_BASE_URL: ${{ secrets.AI_BASE_URL }}
           OPENAI_API_KEY: ${{ secrets.AI_API_KEY }}
           OPENAI_API_MODEL: deep-think
-          LANGUAGE: "🇷🇺 Русский"
+          LANGUAGE: "\U0001F1F7\U0001F1FA \u0420\u0443\u0441\u0441\u043A\u0438\u0439"

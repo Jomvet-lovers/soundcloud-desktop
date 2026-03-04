@@ -2,53 +2,86 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
-  contents: write
-  security-events: write
+  contents: read
 
 jobs:
-  quality:
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
         with:
-          ref: ${{ github.head_ref || github.ref }}
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Install dependencies
+      - name: Install
+        working-directory: backend
         run: pnpm install --frozen-lockfile
 
-      - name: Type check
-        run: pnpm type-check
+      - name: Check
+        working-directory: backend
+        run: pnpm check
 
-      - name: ESLint
-        run: pnpm lint
+      - name: Build
+        working-directory: backend
+        run: pnpm build
 
-      - name: Format check with Biome
+  desktop:
+    name: Desktop
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
-          pnpm biome:write
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-          if ! git diff --quiet; then
-            git config --global user.name 'github-actions[bot]'
-            git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-            git add . # Добавить все изменения форматирования
-            git commit -m "auto: apply automatic code formatting [skip ci]"
-            git pull --rebase origin ${{ github.head_ref || github.ref_name }} # Подтянуть изменения с remote
-            git push origin HEAD:${{ github.head_ref || github.ref_name }} # Пуш в ту же ветку, откуда пришел триггер
-          else
-            echo "No formatting changes needed or applied."
-          fi
+      - uses: pnpm/action-setup@v4
 
-      - name: Build check
-        run: pnpm build:app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: desktop
+          args: ${{ matrix.args }}
