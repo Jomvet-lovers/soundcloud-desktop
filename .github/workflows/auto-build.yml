@@ -197,9 +197,6 @@ jobs:
         with:
           ref: main
 
-      - name: Pull latest
-        run: git pull origin main
-
       - name: Install dependencies
         run: |
           apt-get update
