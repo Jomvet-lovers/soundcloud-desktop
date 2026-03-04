@@ -245,8 +245,18 @@ jobs:
           pattern: '{tauri-builds-*,linux-flatpak,soundcloud-desktop-*.flatpak}'
           merge-multiple: true
 
-      - name: Display structure of downloaded files
-        run: find /tmp/artifacts -type f | sort
+      - name: Flatten and deduplicate artifacts
+        run: |
+          mkdir -p /tmp/release
+          find /tmp/artifacts -type f | while read -r f; do
+            name=$(basename "$f")
+            case "$f" in
+              *aarch64-apple-darwin*.app.tar.gz) name="${name%.app.tar.gz}_arm64.app.tar.gz" ;;
+              *x86_64-apple-darwin*.app.tar.gz)  name="${name%.app.tar.gz}_x64.app.tar.gz" ;;
+            esac
+            cp "$f" "/tmp/release/$name"
+          done
+          ls -la /tmp/release/
 
       - name: Publish release
         uses: zxcloli666/release-helper@main
@@ -254,7 +264,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION_TYPE: ${{ github.event.inputs.version_type }}
           BUILD_COMMAND: "echo 'skip'"
-          ASSET_PATTERNS: "/tmp/artifacts/**/*"
+          ASSET_PATTERNS: "/tmp/release/*"
           OPENAI_API_BASE_URL: ${{ secrets.AI_BASE_URL }}
           OPENAI_API_KEY: ${{ secrets.AI_API_KEY }}
           OPENAI_API_MODEL: deep-think
