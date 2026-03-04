@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Headers, HttpStatus, Param, Post, Put, Query, StreamableFile, UseGuards,
+  Body, Controller, Delete, Get, Headers, HttpStatus, Param, Post, Put, Query, Res, StreamableFile, UseGuards,
 } from '@nestjs/common';
 import { ApiBody, ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
@@ -91,6 +91,7 @@ export class TracksController {
   @ApiHeader({ name: 'range', required: false, description: 'HTTP Range header for seeking (e.g. bytes=0-999999)' })
   async proxyStream(
     @AccessToken() token: string,
+    @Res({ passthrough: true }) res: any,
     @Param('trackUrn') trackUrn: string,
     @Query('format') format: string = 'http_mp3_128',
     @Query('secret_token') secretToken?: string,
@@ -112,6 +113,12 @@ export class TracksController {
     }
 
     const { stream, headers } = await this.tracksService.proxyStream(token, streamUrl, range);
+
+    res.header('Accept-Ranges', 'bytes');
+    if (headers['content-range']) {
+      res.status(206);
+      res.header('Content-Range', headers['content-range']);
+    }
 
     return new StreamableFile(stream, {
       type: headers['content-type'],

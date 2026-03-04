@@ -36,6 +36,23 @@ export class UsersService {
     return this.sc.apiGet(`/users/${userUrn}/followings`, token, params);
   }
 
+  async getIsFollowing(
+      token: string,
+      userUrn: string,
+      followingUrn: string,
+  ): Promise<boolean> {
+    try {
+      const response = await this.sc.apiGet(
+          `/users/${userUrn}/followings/${followingUrn}`,
+          token,
+      ) as { urn?: string } | null;
+
+      return response?.urn === followingUrn;
+    } catch {
+      return false;
+    }
+  }
+
   getTracks(
     token: string,
     userUrn: string,

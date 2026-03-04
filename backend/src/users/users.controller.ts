@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags} from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
@@ -52,6 +52,20 @@ export class UsersController {
     @Query() query: PaginationQuery,
   ) {
     return this.usersService.getFollowings(token, userUrn, query as Record<string, unknown>);
+  }
+
+  @Get(':userUrn/followings/:followingUrn')
+  @ApiOperation({ summary: 'Get user A is following to user B' })
+  @ApiOkResponse({
+    type: Boolean,
+    description: 'Returns true if following, otherwise false'
+  })
+  getIsFollowing(
+      @AccessToken() token: string,
+      @Param('userUrn') userUrn: string,
+      @Param('followingUrn') followingUrn: string,
+  ) {
+    return this.usersService.getIsFollowing(token, userUrn, followingUrn);
   }
 
   @Get(':userUrn/tracks')

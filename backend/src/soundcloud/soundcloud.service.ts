@@ -208,12 +208,16 @@ export class SoundcloudService {
         Authorization: `OAuth ${accessToken}`,
         Accept: 'application/json; charset=utf-8',
       },
+      validateStatus: (status) => status >= 200 && status < 300,
     };
 
     try {
-      const { data } = await firstValueFrom(
+      const { data, status } = await firstValueFrom(
         this.httpService.delete<T>(`${this.apiBaseUrl}${path}`, config),
       );
+      if (status === 204 || data === undefined || data === null || data === '') {
+        return null as T;
+      }
       return data;
     } catch (error: any) {
       if (error?.response?.status === 401) {
