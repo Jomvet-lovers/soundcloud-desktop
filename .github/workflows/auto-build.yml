@@ -1,0 +1,207 @@
+name: Release
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    if: contains(github.event.head_commit.message, '!release') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version
+        run: |
+          # Determine release type: manual input or from commit message
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RELEASE_TYPE="${{ github.event.inputs.version_type }}"
+          else
+            RELEASE_TYPE=$(echo "${{ github.event.head_commit.message }}" | grep -oP '!release:\s*\K(major|minor|patch)' || echo "patch")
+          fi
+
+          echo "Release type: $RELEASE_TYPE"
+
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          # Get last tag version and remove 'v' prefix if present
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+          LAST_VERSION=${LAST_TAG#v}
+
+          # Update package.json to match last tag version
+          npm version $LAST_VERSION --no-git-tag-version --allow-same-version
+
+          # Now bump to new version
+          npm version $RELEASE_TYPE --no-git-tag-version
+
+          # Check if version changed
+          if git diff --quiet package.json; then
+            echo "Version already up to date, skipping commit"
+          else
+            git add package.json
+            git commit -m "chore: bump version to $(node -p "require('./package.json').version") [skip ci]"
+            git pull --rebase origin ${{ github.head_ref || github.ref_name }}
+            git push origin HEAD:main
+          fi
+
+  build:
+    needs: version
+    if: contains(github.event.head_commit.message, '!release') || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        os: [ windows-latest, ubuntu-latest, macos-latest ]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Pull latest changes
+        run: git pull origin main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ matrix.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-${{ matrix.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebuild electron-winstaller (Windows only)
+        if: matrix.os == 'windows-latest'
+        run: pnpm rebuild electron-winstaller
+
+      - name: Setup build tools & rebuild (macOS only)
+        if: matrix.os == 'macos-latest'
+        run: |
+          npm install -g node-gyp
+          cd node_modules/macos-alias && node-gyp rebuild && cd ../..
+          cd node_modules/fs-xattr && node-gyp rebuild && cd ../..
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build application (macOS Universal)
+        if: matrix.os == 'macos-latest'
+        run: pnpm run build:production && node scripts/forge-make.cjs --arch=universal
+
+      - name: Build application (Windows)
+        if: matrix.os == 'windows-latest'
+        run: pnpm build
+
+      - name: Build application (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm build
+
+      - name: List build output (debug)
+        shell: bash
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Listing all out directories ==="
+          find . -type d -name "out" 2>/dev/null || echo "No out dirs"
+          echo "=== Listing all dist directories ==="
+          find . -type d -name "dist" 2>/dev/null || echo "No dist dirs"
+          echo "=== Finding all .exe, .dmg, .deb, .rpm, .AppImage, .zip files ==="
+          find . -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.zip" \) 2>/dev/null || echo "No files found"
+
+      - name: Upload Windows artifacts
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            dist/out/make/**/*.exe
+            dist/out/make/**/*.zip
+            out/make/**/*.exe
+            out/make/**/*.zip
+
+      - name: Upload Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            dist/out/make/**/*.AppImage
+            dist/out/make/**/*.deb
+            dist/out/make/**/*.rpm
+            dist/out/make/**/*.zip
+            out/make/**/*.AppImage
+            out/make/**/*.deb
+            out/make/**/*.rpm
+            out/make/**/*.zip
+
+      - name: Upload macOS artifacts
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: |
+            dist/out/make/**/*.dmg
+            dist/out/make/**/*.zip
+            out/make/**/*.dmg
+            out/make/**/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Auto Release
+        uses: zxcloli666/release-helper@main
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
+          BUILD_COMMAND: "echo 'Using pre-built artifacts'"
+          ASSET_PATTERNS: "artifacts/**/*"
+          OPENAI_API_BASE_URL: ${{ secrets.AI_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.AI_API_KEY }}
+          OPENAI_API_MODEL: deep-think
+          LANGUAGE: "🇷🇺 Русский"
