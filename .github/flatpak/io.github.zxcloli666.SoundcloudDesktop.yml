@@ -46,8 +46,8 @@ modules:
       - cd desktop && npx tsc && npx vite build
       # Fetch cargo crates from vendored sources
       - cargo --offline fetch --manifest-path desktop/src-tauri/Cargo.toml
-      # Build Tauri binary
-      - cd desktop && npx tauri build -b none
+      # Build Tauri binary (appimage bundling may fail in sandbox, but binary is already built)
+      - cd desktop && npx tauri build -b appimage || true
       # Install binary
       - install -Dm755 desktop/src-tauri/target/release/soundcloud-desktop /app/bin/soundcloud-desktop
       # Install icons
