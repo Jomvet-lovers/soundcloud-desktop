@@ -35,8 +35,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    profiles:
-      - prod
 
   app-dev:
     build:
@@ -63,8 +61,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    profiles:
-      - dev
 
 volumes:
   pgdata:
