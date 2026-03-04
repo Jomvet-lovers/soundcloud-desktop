@@ -176,14 +176,13 @@ jobs:
         with:
           name: tauri-builds-${{ matrix.job_name }}
           path: |
-            desktop/src-tauri/target/**/release/bundle/**/*.deb
-            desktop/src-tauri/target/**/release/bundle/**/*.rpm
-            desktop/src-tauri/target/**/release/bundle/**/*.AppImage
-            desktop/src-tauri/target/**/release/bundle/**/*.exe
-            desktop/src-tauri/target/**/release/bundle/**/*.msi
-            desktop/src-tauri/target/**/release/bundle/**/*.dmg
-            desktop/src-tauri/target/**/release/bundle/**/*.zip
-            desktop/src-tauri/target/**/release/bundle/**/*.tar.gz
+            desktop/src-tauri/target/**/release/bundle/deb/*.deb
+            desktop/src-tauri/target/**/release/bundle/rpm/*.rpm
+            desktop/src-tauri/target/**/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/**/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/**/release/bundle/msi/*.msi
+            desktop/src-tauri/target/**/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/**/release/bundle/macos/*.tar.gz
           retention-days: 2
 
   flatpak:
