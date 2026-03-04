@@ -1,0 +1,70 @@
+name: soundcloud-desktop
+
+services:
+  db:
+    container_name: soundcloud-desktop-db
+    image: docker.io/library/postgres:17-alpine
+    environment:
+      POSTGRES_USER: soundcloud
+      POSTGRES_PASSWORD: soundcloud
+      POSTGRES_DB: soundcloud_desktop
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soundcloud -d soundcloud_desktop"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_USERNAME: soundcloud
+      DATABASE_PASSWORD: soundcloud
+      DATABASE_NAME: soundcloud_desktop
+      SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID}
+      SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET}
+      SOUNDCLOUD_REDIRECT_URI: ${SOUNDCLOUD_REDIRECT_URI:-http://localhost:3000/auth/callback}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - prod
+
+  app-dev:
+    build:
+      context: .
+      target: deps
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_USERNAME: soundcloud
+      DATABASE_PASSWORD: soundcloud
+      DATABASE_NAME: soundcloud_desktop
+      SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID}
+      SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET}
+      SOUNDCLOUD_REDIRECT_URI: ${SOUNDCLOUD_REDIRECT_URI:-http://localhost:3000/auth/callback}
+    volumes:
+      - ./src:/app/src
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tsconfig.build.json:/app/tsconfig.build.json
+      - ./nest-cli.json:/app/nest-cli.json
+    command: pnpm start:dev
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - dev
+
+volumes:
+  pgdata:
