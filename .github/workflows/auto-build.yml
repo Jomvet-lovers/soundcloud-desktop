@@ -208,16 +208,15 @@ jobs:
 
       - name: Install flatpak-builder-tools
         run: |
-          pip3 install --root-user-action=ignore --break-system-packages aiohttp tomlkit
-          pip3 install --root-user-action=ignore --break-system-packages 'git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node'
-          curl -sL 'https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py' -o /usr/local/bin/flatpak-cargo-generator
-          chmod +x /usr/local/bin/flatpak-cargo-generator
+          git clone --depth=1 https://github.com/flatpak/flatpak-builder-tools.git /tmp/fbt
+          pip3 install --root-user-action=ignore --break-system-packages --prefix=/app tomlkit
+          pip3 install --root-user-action=ignore --break-system-packages --prefix=/app /tmp/fbt/node
 
       - name: Generate offline sources
         run: |
           cd desktop && npm install --package-lock-only --legacy-peer-deps && cd ..
           flatpak-node-generator npm desktop/package-lock.json -o .github/flatpak/node-sources.json
-          flatpak-cargo-generator desktop/src-tauri/Cargo.lock -o .github/flatpak/cargo-sources.json
+          python3 /tmp/fbt/cargo/flatpak-cargo-generator.py desktop/src-tauri/Cargo.lock -o .github/flatpak/cargo-sources.json
 
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
