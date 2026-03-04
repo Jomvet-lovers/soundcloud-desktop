@@ -7,7 +7,7 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const sessionId = request.headers['x-session-id'];
+    const sessionId = request.headers['x-session-id'] ?? request.query?.session_id;
 
     if (!sessionId) {
       throw new UnauthorizedException('Missing x-session-id header');

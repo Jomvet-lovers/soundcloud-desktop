@@ -1,0 +1,86 @@
+{
+  "nav": {
+    "home": "Home",
+    "search": "Search",
+    "library": "Library",
+    "following": "Following"
+  },
+  "player": {
+    "queue": "Queue",
+    "nowPlaying": "Now Playing",
+    "upNext": "Up Next",
+    "clearQueue": "Clear Queue",
+    "shuffle": "Shuffle",
+    "repeat": "Repeat"
+  },
+  "auth": {
+    "signIn": "Sign in with SoundCloud",
+    "signingIn": "Waiting for authorization...",
+    "signOut": "Sign Out"
+  },
+  "search": {
+    "placeholder": "Search tracks, playlists, users...",
+    "tracks": "Tracks",
+    "playlists": "Playlists",
+    "users": "Users",
+    "noResults": "No results found"
+  },
+  "track": {
+    "comments": "Comments",
+    "related": "Related Tracks",
+    "addComment": "Add a comment...",
+    "plays": "plays",
+    "likes": "likes",
+    "reposts": "reposts",
+    "posted": "Posted",
+    "description": "Description",
+    "noComments": "No comments yet",
+    "postComment": "Post",
+    "favoriters": "Liked by",
+    "reposters": "Reposted by",
+    "tags": "Tags",
+    "commentAt": "at"
+  },
+  "playlist": {
+    "playAll": "Play All",
+    "shuffle": "Shuffle",
+    "tracks_one": "{{count}} track",
+    "tracks_other": "{{count}} tracks",
+    "by": "by",
+    "noTracks": "No tracks in this playlist"
+  },
+  "user": {
+    "followers": "Followers",
+    "following": "Following",
+    "tracks": "Tracks",
+    "playlists": "Playlists",
+    "likes": "Likes",
+    "follow": "Follow",
+    "unfollow": "Unfollow",
+    "publicProfile": "This is how your public profile looks to others",
+    "about": "About",
+    "memberSince": "Member since",
+    "links": "Links"
+  },
+  "library": {
+    "likedTracks": "Liked Tracks",
+    "likedPlaylists": "Liked Playlists",
+    "yourPlaylists": "Your Playlists"
+  },
+  "home": {
+    "goodMorning": "Good morning",
+    "goodAfternoon": "Good afternoon",
+    "goodEvening": "Good evening",
+    "goodNight": "Good night",
+    "yourFeed": "Your Feed",
+    "freshReleases": "Fresh Releases",
+    "reposted": "Reposted",
+    "endOfFeed": "You're all caught up"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "seeAll": "See All"
+  }
+}

@@ -12,13 +12,22 @@
   "app": {
     "windows": [
       {
-        "title": "soundcloud-desktop",
-        "width": 800,
-        "height": 600
+        "title": "SoundCloud Desktop",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPCACHE/audio/**"
+        ]
+      }
     }
   },
   "bundle": {
