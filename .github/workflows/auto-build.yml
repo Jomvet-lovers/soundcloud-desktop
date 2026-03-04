@@ -242,12 +242,12 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: /tmp/artifacts
           pattern: '{tauri-builds-*,linux-flatpak,soundcloud-desktop-*.flatpak}'
           merge-multiple: true
 
       - name: Display structure of downloaded files
-        run: find artifacts/ -type f | sort
+        run: find /tmp/artifacts -type f | sort
 
       - name: Publish release
         uses: zxcloli666/release-helper@main
@@ -255,7 +255,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION_TYPE: ${{ github.event.inputs.version_type }}
           BUILD_COMMAND: "echo 'skip'"
-          ASSET_PATTERNS: "artifacts/**/*"
+          ASSET_PATTERNS: "/tmp/artifacts/**/*"
           OPENAI_API_BASE_URL: ${{ secrets.AI_BASE_URL }}
           OPENAI_API_KEY: ${{ secrets.AI_API_KEY }}
           OPENAI_API_MODEL: deep-think
