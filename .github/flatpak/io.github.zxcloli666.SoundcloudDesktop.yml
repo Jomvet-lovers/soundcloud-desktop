@@ -40,12 +40,14 @@ modules:
     build-commands:
       # Install node deps offline (npm, not pnpm — flatpak-node-generator doesn't support pnpm)
       - cd desktop && npm ci --offline --legacy-peer-deps
+      # Patch beforeBuildCommand (pnpm not available in flatpak)
+      - sed -i 's/"beforeBuildCommand":\s*".*"/"beforeBuildCommand": "true"/' desktop/src-tauri/tauri.conf.json
       # Build frontend
       - cd desktop && npx tsc && npx vite build
       # Fetch cargo crates from vendored sources
       - cargo --offline fetch --manifest-path desktop/src-tauri/Cargo.toml
       # Build Tauri binary
-      - cd desktop/src-tauri && cargo build --release --offline
+      - cd desktop && npx tauri build -b none
       # Install binary
       - install -Dm755 desktop/src-tauri/target/release/soundcloud-desktop /app/bin/soundcloud-desktop
       # Install icons
