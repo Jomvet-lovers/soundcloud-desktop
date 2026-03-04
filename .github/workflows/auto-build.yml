@@ -206,22 +206,18 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install flatpak source generators
+      - name: Install flatpak-builder-tools
         run: |
-          pip3 install tomlkit aiohttp
-          pip3 install git+https://github.com/nicoboss/flatpak-builder-tools.git#subdirectory=node
+          pip3 install --root-user-action=ignore aiohttp tomlkit
+          pip3 install --root-user-action=ignore 'git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=node'
+          curl -sL 'https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py' -o /usr/local/bin/flatpak-cargo-generator
+          chmod +x /usr/local/bin/flatpak-cargo-generator
 
-      - name: Generate package-lock.json
-        working-directory: desktop
-        run: npm install --package-lock-only --legacy-peer-deps
-
-      - name: Generate node sources
-        run: flatpak-node-generator npm desktop/package-lock.json -o .github/flatpak/node-sources.json
-
-      - name: Generate cargo sources
+      - name: Generate offline sources
         run: |
-          curl -sL https://raw.githubusercontent.com/nicoboss/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py -o /tmp/flatpak-cargo-generator.py
-          python3 /tmp/flatpak-cargo-generator.py desktop/src-tauri/Cargo.lock -o .github/flatpak/cargo-sources.json
+          cd desktop && npm install --package-lock-only --legacy-peer-deps && cd ..
+          flatpak-node-generator npm desktop/package-lock.json -o .github/flatpak/node-sources.json
+          flatpak-cargo-generator desktop/src-tauri/Cargo.lock -o .github/flatpak/cargo-sources.json
 
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
