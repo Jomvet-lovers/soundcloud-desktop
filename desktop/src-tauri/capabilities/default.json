@@ -11,6 +11,10 @@
     "core:window:allow-close",
     "opener:default",
     "fs:allow-appcache-read-recursive",
-    "fs:allow-appcache-write-recursive"
+    "fs:allow-appcache-write-recursive",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://*" }, { "url": "http://*" }]
+    }
   ]
 }

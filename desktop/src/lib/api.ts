@@ -1,3 +1,4 @@
+import { fetch } from "@tauri-apps/plugin-http";
 import { API_BASE } from "./constants";
 
 let sessionId: string | null = null;
@@ -25,7 +26,6 @@ export async function api<T = unknown>(
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
-    cache: "no-store",
   });
 
   if (!res.ok) {

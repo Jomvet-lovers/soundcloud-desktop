@@ -8,6 +8,7 @@ import {
   stat,
 } from "@tauri-apps/plugin-fs";
 import { appCacheDir, join } from "@tauri-apps/api/path";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { getSessionId } from "./api";
 
 import { API_BASE, getCacheServerPort } from "./constants";
@@ -99,7 +100,7 @@ export async function fetchAndCacheTrack(
       const sessionId = getSessionId();
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
 
-      const res = await fetch(url, {
+      const res = await tauriFetch(url, {
         headers: sessionId ? { "x-session-id": sessionId } : {},
         signal,
       });

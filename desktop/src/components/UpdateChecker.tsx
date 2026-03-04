@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetch } from "@tauri-apps/plugin-http";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { X, ExternalLink, Sparkles } from "lucide-react";
 import Markdown from "react-markdown";

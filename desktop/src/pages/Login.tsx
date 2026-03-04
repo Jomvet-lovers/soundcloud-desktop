@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Disc3 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { fetch } from "@tauri-apps/plugin-http";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../lib/api";
 import { API_BASE } from "../lib/constants";
