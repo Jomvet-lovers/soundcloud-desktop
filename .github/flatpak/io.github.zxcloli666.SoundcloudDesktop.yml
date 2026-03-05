@@ -16,6 +16,7 @@ finish-args:
   - --socket=pulseaudio
   - --device=dri
   - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher
   # Discord RPC
   - --filesystem=xdg-run/discord-ipc-0
   - --filesystem=xdg-run/app/com.discordapp.Discord
@@ -27,6 +28,7 @@ build-options:
     npm_config_nodedir: /usr/lib/sdk/node22
 
 modules:
+  - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json
   - name: soundcloud-desktop
     buildsystem: simple
     build-options:

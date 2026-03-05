@@ -138,6 +138,9 @@ jobs:
           flatpak-node-generator npm desktop/package-lock.json -o .github/flatpak/node-sources.json
           python3 /tmp/fbt/cargo/flatpak-cargo-generator.py desktop/src-tauri/Cargo.lock -o .github/flatpak/cargo-sources.json
 
+      - name: Fetch Flathub shared-modules
+        run: git clone --depth=1 https://github.com/flathub/shared-modules.git .github/flatpak/shared-modules
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
