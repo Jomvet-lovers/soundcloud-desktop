@@ -2,7 +2,9 @@ import { GripVertical, Pause, Play, Trash2, X } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/shallow';
+import { art } from '../../lib/cdn';
 import { type Track, usePlayerStore } from '../../stores/player';
+import { ScdnImg } from '../ui/ScdnImg';
 
 function formatDuration(ms: number) {
   const totalSec = Math.floor(ms / 1000);
@@ -22,7 +24,7 @@ const NowPlayingItem = React.memo(() => {
     })),
   );
   if (!currentTrack) return null;
-  const artwork = currentTrack.artwork_url?.replace('-large', '-t200x200');
+  const artwork = art(currentTrack.artwork_url, 't200x200');
 
   return (
     <div
@@ -31,7 +33,7 @@ const NowPlayingItem = React.memo(() => {
     >
       <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 relative bg-white/[0.04]">
         {artwork ? (
-          <img src={artwork} alt="" className="w-full h-full object-cover" />
+          <ScdnImg src={artwork} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full" />
         )}
@@ -135,7 +137,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
         const isCurrent = absIdx === queueIndex;
         const isDragging = absIdx === dragIdx;
         const isOver = absIdx === overIdx && dragIdx !== null && dragIdx !== overIdx;
-        const artwork = track.artwork_url?.replace('-large', '-t200x200');
+        const artwork = art(track.artwork_url, 't200x200');
 
         return (
           <div
@@ -163,7 +165,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
               onClick={() => handleClick(track, absIdx)}
             >
               {artwork ? (
-                <img src={artwork} alt="" className="w-full h-full object-cover" />
+                <ScdnImg src={artwork} alt="" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full" />
               )}

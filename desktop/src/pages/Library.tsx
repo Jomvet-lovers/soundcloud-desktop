@@ -13,7 +13,9 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import { ScdnImg } from '../components/ui/ScdnImg';
 import { preloadTrack } from '../lib/audio';
+import { art } from '../lib/cdn';
 import {
   type Playlist,
   type SCUser,
@@ -37,10 +39,6 @@ function fc(n?: number) {
 function dur(ms: number) {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function art(url: string | null | undefined, size = 't500x500') {
-  return url?.replace('-large', `-${size}`) ?? null;
 }
 
 /* ── Components ───────────────────────────────────────────── */
@@ -98,7 +96,7 @@ const LibraryTrackRow = React.memo(
 
         <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+            <ScdnImg src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
               <Music size={14} className="text-white/20" />
@@ -157,7 +155,7 @@ const PlaylistCard = React.memo(({ playlist }: { playlist: Playlist }) => {
     >
       <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
         {cover ? (
-          <img
+          <ScdnImg
             src={cover}
             alt={playlist.title}
             className="w-full h-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
@@ -203,7 +201,7 @@ const UserCard = React.memo(({ user }: { user: SCUser }) => {
     >
       <div className="relative w-24 h-24 rounded-full shadow-xl overflow-hidden ring-2 ring-white/[0.05] group-hover:ring-white/[0.15] group-hover:scale-105 transition-all duration-500">
         {avatar ? (
-          <img
+          <ScdnImg
             src={avatar}
             alt={user.username}
             className="w-full h-full object-cover"
@@ -298,7 +296,7 @@ export const Library = React.memo(() => {
                   key={track.id}
                   className="w-10 h-10 rounded-full ring-2 ring-[#121214] bg-neutral-800 overflow-hidden relative z-[1]"
                 >
-                  <img
+                  <ScdnImg
                     src={art(track.artwork_url, 'small') || ''}
                     className="w-full h-full object-cover"
                     alt=""
@@ -344,7 +342,7 @@ export const Library = React.memo(() => {
                   key={u.id}
                   className="w-14 h-14 rounded-full ring-4 ring-[#121214] bg-neutral-800 overflow-hidden shadow-lg transition-transform group-hover:translate-x-2"
                 >
-                  <img
+                  <ScdnImg
                     src={art(u.avatar_url, 'small') || ''}
                     className="w-full h-full object-cover"
                     alt=""

@@ -21,8 +21,10 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import { ScdnImg } from '../components/ui/ScdnImg';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
+import { art } from '../lib/cdn';
 import {
   type Playlist,
   useInfiniteScroll,
@@ -47,10 +49,6 @@ function fc(n?: number) {
 function dur(ms: number) {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function art(url: string | null | undefined, size = 't500x500') {
-  return url?.replace('-large', `-${size}`) ?? null;
 }
 
 function dateFormatted(dateStr: string) {
@@ -109,9 +107,9 @@ function FollowBtn({ userUrn }: { userUrn: string }) {
       await api(`/me/followings/${encodeURIComponent(userUrn)}`, {
         method: next ? 'PUT' : 'DELETE',
       });
-      // update follwrs counts
       qc.invalidateQueries({ queryKey: ['following', currentUser?.urn, userUrn] });
       qc.invalidateQueries({ queryKey: ['user', userUrn] });
+      qc.invalidateQueries({ queryKey: ['me', 'followings'] });
     } catch (_e) {
       // Revert on failure
       setFollowing(!next);
@@ -196,7 +194,7 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
       {/* Artwork */}
       <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
         {cover ? (
-          <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <ScdnImg src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
             <Music size={14} className="text-white/20" />
@@ -291,7 +289,7 @@ function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
     >
       <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] cursor-pointer ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
         {cover ? (
-          <img
+          <ScdnImg
             src={cover}
             alt={playlist.title}
             className="w-full h-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
@@ -495,7 +493,7 @@ export function UserPage() {
         {/* Deep blur background */}
         {avatar && (
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            <img
+            <ScdnImg
               src={avatar}
               alt=""
               className="w-full h-full object-cover scale-[2] blur-[100px] opacity-30 saturate-200"
@@ -508,7 +506,7 @@ export function UserPage() {
           {/* Avatar */}
           <div className="w-[180px] h-[180px] md:w-[200px] md:h-[200px] rounded-full overflow-hidden shrink-0 shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-2 ring-white/[0.15] bg-black/40 relative group">
             {avatar ? (
-              <img
+              <ScdnImg
                 src={avatar}
                 alt={user.username}
                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"

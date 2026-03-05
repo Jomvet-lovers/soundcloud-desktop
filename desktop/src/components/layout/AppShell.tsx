@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { art } from '../../lib/cdn';
+import { useCdnUrl } from '../../lib/useCdnUrl';
 import { usePlayerStore } from '../../stores/player';
 import { QueuePanel } from '../music/QueuePanel';
 import { NowPlayingBar } from './NowPlayingBar';
@@ -8,9 +10,8 @@ import { Titlebar } from './Titlebar';
 
 export const AppShell = React.memo(() => {
   const [queueOpen, setQueueOpen] = useState(false);
-  const artwork = usePlayerStore((s) =>
-    s.currentTrack?.artwork_url?.replace('-large', '-t500x500'),
-  );
+  const rawArtwork = usePlayerStore((s) => art(s.currentTrack?.artwork_url, 't500x500'));
+  const artwork = useCdnUrl(rawArtwork);
 
   return (
     <div className="flex flex-col h-screen relative overflow-hidden">

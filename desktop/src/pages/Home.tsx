@@ -1,5 +1,6 @@
 import {
   ChevronRight,
+  Compass,
   Headphones,
   Heart,
   ListMusic,
@@ -8,17 +9,27 @@ import {
   Pause,
   Play,
   Repeat2,
+  Sparkles,
 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { TrackCard } from '../components/music/TrackCard';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
+import { ScdnImg } from '../components/ui/ScdnImg';
 import { Skeleton } from '../components/ui/Skeleton';
 import { preloadTrack } from '../lib/audio';
+import { art } from '../lib/cdn';
 import type { FeedItem } from '../lib/hooks';
-import { useFeed, useFollowingTracks, useInfiniteScroll, useLikedTracks } from '../lib/hooks';
+import {
+  useFeed,
+  useFollowingTracks,
+  useGenreTracks,
+  useInfiniteScroll,
+  useLikedTracks,
+  useRecommendedTracks,
+} from '../lib/hooks';
 import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
@@ -43,10 +54,6 @@ function fc(n?: number) {
 function dur(ms: number) {
   const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function art(url: string | null | undefined, size = 't500x500') {
-  return url?.replace('-large', `-${size}`) ?? null;
 }
 
 function ago(dateStr: string) {
@@ -180,7 +187,7 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
       {/* Blurred artwork background */}
       {cover && (
         <div className="absolute inset-0 pointer-events-none">
-          <img
+          <ScdnImg
             src={cover}
             alt=""
             className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
@@ -197,7 +204,7 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
           onClick={handlePlay}
         >
           {cover ? (
-            <img
+            <ScdnImg
               src={cover}
               alt={track.title}
               className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
@@ -255,7 +262,7 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
             onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
           >
             {avatar && (
-              <img
+              <ScdnImg
                 src={avatar}
                 alt=""
                 className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
@@ -347,7 +354,7 @@ const FeedTrackCard = React.memo(({ item, queue }: { item: FeedItem; queue: Trac
         onClick={handlePlay}
       >
         {cover ? (
-          <img src={cover} alt={track.title} className="w-full h-full object-cover" />
+          <ScdnImg src={cover} alt={track.title} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
             <Music size={22} className="text-white/15" />
@@ -495,7 +502,7 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
         onClick={handlePlay}
       >
         {cover ? (
-          <img src={cover} alt={origin.title} className="w-full h-full object-cover" />
+          <ScdnImg src={cover} alt={origin.title} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
             <ListMusic size={22} className="text-white/15" />
@@ -590,13 +597,38 @@ export function Home() {
     isFetchingNextPage,
     isLoading: feedLoading,
   } = useFeed();
-  const { data: likes, isLoading: likesLoading } = useLikedTracks(20);
+  const { data: likes, isLoading: likesLoading } = useLikedTracks(50);
   const { data: following, isLoading: followingLoading } = useFollowingTracks(20);
 
   const sentinelRef = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
 
   const likedTracks = likes?.collection ?? [];
   const followingTracks = following?.collection ?? [];
+
+  // Discover: pick a random liked track as seed for recommendations
+  const seedUrn = useMemo(
+    () => (likedTracks.length > 0 ? likedTracks[Math.floor(Math.random() * Math.min(likedTracks.length, 10))].urn : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [likedTracks.length > 0],
+  );
+  const { data: recommended, isLoading: recommendedLoading } = useRecommendedTracks(seedUrn, 20);
+  const recommendedTracks = recommended?.collection ?? [];
+
+  // Genre discovery — extract top genres from liked tracks
+  const topGenres = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of likedTracks) {
+      const g = t.genre?.trim().toLowerCase();
+      if (g) counts.set(g, (counts.get(g) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 7)
+      .map(([g]) => g);
+  }, [likedTracks]);
+  const [activeGenre, setActiveGenre] = useState<string | null>(null);
+  const selectedGenre = activeGenre ?? topGenres[0] ?? null;
+  const { data: genreData, isLoading: genreLoading } = useGenreTracks(selectedGenre!, 20);
 
   // First track in feed → featured hero card
   const featuredItem = feedItems.find((i) => i.type.includes('track'));
@@ -670,6 +702,64 @@ export function Home() {
             )}
           </HorizontalScroll>
         </section>
+      )}
+
+      {/* ── Recommended For You ───────────────────────── */}
+      {(recommendedLoading || recommendedTracks.length > 0) && (
+        <section>
+          <SectionHeader
+            title={t('home.recommended', 'Recommended For You')}
+            icon={<Sparkles size={15} className="text-amber-400/70" />}
+          />
+          <HorizontalScroll>
+            {recommendedLoading ? (
+              <ShelfSkeleton />
+            ) : (
+              recommendedTracks.map((track) => (
+                <div key={track.urn} className="w-[180px] shrink-0">
+                  <TrackCard track={track} queue={recommendedTracks} />
+                </div>
+              ))
+            )}
+          </HorizontalScroll>
+        </section>
+      )}
+
+      {/* ── Discover by Genre ──────────────────────────── */}
+      {topGenres.length > 0 && (
+      <section>
+        <SectionHeader
+          title={t('home.discover', 'Discover')}
+          icon={<Compass size={15} className="text-cyan-400/70" />}
+        />
+        <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+          {topGenres.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setActiveGenre(g)}
+              className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 cursor-pointer capitalize ${
+                selectedGenre === g
+                  ? 'bg-white/[0.12] text-white border border-white/[0.08]'
+                  : 'bg-white/[0.03] text-white/40 border border-white/[0.04] hover:bg-white/[0.06] hover:text-white/60'
+              }`}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+        <HorizontalScroll>
+          {genreLoading ? (
+            <ShelfSkeleton />
+          ) : (
+            (genreData?.collection ?? []).map((track) => (
+              <div key={track.urn} className="w-[180px] shrink-0">
+                <TrackCard track={track} queue={genreData?.collection ?? []} />
+              </div>
+            ))
+          )}
+        </HorizontalScroll>
+      </section>
       )}
 
       {/* ── Feed Stream ────────────────────────────────── */}

@@ -18,7 +18,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { api } from '../../lib/api';
+import { art } from '../../lib/cdn';
+import { useCdnUrl } from '../../lib/useCdnUrl';
 import { type Track, usePlayerStore } from '../../stores/player';
+import { ScdnImg } from '../ui/ScdnImg';
 
 function formatTime(seconds: number) {
   if (!seconds || !Number.isFinite(seconds)) return '0:00';
@@ -356,7 +359,8 @@ export const NowPlayingBar = React.memo(
       })),
     );
 
-    const artwork = currentTrack?.artwork_url?.replace('-large', '-t200x200');
+    const rawArtwork = art(currentTrack?.artwork_url, 't200x200');
+    const artwork = useCdnUrl(rawArtwork);
 
     return (
       <div className="shrink-0 relative">
@@ -385,7 +389,7 @@ export const NowPlayingBar = React.memo(
                   onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
                 >
                   {artwork ? (
-                    <img src={artwork} alt="" className="w-full h-full object-cover" />
+                    <ScdnImg src={artwork} alt="" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full bg-white/[0.04]" />
                   )}

@@ -14,7 +14,9 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import { ScdnImg } from '../components/ui/ScdnImg';
 import { preloadTrack } from '../lib/audio';
+import { art } from '../lib/cdn';
 import { usePlaylist, usePlaylistTracks } from '../lib/hooks';
 import { type Track, usePlayerStore } from '../stores/player';
 
@@ -39,10 +41,6 @@ function durLong(ms: number) {
   const s = total % 60;
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function art(url: string | null | undefined, size = 't500x500') {
-  return url?.replace('-large', `-${size}`) ?? null;
 }
 
 function dateFormatted(dateStr: string) {
@@ -108,7 +106,7 @@ const TrackRow = React.memo(
         {/* Artwork */}
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" />
+            <ScdnImg src={cover} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
               <Music size={12} className="text-white/15" />
@@ -215,7 +213,7 @@ export const PlaylistPage = React.memo(() => {
       <section className="relative rounded-3xl overflow-hidden glass-featured">
         {cover && (
           <div className="absolute inset-0 pointer-events-none">
-            <img
+            <ScdnImg
               src={cover}
               alt=""
               className="w-full h-full object-cover scale-[1.5] blur-[100px] opacity-25 saturate-150"
@@ -231,7 +229,7 @@ export const PlaylistPage = React.memo(() => {
             onClick={handlePlayAll}
           >
             {cover ? (
-              <img
+              <ScdnImg
                 src={cover}
                 alt={playlist.title}
                 className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.04]"
@@ -288,7 +286,7 @@ export const PlaylistPage = React.memo(() => {
               onClick={() => navigate(`/user/${encodeURIComponent(playlist.user.urn)}`)}
             >
               {playlist.user.avatar_url && (
-                <img
+                <ScdnImg
                   src={art(playlist.user.avatar_url, 'small') ?? ''}
                   alt=""
                   className="w-6 h-6 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"

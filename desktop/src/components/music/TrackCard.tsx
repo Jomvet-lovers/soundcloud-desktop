@@ -3,8 +3,10 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { preloadTrack } from '../../lib/audio';
+import { art } from '../../lib/cdn';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { ScdnImg } from '../ui/ScdnImg';
 
 interface TrackCardProps {
   track: Track;
@@ -37,7 +39,7 @@ export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
     })),
   );
   const isThis = currentTrack?.urn === track.urn;
-  const artwork = track.artwork_url?.replace('-large', '-t300x300');
+  const artwork = art(track.artwork_url, 't300x300');
 
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -54,7 +56,7 @@ export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
         onClick={handlePlay}
       >
         {artwork ? (
-          <img
+          <ScdnImg
             src={artwork}
             alt={track.title}
             className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover:scale-[1.04]"

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { AppShell } from './components/layout/AppShell';
 import { UpdateChecker } from './components/UpdateChecker';
@@ -46,6 +47,19 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: 'rgba(30, 30, 34, 0.9)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: 'rgba(255,255,255,0.85)',
+            fontSize: '13px',
+          },
+        }}
+      />
       <UpdateChecker />
       <Routes>
         <Route element={<AppShell />}>

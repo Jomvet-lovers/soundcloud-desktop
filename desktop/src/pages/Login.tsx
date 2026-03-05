@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
 import { API_BASE } from '../lib/constants';
+import { queryClient } from '../main';
 import { useAuthStore } from '../stores/auth';
 
 interface LoginResponse {
@@ -37,6 +38,7 @@ export function Login() {
             clearInterval(poll);
             setSession(sessionId);
             await fetchUser();
+            queryClient.invalidateQueries();
           }
         } catch {}
       }, 2000);

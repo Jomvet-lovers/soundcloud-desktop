@@ -19,8 +19,10 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import { ScdnImg } from '../components/ui/ScdnImg';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
+import { art } from '../lib/cdn';
 import type { Comment } from '../lib/hooks';
 import {
   useInfiniteScroll,
@@ -52,10 +54,6 @@ function durLong(ms: number) {
   const s = total % 60;
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function art(url: string | null | undefined, size = 't500x500') {
-  return url?.replace('-large', `-${size}`) ?? null;
 }
 
 function ago(dateStr: string) {
@@ -196,7 +194,7 @@ const CommentItem = React.memo(({ comment }: { comment: Comment }) => {
 
   return (
     <div className="flex gap-3 group">
-      <img
+      <ScdnImg
         src={avatar ?? ''}
         alt=""
         className="w-8 h-8 rounded-full shrink-0 ring-1 ring-white/[0.06] mt-0.5 cursor-pointer hover:ring-white/[0.15] transition-all duration-150"
@@ -306,7 +304,7 @@ const RelatedRow = React.memo(({ track, queue }: { track: Track; queue: Track[] 
         onClick={handlePlay}
       >
         {cover ? (
-          <img src={cover} alt="" className="w-full h-full object-cover" />
+          <ScdnImg src={cover} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
             <Music size={14} className="text-white/15" />
@@ -427,7 +425,7 @@ export const TrackPage = React.memo(() => {
         {/* Blurred bg */}
         {cover && (
           <div className="absolute inset-0 pointer-events-none">
-            <img
+            <ScdnImg
               src={cover}
               alt=""
               className="w-full h-full object-cover scale-[1.5] blur-[100px] opacity-25 saturate-150"
@@ -443,7 +441,7 @@ export const TrackPage = React.memo(() => {
             onClick={handlePlay}
           >
             {cover ? (
-              <img
+              <ScdnImg
                 src={cover}
                 alt={track.title}
                 className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.04]"
@@ -493,7 +491,7 @@ export const TrackPage = React.memo(() => {
               onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
             >
               {track.user.avatar_url && (
-                <img
+                <ScdnImg
                   src={art(track.user.avatar_url, 'small') ?? ''}
                   alt=""
                   className="w-6 h-6 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
@@ -659,7 +657,7 @@ export const TrackPage = React.memo(() => {
             onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
           >
             <div className="flex items-center gap-3">
-              <img
+              <ScdnImg
                 src={art(track.user.avatar_url, 't200x200') ?? ''}
                 alt=""
                 className="w-12 h-12 rounded-full ring-1 ring-white/[0.08] group-hover/ac:ring-white/[0.15] transition-all duration-150"
@@ -688,7 +686,7 @@ export const TrackPage = React.memo(() => {
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {favoriters.map((u) => (
-                  <img
+                  <ScdnImg
                     key={u.urn}
                     src={art(u.avatar_url, 'small') ?? ''}
                     alt={u.username}
