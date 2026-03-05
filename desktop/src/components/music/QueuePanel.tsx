@@ -1,26 +1,28 @@
-import React, { useRef, useState } from "react";
-import { X, Play, Pause, GripVertical, Trash2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { usePlayerStore, type Track } from "../../stores/player";
-import {useShallow} from "zustand/shallow";
+import { GripVertical, Pause, Play, Trash2, X } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/shallow';
+import { type Track, usePlayerStore } from '../../stores/player';
 
 function formatDuration(ms: number) {
   const totalSec = Math.floor(ms / 1000);
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 /* ── Now Playing (single, non-draggable) ─────────────────────────── */
 const NowPlayingItem = React.memo(() => {
-  const { currentTrack, isPlaying, pause, resume } = usePlayerStore(useShallow(s => ({
-    currentTrack: s.currentTrack,
-    isPlaying: s.isPlaying,
-    pause: s.pause,
-    resume: s.resume,
-  })));
+  const { currentTrack, isPlaying, pause, resume } = usePlayerStore(
+    useShallow((s) => ({
+      currentTrack: s.currentTrack,
+      isPlaying: s.isPlaying,
+      pause: s.pause,
+      resume: s.resume,
+    })),
+  );
   if (!currentTrack) return null;
-  const artwork = currentTrack.artwork_url?.replace("-large", "-t200x200");
+  const artwork = currentTrack.artwork_url?.replace('-large', '-t200x200');
 
   return (
     <div
@@ -49,30 +51,30 @@ const NowPlayingItem = React.memo(() => {
         <p className="text-[12px] text-accent font-medium truncate leading-snug">
           {currentTrack.title}
         </p>
-        <p className="text-[10px] text-white/30 truncate mt-0.5">
-          {currentTrack.user.username}
-        </p>
+        <p className="text-[10px] text-white/30 truncate mt-0.5">{currentTrack.user.username}</p>
       </div>
       <span className="text-[10px] text-white/20 tabular-nums shrink-0">
         {formatDuration(currentTrack.duration)}
       </span>
     </div>
   );
-})
+});
 
 /* ── Draggable queue list ────────────────────────────────────────── */
 const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
   const { queue, queueIndex, isPlaying, play, pause, resume, removeFromQueue, moveInQueue } =
-    usePlayerStore(useShallow(s => ({
-      queue: s.queue,
-      queueIndex: s.queueIndex,
-      isPlaying: s.isPlaying,
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      removeFromQueue: s.removeFromQueue,
-      moveInQueue: s.moveInQueue,
-    })));
+    usePlayerStore(
+      useShallow((s) => ({
+        queue: s.queue,
+        queueIndex: s.queueIndex,
+        isPlaying: s.isPlaying,
+        play: s.play,
+        pause: s.pause,
+        resume: s.resume,
+        removeFromQueue: s.removeFromQueue,
+        moveInQueue: s.moveInQueue,
+      })),
+    );
 
   const items = queue.slice(startIndex);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -93,7 +95,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
   const handlePointerMove = (e: React.PointerEvent) => {
     if (dragIdx === null || !dragElRef.current) return;
     const container = dragElRef.current;
-    const children = container.querySelectorAll("[data-queue-item]");
+    const children = container.querySelectorAll('[data-queue-item]');
     const y = e.clientY;
 
     for (let i = 0; i < children.length; i++) {
@@ -133,7 +135,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
         const isCurrent = absIdx === queueIndex;
         const isDragging = absIdx === dragIdx;
         const isOver = absIdx === overIdx && dragIdx !== null && dragIdx !== overIdx;
-        const artwork = track.artwork_url?.replace("-large", "-t200x200");
+        const artwork = track.artwork_url?.replace('-large', '-t200x200');
 
         return (
           <div
@@ -141,11 +143,11 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
             data-queue-item
             className={`flex items-center gap-3 px-3 py-2 rounded-xl group transition-all duration-150 select-none ${
               isDragging
-                ? "opacity-40 scale-[0.97]"
+                ? 'opacity-40 scale-[0.97]'
                 : isCurrent
-                  ? "bg-white/[0.08] ring-1 ring-white/[0.08]"
-                  : "hover:bg-white/[0.04]"
-            } ${isOver ? "border-t-2 border-accent" : ""}`}
+                  ? 'bg-white/[0.08] ring-1 ring-white/[0.08]'
+                  : 'hover:bg-white/[0.04]'
+            } ${isOver ? 'border-t-2 border-accent' : ''}`}
           >
             {/* Grip handle */}
             <div
@@ -185,12 +187,12 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
               className="flex-1 min-w-0 cursor-pointer"
               onClick={() => handleClick(track, absIdx)}
             >
-              <p className={`text-[12px] truncate leading-snug ${isCurrent ? "text-accent font-medium" : "text-white/80"}`}>
+              <p
+                className={`text-[12px] truncate leading-snug ${isCurrent ? 'text-accent font-medium' : 'text-white/80'}`}
+              >
                 {track.title}
               </p>
-              <p className="text-[10px] text-white/30 truncate mt-0.5">
-                {track.user.username}
-              </p>
+              <p className="text-[10px] text-white/30 truncate mt-0.5">{track.user.username}</p>
             </div>
 
             {/* Duration */}
@@ -214,94 +216,98 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
       })}
     </div>
   );
-})
+});
 
 /* ── Panel ───────────────────────────────────────────────────────── */
-export const QueuePanel = React.memo(({ open, onClose }: { open: boolean; onClose: () => void }) => {
-  const { t } = useTranslation();
-  const { queue, queueIndex, currentTrack, clearQueue } = usePlayerStore(useShallow(s => ({
-    queue: s.queue,
-    queueIndex: s.queueIndex,
-    currentTrack: s.currentTrack,
-    clearQueue: s.clearQueue,
-  })));
+export const QueuePanel = React.memo(
+  ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+    const { t } = useTranslation();
+    const { queue, queueIndex, currentTrack, clearQueue } = usePlayerStore(
+      useShallow((s) => ({
+        queue: s.queue,
+        queueIndex: s.queueIndex,
+        currentTrack: s.currentTrack,
+        clearQueue: s.clearQueue,
+      })),
+    );
 
-  const upNextCount = queue.length - queueIndex - 1;
+    const upNextCount = queue.length - queueIndex - 1;
 
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300 ${
-          open ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={onClose}
-      />
+    return (
+      <>
+        {/* Backdrop */}
+        <div
+          className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300 ${
+            open ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          onClick={onClose}
+        />
 
-      {/* Panel */}
-      <div
-        className={`fixed top-0 right-0 bottom-0 w-[360px] z-50 flex flex-col transition-transform duration-300 ease-[var(--ease-apple)] ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        style={{
-          background: "rgba(18, 18, 20, 0.88)",
-          backdropFilter: "blur(60px) saturate(1.8)",
-          borderLeft: "1px solid rgba(255,255,255,0.06)",
-        }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h2 className="text-base font-semibold tracking-tight">{t("player.queue")}</h2>
-          <div className="flex items-center gap-1">
-            {queue.length > 0 && (
+        {/* Panel */}
+        <div
+          className={`fixed top-0 right-0 bottom-0 w-[360px] z-50 flex flex-col transition-transform duration-300 ease-[var(--ease-apple)] ${
+            open ? 'translate-x-0' : 'translate-x-full'
+          }`}
+          style={{
+            background: 'rgba(18, 18, 20, 0.88)',
+            backdropFilter: 'blur(60px) saturate(1.8)',
+            borderLeft: '1px solid rgba(255,255,255,0.06)',
+          }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 pt-5 pb-3">
+            <h2 className="text-base font-semibold tracking-tight">{t('player.queue')}</h2>
+            <div className="flex items-center gap-1">
+              {queue.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearQueue}
+                  className="h-7 px-2.5 rounded-lg text-[11px] text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 size={12} />
+                  {t('player.clearQueue')}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={clearQueue}
-                className="h-7 px-2.5 rounded-lg text-[11px] text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer flex items-center gap-1.5"
+                onClick={onClose}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
               >
-                <Trash2 size={12} />
-                {t("player.clearQueue")}
+                <X size={16} />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
-            >
-              <X size={16} />
-            </button>
+            </div>
           </div>
-        </div>
 
-        {/* Now Playing (single item, not draggable) */}
-        {currentTrack && (
-          <div className="px-4 pb-2">
-            <p className="text-[10px] text-white/25 uppercase tracking-wider font-medium mb-2 px-1">
-              {t("player.nowPlaying")}
-            </p>
-            <NowPlayingItem />
-          </div>
-        )}
-
-        {/* Up Next (draggable) */}
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
-          {upNextCount > 0 && (
-            <>
-              <p className="text-[10px] text-white/25 uppercase tracking-wider font-medium mb-2 mt-3 px-1">
-                {t("player.upNext")} · {upNextCount}
+          {/* Now Playing (single item, not draggable) */}
+          {currentTrack && (
+            <div className="px-4 pb-2">
+              <p className="text-[10px] text-white/25 uppercase tracking-wider font-medium mb-2 px-1">
+                {t('player.nowPlaying')}
               </p>
-              <DraggableQueue startIndex={queueIndex + 1} />
-            </>
-          )}
-
-          {queue.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-white/15">
-              <Play size={32} />
-              <p className="text-sm mt-3">Queue is empty</p>
+              <NowPlayingItem />
             </div>
           )}
+
+          {/* Up Next (draggable) */}
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {upNextCount > 0 && (
+              <>
+                <p className="text-[10px] text-white/25 uppercase tracking-wider font-medium mb-2 mt-3 px-1">
+                  {t('player.upNext')} · {upNextCount}
+                </p>
+                <DraggableQueue startIndex={queueIndex + 1} />
+              </>
+            )}
+
+            {queue.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-white/15">
+                <Play size={32} />
+                <p className="text-sm mt-3">Queue is empty</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </>
-  );
-})
+      </>
+    );
+  },
+);

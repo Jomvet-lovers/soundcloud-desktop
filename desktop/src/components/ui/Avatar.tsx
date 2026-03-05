@@ -5,10 +5,10 @@ interface AvatarProps {
   className?: string;
 }
 
-export function Avatar({ src, alt = "", size = 32, className = "" }: AvatarProps) {
+export function Avatar({ src, alt = '', size = 32, className = '' }: AvatarProps) {
   const sizeStyle = { width: size, height: size, minWidth: size };
 
-  if (!src || src.includes("default_avatar")) {
+  if (!src || src.includes('default_avatar')) {
     return (
       <div
         className={`rounded-full bg-bg-glass-active flex items-center justify-center text-text-tertiary ${className}`}
@@ -24,7 +24,7 @@ export function Avatar({ src, alt = "", size = 32, className = "" }: AvatarProps
 
   return (
     <img
-      src={src.replace("-large", "-t200x200")}
+      src={src.replace('-large', '-t200x200')}
       alt={alt}
       className={`rounded-full object-cover ${className}`}
       style={sizeStyle}

@@ -1,23 +1,25 @@
-import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { AppShell } from "./components/layout/AppShell";
-import { Home } from "./pages/Home";
-import { Search } from "./pages/Search";
-import { Library } from "./pages/Library";
-import { TrackPage } from "./pages/TrackPage";
-import { PlaylistPage } from "./pages/PlaylistPage";
-import { UserPage } from "./pages/UserPage";
-import { Login } from "./pages/Login";
-import { UpdateChecker } from "./components/UpdateChecker";
-import { useAuthStore } from "./stores/auth";
-import {useShallow} from "zustand/shallow";
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { AppShell } from './components/layout/AppShell';
+import { UpdateChecker } from './components/UpdateChecker';
+import { Home } from './pages/Home';
+import { Library } from './pages/Library';
+import { Login } from './pages/Login';
+import { PlaylistPage } from './pages/PlaylistPage';
+import { Search } from './pages/Search';
+import { TrackPage } from './pages/TrackPage';
+import { UserPage } from './pages/UserPage';
+import { useAuthStore } from './stores/auth';
 
 export default function App() {
-  const { isAuthenticated, sessionId, fetchUser } = useAuthStore(useShallow(s => ({
-    isAuthenticated: s.isAuthenticated,
-    sessionId: s.sessionId,
-    fetchUser: s.fetchUser,
-  })));
+  const { isAuthenticated, sessionId, fetchUser } = useAuthStore(
+    useShallow((s) => ({
+      isAuthenticated: s.isAuthenticated,
+      sessionId: s.sessionId,
+      fetchUser: s.fetchUser,
+    })),
+  );
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -28,7 +30,7 @@ export default function App() {
     } else {
       setChecking(false);
     }
-  }, []);
+  }, [fetchUser, sessionId]);
 
   if (checking) {
     return (

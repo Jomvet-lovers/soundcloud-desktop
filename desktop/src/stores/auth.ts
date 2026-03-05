@@ -1,6 +1,6 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { api, setSessionId } from "../lib/api";
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { api, setSessionId } from '../lib/api';
 
 interface User {
   id: number;
@@ -40,7 +40,7 @@ export const useAuthStore = create<AuthState>()(
         const { sessionId } = get();
         if (!sessionId) return;
         setSessionId(sessionId);
-        const user = await api<User>("/me");
+        const user = await api<User>('/me');
         set({ user, isAuthenticated: true });
       },
 
@@ -50,7 +50,7 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: "sc-auth",
+      name: 'sc-auth',
       partialize: (state) => ({ sessionId: state.sessionId }),
       onRehydrateStorage: () => (state) => {
         if (state?.sessionId) {

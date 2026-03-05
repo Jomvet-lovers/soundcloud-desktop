@@ -1,8 +1,8 @@
-import { Howl } from "howler";
-import { streamUrl, api } from "./api";
-import { getCacheFilePath, getCacheUrl, fetchAndCacheTrack, isCached } from "./cache";
-import { usePlayerStore } from "../stores/player";
-import type { Track } from "../stores/player";
+import { Howl } from 'howler';
+import type { Track } from '../stores/player';
+import { usePlayerStore } from '../stores/player';
+import { api, streamUrl } from './api';
+import { fetchAndCacheTrack, getCacheFilePath, getCacheUrl, isCached } from './cache';
 
 function toHowlerVolume(v: number) {
   return Math.min(1, Math.max(0, v / 200));
@@ -24,7 +24,7 @@ function createHowl(src: string, urn: string, onFail?: () => void): Howl {
   const howl = new Howl({
     src: [src],
     html5: true,
-    format: ["mp3"],
+    format: ['mp3'],
     volume: toHowlerVolume(usePlayerStore.getState().volume),
     onplay: () => updateProgress(),
     onload: () => {
@@ -110,13 +110,13 @@ function updateProgress() {
 
 function handleTrackEnd() {
   const state = usePlayerStore.getState();
-  if (state.repeat === "one") {
+  if (state.repeat === 'one') {
     currentHowl?.seek(0);
     currentHowl?.play();
   } else {
     const { queue, queueIndex, shuffle } = state;
     const isLast = !shuffle && queueIndex >= queue.length - 1;
-    if (isLast && state.repeat === "off" && queue.length > 0) {
+    if (isLast && state.repeat === 'off' && queue.length > 0) {
       void autoplayRelated(queue[queueIndex]);
     } else {
       usePlayerStore.getState().next();
@@ -188,7 +188,7 @@ async function autoplayRelated(lastTrack: Track) {
     usePlayerStore.getState().addToQueue(fresh);
     usePlayerStore.getState().next();
   } catch (e) {
-    console.error("Autoplay related failed:", e);
+    console.error('Autoplay related failed:', e);
     usePlayerStore.getState().pause();
   } finally {
     autoplayLoading = false;

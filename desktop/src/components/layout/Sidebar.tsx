@@ -1,27 +1,27 @@
-import { NavLink } from "react-router-dom";
-import { useTranslation } from "react-i18next";
-import { Home, Search, Library, Globe } from "lucide-react";
-import { Avatar } from "../ui/Avatar";
-import { useAuthStore } from "../../stores/auth";
-import React from "react";
+import { Globe, Home, Library, Search } from 'lucide-react';
+import React from 'react';
+import { useTranslation } from 'react-i18next';
+import { NavLink } from 'react-router-dom';
+import { useAuthStore } from '../../stores/auth';
+import { Avatar } from '../ui/Avatar';
 
 const languages = [
-  { code: "en", label: "English" },
-  { code: "ru", label: "Русский" },
+  { code: 'en', label: 'English' },
+  { code: 'ru', label: 'Русский' },
 ] as const;
 
 const navItems = [
-  { to: "/", icon: Home, label: "nav.home" },
-  { to: "/search", icon: Search, label: "nav.search" },
-  { to: "/library", icon: Library, label: "nav.library" },
+  { to: '/', icon: Home, label: 'nav.home' },
+  { to: '/search', icon: Search, label: 'nav.search' },
+  { to: '/library', icon: Library, label: 'nav.library' },
 ];
 
-export const Sidebar = React.memo(()=> {
+export const Sidebar = React.memo(() => {
   const { t, i18n } = useTranslation();
   const user = useAuthStore((s) => s.user);
 
   const toggleLanguage = () => {
-    const next = i18n.language === "ru" ? "en" : "ru";
+    const next = i18n.language === 'ru' ? 'en' : 'ru';
     i18n.changeLanguage(next);
   };
 
@@ -37,8 +37,8 @@ export const Sidebar = React.memo(()=> {
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-200 ease-[var(--ease-apple)] ${
                 isActive
-                  ? "text-white bg-white/[0.07] shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]"
-                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
+                  ? 'text-white bg-white/[0.07] shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]'
+                  : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
               }`
             }
           >
@@ -65,9 +65,7 @@ export const Sidebar = React.memo(()=> {
         <div className="px-3 pb-3">
           <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-all duration-200 cursor-pointer">
             <Avatar src={user.avatar_url} alt={user.username} size={26} />
-            <span className="text-[12px] text-white/40 truncate font-medium">
-              {user.username}
-            </span>
+            <span className="text-[12px] text-white/40 truncate font-medium">{user.username}</span>
           </div>
         </div>
       )}

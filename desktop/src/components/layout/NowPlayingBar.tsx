@@ -1,43 +1,42 @@
-import React, {useRef, useState, useCallback, useEffect} from "react";
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { throttle } from 'lodash';
 import {
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
-  Volume2,
-  VolumeX,
-  Volume1,
   Heart,
-  Shuffle,
+  ListMusic,
+  Pause,
+  Play,
   Repeat,
   Repeat1,
-  ListMusic,
-} from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { usePlayerStore, type Track } from "../../stores/player";
-import { api } from "../../lib/api";
-import {useShallow} from "zustand/shallow";
-import {throttle} from "lodash";
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Volume1,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { api } from '../../lib/api';
+import { type Track, usePlayerStore } from '../../stores/player';
 
 function formatTime(seconds: number) {
-  if (!seconds || !isFinite(seconds)) return "0:00";
+  if (!seconds || !Number.isFinite(seconds)) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 /* ── Progress Slider (full-width, two-tone) ──────────────────────── */
 const ProgressSlider = React.memo(() => {
-  const {
-    duration: max,
-    seek: onChange,
-  } = usePlayerStore(useShallow(s => ({
-    duration: s.duration,
-    seek: s.seek,
-  })));
+  const { duration: max, seek: onChange } = usePlayerStore(
+    useShallow((s) => ({
+      duration: s.duration,
+      seek: s.seek,
+    })),
+  );
 
-  const[value, setValue] = useState(() => usePlayerStore.getState().progress);
+  const [value, setValue] = useState(() => usePlayerStore.getState().progress);
 
   useEffect(() => {
     const throttledUpdate = throttle((newProgress) => {
@@ -54,7 +53,7 @@ const ProgressSlider = React.memo(() => {
       unsubscribe();
       throttledUpdate.cancel();
     };
-  },[]);
+  }, []);
 
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -117,24 +116,23 @@ const ProgressSlider = React.memo(() => {
       <div
         className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full transition-all duration-150 ${
           dragging
-            ? "w-4 h-4 scale-100 opacity-100 bg-accent shadow-[0_0_12px_var(--color-accent-glow)]"
-            : "w-3 h-3 scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 bg-accent shadow-[0_0_10px_var(--color-accent-glow)]"
+            ? 'w-4 h-4 scale-100 opacity-100 bg-accent shadow-[0_0_12px_var(--color-accent-glow)]'
+            : 'w-3 h-3 scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 bg-accent shadow-[0_0_10px_var(--color-accent-glow)]'
         }`}
         style={{ left: `${activeRatio * 100}%` }}
       />
     </div>
   );
-})
+});
 
 /* ── Volume Slider (0-200%, extra zone after 100%) ──────────────── */
-const VolumeSlider = React.memo(({ className = "" }: { className?: string; }) => {
-  const {
-    volume,
-    setVolume: onChange,
-  } = usePlayerStore(useShallow(s => ({
-    volume: s.volume,
-    setVolume: s.setVolume,
-  })));
+const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => {
+  const { volume, setVolume: onChange } = usePlayerStore(
+    useShallow((s) => ({
+      volume: s.volume,
+      setVolume: s.setVolume,
+    })),
+  );
 
   const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -159,10 +157,15 @@ const VolumeSlider = React.memo(({ className = "" }: { className?: string; }) =>
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
         onChange(calcVolume(e.clientX));
       }}
-      onPointerMove={(e) => { if (dragging) onChange(calcVolume(e.clientX)); }}
+      onPointerMove={(e) => {
+        if (dragging) onChange(calcVolume(e.clientX));
+      }}
       onPointerUp={() => setDragging(false)}
       onPointerLeave={() => setDragging(false)}
-      onWheel={(e) => { e.preventDefault(); onChange(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 1 : -1)))); }}
+      onWheel={(e) => {
+        e.preventDefault();
+        onChange(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 1 : -1))));
+      }}
     >
       {/* Track bg */}
       <div className="absolute inset-x-0 h-[3px] rounded-full bg-white/[0.08] group-hover:h-[4px] transition-all duration-150">
@@ -187,35 +190,37 @@ const VolumeSlider = React.memo(({ className = "" }: { className?: string; }) =>
       {/* Thumb */}
       <div
         className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full transition-all duration-150 ${
-          ratio > midpoint ? "bg-amber-400" : "bg-white"
+          ratio > midpoint ? 'bg-amber-400' : 'bg-white'
         } ${
-          dragging ? "scale-100 opacity-100" : "scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100"
+          dragging
+            ? 'scale-100 opacity-100'
+            : 'scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100'
         }`}
         style={{ left: `${ratio * 100}%` }}
       />
     </div>
   );
-})
+});
 
 /* ── Control button ──────────────────────────────────────────────── */
 function ControlBtn({
   onClick,
   active = false,
   children,
-  size = "default",
+  size = 'default',
 }: {
   onClick: () => void;
   active?: boolean;
   children: React.ReactNode;
-  size?: "default" | "sm";
+  size?: 'default' | 'sm';
 }) {
-  const s = size === "sm" ? "w-9 h-9" : "w-10 h-10";
+  const s = size === 'sm' ? 'w-9 h-9' : 'w-10 h-10';
   return (
     <button
       type="button"
       onClick={onClick}
       className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
-        active ? "text-accent" : "text-white/40 hover:text-white/70"
+        active ? 'text-accent' : 'text-white/40 hover:text-white/70'
       }`}
     >
       {children}
@@ -223,50 +228,53 @@ function ControlBtn({
   );
 }
 
-const ControlVolumeBtn = React.memo(({
-                                       size = "default",
-                                     }: {
-  size?: "default" | "sm";
-}) => {
-  const {setVolume, volume} = usePlayerStore(useShallow(s => ({
-    setVolume: s.setVolume,
-    volume: s.volume
-  })));
-  const s = size === "sm" ? "w-9 h-9" : "w-10 h-10";
+const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'default' | 'sm' }) => {
+  const { setVolume, volume } = usePlayerStore(
+    useShallow((s) => ({
+      setVolume: s.setVolume,
+      volume: s.volume,
+    })),
+  );
+  const s = size === 'sm' ? 'w-9 h-9' : 'w-10 h-10';
   return (
-      <button
-          type="button"
-          onClick={() => setVolume(volume > 0 ? 0 : 50)}
-          className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
-              volume === 0 ? "text-accent" : "text-white/40 hover:text-white/70"
-          }`}
-      >
-        {volume === 0 ? <VolumeX size={16} /> : volume < 50 ? <Volume1 size={16} /> : <Volume2 size={16} />}
-      </button>
+    <button
+      type="button"
+      onClick={() => setVolume(volume > 0 ? 0 : 50)}
+      className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
+        volume === 0 ? 'text-accent' : 'text-white/40 hover:text-white/70'
+      }`}
+    >
+      {volume === 0 ? (
+        <VolumeX size={16} />
+      ) : volume < 50 ? (
+        <Volume1 size={16} />
+      ) : (
+        <Volume2 size={16} />
+      )}
+    </button>
   );
 });
 
 const ProgressTime = React.memo(() => {
-  const {
-    progress,
-    duration,
-  } = usePlayerStore(useShallow(s => ({
-    progress: Math.floor(s.progress),
-    duration: Math.floor(s.duration),
-  })));
+  const { progress, duration } = usePlayerStore(
+    useShallow((s) => ({
+      progress: Math.floor(s.progress),
+      duration: Math.floor(s.duration),
+    })),
+  );
 
   return (
-      <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-white/50 tabular-nums font-medium">
-              {formatTime(progress)}
-            </span>
-        <span className="text-[11px] text-white/20">/</span>
-        <span className="text-[11px] text-white/30 tabular-nums font-medium">
-              {formatTime(duration)}
-            </span>
-      </div>
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-white/50 tabular-nums font-medium">
+        {formatTime(progress)}
+      </span>
+      <span className="text-[11px] text-white/20">/</span>
+      <span className="text-[11px] text-white/30 tabular-nums font-medium">
+        {formatTime(duration)}
+      </span>
+    </div>
   );
-})
+});
 
 /* ── Like button ─────────────────────────────────────────────────── */
 function LikeButton({ trackUrn }: { trackUrn: string }) {
@@ -274,7 +282,7 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
 
   // Fetch actual user_favorite state from API
   const { data: trackData } = useQuery({
-    queryKey: ["track", trackUrn],
+    queryKey: ['track', trackUrn],
     queryFn: () => api<Track>(`/tracks/${encodeURIComponent(trackUrn)}`),
     enabled: !!trackUrn,
     staleTime: 30_000,
@@ -296,10 +304,10 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
     setLiked(next);
     try {
       await api(`/likes/tracks/${encodeURIComponent(trackUrn)}`, {
-        method: next ? "POST" : "DELETE",
+        method: next ? 'POST' : 'DELETE',
       });
-      qc.invalidateQueries({ queryKey: ["track", trackUrn], exact: true });
-      qc.invalidateQueries({ queryKey: ["track", trackUrn, "favoriters"] });
+      qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
+      qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
     } catch {
       setLiked(!next);
     }
@@ -310,139 +318,149 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
       type="button"
       onClick={toggle}
       className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
-        isLiked ? "text-accent" : "text-white/30 hover:text-white/60"
+        isLiked ? 'text-accent' : 'text-white/30 hover:text-white/60'
       }`}
     >
-      <Heart size={16} fill={isLiked ? "currentColor" : "none"} />
+      <Heart size={16} fill={isLiked ? 'currentColor' : 'none'} />
     </button>
   );
 }
 
 /* ── NowPlayingBar ───────────────────────────────────────────────── */
-export const NowPlayingBar =  React.memo(({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
-  const navigate = useNavigate();
-  const {
-    currentTrack,
-    isPlaying,
-    volume,
-    shuffle,
-    repeat,
-    togglePlay,
-    next,
-    prev,
-    toggleShuffle,
-    toggleRepeat,
-  } = usePlayerStore(useShallow(s => ({
-    currentTrack: s.currentTrack,
-    isPlaying: s.isPlaying,
-    volume: s.volume,
-    shuffle: s.shuffle,
-    repeat: s.repeat,
-    togglePlay: s.togglePlay,
-    next: s.next,
-    prev: s.prev,
-    toggleShuffle: s.toggleShuffle,
-    toggleRepeat: s.toggleRepeat,
-  })));
+export const NowPlayingBar = React.memo(
+  ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
+    const navigate = useNavigate();
+    const {
+      currentTrack,
+      isPlaying,
+      volume,
+      shuffle,
+      repeat,
+      togglePlay,
+      next,
+      prev,
+      toggleShuffle,
+      toggleRepeat,
+    } = usePlayerStore(
+      useShallow((s) => ({
+        currentTrack: s.currentTrack,
+        isPlaying: s.isPlaying,
+        volume: s.volume,
+        shuffle: s.shuffle,
+        repeat: s.repeat,
+        togglePlay: s.togglePlay,
+        next: s.next,
+        prev: s.prev,
+        toggleShuffle: s.toggleShuffle,
+        toggleRepeat: s.toggleRepeat,
+      })),
+    );
 
-  const artwork = currentTrack?.artwork_url?.replace("-large", "-t200x200");
+    const artwork = currentTrack?.artwork_url?.replace('-large', '-t200x200');
 
-  return (
-    <div className="shrink-0 relative">
-      {/* Glow from artwork */}
-      {artwork && (
-        <div
-          className="absolute inset-0 opacity-[0.05] blur-3xl pointer-events-none"
-          style={{ backgroundImage: `url(${artwork})`, backgroundSize: "cover", backgroundPosition: "center" }}
-        />
-      )}
+    return (
+      <div className="shrink-0 relative">
+        {/* Glow from artwork */}
+        {artwork && (
+          <div
+            className="absolute inset-0 opacity-[0.05] blur-3xl pointer-events-none"
+            style={{
+              backgroundImage: `url(${artwork})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          />
+        )}
 
-      {/* Progress bar — full width on top */}
-      <ProgressSlider />
+        {/* Progress bar — full width on top */}
+        <ProgressSlider />
 
-      <div className="h-[76px] flex items-center px-5 gap-3 relative">
-        {/* ── Left: track info ── */}
-        <div className="flex items-center gap-3.5 w-[280px] min-w-0">
-          {currentTrack ? (
-            <>
-              <div
-                className="w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200"
-                onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
-              >
-                {artwork ? (
-                  <img src={artwork} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full bg-white/[0.04]" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p
-                  className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
+        <div className="h-[76px] flex items-center px-5 gap-3 relative">
+          {/* ── Left: track info ── */}
+          <div className="flex items-center gap-3.5 w-[280px] min-w-0">
+            {currentTrack ? (
+              <>
+                <div
+                  className="w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200"
                   onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
                 >
-                  {currentTrack.title}
-                </p>
-                <p
-                  className="text-[11px] text-white/35 truncate mt-1 cursor-pointer hover:text-white/55 transition-colors"
-                  onClick={() => navigate(`/user/${encodeURIComponent(currentTrack.user.urn)}`)}
-                >
-                  {currentTrack.user.username}
-                </p>
-              </div>
-              <LikeButton trackUrn={currentTrack.urn} />
-            </>
-          ) : (
-            <p className="text-[13px] text-white/15">Not playing</p>
-          )}
-        </div>
-
-        {/* ── Center: controls ── */}
-        <div className="flex-1 flex flex-col items-center gap-0.5">
-          <div className="flex items-center gap-0.5">
-            <ControlBtn onClick={toggleShuffle} active={shuffle} size="sm">
-              <Shuffle size={16} />
-            </ControlBtn>
-            <ControlBtn onClick={prev}>
-              <SkipBack size={20} fill="currentColor" />
-            </ControlBtn>
-
-            {/* Play/pause */}
-            <button
-              type="button"
-              onClick={togglePlay}
-              className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center text-black hover:bg-white hover:scale-105 active:scale-95 transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer mx-1.5"
-            >
-              {isPlaying ? (
-                <Pause size={20} fill="black" strokeWidth={0} />
-              ) : (
-                <Play size={20} fill="black" strokeWidth={0} className="ml-0.5" />
-              )}
-            </button>
-
-            <ControlBtn onClick={next}>
-              <SkipForward size={20} fill="currentColor" />
-            </ControlBtn>
-            <ControlBtn onClick={toggleRepeat} active={repeat !== "off"} size="sm">
-              {repeat === "one" ? <Repeat1 size={16} /> : <Repeat size={16} />}
-            </ControlBtn>
+                  {artwork ? (
+                    <img src={artwork} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-white/[0.04]" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
+                    onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
+                  >
+                    {currentTrack.title}
+                  </p>
+                  <p
+                    className="text-[11px] text-white/35 truncate mt-1 cursor-pointer hover:text-white/55 transition-colors"
+                    onClick={() => navigate(`/user/${encodeURIComponent(currentTrack.user.urn)}`)}
+                  >
+                    {currentTrack.user.username}
+                  </p>
+                </div>
+                <LikeButton trackUrn={currentTrack.urn} />
+              </>
+            ) : (
+              <p className="text-[13px] text-white/15">Not playing</p>
+            )}
           </div>
 
-          {/* Time */}
-          <ProgressTime/>
-        </div>
+          {/* ── Center: controls ── */}
+          <div className="flex-1 flex flex-col items-center gap-0.5">
+            <div className="flex items-center gap-0.5">
+              <ControlBtn onClick={toggleShuffle} active={shuffle} size="sm">
+                <Shuffle size={16} />
+              </ControlBtn>
+              <ControlBtn onClick={prev}>
+                <SkipBack size={20} fill="currentColor" />
+              </ControlBtn>
 
-        {/* ── Right: volume + queue ── */}
-        <div className="flex items-center gap-0.5 w-[220px] justify-end">
-          <ControlBtn onClick={onQueueToggle} active={queueOpen} size="sm">
-            <ListMusic size={16} />
-          </ControlBtn>
-          <ControlVolumeBtn size="sm"/>
-          <VolumeSlider className="w-[100px]" />
-          <span className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? "text-amber-400/70" : "text-white/30"}`}>
-            {volume}%
-          </span>
+              {/* Play/pause */}
+              <button
+                type="button"
+                onClick={togglePlay}
+                className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center text-black hover:bg-white hover:scale-105 active:scale-95 transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer mx-1.5"
+              >
+                {isPlaying ? (
+                  <Pause size={20} fill="black" strokeWidth={0} />
+                ) : (
+                  <Play size={20} fill="black" strokeWidth={0} className="ml-0.5" />
+                )}
+              </button>
+
+              <ControlBtn onClick={next}>
+                <SkipForward size={20} fill="currentColor" />
+              </ControlBtn>
+              <ControlBtn onClick={toggleRepeat} active={repeat !== 'off'} size="sm">
+                {repeat === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
+              </ControlBtn>
+            </div>
+
+            {/* Time */}
+            <ProgressTime />
+          </div>
+
+          {/* ── Right: volume + queue ── */}
+          <div className="flex items-center gap-0.5 w-[220px] justify-end">
+            <ControlBtn onClick={onQueueToggle} active={queueOpen} size="sm">
+              <ListMusic size={16} />
+            </ControlBtn>
+            <ControlVolumeBtn size="sm" />
+            <VolumeSlider className="w-[100px]" />
+            <span
+              className={`text-[10px] tabular-nums w-[34px] text-right shrink-0 ${volume > 100 ? 'text-amber-400/70' : 'text-white/30'}`}
+            >
+              {volume}%
+            </span>
+          </div>
         </div>
       </div>
-    </div>
-  );
-})
+    );
+  },
+);

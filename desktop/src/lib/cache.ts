@@ -1,18 +1,11 @@
-import {
-  exists,
-  mkdir,
-  readFile,
-  writeFile,
-  remove,
-  readDir,
-  stat,
-} from "@tauri-apps/plugin-fs";
-import { appCacheDir, join } from "@tauri-apps/api/path";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { getSessionId } from "./api";
+import { appCacheDir, join } from '@tauri-apps/api/path';
+import { exists, mkdir, readDir, readFile, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { getSessionId } from './api';
 
-import { API_BASE, getCacheServerPort } from "./constants";
-const AUDIO_DIR = "audio";
+import { API_BASE, getCacheServerPort } from './constants';
+
+const AUDIO_DIR = 'audio';
 const MIN_MP3_SIZE = 8192;
 
 let cacheBasePath: string | null = null;
@@ -26,7 +19,7 @@ async function getAudioDir(): Promise<string> {
 }
 
 function urnToFilename(urn: string): string {
-  return `${urn.replace(/:/g, "_")}.mp3`;
+  return `${urn.replace(/:/g, '_')}.mp3`;
 }
 
 async function filePath(urn: string): Promise<string> {
@@ -84,10 +77,7 @@ function isValidMp3(buffer: ArrayBuffer): boolean {
 
 const activeDownloads = new Map<string, Promise<ArrayBuffer>>();
 
-export async function fetchAndCacheTrack(
-    urn: string,
-    signal?: AbortSignal
-): Promise<ArrayBuffer> {
+export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Promise<ArrayBuffer> {
   if (activeDownloads.has(urn)) {
     console.log(`💾[Cache] Reusing active download for: ${urn}`);
     return activeDownloads.get(urn)!;
@@ -101,7 +91,7 @@ export async function fetchAndCacheTrack(
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
 
       const res = await tauriFetch(url, {
-        headers: sessionId ? { "x-session-id": sessionId } : {},
+        headers: sessionId ? { 'x-session-id': sessionId } : {},
         signal,
       });
 
@@ -112,14 +102,14 @@ export async function fetchAndCacheTrack(
       if (isValidMp3(buffer)) {
         console.log(`💾 [Cache] Download complete for ${urn}. Valid MP3. Saving...`);
         const path = await filePath(urn);
-        await writeFile(path, new Uint8Array(buffer)).catch(e => console.error("Write fail", e));
+        await writeFile(path, new Uint8Array(buffer)).catch((e) => console.error('Write fail', e));
       } else {
         console.error(`💾 [Cache] Invalid MP3 received for ${urn}`);
-        throw new Error("Invalid MP3");
+        throw new Error('Invalid MP3');
       }
       return buffer;
     } catch (e: any) {
-      if (e.name === "AbortError") {
+      if (e.name === 'AbortError') {
         console.warn(`💾[Cache] Fetch ABORTED for ${urn}`);
       } else {
         console.error(`💾[Cache] Fetch failed for ${urn}:`, e);
@@ -143,7 +133,7 @@ export async function getCacheSize(): Promise<number> {
     const entries = await readDir(dir);
     let total = 0;
     for (const entry of entries) {
-      if (entry.name?.endsWith(".mp3")) {
+      if (entry.name?.endsWith('.mp3')) {
         const info = await stat(`${dir}/${entry.name}`);
         total += info.size;
       }
@@ -159,12 +149,12 @@ export async function clearCache(): Promise<void> {
     const dir = await getAudioDir();
     const entries = await readDir(dir);
     for (const entry of entries) {
-      if (entry.name?.endsWith(".mp3")) {
+      if (entry.name?.endsWith('.mp3')) {
         await remove(`${dir}/${entry.name}`).catch(() => {});
       }
     }
   } catch (e) {
-    console.error("clearCache failed:", e);
+    console.error('clearCache failed:', e);
   }
 }
 

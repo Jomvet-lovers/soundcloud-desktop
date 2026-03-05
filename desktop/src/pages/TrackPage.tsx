@@ -1,40 +1,40 @@
-import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "react-i18next";
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Play,
-  Pause,
-  Heart,
-  Repeat2,
-  Loader2,
-  Music,
-  Headphones,
-  MessageCircle,
-  Send,
+  Calendar,
   ChevronDown,
   ChevronUp,
   Clock,
-  Calendar,
   Hash,
-} from "lucide-react";
-import { api } from "../lib/api";
-import { usePlayerStore, type Track } from "../stores/player";
+  Headphones,
+  Heart,
+  Loader2,
+  MessageCircle,
+  Music,
+  Pause,
+  Play,
+  Repeat2,
+  Send,
+} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { api } from '../lib/api';
+import { preloadTrack } from '../lib/audio';
+import type { Comment } from '../lib/hooks';
 import {
-  useTrackComments,
-  useRelatedTracks,
-  useTrackFavoriters,
-  usePostComment,
   useInfiniteScroll,
-} from "../lib/hooks";
-import type { Comment } from "../lib/hooks";
-import { preloadTrack } from "../lib/audio";
-import {useShallow} from "zustand/shallow";
+  usePostComment,
+  useRelatedTracks,
+  useTrackComments,
+  useTrackFavoriters,
+} from '../lib/hooks';
+import { type Track, usePlayerStore } from '../stores/player';
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
 function fc(n?: number) {
-  if (!n) return "0";
+  if (!n) return '0';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
@@ -42,7 +42,7 @@ function fc(n?: number) {
 
 function dur(ms: number) {
   const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 }
 
 function durLong(ms: number) {
@@ -50,19 +50,18 @@ function durLong(ms: number) {
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  if (h > 0)
-    return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-function art(url: string | null | undefined, size = "t500x500") {
-  return url?.replace("-large", `-${size}`) ?? null;
+function art(url: string | null | undefined, size = 't500x500') {
+  return url?.replace('-large', `-${size}`) ?? null;
 }
 
 function ago(dateStr: string) {
-  const d = new Date(dateStr.replace(/\//g, "-").replace(" +0000", "Z"));
+  const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 60) return "now";
+  if (s < 60) return 'now';
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
@@ -77,11 +76,11 @@ function ago(dateStr: string) {
 }
 
 function dateFormatted(dateStr: string) {
-  const d = new Date(dateStr.replace(/\//g, "-").replace(" +0000", "Z"));
+  const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
   return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   });
 }
 
@@ -98,64 +97,64 @@ function parseTags(tagList?: string): string[] {
 
 /* ── Like Button ─────────────────────────────────────────── */
 
-const LikeBtn = React.memo(({
-  trackUrn,
-  initialLiked,
-  count,
-}: {
-  trackUrn: string;
-  initialLiked?: boolean;
-  count?: number;
-}) => {
-  const [liked, setLiked] = useState(initialLiked ?? false);
-  const [localCount, setLocalCount] = useState(count ?? 0);
-  const qc = useQueryClient();
+const LikeBtn = React.memo(
+  ({
+    trackUrn,
+    initialLiked,
+    count,
+  }: {
+    trackUrn: string;
+    initialLiked?: boolean;
+    count?: number;
+  }) => {
+    const [liked, setLiked] = useState(initialLiked ?? false);
+    const [localCount, setLocalCount] = useState(count ?? 0);
+    const qc = useQueryClient();
 
-  // Sync local state when query data updates (e.g. after invalidation)
-  useEffect(() => { setLiked(initialLiked ?? false); }, [initialLiked]);
-  useEffect(() => { setLocalCount(count ?? 0); }, [count]);
+    // Sync local state when query data updates (e.g. after invalidation)
+    useEffect(() => {
+      setLiked(initialLiked ?? false);
+    }, [initialLiked]);
+    useEffect(() => {
+      setLocalCount(count ?? 0);
+    }, [count]);
 
-  const toggle = async () => {
-    const next = !liked;
-    setLiked(next);
-    setLocalCount((c) => c + (next ? 1 : -1));
-    try {
-      await api(`/likes/tracks/${encodeURIComponent(trackUrn)}`, {
-        method: next ? "POST" : "DELETE",
-      });
-      qc.invalidateQueries({ queryKey: ["track", trackUrn], exact: true });
-      qc.invalidateQueries({ queryKey: ["track", trackUrn, "favoriters"] });
-    } catch {
-      setLiked(!next);
-      setLocalCount((c) => c + (next ? -1 : 1));
-    }
-  };
+    const toggle = async () => {
+      const next = !liked;
+      setLiked(next);
+      setLocalCount((c) => c + (next ? 1 : -1));
+      try {
+        await api(`/likes/tracks/${encodeURIComponent(trackUrn)}`, {
+          method: next ? 'POST' : 'DELETE',
+        });
+        qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
+        qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
+      } catch {
+        setLiked(!next);
+        setLocalCount((c) => c + (next ? -1 : 1));
+      }
+    };
 
-  return (
-    <button
-      type="button"
-      onClick={toggle}
-      className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
-        liked
-          ? "bg-accent/15 text-accent border border-accent/20 shadow-[0_0_20px_rgba(255,85,0,0.1)]"
-          : "glass hover:bg-white/[0.05] text-white/60 hover:text-white/80"
-      }`}
-    >
-      <Heart size={16} fill={liked ? "currentColor" : "none"} />
-      <span className="tabular-nums">{fc(localCount)}</span>
-    </button>
-  );
-})
+    return (
+      <button
+        type="button"
+        onClick={toggle}
+        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+          liked
+            ? 'bg-accent/15 text-accent border border-accent/20 shadow-[0_0_20px_rgba(255,85,0,0.1)]'
+            : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
+        }`}
+      >
+        <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
+        <span className="tabular-nums">{fc(localCount)}</span>
+      </button>
+    );
+  },
+);
 
 /* ── Repost Button ───────────────────────────────────────── */
 
-const RepostBtn = React.memo(({
-  trackUrn,
-  count,
-}: {
-  trackUrn: string;
-  count?: number;
-}) => {
+const RepostBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: number }) => {
   const [reposted, setReposted] = useState(false);
   const [localCount, setLocalCount] = useState(count ?? 0);
 
@@ -165,7 +164,7 @@ const RepostBtn = React.memo(({
     setLocalCount((c) => c + (next ? 1 : -1));
     try {
       await api(`/reposts/tracks/${encodeURIComponent(trackUrn)}`, {
-        method: next ? "POST" : "DELETE",
+        method: next ? 'POST' : 'DELETE',
       });
     } catch {
       setReposted(!next);
@@ -179,26 +178,26 @@ const RepostBtn = React.memo(({
       onClick={toggle}
       className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
         reposted
-          ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
-          : "glass hover:bg-white/[0.05] text-white/60 hover:text-white/80"
+          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+          : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
       }`}
     >
       <Repeat2 size={16} />
       <span className="tabular-nums">{fc(localCount)}</span>
     </button>
   );
-})
+});
 
 /* ── Comment Item ────────────────────────────────────────── */
 
 const CommentItem = React.memo(({ comment }: { comment: Comment }) => {
   const navigate = useNavigate();
-  const avatar = art(comment.user.avatar_url, "small");
+  const avatar = art(comment.user.avatar_url, 'small');
 
   return (
     <div className="flex gap-3 group">
       <img
-        src={avatar ?? ""}
+        src={avatar ?? ''}
         alt=""
         className="w-8 h-8 rounded-full shrink-0 ring-1 ring-white/[0.06] mt-0.5 cursor-pointer hover:ring-white/[0.15] transition-all duration-150"
         onClick={() => navigate(`/user/${encodeURIComponent(comment.user.urn)}`)}
@@ -233,7 +232,7 @@ const CommentItem = React.memo(({ comment }: { comment: Comment }) => {
 
 const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
   const { t } = useTranslation();
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState('');
   const mutation = usePostComment(trackUrn);
 
   const submit = () => {
@@ -242,7 +241,7 @@ const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
     const progress = usePlayerStore.getState().progress;
     const ts = progress > 0 ? Math.floor(progress * 1000) : undefined;
     mutation.mutate({ body: text, timestamp: ts });
-    setBody("");
+    setBody('');
   };
 
   return (
@@ -251,12 +250,12 @@ const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             submit();
           }
         }}
-        placeholder={t("track.addComment")}
+        placeholder={t('track.addComment')}
         rows={2}
         className="flex-1 bg-transparent text-[13px] text-white/80 placeholder:text-white/20 outline-none resize-none leading-relaxed"
       />
@@ -266,11 +265,7 @@ const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
         disabled={!body.trim() || mutation.isPending}
         className="w-8 h-8 rounded-lg flex items-center justify-center text-accent hover:bg-accent/10 transition-all duration-150 cursor-pointer disabled:opacity-30 disabled:cursor-default self-end"
       >
-        {mutation.isPending ? (
-          <Loader2 size={14} className="animate-spin" />
-        ) : (
-          <Send size={14} />
-        )}
+        {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
       </button>
     </div>
   );
@@ -278,23 +273,19 @@ const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
 
 /* ── Related Track Row ───────────────────────────────────── */
 
-const RelatedRow = React.memo(({
-  track,
-  queue,
-}: {
-  track: Track;
-  queue: Track[];
-}) => {
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(useShallow(s => ({
-    play: s.play,
-    pause: s.pause,
-    resume: s.resume,
-    currentTrack: s.currentTrack,
-    isPlaying: s.isPlaying,
-  })));
+const RelatedRow = React.memo(({ track, queue }: { track: Track; queue: Track[] }) => {
+  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
+    useShallow((s) => ({
+      play: s.play,
+      pause: s.pause,
+      resume: s.resume,
+      currentTrack: s.currentTrack,
+      isPlaying: s.isPlaying,
+    })),
+  );
   const navigate = useNavigate();
   const isThis = currentTrack?.urn === track.urn;
-  const cover = art(track.artwork_url, "t200x200");
+  const cover = art(track.artwork_url, 't200x200');
 
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -306,9 +297,7 @@ const RelatedRow = React.memo(({
   return (
     <div
       className={`group flex items-center gap-3 p-2.5 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] ${
-        isThis
-          ? "bg-accent/[0.04] ring-1 ring-accent/15"
-          : "hover:bg-white/[0.03]"
+        isThis ? 'bg-accent/[0.04] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
       }`}
       onMouseEnter={() => preloadTrack(track.urn)}
     >
@@ -326,8 +315,8 @@ const RelatedRow = React.memo(({
         <div
           className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
             isThis && isPlaying
-              ? "bg-black/30 opacity-100"
-              : "opacity-0 group-hover:bg-black/30 group-hover:opacity-100"
+              ? 'bg-black/30 opacity-100'
+              : 'opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
           }`}
         >
           <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-lg">
@@ -356,9 +345,7 @@ const RelatedRow = React.memo(({
       </div>
 
       <div className="text-right shrink-0">
-        <p className="text-[10px] text-white/25 tabular-nums">
-          {dur(track.duration)}
-        </p>
+        <p className="text-[10px] text-white/25 tabular-nums">{dur(track.duration)}</p>
         {track.playback_count != null && (
           <p className="text-[9px] text-white/15 mt-0.5 tabular-nums flex items-center gap-0.5 justify-end">
             <Headphones size={8} />
@@ -376,20 +363,22 @@ export const TrackPage = React.memo(() => {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore(useShallow(s => ({
-    currentTrack: s.currentTrack,
-    isPlaying: s.isPlaying,
-    play: s.play,
-    pause: s.pause,
-    resume: s.resume,
-  })));
+  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore(
+    useShallow((s) => ({
+      currentTrack: s.currentTrack,
+      isPlaying: s.isPlaying,
+      play: s.play,
+      pause: s.pause,
+      resume: s.resume,
+    })),
+  );
   const [descExpanded, setDescExpanded] = useState(false);
 
   const { data: track, isLoading } = useQuery({
-    queryKey: ["track", urn],
+    queryKey: ['track', urn],
     queryFn: () => api<Track>(`/tracks/${encodeURIComponent(urn!)}`),
     enabled: !!urn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 
   const {
@@ -418,7 +407,7 @@ export const TrackPage = React.memo(() => {
   }
 
   const isThis = currentTrack?.urn === track.urn;
-  const cover = art(track.artwork_url, "t500x500");
+  const cover = art(track.artwork_url, 't500x500');
   const tags = parseTags(track.tag_list);
   const relatedTracks = relatedData?.collection ?? [];
   const favoriters = favoritersData?.collection ?? [];
@@ -467,15 +456,15 @@ export const TrackPage = React.memo(() => {
             <div
               className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
                 isThis && isPlaying
-                  ? "bg-black/30 opacity-100"
-                  : "bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100"
+                  ? 'bg-black/30 opacity-100'
+                  : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
               }`}
             >
               <div
                 className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
                   isThis && isPlaying
-                    ? "bg-white scale-100"
-                    : "bg-white/90 scale-75 group-hover/cover:scale-100"
+                    ? 'bg-white scale-100'
+                    : 'bg-white/90 scale-75 group-hover/cover:scale-100'
                 }`}
               >
                 {isThis && isPlaying ? (
@@ -505,7 +494,7 @@ export const TrackPage = React.memo(() => {
             >
               {track.user.avatar_url && (
                 <img
-                  src={art(track.user.avatar_url, "small") ?? ""}
+                  src={art(track.user.avatar_url, 'small') ?? ''}
                   alt=""
                   className="w-6 h-6 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
                 />
@@ -523,8 +512,8 @@ export const TrackPage = React.memo(() => {
                 onClick={handlePlay}
                 className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_20px_var(--color-accent-glow)] ${
                   isThis && isPlaying
-                    ? "bg-white text-black hover:bg-white/90"
-                    : "bg-accent text-white hover:bg-accent-hover active:scale-[0.97]"
+                    ? 'bg-white text-black hover:bg-white/90'
+                    : 'bg-accent text-white hover:bg-accent-hover active:scale-[0.97]'
                 }`}
               >
                 {isThis && isPlaying ? (
@@ -532,7 +521,7 @@ export const TrackPage = React.memo(() => {
                 ) : (
                   <Play size={16} fill="currentColor" strokeWidth={0} />
                 )}
-                {isThis && isPlaying ? "Pause" : "Play"}
+                {isThis && isPlaying ? 'Pause' : 'Play'}
               </button>
 
               <LikeBtn
@@ -551,22 +540,24 @@ export const TrackPage = React.memo(() => {
         <div className="flex items-center gap-1.5 text-[12px] text-white/30">
           <Headphones size={13} className="text-white/20" />
           <span className="tabular-nums font-medium">{fc(track.playback_count)}</span>
-          <span className="text-white/15">{t("track.plays")}</span>
+          <span className="text-white/15">{t('track.plays')}</span>
         </div>
         <div className="flex items-center gap-1.5 text-[12px] text-white/30">
           <Heart size={13} className="text-white/20" />
-          <span className="tabular-nums font-medium">{fc(track.favoritings_count ?? track.likes_count)}</span>
-          <span className="text-white/15">{t("track.likes")}</span>
+          <span className="tabular-nums font-medium">
+            {fc(track.favoritings_count ?? track.likes_count)}
+          </span>
+          <span className="text-white/15">{t('track.likes')}</span>
         </div>
         <div className="flex items-center gap-1.5 text-[12px] text-white/30">
           <Repeat2 size={13} className="text-white/20" />
           <span className="tabular-nums font-medium">{fc(track.reposts_count)}</span>
-          <span className="text-white/15">{t("track.reposts")}</span>
+          <span className="text-white/15">{t('track.reposts')}</span>
         </div>
         <div className="flex items-center gap-1.5 text-[12px] text-white/30">
           <MessageCircle size={13} className="text-white/20" />
           <span className="tabular-nums font-medium">{fc(track.comment_count)}</span>
-          <span className="text-white/15">{t("track.comments")}</span>
+          <span className="text-white/15">{t('track.comments')}</span>
         </div>
         <div className="flex items-center gap-1.5 text-[12px] text-white/25 ml-auto">
           <Clock size={12} />
@@ -582,11 +573,11 @@ export const TrackPage = React.memo(() => {
           {desc && (
             <section className="glass rounded-2xl p-5">
               <h3 className="text-[13px] font-semibold text-white/50 mb-3 flex items-center gap-2">
-                {t("track.description")}
+                {t('track.description')}
               </h3>
               <div
                 className={`text-[13px] text-white/45 leading-relaxed whitespace-pre-wrap break-words ${
-                  !descExpanded && descLong ? "max-h-[120px] overflow-hidden relative" : ""
+                  !descExpanded && descLong ? 'max-h-[120px] overflow-hidden relative' : ''
                 }`}
               >
                 {desc}
@@ -601,7 +592,7 @@ export const TrackPage = React.memo(() => {
                   className="flex items-center gap-1 mt-2 text-[11px] text-white/30 hover:text-white/50 transition-colors cursor-pointer"
                 >
                   {descExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                  {descExpanded ? "Show less" : "Show more"}
+                  {descExpanded ? 'Show less' : 'Show more'}
                 </button>
               )}
             </section>
@@ -626,7 +617,7 @@ export const TrackPage = React.memo(() => {
           <section className="space-y-4">
             <h3 className="text-[13px] font-semibold text-white/50 flex items-center gap-2 px-1">
               <MessageCircle size={14} />
-              {t("track.comments")}
+              {t('track.comments')}
               {track.comment_count != null && (
                 <span className="text-white/20 font-normal tabular-nums">
                   ({fc(track.comment_count)})
@@ -643,7 +634,7 @@ export const TrackPage = React.memo(() => {
             ) : comments.length === 0 ? (
               <div className="text-center py-8">
                 <MessageCircle size={28} className="text-white/10 mx-auto mb-2" />
-                <p className="text-[12px] text-white/20">{t("track.noComments")}</p>
+                <p className="text-[12px] text-white/20">{t('track.noComments')}</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -669,7 +660,7 @@ export const TrackPage = React.memo(() => {
           >
             <div className="flex items-center gap-3">
               <img
-                src={art(track.user.avatar_url, "t200x200") ?? ""}
+                src={art(track.user.avatar_url, 't200x200') ?? ''}
                 alt=""
                 className="w-12 h-12 rounded-full ring-1 ring-white/[0.08] group-hover/ac:ring-white/[0.15] transition-all duration-150"
               />
@@ -684,20 +675,22 @@ export const TrackPage = React.memo(() => {
           {/* Posted date */}
           <section className="flex items-center gap-2 text-[11px] text-white/25 px-1">
             <Calendar size={12} />
-            <span>{t("track.posted")} {dateFormatted(track.created_at ?? "")}</span>
+            <span>
+              {t('track.posted')} {dateFormatted(track.created_at ?? '')}
+            </span>
           </section>
 
           {/* Favoriters */}
           {favoriters.length > 0 && (
             <section className="glass rounded-2xl p-4">
               <h3 className="text-[12px] font-semibold text-white/40 mb-3">
-                {t("track.favoriters")}
+                {t('track.favoriters')}
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {favoriters.map((u) => (
                   <img
                     key={u.urn}
-                    src={art(u.avatar_url, "small") ?? ""}
+                    src={art(u.avatar_url, 'small') ?? ''}
                     alt={u.username}
                     title={u.username}
                     className="w-8 h-8 rounded-full ring-1 ring-white/[0.06] hover:ring-white/[0.15] transition-all duration-150 cursor-pointer"
@@ -712,7 +705,7 @@ export const TrackPage = React.memo(() => {
           <section>
             <h3 className="text-[13px] font-semibold text-white/50 mb-3 flex items-center gap-2 px-1">
               <Music size={14} />
-              {t("track.related")}
+              {t('track.related')}
             </h3>
             {relatedLoading ? (
               <div className="flex justify-center py-6">
@@ -732,4 +725,4 @@ export const TrackPage = React.memo(() => {
       </div>
     </div>
   );
-})
+});

@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
-import { Disc3 } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { fetch } from "@tauri-apps/plugin-http";
-import { useAuthStore } from "../stores/auth";
-import { api } from "../lib/api";
-import { API_BASE } from "../lib/constants";
+import { fetch } from '@tauri-apps/plugin-http';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { Disc3 } from 'lucide-react';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { api } from '../lib/api';
+import { API_BASE } from '../lib/constants';
+import { useAuthStore } from '../stores/auth';
 
 interface LoginResponse {
   url: string;
@@ -24,13 +24,13 @@ export function Login() {
   const handleLogin = async () => {
     setLoading(true);
     try {
-      const { url, sessionId } = await api<LoginResponse>("/auth/login");
+      const { url, sessionId } = await api<LoginResponse>('/auth/login');
       await openUrl(url);
 
       const poll = setInterval(async () => {
         try {
           const res = await fetch(`${API_BASE}/auth/session`, {
-            headers: { "x-session-id": sessionId },
+            headers: { 'x-session-id': sessionId },
           });
           const data: SessionResponse = await res.json();
           if (data.authenticated) {
@@ -65,14 +65,14 @@ export function Login() {
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-tight">SoundCloud Desktop</h1>
           <p className="text-[13px] text-white/30 mt-2">
-            {loading ? t("auth.signingIn") : "Your music, your way"}
+            {loading ? t('auth.signingIn') : 'Your music, your way'}
           </p>
         </div>
 
         {loading ? (
           <div className="flex flex-col items-center gap-4">
             <div className="w-10 h-10 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
-            <p className="text-[12px] text-white/25">{t("auth.signingIn")}</p>
+            <p className="text-[12px] text-white/25">{t('auth.signingIn')}</p>
           </div>
         ) : (
           <button
@@ -80,7 +80,7 @@ export function Login() {
             onClick={handleLogin}
             className="w-full py-3.5 rounded-2xl bg-accent text-white font-semibold text-sm hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)] hover:shadow-[0_0_60px_var(--color-accent-glow),0_4px_16px_rgba(0,0,0,0.4)]"
           >
-            {t("auth.signIn")}
+            {t('auth.signIn')}
           </button>
         )}
       </div>

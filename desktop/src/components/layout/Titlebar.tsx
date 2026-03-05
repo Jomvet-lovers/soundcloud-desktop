@@ -1,6 +1,6 @@
-import { Minus, Square, X, Disc3 } from "lucide-react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import React from "react";
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Disc3, Minus, Square, X } from 'lucide-react';
+import React from 'react';
 
 export const Titlebar = React.memo(() => {
   const minimize = () => getCurrentWindow().minimize();
@@ -14,9 +14,7 @@ export const Titlebar = React.memo(() => {
     >
       <div className="flex items-center gap-1.5" data-tauri-drag-region>
         <Disc3 size={14} className="text-accent" strokeWidth={2} />
-        <span className="text-[11px] font-semibold tracking-tight text-white/30">
-          SoundCloud
-        </span>
+        <span className="text-[11px] font-semibold tracking-tight text-white/30">SoundCloud</span>
       </div>
 
       <div className="flex items-center">

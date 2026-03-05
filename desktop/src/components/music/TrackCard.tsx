@@ -1,10 +1,10 @@
-import { Play, Pause } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import type { Track } from "../../stores/player";
-import { usePlayerStore } from "../../stores/player";
-import { preloadTrack } from "../../lib/audio";
-import {useShallow} from "zustand/shallow";
-import React from "react";
+import { Pause, Play } from 'lucide-react';
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { preloadTrack } from '../../lib/audio';
+import type { Track } from '../../stores/player';
+import { usePlayerStore } from '../../stores/player';
 
 interface TrackCardProps {
   track: Track;
@@ -15,11 +15,11 @@ function formatDuration(ms: number) {
   const totalSec = Math.floor(ms / 1000);
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 function formatCount(n?: number) {
-  if (!n) return "0";
+  if (!n) return '0';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toString();
@@ -27,15 +27,17 @@ function formatCount(n?: number) {
 
 export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
   const navigate = useNavigate();
-  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore(useShallow(s => ({
-    currentTrack: s.currentTrack,
-    isPlaying: s.isPlaying,
-    play: s.play,
-    pause: s.pause,
-    resume: s.resume,
-  })));
+  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore(
+    useShallow((s) => ({
+      currentTrack: s.currentTrack,
+      isPlaying: s.isPlaying,
+      play: s.play,
+      pause: s.pause,
+      resume: s.resume,
+    })),
+  );
   const isThis = currentTrack?.urn === track.urn;
-  const artwork = track.artwork_url?.replace("-large", "-t300x300");
+  const artwork = track.artwork_url?.replace('-large', '-t300x300');
 
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -45,10 +47,7 @@ export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
   };
 
   return (
-    <div
-      className="group relative"
-      onMouseEnter={() => preloadTrack(track.urn)}
-    >
+    <div className="group relative" onMouseEnter={() => preloadTrack(track.urn)}>
       {/* Artwork */}
       <div
         className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.03] cursor-pointer ring-1 ring-white/[0.06] group-hover:ring-white/[0.12] transition-all duration-300 ease-[var(--ease-apple)]"
@@ -71,15 +70,17 @@ export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
         <div
           className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
             isThis && isPlaying
-              ? "bg-black/30 backdrop-blur-[2px] opacity-100"
-              : "bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:backdrop-blur-[2px] group-hover:opacity-100"
+              ? 'bg-black/30 backdrop-blur-[2px] opacity-100'
+              : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:backdrop-blur-[2px] group-hover:opacity-100'
           }`}
         >
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl ${
-            isThis && isPlaying
-              ? "bg-white scale-100"
-              : "bg-white/90 scale-75 group-hover:scale-100"
-          }`}>
+          <div
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl ${
+              isThis && isPlaying
+                ? 'bg-white scale-100'
+                : 'bg-white/90 scale-75 group-hover:scale-100'
+            }`}
+          >
             {isThis && isPlaying ? (
               <Pause size={20} fill="black" strokeWidth={0} />
             ) : (

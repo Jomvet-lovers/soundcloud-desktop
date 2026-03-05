@@ -1,14 +1,16 @@
-import React, { useState } from "react";
-import { Outlet } from "react-router-dom";
-import { Titlebar } from "./Titlebar";
-import { Sidebar } from "./Sidebar";
-import { NowPlayingBar } from "./NowPlayingBar";
-import { QueuePanel } from "../music/QueuePanel";
-import { usePlayerStore } from "../../stores/player";
+import React, { useState } from 'react';
+import { Outlet } from 'react-router-dom';
+import { usePlayerStore } from '../../stores/player';
+import { QueuePanel } from '../music/QueuePanel';
+import { NowPlayingBar } from './NowPlayingBar';
+import { Sidebar } from './Sidebar';
+import { Titlebar } from './Titlebar';
 
 export const AppShell = React.memo(() => {
   const [queueOpen, setQueueOpen] = useState(false);
-  const artwork = usePlayerStore((s) => s.currentTrack?.artwork_url?.replace("-large", "-t500x500"));
+  const artwork = usePlayerStore((s) =>
+    s.currentTrack?.artwork_url?.replace('-large', '-t500x500'),
+  );
 
   return (
     <div className="flex flex-col h-screen relative overflow-hidden">
@@ -16,7 +18,11 @@ export const AppShell = React.memo(() => {
       {artwork && (
         <div
           className="absolute bottom-0 left-0 right-0 h-[400px] opacity-[0.06] blur-[100px] pointer-events-none transition-all duration-[2s] ease-out"
-          style={{ backgroundImage: `url(${artwork})`, backgroundSize: "cover", backgroundPosition: "center" }}
+          style={{
+            backgroundImage: `url(${artwork})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
         />
       )}
 

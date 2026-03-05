@@ -1,11 +1,11 @@
-import { useRef, useEffect, type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from 'react';
 
 interface HorizontalScrollProps {
   children: ReactNode;
   className?: string;
 }
 
-export function HorizontalScroll({ children, className = "" }: HorizontalScrollProps) {
+export function HorizontalScroll({ children, className = '' }: HorizontalScrollProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -19,15 +19,12 @@ export function HorizontalScroll({ children, className = "" }: HorizontalScrollP
       }
     };
 
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
   return (
-    <div
-      ref={ref}
-      className={`flex gap-4 overflow-x-auto pb-2 scrollbar-hide ${className}`}
-    >
+    <div ref={ref} className={`flex gap-4 overflow-x-auto pb-2 scrollbar-hide ${className}`}>
       {children}
     </div>
   );

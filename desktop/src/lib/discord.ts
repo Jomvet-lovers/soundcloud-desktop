@@ -1,13 +1,13 @@
-import { invoke } from "@tauri-apps/api/core";
-import { usePlayerStore } from "../stores/player";
-import type { Track } from "../stores/player";
+import { invoke } from '@tauri-apps/api/core';
+import type { Track } from '../stores/player';
+import { usePlayerStore } from '../stores/player';
 
 let connected = false;
 
 async function ensureConnected(): Promise<boolean> {
   if (connected) return true;
   try {
-    connected = await invoke<boolean>("discord_connect");
+    connected = await invoke<boolean>('discord_connect');
     return connected;
   } catch {
     return false;
@@ -17,27 +17,27 @@ async function ensureConnected(): Promise<boolean> {
 function artworkToLarge(url: string | null): string | undefined {
   if (!url) return undefined;
   // Use t500x500 for best quality in Discord
-  return url.replace(/-[^./]*\./, "-t500x500.");
+  return url.replace(/-[^./]*\./, '-t500x500.');
 }
 
 async function updatePresence(track: Track, elapsed: number) {
   if (!(await ensureConnected())) return;
 
   try {
-    await invoke("discord_set_activity", {
+    await invoke('discord_set_activity', {
       track: {
         title: track.title,
         artist: track.user.username,
         artwork_url: artworkToLarge(track.artwork_url),
         track_url: track.user.permalink_url
-          ? `${track.user.permalink_url}`.replace(/\?.*$/, "")
+          ? `${track.user.permalink_url}`.replace(/\?.*$/, '')
           : undefined,
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(elapsed),
       },
     });
   } catch (e) {
-    console.warn("[Discord] Failed to set activity:", e);
+    console.warn('[Discord] Failed to set activity:', e);
     connected = false;
   }
 }
@@ -45,7 +45,7 @@ async function updatePresence(track: Track, elapsed: number) {
 async function clearPresence() {
   if (!connected) return;
   try {
-    await invoke("discord_clear_activity");
+    await invoke('discord_clear_activity');
   } catch {
     connected = false;
   }

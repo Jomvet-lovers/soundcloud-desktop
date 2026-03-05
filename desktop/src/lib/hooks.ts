@@ -1,7 +1,7 @@
-import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
-import { api } from "./api";
-import type { Track } from "../stores/player";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import type { Track } from '../stores/player';
+import { api } from './api';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -141,7 +141,7 @@ function extractPagination(href: string | null): PageParam | undefined {
   try {
     const url = new URL(href);
     const params: PageParam = {};
-    for (const key of ["cursor", "offset"]) {
+    for (const key of ['cursor', 'offset']) {
       const val = url.searchParams.get(key);
       if (val) params[key] = val;
     }
@@ -155,9 +155,9 @@ function extractPagination(href: string | null): PageParam | undefined {
 
 export function useFeed() {
   const query = useInfiniteQuery({
-    queryKey: ["feed"],
+    queryKey: ['feed'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "20" });
+      const params = new URLSearchParams({ limit: '20' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -170,10 +170,7 @@ export function useFeed() {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
       // Prevent infinite loop: stop if pagination params didn't change
-      if (
-        lastPageParam &&
-        JSON.stringify(next) === JSON.stringify(lastPageParam)
-      ) {
+      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) {
         return undefined;
       }
       return next;
@@ -207,7 +204,7 @@ export function useFeed() {
 
 export function useLikedTracks(limit = 10) {
   return useQuery({
-    queryKey: ["me", "likes", "tracks", limit],
+    queryKey: ['me', 'likes', 'tracks', limit],
     queryFn: () => api<TrackListResponse>(`/me/likes/tracks?limit=${limit}`),
   });
 }
@@ -216,9 +213,8 @@ export function useLikedTracks(limit = 10) {
 
 export function useFollowingTracks(limit = 20) {
   return useQuery({
-    queryKey: ["me", "followings", "tracks", limit],
-    queryFn: () =>
-      api<TrackListResponse>(`/me/followings/tracks?limit=${limit}`),
+    queryKey: ['me', 'followings', 'tracks', limit],
+    queryFn: () => api<TrackListResponse>(`/me/followings/tracks?limit=${limit}`),
   });
 }
 
@@ -226,9 +222,9 @@ export function useFollowingTracks(limit = 20) {
 
 export function useTrackComments(trackUrn: string | undefined) {
   const query = useInfiniteQuery({
-    queryKey: ["track", trackUrn, "comments"],
+    queryKey: ['track', trackUrn, 'comments'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "20" });
+      const params = new URLSearchParams({ limit: '20' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -246,7 +242,7 @@ export function useTrackComments(trackUrn: string | undefined) {
       return next;
     },
     enabled: !!trackUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 
   const comments: Comment[] = [];
@@ -265,19 +261,16 @@ export function usePostComment(trackUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ body, timestamp }: { body: string; timestamp?: number }) => {
-      return api<Comment>(
-        `/tracks/${encodeURIComponent(trackUrn!)}/comments`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            comment: { body, timestamp: timestamp ?? 0 },
-          }),
-        },
-      );
+      return api<Comment>(`/tracks/${encodeURIComponent(trackUrn!)}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({
+          comment: { body, timestamp: timestamp ?? 0 },
+        }),
+      });
     },
     onSuccess: () => {
-      qc.refetchQueries({ queryKey: ["track", trackUrn, "comments"] });
-      qc.refetchQueries({ queryKey: ["track", trackUrn], exact: true });
+      qc.refetchQueries({ queryKey: ['track', trackUrn, 'comments'] });
+      qc.refetchQueries({ queryKey: ['track', trackUrn], exact: true });
     },
   });
 }
@@ -286,13 +279,11 @@ export function usePostComment(trackUrn: string | undefined) {
 
 export function useRelatedTracks(trackUrn: string | undefined, limit = 10) {
   return useQuery({
-    queryKey: ["track", trackUrn, "related", limit],
+    queryKey: ['track', trackUrn, 'related', limit],
     queryFn: () =>
-      api<TrackListResponse>(
-        `/tracks/${encodeURIComponent(trackUrn!)}/related?limit=${limit}`,
-      ),
+      api<TrackListResponse>(`/tracks/${encodeURIComponent(trackUrn!)}/related?limit=${limit}`),
     enabled: !!trackUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 }
 
@@ -300,13 +291,11 @@ export function useRelatedTracks(trackUrn: string | undefined, limit = 10) {
 
 export function useTrackFavoriters(trackUrn: string | undefined, limit = 12) {
   return useQuery({
-    queryKey: ["track", trackUrn, "favoriters", limit],
+    queryKey: ['track', trackUrn, 'favoriters', limit],
     queryFn: () =>
-      api<UserListResponse>(
-        `/tracks/${encodeURIComponent(trackUrn!)}/favoriters?limit=${limit}`,
-      ),
+      api<UserListResponse>(`/tracks/${encodeURIComponent(trackUrn!)}/favoriters?limit=${limit}`),
     enabled: !!trackUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 }
 
@@ -314,11 +303,10 @@ export function useTrackFavoriters(trackUrn: string | undefined, limit = 12) {
 
 export function usePlaylist(playlistUrn: string | undefined) {
   return useQuery({
-    queryKey: ["playlist", playlistUrn],
-    queryFn: () =>
-      api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn!)}`),
+    queryKey: ['playlist', playlistUrn],
+    queryFn: () => api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn!)}`),
     enabled: !!playlistUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 }
 
@@ -326,13 +314,11 @@ export function usePlaylist(playlistUrn: string | undefined) {
 
 export function usePlaylistTracks(playlistUrn: string | undefined) {
   return useQuery({
-    queryKey: ["playlist", playlistUrn, "tracks"],
+    queryKey: ['playlist', playlistUrn, 'tracks'],
     queryFn: () =>
-      api<TrackListResponse>(
-        `/playlists/${encodeURIComponent(playlistUrn!)}/tracks?limit=500`,
-      ),
+      api<TrackListResponse>(`/playlists/${encodeURIComponent(playlistUrn!)}/tracks?limit=500`),
     enabled: !!playlistUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 }
 
@@ -340,27 +326,24 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
 
 export function useUser(userUrn: string | undefined) {
   return useQuery({
-    queryKey: ["user", userUrn],
-    queryFn: () =>
-      api<UserProfile>(`/users/${encodeURIComponent(userUrn!)}`),
+    queryKey: ['user', userUrn],
+    queryFn: () => api<UserProfile>(`/users/${encodeURIComponent(userUrn!)}`),
     enabled: !!userUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 }
 
 export function useUserTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
-    queryKey: ["user", userUrn, "tracks"],
+    queryKey: ['user', userUrn, 'tracks'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "200", access: "playable" });
+      const params = new URLSearchParams({ limit: '200', access: 'playable' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
         }
       }
-      return api<TrackListResponse>(
-        `/users/${encodeURIComponent(userUrn!)}/tracks?${params}`,
-      );
+      return api<TrackListResponse>(`/users/${encodeURIComponent(userUrn!)}/tracks?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
     getNextPageParam: (last, _all, lastPageParam) => {
@@ -370,7 +353,7 @@ export function useUserTracks(userUrn: string | undefined) {
       return next;
     },
     enabled: !!userUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 
   const tracks: Track[] = [];
@@ -384,9 +367,9 @@ export function useUserTracks(userUrn: string | undefined) {
 
 export function useUserPlaylists(userUrn: string | undefined) {
   const query = useInfiniteQuery({
-    queryKey: ["user", userUrn, "playlists"],
+    queryKey: ['user', userUrn, 'playlists'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "200" });
+      const params = new URLSearchParams({ limit: '200' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -404,7 +387,7 @@ export function useUserPlaylists(userUrn: string | undefined) {
       return next;
     },
     enabled: !!userUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 
   const playlists: Playlist[] = [];
@@ -418,9 +401,9 @@ export function useUserPlaylists(userUrn: string | undefined) {
 
 export function useUserLikedTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
-    queryKey: ["user", userUrn, "likes", "tracks"],
+    queryKey: ['user', userUrn, 'likes', 'tracks'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: "100", access: "playable" });
+      const params = new URLSearchParams({ limit: '100', access: 'playable' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -438,7 +421,7 @@ export function useUserLikedTracks(userUrn: string | undefined) {
       return next;
     },
     enabled: !!userUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 
   const tracks: Track[] = [];
@@ -452,11 +435,10 @@ export function useUserLikedTracks(userUrn: string | undefined) {
 
 export function useUserWebProfiles(userUrn: string | undefined) {
   return useQuery({
-    queryKey: ["user", userUrn, "web-profiles"],
-    queryFn: () =>
-      api<WebProfile[]>(`/users/${encodeURIComponent(userUrn!)}/web-profiles`),
+    queryKey: ['user', userUrn, 'web-profiles'],
+    queryFn: () => api<WebProfile[]>(`/users/${encodeURIComponent(userUrn!)}/web-profiles`),
     enabled: !!userUrn,
-    refetchOnMount: "always",
+    refetchOnMount: 'always',
   });
 }
 
@@ -464,14 +446,14 @@ export function useUserWebProfiles(userUrn: string | undefined) {
 
 export function useMyFollowings(limit = 100) {
   return useQuery({
-    queryKey: ["me", "followings", limit],
+    queryKey: ['me', 'followings', limit],
     queryFn: () => api<UserListResponse>(`/me/followings?limit=${limit}`),
   });
 }
 
 export function useMyLikedPlaylists(limit = 100) {
   return useQuery({
-    queryKey: ["me", "likes", "playlists", limit],
+    queryKey: ['me', 'likes', 'playlists', limit],
     queryFn: () => api<PlaylistListResponse>(`/me/likes/playlists?limit=${limit}`),
   });
 }
@@ -480,27 +462,27 @@ export function useMyPlaylists() {
   // Для получения своих плейлистов часто используется /me/playlists или /users/{my_id}/playlists
   // Мы используем существующий endpoint пользователя, если знаем ID, или /me/playlists если он есть
   return useQuery({
-    queryKey: ["me", "playlists"],
+    queryKey: ['me', 'playlists'],
     queryFn: async () => {
       // Пробуем получить через /me/playlists
       // Если бэк не поддерживает, можно переключиться на userUrn, но обычно /me/playlists работает
       const res = await api<Playlist[]>(`/me/playlists`);
       // API может возвращать массив или объект с collection. Обработаем оба варианта.
       return Array.isArray(res) ? res : (res as any).collection || [];
-    }
+    },
   });
 }
- 
+
 /* ── Search ────────────────────────────────────────────────────── */
 
 export function useSearchTracks(q: string) {
   const query = useInfiniteQuery({
-    queryKey: ["search", "tracks", q],
+    queryKey: ['search', 'tracks', q],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({
         q,
-        limit: "20",
-        linked_partitioning: "true"
+        limit: '20',
+        linked_partitioning: 'true',
       });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
@@ -531,9 +513,9 @@ export function useSearchTracks(q: string) {
 
 export function useSearchPlaylists(q: string) {
   const query = useInfiniteQuery({
-    queryKey: ["search", "playlists", q],
+    queryKey: ['search', 'playlists', q],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ q, limit: "20", linked_partitioning: "true" });
+      const params = new URLSearchParams({ q, limit: '20', linked_partitioning: 'true' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -557,9 +539,9 @@ export function useSearchPlaylists(q: string) {
 
 export function useSearchUsers(q: string) {
   const query = useInfiniteQuery({
-    queryKey: ["search", "users", q],
+    queryKey: ['search', 'users', q],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ q, limit: "20", linked_partitioning: "true" });
+      const params = new URLSearchParams({ q, limit: '20', linked_partitioning: 'true' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -596,7 +578,7 @@ export function useInfiniteScroll(
 
     // Use the scrollable <main> as root so the observer
     // fires correctly inside the overflow container.
-    const root = el.closest("main");
+    const root = el.closest('main');
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -604,7 +586,7 @@ export function useInfiniteScroll(
           fetchNextPage();
         }
       },
-      { root, rootMargin: "400px" },
+      { root, rootMargin: '400px' },
     );
     observer.observe(el);
     return () => observer.disconnect();
