@@ -17,6 +17,9 @@ finish-args:
   - --device=dri
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.kde.StatusNotifierWatcher
+  # MPRIS media controls
+  - --own-name=org.mpris.MediaPlayer2.soundcloud_desktop
+  - --talk-name=org.mpris.MediaPlayer2.Player
   # Discord RPC
   - --filesystem=xdg-run/discord-ipc-0
   - --filesystem=xdg-run/app/com.discordapp.Discord

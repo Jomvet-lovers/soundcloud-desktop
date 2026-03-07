@@ -1,5 +1,5 @@
+import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { throttle } from 'lodash';
 import {
   Heart,
   ListMusic,
@@ -14,7 +14,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { api } from '../../lib/api';
@@ -30,178 +30,70 @@ function formatTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-/* ── Progress Slider (full-width, two-tone) ──────────────────────── */
+/* ── Progress Slider (full-width, Radix) ──────────────────────── */
 const ProgressSlider = React.memo(() => {
-  const { duration: max, seek: onChange } = usePlayerStore(
-    useShallow((s) => ({
-      duration: s.duration,
-      seek: s.seek,
-    })),
-  );
+  const progress = usePlayerStore((s) => s.progress);
+  const duration = usePlayerStore((s) => s.duration);
+  const seek = usePlayerStore((s) => s.seek);
 
-  const [value, setValue] = useState(() => usePlayerStore.getState().progress);
-
-  useEffect(() => {
-    const throttledUpdate = throttle((newProgress) => {
-      setValue(newProgress);
-    }, 200);
-
-    const unsubscribe = usePlayerStore.subscribe((state, prevState) => {
-      if (state.progress !== prevState.progress) {
-        throttledUpdate(state.progress);
-      }
-    });
-
-    return () => {
-      unsubscribe();
-      throttledUpdate.cancel();
-    };
-  }, []);
-
-  const ref = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
-  const [hoverRatio, setHoverRatio] = useState<number | null>(null);
+  const [dragValue, setDragValue] = useState(0);
 
-  const ratio = max > 0 ? Math.min(value / max, 1) : 0;
-  const activeRatio = dragging && hoverRatio !== null ? hoverRatio : ratio;
-  const previewRatio = hoverRatio;
-
-  const calcRatio = useCallback((clientX: number) => {
-    if (!ref.current) return 0;
-    const rect = ref.current.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-  }, []);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    setDragging(true);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    onChange(calcRatio(e.clientX) * max);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    const r = calcRatio(e.clientX);
-    setHoverRatio(r);
-    if (dragging) onChange(r * max);
-  };
-
-  const handlePointerUp = () => setDragging(false);
-  const handlePointerLeave = () => {
-    if (!dragging) setHoverRatio(null);
-  };
+  const displayValue = dragging ? dragValue : progress;
 
   return (
-    <div
-      ref={ref}
-      className="relative h-5 flex items-center cursor-pointer group"
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerLeave}
+    <Slider.Root
+      className="relative flex items-center w-full h-5 cursor-pointer group select-none touch-none"
+      value={[displayValue]}
+      max={duration || 1}
+      step={0.1}
+      onValueChange={([v]) => {
+        setDragValue(v);
+        if (!dragging) setDragging(true);
+      }}
+      onValueCommit={([v]) => {
+        seek(v);
+        setDragging(false);
+      }}
     >
-      {/* Track bg */}
-      <div className="absolute inset-x-0 h-[3px] rounded-full bg-white/[0.08] group-hover:h-[5px] transition-all duration-150">
-        {/* Hover preview zone (lighter, behind active) */}
-        {previewRatio !== null && !dragging && previewRatio > ratio && (
-          <div
-            className="absolute top-0 h-full rounded-full bg-white/[0.08] transition-[width] duration-75"
-            style={{ left: `${ratio * 100}%`, width: `${(previewRatio - ratio) * 100}%` }}
-          />
-        )}
-        {/* Active fill */}
-        <div
-          className="h-full rounded-full bg-accent transition-[width] duration-75"
-          style={{ width: `${activeRatio * 100}%` }}
-        />
-      </div>
-
-      {/* Thumb */}
-      <div
-        className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full transition-all duration-150 ${
-          dragging
-            ? 'w-4 h-4 scale-100 opacity-100 bg-accent shadow-[0_0_12px_var(--color-accent-glow)]'
-            : 'w-3 h-3 scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 bg-accent shadow-[0_0_10px_var(--color-accent-glow)]'
-        }`}
-        style={{ left: `${activeRatio * 100}%` }}
-      />
-    </div>
+      <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[5px] transition-all duration-150">
+        <Slider.Range className="absolute h-full rounded-full bg-accent" />
+      </Slider.Track>
+      <Slider.Thumb className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 data-[dragging]:w-4 data-[dragging]:h-4 data-[dragging]:scale-100 data-[dragging]:opacity-100 data-[dragging]:shadow-[0_0_12px_var(--color-accent-glow)] transition-all duration-150 outline-none" />
+    </Slider.Root>
   );
 });
 
 /* ── Volume Slider (0-200%, extra zone after 100%) ──────────────── */
 const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => {
-  const { volume, setVolume: onChange } = usePlayerStore(
-    useShallow((s) => ({
-      volume: s.volume,
-      setVolume: s.setVolume,
-    })),
-  );
+  const volume = usePlayerStore((s) => s.volume);
+  const setVolume = usePlayerStore((s) => s.setVolume);
 
-  const ref = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState(false);
-
-  const ratio = volume / 200; // 0-1
-  const midpoint = 0.5; // 100% mark
-
-  const calcVolume = useCallback((clientX: number) => {
-    if (!ref.current) return 0;
-    const rect = ref.current.getBoundingClientRect();
-    const r = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return Math.round(r * 200);
-  }, []);
+  const isOver100 = volume > 100;
 
   return (
-    <div
-      ref={ref}
-      className={`relative h-5 flex items-center cursor-pointer group ${className}`}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        setDragging(true);
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-        onChange(calcVolume(e.clientX));
-      }}
-      onPointerMove={(e) => {
-        if (dragging) onChange(calcVolume(e.clientX));
-      }}
-      onPointerUp={() => setDragging(false)}
-      onPointerLeave={() => setDragging(false)}
+    <Slider.Root
+      className={`relative flex items-center h-5 cursor-pointer group select-none touch-none ${className}`}
+      value={[volume]}
+      max={200}
+      step={1}
+      onValueChange={([v]) => setVolume(v)}
       onWheel={(e) => {
         e.preventDefault();
-        onChange(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 1 : -1))));
+        setVolume(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 1 : -1))));
       }}
     >
-      {/* Track bg */}
-      <div className="absolute inset-x-0 h-[3px] rounded-full bg-white/[0.08] group-hover:h-[4px] transition-all duration-150">
-        {/* Normal fill (white) up to min(ratio, midpoint) */}
-        <div
-          className="absolute top-0 left-0 h-full rounded-full bg-white/60"
-          style={{ width: `${Math.min(ratio, midpoint) * 100}%` }}
+      <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[4px] transition-all duration-150">
+        <Slider.Range
+          className={`absolute h-full rounded-full ${isOver100 ? 'bg-amber-400/80' : 'bg-white/60'}`}
         />
-        {/* Extra fill (amber/accent) from midpoint to ratio */}
-        {ratio > midpoint && (
-          <div
-            className="absolute top-0 h-full rounded-r-full bg-amber-400/80"
-            style={{ left: `${midpoint * 100}%`, width: `${(ratio - midpoint) * 100}%` }}
-          />
-        )}
         {/* 100% tick mark */}
-        <div
-          className="absolute top-0 h-full w-px bg-white/20"
-          style={{ left: `${midpoint * 100}%` }}
-        />
-      </div>
-      {/* Thumb */}
-      <div
-        className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full transition-all duration-150 ${
-          ratio > midpoint ? 'bg-amber-400' : 'bg-white'
-        } ${
-          dragging
-            ? 'scale-100 opacity-100'
-            : 'scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100'
-        }`}
-        style={{ left: `${ratio * 100}%` }}
+        <div className="absolute top-0 h-full w-px bg-white/20" style={{ left: '50%' }} />
+      </Slider.Track>
+      <Slider.Thumb
+        className={`block w-2.5 h-2.5 rounded-full transition-all duration-150 outline-none scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 ${isOver100 ? 'bg-amber-400' : 'bg-white'}`}
       />
-    </div>
+    </Slider.Root>
   );
 });
 

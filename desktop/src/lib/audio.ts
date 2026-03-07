@@ -2,6 +2,7 @@ import { Howl } from 'howler';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { api, streamUrl } from './api';
+import { art } from './cdn';
 import { fetchAndCacheTrack, getCacheFilePath, getCacheUrl, isCached } from './cache';
 
 function toHowlerVolume(v: number) {
@@ -26,7 +27,17 @@ function createHowl(src: string, urn: string, onFail?: () => void): Howl {
     html5: true,
     format: ['mp3'],
     volume: toHowlerVolume(usePlayerStore.getState().volume),
-    onplay: () => updateProgress(),
+    onplay: () => {
+      if (currentUrn === urn && !usePlayerStore.getState().isPlaying) {
+        usePlayerStore.getState().resume();
+      }
+      updateProgress();
+    },
+    onpause: () => {
+      if (currentUrn === urn && usePlayerStore.getState().isPlaying) {
+        usePlayerStore.getState().pause();
+      }
+    },
     onload: () => {
       if (currentUrn !== urn) return;
       const d = howl.duration();
@@ -99,11 +110,18 @@ async function loadTrack(track: Track) {
   }
 }
 
+let positionUpdateCounter = 0;
+
 function updateProgress() {
   if (!currentHowl || !currentHowl.playing()) return;
   const seek = currentHowl.seek();
   if (usePlayerStore.getState().seekRequest === null) {
     usePlayerStore.getState().setProgress(seek);
+  }
+  // Update media session position ~once per second (every ~60 frames)
+  if (++positionUpdateCounter >= 60) {
+    positionUpdateCounter = 0;
+    updateMediaSessionPosition();
   }
   requestAnimationFrame(updateProgress);
 }
@@ -132,6 +150,8 @@ usePlayerStore.subscribe((state, prev) => {
   // Track change
   if (trackChanged) {
     if (state.currentTrack) {
+      updateMediaSession(state.currentTrack);
+      updateMediaSessionState(state.isPlaying);
       void loadTrack(state.currentTrack);
     } else {
       destroyHowl();
@@ -142,6 +162,7 @@ usePlayerStore.subscribe((state, prev) => {
 
   // Play / Pause
   if (playToggled && !trackChanged) {
+    updateMediaSessionState(state.isPlaying);
     if (state.isPlaying) {
       if (!currentHowl && state.currentTrack) {
         void loadTrack(state.currentTrack);
@@ -166,6 +187,51 @@ usePlayerStore.subscribe((state, prev) => {
     currentHowl.volume(toHowlerVolume(state.volume));
   }
 });
+
+/* ── Media Session ───────────────────────────────────────────── */
+
+function updateMediaSession(track: Track) {
+  if (!('mediaSession' in navigator)) return;
+
+  const artwork500 = art(track.artwork_url, 't500x500');
+  const artwork128 = art(track.artwork_url, 't120x120');
+
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: track.title,
+    artist: track.user.username,
+    artwork: [
+      ...(artwork128 ? [{ src: artwork128, sizes: '120x120', type: 'image/jpeg' }] : []),
+      ...(artwork500 ? [{ src: artwork500, sizes: '500x500', type: 'image/jpeg' }] : []),
+    ],
+  });
+}
+
+function updateMediaSessionState(playing: boolean) {
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+}
+
+function updateMediaSessionPosition() {
+  if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+  const { duration, progress } = usePlayerStore.getState();
+  if (duration > 0) {
+    navigator.mediaSession.setPositionState({
+      duration,
+      position: Math.min(progress, duration),
+      playbackRate: 1,
+    });
+  }
+}
+
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.setActionHandler('play', () => usePlayerStore.getState().resume());
+  navigator.mediaSession.setActionHandler('pause', () => usePlayerStore.getState().pause());
+  navigator.mediaSession.setActionHandler('nexttrack', () => usePlayerStore.getState().next());
+  navigator.mediaSession.setActionHandler('previoustrack', () => usePlayerStore.getState().prev());
+  navigator.mediaSession.setActionHandler('seekto', (details) => {
+    if (details.seekTime != null) usePlayerStore.getState().seek(details.seekTime);
+  });
+}
 
 /* ── Autoplay ─────────────────────────────────────────────────── */
 
