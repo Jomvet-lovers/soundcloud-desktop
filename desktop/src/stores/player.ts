@@ -7,6 +7,7 @@ export interface Track {
   title: string;
   duration: number;
   artwork_url: string | null;
+  permalink_url?: string;
   waveform_url?: string;
   genre?: string;
   tag_list?: string;

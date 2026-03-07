@@ -1,4 +1,5 @@
 import {
+  ExternalLink,
   Headphones,
   Heart,
   ListMusic,
@@ -15,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { ScdnImg } from '../components/ui/ScdnImg';
+import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
 import {
@@ -226,6 +228,83 @@ const UserCard = React.memo(({ user }: { user: SCUser }) => {
   );
 });
 
+/* ── URL Detection ───────────────────────────────────────── */
+
+const SC_URL_RE = /^https?:\/\/(www\.|m\.|on\.)?soundcloud\.com\/.+/i;
+
+function isSoundCloudUrl(input: string): boolean {
+  return SC_URL_RE.test(input.trim());
+}
+
+/* ── Resolve Card ────────────────────────────────────────── */
+
+function ResolveCard({
+  url,
+  onDone,
+}: {
+  url: string;
+  onDone: () => void;
+}) {
+  const navigate = useNavigate();
+  const [state, setState] = useState<'loading' | 'error' | 'success'>('loading');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setState('loading');
+
+    api<{ kind: string; urn: string }>(`/resolve?url=${encodeURIComponent(url.trim())}`)
+      .then((res) => {
+        if (cancelled) return;
+        setState('success');
+        const kind = res.kind;
+        const urn = res.urn;
+        if (kind === 'track') {
+          navigate(`/track/${encodeURIComponent(urn)}`);
+        } else if (kind === 'playlist' || kind === 'system-playlist') {
+          navigate(`/playlist/${encodeURIComponent(urn)}`);
+        } else if (kind === 'user') {
+          navigate(`/user/${encodeURIComponent(urn)}`);
+        } else {
+          setErrorMsg(`Unknown resource: ${kind}`);
+          setState('error');
+        }
+        onDone();
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setErrorMsg(e?.body ? 'Link not found' : 'Failed to resolve');
+        setState('error');
+      });
+
+    return () => { cancelled = true; };
+  }, [url, navigate, onDone]);
+
+  return (
+    <div className="max-w-lg mx-auto mt-12 animate-fade-in-up">
+      <div className="glass rounded-3xl p-6 border border-white/[0.06]">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center shrink-0">
+            <ExternalLink size={20} className="text-accent" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-semibold text-white/80">
+              {state === 'loading' ? 'Resolving link...' : state === 'error' ? 'Could not resolve' : 'Redirecting...'}
+            </p>
+            <p className="text-[11px] text-white/30 truncate mt-0.5">{url.trim()}</p>
+          </div>
+          {state === 'loading' && (
+            <Loader2 size={20} className="text-accent animate-spin shrink-0" />
+          )}
+        </div>
+        {state === 'error' && (
+          <p className="text-[12px] text-red-400/70 mt-3 pl-16">{errorMsg}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Search Page ──────────────────────────────────────────── */
 
 export const Search = React.memo(() => {
@@ -233,14 +312,39 @@ export const Search = React.memo(() => {
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'tracks' | 'playlists' | 'users'>('tracks');
+  const [resolveUrl, setResolveUrl] = useState<string | null>(null);
 
-  // Debounce logic
+  const isUrl = isSoundCloudUrl(inputValue);
+
+  // Debounce logic — skip debounce for URLs
   useEffect(() => {
+    if (isUrl) {
+      setDebouncedQuery('');
+      return;
+    }
+    setResolveUrl(null);
     const handler = setTimeout(() => {
       setDebouncedQuery(inputValue);
     }, 500);
     return () => clearTimeout(handler);
-  }, [inputValue]);
+  }, [inputValue, isUrl]);
+
+  // Handle Enter for URL resolve
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && isUrl) {
+      setResolveUrl(inputValue.trim());
+    }
+  };
+
+  // Handle paste — auto-resolve if it's a SC URL
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const pasted = e.clipboardData.getData('text');
+    if (isSoundCloudUrl(pasted)) {
+      e.preventDefault();
+      setInputValue(pasted);
+      setResolveUrl(pasted.trim());
+    }
+  };
 
   // Queries
   const tracksQuery = useSearchTracks(debouncedQuery);
@@ -344,23 +448,39 @@ export const Search = React.memo(() => {
       {/* ── Search Input ── */}
       <div className="relative max-w-2xl mx-auto">
         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-          <SearchIcon size={20} className="text-white/40" />
+          {isUrl ? (
+            <ExternalLink size={20} className="text-accent" />
+          ) : (
+            <SearchIcon size={20} className="text-white/40" />
+          )}
         </div>
         <input
           type="text"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={t('search.placeholder')}
-          className="w-full bg-white/[0.04] hover:bg-white/[0.06] focus:bg-white/[0.08] text-white placeholder:text-white/30 text-[16px] py-4 pl-12 pr-12 rounded-[20px] outline-none border border-white/[0.05] focus:border-accent/30 focus:ring-1 focus:ring-accent/30 transition-all duration-300 shadow-xl backdrop-blur-md"
+          className={`w-full bg-white/[0.04] hover:bg-white/[0.06] focus:bg-white/[0.08] text-white placeholder:text-white/30 text-[16px] py-4 pl-12 pr-12 rounded-[20px] outline-none border transition-all duration-300 shadow-xl backdrop-blur-md ${
+            isUrl
+              ? 'border-accent/30 ring-1 ring-accent/20'
+              : 'border-white/[0.05] focus:border-accent/30 focus:ring-1 focus:ring-accent/30'
+          }`}
           autoFocus
         />
         {inputValue && (
           <button
-            onClick={() => setInputValue('')}
+            onClick={() => { setInputValue(''); setResolveUrl(null); }}
             className="absolute inset-y-0 right-4 flex items-center text-white/30 hover:text-white cursor-pointer transition-colors"
           >
             <X size={18} />
           </button>
+        )}
+        {isUrl && !resolveUrl && (
+          <div className="absolute -bottom-7 left-0 text-[11px] text-accent/60 flex items-center gap-1.5">
+            <ExternalLink size={10} />
+            Press Enter to open link
+          </div>
         )}
       </div>
 
@@ -386,9 +506,14 @@ export const Search = React.memo(() => {
         </div>
       )}
 
+      {/* ── Resolve ── */}
+      {resolveUrl && (
+        <ResolveCard url={resolveUrl} onDone={() => { setInputValue(''); setResolveUrl(null); }} />
+      )}
+
       {/* ── Content ── */}
       <div className="min-h-[400px]">
-        {renderContent()}
+        {!resolveUrl && renderContent()}
 
         {/* Sentinel */}
         <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">

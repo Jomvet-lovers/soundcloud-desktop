@@ -52,6 +52,7 @@ export interface Playlist {
   id: number;
   urn: string;
   title: string;
+  permalink_url?: string;
   description: string | null;
   duration: number;
   artwork_url: string | null;

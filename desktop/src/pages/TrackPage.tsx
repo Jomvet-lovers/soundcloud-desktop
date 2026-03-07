@@ -19,6 +19,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { ScdnImg } from '../components/ui/ScdnImg';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
@@ -528,6 +529,7 @@ export const TrackPage = React.memo(() => {
                 count={track.favoritings_count ?? track.likes_count}
               />
               <RepostBtn trackUrn={track.urn} count={track.reposts_count} />
+              <CopyLinkButton url={track.permalink_url} />
             </div>
           </div>
         </div>

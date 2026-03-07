@@ -21,6 +21,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { ScdnImg } from '../components/ui/ScdnImg';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
@@ -567,11 +568,10 @@ export function UserPage() {
                 </div>
               )}
 
-              {!isOwnProfile && (
-                <div className="ml-auto">
-                  <FollowBtn userUrn={user.urn} />
-                </div>
-              )}
+              <div className="ml-auto flex items-center gap-3">
+                <CopyLinkButton url={user.permalink_url} />
+                {!isOwnProfile && <FollowBtn userUrn={user.urn} />}
+              </div>
             </div>
           </div>
         </div>

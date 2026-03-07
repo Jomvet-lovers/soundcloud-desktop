@@ -14,6 +14,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
+import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { ScdnImg } from '../components/ui/ScdnImg';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
@@ -324,6 +325,7 @@ export const PlaylistPage = React.memo(() => {
                 <Shuffle size={16} />
                 {t('playlist.shuffle')}
               </button>
+              <CopyLinkButton url={playlist.permalink_url} />
             </div>
           </div>
         </div>
