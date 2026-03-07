@@ -23,6 +23,7 @@ import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
 import type { FeedItem } from '../lib/hooks';
 import {
+  useFallbackTracks,
   useFeed,
   useFollowingTracks,
   useGenreTracks,
@@ -597,19 +598,34 @@ export function Home() {
     isFetchingNextPage,
     isLoading: feedLoading,
   } = useFeed();
-  const { data: likes, isLoading: likesLoading } = useLikedTracks(50);
+  const { tracks: likedTracks, isLoading: likesLoading } = useLikedTracks(50);
   const { data: following, isLoading: followingLoading } = useFollowingTracks(20);
 
   const sentinelRef = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
 
-  const likedTracks = likes?.collection ?? [];
   const followingTracks = following?.collection ?? [];
 
-  // Discover: pick a random liked track as seed for recommendations
+  // Detect empty account — no feed, no likes, no following
+  const isEmpty = !feedLoading && !likesLoading && !followingLoading
+    && feedItems.length === 0 && likedTracks.length === 0 && followingTracks.length === 0;
+
+  // Fallback tracks for empty accounts
+  const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
+  const fallbackTracks = fallbackData?.collection ?? [];
+
+  // Discover: pick a random liked track (or fallback) as seed for recommendations
   const seedUrn = useMemo(
-    () => (likedTracks.length > 0 ? likedTracks[Math.floor(Math.random() * Math.min(likedTracks.length, 10))].urn : undefined),
+    () => {
+      if (likedTracks.length > 0) {
+        return likedTracks[Math.floor(Math.random() * Math.min(likedTracks.length, 10))].urn;
+      }
+      if (fallbackTracks.length > 0) {
+        return fallbackTracks[Math.floor(Math.random() * fallbackTracks.length)].urn;
+      }
+      return undefined;
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [likedTracks.length > 0],
+    [likedTracks.length > 0, fallbackTracks.length > 0],
   );
   const { data: recommended, isLoading: recommendedLoading } = useRecommendedTracks(seedUrn, 20);
   const recommendedTracks = recommended?.collection ?? [];
@@ -659,6 +675,27 @@ export function Home() {
             <FeaturedCard item={featuredItem} queue={feedTrackQueue} />
           </section>
         )
+      )}
+
+      {/* ── Fallback: Start Listening (empty account) ── */}
+      {isEmpty && (fallbackLoading || fallbackTracks.length > 0) && (
+        <section>
+          <SectionHeader
+            title={t('home.startListening', 'Start Listening')}
+            icon={<Headphones size={15} className="text-accent" />}
+          />
+          <HorizontalScroll>
+            {fallbackLoading ? (
+              <ShelfSkeleton count={3} />
+            ) : (
+              fallbackTracks.map((track) => (
+                <div key={track.urn} className="w-[180px] shrink-0">
+                  <TrackCard track={track} queue={fallbackTracks} />
+                </div>
+              ))
+            )}
+          </HorizontalScroll>
+        </section>
       )}
 
       {/* ── Liked Tracks ───────────────────────────────── */}

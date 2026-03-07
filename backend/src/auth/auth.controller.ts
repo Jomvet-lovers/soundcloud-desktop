@@ -44,7 +44,7 @@ export class AuthController {
   @ApiOkResponse({ type: SessionResponseDto })
   async session(@Headers('x-session-id') sessionId: string) {
     const session = await this.authService.getSession(sessionId);
-    if (!session) {
+    if (!session || !session.accessToken) {
       return { authenticated: false };
     }
     return {

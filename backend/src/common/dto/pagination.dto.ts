@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class PaginationQuery {
   @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 50 })
@@ -11,12 +11,17 @@ export class PaginationQuery {
   @Transform(({ value }) => Number.parseInt(value, 10))
   limit?: number = 50;
 
-  @ApiPropertyOptional({ default: 0, deprecated: true })
+  @ApiPropertyOptional({ description: 'Cursor for cursor-based pagination (from next_href)' })
+  @IsOptional()
+  @IsString()
+  cursor?: string;
+
+  @ApiPropertyOptional({ deprecated: true })
   @IsOptional()
   @IsInt()
   @Min(0)
   @Transform(({ value }) => Number.parseInt(value, 10))
-  offset?: number = 0;
+  offset?: number;
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

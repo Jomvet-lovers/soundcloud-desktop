@@ -77,7 +77,8 @@
     "reposted": "Reposted",
     "endOfFeed": "You're all caught up",
     "recommended": "Recommended For You",
-    "discover": "Discover"
+    "discover": "Discover",
+    "startListening": "Start Listening"
   },
   "common": {
     "loading": "Loading...",

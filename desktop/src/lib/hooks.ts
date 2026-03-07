@@ -202,11 +202,34 @@ export function useFeed() {
 
 /* ── Liked tracks ──────────────────────────────────────────────── */
 
-export function useLikedTracks(limit = 10) {
-  return useQuery({
+export function useLikedTracks(limit = 30) {
+  const query = useInfiniteQuery({
     queryKey: ['me', 'likes', 'tracks', limit],
-    queryFn: () => api<TrackListResponse>(`/me/likes/tracks?limit=${limit}`),
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pageParam) {
+        for (const [key, val] of Object.entries(pageParam)) {
+          params.set(key, val);
+        }
+      }
+      return api<TrackListResponse>(`/me/likes/tracks?${params}`);
+    },
+    initialPageParam: undefined as PageParam | undefined,
+    getNextPageParam: (last, _all, lastPageParam) => {
+      const next = extractPagination(last.next_href);
+      if (!next) return undefined;
+      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
+      return next;
+    },
   });
+
+  const tracks: Track[] = [];
+  if (query.data) {
+    for (const page of query.data.pages) {
+      for (const t of page.collection) tracks.push(t);
+    }
+  }
+  return { tracks, ...query };
 }
 
 /* ── Fresh from followed artists ───────────────────────────────── */
@@ -337,7 +360,7 @@ export function useUserTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'tracks'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '200', access: 'playable' });
+      const params = new URLSearchParams({ limit: '30', access: 'playable' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -369,7 +392,7 @@ export function useUserPlaylists(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'playlists'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '200' });
+      const params = new URLSearchParams({ limit: '30' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -403,7 +426,7 @@ export function useUserLikedTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'likes', 'tracks'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '100', access: 'playable' });
+      const params = new URLSearchParams({ limit: '30', access: 'playable' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -444,33 +467,98 @@ export function useUserWebProfiles(userUrn: string | undefined) {
 
 /* ── My Library ────────────────────────────────────────────────── */
 
-export function useMyFollowings(limit = 100) {
-  return useQuery({
+export function useMyFollowings(limit = 30) {
+  const query = useInfiniteQuery({
     queryKey: ['me', 'followings', limit],
-    queryFn: () => api<UserListResponse>(`/me/followings?limit=${limit}`),
-  });
-}
-
-export function useMyLikedPlaylists(limit = 100) {
-  return useQuery({
-    queryKey: ['me', 'likes', 'playlists', limit],
-    queryFn: () => api<PlaylistListResponse>(`/me/likes/playlists?limit=${limit}`),
-  });
-}
-
-export function useMyPlaylists() {
-  // Для получения своих плейлистов часто используется /me/playlists или /users/{my_id}/playlists
-  // Мы используем существующий endpoint пользователя, если знаем ID, или /me/playlists если он есть
-  return useQuery({
-    queryKey: ['me', 'playlists'],
-    queryFn: async () => {
-      // Пробуем получить через /me/playlists
-      // Если бэк не поддерживает, можно переключиться на userUrn, но обычно /me/playlists работает
-      const res = await api<Playlist[]>(`/me/playlists`);
-      // API может возвращать массив или объект с collection. Обработаем оба варианта.
-      return Array.isArray(res) ? res : (res as any).collection || [];
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pageParam) {
+        for (const [key, val] of Object.entries(pageParam)) {
+          params.set(key, val);
+        }
+      }
+      return api<UserListResponse>(`/me/followings?${params}`);
+    },
+    initialPageParam: undefined as PageParam | undefined,
+    getNextPageParam: (last, _all, lastPageParam) => {
+      const next = extractPagination(last.next_href);
+      if (!next) return undefined;
+      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
+      return next;
     },
   });
+
+  const users: SCUser[] = [];
+  if (query.data) {
+    for (const page of query.data.pages) {
+      for (const u of page.collection) users.push(u);
+    }
+  }
+  return { users, ...query };
+}
+
+export function useMyLikedPlaylists(limit = 30) {
+  const query = useInfiniteQuery({
+    queryKey: ['me', 'likes', 'playlists', limit],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pageParam) {
+        for (const [key, val] of Object.entries(pageParam)) {
+          params.set(key, val);
+        }
+      }
+      return api<PlaylistListResponse>(`/me/likes/playlists?${params}`);
+    },
+    initialPageParam: undefined as PageParam | undefined,
+    getNextPageParam: (last, _all, lastPageParam) => {
+      const next = extractPagination(last.next_href);
+      if (!next) return undefined;
+      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
+      return next;
+    },
+  });
+
+  const playlists: Playlist[] = [];
+  if (query.data) {
+    for (const page of query.data.pages) {
+      for (const p of page.collection) playlists.push(p);
+    }
+  }
+  return { playlists, ...query };
+}
+
+export function useMyPlaylists(limit = 30) {
+  const query = useInfiniteQuery({
+    queryKey: ['me', 'playlists', limit],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pageParam) {
+        for (const [key, val] of Object.entries(pageParam)) {
+          params.set(key, val);
+        }
+      }
+      const res = await api<PlaylistListResponse | Playlist[]>(`/me/playlists?${params}`);
+      if (Array.isArray(res)) {
+        return { collection: res, next_href: null } as PlaylistListResponse;
+      }
+      return res;
+    },
+    initialPageParam: undefined as PageParam | undefined,
+    getNextPageParam: (last, _all, lastPageParam) => {
+      const next = extractPagination(last.next_href);
+      if (!next) return undefined;
+      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
+      return next;
+    },
+  });
+
+  const playlists: Playlist[] = [];
+  if (query.data) {
+    for (const page of query.data.pages) {
+      for (const p of page.collection) playlists.push(p);
+    }
+  }
+  return { playlists, ...query };
 }
 
 /* ── Search ────────────────────────────────────────────────────── */
@@ -561,6 +649,19 @@ export function useSearchUsers(q: string) {
     }
   }
   return { users, ...query };
+}
+
+/* ── Fallback / Seed Tracks ────────────────────────────────────── */
+
+const FALLBACK_TRACK_IDS = '2028678528,2028677636,2078655668';
+
+export function useFallbackTracks() {
+  return useQuery({
+    queryKey: ['fallback', 'tracks'],
+    queryFn: () =>
+      api<TrackListResponse>(`/tracks?ids=${FALLBACK_TRACK_IDS}&linked_partitioning=true`),
+    staleTime: 1000 * 60 * 30,
+  });
 }
 
 /* ── Discover ──────────────────────────────────────────────────── */

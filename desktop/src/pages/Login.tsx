@@ -1,7 +1,7 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { Disc3 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
 import { API_BASE } from '../lib/constants';
@@ -19,30 +19,41 @@ interface SessionResponse {
 
 export function Login() {
   const { t } = useTranslation();
-  const { setSession, fetchUser } = useAuthStore();
+  const setSession = useAuthStore((s) => s.setSession);
+  const fetchUser = useAuthStore((s) => s.fetchUser);
   const [loading, setLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const handleLogin = async () => {
+    if (pollRef.current) clearInterval(pollRef.current);
     setLoading(true);
     try {
       const { url, sessionId } = await api<LoginResponse>('/auth/login');
       await openUrl(url);
 
-      const poll = setInterval(async () => {
+      pollRef.current = setInterval(async () => {
         try {
           const res = await fetch(`${API_BASE}/auth/session`, {
             headers: { 'x-session-id': sessionId },
           });
           const data: SessionResponse = await res.json();
           if (data.authenticated) {
-            clearInterval(poll);
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
             setSession(sessionId);
             await fetchUser();
             queryClient.invalidateQueries();
           }
         } catch {}
       }, 2000);
-    } catch {
+    } catch (e) {
+      console.error('Login failed:', e);
       setLoading(false);
     }
   };

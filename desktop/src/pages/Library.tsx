@@ -19,6 +19,7 @@ import { art } from '../lib/cdn';
 import {
   type Playlist,
   type SCUser,
+  useInfiniteScroll,
   useLikedTracks,
   useMyFollowings,
   useMyLikedPlaylists,
@@ -238,15 +239,46 @@ export const Library = React.memo(() => {
   const play = usePlayerStore((s) => s.play);
 
   // Data Fetching
-  const { data: likedTracksData, isLoading: likesLoading } = useLikedTracks(200);
-  const { data: followingsData, isLoading: followingsLoading } = useMyFollowings(50);
-  const { data: likedPlaylistsData, isLoading: likedPlaylistsLoading } = useMyLikedPlaylists(50);
-  const { data: myPlaylists, isLoading: myPlaylistsLoading } = useMyPlaylists();
+  const likesQuery = useLikedTracks();
+  const followingsQuery = useMyFollowings();
+  const likedPlaylistsQuery = useMyLikedPlaylists();
+  const myPlaylistsQuery = useMyPlaylists();
 
-  const likedTracks = likedTracksData?.collection || [];
-  const followings = followingsData?.collection || [];
-  const likedPlaylists = likedPlaylistsData?.collection || [];
-  const createdPlaylists = myPlaylists || [];
+  const likedTracks = likesQuery.tracks;
+  const followings = followingsQuery.users;
+  const likedPlaylists = likedPlaylistsQuery.playlists;
+  const createdPlaylists = myPlaylistsQuery.playlists;
+
+  const likesLoading = likesQuery.isLoading;
+  const followingsLoading = followingsQuery.isLoading;
+  const likedPlaylistsLoading = likedPlaylistsQuery.isLoading;
+  const myPlaylistsLoading = myPlaylistsQuery.isLoading;
+
+  // Infinite scroll per tab
+  const hasNextPage =
+    activeTab === 'likes'
+      ? likesQuery.hasNextPage
+      : activeTab === 'following'
+        ? followingsQuery.hasNextPage
+        : (likedPlaylistsQuery.hasNextPage || myPlaylistsQuery.hasNextPage);
+
+  const isFetchingNextPage =
+    activeTab === 'likes'
+      ? likesQuery.isFetchingNextPage
+      : activeTab === 'following'
+        ? followingsQuery.isFetchingNextPage
+        : (likedPlaylistsQuery.isFetchingNextPage || myPlaylistsQuery.isFetchingNextPage);
+
+  const fetchNextPage =
+    activeTab === 'likes'
+      ? likesQuery.fetchNextPage
+      : activeTab === 'following'
+        ? followingsQuery.fetchNextPage
+        : likedPlaylistsQuery.hasNextPage
+          ? likedPlaylistsQuery.fetchNextPage
+          : myPlaylistsQuery.fetchNextPage;
+
+  const sentinelRef = useInfiniteScroll(!!hasNextPage, !!isFetchingNextPage, fetchNextPage);
 
   // Hero Quick Actions
   const handleShuffleLikes = () => {
@@ -384,7 +416,7 @@ export const Library = React.memo(() => {
               <div className="flex justify-center py-10">
                 <Loader2 size={24} className="animate-spin text-white/20" />
               </div>
-            ) : Array.isArray(createdPlaylists) && createdPlaylists.length > 0 ? (
+            ) : createdPlaylists.length > 0 ? (
               <section>
                 <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
                   {t('library.yourPlaylists')}
@@ -456,6 +488,11 @@ export const Library = React.memo(() => {
             )}
           </div>
         )}
+
+        {/* Infinite Scroll Sentinel */}
+        <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+          {isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
+        </div>
       </div>
     </div>
   );

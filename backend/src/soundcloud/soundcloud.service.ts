@@ -93,12 +93,16 @@ export class SoundcloudService {
   }
 
   async apiGet<T>(path: string, accessToken: string, params?: Record<string, unknown>): Promise<T> {
+    // Strip undefined/null values so they don't get sent as query params
+    const cleanParams = params
+      ? Object.fromEntries(Object.entries(params).filter(([, v]) => v != null))
+      : undefined;
     const config: AxiosRequestConfig = {
       headers: {
         Authorization: `OAuth ${accessToken}`,
         Accept: 'application/json; charset=utf-8',
       },
-      params,
+      params: cleanParams,
     };
 
     const { data } = await firstValueFrom(
