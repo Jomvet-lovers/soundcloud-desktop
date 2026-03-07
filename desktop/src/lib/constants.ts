@@ -1,5 +1,5 @@
-//export const API_BASE = 'https://backend.soundcloud.work.gd';
-export const API_BASE = 'http://localhost:3000';
+export const API_BASE = 'https://backend.soundcloud.work.gd';
+// export const API_BASE = 'http://localhost:3000';
 
 export const GITHUB_OWNER = 'zxcloli666';
 export const GITHUB_REPO = 'SoundCloud-Desktop';
