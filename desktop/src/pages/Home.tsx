@@ -151,7 +151,7 @@ const FeaturedCard = React.memo(function FeaturedCard({ item, queue }: { item: F
 
   return (
     <div
-      className="relative rounded-3xl overflow-hidden group glass-featured animate-fade-in-up"
+      className="relative rounded-3xl overflow-hidden group glass-featured"
       onMouseEnter={() => preloadTrack(track.urn)}
     >
       {/* Blurred artwork background */}
@@ -533,36 +533,129 @@ const FeedPlaylistCard = React.memo(function FeedPlaylistCard({ item }: { item: 
   );
 }, (prev, next) => prev.item.origin.urn === next.item.origin.urn);
 
-/* ── Home Page ────────────────────────────────────────────── */
+/* ── Isolated Sections ────────────────────────────────────── */
 
-export function Home() {
+const FeaturedHero = React.memo(function FeaturedHero() {
+  const { items, isLoading } = useFeed();
+
+  const featuredItem = useMemo(
+    () => items.find((i) => i.type.includes('track')),
+    [items],
+  );
+  const feedTrackQueue = useMemo(
+    () => items.filter((i) => i.type.includes('track')).map((i) => i.origin as Track),
+    [items],
+  );
+
+  if (isLoading) return <FeaturedSkeleton />;
+  if (!featuredItem) return null;
+
+  return (
+    <section>
+      <FeaturedCard item={featuredItem} queue={feedTrackQueue} />
+    </section>
+  );
+});
+
+const FallbackShelf = React.memo(function FallbackShelf() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-
-  const {
-    items: feedItems,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading: feedLoading,
-  } = useFeed();
+  const { items: feedItems, isLoading: feedLoading } = useFeed();
   const { tracks: likedTracks, isLoading: likesLoading } = useLikedTracks(50);
   const { data: following, isLoading: followingLoading } = useFollowingTracks(20);
-
-  const sentinelRef = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
-
   const followingTracks = useMemo(() => following?.collection ?? [], [following]);
 
-  // Detect empty account — no feed, no likes, no following
   const isEmpty = !feedLoading && !likesLoading && !followingLoading
     && feedItems.length === 0 && likedTracks.length === 0 && followingTracks.length === 0;
 
-  // Fallback tracks for empty accounts
   const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
   const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
 
-  // Discover: pick a random liked track (or fallback) as seed for recommendations
+  if (!isEmpty || (!fallbackLoading && fallbackTracks.length === 0)) return null;
+
+  return (
+    <section>
+      <SectionHeader
+        title={t('home.startListening', 'Start Listening')}
+        icon={<Headphones size={15} className="text-accent" />}
+      />
+      <HorizontalScroll>
+        {fallbackLoading ? (
+          <ShelfSkeleton count={3} />
+        ) : (
+          fallbackTracks.map((track) => (
+            <div key={track.urn} className="w-[180px] shrink-0">
+              <TrackCard track={track} queue={fallbackTracks} />
+            </div>
+          ))
+        )}
+      </HorizontalScroll>
+    </section>
+  );
+});
+
+const LikedShelf = React.memo(function LikedShelf() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { tracks: likedTracks, isLoading } = useLikedTracks(50);
+
+  if (!isLoading && likedTracks.length === 0) return null;
+
+  return (
+    <section>
+      <SectionHeader
+        title={t('library.likedTracks')}
+        icon={<Heart size={15} className="text-accent" />}
+        onSeeAll={() => navigate('/library')}
+      />
+      <HorizontalScroll>
+        {isLoading ? (
+          <ShelfSkeleton />
+        ) : (
+          likedTracks.map((track) => (
+            <div key={track.urn} className="w-[180px] shrink-0">
+              <TrackCard track={track} queue={likedTracks} />
+            </div>
+          ))
+        )}
+      </HorizontalScroll>
+    </section>
+  );
+});
+
+const FollowingShelf = React.memo(function FollowingShelf() {
+  const { t } = useTranslation();
+  const { data: following, isLoading } = useFollowingTracks(20);
+  const followingTracks = useMemo(() => following?.collection ?? [], [following]);
+
+  if (!isLoading && followingTracks.length === 0) return null;
+
+  return (
+    <section>
+      <SectionHeader
+        title={t('home.freshReleases')}
+        icon={<Music size={15} className="text-white/50" />}
+      />
+      <HorizontalScroll>
+        {isLoading ? (
+          <ShelfSkeleton />
+        ) : (
+          followingTracks.map((track) => (
+            <div key={track.urn} className="w-[180px] shrink-0">
+              <TrackCard track={track} queue={followingTracks} />
+            </div>
+          ))
+        )}
+      </HorizontalScroll>
+    </section>
+  );
+});
+
+const RecommendedShelf = React.memo(function RecommendedShelf() {
+  const { t } = useTranslation();
+  const { tracks: likedTracks } = useLikedTracks(50);
+  const { data: fallbackData } = useFallbackTracks();
+  const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
+
   const seedUrn = useMemo(
     () => {
       if (likedTracks.length > 0) {
@@ -573,13 +666,40 @@ export function Home() {
       }
       return undefined;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: stable seed
     [likedTracks.length > 0, fallbackTracks.length > 0],
   );
-  const { data: recommended, isLoading: recommendedLoading } = useRecommendedTracks(seedUrn, 20);
+
+  const { data: recommended, isLoading } = useRecommendedTracks(seedUrn, 20);
   const recommendedTracks = useMemo(() => recommended?.collection ?? [], [recommended]);
 
-  // Genre discovery — extract top genres from liked tracks
+  if (!isLoading && recommendedTracks.length === 0) return null;
+
+  return (
+    <section>
+      <SectionHeader
+        title={t('home.recommended', 'Recommended For You')}
+        icon={<Sparkles size={15} className="text-amber-400/70" />}
+      />
+      <HorizontalScroll>
+        {isLoading ? (
+          <ShelfSkeleton />
+        ) : (
+          recommendedTracks.map((track) => (
+            <div key={track.urn} className="w-[180px] shrink-0">
+              <TrackCard track={track} queue={recommendedTracks} />
+            </div>
+          ))
+        )}
+      </HorizontalScroll>
+    </section>
+  );
+});
+
+const DiscoverShelf = React.memo(function DiscoverShelf() {
+  const { t } = useTranslation();
+  const { tracks: likedTracks } = useLikedTracks(50);
+
   const topGenres = useMemo(() => {
     const counts = new Map<string, number>();
     for (const t of likedTracks) {
@@ -591,12 +711,63 @@ export function Home() {
       .slice(0, 7)
       .map(([g]) => g);
   }, [likedTracks]);
+
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const selectedGenre = activeGenre ?? topGenres[0] ?? null;
-  const { data: genreData, isLoading: genreLoading } = useGenreTracks(selectedGenre!, 20);
+  const { data: genreData, isLoading } = useGenreTracks(selectedGenre!, 20);
   const genreTracks = useMemo(() => genreData?.collection ?? [], [genreData]);
 
-  // First track in feed → featured hero card
+  if (topGenres.length === 0) return null;
+
+  return (
+    <section>
+      <SectionHeader
+        title={t('home.discover', 'Discover')}
+        icon={<Compass size={15} className="text-cyan-400/70" />}
+      />
+      <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+        {topGenres.map((g) => (
+          <button
+            key={g}
+            type="button"
+            onClick={() => setActiveGenre(g)}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 cursor-pointer capitalize ${
+              selectedGenre === g
+                ? 'bg-white/[0.12] text-white border border-white/[0.08]'
+                : 'bg-white/[0.03] text-white/40 border border-white/[0.04] hover:bg-white/[0.06] hover:text-white/60'
+            }`}
+          >
+            {g}
+          </button>
+        ))}
+      </div>
+      <HorizontalScroll>
+        {isLoading ? (
+          <ShelfSkeleton />
+        ) : (
+          genreTracks.map((track) => (
+            <div key={track.urn} className="w-[180px] shrink-0">
+              <TrackCard track={track} queue={genreTracks} />
+            </div>
+          ))
+        )}
+      </HorizontalScroll>
+    </section>
+  );
+});
+
+const FeedStream = React.memo(function FeedStream() {
+  const { t } = useTranslation();
+  const {
+    items: feedItems,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useFeed();
+
+  const sentinelRef = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
+
   const featuredItem = useMemo(
     () => feedItems.find((i) => i.type.includes('track')),
     [feedItems],
@@ -605,16 +776,58 @@ export function Home() {
     () => feedItems.filter((i) => i !== featuredItem),
     [feedItems, featuredItem],
   );
-
-  // All feed tracks as queue context
   const feedTrackQueue = useMemo(
     () => feedItems.filter((i) => i.type.includes('track')).map((i) => i.origin as Track),
     [feedItems],
   );
 
   return (
+    <section>
+      <SectionHeader
+        title={t('home.yourFeed')}
+        icon={<Music size={15} className="text-white/50" />}
+      />
+
+      {isLoading ? (
+        <FeedSkeleton />
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-2.5">
+          {streamItems.map((item) => (
+            <div key={item.origin.urn}>
+              {item.type.includes('track') ? (
+                <FeedTrackCard item={item} queue={feedTrackQueue} />
+              ) : (
+                <FeedPlaylistCard item={item} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Sentinel for infinite scroll */}
+      <div ref={sentinelRef} className="h-12 flex items-center justify-center">
+        {isFetchingNextPage && <Loader2 size={18} className="text-white/15 animate-spin" />}
+        {!isLoading && !hasNextPage && !isFetchingNextPage && streamItems.length > 0 && (
+          <div className="flex items-center gap-2 text-[11px] text-white/15">
+            <div className="h-px w-8 bg-white/[0.06]" />
+            <span>{t('home.endOfFeed')}</span>
+            <div className="h-px w-8 bg-white/[0.06]" />
+          </div>
+        )}
+      </div>
+    </section>
+  );
+});
+
+/* ── Home Page ────────────────────────────────────────────── */
+
+export function Home() {
+  const { t } = useTranslation();
+  const user = useAuthStore((s) => s.user);
+
+  return (
     <div className="p-6 pb-4 space-y-8">
-      {/* ── Hero Greeting ──────────────────────────────── */}
+      {/* Hero Greeting — no data hooks, won't re-render */}
       <section className="pt-1">
         <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-white/80 to-accent/80 bg-clip-text text-transparent leading-tight pb-1">
           {t(greetingKey())}
@@ -623,178 +836,14 @@ export function Home() {
         <div className="mt-3 h-px bg-gradient-to-r from-white/[0.06] via-white/[0.03] to-transparent" />
       </section>
 
-      {/* ── Featured Track ─────────────────────────────── */}
-      {feedLoading ? (
-        <FeaturedSkeleton />
-      ) : (
-        featuredItem && (
-          <section>
-            <FeaturedCard item={featuredItem} queue={feedTrackQueue} />
-          </section>
-        )
-      )}
-
-      {/* ── Fallback: Start Listening (empty account) ── */}
-      {isEmpty && (fallbackLoading || fallbackTracks.length > 0) && (
-        <section>
-          <SectionHeader
-            title={t('home.startListening', 'Start Listening')}
-            icon={<Headphones size={15} className="text-accent" />}
-          />
-          <HorizontalScroll>
-            {fallbackLoading ? (
-              <ShelfSkeleton count={3} />
-            ) : (
-              fallbackTracks.map((track) => (
-                <div key={track.urn} className="w-[180px] shrink-0">
-                  <TrackCard track={track} queue={fallbackTracks} />
-                </div>
-              ))
-            )}
-          </HorizontalScroll>
-        </section>
-      )}
-
-      {/* ── Liked Tracks ───────────────────────────────── */}
-      {(likesLoading || likedTracks.length > 0) && (
-        <section>
-          <SectionHeader
-            title={t('library.likedTracks')}
-            icon={<Heart size={15} className="text-accent" />}
-            onSeeAll={() => navigate('/library')}
-          />
-          <HorizontalScroll>
-            {likesLoading ? (
-              <ShelfSkeleton />
-            ) : (
-              likedTracks.map((track) => (
-                <div key={track.urn} className="w-[180px] shrink-0">
-                  <TrackCard track={track} queue={likedTracks} />
-                </div>
-              ))
-            )}
-          </HorizontalScroll>
-        </section>
-      )}
-
-      {/* ── Fresh Releases ─────────────────────────────── */}
-      {(followingLoading || followingTracks.length > 0) && (
-        <section>
-          <SectionHeader
-            title={t('home.freshReleases')}
-            icon={<Music size={15} className="text-white/50" />}
-          />
-          <HorizontalScroll>
-            {followingLoading ? (
-              <ShelfSkeleton />
-            ) : (
-              followingTracks.map((track) => (
-                <div key={track.urn} className="w-[180px] shrink-0">
-                  <TrackCard track={track} queue={followingTracks} />
-                </div>
-              ))
-            )}
-          </HorizontalScroll>
-        </section>
-      )}
-
-      {/* ── Recommended For You ───────────────────────── */}
-      {(recommendedLoading || recommendedTracks.length > 0) && (
-        <section>
-          <SectionHeader
-            title={t('home.recommended', 'Recommended For You')}
-            icon={<Sparkles size={15} className="text-amber-400/70" />}
-          />
-          <HorizontalScroll>
-            {recommendedLoading ? (
-              <ShelfSkeleton />
-            ) : (
-              recommendedTracks.map((track) => (
-                <div key={track.urn} className="w-[180px] shrink-0">
-                  <TrackCard track={track} queue={recommendedTracks} />
-                </div>
-              ))
-            )}
-          </HorizontalScroll>
-        </section>
-      )}
-
-      {/* ── Discover by Genre ──────────────────────────── */}
-      {topGenres.length > 0 && (
-      <section>
-        <SectionHeader
-          title={t('home.discover', 'Discover')}
-          icon={<Compass size={15} className="text-cyan-400/70" />}
-        />
-        <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-          {topGenres.map((g) => (
-            <button
-              key={g}
-              type="button"
-              onClick={() => setActiveGenre(g)}
-              className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 cursor-pointer capitalize ${
-                selectedGenre === g
-                  ? 'bg-white/[0.12] text-white border border-white/[0.08]'
-                  : 'bg-white/[0.03] text-white/40 border border-white/[0.04] hover:bg-white/[0.06] hover:text-white/60'
-              }`}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-        <HorizontalScroll>
-          {genreLoading ? (
-            <ShelfSkeleton />
-          ) : (
-            genreTracks.map((track) => (
-              <div key={track.urn} className="w-[180px] shrink-0">
-                <TrackCard track={track} queue={genreTracks} />
-              </div>
-            ))
-          )}
-        </HorizontalScroll>
-      </section>
-      )}
-
-      {/* ── Feed Stream ────────────────────────────────── */}
-      <section>
-        <SectionHeader
-          title={t('home.yourFeed')}
-          icon={<Music size={15} className="text-white/50" />}
-        />
-
-        {feedLoading ? (
-          <FeedSkeleton />
-        ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-2.5">
-            {streamItems.map((item, i) => (
-              <div
-                key={item.origin.urn}
-                className="animate-fade-in-up"
-                style={{ animationDelay: `${Math.min(i * 40, 400)}ms` }}
-              >
-                {item.type.includes('track') ? (
-                  <FeedTrackCard item={item} queue={feedTrackQueue} />
-                ) : (
-                  <FeedPlaylistCard item={item} />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Sentinel for infinite scroll */}
-        <div ref={sentinelRef} className="h-12 flex items-center justify-center">
-          {isFetchingNextPage && <Loader2 size={18} className="text-white/15 animate-spin" />}
-          {!feedLoading && !hasNextPage && !isFetchingNextPage && streamItems.length > 0 && (
-            <div className="flex items-center gap-2 text-[11px] text-white/15">
-              <div className="h-px w-8 bg-white/[0.06]" />
-              <span>{t('home.endOfFeed')}</span>
-              <div className="h-px w-8 bg-white/[0.06]" />
-            </div>
-          )}
-        </div>
-      </section>
+      {/* Each section is isolated — own hooks, own re-render boundary */}
+      <FeaturedHero />
+      <FallbackShelf />
+      <LikedShelf />
+      <FollowingShelf />
+      <RecommendedShelf />
+      <DiscoverShelf />
+      <FeedStream />
     </div>
   );
 }

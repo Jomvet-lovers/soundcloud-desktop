@@ -175,6 +175,7 @@ export function useFeed() {
       }
       return next;
     },
+    staleTime: 1000 * 60 * 2,
   });
 
   const items = useMemo(() => {
@@ -223,6 +224,7 @@ export function useLikedTracks(limit = 30) {
       if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
       return next;
     },
+    staleTime: 1000 * 60 * 2,
   });
 
   const tracks = useMemo(() => {
@@ -242,6 +244,7 @@ export function useFollowingTracks(limit = 20) {
   return useQuery({
     queryKey: ['me', 'followings', 'tracks', limit],
     queryFn: () => api<TrackListResponse>(`/me/followings/tracks?limit=${limit}`),
+    staleTime: 1000 * 60 * 2,
   });
 }
 
