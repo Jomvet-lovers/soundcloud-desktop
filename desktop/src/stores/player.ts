@@ -36,11 +36,8 @@ interface PlayerState {
   queueIndex: number;
   isPlaying: boolean;
   volume: number;
-  progress: number;
-  duration: number;
   shuffle: boolean;
   repeat: RepeatMode;
-  seekRequest: number | null;
 
   play: (track: Track, queue?: Track[]) => void;
   pause: () => void;
@@ -48,11 +45,7 @@ interface PlayerState {
   togglePlay: () => void;
   next: () => void;
   prev: () => void;
-  seek: (seconds: number) => void;
-  clearSeek: () => void;
   setVolume: (v: number) => void;
-  setProgress: (s: number) => void;
-  setDuration: (d: number) => void;
   addToQueue: (tracks: Track[]) => void;
   removeFromQueue: (index: number) => void;
   moveInQueue: (from: number, to: number) => void;
@@ -69,14 +62,10 @@ export const usePlayerStore = create<PlayerState>()(
       queueIndex: -1,
       isPlaying: false,
       volume: 50,
-      progress: 0,
-      duration: 0,
       shuffle: false,
       repeat: 'off',
-      seekRequest: null,
 
       play: (track, queue) => {
-        console.log(`🏪 [Store] play() -> track: ${track.urn}`);
         if (queue) {
           const idx = queue.findIndex((t) => t.urn === track.urn);
           set({
@@ -84,8 +73,6 @@ export const usePlayerStore = create<PlayerState>()(
             queue,
             queueIndex: idx >= 0 ? idx : 0,
             isPlaying: true,
-            progress: 0,
-            seekRequest: null,
           });
         } else {
           const { queue: currentQueue } = get();
@@ -94,30 +81,19 @@ export const usePlayerStore = create<PlayerState>()(
             queue: [...currentQueue, track],
             queueIndex: currentQueue.length,
             isPlaying: true,
-            progress: 0,
-            seekRequest: null,
           });
         }
       },
 
-      pause: () => {
-        console.log(`🏪 [Store] pause()`);
-        set({ isPlaying: false });
-      },
-
-      resume: () => {
-        console.log(`🏪 [Store] resume()`);
-        set({ isPlaying: true });
-      },
+      pause: () => set({ isPlaying: false }),
+      resume: () => set({ isPlaying: true }),
 
       togglePlay: () => {
         const { isPlaying, currentTrack } = get();
-        console.log(`🏪 [Store] togglePlay() -> will be: ${!isPlaying}`);
         if (currentTrack) set({ isPlaying: !isPlaying });
       },
 
       next: () => {
-        console.log(`🏪 [Store] next()`);
         const { queue, queueIndex, repeat, shuffle } = get();
         if (queue.length === 0) return;
 
@@ -140,42 +116,20 @@ export const usePlayerStore = create<PlayerState>()(
           currentTrack: queue[nextIdx],
           queueIndex: nextIdx,
           isPlaying: true,
-          progress: 0,
-          seekRequest: null,
         });
       },
 
       prev: () => {
-        console.log(`🏪 [Store] prev()`);
-        const { queue, queueIndex, progress } = get();
-        if (progress > 3) {
-          console.log(`🏪 [Store] prev() -> rewinding to 0`);
-          set({ seekRequest: 0, progress: 0 });
-          return;
-        }
+        const { queue, queueIndex } = get();
         const prevIdx = Math.max(0, queueIndex - 1);
         set({
           currentTrack: queue[prevIdx],
           queueIndex: prevIdx,
           isPlaying: true,
-          progress: 0,
-          seekRequest: null,
         });
       },
 
-      seek: (seconds) => {
-        console.log(`🏪 [Store] seek(${seconds})`);
-        set({ seekRequest: seconds, progress: seconds });
-      },
-
-      clearSeek: () => {
-        console.log(`🏪 [Store] clearSeek()`);
-        set({ seekRequest: null });
-      },
-
       setVolume: (v) => set({ volume: Math.round(Math.max(0, Math.min(200, v))) }),
-      setProgress: (s) => set({ progress: s }),
-      setDuration: (d) => set({ duration: d }),
 
       addToQueue: (tracks) => set((s) => ({ queue: [...s.queue, ...tracks] })),
 
@@ -212,7 +166,7 @@ export const usePlayerStore = create<PlayerState>()(
     }),
     {
       name: 'sc-player',
-      version: 2,
+      version: 3,
       partialize: (state) => ({
         volume: state.volume,
         currentTrack: state.currentTrack,
@@ -221,11 +175,6 @@ export const usePlayerStore = create<PlayerState>()(
         shuffle: state.shuffle,
         repeat: state.repeat,
       }),
-      migrate: (persisted: unknown) => {
-        const state = persisted as Record<string, unknown>;
-        state.volume = 50;
-        return state as unknown as PlayerState;
-      },
     },
   ),
 );

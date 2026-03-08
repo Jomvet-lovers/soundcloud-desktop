@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Calendar,
   Globe,
-  Headphones,
   Heart,
   Instagram,
   Link as LinkIcon,
@@ -11,18 +10,15 @@ import {
   Loader2,
   MapPin,
   Music,
-  Pause,
   Play,
   Twitter,
   Users,
   Youtube,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
-import { ScdnImg } from '../components/ui/ScdnImg';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
@@ -36,23 +32,14 @@ import {
   useUserWebProfiles,
 } from '../lib/hooks';
 import { useAuthStore } from '../stores/auth';
+import { dur, fc } from '../lib/formatters';
+import { useTrackPlay } from '../lib/useTrackPlay';
+import { pauseWhite14, playWhite14, headphones11, heart11, pauseBlack22 } from '../lib/icons';
 import { type Track, usePlayerStore } from '../stores/player';
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
-function fc(n?: number) {
-  if (!n) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function dur(ms: number) {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function dateFormatted(dateStr: string) {
+function dateFormattedLong(dateStr: string) {
   if (!dateStr) return '';
   const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
   return d.toLocaleDateString(undefined, {
@@ -143,24 +130,9 @@ function FollowBtn({ userUrn }: { userUrn: string }) {
 /* ── Track Row (For Tracks & Likes) ───────────────────────── */
 
 function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
   const navigate = useNavigate();
-  const isThis = currentTrack?.urn === track.urn;
+  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
-
-  const handlePlay = () => {
-    if (isThis && isPlaying) pause();
-    else if (isThis) resume();
-    else play(track, queue);
-  };
 
   return (
     <div
@@ -174,11 +146,11 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
       {/* Index & Play */}
       <div
         className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
-        onClick={handlePlay}
+        onClick={togglePlay}
       >
-        {isThis && isPlaying ? (
+        {isThisPlaying ? (
           <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
-            <Pause size={14} fill="white" strokeWidth={0} />
+            {pauseWhite14}
           </div>
         ) : (
           <>
@@ -186,7 +158,7 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
               {index + 1}
             </span>
             <div className="hidden group-hover:flex w-8 h-8 rounded-full bg-white/10 items-center justify-center hover:bg-white/20 hover:scale-105 transition-all">
-              <Play size={14} fill="white" strokeWidth={0} className="ml-0.5" />
+              {playWhite14}
             </div>
           </>
         )}
@@ -195,7 +167,7 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
       {/* Artwork */}
       <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
         {cover ? (
-          <ScdnImg src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
             <Music size={14} className="text-white/20" />
@@ -227,13 +199,13 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
       <div className="hidden sm:flex items-center gap-4 shrink-0 pr-4">
         {track.playback_count != null && (
           <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
-            <Headphones size={11} className="text-white/20" />
+            {headphones11}
             {fc(track.playback_count)}
           </span>
         )}
         {(track.favoritings_count ?? track.likes_count) != null && (
           <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
-            <Heart size={11} className="text-white/20" />
+            {heart11}
             {fc(track.favoritings_count ?? track.likes_count)}
           </span>
         )}
@@ -251,28 +223,27 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
 
 function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
   const navigate = useNavigate();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
   const cover = art(playlist.artwork_url, 't300x300');
 
-  const isPlayingFromThis = currentTrack
-    ? playlist.tracks?.some?.((t: Track) => t.urn === currentTrack.urn)
-    : false;
+  const trackUrns = React.useMemo(
+    () => new Set((playlist.tracks ?? []).map((t: Track) => t.urn)),
+    [playlist.tracks],
+  );
+  const isPlayingFromThis = usePlayerStore(
+    (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+  );
+  const isPausedFromThis = usePlayerStore(
+    (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+  );
 
   const handlePlay = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isPlayingFromThis && isPlaying) {
+    const { play, pause, resume } = usePlayerStore.getState();
+    if (isPlayingFromThis) {
       pause();
       return;
     }
-    if (isPlayingFromThis) {
+    if (isPausedFromThis) {
       resume();
       return;
     }
@@ -290,7 +261,7 @@ function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
     >
       <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] cursor-pointer ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
         {cover ? (
-          <ScdnImg
+          <img
             src={cover}
             alt={playlist.title}
             className="w-full h-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
@@ -304,7 +275,7 @@ function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
 
         <div
           className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-            isPlayingFromThis && isPlaying
+            isPlayingFromThis
               ? 'bg-black/40 backdrop-blur-sm opacity-100'
               : 'bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:backdrop-blur-sm group-hover:opacity-100'
           }`}
@@ -312,13 +283,13 @@ function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
           <div
             onClick={handlePlay}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 ${
-              isPlayingFromThis && isPlaying
+              isPlayingFromThis
                 ? 'bg-white scale-100'
                 : 'bg-white/90 scale-75 group-hover:scale-100'
             }`}
           >
-            {isPlayingFromThis && isPlaying ? (
-              <Pause size={22} fill="black" strokeWidth={0} />
+            {isPlayingFromThis ? (
+              pauseBlack22
             ) : (
               <Play size={22} fill="black" strokeWidth={0} className="ml-1" />
             )}
@@ -494,7 +465,7 @@ export function UserPage() {
         {/* Deep blur background */}
         {avatar && (
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            <ScdnImg
+            <img
               src={avatar}
               alt=""
               className="w-full h-full object-cover scale-[2] blur-[100px] opacity-30 saturate-200"
@@ -507,7 +478,7 @@ export function UserPage() {
           {/* Avatar */}
           <div className="w-[180px] h-[180px] md:w-[200px] md:h-[200px] rounded-full overflow-hidden shrink-0 shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-2 ring-white/[0.15] bg-black/40 relative group">
             {avatar ? (
-              <ScdnImg
+              <img
                 src={avatar}
                 alt={user.username}
                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
@@ -641,7 +612,7 @@ export function UserPage() {
               <span className="text-white/40 font-medium">{t('user.memberSince')}</span>
               <span className="text-white/80 font-semibold flex items-center gap-2">
                 <Calendar size={14} className="text-white/30" />
-                {dateFormatted(user.created_at)}
+                {dateFormattedLong(user.created_at)}
               </span>
             </div>
           </section>

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
+import { getCurrentTime } from './audio';
 
 let connected = false;
 
@@ -16,11 +17,10 @@ async function ensureConnected(): Promise<boolean> {
 
 function artworkToLarge(url: string | null): string | undefined {
   if (!url) return undefined;
-  // Use t500x500 for best quality in Discord
   return url.replace(/-[^./]*\./, '-t500x500.');
 }
 
-async function updatePresence(track: Track, elapsed: number) {
+async function updatePresence(track: Track) {
   if (!(await ensureConnected())) return;
 
   try {
@@ -33,7 +33,7 @@ async function updatePresence(track: Track, elapsed: number) {
           ? `${track.user.permalink_url}`.replace(/\?.*$/, '')
           : undefined,
         duration_secs: Math.round(track.duration / 1000),
-        elapsed_secs: Math.round(elapsed),
+        elapsed_secs: Math.round(getCurrentTime()),
       },
     });
   } catch (e) {
@@ -51,12 +51,11 @@ async function clearPresence() {
   }
 }
 
-// Subscribe to player state
 let lastUrn: string | null = null;
 let lastPlaying = false;
 
 usePlayerStore.subscribe((state) => {
-  const { currentTrack, isPlaying, progress } = state;
+  const { currentTrack, isPlaying } = state;
 
   const trackChanged = currentTrack?.urn !== lastUrn;
   const playChanged = isPlaying !== lastPlaying;
@@ -73,6 +72,6 @@ usePlayerStore.subscribe((state) => {
   if (trackChanged || playChanged) {
     lastUrn = currentTrack.urn;
     lastPlaying = isPlaying;
-    updatePresence(currentTrack, progress);
+    updatePresence(currentTrack);
   }
 });

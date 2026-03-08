@@ -337,13 +337,37 @@ export function usePlaylist(playlistUrn: string | undefined) {
 /* ── Playlist Tracks ──────────────────────────────────────────── */
 
 export function usePlaylistTracks(playlistUrn: string | undefined) {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: ['playlist', playlistUrn, 'tracks'],
-    queryFn: () =>
-      api<TrackListResponse>(`/playlists/${encodeURIComponent(playlistUrn!)}/tracks?limit=500`),
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: '50' });
+      if (pageParam) {
+        for (const [key, val] of Object.entries(pageParam)) {
+          params.set(key, val);
+        }
+      }
+      return api<TrackListResponse>(
+        `/playlists/${encodeURIComponent(playlistUrn!)}/tracks?${params}`,
+      );
+    },
+    initialPageParam: undefined as PageParam | undefined,
+    getNextPageParam: (last, _all, lastPageParam) => {
+      const next = extractPagination(last.next_href);
+      if (!next) return undefined;
+      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
+      return next;
+    },
     enabled: !!playlistUrn,
     refetchOnMount: 'always',
   });
+
+  const tracks: Track[] = [];
+  if (query.data) {
+    for (const page of query.data.pages) {
+      for (const t of page.collection) tracks.push(t);
+    }
+  }
+  return { tracks, ...query };
 }
 
 /* ── User Profile ─────────────────────────────────────────────── */

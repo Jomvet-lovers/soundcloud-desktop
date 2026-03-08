@@ -1,5 +1,4 @@
 import { art } from '../../lib/cdn';
-import { ScdnImg } from './ScdnImg';
 
 interface AvatarProps {
   src?: string | null;
@@ -26,7 +25,7 @@ export function Avatar({ src, alt = '', size = 32, className = '' }: AvatarProps
   }
 
   return (
-    <ScdnImg
+    <img
       src={art(src, 't200x200') ?? undefined}
       alt={alt}
       className={`rounded-full object-cover ${className}`}

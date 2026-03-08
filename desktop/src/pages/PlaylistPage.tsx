@@ -1,80 +1,40 @@
 import {
   Calendar,
   Clock,
-  Headphones,
   Heart,
   ListMusic,
   Loader2,
-  Music,
-  Pause,
-  Play,
   Shuffle,
 } from 'lucide-react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
-import { ScdnImg } from '../components/ui/ScdnImg';
+import {
+  headphones9,
+  heart9,
+  musicIcon12,
+  pauseBlack22,
+  pauseCurrent16,
+  pauseWhite12,
+  playBlack22,
+  playCurrent16,
+  playWhite12,
+} from '../lib/icons';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
-import { usePlaylist, usePlaylistTracks } from '../lib/hooks';
+import { useInfiniteScroll, usePlaylist, usePlaylistTracks } from '../lib/hooks';
+import { dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import { useTrackPlay } from '../lib/useTrackPlay';
 import { type Track, usePlayerStore } from '../stores/player';
-
-/* ── Helpers ──────────────────────────────────────────────── */
-
-function fc(n?: number) {
-  if (!n) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function dur(ms: number) {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function durLong(ms: number) {
-  const total = Math.floor(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function dateFormatted(dateStr: string) {
-  const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 /* ── Track Row ────────────────────────────────────────────── */
 
 const TrackRow = React.memo(
   ({ track, index, queue }: { track: Track; index: number; queue: Track[] }) => {
-    const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-      useShallow((s) => ({
-        play: s.play,
-        pause: s.pause,
-        resume: s.resume,
-        currentTrack: s.currentTrack,
-        isPlaying: s.isPlaying,
-      })),
-    );
     const navigate = useNavigate();
-    const isThis = currentTrack?.urn === track.urn;
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
-
-    const handlePlay = () => {
-      if (isThis && isPlaying) pause();
-      else if (isThis) resume();
-      else play(track, queue);
-    };
 
     return (
       <div
@@ -85,12 +45,12 @@ const TrackRow = React.memo(
         {/* Index / play */}
         <div
           className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
-          onClick={handlePlay}
+          onClick={togglePlay}
           onMouseEnter={() => preloadTrack(track.urn)}
         >
-          {isThis && isPlaying ? (
+          {isThisPlaying ? (
             <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
-              <Pause size={12} fill="white" strokeWidth={0} />
+              {pauseWhite12}
             </div>
           ) : (
             <>
@@ -98,7 +58,7 @@ const TrackRow = React.memo(
                 {index + 1}
               </span>
               <div className="hidden group-hover:flex w-7 h-7 rounded-full bg-white/10 items-center justify-center">
-                <Play size={12} fill="white" strokeWidth={0} className="ml-px" />
+                {playWhite12}
               </div>
             </>
           )}
@@ -107,10 +67,10 @@ const TrackRow = React.memo(
         {/* Artwork */}
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
-            <ScdnImg src={cover} alt="" className="w-full h-full object-cover" />
+            <img src={cover} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
-              <Music size={12} className="text-white/15" />
+              {musicIcon12}
             </div>
           )}
         </div>
@@ -137,13 +97,13 @@ const TrackRow = React.memo(
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {track.playback_count != null && (
             <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
-              <Headphones size={9} />
+              {headphones9}
               {fc(track.playback_count)}
             </span>
           )}
           {(track.favoritings_count ?? track.likes_count) != null && (
             <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
-              <Heart size={9} />
+              {heart9}
               {fc(track.favoritings_count ?? track.likes_count)}
             </span>
           )}
@@ -164,20 +124,22 @@ export const PlaylistPage = React.memo(() => {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
-
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
-  const { data: tracksData, isLoading: tracksLoading } = usePlaylistTracks(urn);
+  const { tracks: playlistTracks, isLoading: tracksLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = usePlaylistTracks(urn);
 
   const isLoading = playlistLoading || tracksLoading;
+
+  const tracks: Track[] = !isLoading && playlist
+    ? (playlistTracks.length > 0 ? playlistTracks : (playlist.tracks ?? []))
+    : [];
+
+  const trackUrns = React.useMemo(() => new Set(tracks.map((t) => t.urn)), [tracks]);
+  const isPlayingFromThis = usePlayerStore(
+    (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+  );
+  const isPausedFromThis = usePlayerStore(
+    (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+  );
 
   if (isLoading || !playlist) {
     return (
@@ -187,15 +149,15 @@ export const PlaylistPage = React.memo(() => {
     );
   }
 
-  const tracks: Track[] = tracksData?.collection ?? playlist.tracks ?? [];
+  const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
   const cover = art(playlist.artwork_url, 't500x500') ?? art(tracks[0]?.artwork_url, 't500x500');
-  const isPlayingFromThis = tracks.some((t) => t.urn === currentTrack?.urn) && isPlaying;
 
   const handlePlayAll = () => {
     if (tracks.length === 0) return;
+    const { play, pause, resume } = usePlayerStore.getState();
     if (isPlayingFromThis) {
       pause();
-    } else if (tracks.some((t) => t.urn === currentTrack?.urn)) {
+    } else if (isPausedFromThis) {
       resume();
     } else {
       play(tracks[0], tracks);
@@ -204,6 +166,7 @@ export const PlaylistPage = React.memo(() => {
 
   const handleShuffle = () => {
     if (tracks.length === 0) return;
+    const { play } = usePlayerStore.getState();
     const shuffled = [...tracks].sort(() => Math.random() - 0.5);
     play(shuffled[0], shuffled);
   };
@@ -214,7 +177,7 @@ export const PlaylistPage = React.memo(() => {
       <section className="relative rounded-3xl overflow-hidden glass-featured">
         {cover && (
           <div className="absolute inset-0 pointer-events-none">
-            <ScdnImg
+            <img
               src={cover}
               alt=""
               className="w-full h-full object-cover scale-[1.5] blur-[100px] opacity-25 saturate-150"
@@ -230,7 +193,7 @@ export const PlaylistPage = React.memo(() => {
             onClick={handlePlayAll}
           >
             {cover ? (
-              <ScdnImg
+              <img
                 src={cover}
                 alt={playlist.title}
                 className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.04]"
@@ -257,9 +220,9 @@ export const PlaylistPage = React.memo(() => {
                 }`}
               >
                 {isPlayingFromThis ? (
-                  <Pause size={22} fill="black" strokeWidth={0} />
+                  pauseBlack22
                 ) : (
-                  <Play size={22} fill="black" strokeWidth={0} className="ml-0.5" />
+                  playBlack22
                 )}
               </div>
             </div>
@@ -287,7 +250,7 @@ export const PlaylistPage = React.memo(() => {
               onClick={() => navigate(`/user/${encodeURIComponent(playlist.user.urn)}`)}
             >
               {playlist.user.avatar_url && (
-                <ScdnImg
+                <img
                   src={art(playlist.user.avatar_url, 'small') ?? ''}
                   alt=""
                   className="w-6 h-6 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
@@ -310,9 +273,9 @@ export const PlaylistPage = React.memo(() => {
                 }`}
               >
                 {isPlayingFromThis ? (
-                  <Pause size={16} fill="currentColor" strokeWidth={0} />
+                  pauseCurrent16
                 ) : (
-                  <Play size={16} fill="currentColor" strokeWidth={0} />
+                  playCurrent16
                 )}
                 {t('playlist.playAll')}
               </button>
@@ -388,6 +351,11 @@ export const PlaylistPage = React.memo(() => {
             {tracks.map((track, i) => (
               <TrackRow key={track.urn} track={track} index={i} queue={tracks} />
             ))}
+            {hasNextPage && (
+              <div ref={scrollRef} className="flex justify-center py-4">
+                {isFetchingNextPage && <Loader2 size={20} className="animate-spin text-white/30" />}
+              </div>
+            )}
           </div>
         )}
       </section>

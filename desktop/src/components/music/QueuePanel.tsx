@@ -1,39 +1,32 @@
-import { GripVertical, Pause, Play, Trash2, X } from 'lucide-react';
+import { GripVertical, Trash2, X } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useShallow } from 'zustand/shallow';
 import { art } from '../../lib/cdn';
+import { dur } from '../../lib/formatters';
+import { pauseTextWhite12, playIcon32 } from '../../lib/icons';
 import { type Track, usePlayerStore } from '../../stores/player';
-import { ScdnImg } from '../ui/ScdnImg';
-
-function formatDuration(ms: number) {
-  const totalSec = Math.floor(ms / 1000);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 /* ── Now Playing (single, non-draggable) ─────────────────────────── */
 const NowPlayingItem = React.memo(() => {
-  const { currentTrack, isPlaying, pause, resume } = usePlayerStore(
-    useShallow((s) => ({
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-      pause: s.pause,
-      resume: s.resume,
-    })),
-  );
+  const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
+
   if (!currentTrack) return null;
   const artwork = art(currentTrack.artwork_url, 't200x200');
+
+  const handleClick = () => {
+    const { pause, resume } = usePlayerStore.getState();
+    isPlaying ? pause() : resume();
+  };
 
   return (
     <div
       className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.08] ring-1 ring-white/[0.08] cursor-pointer"
-      onClick={() => (isPlaying ? pause() : resume())}
+      onClick={handleClick}
     >
       <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 relative bg-white/[0.04]">
         {artwork ? (
-          <ScdnImg src={artwork} alt="" className="w-full h-full object-cover" />
+          <img src={artwork} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full" />
         )}
@@ -45,7 +38,7 @@ const NowPlayingItem = React.memo(() => {
               <div className="w-[2px] h-3.5 bg-accent rounded-full animate-pulse [animation-delay:300ms]" />
             </div>
           ) : (
-            <Pause size={12} className="text-white" />
+            pauseTextWhite12
           )}
         </div>
       </div>
@@ -56,7 +49,7 @@ const NowPlayingItem = React.memo(() => {
         <p className="text-[10px] text-white/30 truncate mt-0.5">{currentTrack.user.username}</p>
       </div>
       <span className="text-[10px] text-white/20 tabular-nums shrink-0">
-        {formatDuration(currentTrack.duration)}
+        {dur(currentTrack.duration)}
       </span>
     </div>
   );
@@ -64,19 +57,9 @@ const NowPlayingItem = React.memo(() => {
 
 /* ── Draggable queue list ────────────────────────────────────────── */
 const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
-  const { queue, queueIndex, isPlaying, play, pause, resume, removeFromQueue, moveInQueue } =
-    usePlayerStore(
-      useShallow((s) => ({
-        queue: s.queue,
-        queueIndex: s.queueIndex,
-        isPlaying: s.isPlaying,
-        play: s.play,
-        pause: s.pause,
-        resume: s.resume,
-        removeFromQueue: s.removeFromQueue,
-        moveInQueue: s.moveInQueue,
-      })),
-    );
+  const queue = usePlayerStore((s) => s.queue);
+  const queueIndex = usePlayerStore((s) => s.queueIndex);
+  const isPlaying = usePlayerStore((s) => s.isPlaying);
 
   const items = queue.slice(startIndex);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -113,16 +96,21 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
 
   const handlePointerUp = () => {
     if (dragIdx !== null && overIdx !== null && dragIdx !== overIdx) {
-      moveInQueue(dragIdx, overIdx);
+      usePlayerStore.getState().moveInQueue(dragIdx, overIdx);
     }
     setDragIdx(null);
     setOverIdx(null);
   };
 
   const handleClick = (track: Track, absIdx: number) => {
+    const { play, pause, resume } = usePlayerStore.getState();
     if (absIdx === queueIndex && isPlaying) pause();
     else if (absIdx === queueIndex) resume();
     else play(track, queue);
+  };
+
+  const handleRemove = (absIdx: number) => {
+    usePlayerStore.getState().removeFromQueue(absIdx);
   };
 
   return (
@@ -165,7 +153,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
               onClick={() => handleClick(track, absIdx)}
             >
               {artwork ? (
-                <ScdnImg src={artwork} alt="" className="w-full h-full object-cover" />
+                <img src={artwork} alt="" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full" />
               )}
@@ -178,7 +166,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
                       <div className="w-[2px] h-3.5 bg-accent rounded-full animate-pulse [animation-delay:300ms]" />
                     </div>
                   ) : (
-                    <Pause size={12} className="text-white" />
+                    pauseTextWhite12
                   )}
                 </div>
               )}
@@ -199,7 +187,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
 
             {/* Duration */}
             <span className="text-[10px] text-white/20 tabular-nums shrink-0">
-              {formatDuration(track.duration)}
+              {dur(track.duration)}
             </span>
 
             {/* Remove */}
@@ -207,7 +195,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                removeFromQueue(absIdx);
+                handleRemove(absIdx);
               }}
               className="w-6 h-6 rounded-md flex items-center justify-center text-white/0 group-hover:text-white/20 hover:!text-white/50 hover:!bg-white/[0.06] transition-all duration-150 cursor-pointer shrink-0"
             >
@@ -224,14 +212,9 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
 export const QueuePanel = React.memo(
   ({ open, onClose }: { open: boolean; onClose: () => void }) => {
     const { t } = useTranslation();
-    const { queue, queueIndex, currentTrack, clearQueue } = usePlayerStore(
-      useShallow((s) => ({
-        queue: s.queue,
-        queueIndex: s.queueIndex,
-        currentTrack: s.currentTrack,
-        clearQueue: s.clearQueue,
-      })),
-    );
+    const queue = usePlayerStore((s) => s.queue);
+    const queueIndex = usePlayerStore((s) => s.queueIndex);
+    const currentTrack = usePlayerStore((s) => s.currentTrack);
 
     const upNextCount = queue.length - queueIndex - 1;
 
@@ -263,7 +246,7 @@ export const QueuePanel = React.memo(
               {queue.length > 0 && (
                 <button
                   type="button"
-                  onClick={clearQueue}
+                  onClick={() => usePlayerStore.getState().clearQueue()}
                   className="h-7 px-2.5 rounded-lg text-[11px] text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer flex items-center gap-1.5"
                 >
                   <Trash2 size={12} />
@@ -303,7 +286,7 @@ export const QueuePanel = React.memo(
 
             {queue.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-white/15">
-                <Play size={32} />
+                {playIcon32}
                 <p className="text-sm mt-3">Queue is empty</p>
               </div>
             )}

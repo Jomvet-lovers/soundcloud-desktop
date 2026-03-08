@@ -10,19 +10,15 @@ import {
   Loader2,
   MessageCircle,
   Music,
-  Pause,
-  Play,
   Repeat2,
   Send,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
-import { ScdnImg } from '../components/ui/ScdnImg';
 import { api } from '../lib/api';
-import { preloadTrack } from '../lib/audio';
+import { getCurrentTime, preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
 import type { Comment } from '../lib/hooks';
 import {
@@ -32,56 +28,18 @@ import {
   useTrackComments,
   useTrackFavoriters,
 } from '../lib/hooks';
+import { ago, dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import { useTrackPlay } from '../lib/useTrackPlay';
+import {
+  musicIcon14,
+  pauseBlack11,
+  pauseBlack22,
+  pauseCurrent16,
+  playBlack11,
+  playBlack22,
+  playCurrent16,
+} from '../lib/icons';
 import { type Track, usePlayerStore } from '../stores/player';
-
-/* ── Helpers ──────────────────────────────────────────────── */
-
-function fc(n?: number) {
-  if (!n) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function dur(ms: number) {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function durLong(ms: number) {
-  const total = Math.floor(ms / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function ago(dateStr: string) {
-  const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
-  const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 60) return 'now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const dd = Math.floor(h / 24);
-  if (dd < 7) return `${dd}d`;
-  const w = Math.floor(dd / 7);
-  if (w < 5) return `${w}w`;
-  const mo = Math.floor(dd / 30);
-  if (mo < 12) return `${mo}mo`;
-  return `${Math.floor(dd / 365)}y`;
-}
-
-function dateFormatted(dateStr: string) {
-  const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
 
 function parseTags(tagList?: string): string[] {
   if (!tagList) return [];
@@ -195,7 +153,7 @@ const CommentItem = React.memo(({ comment }: { comment: Comment }) => {
 
   return (
     <div className="flex gap-3 group">
-      <ScdnImg
+      <img
         src={avatar ?? ''}
         alt=""
         className="w-8 h-8 rounded-full shrink-0 ring-1 ring-white/[0.06] mt-0.5 cursor-pointer hover:ring-white/[0.15] transition-all duration-150"
@@ -237,8 +195,8 @@ const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
   const submit = () => {
     const text = body.trim();
     if (!text) return;
-    const progress = usePlayerStore.getState().progress;
-    const ts = progress > 0 ? Math.floor(progress * 1000) : undefined;
+    const time = getCurrentTime();
+    const ts = time > 0 ? Math.floor(time * 1000) : undefined;
     mutation.mutate({ body: text, timestamp: ts });
     setBody('');
   };
@@ -273,25 +231,9 @@ const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
 /* ── Related Track Row ───────────────────────────────────── */
 
 const RelatedRow = React.memo(({ track, queue }: { track: Track; queue: Track[] }) => {
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
   const navigate = useNavigate();
-  const isThis = currentTrack?.urn === track.urn;
+  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
-
-  const handlePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isThis && isPlaying) pause();
-    else if (isThis) resume();
-    else play(track, queue);
-  };
 
   return (
     <div
@@ -302,28 +244,24 @@ const RelatedRow = React.memo(({ track, queue }: { track: Track; queue: Track[] 
     >
       <div
         className="relative w-11 h-11 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
-        onClick={handlePlay}
+        onClick={togglePlay}
       >
         {cover ? (
-          <ScdnImg src={cover} alt="" className="w-full h-full object-cover" />
+          <img src={cover} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
-            <Music size={14} className="text-white/15" />
+            {musicIcon14}
           </div>
         )}
         <div
           className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-            isThis && isPlaying
+            isThisPlaying
               ? 'bg-black/30 opacity-100'
               : 'opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
           }`}
         >
           <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-lg">
-            {isThis && isPlaying ? (
-              <Pause size={11} fill="black" strokeWidth={0} />
-            ) : (
-              <Play size={11} fill="black" strokeWidth={0} className="ml-px" />
-            )}
+            {isThisPlaying ? pauseBlack11 : playBlack11}
           </div>
         </div>
       </div>
@@ -362,15 +300,6 @@ export const TrackPage = React.memo(() => {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { currentTrack, isPlaying, play, pause, resume } = usePlayerStore(
-    useShallow((s) => ({
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-    })),
-  );
   const [descExpanded, setDescExpanded] = useState(false);
 
   const { data: track, isLoading } = useQuery({
@@ -405,7 +334,8 @@ export const TrackPage = React.memo(() => {
     );
   }
 
-  const isThis = currentTrack?.urn === track.urn;
+  const isThis = usePlayerStore((s) => s.currentTrack?.urn === track.urn);
+  const isThisPlaying = usePlayerStore((s) => s.currentTrack?.urn === track.urn && s.isPlaying);
   const cover = art(track.artwork_url, 't500x500');
   const tags = parseTags(track.tag_list);
   const relatedTracks = relatedData?.collection ?? [];
@@ -414,7 +344,8 @@ export const TrackPage = React.memo(() => {
   const descLong = desc && desc.length > 200;
 
   const handlePlay = () => {
-    if (isThis && isPlaying) pause();
+    const { play, pause, resume } = usePlayerStore.getState();
+    if (isThisPlaying) pause();
     else if (isThis) resume();
     else play(track, relatedTracks.length > 0 ? [track, ...relatedTracks] : undefined);
   };
@@ -426,7 +357,7 @@ export const TrackPage = React.memo(() => {
         {/* Blurred bg */}
         {cover && (
           <div className="absolute inset-0 pointer-events-none">
-            <ScdnImg
+            <img
               src={cover}
               alt=""
               className="w-full h-full object-cover scale-[1.5] blur-[100px] opacity-25 saturate-150"
@@ -442,7 +373,7 @@ export const TrackPage = React.memo(() => {
             onClick={handlePlay}
           >
             {cover ? (
-              <ScdnImg
+              <img
                 src={cover}
                 alt={track.title}
                 className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.04]"
@@ -454,23 +385,19 @@ export const TrackPage = React.memo(() => {
             )}
             <div
               className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-                isThis && isPlaying
+                isThisPlaying
                   ? 'bg-black/30 opacity-100'
                   : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
               }`}
             >
               <div
                 className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
-                  isThis && isPlaying
+                  isThisPlaying
                     ? 'bg-white scale-100'
                     : 'bg-white/90 scale-75 group-hover/cover:scale-100'
                 }`}
               >
-                {isThis && isPlaying ? (
-                  <Pause size={22} fill="black" strokeWidth={0} />
-                ) : (
-                  <Play size={22} fill="black" strokeWidth={0} className="ml-0.5" />
-                )}
+                {isThisPlaying ? pauseBlack22 : playBlack22}
               </div>
             </div>
           </div>
@@ -492,7 +419,7 @@ export const TrackPage = React.memo(() => {
               onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
             >
               {track.user.avatar_url && (
-                <ScdnImg
+                <img
                   src={art(track.user.avatar_url, 'small') ?? ''}
                   alt=""
                   className="w-6 h-6 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
@@ -510,17 +437,13 @@ export const TrackPage = React.memo(() => {
                 type="button"
                 onClick={handlePlay}
                 className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_20px_var(--color-accent-glow)] ${
-                  isThis && isPlaying
+                  isThisPlaying
                     ? 'bg-white text-black hover:bg-white/90'
                     : 'bg-accent text-white hover:bg-accent-hover active:scale-[0.97]'
                 }`}
               >
-                {isThis && isPlaying ? (
-                  <Pause size={16} fill="currentColor" strokeWidth={0} />
-                ) : (
-                  <Play size={16} fill="currentColor" strokeWidth={0} />
-                )}
-                {isThis && isPlaying ? 'Pause' : 'Play'}
+                {isThisPlaying ? pauseCurrent16 : playCurrent16}
+                {isThisPlaying ? 'Pause' : 'Play'}
               </button>
 
               <LikeBtn
@@ -659,7 +582,7 @@ export const TrackPage = React.memo(() => {
             onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
           >
             <div className="flex items-center gap-3">
-              <ScdnImg
+              <img
                 src={art(track.user.avatar_url, 't200x200') ?? ''}
                 alt=""
                 className="w-12 h-12 rounded-full ring-1 ring-white/[0.08] group-hover/ac:ring-white/[0.15] transition-all duration-150"
@@ -688,7 +611,7 @@ export const TrackPage = React.memo(() => {
               </h3>
               <div className="flex flex-wrap gap-1.5">
                 {favoriters.map((u) => (
-                  <ScdnImg
+                  <img
                     key={u.urn}
                     src={art(u.avatar_url, 'small') ?? ''}
                     alt={u.username}

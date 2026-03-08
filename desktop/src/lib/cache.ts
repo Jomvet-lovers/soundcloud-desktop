@@ -1,5 +1,5 @@
 import { appCacheDir, join } from '@tauri-apps/api/path';
-import { exists, mkdir, readDir, readFile, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
+import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { getSessionId } from './api';
 
@@ -39,31 +39,6 @@ export async function isCached(urn: string): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-
-export async function getCachedData(urn: string): Promise<ArrayBuffer | null> {
-  console.log(`💾 [Cache] Requesting cached data for: ${urn}`);
-  try {
-    const path = await filePath(urn);
-    if (!(await exists(path))) {
-      console.log(`💾 [Cache] MISS (file not found) for: ${urn}`);
-      return null;
-    }
-
-    const info = await stat(path);
-    if (info.size < MIN_MP3_SIZE) {
-      console.warn(`💾 [Cache] MISS (file too small - ${info.size} bytes) for: ${urn}. Deleting.`);
-      await remove(path).catch(() => {});
-      return null;
-    }
-
-    const data = await readFile(path);
-    console.log(`💾 [Cache] HIT (size: ${data.length}) for: ${urn}`);
-    return data.buffer as ArrayBuffer;
-  } catch (e) {
-    console.error(`💾[Cache] Error reading cache for ${urn}:`, e);
-    return null;
   }
 }
 

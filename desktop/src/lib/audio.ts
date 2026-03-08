@@ -5,14 +5,66 @@ import { api, streamUrl } from './api';
 import { art } from './cdn';
 import { fetchAndCacheTrack, getCacheFilePath, getCacheUrl, isCached } from './cache';
 
+/* ── Audio engine state ──────────────────────────────────────── */
+
+let currentHowl: Howl | null = null;
+let currentUrn: string | null = null;
+let fallbackDuration = 0;
+let rafId: number | null = null;
+const listeners = new Set<() => void>();
+
+function notify() {
+  for (const l of listeners) l();
+}
+
+/** Subscribe to audio time changes (for useSyncExternalStore) */
+export function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Read current playback position directly from Howl */
+export function getCurrentTime(): number {
+  if (!currentHowl) return 0;
+  const t = currentHowl.seek();
+  return typeof t === 'number' ? t : 0;
+}
+
+/** Read duration directly from Howl, fallback to API value */
+export function getDuration(): number {
+  if (currentHowl) {
+    const d = currentHowl.duration();
+    if (d > 0) return d;
+  }
+  return fallbackDuration;
+}
+
+/** Seek audio to position in seconds */
+export function seek(seconds: number) {
+  if (currentHowl) {
+    currentHowl.seek(seconds);
+    notify();
+    updateMediaSessionPosition();
+  }
+}
+
+/** Smart prev: restart if >3s in, otherwise previous track */
+export function handlePrev() {
+  if (getCurrentTime() > 3) {
+    seek(0);
+  } else {
+    usePlayerStore.getState().prev();
+  }
+}
+
+/* ── Howl management ─────────────────────────────────────────── */
+
 function toHowlerVolume(v: number) {
   return Math.min(1, Math.max(0, v / 200));
 }
 
-let currentHowl: Howl | null = null;
-let currentUrn: string | null = null;
-
 function destroyHowl() {
+  stopProgressLoop();
   if (currentHowl) {
     currentHowl.off();
     currentHowl.stop();
@@ -21,8 +73,28 @@ function destroyHowl() {
   }
 }
 
+function startProgressLoop() {
+  stopProgressLoop();
+  const tick = () => {
+    if (!currentHowl || !currentHowl.playing()) {
+      rafId = null;
+      return;
+    }
+    notify();
+    rafId = requestAnimationFrame(tick);
+  };
+  rafId = requestAnimationFrame(tick);
+}
+
+function stopProgressLoop() {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+}
+
 function createHowl(src: string, urn: string, onFail?: () => void): Howl {
-  const howl = new Howl({
+  return new Howl({
     src: [src],
     html5: true,
     format: ['mp3'],
@@ -31,17 +103,20 @@ function createHowl(src: string, urn: string, onFail?: () => void): Howl {
       if (currentUrn === urn && !usePlayerStore.getState().isPlaying) {
         usePlayerStore.getState().resume();
       }
-      updateProgress();
+      startProgressLoop();
+      updateMediaSessionState(true);
+      updateMediaSessionPosition();
     },
     onpause: () => {
       if (currentUrn === urn && usePlayerStore.getState().isPlaying) {
         usePlayerStore.getState().pause();
       }
+      updateMediaSessionState(false);
+      updateMediaSessionPosition();
     },
     onload: () => {
       if (currentUrn !== urn) return;
-      const d = howl.duration();
-      if (d > 0) usePlayerStore.getState().setDuration(d);
+      notify(); // duration is now available from howl
     },
     onend: () => {
       if (currentUrn !== urn) return;
@@ -50,23 +125,14 @@ function createHowl(src: string, urn: string, onFail?: () => void): Howl {
     onloaderror: (_id, error) => {
       console.error(`[Audio] Load error (${src.slice(0, 60)}):`, error);
       if (currentUrn !== urn) return;
-      if (onFail) {
-        onFail();
-      } else {
-        usePlayerStore.getState().pause();
-      }
+      onFail ? onFail() : usePlayerStore.getState().pause();
     },
     onplayerror: (_id, error) => {
       console.error(`[Audio] Play error (${src.slice(0, 60)}):`, error);
       if (currentUrn !== urn) return;
-      if (onFail) {
-        onFail();
-      } else {
-        usePlayerStore.getState().pause();
-      }
+      onFail ? onFail() : usePlayerStore.getState().pause();
     },
   });
-  return howl;
 }
 
 async function loadTrack(track: Track) {
@@ -74,8 +140,8 @@ async function loadTrack(track: Track) {
   currentUrn = track.urn;
   const urn = track.urn;
 
-  usePlayerStore.getState().setProgress(0);
-  usePlayerStore.getState().setDuration(track.duration / 1000);
+  fallbackDuration = track.duration / 1000;
+  notify();
 
   const cachedPath = await getCacheFilePath(urn);
   if (currentUrn !== urn) return;
@@ -89,7 +155,6 @@ async function loadTrack(track: Track) {
 
   const fallbackToStream = () => {
     if (currentUrn !== urn) return;
-    console.log(`[Audio] Falling back to stream: ${urn}`);
     destroyHowl();
     playHowl(createHowl(httpUrl, urn));
   };
@@ -97,33 +162,14 @@ async function loadTrack(track: Track) {
   if (cachedPath) {
     const cacheUrl = getCacheUrl(urn);
     if (cacheUrl) {
-      console.log(`[Audio] Cache hit (local server): ${urn}`);
       playHowl(createHowl(cacheUrl, urn, fallbackToStream));
     } else {
-      console.log(`[Audio] Cache hit (stream fallback, no server port): ${urn}`);
       playHowl(createHowl(httpUrl, urn));
     }
   } else {
-    console.log(`[Audio] Stream: ${urn}`);
     playHowl(createHowl(httpUrl, urn));
     fetchAndCacheTrack(urn).catch(() => {});
   }
-}
-
-let positionUpdateCounter = 0;
-
-function updateProgress() {
-  if (!currentHowl || !currentHowl.playing()) return;
-  const seek = currentHowl.seek();
-  if (usePlayerStore.getState().seekRequest === null) {
-    usePlayerStore.getState().setProgress(seek);
-  }
-  // Update media session position ~once per second (every ~60 frames)
-  if (++positionUpdateCounter >= 60) {
-    positionUpdateCounter = 0;
-    updateMediaSessionPosition();
-  }
-  requestAnimationFrame(updateProgress);
 }
 
 function handleTrackEnd() {
@@ -142,27 +188,26 @@ function handleTrackEnd() {
   }
 }
 
-// Subscribe to store changes
+/* ── Store subscriber ────────────────────────────────────────── */
+
 usePlayerStore.subscribe((state, prev) => {
   const trackChanged = state.currentTrack?.urn !== currentUrn;
   const playToggled = state.isPlaying !== prev.isPlaying;
 
-  // Track change
   if (trackChanged) {
     if (state.currentTrack) {
       updateMediaSession(state.currentTrack);
-      updateMediaSessionState(state.isPlaying);
       void loadTrack(state.currentTrack);
     } else {
       destroyHowl();
       currentUrn = null;
+      fallbackDuration = 0;
+      notify();
     }
     return;
   }
 
-  // Play / Pause
   if (playToggled && !trackChanged) {
-    updateMediaSessionState(state.isPlaying);
     if (state.isPlaying) {
       if (!currentHowl && state.currentTrack) {
         void loadTrack(state.currentTrack);
@@ -174,15 +219,6 @@ usePlayerStore.subscribe((state, prev) => {
     }
   }
 
-  // Seek
-  if (state.seekRequest !== null && state.seekRequest !== prev.seekRequest) {
-    if (currentHowl) {
-      currentHowl.seek(state.seekRequest);
-    }
-    usePlayerStore.getState().clearSeek();
-  }
-
-  // Volume
   if (state.volume !== prev.volume && currentHowl) {
     currentHowl.volume(toHowlerVolume(state.volume));
   }
@@ -213,27 +249,28 @@ function updateMediaSessionState(playing: boolean) {
 
 function updateMediaSessionPosition() {
   if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
-  const { duration, progress } = usePlayerStore.getState();
+  const duration = getDuration();
   if (duration > 0) {
     navigator.mediaSession.setPositionState({
       duration,
-      position: Math.min(progress, duration),
+      position: Math.min(getCurrentTime(), duration),
       playbackRate: 1,
     });
   }
 }
 
 if ('mediaSession' in navigator) {
-  navigator.mediaSession.setActionHandler('play', () => usePlayerStore.getState().resume());
-  navigator.mediaSession.setActionHandler('pause', () => usePlayerStore.getState().pause());
-  navigator.mediaSession.setActionHandler('nexttrack', () => usePlayerStore.getState().next());
-  navigator.mediaSession.setActionHandler('previoustrack', () => usePlayerStore.getState().prev());
-  navigator.mediaSession.setActionHandler('seekto', (details) => {
-    if (details.seekTime != null) usePlayerStore.getState().seek(details.seekTime);
+  const ms = navigator.mediaSession;
+  ms.setActionHandler('play', () => usePlayerStore.getState().resume());
+  ms.setActionHandler('pause', () => usePlayerStore.getState().pause());
+  ms.setActionHandler('nexttrack', () => usePlayerStore.getState().next());
+  ms.setActionHandler('previoustrack', () => handlePrev());
+  ms.setActionHandler('seekto', (d) => {
+    if (d.seekTime != null) seek(d.seekTime);
   });
 }
 
-/* ── Autoplay ─────────────────────────────────────────────────── */
+/* ── Autoplay ────────────────────────────────────────────────── */
 
 let autoplayLoading = false;
 async function autoplayRelated(lastTrack: Track) {
@@ -243,11 +280,9 @@ async function autoplayRelated(lastTrack: Track) {
   try {
     const { queue } = usePlayerStore.getState();
     const existingUrns = new Set(queue.map((t) => t.urn));
-
     const res = await api<{ collection: Track[] }>(
       `/tracks/${encodeURIComponent(lastTrack.urn)}/related?limit=20`,
     );
-
     const fresh = res.collection.filter((t) => !existingUrns.has(t.urn));
     if (fresh.length === 0) return;
 
@@ -261,7 +296,7 @@ async function autoplayRelated(lastTrack: Track) {
   }
 }
 
-/* ── Preloading ─────────────────────────────────────────────── */
+/* ── Preloading ──────────────────────────────────────────────── */
 
 let preloadTimer: ReturnType<typeof setTimeout> | null = null;
 

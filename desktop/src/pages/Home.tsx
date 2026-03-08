@@ -6,18 +6,14 @@ import {
   ListMusic,
   Loader2,
   Music,
-  Pause,
-  Play,
   Repeat2,
   Sparkles,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
 import { TrackCard } from '../components/music/TrackCard';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
-import { ScdnImg } from '../components/ui/ScdnImg';
 import { Skeleton } from '../components/ui/Skeleton';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
@@ -32,6 +28,21 @@ import {
   useRecommendedTracks,
 } from '../lib/hooks';
 import { useAuthStore } from '../stores/auth';
+import { ago, dur, fc } from '../lib/formatters';
+import {
+  headphones9,
+  heart9,
+  listMusic8,
+  listMusic9,
+  musicIcon22,
+  pauseBlack14,
+  pauseBlack18,
+  pauseBlack22,
+  playBlack14,
+  playBlack18,
+  playBlack22,
+} from '../lib/icons';
+import { useTrackPlay } from '../lib/useTrackPlay';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 
@@ -43,33 +54,6 @@ function greetingKey() {
   if (h < 12) return 'home.goodMorning';
   if (h < 18) return 'home.goodAfternoon';
   return 'home.goodEvening';
-}
-
-function fc(n?: number) {
-  if (!n) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function dur(ms: number) {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
-
-function ago(dateStr: string) {
-  const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
-  const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 60) return 'now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  const dd = Math.floor(h / 24);
-  if (dd < 7) return `${dd}d`;
-  const w = Math.floor(dd / 7);
-  if (w < 5) return `${w}w`;
-  return `${Math.floor(dd / 30)}mo`;
 }
 
 /* ── Section Header ───────────────────────────────────────── */
@@ -156,29 +140,14 @@ function FeedSkeleton({ count = 6 }: { count?: number }) {
 
 /* ── Featured Card (hero, first feed track) ───────────────── */
 
-function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
+const FeaturedCard = React.memo(({ item, queue }: { item: FeedItem; queue: Track[] }) => {
   const { t } = useTranslation();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
-  const navigate = useNavigate();
   const track = item.origin as Track;
-  const isThis = currentTrack?.urn === track.urn;
+  const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+  const navigate = useNavigate();
   const isRepost = item.type.includes('repost');
   const cover = art(track.artwork_url);
   const avatar = art(track.user.avatar_url, 'small');
-
-  const handlePlay = () => {
-    if (isThis && isPlaying) pause();
-    else if (isThis) resume();
-    else play(track, queue);
-  };
 
   return (
     <div
@@ -188,7 +157,7 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
       {/* Blurred artwork background */}
       {cover && (
         <div className="absolute inset-0 pointer-events-none">
-          <ScdnImg
+          <img
             src={cover}
             alt=""
             className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
@@ -202,10 +171,10 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
         {/* Artwork */}
         <div
           className="relative w-[160px] h-[160px] rounded-2xl overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1] cursor-pointer group/cover"
-          onClick={handlePlay}
+          onClick={togglePlay}
         >
           {cover ? (
-            <ScdnImg
+            <img
               src={cover}
               alt={track.title}
               className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
@@ -219,22 +188,22 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
           {/* Hover play overlay on artwork */}
           <div
             className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-              isThis && isPlaying
+              isThisPlaying
                 ? 'bg-black/30 opacity-100'
                 : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
             }`}
           >
             <div
               className={`w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
-                isThis && isPlaying
+                isThisPlaying
                   ? 'bg-white scale-100'
                   : 'bg-white/90 scale-75 group-hover/cover:scale-100'
               }`}
             >
-              {isThis && isPlaying ? (
-                <Pause size={18} fill="black" strokeWidth={0} />
+              {isThisPlaying ? (
+                pauseBlack18
               ) : (
-                <Play size={18} fill="black" strokeWidth={0} className="ml-0.5" />
+                playBlack18
               )}
             </div>
           </div>
@@ -263,7 +232,7 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
             onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
           >
             {avatar && (
-              <ScdnImg
+              <img
                 src={avatar}
                 alt=""
                 className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
@@ -298,49 +267,33 @@ function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
         {/* Large play button */}
         <button
           type="button"
-          onClick={handlePlay}
+          onClick={togglePlay}
           className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ease-[var(--ease-apple)] shadow-xl cursor-pointer ${
-            isThis && isPlaying
+            isThisPlaying
               ? 'bg-white scale-100'
               : 'bg-white/90 hover:bg-white hover:scale-105 active:scale-95'
           }`}
         >
-          {isThis && isPlaying ? (
-            <Pause size={22} fill="black" strokeWidth={0} />
+          {isThisPlaying ? (
+            pauseBlack22
           ) : (
-            <Play size={22} fill="black" strokeWidth={0} className="ml-0.5" />
+            playBlack22
           )}
         </button>
       </div>
     </div>
   );
-}
+});
 
 /* ── Feed Track Card (compact horizontal) ─────────────────── */
 
 const FeedTrackCard = React.memo(({ item, queue }: { item: FeedItem; queue: Track[] }) => {
   const { t } = useTranslation();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
   const navigate = useNavigate();
   const track = item.origin as Track;
-  const isThis = currentTrack?.urn === track.urn;
+  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const isRepost = item.type.includes('repost');
   const cover = art(track.artwork_url, 't300x300');
-
-  const handlePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isThis && isPlaying) pause();
-    else if (isThis) resume();
-    else play(track, queue);
-  };
 
   return (
     <div
@@ -352,35 +305,35 @@ const FeedTrackCard = React.memo(({ item, queue }: { item: FeedItem; queue: Trac
       {/* Artwork */}
       <div
         className="relative w-[76px] h-[76px] rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
-        onClick={handlePlay}
+        onClick={togglePlay}
       >
         {cover ? (
-          <ScdnImg src={cover} alt={track.title} className="w-full h-full object-cover" />
+          <img src={cover} alt={track.title} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
-            <Music size={22} className="text-white/15" />
+            {musicIcon22}
           </div>
         )}
 
         {/* Play overlay */}
         <div
           className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-            isThis && isPlaying
+            isThisPlaying
               ? 'bg-black/30 opacity-100'
               : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
           }`}
         >
           <div
             className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] ${
-              isThis && isPlaying
+              isThisPlaying
                 ? 'bg-white scale-100'
                 : 'bg-white/90 scale-75 group-hover:scale-100'
             }`}
           >
-            {isThis && isPlaying ? (
-              <Pause size={14} fill="black" strokeWidth={0} />
+            {isThisPlaying ? (
+              pauseBlack14
             ) : (
-              <Play size={14} fill="black" strokeWidth={0} className="ml-px" />
+              playBlack14
             )}
           </div>
         </div>
@@ -413,11 +366,11 @@ const FeedTrackCard = React.memo(({ item, queue }: { item: FeedItem; queue: Trac
             </span>
           )}
           <span className="flex items-center gap-0.5">
-            <Headphones size={9} />
+            {headphones9}
             {fc(track.playback_count)}
           </span>
           <span className="flex items-center gap-0.5">
-            <Heart size={9} />
+            {heart9}
             {fc(track.favoritings_count ?? track.likes_count)}
           </span>
         </div>
@@ -434,46 +387,43 @@ const FeedTrackCard = React.memo(({ item, queue }: { item: FeedItem; queue: Trac
 
 /* ── Feed Playlist Card ───────────────────────────────────── */
 
-function FeedPlaylistCard({ item }: { item: FeedItem }) {
+const FeedPlaylistCard = React.memo(({ item }: { item: FeedItem }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
   const [loading, setLoading] = useState(false);
   const origin = item.origin;
   const isRepost = item.type.includes('repost');
   const cover = art(origin.artwork_url, 't300x300');
 
-  // Check if any track from this playlist is currently playing
-  const isPlayingFromThis = currentTrack
-    ? origin.tracks?.some?.((t: Track) => t.urn === currentTrack.urn)
-    : false;
+  // Only re-render when this playlist's playing state actually changes
+  const trackUrns = useMemo(
+    () => new Set((origin.tracks ?? []).map((t: Track) => t.urn)),
+    [origin.tracks],
+  );
+  const isPlayingFromThis = usePlayerStore(
+    (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+  );
+  const isPausedFromThis = usePlayerStore(
+    (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+  );
 
   const handlePlay = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isPlayingFromThis && isPlaying) {
+    const { play, pause, resume } = usePlayerStore.getState();
+    if (isPlayingFromThis) {
       pause();
       return;
     }
-    if (isPlayingFromThis) {
+    if (isPausedFromThis) {
       resume();
       return;
     }
 
-    // If inline tracks are available, use them directly
     if (origin.tracks && origin.tracks.length > 0) {
       play(origin.tracks[0], origin.tracks);
       return;
     }
 
-    // Fetch tracks from API
     setLoading(true);
     try {
       const data = await import('../lib/api').then((m) =>
@@ -484,7 +434,6 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
         play(tracks[0], tracks);
       }
     } catch {
-      // fallback: navigate to playlist page
       navigate(`/playlist/${encodeURIComponent(origin.urn)}`);
     } finally {
       setLoading(false);
@@ -503,7 +452,7 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
         onClick={handlePlay}
       >
         {cover ? (
-          <ScdnImg src={cover} alt={origin.title} className="w-full h-full object-cover" />
+          <img src={cover} alt={origin.title} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
             <ListMusic size={22} className="text-white/15" />
@@ -513,7 +462,7 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
         {/* Play overlay */}
         <div
           className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-            isPlayingFromThis && isPlaying
+            isPlayingFromThis
               ? 'bg-black/30 opacity-100'
               : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
           }`}
@@ -523,15 +472,15 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
           ) : (
             <div
               className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] ${
-                isPlayingFromThis && isPlaying
+                isPlayingFromThis
                   ? 'bg-white scale-100'
                   : 'bg-white/90 scale-75 group-hover:scale-100'
               }`}
             >
-              {isPlayingFromThis && isPlaying ? (
-                <Pause size={14} fill="black" strokeWidth={0} />
+              {isPlayingFromThis ? (
+                pauseBlack14
               ) : (
-                <Play size={14} fill="black" strokeWidth={0} className="ml-px" />
+                playBlack14
               )}
             </div>
           )}
@@ -540,7 +489,7 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
         {/* Track count pill */}
         {origin.track_count != null && (
           <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 text-[9px] font-medium bg-black/50 backdrop-blur-md text-white/70 px-1.5 py-0.5 rounded-full">
-            <ListMusic size={8} />
+            {listMusic8}
             {origin.track_count}
           </div>
         )}
@@ -570,7 +519,7 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
         </p>
         <div className="flex items-center gap-2 mt-1.5 text-[10px] text-white/20">
           <span className="flex items-center gap-0.5">
-            <ListMusic size={9} />
+            {listMusic9}
             {origin.track_count ?? 0} {t('search.tracks').toLowerCase()}
           </span>
         </div>
@@ -582,7 +531,7 @@ function FeedPlaylistCard({ item }: { item: FeedItem }) {
       </div>
     </div>
   );
-}
+});
 
 /* ── Home Page ────────────────────────────────────────────── */
 

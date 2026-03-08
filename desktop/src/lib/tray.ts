@@ -1,5 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { usePlayerStore } from '../stores/player';
+import { handlePrev } from './audio';
 
 listen<string>('tray-action', (event) => {
   const store = usePlayerStore.getState();
@@ -11,7 +12,7 @@ listen<string>('tray-action', (event) => {
       store.next();
       break;
     case 'prev':
-      store.prev();
+      handlePrev();
       break;
   }
 });

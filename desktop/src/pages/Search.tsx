@@ -1,21 +1,17 @@
 import {
   ExternalLink,
-  Headphones,
-  Heart,
   ListMusic,
   Loader2,
-  Music,
   Pause,
   Play,
   Search as SearchIcon,
   Users,
   X,
 } from 'lucide-react';
+import { headphones11, heart11, musicIcon20 } from '../lib/icons';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
-import { ScdnImg } from '../components/ui/ScdnImg';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
@@ -27,44 +23,16 @@ import {
   useSearchTracks,
   useSearchUsers,
 } from '../lib/hooks';
-import { type Track, usePlayerStore } from '../stores/player';
-
-/* ── Helpers ──────────────────────────────────────────────── */
-
-function fc(n?: number) {
-  if (!n) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function dur(ms: number) {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-}
+import { dur, fc } from '../lib/formatters';
+import { useTrackPlay } from '../lib/useTrackPlay';
+import type { Track } from '../stores/player';
 
 /* ── Components ───────────────────────────────────────────── */
 
 const TrackRow = React.memo(({ track, queue }: { track: Track; queue: Track[] }) => {
-  const { play, pause, resume, currentTrack, isPlaying } = usePlayerStore(
-    useShallow((s) => ({
-      play: s.play,
-      pause: s.pause,
-      resume: s.resume,
-      currentTrack: s.currentTrack,
-      isPlaying: s.isPlaying,
-    })),
-  );
   const navigate = useNavigate();
-  const isThis = currentTrack?.urn === track.urn;
+  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
-
-  const handlePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isThis && isPlaying) pause();
-    else if (isThis) resume();
-    else play(track, queue);
-  };
 
   return (
     <div
@@ -77,9 +45,9 @@ const TrackRow = React.memo(({ track, queue }: { track: Track; queue: Track[] })
     >
       <div
         className="w-10 h-10 flex items-center justify-center shrink-0 cursor-pointer"
-        onClick={handlePlay}
+        onClick={togglePlay}
       >
-        {isThis && isPlaying ? (
+        {isThisPlaying ? (
           <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
             <Pause size={16} fill="white" strokeWidth={0} />
           </div>
@@ -97,10 +65,10 @@ const TrackRow = React.memo(({ track, queue }: { track: Track; queue: Track[] })
 
       <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
         {cover ? (
-          <ScdnImg src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
-            <Music size={16} className="text-white/20" />
+            {musicIcon20}
           </div>
         )}
       </div>
@@ -127,12 +95,12 @@ const TrackRow = React.memo(({ track, queue }: { track: Track; queue: Track[] })
       <div className="hidden md:flex items-center gap-4 shrink-0 pr-4">
         {track.playback_count != null && (
           <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
-            <Headphones size={11} className="text-white/20" />
+            {headphones11}
             {fc(track.playback_count)}
           </span>
         )}
         <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
-          <Heart size={11} className="text-white/20" />
+          {heart11}
           {fc(track.favoritings_count ?? track.likes_count)}
         </span>
       </div>
@@ -155,7 +123,7 @@ const PlaylistCard = React.memo(({ playlist }: { playlist: Playlist }) => {
     >
       <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
         {cover ? (
-          <ScdnImg
+          <img
             src={cover}
             alt={playlist.title}
             className="w-full h-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
@@ -200,7 +168,7 @@ const UserCard = React.memo(({ user }: { user: SCUser }) => {
     >
       <div className="relative w-24 h-24 rounded-full shadow-xl overflow-hidden ring-2 ring-white/[0.05] group-hover:ring-white/[0.15] group-hover:scale-105 transition-all duration-500">
         {avatar ? (
-          <ScdnImg
+          <img
             src={avatar}
             alt={user.username}
             className="w-full h-full object-cover"
