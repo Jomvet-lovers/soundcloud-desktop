@@ -41,6 +41,7 @@ export async function api<T = unknown>(path: string, options: RequestInit = {}):
         toast.error(`Error ${res.status}`);
       }
     }
+    console.error(`HTTP ERROR: url: ${path}, `, err);
     throw err;
   }
 
