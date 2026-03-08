@@ -13,7 +13,7 @@ import {
   Repeat2,
   Send,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
@@ -292,7 +292,7 @@ const RelatedRow = React.memo(({ track, queue }: { track: Track; queue: Track[] 
       </div>
     </div>
   );
-});
+}, (prev, next) => prev.track.urn === next.track.urn);
 
 /* ── Main: TrackPage ─────────────────────────────────────── */
 
@@ -326,6 +326,15 @@ export const TrackPage = React.memo(() => {
   const { data: relatedData, isLoading: relatedLoading } = useRelatedTracks(urn, 10);
   const { data: favoritersData } = useTrackFavoriters(urn, 12);
 
+  const trackUrn = track?.urn;
+  const isThis = usePlayerStore((s) => !!trackUrn && s.currentTrack?.urn === trackUrn);
+  const isThisPlaying = usePlayerStore(
+    (s) => !!trackUrn && s.currentTrack?.urn === trackUrn && s.isPlaying,
+  );
+
+  const relatedTracks = useMemo(() => relatedData?.collection ?? [], [relatedData]);
+  const favoriters = useMemo(() => favoritersData?.collection ?? [], [favoritersData]);
+
   if (isLoading || !track) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -334,12 +343,8 @@ export const TrackPage = React.memo(() => {
     );
   }
 
-  const isThis = usePlayerStore((s) => s.currentTrack?.urn === track.urn);
-  const isThisPlaying = usePlayerStore((s) => s.currentTrack?.urn === track.urn && s.isPlaying);
   const cover = art(track.artwork_url, 't500x500');
   const tags = parseTags(track.tag_list);
-  const relatedTracks = relatedData?.collection ?? [];
-  const favoriters = favoritersData?.collection ?? [];
   const desc = track.description?.trim();
   const descLong = desc && desc.length > 200;
 

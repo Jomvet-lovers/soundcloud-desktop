@@ -12,7 +12,7 @@ interface TrackCardProps {
   queue?: Track[];
 }
 
-export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
+export const TrackCard = React.memo(function TrackCard({ track, queue }: TrackCardProps) {
   const navigate = useNavigate();
   const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const artwork = art(track.artwork_url, 't300x300');
@@ -84,4 +84,4 @@ export const TrackCard = React.memo(({ track, queue }: TrackCardProps) => {
       </div>
     </div>
   );
-});
+}, (prev, next) => prev.track.urn === next.track.urn);

@@ -31,7 +31,7 @@ import { type Track, usePlayerStore } from '../stores/player';
 /* ── Track Row ────────────────────────────────────────────── */
 
 const TrackRow = React.memo(
-  ({ track, index, queue }: { track: Track; index: number; queue: Track[] }) => {
+  function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
     const navigate = useNavigate();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
@@ -116,6 +116,7 @@ const TrackRow = React.memo(
       </div>
     );
   },
+  (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index,
 );
 
 /* ── Main: PlaylistPage ──────────────────────────────────── */
@@ -129,9 +130,10 @@ export const PlaylistPage = React.memo(() => {
 
   const isLoading = playlistLoading || tracksLoading;
 
-  const tracks: Track[] = !isLoading && playlist
-    ? (playlistTracks.length > 0 ? playlistTracks : (playlist.tracks ?? []))
-    : [];
+  const tracks: Track[] = React.useMemo(() => {
+    if (isLoading || !playlist) return [];
+    return playlistTracks.length > 0 ? playlistTracks : (playlist.tracks ?? []);
+  }, [isLoading, playlist, playlistTracks]);
 
   const trackUrns = React.useMemo(() => new Set(tracks.map((t) => t.urn)), [tracks]);
   const isPlayingFromThis = usePlayerStore(
@@ -141,6 +143,8 @@ export const PlaylistPage = React.memo(() => {
     (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
   );
 
+  const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
+
   if (isLoading || !playlist) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -148,8 +152,6 @@ export const PlaylistPage = React.memo(() => {
       </div>
     );
   }
-
-  const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
   const cover = art(playlist.artwork_url, 't500x500') ?? art(tracks[0]?.artwork_url, 't500x500');
 
   const handlePlayAll = () => {

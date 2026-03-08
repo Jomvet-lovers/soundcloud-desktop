@@ -9,7 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { headphones11, heart11, musicIcon20 } from '../lib/icons';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -29,7 +29,7 @@ import type { Track } from '../stores/player';
 
 /* ── Components ───────────────────────────────────────────── */
 
-const TrackRow = React.memo(({ track, queue }: { track: Track; queue: Track[] }) => {
+const TrackRow = React.memo(function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
   const navigate = useNavigate();
   const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
@@ -110,7 +110,7 @@ const TrackRow = React.memo(({ track, queue }: { track: Track; queue: Track[] })
       </span>
     </div>
   );
-});
+}, (prev, next) => prev.track.urn === next.track.urn);
 
 const PlaylistCard = React.memo(({ playlist }: { playlist: Playlist }) => {
   const navigate = useNavigate();
@@ -319,6 +319,20 @@ export const Search = React.memo(() => {
   const playlistsQuery = useSearchPlaylists(debouncedQuery);
   const usersQuery = useSearchUsers(debouncedQuery);
 
+  // Deduplicated results
+  const uniqueTracks = useMemo(
+    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
+    [tracksQuery.tracks],
+  );
+  const uniquePlaylists = useMemo(
+    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
+    [playlistsQuery.playlists],
+  );
+  const uniqueUsers = useMemo(
+    () => Array.from(new Map(usersQuery.users.map((u) => [u.urn, u])).values()),
+    [usersQuery.users],
+  );
+
   // Determine active query for infinite scroll
   const activeQuery =
     activeTab === 'tracks' ? tracksQuery : activeTab === 'playlists' ? playlistsQuery : usersQuery;
@@ -346,8 +360,6 @@ export const Search = React.memo(() => {
     }
 
     if (activeTab === 'tracks') {
-      const uniqueTracks = Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values());
-
       if (tracksQuery.isLoading)
         return (
           <div className="flex justify-center py-20">
@@ -367,10 +379,6 @@ export const Search = React.memo(() => {
     }
 
     if (activeTab === 'playlists') {
-      const uniquePlaylists = Array.from(
-        new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values(),
-      );
-
       if (playlistsQuery.isLoading)
         return (
           <div className="flex justify-center py-20">
@@ -390,8 +398,6 @@ export const Search = React.memo(() => {
     }
 
     if (activeTab === 'users') {
-      const uniqueUsers = Array.from(new Map(usersQuery.users.map((u) => [u.urn, u])).values());
-
       if (usersQuery.isLoading)
         return (
           <div className="flex justify-center py-20">

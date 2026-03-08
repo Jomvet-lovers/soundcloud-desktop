@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import { api } from './api';
 
@@ -170,30 +170,31 @@ export function useFeed() {
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
-      // Prevent infinite loop: stop if pagination params didn't change
       if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) {
         return undefined;
       }
       return next;
     },
-    select: (data) => {
-      const items: FeedItem[] = [];
-      const seen = new Set<string>();
-      for (const page of data.pages) {
-        for (const item of page.collection) {
-          const urn = item.origin?.urn;
-          if (urn && !seen.has(urn)) {
-            seen.add(urn);
-            items.push(item);
-          }
-        }
-      }
-      return items;
-    },
   });
 
+  const items = useMemo(() => {
+    if (!query.data) return [];
+    const arr: FeedItem[] = [];
+    const seen = new Set<string>();
+    for (const page of query.data.pages) {
+      for (const item of page.collection) {
+        const urn = item.origin?.urn;
+        if (urn && !seen.has(urn)) {
+          seen.add(urn);
+          arr.push(item);
+        }
+      }
+    }
+    return arr;
+  }, [query.data]);
+
   return {
-    items: query.data ?? [],
+    items,
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
@@ -224,12 +225,14 @@ export function useLikedTracks(limit = 30) {
     },
   });
 
-  const tracks: Track[] = [];
-  if (query.data) {
+  const tracks = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Track[] = [];
     for (const page of query.data.pages) {
-      for (const t of page.collection) tracks.push(t);
+      for (const t of page.collection) arr.push(t);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { tracks, ...query };
 }
 
@@ -269,12 +272,14 @@ export function useTrackComments(trackUrn: string | undefined) {
     refetchOnMount: 'always',
   });
 
-  const comments: Comment[] = [];
-  if (query.data) {
+  const comments = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Comment[] = [];
     for (const page of query.data.pages) {
-      for (const c of page.collection) comments.push(c);
+      for (const c of page.collection) arr.push(c);
     }
-  }
+    return arr;
+  }, [query.data]);
 
   return { comments, ...query };
 }
@@ -361,12 +366,14 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
     refetchOnMount: 'always',
   });
 
-  const tracks: Track[] = [];
-  if (query.data) {
+  const tracks = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Track[] = [];
     for (const page of query.data.pages) {
-      for (const t of page.collection) tracks.push(t);
+      for (const t of page.collection) arr.push(t);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { tracks, ...query };
 }
 
@@ -404,12 +411,14 @@ export function useUserTracks(userUrn: string | undefined) {
     refetchOnMount: 'always',
   });
 
-  const tracks: Track[] = [];
-  if (query.data) {
+  const tracks = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Track[] = [];
     for (const page of query.data.pages) {
-      for (const t of page.collection) tracks.push(t);
+      for (const t of page.collection) arr.push(t);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { tracks, ...query };
 }
 
@@ -438,12 +447,14 @@ export function useUserPlaylists(userUrn: string | undefined) {
     refetchOnMount: 'always',
   });
 
-  const playlists: Playlist[] = [];
-  if (query.data) {
+  const playlists = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Playlist[] = [];
     for (const page of query.data.pages) {
-      for (const p of page.collection) playlists.push(p);
+      for (const p of page.collection) arr.push(p);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { playlists, ...query };
 }
 
@@ -472,12 +483,14 @@ export function useUserLikedTracks(userUrn: string | undefined) {
     refetchOnMount: 'always',
   });
 
-  const tracks: Track[] = [];
-  if (query.data) {
+  const tracks = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Track[] = [];
     for (const page of query.data.pages) {
-      for (const t of page.collection) tracks.push(t);
+      for (const t of page.collection) arr.push(t);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { tracks, ...query };
 }
 
@@ -513,12 +526,14 @@ export function useMyFollowings(limit = 30) {
     },
   });
 
-  const users: SCUser[] = [];
-  if (query.data) {
+  const users = useMemo(() => {
+    if (!query.data) return [];
+    const arr: SCUser[] = [];
     for (const page of query.data.pages) {
-      for (const u of page.collection) users.push(u);
+      for (const u of page.collection) arr.push(u);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { users, ...query };
 }
 
@@ -543,12 +558,14 @@ export function useMyLikedPlaylists(limit = 30) {
     },
   });
 
-  const playlists: Playlist[] = [];
-  if (query.data) {
+  const playlists = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Playlist[] = [];
     for (const page of query.data.pages) {
-      for (const p of page.collection) playlists.push(p);
+      for (const p of page.collection) arr.push(p);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { playlists, ...query };
 }
 
@@ -577,12 +594,14 @@ export function useMyPlaylists(limit = 30) {
     },
   });
 
-  const playlists: Playlist[] = [];
-  if (query.data) {
+  const playlists = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Playlist[] = [];
     for (const page of query.data.pages) {
-      for (const p of page.collection) playlists.push(p);
+      for (const p of page.collection) arr.push(p);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { playlists, ...query };
 }
 
@@ -615,12 +634,14 @@ export function useSearchTracks(q: string) {
     staleTime: 1000 * 60 * 5, // 5 min cache for search results
   });
 
-  const tracks: Track[] = [];
-  if (query.data) {
+  const tracks = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Track[] = [];
     for (const page of query.data.pages) {
-      for (const t of page.collection) tracks.push(t);
+      for (const t of page.collection) arr.push(t);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { tracks, ...query };
 }
 
@@ -641,12 +662,14 @@ export function useSearchPlaylists(q: string) {
     enabled: !!q.trim(),
   });
 
-  const playlists: Playlist[] = [];
-  if (query.data) {
+  const playlists = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Playlist[] = [];
     for (const page of query.data.pages) {
-      for (const p of page.collection) playlists.push(p);
+      for (const p of page.collection) arr.push(p);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { playlists, ...query };
 }
 
@@ -667,12 +690,14 @@ export function useSearchUsers(q: string) {
     enabled: !!q.trim(),
   });
 
-  const users: SCUser[] = [];
-  if (query.data) {
+  const users = useMemo(() => {
+    if (!query.data) return [];
+    const arr: SCUser[] = [];
     for (const page of query.data.pages) {
-      for (const u of page.collection) users.push(u);
+      for (const u of page.collection) arr.push(u);
     }
-  }
+    return arr;
+  }, [query.data]);
   return { users, ...query };
 }
 

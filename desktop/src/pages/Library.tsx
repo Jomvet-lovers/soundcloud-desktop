@@ -30,7 +30,7 @@ import { usePlayerStore } from '../stores/player';
 /* ── Components ───────────────────────────────────────────── */
 
 const LibraryTrackRow = React.memo(
-  ({ track, index, queue }: { track: Track; index: number; queue: Track[] }) => {
+  function LibraryTrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
     const navigate = useNavigate();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
@@ -112,6 +112,7 @@ const LibraryTrackRow = React.memo(
       </div>
     );
   },
+  (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index,
 );
 
 const PlaylistCard = React.memo(({ playlist }: { playlist: Playlist }) => {

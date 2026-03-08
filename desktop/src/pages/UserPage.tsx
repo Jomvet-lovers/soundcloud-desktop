@@ -15,7 +15,7 @@ import {
   Users,
   Youtube,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
@@ -129,7 +129,7 @@ function FollowBtn({ userUrn }: { userUrn: string }) {
 
 /* ── Track Row (For Tracks & Likes) ───────────────────────── */
 
-function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
+const TrackRow = React.memo(({ track, index, queue }: { track: Track; index: number; queue: Track[] }) => {
   const navigate = useNavigate();
   const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
@@ -217,7 +217,7 @@ function TrackRow({ track, index, queue }: { track: Track; index: number; queue:
       </span>
     </div>
   );
-}
+}, (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index);
 
 /* ── Playlist Card ────────────────────────────────────────── */
 
@@ -366,6 +366,20 @@ export function UserPage() {
 
   const sentinelRef = useInfiniteScroll(!!hasNextPage, !!isFetchingNextPage, fetchNextPage);
 
+  // Memoized deduped lists
+  const uniqueTracks = useMemo(
+    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
+    [tracksQuery.tracks],
+  );
+  const uniquePlaylists = useMemo(
+    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
+    [playlistsQuery.playlists],
+  );
+  const uniqueLikes = useMemo(
+    () => Array.from(new Map(likesQuery.tracks.map((t) => [t.urn, t])).values()),
+    [likesQuery.tracks],
+  );
+
   if (userLoading || !user) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -392,7 +406,6 @@ export function UserPage() {
           </div>
         );
 
-      const uniqueTracks = Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values());
       if (uniqueTracks.length === 0)
         return <div className="py-12 text-center text-white/30 text-sm">No tracks found.</div>;
 
@@ -413,9 +426,6 @@ export function UserPage() {
           </div>
         );
 
-      const uniquePlaylists = Array.from(
-        new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values(),
-      );
       if (uniquePlaylists.length === 0)
         return <div className="py-12 text-center text-white/30 text-sm">No playlists found.</div>;
 
@@ -436,7 +446,6 @@ export function UserPage() {
           </div>
         );
 
-      const uniqueLikes = Array.from(new Map(likesQuery.tracks.map((t) => [t.urn, t])).values());
       if (uniqueLikes.length === 0)
         return <div className="py-12 text-center text-white/30 text-sm">No liked tracks.</div>;
 

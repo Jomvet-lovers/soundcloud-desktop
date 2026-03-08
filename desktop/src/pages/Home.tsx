@@ -140,7 +140,7 @@ function FeedSkeleton({ count = 6 }: { count?: number }) {
 
 /* ── Featured Card (hero, first feed track) ───────────────── */
 
-const FeaturedCard = React.memo(({ item, queue }: { item: FeedItem; queue: Track[] }) => {
+const FeaturedCard = React.memo(function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
   const { t } = useTranslation();
   const track = item.origin as Track;
   const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
@@ -283,11 +283,11 @@ const FeaturedCard = React.memo(({ item, queue }: { item: FeedItem; queue: Track
       </div>
     </div>
   );
-});
+}, (prev, next) => prev.item.origin.urn === next.item.origin.urn);
 
 /* ── Feed Track Card (compact horizontal) ─────────────────── */
 
-const FeedTrackCard = React.memo(({ item, queue }: { item: FeedItem; queue: Track[] }) => {
+const FeedTrackCard = React.memo(function FeedTrackCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const track = item.origin as Track;
@@ -383,11 +383,11 @@ const FeedTrackCard = React.memo(({ item, queue }: { item: FeedItem; queue: Trac
       </div>
     </div>
   );
-});
+}, (prev, next) => prev.item.origin.urn === next.item.origin.urn);
 
 /* ── Feed Playlist Card ───────────────────────────────────── */
 
-const FeedPlaylistCard = React.memo(({ item }: { item: FeedItem }) => {
+const FeedPlaylistCard = React.memo(function FeedPlaylistCard({ item }: { item: FeedItem }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -531,7 +531,7 @@ const FeedPlaylistCard = React.memo(({ item }: { item: FeedItem }) => {
       </div>
     </div>
   );
-});
+}, (prev, next) => prev.item.origin.urn === next.item.origin.urn);
 
 /* ── Home Page ────────────────────────────────────────────── */
 
@@ -552,7 +552,7 @@ export function Home() {
 
   const sentinelRef = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
 
-  const followingTracks = following?.collection ?? [];
+  const followingTracks = useMemo(() => following?.collection ?? [], [following]);
 
   // Detect empty account — no feed, no likes, no following
   const isEmpty = !feedLoading && !likesLoading && !followingLoading
@@ -560,7 +560,7 @@ export function Home() {
 
   // Fallback tracks for empty accounts
   const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
-  const fallbackTracks = fallbackData?.collection ?? [];
+  const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
 
   // Discover: pick a random liked track (or fallback) as seed for recommendations
   const seedUrn = useMemo(
@@ -577,7 +577,7 @@ export function Home() {
     [likedTracks.length > 0, fallbackTracks.length > 0],
   );
   const { data: recommended, isLoading: recommendedLoading } = useRecommendedTracks(seedUrn, 20);
-  const recommendedTracks = recommended?.collection ?? [];
+  const recommendedTracks = useMemo(() => recommended?.collection ?? [], [recommended]);
 
   // Genre discovery — extract top genres from liked tracks
   const topGenres = useMemo(() => {
@@ -594,15 +594,23 @@ export function Home() {
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const selectedGenre = activeGenre ?? topGenres[0] ?? null;
   const { data: genreData, isLoading: genreLoading } = useGenreTracks(selectedGenre!, 20);
+  const genreTracks = useMemo(() => genreData?.collection ?? [], [genreData]);
 
   // First track in feed → featured hero card
-  const featuredItem = feedItems.find((i) => i.type.includes('track'));
-  const streamItems = feedItems.filter((i) => i !== featuredItem);
+  const featuredItem = useMemo(
+    () => feedItems.find((i) => i.type.includes('track')),
+    [feedItems],
+  );
+  const streamItems = useMemo(
+    () => feedItems.filter((i) => i !== featuredItem),
+    [feedItems, featuredItem],
+  );
 
   // All feed tracks as queue context
-  const feedTrackQueue = feedItems
-    .filter((i) => i.type.includes('track'))
-    .map((i) => i.origin as Track);
+  const feedTrackQueue = useMemo(
+    () => feedItems.filter((i) => i.type.includes('track')).map((i) => i.origin as Track),
+    [feedItems],
+  );
 
   return (
     <div className="p-6 pb-4 space-y-8">
@@ -738,9 +746,9 @@ export function Home() {
           {genreLoading ? (
             <ShelfSkeleton />
           ) : (
-            (genreData?.collection ?? []).map((track) => (
+            genreTracks.map((track) => (
               <div key={track.urn} className="w-[180px] shrink-0">
-                <TrackCard track={track} queue={genreData?.collection ?? []} />
+                <TrackCard track={track} queue={genreTracks} />
               </div>
             ))
           )}
