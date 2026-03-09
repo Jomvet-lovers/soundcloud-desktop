@@ -17,6 +17,7 @@ import {
   volumeXIcon16,
 } from '../../lib/icons';
 import { api } from '../../lib/api';
+import { invalidateAllLikesCache } from '../../lib/hooks';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
 import { art } from '../../lib/cdn';
 import { formatTime } from '../../lib/formatters';
@@ -177,6 +178,7 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
       qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
       qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
       qc.invalidateQueries({ queryKey: ['me', 'likes', 'tracks'] });
+      invalidateAllLikesCache();
     } catch {
       setLiked(!next);
     }

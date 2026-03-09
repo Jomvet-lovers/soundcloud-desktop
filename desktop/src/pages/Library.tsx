@@ -8,6 +8,7 @@ import { headphones11, heart11, pauseWhite14, playBlack20ml1, playWhite14 } from
 import {
   type Playlist,
   type SCUser,
+  fetchAllLikedTracks,
   useInfiniteScroll,
   useLikedTracks,
   useMyFollowings,
@@ -27,13 +28,20 @@ const LibraryTrackRow = React.memo(
     track,
     index,
     queue,
+    onPlay,
   }: {
     track: Track;
     index: number;
     queue: Track[];
+    onPlay?: () => void;
   }) {
     const navigate = useNavigate();
-    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const { isThis, isThisPlaying, togglePlay: baseToggle } = useTrackPlay(track, queue);
+
+    const togglePlay = () => {
+      baseToggle();
+      if (!isThis && onPlay) onPlay();
+    };
     const cover = art(track.artwork_url, 't200x200');
 
     return (
@@ -214,12 +222,21 @@ const LibraryHero = React.memo(function LibraryHero({
   const user = useAuthStore((s) => s.user);
   const { tracks: likedTracks } = useLikedTracks();
   const { users: followings } = useMyFollowings();
+  const [shuffleLoading, setShuffleLoading] = useState(false);
 
-  const handleShuffleLikes = (e: React.MouseEvent) => {
+  const handleShuffleLikes = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (likedTracks.length > 0) {
-      const shuffled = [...likedTracks].sort(() => Math.random() - 0.5);
+    if (shuffleLoading) return;
+
+    setShuffleLoading(true);
+    try {
+      const all = await fetchAllLikedTracks();
+      if (all.length === 0) return;
+
+      const shuffled = [...all].sort(() => Math.random() - 0.5);
       usePlayerStore.getState().play(shuffled[0], shuffled);
+    } finally {
+      setShuffleLoading(false);
     }
   };
 
@@ -264,9 +281,14 @@ const LibraryHero = React.memo(function LibraryHero({
           </div>
           <button
             onClick={handleShuffleLikes}
-            className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center hover:scale-110 transition-transform shadow-[0_0_30px_rgba(255,255,255,0.3)]"
+            disabled={shuffleLoading}
+            className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center hover:scale-110 transition-transform shadow-[0_0_30px_rgba(255,255,255,0.3)] disabled:opacity-60"
           >
-            {playBlack20ml1}
+            {shuffleLoading ? (
+              <Loader2 size={20} className="animate-spin text-black" />
+            ) : (
+              playBlack20ml1
+            )}
           </button>
         </div>
       </div>
@@ -323,6 +345,12 @@ const LikesTab = React.memo(function LikesTab() {
     likesQuery.fetchNextPage,
   );
 
+  const expandQueue = React.useCallback(() => {
+    fetchAllLikedTracks().then((all) => {
+      usePlayerStore.getState().setQueue(all);
+    });
+  }, []);
+
   return (
     <div className="min-h-[400px]">
       <div className="flex flex-col gap-1">
@@ -332,7 +360,7 @@ const LikesTab = React.memo(function LikesTab() {
           </div>
         ) : likedTracks.length > 0 ? (
           likedTracks.map((track, i) => (
-            <LibraryTrackRow key={track.urn} track={track} index={i} queue={likedTracks} />
+            <LibraryTrackRow key={track.urn} track={track} index={i} queue={likedTracks} onPlay={expandQueue} />
           ))
         ) : (
           <div className="py-20 text-center text-white/20">No liked tracks yet</div>

@@ -20,7 +20,7 @@ import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
-import type { Comment } from '../lib/hooks';
+import { type Comment, invalidateAllLikesCache } from '../lib/hooks';
 import {
   useInfiniteScroll,
   usePostComment,
@@ -87,6 +87,7 @@ const LikeBtn = React.memo(
         qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
         qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
         qc.invalidateQueries({ queryKey: ['me', 'likes', 'tracks'] });
+        invalidateAllLikesCache();
       } catch {
         setLiked(!next);
         setLocalCount((c) => c + (next ? -1 : 1));

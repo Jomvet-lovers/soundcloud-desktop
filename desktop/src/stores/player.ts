@@ -46,6 +46,7 @@ interface PlayerState {
   next: () => void;
   prev: () => void;
   setVolume: (v: number) => void;
+  setQueue: (queue: Track[]) => void;
   addToQueue: (tracks: Track[]) => void;
   removeFromQueue: (index: number) => void;
   moveInQueue: (from: number, to: number) => void;
@@ -130,6 +131,12 @@ export const usePlayerStore = create<PlayerState>()(
       },
 
       setVolume: (v) => set({ volume: Math.round(Math.max(0, Math.min(200, v))) }),
+
+      setQueue: (queue) =>
+        set((s) => {
+          const idx = s.currentTrack ? queue.findIndex((t) => t.urn === s.currentTrack!.urn) : -1;
+          return { queue, queueIndex: idx >= 0 ? idx : s.queueIndex };
+        }),
 
       addToQueue: (tracks) => set((s) => ({ queue: [...s.queue, ...tracks] })),
 

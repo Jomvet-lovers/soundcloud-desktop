@@ -238,6 +238,46 @@ export function useLikedTracks(limit = 30) {
   return { tracks, ...query };
 }
 
+/**
+ * Fetch ALL liked tracks by paginating through the API.
+ * Module-level cache — shared across shuffle & play, no re-renders.
+ * Call invalidateAllLikesCache() when likes change.
+ */
+let _allLikesPromise: Promise<Track[]> | null = null;
+
+export function fetchAllLikedTracks(pageSize = 200): Promise<Track[]> {
+  if (_allLikesPromise) return _allLikesPromise;
+
+  _allLikesPromise = (async () => {
+    const all: Track[] = [];
+    let cursor: string | undefined;
+
+    for (;;) {
+      const params = new URLSearchParams({ limit: String(pageSize) });
+      if (cursor) params.set('cursor', cursor);
+
+      const page = await api<TrackListResponse>(`/me/likes/tracks?${params}`);
+      for (const t of page.collection) all.push(t);
+
+      const next = page.next_href ? extractPagination(page.next_href) : undefined;
+      if (!next?.cursor) break;
+      cursor = next.cursor;
+    }
+
+    return all;
+  })();
+
+  _allLikesPromise.catch(() => {
+    _allLikesPromise = null;
+  });
+
+  return _allLikesPromise;
+}
+
+export function invalidateAllLikesCache() {
+  _allLikesPromise = null;
+}
+
 /* ── Fresh from followed artists ───────────────────────────────── */
 
 export function useFollowingTracks(limit = 20) {

@@ -153,7 +153,7 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
               onClick={() => handleClick(track, absIdx)}
             >
               {artwork ? (
-                <img src={artwork} alt="" className="w-full h-full object-cover" />
+                <img src={artwork} alt="" className="w-full h-full object-cover" loading="lazy" />
               ) : (
                 <div className="w-full h-full" />
               )}
