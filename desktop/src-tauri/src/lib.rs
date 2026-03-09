@@ -7,12 +7,27 @@ use tokio::io::AsyncReadExt;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
 use discord_rich_presence::{
     activity::{Activity, ActivityType, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
 
 const DISCORD_CLIENT_ID: &str = "1431978756687265872";
+
+const PROXY_URL: &str = "https://soundcloud.work.gd";
+const DOMAIN_WHITELIST: &[&str] = &[
+    "localhost",
+    "127.0.0.1",
+    "tauri.localhost",
+    "backend.soundcloud.work.gd",
+    "soundcloud.work.gd",
+];
+
+fn is_domain_whitelisted(host: &str) -> bool {
+    DOMAIN_WHITELIST.iter().any(|&w| host == w)
+}
 
 struct CacheServerState {
     port: u16,
@@ -126,6 +141,97 @@ fn discord_clear_activity(state: tauri::State<'_, Arc<DiscordState>>) -> Result<
     Ok(())
 }
 
+// ── HTTP Proxy ────────────────────────────────────────────────
+
+async fn handle_proxy(
+    encoded_url: String,
+    method: warp::http::Method,
+    headers: warp::http::HeaderMap,
+    body: warp::hyper::body::Bytes,
+    http_client: reqwest::Client,
+) -> Result<Response<Vec<u8>>, warp::Rejection> {
+    let target_url = match BASE64.decode(encoded_url.as_bytes()) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(_) => {
+                return Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(b"invalid utf8".to_vec())
+                    .unwrap());
+            }
+        },
+        Err(_) => {
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(b"invalid base64".to_vec())
+                .unwrap());
+        }
+    };
+
+    let host = target_url
+        .split("://")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|authority| authority.split(':').next())
+        .unwrap_or("");
+
+    if is_domain_whitelisted(host) {
+        return Ok(Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(b"whitelisted domain".to_vec())
+            .unwrap());
+    }
+
+    let encoded_for_header = BASE64.encode(target_url.as_bytes());
+    #[cfg(debug_assertions)]
+    println!("[Proxy] {} {} -> X-Target", method, target_url);
+
+    let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
+        .unwrap_or(reqwest::Method::GET);
+
+    let mut req = http_client
+        .request(reqwest_method, PROXY_URL)
+        .header("X-Target", &encoded_for_header);
+
+    // Forward relevant headers
+    for (key, value) in headers.iter() {
+        let name = key.as_str();
+        if matches!(name, "content-type" | "range" | "accept" | "accept-encoding" | "authorization") {
+            req = req.header(name, value.as_bytes());
+        }
+    }
+
+    if !body.is_empty() {
+        req = req.body(body.to_vec());
+    }
+
+    let upstream = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            #[cfg(debug_assertions)]
+            eprintln!("[Proxy] upstream error: {e}");
+            return Ok(Response::builder()
+                .status(StatusCode::BAD_GATEWAY)
+                .body(format!("upstream error: {e}").into_bytes())
+                .unwrap());
+        }
+    };
+
+    let status = upstream.status().as_u16();
+    let mut builder = Response::builder().status(status);
+
+    for (key, value) in upstream.headers().iter() {
+        let name = key.as_str();
+        if matches!(name, "content-type" | "content-length" | "cache-control" | "etag" | "last-modified" | "accept-ranges" | "content-range") {
+            builder = builder.header(name, value.as_bytes());
+        }
+    }
+
+    let resp_body = upstream.bytes().await.unwrap_or_default().to_vec();
+
+    Ok(builder.body(resp_body).unwrap())
+}
+
 // ── Cache Server ──────────────────────────────────────────────
 
 async fn serve_audio(
@@ -216,13 +322,34 @@ async fn start_cache_server(cache_dir: PathBuf) -> u16 {
             async move { serve_audio(filename, dir, range).await }
         });
 
+    let http_client = reqwest::Client::new();
+    let proxy_route = warp::path("p")
+        .and(warp::path::param::<String>())
+        .and(warp::path::end())
+        .and(warp::method())
+        .and(warp::header::headers_cloned())
+        .and(warp::body::bytes())
+        .and({
+            let c = http_client.clone();
+            warp::any().map(move || c.clone())
+        })
+        .and_then(
+            |encoded_url: String,
+             method: warp::http::Method,
+             headers: warp::http::HeaderMap,
+             body: warp::hyper::body::Bytes,
+             client: reqwest::Client| {
+                handle_proxy(encoded_url, method, headers, body, client)
+            },
+        );
+
     let cors = warp::cors()
         .allow_any_origin()
-        .allow_methods(vec!["GET", "HEAD", "OPTIONS"])
-        .allow_headers(vec!["range", "content-type"])
+        .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+        .allow_headers(vec!["range", "content-type", "accept", "authorization", "accept-encoding"])
         .expose_headers(vec!["content-range", "content-length", "accept-ranges"]);
 
-    let routes = audio_route.with(cors);
+    let routes = audio_route.or(proxy_route).with(cors);
 
     let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
     let (addr, server) = warp::serve(routes).bind_ephemeral(addr);

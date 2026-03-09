@@ -17,13 +17,6 @@ if (import.meta.env.DEV) {
   document.head.appendChild(script);
 }
 
-invoke<number>('get_cache_server_port')
-  .then((port) => {
-    setCacheServerPort(port);
-    console.log(`[CacheServer] Port received: ${port}`);
-  })
-  .catch((e) => console.warn('[CacheServer] Failed to get port:', e));
-
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -34,10 +27,34 @@ export const queryClient = new QueryClient({
   },
 });
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </React.StrictMode>,
-);
+const waitForController = () =>
+  new Promise<void>((resolve) =>
+    navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }),
+  );
+
+async function registerServiceWorker(port: number) {
+  if (!('serviceWorker' in navigator)) return;
+
+  await navigator.serviceWorker.register(`/sw.js?port=${port}`);
+
+  if (!navigator.serviceWorker.controller) {
+    await waitForController();
+  }
+}
+
+async function bootstrap() {
+  const port = await invoke<number>('get_cache_server_port');
+  setCacheServerPort(port);
+
+  await registerServiceWorker(port);
+
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </React.StrictMode>,
+  );
+}
+
+void bootstrap();

@@ -3840,7 +3840,9 @@ dependencies = [
 name = "soundcloud-desktop"
 version = "5.0.0"
 dependencies = [
+ "base64 0.22.1",
  "discord-rich-presence",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
