@@ -3748,7 +3748,7 @@ dependencies = [
 
 [[package]]
 name = "soundcloud-desktop"
-version = "5.0.0"
+version = "5.3.0"
 dependencies = [
  "base64 0.22.1",
  "discord-rich-presence",
