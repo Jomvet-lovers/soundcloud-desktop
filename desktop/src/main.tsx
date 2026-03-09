@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { setCacheServerPort } from './lib/constants';
+import { setServerPorts } from './lib/constants';
 import './i18n';
 import './lib/audio';
 import './lib/discord';
@@ -27,26 +27,25 @@ export const queryClient = new QueryClient({
   },
 });
 
-const waitForController = () =>
-  new Promise<void>((resolve) =>
-    navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }),
-  );
-
 async function registerServiceWorker(port: number) {
   if (!('serviceWorker' in navigator)) return;
-
-  await navigator.serviceWorker.register(`/sw.js?port=${port}`);
-
-  if (!navigator.serviceWorker.controller) {
-    await waitForController();
+  try {
+    await navigator.serviceWorker.register(`/sw.js?port=${port}`);
+    if (!navigator.serviceWorker.controller) {
+      await new Promise<void>((resolve) =>
+        navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }),
+      );
+    }
+  } catch (e) {
+    console.warn('[SW] Registration failed, running without proxy SW:', e);
   }
 }
 
 async function bootstrap() {
-  const port = await invoke<number>('get_cache_server_port');
-  setCacheServerPort(port);
+  const [audioPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
+  setServerPorts(audioPort, proxyPort);
 
-  await registerServiceWorker(port);
+  await registerServiceWorker(proxyPort);
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

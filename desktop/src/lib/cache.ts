@@ -3,7 +3,7 @@ import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plu
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { getSessionId } from './api';
 
-import { API_BASE, getCacheServerPort } from './constants';
+import { API_BASE, getAudioPort } from './constants';
 
 const AUDIO_DIR = 'audio';
 const MIN_MP3_SIZE = 8192;
@@ -146,7 +146,7 @@ export async function getCacheFilePath(urn: string): Promise<string | null> {
 
 /** Возвращает HTTP URL на локальный кэш-сервер для трека */
 export function getCacheUrl(urn: string): string | null {
-  const port = getCacheServerPort();
+  const port = getAudioPort();
   if (!port) return null;
   return `http://127.0.0.1:${port}/audio/${urnToFilename(urn)}`;
 }

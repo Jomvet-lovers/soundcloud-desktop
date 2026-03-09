@@ -5,12 +5,18 @@ export const GITHUB_OWNER = 'zxcloli666';
 export const GITHUB_REPO = 'SoundCloud-Desktop';
 export const APP_VERSION = __APP_VERSION__;
 
-let _cacheServerPort: number | null = null;
+let _audioPort: number | null = null;
+let _proxyPort: number | null = null;
 
-export function setCacheServerPort(port: number) {
-  _cacheServerPort = port;
+export function setServerPorts(audio: number, proxy: number) {
+  _audioPort = audio;
+  _proxyPort = proxy;
 }
 
-export function getCacheServerPort(): number | null {
-  return _cacheServerPort;
+export function getAudioPort(): number | null {
+  return _audioPort;
+}
+
+export function getProxyPort(): number | null {
+  return _proxyPort;
 }
