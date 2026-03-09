@@ -86,6 +86,7 @@ const LikeBtn = React.memo(
         });
         qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
         qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
+        qc.invalidateQueries({ queryKey: ['me', 'likes', 'tracks'] });
       } catch {
         setLiked(!next);
         setLocalCount((c) => c + (next ? -1 : 1));
@@ -356,7 +357,7 @@ export const TrackPage = React.memo(() => {
   };
 
   return (
-    <div className="p-6 pb-4 space-y-7 animate-fade-in-up">
+    <div className="p-6 pb-4 space-y-7">
       {/* ── Hero ─────────────────────────────────────── */}
       <section className="relative rounded-3xl overflow-hidden glass-featured">
         {/* Blurred bg */}

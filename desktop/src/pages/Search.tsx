@@ -273,6 +273,112 @@ function ResolveCard({
   );
 }
 
+/* ── Isolated Search Results ──────────────────────────────── */
+
+/* Each search tab is its own component — only fetches its own data type */
+
+const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: string }) {
+  const { t } = useTranslation();
+  const tracksQuery = useSearchTracks(query);
+  const uniqueTracks = useMemo(
+    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
+    [tracksQuery.tracks],
+  );
+  const sentinelRef = useInfiniteScroll(!!tracksQuery.hasNextPage, !!tracksQuery.isFetchingNextPage, tracksQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      {tracksQuery.isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
+        </div>
+      ) : uniqueTracks.length === 0 ? (
+        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {uniqueTracks.map((track, i) => (
+            <TrackRow key={`${track.urn}-${i}`} track={track} queue={uniqueTracks} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
+        {tracksQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
+const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { query: string }) {
+  const { t } = useTranslation();
+  const playlistsQuery = useSearchPlaylists(query);
+  const uniquePlaylists = useMemo(
+    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
+    [playlistsQuery.playlists],
+  );
+  const sentinelRef = useInfiniteScroll(!!playlistsQuery.hasNextPage, !!playlistsQuery.isFetchingNextPage, playlistsQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      {playlistsQuery.isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
+        </div>
+      ) : uniquePlaylists.length === 0 ? (
+        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+          {uniquePlaylists.map((p, i) => (
+            <PlaylistCard key={`${p.urn}-${i}`} playlist={p} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
+        {playlistsQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
+const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: string }) {
+  const { t } = useTranslation();
+  const usersQuery = useSearchUsers(query);
+  const uniqueUsers = useMemo(
+    () => Array.from(new Map(usersQuery.users.map((u) => [u.urn, u])).values()),
+    [usersQuery.users],
+  );
+  const sentinelRef = useInfiniteScroll(!!usersQuery.hasNextPage, !!usersQuery.isFetchingNextPage, usersQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      {usersQuery.isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
+        </div>
+      ) : uniqueUsers.length === 0 ? (
+        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {uniqueUsers.map((u, i) => (
+            <UserCard key={`${u.urn}-${i}`} user={u} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
+        {usersQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
+const SearchEmpty = React.memo(function SearchEmpty() {
+  return (
+    <div className="flex flex-col items-center justify-center h-[400px] text-white/20">
+      <SearchIcon size={48} className="mb-4 opacity-50" />
+      <p className="text-sm font-medium">Search for artists, bands, tracks, podcasts</p>
+    </div>
+  );
+});
+
 /* ── Search Page ──────────────────────────────────────────── */
 
 export const Search = React.memo(() => {
@@ -314,112 +420,15 @@ export const Search = React.memo(() => {
     }
   };
 
-  // Queries
-  const tracksQuery = useSearchTracks(debouncedQuery);
-  const playlistsQuery = useSearchPlaylists(debouncedQuery);
-  const usersQuery = useSearchUsers(debouncedQuery);
-
-  // Deduplicated results
-  const uniqueTracks = useMemo(
-    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
-    [tracksQuery.tracks],
-  );
-  const uniquePlaylists = useMemo(
-    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
-    [playlistsQuery.playlists],
-  );
-  const uniqueUsers = useMemo(
-    () => Array.from(new Map(usersQuery.users.map((u) => [u.urn, u])).values()),
-    [usersQuery.users],
-  );
-
-  // Determine active query for infinite scroll
-  const activeQuery =
-    activeTab === 'tracks' ? tracksQuery : activeTab === 'playlists' ? playlistsQuery : usersQuery;
-
-  const sentinelRef = useInfiniteScroll(
-    !!activeQuery.hasNextPage,
-    !!activeQuery.isFetchingNextPage,
-    activeQuery.fetchNextPage,
-  );
-
   const tabs = [
     { id: 'tracks', label: t('search.tracks') },
     { id: 'playlists', label: t('search.playlists') },
     { id: 'users', label: t('search.users') },
   ] as const;
 
-  const renderContent = () => {
-    if (!debouncedQuery) {
-      return (
-        <div className="flex flex-col items-center justify-center h-[400px] text-white/20">
-          <SearchIcon size={48} className="mb-4 opacity-50" />
-          <p className="text-sm font-medium">Search for artists, bands, tracks, podcasts</p>
-        </div>
-      );
-    }
-
-    if (activeTab === 'tracks') {
-      if (tracksQuery.isLoading)
-        return (
-          <div className="flex justify-center py-20">
-            <Loader2 size={32} className="animate-spin text-white/20" />
-          </div>
-        );
-      if (uniqueTracks.length === 0)
-        return <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>;
-
-      return (
-        <div className="flex flex-col gap-1">
-          {uniqueTracks.map((track, i) => (
-            <TrackRow key={`${track.urn}-${i}`} track={track} queue={uniqueTracks} />
-          ))}
-        </div>
-      );
-    }
-
-    if (activeTab === 'playlists') {
-      if (playlistsQuery.isLoading)
-        return (
-          <div className="flex justify-center py-20">
-            <Loader2 size={32} className="animate-spin text-white/20" />
-          </div>
-        );
-      if (uniquePlaylists.length === 0)
-        return <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>;
-
-      return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {uniquePlaylists.map((p, i) => (
-            <PlaylistCard key={`${p.urn}-${i}`} playlist={p} />
-          ))}
-        </div>
-      );
-    }
-
-    if (activeTab === 'users') {
-      if (usersQuery.isLoading)
-        return (
-          <div className="flex justify-center py-20">
-            <Loader2 size={32} className="animate-spin text-white/20" />
-          </div>
-        );
-      if (uniqueUsers.length === 0)
-        return <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>;
-
-      return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {uniqueUsers.map((u, i) => (
-            <UserCard key={`${u.urn}-${i}`} user={u} />
-          ))}
-        </div>
-      );
-    }
-  };
-
   return (
-    <div className="p-6 pb-4 space-y-8 animate-fade-in-up">
-      {/* ── Search Input ── */}
+    <div className="p-6 pb-4 space-y-8">
+      {/* Search Input */}
       <div className="relative max-w-2xl mx-auto">
         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
           {isUrl ? (
@@ -458,7 +467,7 @@ export const Search = React.memo(() => {
         )}
       </div>
 
-      {/* ── Tabs ── */}
+      {/* Tabs */}
       {debouncedQuery && (
         <div className="flex items-center justify-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-lg mx-auto">
           {tabs.map((tab) => {
@@ -480,22 +489,16 @@ export const Search = React.memo(() => {
         </div>
       )}
 
-      {/* ── Resolve ── */}
+      {/* Resolve */}
       {resolveUrl && (
         <ResolveCard url={resolveUrl} onDone={() => { setInputValue(''); setResolveUrl(null); }} />
       )}
 
-      {/* ── Content ── */}
-      <div className="min-h-[400px]">
-        {!resolveUrl && renderContent()}
-
-        {/* Sentinel */}
-        <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-          {activeQuery.isFetchingNextPage && (
-            <Loader2 size={24} className="text-white/20 animate-spin" />
-          )}
-        </div>
-      </div>
+      {/* Results — each tab only fetches its own data */}
+      {!resolveUrl && !debouncedQuery && <SearchEmpty />}
+      {!resolveUrl && debouncedQuery && activeTab === 'tracks' && <SearchTracksTab query={debouncedQuery} />}
+      {!resolveUrl && debouncedQuery && activeTab === 'playlists' && <SearchPlaylistsTab query={debouncedQuery} />}
+      {!resolveUrl && debouncedQuery && activeTab === 'users' && <SearchUsersTab query={debouncedQuery} />}
     </div>
   );
 });

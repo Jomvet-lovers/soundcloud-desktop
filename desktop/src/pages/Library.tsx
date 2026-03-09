@@ -311,131 +311,117 @@ const LibraryHero = React.memo(function LibraryHero({
 
 /* ── Isolated Tab Content ────────────────────────────────── */
 
-const LibraryContent = React.memo(function LibraryContent({
-  activeTab,
-}: {
-  activeTab: 'playlists' | 'likes' | 'following';
-}) {
-  const { t } = useTranslation();
+/* Each tab is its own component — only fetches its own data */
 
+const LikesTab = React.memo(function LikesTab() {
   const likesQuery = useLikedTracks();
+  const { tracks: likedTracks, isLoading } = likesQuery;
+  const sentinelRef = useInfiniteScroll(!!likesQuery.hasNextPage, !!likesQuery.isFetchingNextPage, likesQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      <div className="flex flex-col gap-1">
+        {isLoading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 size={32} className="animate-spin text-white/20" />
+          </div>
+        ) : likedTracks.length > 0 ? (
+          likedTracks.map((track, i) => (
+            <LibraryTrackRow key={track.urn} track={track} index={i} queue={likedTracks} />
+          ))
+        ) : (
+          <div className="py-20 text-center text-white/20">No liked tracks yet</div>
+        )}
+      </div>
+      <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+        {likesQuery.isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
+const FollowingTab = React.memo(function FollowingTab() {
   const followingsQuery = useMyFollowings();
-  const likedPlaylistsQuery = useMyLikedPlaylists();
+  const { users: followings, isLoading } = followingsQuery;
+  const sentinelRef = useInfiniteScroll(!!followingsQuery.hasNextPage, !!followingsQuery.isFetchingNextPage, followingsQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
+        </div>
+      ) : followings.length > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {followings.map((u) => (
+            <UserCard key={u.urn} user={u} />
+          ))}
+        </div>
+      ) : (
+        <div className="py-20 text-center text-white/20">You are not following anyone</div>
+      )}
+      <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+        {followingsQuery.isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
+const PlaylistsTab = React.memo(function PlaylistsTab() {
+  const { t } = useTranslation();
   const myPlaylistsQuery = useMyPlaylists();
-
-  const likedTracks = likesQuery.tracks;
-  const followings = followingsQuery.users;
-  const likedPlaylists = likedPlaylistsQuery.playlists;
+  const likedPlaylistsQuery = useMyLikedPlaylists();
   const createdPlaylists = myPlaylistsQuery.playlists;
+  const likedPlaylists = likedPlaylistsQuery.playlists;
 
-  const likesLoading = likesQuery.isLoading;
-  const followingsLoading = followingsQuery.isLoading;
-  const likedPlaylistsLoading = likedPlaylistsQuery.isLoading;
-  const myPlaylistsLoading = myPlaylistsQuery.isLoading;
-
-  const hasNextPage =
-    activeTab === 'likes'
-      ? likesQuery.hasNextPage
-      : activeTab === 'following'
-        ? followingsQuery.hasNextPage
-        : (likedPlaylistsQuery.hasNextPage || myPlaylistsQuery.hasNextPage);
-
-  const isFetchingNextPage =
-    activeTab === 'likes'
-      ? likesQuery.isFetchingNextPage
-      : activeTab === 'following'
-        ? followingsQuery.isFetchingNextPage
-        : (likedPlaylistsQuery.isFetchingNextPage || myPlaylistsQuery.isFetchingNextPage);
-
-  const fetchNextPage =
-    activeTab === 'likes'
-      ? likesQuery.fetchNextPage
-      : activeTab === 'following'
-        ? followingsQuery.fetchNextPage
-        : likedPlaylistsQuery.hasNextPage
-          ? likedPlaylistsQuery.fetchNextPage
-          : myPlaylistsQuery.fetchNextPage;
-
+  const hasNextPage = likedPlaylistsQuery.hasNextPage || myPlaylistsQuery.hasNextPage;
+  const isFetchingNextPage = likedPlaylistsQuery.isFetchingNextPage || myPlaylistsQuery.isFetchingNextPage;
+  const fetchNextPage = likedPlaylistsQuery.hasNextPage
+    ? likedPlaylistsQuery.fetchNextPage
+    : myPlaylistsQuery.fetchNextPage;
   const sentinelRef = useInfiniteScroll(!!hasNextPage, !!isFetchingNextPage, fetchNextPage);
 
   return (
     <div className="min-h-[400px]">
-      {activeTab === 'playlists' && (
-        <div className="space-y-10 animate-fade-in-up">
-          {myPlaylistsLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 size={24} className="animate-spin text-white/20" />
-            </div>
-          ) : createdPlaylists.length > 0 ? (
-            <section>
-              <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
-                {t('library.yourPlaylists')}
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                {createdPlaylists.map((p) => (
-                  <PlaylistCard key={p.urn} playlist={p} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {likedPlaylistsLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 size={24} className="animate-spin text-white/20" />
-            </div>
-          ) : likedPlaylists.length > 0 ? (
-            <section>
-              <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
-                {t('library.likedPlaylists')}
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                {likedPlaylists.map((p) => (
-                  <PlaylistCard key={p.urn} playlist={p} />
-                ))}
-              </div>
-            </section>
-          ) : (
-            createdPlaylists.length === 0 && (
-              <div className="py-20 text-center text-white/20">No playlists found</div>
-            )
-          )}
-        </div>
-      )}
-
-      {activeTab === 'likes' && (
-        <div className="flex flex-col gap-1 animate-fade-in-up">
-          {likesLoading ? (
-            <div className="flex justify-center py-20">
-              <Loader2 size={32} className="animate-spin text-white/20" />
-            </div>
-          ) : likedTracks.length > 0 ? (
-            likedTracks.map((track, i) => (
-              <LibraryTrackRow key={track.urn} track={track} index={i} queue={likedTracks} />
-            ))
-          ) : (
-            <div className="py-20 text-center text-white/20">No liked tracks yet</div>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'following' && (
-        <div className="animate-fade-in-up">
-          {followingsLoading ? (
-            <div className="flex justify-center py-20">
-              <Loader2 size={32} className="animate-spin text-white/20" />
-            </div>
-          ) : followings.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {followings.map((u) => (
-                <UserCard key={u.urn} user={u} />
+      <div className="space-y-10">
+        {myPlaylistsQuery.isLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 size={24} className="animate-spin text-white/20" />
+          </div>
+        ) : createdPlaylists.length > 0 ? (
+          <section>
+            <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
+              {t('library.yourPlaylists')}
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+              {createdPlaylists.map((p) => (
+                <PlaylistCard key={p.urn} playlist={p} />
               ))}
             </div>
-          ) : (
-            <div className="py-20 text-center text-white/20">You are not following anyone</div>
-          )}
-        </div>
-      )}
+          </section>
+        ) : null}
 
+        {likedPlaylistsQuery.isLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 size={24} className="animate-spin text-white/20" />
+          </div>
+        ) : likedPlaylists.length > 0 ? (
+          <section>
+            <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
+              {t('library.likedPlaylists')}
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+              {likedPlaylists.map((p) => (
+                <PlaylistCard key={p.urn} playlist={p} />
+              ))}
+            </div>
+          </section>
+        ) : (
+          createdPlaylists.length === 0 && (
+            <div className="py-20 text-center text-white/20">No playlists found</div>
+          )
+        )}
+      </div>
       <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
         {isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
       </div>
@@ -462,7 +448,7 @@ export const Library = React.memo(() => {
   if (!user) return null;
 
   return (
-    <div className="p-6 pb-4 space-y-8 animate-fade-in-up">
+    <div className="p-6 pb-4 space-y-8">
       <LibraryHero onTabLikes={onTabLikes} onTabFollowing={onTabFollowing} />
 
       {/* Tabs */}
@@ -485,7 +471,9 @@ export const Library = React.memo(() => {
         })}
       </div>
 
-      <LibraryContent activeTab={activeTab} />
+      {activeTab === 'likes' && <LikesTab />}
+      {activeTab === 'following' && <FollowingTab />}
+      {activeTab === 'playlists' && <PlaylistsTab />}
     </div>
   );
 });

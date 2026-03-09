@@ -20,7 +20,6 @@ import { api } from '../../lib/api';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
 import { art } from '../../lib/cdn';
 import { formatTime } from '../../lib/formatters';
-import { useCdnUrl } from '../../lib/useCdnUrl';
 import { type Track, usePlayerStore } from '../../stores/player';
 
 /* ── Progress Slider ─────────────────────────────────────────── */
@@ -174,6 +173,7 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
       });
       qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
       qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
+      qc.invalidateQueries({ queryKey: ['me', 'likes', 'tracks'] });
     } catch {
       setLiked(!next);
     }
@@ -261,8 +261,7 @@ const QueueBtn = React.memo(
 const TrackInfo = React.memo(() => {
   const navigate = useNavigate();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const rawArtwork = art(currentTrack?.artwork_url, 't200x200');
-  const artwork = useCdnUrl(rawArtwork);
+  const artwork = art(currentTrack?.artwork_url, 't200x200');
 
   if (!currentTrack) {
     return (
@@ -307,8 +306,7 @@ const TrackInfo = React.memo(() => {
 
 const BackgroundGlow = React.memo(() => {
   const artworkUrl = usePlayerStore((s) => s.currentTrack?.artwork_url);
-  const rawArtwork = art(artworkUrl, 't200x200');
-  const artwork = useCdnUrl(rawArtwork);
+  const artwork = art(artworkUrl, 't200x200');
 
   if (!artwork) return null;
   return (

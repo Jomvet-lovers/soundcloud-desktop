@@ -324,6 +324,100 @@ function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
   );
 }
 
+/* ── Isolated Tab Content ────────────────────────────────── */
+
+/* Each user tab is its own component — only fetches its own data */
+
+const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }) {
+  const tracksQuery = useUserTracks(urn);
+  const uniqueTracks = useMemo(
+    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
+    [tracksQuery.tracks],
+  );
+  const sentinelRef = useInfiniteScroll(!!tracksQuery.hasNextPage, !!tracksQuery.isFetchingNextPage, tracksQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      {tracksQuery.isLoading ? (
+        <div className="py-12 flex justify-center">
+          <Loader2 size={24} className="animate-spin text-white/20" />
+        </div>
+      ) : uniqueTracks.length === 0 ? (
+        <div className="py-12 text-center text-white/30 text-sm">No tracks found.</div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {uniqueTracks.map((track, i) => (
+            <TrackRow key={`${track.urn}-${i}`} track={track} index={i} queue={uniqueTracks} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
+        {tracksQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
+const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: string }) {
+  const playlistsQuery = useUserPlaylists(urn);
+  const uniquePlaylists = useMemo(
+    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
+    [playlistsQuery.playlists],
+  );
+  const sentinelRef = useInfiniteScroll(!!playlistsQuery.hasNextPage, !!playlistsQuery.isFetchingNextPage, playlistsQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      {playlistsQuery.isLoading ? (
+        <div className="py-12 flex justify-center">
+          <Loader2 size={24} className="animate-spin text-white/20" />
+        </div>
+      ) : uniquePlaylists.length === 0 ? (
+        <div className="py-12 text-center text-white/30 text-sm">No playlists found.</div>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-6">
+          {uniquePlaylists.map((playlist, i) => (
+            <UserPlaylistCard key={`${playlist.urn}-${i}`} playlist={playlist} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
+        {playlistsQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
+const UserLikesTab = React.memo(function UserLikesTab({ urn }: { urn: string }) {
+  const likesQuery = useUserLikedTracks(urn);
+  const uniqueLikes = useMemo(
+    () => Array.from(new Map(likesQuery.tracks.map((t) => [t.urn, t])).values()),
+    [likesQuery.tracks],
+  );
+  const sentinelRef = useInfiniteScroll(!!likesQuery.hasNextPage, !!likesQuery.isFetchingNextPage, likesQuery.fetchNextPage);
+
+  return (
+    <div className="min-h-[400px]">
+      {likesQuery.isLoading ? (
+        <div className="py-12 flex justify-center">
+          <Loader2 size={24} className="animate-spin text-white/20" />
+        </div>
+      ) : uniqueLikes.length === 0 ? (
+        <div className="py-12 text-center text-white/30 text-sm">No liked tracks.</div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {uniqueLikes.map((track, i) => (
+            <TrackRow key={`${track.urn}-${i}`} track={track} index={i} queue={uniqueLikes} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
+        {likesQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+      </div>
+    </div>
+  );
+});
+
 /* ── Main: UserPage ──────────────────────────────────────── */
 
 export function UserPage() {
@@ -333,52 +427,8 @@ export function UserPage() {
 
   const [activeTab, setActiveTab] = useState<'tracks' | 'playlists' | 'likes'>('tracks');
 
-  // Profile data
   const { data: user, isLoading: userLoading } = useUser(urn);
   const { data: webProfiles } = useUserWebProfiles(urn);
-
-  // Tab data
-  const tracksQuery = useUserTracks(urn);
-  const playlistsQuery = useUserPlaylists(urn);
-  const likesQuery = useUserLikedTracks(urn);
-
-  // Infinite scroll
-  const hasNextPage =
-    activeTab === 'tracks'
-      ? tracksQuery.hasNextPage
-      : activeTab === 'playlists'
-        ? playlistsQuery.hasNextPage
-        : likesQuery.hasNextPage;
-
-  const isFetchingNextPage =
-    activeTab === 'tracks'
-      ? tracksQuery.isFetchingNextPage
-      : activeTab === 'playlists'
-        ? playlistsQuery.isFetchingNextPage
-        : likesQuery.isFetchingNextPage;
-
-  const fetchNextPage =
-    activeTab === 'tracks'
-      ? tracksQuery.fetchNextPage
-      : activeTab === 'playlists'
-        ? playlistsQuery.fetchNextPage
-        : likesQuery.fetchNextPage;
-
-  const sentinelRef = useInfiniteScroll(!!hasNextPage, !!isFetchingNextPage, fetchNextPage);
-
-  // Memoized deduped lists
-  const uniqueTracks = useMemo(
-    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
-    [tracksQuery.tracks],
-  );
-  const uniquePlaylists = useMemo(
-    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
-    [playlistsQuery.playlists],
-  );
-  const uniqueLikes = useMemo(
-    () => Array.from(new Map(likesQuery.tracks.map((t) => [t.urn, t])).values()),
-    [likesQuery.tracks],
-  );
 
   if (userLoading || !user) {
     return (
@@ -397,71 +447,8 @@ export function UserPage() {
     { id: 'likes', label: t('user.likes'), count: user.public_favorites_count },
   ] as const;
 
-  const renderTabContent = () => {
-    if (activeTab === 'tracks') {
-      if (tracksQuery.isLoading)
-        return (
-          <div className="py-12 flex justify-center">
-            <Loader2 size={24} className="animate-spin text-white/20" />
-          </div>
-        );
-
-      if (uniqueTracks.length === 0)
-        return <div className="py-12 text-center text-white/30 text-sm">No tracks found.</div>;
-
-      return (
-        <div className="flex flex-col gap-1">
-          {uniqueTracks.map((track, i) => (
-            <TrackRow key={`${track.urn}-${i}`} track={track} index={i} queue={uniqueTracks} />
-          ))}
-        </div>
-      );
-    }
-
-    if (activeTab === 'playlists') {
-      if (playlistsQuery.isLoading)
-        return (
-          <div className="py-12 flex justify-center">
-            <Loader2 size={24} className="animate-spin text-white/20" />
-          </div>
-        );
-
-      if (uniquePlaylists.length === 0)
-        return <div className="py-12 text-center text-white/30 text-sm">No playlists found.</div>;
-
-      return (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-6">
-          {uniquePlaylists.map((playlist, i) => (
-            <UserPlaylistCard key={`${playlist.urn}-${i}`} playlist={playlist} />
-          ))}
-        </div>
-      );
-    }
-
-    if (activeTab === 'likes') {
-      if (likesQuery.isLoading)
-        return (
-          <div className="py-12 flex justify-center">
-            <Loader2 size={24} className="animate-spin text-white/20" />
-          </div>
-        );
-
-      if (uniqueLikes.length === 0)
-        return <div className="py-12 text-center text-white/30 text-sm">No liked tracks.</div>;
-
-      return (
-        <div className="flex flex-col gap-1">
-          {uniqueLikes.map((track, i) => (
-            <TrackRow key={`${track.urn}-${i}`} track={track} index={i} queue={uniqueLikes} />
-          ))}
-        </div>
-      );
-    }
-  };
-
   return (
-    <div className="p-6 pb-4 space-y-8 animate-fade-in-up">
-      {/* ── Public Profile Warning ── */}
+    <div className="p-6 pb-4 space-y-8">
       {isOwnProfile && (
         <div className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/20 text-amber-400/90 px-5 py-3.5 rounded-2xl flex items-center gap-3 text-[13px] font-medium backdrop-blur-xl shadow-lg">
           <AlertCircle size={18} />
@@ -469,9 +456,8 @@ export function UserPage() {
         </div>
       )}
 
-      {/* ── Hero Section (Vision Pro Style) ── */}
+      {/* Hero Section */}
       <section className="relative rounded-[32px] overflow-hidden bg-white/[0.02] border border-white/[0.05] shadow-2xl">
-        {/* Deep blur background */}
         {avatar && (
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
             <img
@@ -484,7 +470,6 @@ export function UserPage() {
         )}
 
         <div className="relative flex flex-col md:flex-row items-center md:items-end gap-8 p-8 md:p-10">
-          {/* Avatar */}
           <div className="w-[180px] h-[180px] md:w-[200px] md:h-[200px] rounded-full overflow-hidden shrink-0 shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-2 ring-white/[0.15] bg-black/40 relative group">
             {avatar ? (
               <img
@@ -499,7 +484,6 @@ export function UserPage() {
             )}
           </div>
 
-          {/* User Info */}
           <div className="flex-1 min-w-0 flex flex-col items-center md:items-start text-center md:text-left">
             {user.plan && user.plan !== 'Free' && (
               <span className="inline-block text-[10px] font-extrabold px-3 py-1 rounded-full bg-gradient-to-r from-accent to-accent-hover text-white shadow-[0_0_20px_var(--color-accent-glow)] mb-4 uppercase tracking-widest">
@@ -557,11 +541,9 @@ export function UserPage() {
         </div>
       </section>
 
-      {/* ── Two Column Layout ── */}
+      {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 items-start">
-        {/* Left Column (Main Content) */}
         <div className="min-w-0 flex flex-col gap-6">
-          {/* Apple-style Segmented Control for Tabs */}
           <div className="flex items-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-lg">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
@@ -590,20 +572,14 @@ export function UserPage() {
             })}
           </div>
 
-          {/* Grid/List Content */}
-          <div className="min-h-[400px]">
-            {renderTabContent()}
-
-            {/* Infinite Scroll Sentinel */}
-            <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
-              {isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
-            </div>
-          </div>
+          {/* Each tab only fetches its own data */}
+          {activeTab === 'tracks' && <UserTracksTab urn={urn!} />}
+          {activeTab === 'playlists' && <UserPlaylistsTab urn={urn!} />}
+          {activeTab === 'likes' && <UserLikesTab urn={urn!} />}
         </div>
 
-        {/* Right Column (Sidebar) */}
+        {/* Sidebar */}
         <div className="space-y-5 lg:sticky lg:top-6">
-          {/* Bio / Description */}
           {user.description && (
             <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl">
               <h3 className="text-[14px] font-bold text-white/60 mb-4 tracking-tight">
@@ -615,7 +591,6 @@ export function UserPage() {
             </section>
           )}
 
-          {/* Stats & Joined */}
           <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl flex flex-col gap-4">
             <div className="flex items-center justify-between text-[13px]">
               <span className="text-white/40 font-medium">{t('user.memberSince')}</span>
@@ -626,7 +601,6 @@ export function UserPage() {
             </div>
           </section>
 
-          {/* Web Profiles (Social Links) */}
           {webProfiles && webProfiles.length > 0 && (
             <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl">
               <h3 className="text-[14px] font-bold text-white/60 mb-4 tracking-tight">
