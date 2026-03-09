@@ -64,11 +64,12 @@ jobs:
           cd ..
 
           sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" desktop/src-tauri/tauri.conf.json
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" desktop/src-tauri/Cargo.toml
 
           echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
           if ! git diff --quiet; then
-            git add desktop/package.json desktop/src-tauri/tauri.conf.json
+            git add desktop/package.json desktop/src-tauri/tauri.conf.json desktop/src-tauri/Cargo.toml
             git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
             git push origin HEAD:main
           fi
