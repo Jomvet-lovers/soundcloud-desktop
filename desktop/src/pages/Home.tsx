@@ -8,7 +8,7 @@ import {
   Music,
   Repeat2,
   Sparkles,
-} from 'lucide-react';
+} from '../lib/icons';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

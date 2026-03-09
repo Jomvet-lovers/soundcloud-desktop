@@ -1,6 +1,6 @@
 import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Heart } from 'lucide-react';
+import { Heart } from '../../lib/icons';
 import React, { useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {

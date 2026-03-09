@@ -1,4 +1,4 @@
-import { GripVertical, Trash2, X } from 'lucide-react';
+import { GripVertical, Trash2, X } from '../../lib/icons';
 import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { art } from '../../lib/cdn';

@@ -1,5 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Disc3, Minus, Square, X } from 'lucide-react';
+import { Disc3, Minus, Square, X } from '../../lib/icons';
 import React from 'react';
 
 export const Titlebar = React.memo(() => {

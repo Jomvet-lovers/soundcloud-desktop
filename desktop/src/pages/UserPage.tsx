@@ -5,7 +5,7 @@ import {
   Globe,
   Heart,
   Instagram,
-  Link as LinkIcon,
+  LinkIcon,
   ListMusic,
   Loader2,
   MapPin,
@@ -14,7 +14,7 @@ import {
   Twitter,
   Users,
   Youtube,
-} from 'lucide-react';
+} from '../lib/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';

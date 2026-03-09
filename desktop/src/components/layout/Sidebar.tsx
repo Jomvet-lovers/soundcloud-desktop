@@ -1,4 +1,4 @@
-import { Globe, Home, Library, Search } from 'lucide-react';
+import { Globe, Home, Library, Search } from '../../lib/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';

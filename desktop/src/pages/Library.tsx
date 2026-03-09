@@ -1,4 +1,4 @@
-import { Heart, ListMusic, Loader2, Music, User, Users } from 'lucide-react';
+import { Heart, ListMusic, Loader2, Music, User, Users } from '../lib/icons';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';

@@ -1,4 +1,4 @@
-import { Check, Link } from 'lucide-react';
+import { Check, LinkIcon as Link } from '../../lib/icons';
 import { useCallback, useState } from 'react';
 
 function cleanPermalink(url: string): string {

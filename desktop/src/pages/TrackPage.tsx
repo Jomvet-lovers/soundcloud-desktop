@@ -12,7 +12,7 @@ import {
   Music,
   Repeat2,
   Send,
-} from 'lucide-react';
+} from '../lib/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';

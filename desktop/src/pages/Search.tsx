@@ -7,7 +7,7 @@ import {
   Search as SearchIcon,
   Users,
   X,
-} from 'lucide-react';
+} from '../lib/icons';
 import { headphones11, heart11, musicIcon20 } from '../lib/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';

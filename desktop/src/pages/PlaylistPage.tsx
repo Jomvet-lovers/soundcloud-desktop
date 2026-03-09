@@ -1,4 +1,4 @@
-import { Calendar, Clock, Heart, ListMusic, Loader2, Shuffle } from 'lucide-react';
+import { Calendar, Clock, Heart, ListMusic, Loader2, Shuffle } from '../lib/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
