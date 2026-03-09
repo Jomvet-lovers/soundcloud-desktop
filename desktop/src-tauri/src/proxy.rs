@@ -1,9 +1,9 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures_util::TryStreamExt;
 use warp::http::{Response, StatusCode};
 use warp::hyper::Body;
 
-use crate::constants::{PROXY_URL, is_domain_whitelisted};
+use crate::constants::{is_domain_whitelisted, PROXY_URL};
 
 pub async fn handle_proxy(
     encoded_url: String,
@@ -48,8 +48,8 @@ pub async fn handle_proxy(
     #[cfg(debug_assertions)]
     println!("[Proxy] {} {} -> X-Target", method, target_url);
 
-    let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
-        .unwrap_or(reqwest::Method::GET);
+    let reqwest_method =
+        reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET);
 
     let mut req = http_client
         .request(reqwest_method, PROXY_URL)
@@ -57,7 +57,10 @@ pub async fn handle_proxy(
 
     for (key, value) in headers.iter() {
         let name = key.as_str();
-        if matches!(name, "content-type" | "range" | "accept" | "accept-encoding" | "authorization") {
+        if matches!(
+            name,
+            "content-type" | "range" | "accept" | "accept-encoding" | "authorization"
+        ) {
             req = req.header(name, value.as_bytes());
         }
     }
@@ -83,7 +86,16 @@ pub async fn handle_proxy(
 
     for (key, value) in upstream.headers().iter() {
         let name = key.as_str();
-        if matches!(name, "content-type" | "content-length" | "cache-control" | "etag" | "last-modified" | "accept-ranges" | "content-range") {
+        if matches!(
+            name,
+            "content-type"
+                | "content-length"
+                | "cache-control"
+                | "etag"
+                | "last-modified"
+                | "accept-ranges"
+                | "content-range"
+        ) {
             builder = builder.header(name, value.as_bytes());
         }
     }

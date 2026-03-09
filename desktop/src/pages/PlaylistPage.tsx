@@ -1,11 +1,4 @@
-import {
-  Calendar,
-  Clock,
-  Heart,
-  ListMusic,
-  Loader2,
-  Shuffle,
-} from 'lucide-react';
+import { Calendar, Clock, Heart, ListMusic, Loader2, Shuffle } from 'lucide-react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -126,7 +119,13 @@ export const PlaylistPage = React.memo(() => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
-  const { tracks: playlistTracks, isLoading: tracksLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = usePlaylistTracks(urn);
+  const {
+    tracks: playlistTracks,
+    isLoading: tracksLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = usePlaylistTracks(urn);
 
   const isLoading = playlistLoading || tracksLoading;
 
@@ -221,11 +220,7 @@ export const PlaylistPage = React.memo(() => {
                     : 'bg-white/90 scale-75 group-hover/cover:scale-100'
                 }`}
               >
-                {isPlayingFromThis ? (
-                  pauseBlack22
-                ) : (
-                  playBlack22
-                )}
+                {isPlayingFromThis ? pauseBlack22 : playBlack22}
               </div>
             </div>
 
@@ -274,11 +269,7 @@ export const PlaylistPage = React.memo(() => {
                     : 'bg-accent text-white hover:bg-accent-hover active:scale-[0.97]'
                 }`}
               >
-                {isPlayingFromThis ? (
-                  pauseCurrent16
-                ) : (
-                  playCurrent16
-                )}
+                {isPlayingFromThis ? pauseCurrent16 : playCurrent16}
                 {t('playlist.playAll')}
               </button>
 

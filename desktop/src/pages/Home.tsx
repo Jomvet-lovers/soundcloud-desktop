@@ -140,408 +140,398 @@ function FeedSkeleton({ count = 6 }: { count?: number }) {
 
 /* ── Featured Card (hero, first feed track) ───────────────── */
 
-const FeaturedCard = React.memo(function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
-  const { t } = useTranslation();
-  const track = item.origin as Track;
-  const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-  const navigate = useNavigate();
-  const isRepost = item.type.includes('repost');
-  const cover = art(track.artwork_url);
-  const avatar = art(track.user.avatar_url, 'small');
+const FeaturedCard = React.memo(
+  function FeaturedCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
+    const { t } = useTranslation();
+    const track = item.origin as Track;
+    const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const navigate = useNavigate();
+    const isRepost = item.type.includes('repost');
+    const cover = art(track.artwork_url);
+    const avatar = art(track.user.avatar_url, 'small');
 
-  return (
-    <div
-      className="relative rounded-3xl overflow-hidden group glass-featured"
-      onMouseEnter={() => preloadTrack(track.urn)}
-    >
-      {/* Blurred artwork background */}
-      {cover && (
-        <div className="absolute inset-0 pointer-events-none">
-          <img
-            src={cover}
-            alt=""
-            className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
+    return (
+      <div
+        className="relative rounded-3xl overflow-hidden group glass-featured"
+        onMouseEnter={() => preloadTrack(track.urn)}
+      >
+        {/* Blurred artwork background */}
+        {cover && (
+          <div className="absolute inset-0 pointer-events-none">
+            <img
+              src={cover}
+              alt=""
+              className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="relative flex items-center gap-6 p-6">
+          {/* Artwork */}
+          <div
+            className="relative w-[160px] h-[160px] rounded-2xl overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1] cursor-pointer group/cover"
+            onClick={togglePlay}
+          >
+            {cover ? (
+              <img
+                src={cover}
+                alt={track.title}
+                className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
+                <Music size={40} className="text-white/15" />
+              </div>
+            )}
+
+            {/* Hover play overlay on artwork */}
+            <div
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
+                isThisPlaying
+                  ? 'bg-black/30 opacity-100'
+                  : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
+              }`}
+            >
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
+                  isThisPlaying
+                    ? 'bg-white scale-100'
+                    : 'bg-white/90 scale-75 group-hover/cover:scale-100'
+                }`}
+              >
+                {isThisPlaying ? pauseBlack18 : playBlack18}
+              </div>
+            </div>
+          </div>
+
+          {/* Track info */}
+          <div className="flex-1 min-w-0 py-1">
+            {isRepost && (
+              <div className="flex items-center gap-1.5 mb-2.5 text-[11px] text-white/30 font-medium">
+                <Repeat2 size={11} />
+                <span>{t('home.reposted')}</span>
+                <span className="text-white/15">·</span>
+                <span>{ago(item.created_at)}</span>
+              </div>
+            )}
+
+            <h2
+              className="text-xl font-bold text-white/95 truncate leading-tight cursor-pointer hover:text-white transition-colors duration-200"
+              onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+            >
+              {track.title}
+            </h2>
+
+            <div
+              className="flex items-center gap-2 mt-2 cursor-pointer group/artist"
+              onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+            >
+              {avatar && (
+                <img
+                  src={avatar}
+                  alt=""
+                  className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
+                />
+              )}
+              <p className="text-[13px] text-white/40 truncate group-hover/artist:text-white/60 transition-colors duration-150">
+                {track.user.username}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 mt-4 flex-wrap">
+              {track.genre && (
+                <span className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white/[0.06] text-white/45 border border-white/[0.06]">
+                  {track.genre}
+                </span>
+              )}
+              <div className="flex items-center gap-3 text-[11px] text-white/25 tabular-nums">
+                <span className="flex items-center gap-1">
+                  <Headphones size={11} />
+                  {fc(track.playback_count)}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Heart size={11} />
+                  {fc(track.favoritings_count ?? track.likes_count)}
+                </span>
+                <span>{dur(track.duration)}</span>
+                {!isRepost && <span>{ago(item.created_at)}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Large play button */}
+          <button
+            type="button"
+            onClick={togglePlay}
+            className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ease-[var(--ease-apple)] shadow-xl cursor-pointer ${
+              isThisPlaying
+                ? 'bg-white scale-100'
+                : 'bg-white/90 hover:bg-white hover:scale-105 active:scale-95'
+            }`}
+          >
+            {isThisPlaying ? pauseBlack22 : playBlack22}
+          </button>
         </div>
-      )}
+      </div>
+    );
+  },
+  (prev, next) => prev.item.origin.urn === next.item.origin.urn,
+);
 
-      {/* Content */}
-      <div className="relative flex items-center gap-6 p-6">
+/* ── Feed Track Card (compact horizontal) ─────────────────── */
+
+const FeedTrackCard = React.memo(
+  function FeedTrackCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
+    const { t } = useTranslation();
+    const navigate = useNavigate();
+    const track = item.origin as Track;
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const isRepost = item.type.includes('repost');
+    const cover = art(track.artwork_url, 't300x300');
+
+    return (
+      <div
+        className={`group glass rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
+          isThis ? 'ring-1 ring-accent/20 bg-accent/[0.02]' : 'hover:bg-white/[0.035]'
+        }`}
+        onMouseEnter={() => preloadTrack(track.urn)}
+      >
         {/* Artwork */}
         <div
-          className="relative w-[160px] h-[160px] rounded-2xl overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1] cursor-pointer group/cover"
+          className="relative w-[76px] h-[76px] rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
           onClick={togglePlay}
         >
           {cover ? (
-            <img
-              src={cover}
-              alt={track.title}
-              className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
-            />
+            <img src={cover} alt={track.title} className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
-              <Music size={40} className="text-white/15" />
+              {musicIcon22}
             </div>
           )}
 
-          {/* Hover play overlay on artwork */}
+          {/* Play overlay */}
           <div
-            className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
               isThisPlaying
                 ? 'bg-black/30 opacity-100'
-                : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
+                : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
             }`}
           >
             <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
-                isThisPlaying
-                  ? 'bg-white scale-100'
-                  : 'bg-white/90 scale-75 group-hover/cover:scale-100'
+              className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] ${
+                isThisPlaying ? 'bg-white scale-100' : 'bg-white/90 scale-75 group-hover:scale-100'
               }`}
             >
-              {isThisPlaying ? (
-                pauseBlack18
-              ) : (
-                playBlack18
-              )}
+              {isThisPlaying ? pauseBlack14 : playBlack14}
             </div>
           </div>
         </div>
 
         {/* Track info */}
-        <div className="flex-1 min-w-0 py-1">
+        <div className="flex-1 min-w-0">
           {isRepost && (
-            <div className="flex items-center gap-1.5 mb-2.5 text-[11px] text-white/30 font-medium">
-              <Repeat2 size={11} />
+            <div className="flex items-center gap-1 mb-1 text-[10px] text-white/20 font-medium">
+              <Repeat2 size={9} />
               <span>{t('home.reposted')}</span>
-              <span className="text-white/15">·</span>
-              <span>{ago(item.created_at)}</span>
             </div>
           )}
-
-          <h2
-            className="text-xl font-bold text-white/95 truncate leading-tight cursor-pointer hover:text-white transition-colors duration-200"
+          <p
+            className="text-[13px] font-medium text-white/90 truncate leading-snug cursor-pointer hover:text-white transition-colors duration-150"
             onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
           >
             {track.title}
-          </h2>
-
-          <div
-            className="flex items-center gap-2 mt-2 cursor-pointer group/artist"
+          </p>
+          <p
+            className="text-[11px] text-white/35 truncate mt-0.5 cursor-pointer hover:text-white/55 transition-colors duration-150"
             onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
           >
-            {avatar && (
-              <img
-                src={avatar}
-                alt=""
-                className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
-              />
-            )}
-            <p className="text-[13px] text-white/40 truncate group-hover/artist:text-white/60 transition-colors duration-150">
-              {track.user.username}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 mt-4 flex-wrap">
+            {track.user.username}
+          </p>
+          <div className="flex items-center gap-2 mt-1.5 text-[10px] text-white/20 tabular-nums">
             {track.genre && (
-              <span className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white/[0.06] text-white/45 border border-white/[0.06]">
+              <span className="px-1.5 py-px rounded-full bg-white/[0.04] text-white/30 border border-white/[0.04] text-[9px]">
                 {track.genre}
               </span>
             )}
-            <div className="flex items-center gap-3 text-[11px] text-white/25 tabular-nums">
-              <span className="flex items-center gap-1">
-                <Headphones size={11} />
-                {fc(track.playback_count)}
-              </span>
-              <span className="flex items-center gap-1">
-                <Heart size={11} />
-                {fc(track.favoritings_count ?? track.likes_count)}
-              </span>
-              <span>{dur(track.duration)}</span>
-              {!isRepost && <span>{ago(item.created_at)}</span>}
-            </div>
-          </div>
-        </div>
-
-        {/* Large play button */}
-        <button
-          type="button"
-          onClick={togglePlay}
-          className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ease-[var(--ease-apple)] shadow-xl cursor-pointer ${
-            isThisPlaying
-              ? 'bg-white scale-100'
-              : 'bg-white/90 hover:bg-white hover:scale-105 active:scale-95'
-          }`}
-        >
-          {isThisPlaying ? (
-            pauseBlack22
-          ) : (
-            playBlack22
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}, (prev, next) => prev.item.origin.urn === next.item.origin.urn);
-
-/* ── Feed Track Card (compact horizontal) ─────────────────── */
-
-const FeedTrackCard = React.memo(function FeedTrackCard({ item, queue }: { item: FeedItem; queue: Track[] }) {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const track = item.origin as Track;
-  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-  const isRepost = item.type.includes('repost');
-  const cover = art(track.artwork_url, 't300x300');
-
-  return (
-    <div
-      className={`group glass rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
-        isThis ? 'ring-1 ring-accent/20 bg-accent/[0.02]' : 'hover:bg-white/[0.035]'
-      }`}
-      onMouseEnter={() => preloadTrack(track.urn)}
-    >
-      {/* Artwork */}
-      <div
-        className="relative w-[76px] h-[76px] rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
-        onClick={togglePlay}
-      >
-        {cover ? (
-          <img src={cover} alt={track.title} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
-            {musicIcon22}
-          </div>
-        )}
-
-        {/* Play overlay */}
-        <div
-          className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-            isThisPlaying
-              ? 'bg-black/30 opacity-100'
-              : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
-          }`}
-        >
-          <div
-            className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] ${
-              isThisPlaying
-                ? 'bg-white scale-100'
-                : 'bg-white/90 scale-75 group-hover:scale-100'
-            }`}
-          >
-            {isThisPlaying ? (
-              pauseBlack14
-            ) : (
-              playBlack14
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Track info */}
-      <div className="flex-1 min-w-0">
-        {isRepost && (
-          <div className="flex items-center gap-1 mb-1 text-[10px] text-white/20 font-medium">
-            <Repeat2 size={9} />
-            <span>{t('home.reposted')}</span>
-          </div>
-        )}
-        <p
-          className="text-[13px] font-medium text-white/90 truncate leading-snug cursor-pointer hover:text-white transition-colors duration-150"
-          onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-        >
-          {track.title}
-        </p>
-        <p
-          className="text-[11px] text-white/35 truncate mt-0.5 cursor-pointer hover:text-white/55 transition-colors duration-150"
-          onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-        >
-          {track.user.username}
-        </p>
-        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-white/20 tabular-nums">
-          {track.genre && (
-            <span className="px-1.5 py-px rounded-full bg-white/[0.04] text-white/30 border border-white/[0.04] text-[9px]">
-              {track.genre}
+            <span className="flex items-center gap-0.5">
+              {headphones9}
+              {fc(track.playback_count)}
             </span>
-          )}
-          <span className="flex items-center gap-0.5">
-            {headphones9}
-            {fc(track.playback_count)}
-          </span>
-          <span className="flex items-center gap-0.5">
-            {heart9}
-            {fc(track.favoritings_count ?? track.likes_count)}
-          </span>
+            <span className="flex items-center gap-0.5">
+              {heart9}
+              {fc(track.favoritings_count ?? track.likes_count)}
+            </span>
+          </div>
+        </div>
+
+        {/* Duration + time */}
+        <div className="text-right shrink-0 self-center">
+          <p className="text-[11px] text-white/30 tabular-nums font-medium">
+            {dur(track.duration)}
+          </p>
+          <p className="text-[10px] text-white/15 mt-0.5">{ago(item.created_at)}</p>
         </div>
       </div>
-
-      {/* Duration + time */}
-      <div className="text-right shrink-0 self-center">
-        <p className="text-[11px] text-white/30 tabular-nums font-medium">{dur(track.duration)}</p>
-        <p className="text-[10px] text-white/15 mt-0.5">{ago(item.created_at)}</p>
-      </div>
-    </div>
-  );
-}, (prev, next) => prev.item.origin.urn === next.item.origin.urn);
+    );
+  },
+  (prev, next) => prev.item.origin.urn === next.item.origin.urn,
+);
 
 /* ── Feed Playlist Card ───────────────────────────────────── */
 
-const FeedPlaylistCard = React.memo(function FeedPlaylistCard({ item }: { item: FeedItem }) {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const origin = item.origin;
-  const isRepost = item.type.includes('repost');
-  const cover = art(origin.artwork_url, 't300x300');
+const FeedPlaylistCard = React.memo(
+  function FeedPlaylistCard({ item }: { item: FeedItem }) {
+    const { t } = useTranslation();
+    const navigate = useNavigate();
+    const [loading, setLoading] = useState(false);
+    const origin = item.origin;
+    const isRepost = item.type.includes('repost');
+    const cover = art(origin.artwork_url, 't300x300');
 
-  // Only re-render when this playlist's playing state actually changes
-  const trackUrns = useMemo(
-    () => new Set((origin.tracks ?? []).map((t: Track) => t.urn)),
-    [origin.tracks],
-  );
-  const isPlayingFromThis = usePlayerStore(
-    (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
-  );
-  const isPausedFromThis = usePlayerStore(
-    (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
-  );
+    // Only re-render when this playlist's playing state actually changes
+    const trackUrns = useMemo(
+      () => new Set((origin.tracks ?? []).map((t: Track) => t.urn)),
+      [origin.tracks],
+    );
+    const isPlayingFromThis = usePlayerStore(
+      (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+    );
+    const isPausedFromThis = usePlayerStore(
+      (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+    );
 
-  const handlePlay = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const { play, pause, resume } = usePlayerStore.getState();
-    if (isPlayingFromThis) {
-      pause();
-      return;
-    }
-    if (isPausedFromThis) {
-      resume();
-      return;
-    }
-
-    if (origin.tracks && origin.tracks.length > 0) {
-      play(origin.tracks[0], origin.tracks);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const data = await import('../lib/api').then((m) =>
-        m.api<{ collection: Track[] }>(`/playlists/${encodeURIComponent(origin.urn)}/tracks`),
-      );
-      const tracks = data.collection;
-      if (tracks.length > 0) {
-        play(tracks[0], tracks);
+    const handlePlay = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const { play, pause, resume } = usePlayerStore.getState();
+      if (isPlayingFromThis) {
+        pause();
+        return;
       }
-    } catch {
-      navigate(`/playlist/${encodeURIComponent(origin.urn)}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (isPausedFromThis) {
+        resume();
+        return;
+      }
 
-  return (
-    <div
-      className={`group glass rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
-        isPlayingFromThis ? 'ring-1 ring-accent/20 bg-accent/[0.02]' : 'hover:bg-white/[0.035]'
-      }`}
-    >
-      {/* Artwork */}
+      if (origin.tracks && origin.tracks.length > 0) {
+        play(origin.tracks[0], origin.tracks);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const data = await import('../lib/api').then((m) =>
+          m.api<{ collection: Track[] }>(`/playlists/${encodeURIComponent(origin.urn)}/tracks`),
+        );
+        const tracks = data.collection;
+        if (tracks.length > 0) {
+          play(tracks[0], tracks);
+        }
+      } catch {
+        navigate(`/playlist/${encodeURIComponent(origin.urn)}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    return (
       <div
-        className="relative w-[76px] h-[76px] rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
-        onClick={handlePlay}
+        className={`group glass rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
+          isPlayingFromThis ? 'ring-1 ring-accent/20 bg-accent/[0.02]' : 'hover:bg-white/[0.035]'
+        }`}
       >
-        {cover ? (
-          <img src={cover} alt={origin.title} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
-            <ListMusic size={22} className="text-white/15" />
-          </div>
-        )}
-
-        {/* Play overlay */}
+        {/* Artwork */}
         <div
-          className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-            isPlayingFromThis
-              ? 'bg-black/30 opacity-100'
-              : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
-          }`}
+          className="relative w-[76px] h-[76px] rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
+          onClick={handlePlay}
         >
-          {loading ? (
-            <Loader2 size={16} className="text-white animate-spin" />
+          {cover ? (
+            <img src={cover} alt={origin.title} className="w-full h-full object-cover" />
           ) : (
-            <div
-              className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] ${
-                isPlayingFromThis
-                  ? 'bg-white scale-100'
-                  : 'bg-white/90 scale-75 group-hover:scale-100'
-              }`}
-            >
-              {isPlayingFromThis ? (
-                pauseBlack14
-              ) : (
-                playBlack14
-              )}
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
+              <ListMusic size={22} className="text-white/15" />
+            </div>
+          )}
+
+          {/* Play overlay */}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
+              isPlayingFromThis
+                ? 'bg-black/30 opacity-100'
+                : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
+            }`}
+          >
+            {loading ? (
+              <Loader2 size={16} className="text-white animate-spin" />
+            ) : (
+              <div
+                className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] ${
+                  isPlayingFromThis
+                    ? 'bg-white scale-100'
+                    : 'bg-white/90 scale-75 group-hover:scale-100'
+                }`}
+              >
+                {isPlayingFromThis ? pauseBlack14 : playBlack14}
+              </div>
+            )}
+          </div>
+
+          {/* Track count pill */}
+          {origin.track_count != null && (
+            <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 text-[9px] font-medium bg-black/50 backdrop-blur-md text-white/70 px-1.5 py-0.5 rounded-full">
+              {listMusic8}
+              {origin.track_count}
             </div>
           )}
         </div>
 
-        {/* Track count pill */}
-        {origin.track_count != null && (
-          <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 text-[9px] font-medium bg-black/50 backdrop-blur-md text-white/70 px-1.5 py-0.5 rounded-full">
-            {listMusic8}
-            {origin.track_count}
+        {/* Playlist info */}
+        <div className="flex-1 min-w-0">
+          {isRepost && (
+            <div className="flex items-center gap-1 mb-1 text-[10px] text-white/20 font-medium">
+              <Repeat2 size={9} />
+              <span>{t('home.reposted')}</span>
+            </div>
+          )}
+          <p
+            className="text-[13px] font-medium text-white/90 truncate leading-snug cursor-pointer hover:text-white transition-colors duration-150"
+            onClick={() => navigate(`/playlist/${encodeURIComponent(origin.urn)}`)}
+          >
+            {origin.title}
+          </p>
+          <p
+            className="text-[11px] text-white/35 truncate mt-0.5 cursor-pointer hover:text-white/55 transition-colors duration-150"
+            onClick={() =>
+              origin.user?.urn && navigate(`/user/${encodeURIComponent(origin.user.urn)}`)
+            }
+          >
+            {origin.user?.username}
+          </p>
+          <div className="flex items-center gap-2 mt-1.5 text-[10px] text-white/20">
+            <span className="flex items-center gap-0.5">
+              {listMusic9}
+              {origin.track_count ?? 0} {t('search.tracks').toLowerCase()}
+            </span>
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* Playlist info */}
-      <div className="flex-1 min-w-0">
-        {isRepost && (
-          <div className="flex items-center gap-1 mb-1 text-[10px] text-white/20 font-medium">
-            <Repeat2 size={9} />
-            <span>{t('home.reposted')}</span>
-          </div>
-        )}
-        <p
-          className="text-[13px] font-medium text-white/90 truncate leading-snug cursor-pointer hover:text-white transition-colors duration-150"
-          onClick={() => navigate(`/playlist/${encodeURIComponent(origin.urn)}`)}
-        >
-          {origin.title}
-        </p>
-        <p
-          className="text-[11px] text-white/35 truncate mt-0.5 cursor-pointer hover:text-white/55 transition-colors duration-150"
-          onClick={() =>
-            origin.user?.urn && navigate(`/user/${encodeURIComponent(origin.user.urn)}`)
-          }
-        >
-          {origin.user?.username}
-        </p>
-        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-white/20">
-          <span className="flex items-center gap-0.5">
-            {listMusic9}
-            {origin.track_count ?? 0} {t('search.tracks').toLowerCase()}
-          </span>
+        {/* Time */}
+        <div className="text-right shrink-0 self-center">
+          <p className="text-[10px] text-white/15">{ago(item.created_at)}</p>
         </div>
       </div>
-
-      {/* Time */}
-      <div className="text-right shrink-0 self-center">
-        <p className="text-[10px] text-white/15">{ago(item.created_at)}</p>
-      </div>
-    </div>
-  );
-}, (prev, next) => prev.item.origin.urn === next.item.origin.urn);
+    );
+  },
+  (prev, next) => prev.item.origin.urn === next.item.origin.urn,
+);
 
 /* ── Isolated Sections ────────────────────────────────────── */
 
 const FeaturedHero = React.memo(function FeaturedHero() {
   const { items, isLoading } = useFeed();
 
-  const featuredItem = useMemo(
-    () => items.find((i) => i.type.includes('track')),
-    [items],
-  );
+  const featuredItem = useMemo(() => items.find((i) => i.type.includes('track')), [items]);
   const feedTrackQueue = useMemo(
     () => items.filter((i) => i.type.includes('track')).map((i) => i.origin as Track),
     [items],
@@ -564,8 +554,13 @@ const FallbackShelf = React.memo(function FallbackShelf() {
   const { data: following, isLoading: followingLoading } = useFollowingTracks(20);
   const followingTracks = useMemo(() => following?.collection ?? [], [following]);
 
-  const isEmpty = !feedLoading && !likesLoading && !followingLoading
-    && feedItems.length === 0 && likedTracks.length === 0 && followingTracks.length === 0;
+  const isEmpty =
+    !feedLoading &&
+    !likesLoading &&
+    !followingLoading &&
+    feedItems.length === 0 &&
+    likedTracks.length === 0 &&
+    followingTracks.length === 0;
 
   const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
   const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
@@ -758,20 +753,11 @@ const DiscoverShelf = React.memo(function DiscoverShelf() {
 
 const FeedStream = React.memo(function FeedStream() {
   const { t } = useTranslation();
-  const {
-    items: feedItems,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-  } = useFeed();
+  const { items: feedItems, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useFeed();
 
   const sentinelRef = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
 
-  const featuredItem = useMemo(
-    () => feedItems.find((i) => i.type.includes('track')),
-    [feedItems],
-  );
+  const featuredItem = useMemo(() => feedItems.find((i) => i.type.includes('track')), [feedItems]);
   const streamItems = useMemo(
     () => feedItems.filter((i) => i !== featuredItem),
     [feedItems, featuredItem],

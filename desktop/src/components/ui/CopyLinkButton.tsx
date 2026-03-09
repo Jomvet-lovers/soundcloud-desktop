@@ -44,11 +44,7 @@ export function CopyLinkButton({
           : 'bg-white/[0.04] border-white/[0.06] text-white/50 hover:bg-white/[0.08] hover:text-white/80 hover:border-white/[0.1]'
       } ${size === 'sm' ? 'px-3 py-1.5 text-[11px]' : 'px-4 py-2.5 text-[12px]'}`}
     >
-      {copied ? (
-        <Check size={iconSize} className="text-emerald-400" />
-      ) : (
-        <Link size={iconSize} />
-      )}
+      {copied ? <Check size={iconSize} className="text-emerald-400" /> : <Link size={iconSize} />}
       {copied ? 'Copied!' : 'Copy Link'}
     </button>
   );

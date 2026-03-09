@@ -72,10 +72,7 @@ pub fn discord_set_activity(
         timestamps = timestamps.end(start + dur);
     }
 
-    let large_image = track
-        .artwork_url
-        .as_deref()
-        .unwrap_or("soundcloud_logo");
+    let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
     let assets = Assets::new()
         .large_image(large_image)

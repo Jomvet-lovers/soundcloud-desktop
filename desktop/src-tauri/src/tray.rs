@@ -37,7 +37,11 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                ..
+            } = event
+            {
                 if let Some(w) = tray.app_handle().get_webview_window("main") {
                     let _ = w.show();
                     let _ = w.unminimize();

@@ -1,7 +1,7 @@
 import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart } from 'lucide-react';
-import React, { useSyncExternalStore, useRef, useState } from 'react';
+import React, { useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   listMusic16,
@@ -86,7 +86,10 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
         />
       </Slider.Root>
       {/* 100% tick mark (visual only, outside Slider tree) */}
-      <div className="absolute top-1/2 -translate-y-1/2 h-[3px] w-px bg-white/20 pointer-events-none" style={{ left: '50%' }} />
+      <div
+        className="absolute top-1/2 -translate-y-1/2 h-[3px] w-px bg-white/20 pointer-events-none"
+        style={{ left: '50%' }}
+      />
     </div>
   );
 });
@@ -248,13 +251,11 @@ const NextBtn = React.memo(() => {
   );
 });
 
-const QueueBtn = React.memo(
-  ({ onClick, active }: { onClick: () => void; active: boolean }) => (
-    <button type="button" onClick={onClick} className={btnClass(active, 'sm')}>
-      {listMusic16}
-    </button>
-  ),
-);
+const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active: boolean }) => (
+  <button type="button" onClick={onClick} className={btnClass(active, 'sm')}>
+    {listMusic16}
+  </button>
+));
 
 /* ── Track Info (left section) ───────────────────────────────── */
 

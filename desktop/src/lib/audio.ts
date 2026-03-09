@@ -273,6 +273,7 @@ if ('mediaSession' in navigator) {
 /* ── Autoplay ────────────────────────────────────────────────── */
 
 let autoplayLoading = false;
+
 async function autoplayRelated(lastTrack: Track) {
   if (autoplayLoading) return;
   autoplayLoading = true;

@@ -1,11 +1,4 @@
-import {
-  Heart,
-  ListMusic,
-  Loader2,
-  Music,
-  User,
-  Users,
-} from 'lucide-react';
+import { Heart, ListMusic, Loader2, Music, User, Users } from 'lucide-react';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -30,7 +23,15 @@ import { usePlayerStore } from '../stores/player';
 /* ── Components ───────────────────────────────────────────── */
 
 const LibraryTrackRow = React.memo(
-  function LibraryTrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
+  function LibraryTrackRow({
+    track,
+    index,
+    queue,
+  }: {
+    track: Track;
+    index: number;
+    queue: Track[];
+  }) {
     const navigate = useNavigate();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
@@ -316,7 +317,11 @@ const LibraryHero = React.memo(function LibraryHero({
 const LikesTab = React.memo(function LikesTab() {
   const likesQuery = useLikedTracks();
   const { tracks: likedTracks, isLoading } = likesQuery;
-  const sentinelRef = useInfiniteScroll(!!likesQuery.hasNextPage, !!likesQuery.isFetchingNextPage, likesQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!likesQuery.hasNextPage,
+    !!likesQuery.isFetchingNextPage,
+    likesQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -334,7 +339,9 @@ const LikesTab = React.memo(function LikesTab() {
         )}
       </div>
       <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
-        {likesQuery.isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
+        {likesQuery.isFetchingNextPage && (
+          <Loader2 size={20} className="text-white/15 animate-spin" />
+        )}
       </div>
     </div>
   );
@@ -343,7 +350,11 @@ const LikesTab = React.memo(function LikesTab() {
 const FollowingTab = React.memo(function FollowingTab() {
   const followingsQuery = useMyFollowings();
   const { users: followings, isLoading } = followingsQuery;
-  const sentinelRef = useInfiniteScroll(!!followingsQuery.hasNextPage, !!followingsQuery.isFetchingNextPage, followingsQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!followingsQuery.hasNextPage,
+    !!followingsQuery.isFetchingNextPage,
+    followingsQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -361,7 +372,9 @@ const FollowingTab = React.memo(function FollowingTab() {
         <div className="py-20 text-center text-white/20">You are not following anyone</div>
       )}
       <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
-        {followingsQuery.isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
+        {followingsQuery.isFetchingNextPage && (
+          <Loader2 size={20} className="text-white/15 animate-spin" />
+        )}
       </div>
     </div>
   );
@@ -375,7 +388,8 @@ const PlaylistsTab = React.memo(function PlaylistsTab() {
   const likedPlaylists = likedPlaylistsQuery.playlists;
 
   const hasNextPage = likedPlaylistsQuery.hasNextPage || myPlaylistsQuery.hasNextPage;
-  const isFetchingNextPage = likedPlaylistsQuery.isFetchingNextPage || myPlaylistsQuery.isFetchingNextPage;
+  const isFetchingNextPage =
+    likedPlaylistsQuery.isFetchingNextPage || myPlaylistsQuery.isFetchingNextPage;
   const fetchNextPage = likedPlaylistsQuery.hasNextPage
     ? likedPlaylistsQuery.fetchNextPage
     : myPlaylistsQuery.fetchNextPage;

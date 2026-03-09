@@ -18,10 +18,10 @@ tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
-warp = "0.4"
+warp = "0.3"
 discord-rich-presence = "1"
 tauri-plugin-http = "2.5.7"
 base64 = "0.22"
-reqwest = { version = "0.13", features = ["rustls-tls", "stream"], default-features = false }
+reqwest = { version = "0.12", features = ["rustls-tls", "stream"], default-features = false }
 futures-util = "0.3"
 

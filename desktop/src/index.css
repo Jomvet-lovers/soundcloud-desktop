@@ -99,6 +99,7 @@ body,
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -114,6 +115,7 @@ body,
 :focus {
   outline: none;
 }
+
 :focus-visible {
   outline: 1px solid rgba(255, 85, 0, 0.4);
   outline-offset: 2px;

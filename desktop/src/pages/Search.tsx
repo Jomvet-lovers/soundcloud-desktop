@@ -29,88 +29,91 @@ import type { Track } from '../stores/player';
 
 /* ── Components ───────────────────────────────────────────── */
 
-const TrackRow = React.memo(function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
-  const navigate = useNavigate();
-  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-  const cover = art(track.artwork_url, 't200x200');
+const TrackRow = React.memo(
+  function TrackRow({ track, queue }: { track: Track; queue: Track[] }) {
+    const navigate = useNavigate();
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const cover = art(track.artwork_url, 't200x200');
 
-  return (
-    <div
-      className={`group flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 ease-[var(--ease-apple)] ${
-        isThis
-          ? 'bg-accent/[0.06] ring-1 ring-accent/20 shadow-[inset_0_0_20px_rgba(255,85,0,0.05)]'
-          : 'hover:bg-white/[0.04]'
-      }`}
-      onMouseEnter={() => preloadTrack(track.urn)}
-    >
+    return (
       <div
-        className="w-10 h-10 flex items-center justify-center shrink-0 cursor-pointer"
-        onClick={togglePlay}
+        className={`group flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 ease-[var(--ease-apple)] ${
+          isThis
+            ? 'bg-accent/[0.06] ring-1 ring-accent/20 shadow-[inset_0_0_20px_rgba(255,85,0,0.05)]'
+            : 'hover:bg-white/[0.04]'
+        }`}
+        onMouseEnter={() => preloadTrack(track.urn)}
       >
-        {isThisPlaying ? (
-          <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
-            <Pause size={16} fill="white" strokeWidth={0} />
-          </div>
-        ) : (
-          <div className="w-9 h-9 rounded-full bg-white/[0.06] group-hover:bg-white/10 flex items-center justify-center transition-all">
-            <Play
-              size={16}
-              fill="white"
-              strokeWidth={0}
-              className="ml-0.5 opacity-60 group-hover:opacity-100"
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
-        {cover ? (
-          <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
-            {musicIcon20}
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 min-w-0 flex flex-col justify-center">
-        <p
-          className={`text-[14px] font-medium truncate cursor-pointer transition-colors duration-200 ${
-            isThis
-              ? 'text-accent drop-shadow-[0_0_8px_rgba(255,85,0,0.4)]'
-              : 'text-white/90 hover:text-white'
-          }`}
-          onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+        <div
+          className="w-10 h-10 flex items-center justify-center shrink-0 cursor-pointer"
+          onClick={togglePlay}
         >
-          {track.title}
-        </p>
-        <p
-          className="text-[12px] text-white/40 truncate mt-0.5 cursor-pointer hover:text-white/70 transition-colors"
-          onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-        >
-          {track.user.username}
-        </p>
-      </div>
+          {isThisPlaying ? (
+            <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
+              <Pause size={16} fill="white" strokeWidth={0} />
+            </div>
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-white/[0.06] group-hover:bg-white/10 flex items-center justify-center transition-all">
+              <Play
+                size={16}
+                fill="white"
+                strokeWidth={0}
+                className="ml-0.5 opacity-60 group-hover:opacity-100"
+              />
+            </div>
+          )}
+        </div>
 
-      <div className="hidden md:flex items-center gap-4 shrink-0 pr-4">
-        {track.playback_count != null && (
-          <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
-            {headphones11}
-            {fc(track.playback_count)}
+        <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
+          {cover ? (
+            <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
+              {musicIcon20}
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0 flex flex-col justify-center">
+          <p
+            className={`text-[14px] font-medium truncate cursor-pointer transition-colors duration-200 ${
+              isThis
+                ? 'text-accent drop-shadow-[0_0_8px_rgba(255,85,0,0.4)]'
+                : 'text-white/90 hover:text-white'
+            }`}
+            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+          >
+            {track.title}
+          </p>
+          <p
+            className="text-[12px] text-white/40 truncate mt-0.5 cursor-pointer hover:text-white/70 transition-colors"
+            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+          >
+            {track.user.username}
+          </p>
+        </div>
+
+        <div className="hidden md:flex items-center gap-4 shrink-0 pr-4">
+          {track.playback_count != null && (
+            <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
+              {headphones11}
+              {fc(track.playback_count)}
+            </span>
+          )}
+          <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
+            {heart11}
+            {fc(track.favoritings_count ?? track.likes_count)}
           </span>
-        )}
-        <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
-          {heart11}
-          {fc(track.favoritings_count ?? track.likes_count)}
+        </div>
+
+        <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
+          {dur(track.duration)}
         </span>
       </div>
-
-      <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
-        {dur(track.duration)}
-      </span>
-    </div>
-  );
-}, (prev, next) => prev.track.urn === next.track.urn);
+    );
+  },
+  (prev, next) => prev.track.urn === next.track.urn,
+);
 
 const PlaylistCard = React.memo(({ playlist }: { playlist: Playlist }) => {
   const navigate = useNavigate();
@@ -206,13 +209,7 @@ function isSoundCloudUrl(input: string): boolean {
 
 /* ── Resolve Card ────────────────────────────────────────── */
 
-function ResolveCard({
-  url,
-  onDone,
-}: {
-  url: string;
-  onDone: () => void;
-}) {
+function ResolveCard({ url, onDone }: { url: string; onDone: () => void }) {
   const navigate = useNavigate();
   const [state, setState] = useState<'loading' | 'error' | 'success'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
@@ -245,7 +242,9 @@ function ResolveCard({
         setState('error');
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [url, navigate, onDone]);
 
   return (
@@ -257,7 +256,11 @@ function ResolveCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[13px] font-semibold text-white/80">
-              {state === 'loading' ? 'Resolving link...' : state === 'error' ? 'Could not resolve' : 'Redirecting...'}
+              {state === 'loading'
+                ? 'Resolving link...'
+                : state === 'error'
+                  ? 'Could not resolve'
+                  : 'Redirecting...'}
             </p>
             <p className="text-[11px] text-white/30 truncate mt-0.5">{url.trim()}</p>
           </div>
@@ -265,9 +268,7 @@ function ResolveCard({
             <Loader2 size={20} className="text-accent animate-spin shrink-0" />
           )}
         </div>
-        {state === 'error' && (
-          <p className="text-[12px] text-red-400/70 mt-3 pl-16">{errorMsg}</p>
-        )}
+        {state === 'error' && <p className="text-[12px] text-red-400/70 mt-3 pl-16">{errorMsg}</p>}
       </div>
     </div>
   );
@@ -284,7 +285,11 @@ const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: 
     () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
     [tracksQuery.tracks],
   );
-  const sentinelRef = useInfiniteScroll(!!tracksQuery.hasNextPage, !!tracksQuery.isFetchingNextPage, tracksQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!tracksQuery.hasNextPage,
+    !!tracksQuery.isFetchingNextPage,
+    tracksQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -302,7 +307,9 @@ const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: 
         </div>
       )}
       <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {tracksQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+        {tracksQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
       </div>
     </div>
   );
@@ -315,7 +322,11 @@ const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { q
     () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
     [playlistsQuery.playlists],
   );
-  const sentinelRef = useInfiniteScroll(!!playlistsQuery.hasNextPage, !!playlistsQuery.isFetchingNextPage, playlistsQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!playlistsQuery.hasNextPage,
+    !!playlistsQuery.isFetchingNextPage,
+    playlistsQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -333,7 +344,9 @@ const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { q
         </div>
       )}
       <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {playlistsQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+        {playlistsQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
       </div>
     </div>
   );
@@ -346,7 +359,11 @@ const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: st
     () => Array.from(new Map(usersQuery.users.map((u) => [u.urn, u])).values()),
     [usersQuery.users],
   );
-  const sentinelRef = useInfiniteScroll(!!usersQuery.hasNextPage, !!usersQuery.isFetchingNextPage, usersQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!usersQuery.hasNextPage,
+    !!usersQuery.isFetchingNextPage,
+    usersQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -364,7 +381,9 @@ const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: st
         </div>
       )}
       <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {usersQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+        {usersQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
       </div>
     </div>
   );
@@ -453,7 +472,10 @@ export const Search = React.memo(() => {
         />
         {inputValue && (
           <button
-            onClick={() => { setInputValue(''); setResolveUrl(null); }}
+            onClick={() => {
+              setInputValue('');
+              setResolveUrl(null);
+            }}
             className="absolute inset-y-0 right-4 flex items-center text-white/30 hover:text-white cursor-pointer transition-colors"
           >
             <X size={18} />
@@ -491,14 +513,26 @@ export const Search = React.memo(() => {
 
       {/* Resolve */}
       {resolveUrl && (
-        <ResolveCard url={resolveUrl} onDone={() => { setInputValue(''); setResolveUrl(null); }} />
+        <ResolveCard
+          url={resolveUrl}
+          onDone={() => {
+            setInputValue('');
+            setResolveUrl(null);
+          }}
+        />
       )}
 
       {/* Results — each tab only fetches its own data */}
       {!resolveUrl && !debouncedQuery && <SearchEmpty />}
-      {!resolveUrl && debouncedQuery && activeTab === 'tracks' && <SearchTracksTab query={debouncedQuery} />}
-      {!resolveUrl && debouncedQuery && activeTab === 'playlists' && <SearchPlaylistsTab query={debouncedQuery} />}
-      {!resolveUrl && debouncedQuery && activeTab === 'users' && <SearchUsersTab query={debouncedQuery} />}
+      {!resolveUrl && debouncedQuery && activeTab === 'tracks' && (
+        <SearchTracksTab query={debouncedQuery} />
+      )}
+      {!resolveUrl && debouncedQuery && activeTab === 'playlists' && (
+        <SearchPlaylistsTab query={debouncedQuery} />
+      )}
+      {!resolveUrl && debouncedQuery && activeTab === 'users' && (
+        <SearchUsersTab query={debouncedQuery} />
+      )}
     </div>
   );
 });

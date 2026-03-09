@@ -34,7 +34,7 @@ import {
 import { useAuthStore } from '../stores/auth';
 import { dur, fc } from '../lib/formatters';
 import { useTrackPlay } from '../lib/useTrackPlay';
-import { pauseWhite14, playWhite14, headphones11, heart11, pauseBlack22 } from '../lib/icons';
+import { headphones11, heart11, pauseBlack22, pauseWhite14, playWhite14 } from '../lib/icons';
 import { type Track, usePlayerStore } from '../stores/player';
 
 /* ── Helpers ──────────────────────────────────────────────── */
@@ -129,95 +129,98 @@ function FollowBtn({ userUrn }: { userUrn: string }) {
 
 /* ── Track Row (For Tracks & Likes) ───────────────────────── */
 
-const TrackRow = React.memo(({ track, index, queue }: { track: Track; index: number; queue: Track[] }) => {
-  const navigate = useNavigate();
-  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-  const cover = art(track.artwork_url, 't200x200');
+const TrackRow = React.memo(
+  ({ track, index, queue }: { track: Track; index: number; queue: Track[] }) => {
+    const navigate = useNavigate();
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const cover = art(track.artwork_url, 't200x200');
 
-  return (
-    <div
-      className={`group flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 ease-[var(--ease-apple)] ${
-        isThis
-          ? 'bg-accent/[0.06] ring-1 ring-accent/20 shadow-[inset_0_0_20px_rgba(255,85,0,0.05)]'
-          : 'hover:bg-white/[0.04]'
-      }`}
-      onMouseEnter={() => preloadTrack(track.urn)}
-    >
-      {/* Index & Play */}
+    return (
       <div
-        className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
-        onClick={togglePlay}
+        className={`group flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 ease-[var(--ease-apple)] ${
+          isThis
+            ? 'bg-accent/[0.06] ring-1 ring-accent/20 shadow-[inset_0_0_20px_rgba(255,85,0,0.05)]'
+            : 'hover:bg-white/[0.04]'
+        }`}
+        onMouseEnter={() => preloadTrack(track.urn)}
       >
-        {isThisPlaying ? (
-          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
-            {pauseWhite14}
-          </div>
-        ) : (
-          <>
-            <span className="text-[13px] text-white/20 tabular-nums font-medium group-hover:hidden">
-              {index + 1}
-            </span>
-            <div className="hidden group-hover:flex w-8 h-8 rounded-full bg-white/10 items-center justify-center hover:bg-white/20 hover:scale-105 transition-all">
-              {playWhite14}
+        {/* Index & Play */}
+        <div
+          className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
+          onClick={togglePlay}
+        >
+          {isThisPlaying ? (
+            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
+              {pauseWhite14}
             </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              <span className="text-[13px] text-white/20 tabular-nums font-medium group-hover:hidden">
+                {index + 1}
+              </span>
+              <div className="hidden group-hover:flex w-8 h-8 rounded-full bg-white/10 items-center justify-center hover:bg-white/20 hover:scale-105 transition-all">
+                {playWhite14}
+              </div>
+            </>
+          )}
+        </div>
 
-      {/* Artwork */}
-      <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
-        {cover ? (
-          <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
-            <Music size={14} className="text-white/20" />
-          </div>
-        )}
-      </div>
+        {/* Artwork */}
+        <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
+          {cover ? (
+            <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
+              <Music size={14} className="text-white/20" />
+            </div>
+          )}
+        </div>
 
-      {/* Title & Artist */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center">
-        <p
-          className={`text-[14px] font-medium truncate cursor-pointer transition-colors duration-200 ${
-            isThis
-              ? 'text-accent drop-shadow-[0_0_8px_rgba(255,85,0,0.4)]'
-              : 'text-white/90 hover:text-white'
-          }`}
-          onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-        >
-          {track.title}
-        </p>
-        <p
-          className="text-[12px] text-white/40 truncate mt-0.5 cursor-pointer hover:text-white/70 transition-colors"
-          onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-        >
-          {track.user.username}
-        </p>
-      </div>
+        {/* Title & Artist */}
+        <div className="flex-1 min-w-0 flex flex-col justify-center">
+          <p
+            className={`text-[14px] font-medium truncate cursor-pointer transition-colors duration-200 ${
+              isThis
+                ? 'text-accent drop-shadow-[0_0_8px_rgba(255,85,0,0.4)]'
+                : 'text-white/90 hover:text-white'
+            }`}
+            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+          >
+            {track.title}
+          </p>
+          <p
+            className="text-[12px] text-white/40 truncate mt-0.5 cursor-pointer hover:text-white/70 transition-colors"
+            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+          >
+            {track.user.username}
+          </p>
+        </div>
 
-      {/* Stats */}
-      <div className="hidden sm:flex items-center gap-4 shrink-0 pr-4">
-        {track.playback_count != null && (
-          <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
-            {headphones11}
-            {fc(track.playback_count)}
-          </span>
-        )}
-        {(track.favoritings_count ?? track.likes_count) != null && (
-          <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
-            {heart11}
-            {fc(track.favoritings_count ?? track.likes_count)}
-          </span>
-        )}
-      </div>
+        {/* Stats */}
+        <div className="hidden sm:flex items-center gap-4 shrink-0 pr-4">
+          {track.playback_count != null && (
+            <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
+              {headphones11}
+              {fc(track.playback_count)}
+            </span>
+          )}
+          {(track.favoritings_count ?? track.likes_count) != null && (
+            <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
+              {heart11}
+              {fc(track.favoritings_count ?? track.likes_count)}
+            </span>
+          )}
+        </div>
 
-      {/* Duration */}
-      <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
-        {dur(track.duration)}
-      </span>
-    </div>
-  );
-}, (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index);
+        {/* Duration */}
+        <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
+          {dur(track.duration)}
+        </span>
+      </div>
+    );
+  },
+  (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index,
+);
 
 /* ── Playlist Card ────────────────────────────────────────── */
 
@@ -334,7 +337,11 @@ const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }
     () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
     [tracksQuery.tracks],
   );
-  const sentinelRef = useInfiniteScroll(!!tracksQuery.hasNextPage, !!tracksQuery.isFetchingNextPage, tracksQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!tracksQuery.hasNextPage,
+    !!tracksQuery.isFetchingNextPage,
+    tracksQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -352,7 +359,9 @@ const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }
         </div>
       )}
       <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
-        {tracksQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+        {tracksQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
       </div>
     </div>
   );
@@ -364,7 +373,11 @@ const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: st
     () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
     [playlistsQuery.playlists],
   );
-  const sentinelRef = useInfiniteScroll(!!playlistsQuery.hasNextPage, !!playlistsQuery.isFetchingNextPage, playlistsQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!playlistsQuery.hasNextPage,
+    !!playlistsQuery.isFetchingNextPage,
+    playlistsQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -382,7 +395,9 @@ const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: st
         </div>
       )}
       <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
-        {playlistsQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+        {playlistsQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
       </div>
     </div>
   );
@@ -394,7 +409,11 @@ const UserLikesTab = React.memo(function UserLikesTab({ urn }: { urn: string }) 
     () => Array.from(new Map(likesQuery.tracks.map((t) => [t.urn, t])).values()),
     [likesQuery.tracks],
   );
-  const sentinelRef = useInfiniteScroll(!!likesQuery.hasNextPage, !!likesQuery.isFetchingNextPage, likesQuery.fetchNextPage);
+  const sentinelRef = useInfiniteScroll(
+    !!likesQuery.hasNextPage,
+    !!likesQuery.isFetchingNextPage,
+    likesQuery.fetchNextPage,
+  );
 
   return (
     <div className="min-h-[400px]">
@@ -412,7 +431,9 @@ const UserLikesTab = React.memo(function UserLikesTab({ urn }: { urn: string }) 
         </div>
       )}
       <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
-        {likesQuery.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+        {likesQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
       </div>
     </div>
   );

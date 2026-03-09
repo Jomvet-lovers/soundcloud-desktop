@@ -734,9 +734,7 @@ export function useRecommendedTracks(seedTrackUrn: string | undefined, limit = 2
   return useQuery({
     queryKey: ['discover', 'related', seedTrackUrn, limit],
     queryFn: () =>
-      api<TrackListResponse>(
-        `/tracks/${encodeURIComponent(seedTrackUrn!)}/related?limit=${limit}`,
-      ),
+      api<TrackListResponse>(`/tracks/${encodeURIComponent(seedTrackUrn!)}/related?limit=${limit}`),
     enabled: !!seedTrackUrn,
     staleTime: 1000 * 60 * 10,
   });

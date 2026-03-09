@@ -231,69 +231,72 @@ const CommentForm = React.memo(({ trackUrn }: { trackUrn: string }) => {
 
 /* ── Related Track Row ───────────────────────────────────── */
 
-const RelatedRow = React.memo(({ track, queue }: { track: Track; queue: Track[] }) => {
-  const navigate = useNavigate();
-  const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-  const cover = art(track.artwork_url, 't200x200');
+const RelatedRow = React.memo(
+  ({ track, queue }: { track: Track; queue: Track[] }) => {
+    const navigate = useNavigate();
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const cover = art(track.artwork_url, 't200x200');
 
-  return (
-    <div
-      className={`group flex items-center gap-3 p-2.5 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] ${
-        isThis ? 'bg-accent/[0.04] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
-      }`}
-      onMouseEnter={() => preloadTrack(track.urn)}
-    >
+    return (
       <div
-        className="relative w-11 h-11 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
-        onClick={togglePlay}
+        className={`group flex items-center gap-3 p-2.5 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] ${
+          isThis ? 'bg-accent/[0.04] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
+        }`}
+        onMouseEnter={() => preloadTrack(track.urn)}
       >
-        {cover ? (
-          <img src={cover} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
-            {musicIcon14}
-          </div>
-        )}
         <div
-          className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-            isThisPlaying
-              ? 'bg-black/30 opacity-100'
-              : 'opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
-          }`}
+          className="relative w-11 h-11 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06] cursor-pointer"
+          onClick={togglePlay}
         >
-          <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-lg">
-            {isThisPlaying ? pauseBlack11 : playBlack11}
+          {cover ? (
+            <img src={cover} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
+              {musicIcon14}
+            </div>
+          )}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
+              isThisPlaying
+                ? 'bg-black/30 opacity-100'
+                : 'opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
+            }`}
+          >
+            <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-lg">
+              {isThisPlaying ? pauseBlack11 : playBlack11}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex-1 min-w-0">
-        <p
-          className="text-[12px] font-medium text-white/85 truncate cursor-pointer hover:text-white transition-colors duration-150"
-          onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-        >
-          {track.title}
-        </p>
-        <p
-          className="text-[11px] text-white/30 truncate mt-0.5 cursor-pointer hover:text-white/50 transition-colors duration-150"
-          onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-        >
-          {track.user.username}
-        </p>
-      </div>
-
-      <div className="text-right shrink-0">
-        <p className="text-[10px] text-white/25 tabular-nums">{dur(track.duration)}</p>
-        {track.playback_count != null && (
-          <p className="text-[9px] text-white/15 mt-0.5 tabular-nums flex items-center gap-0.5 justify-end">
-            <Headphones size={8} />
-            {fc(track.playback_count)}
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-[12px] font-medium text-white/85 truncate cursor-pointer hover:text-white transition-colors duration-150"
+            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+          >
+            {track.title}
           </p>
-        )}
+          <p
+            className="text-[11px] text-white/30 truncate mt-0.5 cursor-pointer hover:text-white/50 transition-colors duration-150"
+            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+          >
+            {track.user.username}
+          </p>
+        </div>
+
+        <div className="text-right shrink-0">
+          <p className="text-[10px] text-white/25 tabular-nums">{dur(track.duration)}</p>
+          {track.playback_count != null && (
+            <p className="text-[9px] text-white/15 mt-0.5 tabular-nums flex items-center gap-0.5 justify-end">
+              <Headphones size={8} />
+              {fc(track.playback_count)}
+            </p>
+          )}
+        </div>
       </div>
-    </div>
-  );
-}, (prev, next) => prev.track.urn === next.track.urn);
+    );
+  },
+  (prev, next) => prev.track.urn === next.track.urn,
+);
 
 /* ── Main: TrackPage ─────────────────────────────────────── */
 

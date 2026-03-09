@@ -129,8 +129,16 @@ pub async fn start_cache_server(cache_dir: PathBuf) -> u16 {
 
     let cors = warp::cors()
         .allow_any_origin()
-        .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
-        .allow_headers(vec!["range", "content-type", "accept", "authorization", "accept-encoding"])
+        .allow_methods(vec![
+            "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS",
+        ])
+        .allow_headers(vec![
+            "range",
+            "content-type",
+            "accept",
+            "authorization",
+            "accept-encoding",
+        ])
         .expose_headers(vec!["content-range", "content-length", "accept-ranges"]);
 
     let routes = audio_route.or(proxy_route).with(cors);

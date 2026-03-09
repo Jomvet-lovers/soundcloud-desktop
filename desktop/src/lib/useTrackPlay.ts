@@ -7,9 +7,7 @@ import { type Track, usePlayerStore } from '../stores/player';
  */
 export function useTrackPlay(track: Track, queue?: Track[]) {
   const isThis = usePlayerStore((s) => s.currentTrack?.urn === track.urn);
-  const isThisPlaying = usePlayerStore(
-    (s) => s.currentTrack?.urn === track.urn && s.isPlaying,
-  );
+  const isThisPlaying = usePlayerStore((s) => s.currentTrack?.urn === track.urn && s.isPlaying);
 
   const trackRef = useRef(track);
   const queueRef = useRef(queue);
