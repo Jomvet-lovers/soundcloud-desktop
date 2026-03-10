@@ -52,6 +52,7 @@
   "user": {
     "followers": "Followers",
     "following": "Following",
+    "popular": "Popular",
     "tracks": "Tracks",
     "playlists": "Playlists",
     "likes": "Likes",

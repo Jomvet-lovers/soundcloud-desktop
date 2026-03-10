@@ -28,6 +28,7 @@ import {
   useUser,
   useUserLikedTracks,
   useUserPlaylists,
+  useUserPopularTracks,
   useUserTracks,
   useUserWebProfiles,
 } from '../lib/hooks';
@@ -367,6 +368,29 @@ const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }
   );
 });
 
+const UserPopularTab = React.memo(function UserPopularTab({ urn }: { urn: string }) {
+  const { data, isLoading } = useUserPopularTracks(urn);
+  const tracks = data ?? [];
+
+  return (
+    <div className="min-h-[400px]">
+      {isLoading ? (
+        <div className="py-12 flex justify-center">
+          <Loader2 size={24} className="animate-spin text-white/20" />
+        </div>
+      ) : tracks.length === 0 ? (
+        <div className="py-12 text-center text-white/30 text-sm">No popular tracks found.</div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {tracks.map((track, i) => (
+            <TrackRow key={track.urn} track={track} index={i} queue={tracks} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: string }) {
   const playlistsQuery = useUserPlaylists(urn);
   const uniquePlaylists = useMemo(
@@ -446,7 +470,7 @@ export function UserPage() {
   const { t } = useTranslation();
   const currentUser = useAuthStore((s) => s.user);
 
-  const [activeTab, setActiveTab] = useState<'tracks' | 'playlists' | 'likes'>('tracks');
+  const [activeTab, setActiveTab] = useState<'popular' | 'tracks' | 'playlists' | 'likes'>('popular');
 
   const { data: user, isLoading: userLoading } = useUser(urn);
   const { data: webProfiles } = useUserWebProfiles(urn);
@@ -463,6 +487,7 @@ export function UserPage() {
   const isOwnProfile = currentUser?.urn === user.urn;
 
   const tabs = [
+    { id: 'popular', label: t('user.popular', 'Popular'), count: undefined as number | undefined },
     { id: 'tracks', label: t('user.tracks'), count: user.track_count },
     { id: 'playlists', label: t('user.playlists'), count: user.playlist_count },
     { id: 'likes', label: t('user.likes'), count: user.public_favorites_count },
@@ -594,6 +619,7 @@ export function UserPage() {
           </div>
 
           {/* Each tab only fetches its own data */}
+          {activeTab === 'popular' && <UserPopularTab urn={urn!} />}
           {activeTab === 'tracks' && <UserTracksTab urn={urn!} />}
           {activeTab === 'playlists' && <UserPlaylistsTab urn={urn!} />}
           {activeTab === 'likes' && <UserLikesTab urn={urn!} />}

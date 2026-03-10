@@ -465,6 +465,36 @@ export function useUserTracks(userUrn: string | undefined) {
   return { tracks, ...query };
 }
 
+export function useUserPopularTracks(userUrn: string | undefined) {
+  return useQuery({
+    queryKey: ['user', userUrn, 'tracks', 'popular'],
+    queryFn: async () => {
+      const all: Track[] = [];
+      let cursor: string | undefined;
+      const pageSize = 50;
+
+      // Paginate through all tracks
+      for (;;) {
+        const params = new URLSearchParams({ limit: String(pageSize), access: 'playable' });
+        if (cursor) params.set('cursor', cursor);
+        const page = await api<TrackListResponse>(
+          `/users/${encodeURIComponent(userUrn!)}/tracks?${params}`,
+        );
+        for (const t of page.collection) all.push(t);
+
+        const next = page.next_href ? extractPagination(page.next_href) : undefined;
+        if (!next?.cursor || page.collection.length === 0) break;
+        cursor = next.cursor;
+      }
+
+      all.sort((a, b) => (b.playback_count ?? 0) - (a.playback_count ?? 0));
+      return all.slice(0, 20);
+    },
+    enabled: !!userUrn,
+    staleTime: 120_000,
+  });
+}
+
 export function useUserPlaylists(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'playlists'],
