@@ -612,6 +612,7 @@ export function UserPage() {
             </section>
           )}
 
+          {user.created_at && new Date(user.created_at).getFullYear() > 1970 && (
           <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl flex flex-col gap-4">
             <div className="flex items-center justify-between text-[13px]">
               <span className="text-white/40 font-medium">{t('user.memberSince')}</span>
@@ -621,6 +622,7 @@ export function UserPage() {
               </span>
             </div>
           </section>
+          )}
 
           {webProfiles && webProfiles.length > 0 && (
             <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl">
