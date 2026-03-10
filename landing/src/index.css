@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+::selection {
+  background: rgba(255, 85, 0, 0.3);
+  color: #fff;
+}
+
 /* ── Design Tokens ── */
 :root {
   --sc: #ff5500;
