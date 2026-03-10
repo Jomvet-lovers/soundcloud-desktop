@@ -1,7 +1,7 @@
 import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart } from '../../lib/icons';
-import React, { useRef, useState, useSyncExternalStore } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   listMusic16,
@@ -18,6 +18,7 @@ import {
 } from '../../lib/icons';
 import { api } from '../../lib/api';
 import { invalidateAllLikesCache } from '../../lib/hooks';
+import { optimisticToggleLike } from '../../lib/likes';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
 import { art } from '../../lib/cdn';
 import { formatTime } from '../../lib/formatters';
@@ -26,13 +27,45 @@ import { type Track, usePlayerStore } from '../../stores/player';
 /* ── Progress Slider ─────────────────────────────────────────── */
 
 const ProgressSlider = React.memo(() => {
-  const currentTime = useSyncExternalStore(subscribe, getCurrentTime);
   const duration = useSyncExternalStore(subscribe, getDuration);
 
   const [dragging, setDragging] = useState(false);
   const [dragValue, setDragValue] = useState(0);
+  const [syncedValue, setSyncedValue] = useState(0);
 
-  const displayValue = dragging ? dragValue : currentTime;
+  const draggingRef = useRef(false);
+  const rangeRef = useRef<HTMLSpanElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
+
+  // Direct DOM updates at 60fps — zero React re-renders
+  useEffect(() => {
+    return subscribe(() => {
+      if (draggingRef.current) return;
+      const t = getCurrentTime();
+      const d = getDuration();
+      const pct = d > 0 ? (t / d) * 100 : 0;
+      if (rangeRef.current) rangeRef.current.style.right = `${100 - pct}%`;
+      const thumbWrapper = thumbRef.current?.parentElement;
+      if (thumbWrapper) thumbWrapper.style.left = `${pct}%`;
+    });
+  }, []);
+
+  const displayValue = dragging ? dragValue : syncedValue;
+
+  const onValueChange = useCallback(([v]: number[]) => {
+    setDragValue(v);
+    if (!draggingRef.current) {
+      draggingRef.current = true;
+      setDragging(true);
+    }
+  }, []);
+
+  const onValueCommit = useCallback(([v]: number[]) => {
+    seek(v);
+    draggingRef.current = false;
+    setDragging(false);
+    setSyncedValue(v);
+  }, []);
 
   return (
     <Slider.Root
@@ -40,19 +73,13 @@ const ProgressSlider = React.memo(() => {
       value={[displayValue]}
       max={duration || 1}
       step={0.1}
-      onValueChange={([v]) => {
-        setDragValue(v);
-        if (!dragging) setDragging(true);
-      }}
-      onValueCommit={([v]) => {
-        seek(v);
-        setDragging(false);
-      }}
+      onValueChange={onValueChange}
+      onValueCommit={onValueCommit}
     >
       <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[5px] transition-all duration-150">
-        <Slider.Range className="absolute h-full rounded-full bg-accent" />
+        <Slider.Range ref={rangeRef} className="absolute h-full rounded-full bg-accent" />
       </Slider.Track>
-      <Slider.Thumb className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none" />
+      <Slider.Thumb ref={thumbRef} className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none" />
     </Slider.Root>
   );
 });
@@ -171,16 +198,16 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
   const toggle = async () => {
     const next = !isLiked;
     setLiked(next);
+    if (trackData) optimisticToggleLike(qc, trackData, next);
+    invalidateAllLikesCache();
     try {
       await api(`/likes/tracks/${encodeURIComponent(trackUrn)}`, {
         method: next ? 'POST' : 'DELETE',
       });
-      qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
       qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
-      qc.invalidateQueries({ queryKey: ['me', 'likes', 'tracks'] });
-      invalidateAllLikesCache();
     } catch {
       setLiked(!next);
+      if (trackData) optimisticToggleLike(qc, trackData, !next);
     }
   };
 

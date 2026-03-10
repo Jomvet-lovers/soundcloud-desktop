@@ -458,11 +458,14 @@ const PlaylistsTab = React.memo(function PlaylistsTab() {
               ))}
             </div>
           </section>
-        ) : (
-          createdPlaylists.length === 0 && (
+        ) : null}
+
+        {!myPlaylistsQuery.isLoading &&
+          !likedPlaylistsQuery.isLoading &&
+          createdPlaylists.length === 0 &&
+          likedPlaylists.length === 0 && (
             <div className="py-20 text-center text-white/20">No playlists found</div>
-          )
-        )}
+          )}
       </div>
       <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
         {isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}

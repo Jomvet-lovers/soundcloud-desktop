@@ -21,6 +21,7 @@ import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
 import { type Comment, invalidateAllLikesCache } from '../lib/hooks';
+import { optimisticToggleLike } from '../lib/likes';
 import {
   useInfiniteScroll,
   usePostComment,
@@ -80,17 +81,18 @@ const LikeBtn = React.memo(
       const next = !liked;
       setLiked(next);
       setLocalCount((c) => c + (next ? 1 : -1));
+      const cachedTrack = qc.getQueryData<Track>(['track', trackUrn]);
+      if (cachedTrack) optimisticToggleLike(qc, cachedTrack, next);
+      invalidateAllLikesCache();
       try {
         await api(`/likes/tracks/${encodeURIComponent(trackUrn)}`, {
           method: next ? 'POST' : 'DELETE',
         });
-        qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
         qc.invalidateQueries({ queryKey: ['track', trackUrn, 'favoriters'] });
-        qc.invalidateQueries({ queryKey: ['me', 'likes', 'tracks'] });
-        invalidateAllLikesCache();
       } catch {
         setLiked(!next);
         setLocalCount((c) => c + (next ? -1 : 1));
+        if (cachedTrack) optimisticToggleLike(qc, cachedTrack, !next);
       }
     };
 

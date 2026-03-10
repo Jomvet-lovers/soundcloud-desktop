@@ -300,14 +300,24 @@ async function autoplayRelated(lastTrack: Track) {
 /* ── Preloading ──────────────────────────────────────────────── */
 
 let preloadTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_CONCURRENT_PRELOADS = 2;
+let activePreloads = 0;
 
 export function preloadTrack(urn: string) {
   if (preloadTimer) clearTimeout(preloadTimer);
   preloadTimer = setTimeout(() => {
+    if (activePreloads >= MAX_CONCURRENT_PRELOADS) return;
     isCached(urn).then((hit) => {
-      if (!hit) fetchAndCacheTrack(urn).catch(() => {});
+      if (!hit && activePreloads < MAX_CONCURRENT_PRELOADS) {
+        activePreloads++;
+        fetchAndCacheTrack(urn)
+          .catch(() => {})
+          .finally(() => {
+            activePreloads--;
+          });
+      }
     });
-  }, 300);
+  }, 500);
 }
 
 export function preloadQueue() {

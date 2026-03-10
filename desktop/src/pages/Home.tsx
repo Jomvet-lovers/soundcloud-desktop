@@ -9,7 +9,7 @@ import {
   Repeat2,
   Sparkles,
 } from '../lib/icons';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { TrackCard } from '../components/music/TrackCard';
@@ -549,23 +549,16 @@ const FeaturedHero = React.memo(function FeaturedHero() {
 
 const FallbackShelf = React.memo(function FallbackShelf() {
   const { t } = useTranslation();
-  const { items: feedItems, isLoading: feedLoading } = useFeed();
-  const { tracks: likedTracks, isLoading: likesLoading } = useLikedTracks(50);
-  const { data: following, isLoading: followingLoading } = useFollowingTracks(20);
-  const followingTracks = useMemo(() => following?.collection ?? [], [following]);
+  const user = useAuthStore((s) => s.user);
 
-  const isEmpty =
-    !feedLoading &&
-    !likesLoading &&
-    !followingLoading &&
-    feedItems.length === 0 &&
-    likedTracks.length === 0 &&
-    followingTracks.length === 0;
+  // If user has any likes or followings, they're not a new user — no fallback needed
+  const hasActivity =
+    (user?.public_favorites_count ?? 0) > 0 || (user?.followings_count ?? 0) > 0;
 
   const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
   const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
 
-  if (!isEmpty || (!fallbackLoading && fallbackTracks.length === 0)) return null;
+  if (hasActivity || (!fallbackLoading && fallbackTracks.length === 0)) return null;
 
   return (
     <section>
@@ -651,15 +644,18 @@ const RecommendedShelf = React.memo(function RecommendedShelf() {
   const { data: fallbackData } = useFallbackTracks();
   const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
 
+  const seedUrnRef = useRef<string | undefined>(undefined);
   const seedUrn = useMemo(
     () => {
+      if (seedUrnRef.current) return seedUrnRef.current;
       if (likedTracks.length > 0) {
-        return likedTracks[Math.floor(Math.random() * Math.min(likedTracks.length, 10))].urn;
+        seedUrnRef.current =
+          likedTracks[Math.floor(Math.random() * Math.min(likedTracks.length, 10))].urn;
+      } else if (fallbackTracks.length > 0) {
+        seedUrnRef.current =
+          fallbackTracks[Math.floor(Math.random() * fallbackTracks.length)].urn;
       }
-      if (fallbackTracks.length > 0) {
-        return fallbackTracks[Math.floor(Math.random() * fallbackTracks.length)].urn;
-      }
-      return undefined;
+      return seedUrnRef.current;
     },
     // biome-ignore lint/correctness/useExhaustiveDependencies: stable seed
     [likedTracks.length > 0, fallbackTracks.length > 0],
