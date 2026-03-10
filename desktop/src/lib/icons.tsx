@@ -12,6 +12,7 @@ import {
   ChevronDown as _ChevronDown,
   ChevronRight as _ChevronRight,
   ChevronUp as _ChevronUp,
+  ClipboardCopy as _ClipboardCopy,
   Clock as _Clock,
   Compass as _Compass,
   Disc3 as _Disc3,
@@ -66,6 +67,7 @@ const SimpleIcon = memo(
 export const AlertCircle = memo(_AlertCircle);
 export const Calendar = memo(_Calendar);
 export const Check = memo(_Check);
+export const ClipboardCopy = memo(_ClipboardCopy);
 export const ChevronDown = memo(_ChevronDown);
 export const ChevronRight = memo(_ChevronRight);
 export const ChevronUp = memo(_ChevronUp);

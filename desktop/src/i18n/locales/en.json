@@ -16,7 +16,9 @@
   "auth": {
     "signIn": "Sign in with SoundCloud",
     "signingIn": "Waiting for authorization...",
-    "signOut": "Sign Out"
+    "signOut": "Sign Out",
+    "copyLink": "Copy link",
+    "copied": "Copied!"
   },
   "search": {
     "placeholder": "Search tracks, playlists, users...",

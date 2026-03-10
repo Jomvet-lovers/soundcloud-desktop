@@ -16,7 +16,9 @@
   "auth": {
     "signIn": "Войти через SoundCloud",
     "signingIn": "Ожидание авторизации...",
-    "signOut": "Выйти"
+    "signOut": "Выйти",
+    "copyLink": "Скопировать ссылку",
+    "copied": "Скопировано!"
   },
   "search": {
     "placeholder": "Треки, плейлисты, пользователи...",

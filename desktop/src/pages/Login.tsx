@@ -1,6 +1,6 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Disc3 } from '../lib/icons';
+import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
@@ -22,6 +22,8 @@ export function Login() {
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
   const [loading, setLoading] = useState(false);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -35,6 +37,7 @@ export function Login() {
     setLoading(true);
     try {
       const { url, sessionId } = await api<LoginResponse>('/auth/login');
+      setAuthUrl(url);
       await openUrl(url);
 
       pollRef.current = setInterval(async () => {
@@ -86,6 +89,29 @@ export function Login() {
           <div className="flex flex-col items-center gap-4">
             <div className="w-10 h-10 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
             <p className="text-[12px] text-white/25">{t('auth.signingIn')}</p>
+            {authUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(authUrl);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-[11px] text-white/30 hover:text-white/50 transition-all cursor-pointer"
+              >
+                {copied ? (
+                  <>
+                    <Check size={12} />
+                    {t('auth.copied')}
+                  </>
+                ) : (
+                  <>
+                    <ClipboardCopy size={12} />
+                    {t('auth.copyLink')}
+                  </>
+                )}
+              </button>
+            )}
           </div>
         ) : (
           <button
