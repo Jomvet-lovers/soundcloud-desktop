@@ -488,7 +488,7 @@ export function useUserPopularTracks(userUrn: string | undefined) {
       }
 
       all.sort((a, b) => (b.playback_count ?? 0) - (a.playback_count ?? 0));
-      return all.slice(0, 20);
+      return all;
     },
     enabled: !!userUrn,
     staleTime: 120_000,

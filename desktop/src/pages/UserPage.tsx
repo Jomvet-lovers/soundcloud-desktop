@@ -15,7 +15,7 @@ import {
   Users,
   Youtube,
 } from '../lib/icons';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
@@ -220,7 +220,10 @@ const TrackRow = React.memo(
       </div>
     );
   },
-  (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index,
+  (prev, next) =>
+    prev.track.urn === next.track.urn &&
+    prev.index === next.index &&
+    prev.queue.length === next.queue.length,
 );
 
 /* ── Playlist Card ────────────────────────────────────────── */
@@ -368,9 +371,41 @@ const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }
   );
 });
 
+const POPULAR_PAGE_SIZE = 20;
+
 const UserPopularTab = React.memo(function UserPopularTab({ urn }: { urn: string }) {
   const { data, isLoading } = useUserPopularTracks(urn);
-  const tracks = data ?? [];
+  const allTracks = data ?? [];
+  const [visibleCount, setVisibleCount] = useState(POPULAR_PAGE_SIZE);
+
+  const visibleTracks = useMemo(
+    () => allTracks.slice(0, visibleCount),
+    [allTracks, visibleCount],
+  );
+  const hasMore = visibleCount < allTracks.length;
+
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadMore = useCallback(() => {
+    setVisibleCount((c) => Math.min(c + POPULAR_PAGE_SIZE, allTracks.length));
+  }, [allTracks.length]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) loadMore();
+      },
+      { rootMargin: '200px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore, loadMore]);
+
+  // Reset visible count when user changes
+  useEffect(() => {
+    setVisibleCount(POPULAR_PAGE_SIZE);
+  }, [urn]);
 
   return (
     <div className="min-h-[400px]">
@@ -378,13 +413,18 @@ const UserPopularTab = React.memo(function UserPopularTab({ urn }: { urn: string
         <div className="py-12 flex justify-center">
           <Loader2 size={24} className="animate-spin text-white/20" />
         </div>
-      ) : tracks.length === 0 ? (
+      ) : allTracks.length === 0 ? (
         <div className="py-12 text-center text-white/30 text-sm">No popular tracks found.</div>
       ) : (
         <div className="flex flex-col gap-1">
-          {tracks.map((track, i) => (
-            <TrackRow key={track.urn} track={track} index={i} queue={tracks} />
+          {visibleTracks.map((track, i) => (
+            <TrackRow key={track.urn} track={track} index={i} queue={allTracks} />
           ))}
+        </div>
+      )}
+      {hasMore && (
+        <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
+          <Loader2 size={24} className="text-white/20 animate-spin" />
         </div>
       )}
     </div>
