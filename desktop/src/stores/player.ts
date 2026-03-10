@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { tauriStorage } from '../lib/tauri-storage';
 
 export interface Track {
   id: number;
@@ -173,6 +174,7 @@ export const usePlayerStore = create<PlayerState>()(
     }),
     {
       name: 'sc-player',
+      storage: createJSONStorage(() => tauriStorage),
       version: 3,
       partialize: (state) => ({
         volume: state.volume,
