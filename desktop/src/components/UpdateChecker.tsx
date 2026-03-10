@@ -3,7 +3,8 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { ExternalLink, Sparkles, X } from '../lib/icons';
 import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
-import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO } from '../lib/constants';
+import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO, GITHUB_REPO_EN } from '../lib/constants';
+import i18n from '../i18n';
 
 interface GithubRelease {
   tag_name: string;
@@ -17,27 +18,40 @@ function stripLeadingV(version: string) {
   return version.replace(/^v/, '');
 }
 
+async function fetchRelease(repo: string): Promise<GithubRelease | null> {
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${repo}/releases/latest`;
+  const r = await fetch(url);
+  return r.ok ? r.json() : null;
+}
+
 export function UpdateChecker() {
   const [release, setRelease] = useState<GithubRelease | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: GithubRelease | null) => {
-        if (!data) return;
-        const latest = stripLeadingV(data.tag_name);
+    fetchRelease(GITHUB_REPO)
+      .then(async (ru) => {
+        if (!ru) return;
+        const latest = stripLeadingV(ru.tag_name);
         const current = stripLeadingV(APP_VERSION);
-        if (latest !== current) {
-          setRelease(data);
+        if (latest === current) return;
+
+        const isEn = !i18n.language?.startsWith('ru');
+        if (isEn) {
+          const en = await fetchRelease(GITHUB_REPO_EN).catch(() => null);
+          if (en && stripLeadingV(en.tag_name) === latest) {
+            setRelease(en);
+            return;
+          }
         }
+        setRelease(ru);
       })
       .catch(() => {});
   }, []);
 
   if (!release || dismissed) return null;
+
+  const isRu = i18n.language?.startsWith('ru');
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -49,7 +63,9 @@ export function UpdateChecker() {
               <Sparkles size={16} className="text-accent" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold">Доступно обновление</h2>
+              <h2 className="text-sm font-semibold">
+                {isRu ? 'Доступно обновление' : 'Update available'}
+              </h2>
               <p className="text-[11px] text-white/30 mt-0.5">
                 {stripLeadingV(APP_VERSION)} → {stripLeadingV(release.tag_name)}
               </p>
@@ -85,14 +101,14 @@ export function UpdateChecker() {
             onClick={() => setDismissed(true)}
             className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
           >
-            Позже
+            {isRu ? 'Позже' : 'Later'}
           </button>
           <button
             type="button"
             onClick={() => openUrl(release.html_url)}
             className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-white font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_20px_var(--color-accent-glow)]"
           >
-            Скачать
+            {isRu ? 'Скачать' : 'Download'}
             <ExternalLink size={13} />
           </button>
         </div>
