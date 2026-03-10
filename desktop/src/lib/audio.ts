@@ -44,7 +44,11 @@ export function seek(seconds: number) {
   if (currentHowl) {
     currentHowl.seek(seconds);
     notify();
-    updateMediaSessionPosition();
+    // Delay SMTC update so Howler settles to actual position
+    setTimeout(() => {
+      updateMediaSessionPosition();
+      lastMediaSessionSync = performance.now();
+    }, 150);
   }
 }
 
@@ -73,6 +77,8 @@ function destroyHowl() {
   }
 }
 
+let lastMediaSessionSync = 0;
+
 function startProgressLoop() {
   stopProgressLoop();
   const tick = () => {
@@ -81,6 +87,11 @@ function startProgressLoop() {
       return;
     }
     notify();
+    const now = performance.now();
+    if (now - lastMediaSessionSync > 5000) {
+      lastMediaSessionSync = now;
+      updateMediaSessionPosition();
+    }
     rafId = requestAnimationFrame(tick);
   };
   rafId = requestAnimationFrame(tick);
@@ -267,6 +278,12 @@ if ('mediaSession' in navigator) {
   ms.setActionHandler('previoustrack', () => handlePrev());
   ms.setActionHandler('seekto', (d) => {
     if (d.seekTime != null) seek(d.seekTime);
+  });
+  ms.setActionHandler('seekforward', (d) => {
+    seek(Math.min(getCurrentTime() + (d.seekOffset ?? 10), getDuration()));
+  });
+  ms.setActionHandler('seekbackward', (d) => {
+    seek(Math.max(getCurrentTime() - (d.seekOffset ?? 10), 0));
   });
 }
 
