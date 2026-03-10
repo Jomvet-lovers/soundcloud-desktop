@@ -63,10 +63,19 @@ export const Sidebar = React.memo(() => {
 
       {user && (
         <div className="px-3 pb-3">
-          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-all duration-200 cursor-pointer">
+          <NavLink
+            to={`/user/${encodeURIComponent(user.urn)}`}
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all duration-200 cursor-pointer ${
+                isActive
+                  ? 'bg-white/[0.07] shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]'
+                  : 'hover:bg-white/[0.04]'
+              }`
+            }
+          >
             <Avatar src={user.avatar_url} alt={user.username} size={26} />
             <span className="text-[12px] text-white/40 truncate font-medium">{user.username}</span>
-          </div>
+          </NavLink>
         </div>
       )}
     </aside>

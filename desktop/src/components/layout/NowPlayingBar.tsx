@@ -1,3 +1,4 @@
+import * as Dialog from '@radix-ui/react-dialog';
 import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Heart } from '../../lib/icons';
@@ -291,7 +292,9 @@ const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active:
 const TrackInfo = React.memo(() => {
   const navigate = useNavigate();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const artwork = art(currentTrack?.artwork_url, 't200x200');
+  const artworkSmall = art(currentTrack?.artwork_url, 't200x200');
+  const artworkFull = art(currentTrack?.artwork_url, 't500x500');
+  const [artOpen, setArtOpen] = useState(false);
 
   if (!currentTrack) {
     return (
@@ -303,16 +306,47 @@ const TrackInfo = React.memo(() => {
 
   return (
     <div className="flex items-center gap-3.5 w-[280px] min-w-0">
-      <div
-        className="w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200"
-        onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
-      >
-        {artwork ? (
-          <img src={artwork} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-white/[0.04]" />
-        )}
-      </div>
+      <Dialog.Root open={artOpen} onOpenChange={setArtOpen}>
+        <Dialog.Trigger asChild>
+          <div className="relative w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200 group/art">
+            {artworkSmall ? (
+              <img src={artworkSmall} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-white/[0.04]" />
+            )}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 group-hover/art:bg-black/40 group-hover/art:opacity-100 transition-all duration-200">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-white"><path d="M3 7V3h4M11 3h4v4M15 11v4h-4M7 15H3v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+          </div>
+        </Dialog.Trigger>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/90 backdrop-blur-2xl" />
+          <Dialog.Content
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center p-12 outline-none"
+            onClick={(e) => { if (e.target === e.currentTarget) setArtOpen(false); }}
+            onInteractOutside={(e) => e.preventDefault()}
+          >
+            <button
+              type="button"
+              onClick={() => setArtOpen(false)}
+              className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center text-white/60 hover:text-white transition-all duration-200 cursor-pointer"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            </button>
+            {artworkFull && (
+              <img
+                src={artworkFull}
+                alt={currentTrack.title}
+                className="max-w-full max-h-[calc(100vh-200px)] rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/[0.08] object-contain"
+              />
+            )}
+            <div className="mt-6 text-center max-w-md">
+              <p className="text-lg font-semibold text-white/90 truncate">{currentTrack.title}</p>
+              <p className="text-sm text-white/40 mt-1 truncate">{currentTrack.user.username}</p>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <div className="min-w-0 flex-1">
         <p
           className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
