@@ -123,7 +123,11 @@ chmod +x soundcloud-desktop-*.AppImage
 ## Скриншоты
 
 <p align="center">
-<i>Скоро</i>
+
+![home-screen](https://github.com/user-attachments/assets/66d6abb5-7ecd-493c-a0a1-19e7b22d2da5)
+
+![liked-tracks](https://github.com/user-attachments/assets/d590bfe7-487b-4578-90fd-2c21646e262a)
+
 </p>
 
 ---
