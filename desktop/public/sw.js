@@ -2,7 +2,7 @@
 const sw = /** @type {any} */ (self);
 
 /** @type {string[]} */
-const WHITELIST = ['localhost', '127.0.0.1', 'tauri.localhost', 'scproxy.localhost', 'backend.soundcloud.work.gd', 'soundcloud.work.gd', 'unpkg.com'];
+const WHITELIST = ['localhost', '127.0.0.1', 'tauri.localhost', 'scproxy.localhost', 'api.soundcloud.su', 'proxy.soundcloud.su', 'unpkg.com'];
 /** @type {string | null} */
 const PORT = new URL(sw.location.href).searchParams.get('port');
 

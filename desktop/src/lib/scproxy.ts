@@ -1,4 +1,4 @@
-const WHITELIST = ['localhost', '127.0.0.1', 'tauri.localhost', 'scproxy.localhost', 'backend.soundcloud.work.gd', 'soundcloud.work.gd', 'unpkg.com'];
+const WHITELIST = ['localhost', '127.0.0.1', 'tauri.localhost', 'scproxy.localhost', 'proxy.soundcloud.su', 'api.soundcloud.su', 'unpkg.com'];
 const IS_WINDOWS = navigator.userAgent.includes('Windows');
 
 function isWhitelisted(url: string): boolean {
