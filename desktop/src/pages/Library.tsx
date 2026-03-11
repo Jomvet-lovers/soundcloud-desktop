@@ -1,4 +1,4 @@
-import { Heart, ListMusic, Loader2, Music, User, Users } from '../lib/icons';
+import { Heart, ListMusic, ListPlus, Loader2, Music, User, Users } from '../lib/icons';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -35,13 +35,21 @@ const LibraryTrackRow = React.memo(
     queue: Track[];
     onPlay?: () => void;
   }) {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const { isThis, isThisPlaying, togglePlay: baseToggle } = useTrackPlay(track, queue);
+    const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
 
     const togglePlay = () => {
       baseToggle();
       if (!isThis && onPlay) onPlay();
     };
+
+    const handleAddToQueue = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      addToQueueNext([track]);
+    };
+
     const cover = art(track.artwork_url, 't200x200');
 
     return (
@@ -114,6 +122,15 @@ const LibraryTrackRow = React.memo(
             {fc(track.favoritings_count ?? track.likes_count)}
           </span>
         </div>
+
+        <button
+          type="button"
+          onClick={handleAddToQueue}
+          className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 shrink-0"
+          title={t('player.addToQueue')}
+        >
+          <ListPlus size={16} />
+        </button>
 
         <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
           {dur(track.duration)}

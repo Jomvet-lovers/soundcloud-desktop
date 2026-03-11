@@ -17,6 +17,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
+import { LyricsPanel } from '../components/music/LyricsPanel';
 import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
@@ -308,6 +309,7 @@ export const TrackPage = React.memo(() => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [descExpanded, setDescExpanded] = useState(false);
+  const [lyricsOpen, setLyricsOpen] = useState(false);
 
   const { data: track, isLoading } = useQuery({
     queryKey: ['track', urn],
@@ -464,6 +466,14 @@ export const TrackPage = React.memo(() => {
                 count={track.favoritings_count ?? track.likes_count}
               />
               <RepostBtn trackUrn={track.urn} count={track.reposts_count} />
+              <button
+                type="button"
+                onClick={() => setLyricsOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer"
+              >
+                <Music size={16} />
+                {t('track.lyrics')}
+              </button>
               <CopyLinkButton url={track.permalink_url} />
             </div>
           </div>
@@ -658,6 +668,9 @@ export const TrackPage = React.memo(() => {
           </section>
         </div>
       </div>
+
+      {/* Lyrics Panel */}
+      <LyricsPanel track={track} open={lyricsOpen} onClose={() => setLyricsOpen(false)} />
     </div>
   );
 });

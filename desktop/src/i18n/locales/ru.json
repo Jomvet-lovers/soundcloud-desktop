@@ -10,6 +10,7 @@
     "nowPlaying": "Сейчас играет",
     "upNext": "Далее",
     "clearQueue": "Очистить очередь",
+    "addToQueue": "Добавить в очередь",
     "shuffle": "Перемешать",
     "repeat": "Повтор"
   },
@@ -41,7 +42,10 @@
     "favoriters": "Понравилось",
     "reposters": "Репосты",
     "tags": "Теги",
-    "commentAt": "на"
+    "commentAt": "на",
+    "lyrics": "Текст песни",
+    "lyricsNotFound": "Текст не найден",
+    "lyricsLoading": "Загрузка текста..."
   },
   "playlist": {
     "playAll": "Воспроизвести",

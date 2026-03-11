@@ -1,10 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import { art } from '../../lib/cdn';
 import type { Track } from '../../stores/player';
+import { usePlayerStore } from '../../stores/player';
 import { dur, fc } from '../../lib/formatters';
-import { pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
+import { pauseBlack20, playBlack20, playIcon32, ListPlus } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 
 interface TrackCardProps {
@@ -14,9 +16,16 @@ interface TrackCardProps {
 
 export const TrackCard = React.memo(
   function TrackCard({ track, queue }: TrackCardProps) {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
     const artwork = art(track.artwork_url, 't300x300');
+
+    const handleAddToQueue = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      addToQueueNext([track]);
+    };
 
     return (
       <div className="group relative" onMouseEnter={() => preloadTrack(track.urn)}>
@@ -59,6 +68,16 @@ export const TrackCard = React.memo(
           <div className="absolute bottom-2 right-2 text-[10px] font-medium bg-black/50 backdrop-blur-md text-white/80 px-2 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             {dur(track.duration)}
           </div>
+
+          {/* Add to Queue button */}
+          <button
+            type="button"
+            onClick={handleAddToQueue}
+            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 opacity-0 group-hover:opacity-100 transition-all duration-200"
+            title={t('player.addToQueue')}
+          >
+            <ListPlus size={16} />
+          </button>
         </div>
 
         {/* Info */}

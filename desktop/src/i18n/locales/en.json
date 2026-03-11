@@ -10,6 +10,7 @@
     "nowPlaying": "Now Playing",
     "upNext": "Up Next",
     "clearQueue": "Clear Queue",
+    "addToQueue": "Add to Queue",
     "shuffle": "Shuffle",
     "repeat": "Repeat"
   },
@@ -41,7 +42,10 @@
     "favoriters": "Liked by",
     "reposters": "Reposted by",
     "tags": "Tags",
-    "commentAt": "at"
+    "commentAt": "at",
+    "lyrics": "Lyrics",
+    "lyricsNotFound": "Lyrics not found",
+    "lyricsLoading": "Loading lyrics..."
   },
   "playlist": {
     "playAll": "Play All",
