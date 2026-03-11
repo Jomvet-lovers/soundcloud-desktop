@@ -1,15 +1,4 @@
-import {
-  ChevronRight,
-  Compass,
-  Headphones,
-  Heart,
-  ListMusic,
-  Loader2,
-  Music,
-  Repeat2,
-  Sparkles,
-} from '../lib/icons';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { TrackCard } from '../components/music/TrackCard';
@@ -17,23 +6,30 @@ import { HorizontalScroll } from '../components/ui/HorizontalScroll';
 import { Skeleton } from '../components/ui/Skeleton';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
+import { ago, dur, fc } from '../lib/formatters';
 import type { FeedItem } from '../lib/hooks';
 import {
+  useDiscoverData,
   useFallbackTracks,
   useFeed,
   useFollowingTracks,
-  useGenreTracks,
   useInfiniteScroll,
   useLikedTracks,
   useRecommendedTracks,
+  useRelatedPool,
 } from '../lib/hooks';
-import { useAuthStore } from '../stores/auth';
-import { ago, dur, fc } from '../lib/formatters';
 import {
+  ChevronRight,
+  Compass,
+  Headphones,
+  Heart,
   headphones9,
   heart9,
+  ListMusic,
+  Loader2,
   listMusic8,
   listMusic9,
+  Music,
   musicIcon22,
   pauseBlack14,
   pauseBlack18,
@@ -41,8 +37,11 @@ import {
   playBlack14,
   playBlack18,
   playBlack22,
+  Repeat2,
+  Sparkles,
 } from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
+import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 
@@ -552,8 +551,7 @@ const FallbackShelf = React.memo(function FallbackShelf() {
   const user = useAuthStore((s) => s.user);
 
   // If user has any likes or followings, they're not a new user — no fallback needed
-  const hasActivity =
-    (user?.public_favorites_count ?? 0) > 0 || (user?.followings_count ?? 0) > 0;
+  const hasActivity = (user?.public_favorites_count ?? 0) > 0 || (user?.followings_count ?? 0) > 0;
 
   const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
   const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
@@ -638,112 +636,85 @@ const FollowingShelf = React.memo(function FollowingShelf() {
   );
 });
 
-const RecommendedShelf = React.memo(function RecommendedShelf() {
+const DiscoverSection = React.memo(function DiscoverSection() {
   const { t } = useTranslation();
-  const { tracks: likedTracks } = useLikedTracks(50);
-  const { data: fallbackData } = useFallbackTracks();
-  const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
+  const { tracks: likedTracks } = useLikedTracks(100);
+  const { data: pool, isLoading } = useRelatedPool(likedTracks);
 
-  const seedUrnRef = useRef<string | undefined>(undefined);
-  const seedUrn = useMemo(
-    () => {
-      if (seedUrnRef.current) return seedUrnRef.current;
-      if (likedTracks.length > 0) {
-        seedUrnRef.current =
-          likedTracks[Math.floor(Math.random() * Math.min(likedTracks.length, 10))].urn;
-      } else if (fallbackTracks.length > 0) {
-        seedUrnRef.current =
-          fallbackTracks[Math.floor(Math.random() * fallbackTracks.length)].urn;
-      }
-      return seedUrnRef.current;
-    },
-    // biome-ignore lint/correctness/useExhaustiveDependencies: stable seed
-    [likedTracks.length > 0, fallbackTracks.length > 0],
-  );
+  // ── Recommended ──
+  const recommendedTracks = useRecommendedTracks(pool, 40);
 
-  const { data: recommended, isLoading } = useRecommendedTracks(seedUrn, 20);
-  const recommendedTracks = useMemo(() => recommended?.collection ?? [], [recommended]);
-
-  if (!isLoading && recommendedTracks.length === 0) return null;
-
-  return (
-    <section>
-      <SectionHeader
-        title={t('home.recommended', 'Recommended For You')}
-        icon={<Sparkles size={15} className="text-amber-400/70" />}
-      />
-      <HorizontalScroll>
-        {isLoading ? (
-          <ShelfSkeleton />
-        ) : (
-          recommendedTracks.map((track) => (
-            <div key={track.urn} className="w-[180px] shrink-0">
-              <TrackCard track={track} queue={recommendedTracks} />
-            </div>
-          ))
-        )}
-      </HorizontalScroll>
-    </section>
-  );
-});
-
-const DiscoverShelf = React.memo(function DiscoverShelf() {
-  const { t } = useTranslation();
-  const { tracks: likedTracks } = useLikedTracks(50);
-
-  const topGenres = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const t of likedTracks) {
-      const g = t.genre?.trim().toLowerCase();
-      if (g) counts.set(g, (counts.get(g) ?? 0) + 1);
-    }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 7)
-      .map(([g]) => g);
-  }, [likedTracks]);
-
+  // ── Discover by genre ──
+  const discoverData = useDiscoverData(pool, likedTracks);
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
-  const selectedGenre = activeGenre ?? topGenres[0] ?? null;
-  const { data: genreData, isLoading } = useGenreTracks(selectedGenre!, 20);
-  const genreTracks = useMemo(() => genreData?.collection ?? [], [genreData]);
-
-  if (topGenres.length === 0) return null;
+  const genres = useMemo(() => discoverData.map((d) => d.genre), [discoverData]);
+  const selectedGenre =
+    activeGenre && genres.includes(activeGenre) ? activeGenre : (genres[0] ?? null);
+  const genreTracks = useMemo(
+    () => discoverData.find((d) => d.genre === selectedGenre)?.tracks ?? [],
+    [discoverData, selectedGenre],
+  );
 
   return (
-    <section>
-      <SectionHeader
-        title={t('home.discover', 'Discover')}
-        icon={<Compass size={15} className="text-cyan-400/70" />}
-      />
-      <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-        {topGenres.map((g) => (
-          <button
-            key={g}
-            type="button"
-            onClick={() => setActiveGenre(g)}
-            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 cursor-pointer capitalize ${
-              selectedGenre === g
-                ? 'bg-white/[0.12] text-white border border-white/[0.08]'
-                : 'bg-white/[0.03] text-white/40 border border-white/[0.04] hover:bg-white/[0.06] hover:text-white/60'
-            }`}
-          >
-            {g}
-          </button>
-        ))}
-      </div>
-      <HorizontalScroll>
-        {isLoading ? (
-          <ShelfSkeleton />
-        ) : (
-          genreTracks.map((track) => (
-            <div key={track.urn} className="w-[180px] shrink-0">
-              <TrackCard track={track} queue={genreTracks} />
-            </div>
-          ))
-        )}
-      </HorizontalScroll>
-    </section>
+    <>
+      {/* Recommended For You */}
+      {(isLoading || recommendedTracks.length > 0) && (
+        <section>
+          <SectionHeader
+            title={t('home.recommended', 'Recommended For You')}
+            icon={<Sparkles size={15} className="text-amber-400/70" />}
+          />
+          <HorizontalScroll>
+            {isLoading ? (
+              <ShelfSkeleton />
+            ) : (
+              recommendedTracks.map((track) => (
+                <div key={track.urn} className="w-[180px] shrink-0">
+                  <TrackCard track={track} queue={recommendedTracks} />
+                </div>
+              ))
+            )}
+          </HorizontalScroll>
+        </section>
+      )}
+
+      {/* Discover by genre */}
+      {(isLoading || genres.length > 0) && (
+        <section>
+          <SectionHeader
+            title={t('home.discover', 'Discover')}
+            icon={<Compass size={15} className="text-cyan-400/70" />}
+          />
+          <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+            {genres.map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setActiveGenre(g)}
+                className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all duration-200 cursor-pointer capitalize ${
+                  selectedGenre === g
+                    ? 'bg-white/[0.12] text-white border border-white/[0.08]'
+                    : 'bg-white/[0.03] text-white/40 border border-white/[0.04] hover:bg-white/[0.06] hover:text-white/60'
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+          <HorizontalScroll>
+            {isLoading ? (
+              <ShelfSkeleton />
+            ) : (
+              genreTracks.map((track) => (
+                <div key={track.urn} className="w-[180px] shrink-0">
+                  <TrackCard track={track} queue={genreTracks} />
+                </div>
+              ))
+            )}
+          </HorizontalScroll>
+        </section>
+      )}
+    </>
   );
 });
 
@@ -823,8 +794,7 @@ export function Home() {
       <FallbackShelf />
       <LikedShelf />
       <FollowingShelf />
-      <RecommendedShelf />
-      <DiscoverShelf />
+      <DiscoverSection />
       <FeedStream />
     </div>
   );
