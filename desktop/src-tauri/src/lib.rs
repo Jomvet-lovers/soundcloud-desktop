@@ -14,14 +14,21 @@ use server::ServerState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let localhost_port = std::net::TcpListener::bind("localhost:0")
-        .expect("no free port")
-        .local_addr()
-        .unwrap()
-        .port();
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_localhost::Builder::new(localhost_port).build())
+    #[cfg(not(dev))]
+    let localhost_port = {
+        let port = std::net::TcpListener::bind("localhost:0")
+            .expect("no free port")
+            .local_addr()
+            .unwrap()
+            .port();
+        builder = builder.plugin(tauri_plugin_localhost::Builder::new(port).build());
+        port
+    };
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
@@ -46,9 +53,12 @@ pub fn run() {
                 client: Mutex::new(None),
             }));
 
-            let url: tauri::Url =
-                format!("http://localhost:{localhost_port}").parse().unwrap();
-            app.get_webview_window("main").unwrap().navigate(url)?;
+            #[cfg(not(dev))]
+            {
+                let url: tauri::Url =
+                    format!("http://localhost:{localhost_port}").parse().unwrap();
+                app.get_webview_window("main").unwrap().navigate(url)?;
+            }
 
             tray::setup_tray(app).expect("failed to setup tray");
 
