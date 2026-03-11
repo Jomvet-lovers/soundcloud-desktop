@@ -3,14 +3,11 @@ import {
   AlertCircle,
   Calendar,
   Globe,
-  Heart,
   Instagram,
   LinkIcon,
-  ListMusic,
   Loader2,
   MapPin,
   Music,
-  Play,
   Twitter,
   Users,
   Youtube,
@@ -18,12 +15,12 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
+import { PlaylistCard } from '../components/music/PlaylistCard';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
 import {
-  type Playlist,
   useInfiniteScroll,
   useUser,
   useUserLikedTracks,
@@ -35,8 +32,8 @@ import {
 import { useAuthStore } from '../stores/auth';
 import { dur, fc } from '../lib/formatters';
 import { useTrackPlay } from '../lib/useTrackPlay';
-import { headphones11, heart11, pauseBlack22, pauseWhite14, playWhite14 } from '../lib/icons';
-import { type Track, usePlayerStore } from '../stores/player';
+import { headphones11, heart11, pauseWhite14, playWhite14 } from '../lib/icons';
+import type { Track } from '../stores/player';
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -226,110 +223,6 @@ const TrackRow = React.memo(
     prev.queue.length === next.queue.length,
 );
 
-/* ── Playlist Card ────────────────────────────────────────── */
-
-function UserPlaylistCard({ playlist }: { playlist: Playlist }) {
-  const navigate = useNavigate();
-  const cover = art(playlist.artwork_url, 't300x300');
-
-  const trackUrns = React.useMemo(
-    () => new Set((playlist.tracks ?? []).map((t: Track) => t.urn)),
-    [playlist.tracks],
-  );
-  const isPlayingFromThis = usePlayerStore(
-    (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
-  );
-  const isPausedFromThis = usePlayerStore(
-    (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
-  );
-
-  const handlePlay = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const { play, pause, resume } = usePlayerStore.getState();
-    if (isPlayingFromThis) {
-      pause();
-      return;
-    }
-    if (isPausedFromThis) {
-      resume();
-      return;
-    }
-    if (playlist.tracks && playlist.tracks.length > 0) {
-      play(playlist.tracks[0], playlist.tracks);
-    } else {
-      navigate(`/playlist/${encodeURIComponent(playlist.urn)}`);
-    }
-  };
-
-  return (
-    <div
-      className="group relative flex flex-col gap-3"
-      onClick={() => navigate(`/playlist/${encodeURIComponent(playlist.urn)}`)}
-    >
-      <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] cursor-pointer ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
-        {cover ? (
-          <img
-            src={cover}
-            alt={playlist.title}
-            className="w-full h-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-transparent">
-            <ListMusic size={32} className="text-white/10" />
-          </div>
-        )}
-
-        <div
-          className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-            isPlayingFromThis
-              ? 'bg-black/40 backdrop-blur-sm opacity-100'
-              : 'bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:backdrop-blur-sm group-hover:opacity-100'
-          }`}
-        >
-          <div
-            onClick={handlePlay}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 ${
-              isPlayingFromThis
-                ? 'bg-white scale-100'
-                : 'bg-white/90 scale-75 group-hover:scale-100'
-            }`}
-          >
-            {isPlayingFromThis ? (
-              pauseBlack22
-            ) : (
-              <Play size={22} fill="black" strokeWidth={0} className="ml-1" />
-            )}
-          </div>
-        </div>
-
-        {playlist.track_count != null && (
-          <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 text-[11px] font-medium bg-black/60 backdrop-blur-md text-white/90 px-2.5 py-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 shadow-lg">
-            <ListMusic size={11} />
-            {playlist.track_count}
-          </div>
-        )}
-      </div>
-
-      <div className="min-w-0 px-1">
-        <p className="text-[14px] font-semibold text-white/90 truncate leading-snug cursor-pointer group-hover:text-white transition-colors duration-200">
-          {playlist.title}
-        </p>
-        <div className="flex items-center gap-2 mt-1">
-          <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider bg-white/[0.05] px-1.5 py-0.5 rounded-md">
-            {playlist.playlist_type || 'Playlist'}
-          </span>
-          {playlist.likes_count > 0 && (
-            <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1">
-              <Heart size={10} className="text-white/20" />
-              {fc(playlist.likes_count)}
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── Isolated Tab Content ────────────────────────────────── */
 
@@ -454,7 +347,7 @@ const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: st
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-6">
           {uniquePlaylists.map((playlist, i) => (
-            <UserPlaylistCard key={`${playlist.urn}-${i}`} playlist={playlist} />
+            <PlaylistCard key={`${playlist.urn}-${i}`} playlist={playlist} showPlayback />
           ))}
         </div>
       )}

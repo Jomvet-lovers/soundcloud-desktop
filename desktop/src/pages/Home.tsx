@@ -387,7 +387,7 @@ const FeedPlaylistCard = React.memo(
     const [loading, setLoading] = useState(false);
     const origin = item.origin;
     const isRepost = item.type.includes('repost');
-    const cover = art(origin.artwork_url, 't300x300');
+    const cover = art(origin.artwork_url, 't300x300') ?? art(origin.tracks?.[0]?.artwork_url, 't300x300');
 
     // Only re-render when this playlist's playing state actually changes
     const trackUrns = useMemo(
