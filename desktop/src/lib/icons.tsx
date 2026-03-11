@@ -10,6 +10,7 @@ import {
   Calendar as _Calendar,
   Check as _Check,
   ChevronDown as _ChevronDown,
+  ChevronLeft as _ChevronLeft,
   ChevronRight as _ChevronRight,
   ChevronUp as _ChevronUp,
   ClipboardCopy as _ClipboardCopy,
@@ -69,6 +70,7 @@ export const Calendar = memo(_Calendar);
 export const Check = memo(_Check);
 export const ClipboardCopy = memo(_ClipboardCopy);
 export const ChevronDown = memo(_ChevronDown);
+export const ChevronLeft = memo(_ChevronLeft);
 export const ChevronRight = memo(_ChevronRight);
 export const ChevronUp = memo(_ChevronUp);
 export const Clock = memo(_Clock);
