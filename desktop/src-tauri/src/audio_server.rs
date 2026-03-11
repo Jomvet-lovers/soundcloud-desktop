@@ -11,7 +11,7 @@ use crate::server::cors;
 
 async fn serve_audio(
     filename: String,
-    cache_dir: PathBuf,
+    audio_dir: PathBuf,
     range_header: Option<String>,
 ) -> Result<Response<Body>, warp::Rejection> {
     if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
@@ -21,7 +21,7 @@ async fn serve_audio(
             .unwrap());
     }
 
-    let path = cache_dir.join(&filename);
+    let path = audio_dir.join(&filename);
     let mut file = match File::open(&path).await {
         Ok(f) => f,
         Err(_) => {
@@ -85,8 +85,8 @@ async fn serve_audio(
         .unwrap())
 }
 
-pub async fn start(cache_dir: PathBuf) -> u16 {
-    let dir = cache_dir.clone();
+pub async fn start(audio_dir: PathBuf) -> u16 {
+    let dir = audio_dir.clone();
 
     let route = warp::path("audio")
         .and(warp::path::param::<String>())

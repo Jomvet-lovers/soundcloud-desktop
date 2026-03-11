@@ -26,10 +26,8 @@ pub fn cors() -> warp::cors::Builder {
         .expose_headers(vec!["content-range", "content-length", "accept-ranges"])
 }
 
-/// Starts audio + proxy servers on separate ports.
-/// Returns (audio_port, proxy_port).
-pub async fn start_all(cache_dir: PathBuf) -> (u16, u16) {
-    let audio_port = crate::audio_server::start(cache_dir.clone()).await;
-    let proxy_port = crate::proxy_server::start(cache_dir).await;
+pub async fn start_all(audio_dir: PathBuf) -> (u16, u16) {
+    let audio_port = crate::audio_server::start(audio_dir).await;
+    let proxy_port = crate::proxy_server::start().await;
     (audio_port, proxy_port)
 }

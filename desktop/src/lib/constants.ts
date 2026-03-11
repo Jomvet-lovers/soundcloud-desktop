@@ -1,4 +1,4 @@
-export const API_BASE = 'https://backend.soundcloud.work.gd';
+export const API_BASE = 'https://api.soundcloud.su';
 // export const API_BASE = 'http://localhost:3000';
 
 export const GITHUB_OWNER = 'zxcloli666';

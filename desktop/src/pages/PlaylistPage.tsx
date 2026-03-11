@@ -1,11 +1,21 @@
-import { Calendar, Clock, Heart, ListMusic, Loader2, Shuffle } from '../lib/icons';
-import React from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
+import { api } from '../lib/api';
+import { preloadTrack } from '../lib/audio';
+import { art } from '../lib/cdn';
+import { dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import { useInfiniteScroll, usePlaylist, usePlaylistTracks } from '../lib/hooks';
 import {
+  Calendar,
+  Clock,
+  Heart,
   headphones9,
   heart9,
+  ListMusic,
+  Loader2,
   musicIcon12,
   pauseBlack22,
   pauseCurrent16,
@@ -13,13 +23,66 @@ import {
   playBlack22,
   playCurrent16,
   playWhite12,
+  Shuffle,
 } from '../lib/icons';
-import { preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
-import { useInfiniteScroll, usePlaylist, usePlaylistTracks } from '../lib/hooks';
-import { dateFormatted, dur, durLong, fc } from '../lib/formatters';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { type Track, usePlayerStore } from '../stores/player';
+
+/* ── Playlist Like Button ─────────────────────────────────── */
+
+const PlaylistLikeBtn = React.memo(
+  ({ playlistUrn, count }: { playlistUrn: string; count?: number }) => {
+    const { data: likeStatus } = useQuery({
+      queryKey: ['likes', 'playlist', playlistUrn],
+      queryFn: () => api<{ liked: boolean }>(`/likes/playlists/${encodeURIComponent(playlistUrn)}`),
+      staleTime: 1000 * 60 * 5,
+    });
+
+    const [liked, setLiked] = useState(false);
+    const [localCount, setLocalCount] = useState(count ?? 0);
+    const qc = useQueryClient();
+
+    useEffect(() => {
+      if (likeStatus) setLiked(likeStatus.liked);
+    }, [likeStatus]);
+    useEffect(() => {
+      setLocalCount(count ?? 0);
+    }, [count]);
+
+    const toggle = async () => {
+      const next = !liked;
+      setLiked(next);
+      setLocalCount((c) => c + (next ? 1 : -1));
+      try {
+        await api(`/likes/playlists/${encodeURIComponent(playlistUrn)}`, {
+          method: next ? 'POST' : 'DELETE',
+        });
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ['likes', 'playlist', playlistUrn] });
+          qc.invalidateQueries({ queryKey: ['me', 'likes', 'playlists'] });
+        }, 3000);
+      } catch {
+        setLiked(!next);
+        setLocalCount((c) => c + (next ? -1 : 1));
+      }
+    };
+
+    return (
+      <button
+        type="button"
+        onClick={toggle}
+        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+          liked
+            ? 'bg-accent/15 text-accent border border-accent/20 shadow-[0_0_20px_rgba(255,85,0,0.1)]'
+            : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
+        }`}
+      >
+        <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
+        <span className="tabular-nums">{fc(localCount)}</span>
+      </button>
+    );
+  },
+);
 
 /* ── Track Row ────────────────────────────────────────────── */
 
@@ -281,6 +344,7 @@ export const PlaylistPage = React.memo(() => {
                 <Shuffle size={16} />
                 {t('playlist.shuffle')}
               </button>
+              <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
               <CopyLinkButton url={playlist.permalink_url} />
             </div>
           </div>

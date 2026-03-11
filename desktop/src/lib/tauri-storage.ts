@@ -1,7 +1,16 @@
 import type { StateStorage } from 'zustand/middleware';
-import { readTextFile, writeTextFile, exists, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, exists, mkdir, BaseDirectory } from '@tauri-apps/plugin-fs';
 
 const BASE_DIR = BaseDirectory.AppData;
+
+let dirReady: Promise<void> | null = null;
+
+function ensureDir() {
+  if (!dirReady) {
+    dirReady = mkdir('', { baseDir: BASE_DIR, recursive: true }).catch(() => {});
+  }
+  return dirReady;
+}
 
 function filePath(name: string) {
   return `${name}.json`;
@@ -9,6 +18,7 @@ function filePath(name: string) {
 
 export const tauriStorage: StateStorage = {
   getItem: async (name) => {
+    await ensureDir();
     const path = filePath(name);
     try {
       if (await exists(path, { baseDir: BASE_DIR })) {
@@ -21,6 +31,7 @@ export const tauriStorage: StateStorage = {
   },
 
   setItem: async (name, value) => {
+    await ensureDir();
     const path = filePath(name);
     try {
       await writeTextFile(path, value, { baseDir: BASE_DIR });

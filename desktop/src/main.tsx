@@ -8,6 +8,7 @@ import './i18n';
 import './lib/audio';
 import './lib/discord';
 import './lib/tray';
+import './lib/scproxy';
 import './index.css';
 
 if (import.meta.env.DEV) {

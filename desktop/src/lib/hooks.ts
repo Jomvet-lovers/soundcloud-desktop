@@ -65,6 +65,7 @@ export interface Playlist {
   last_modified: string;
   sharing: string;
   playlist_type: string;
+  user_favorite?: boolean;
   tracks: Track[];
   user: {
     id: number;
@@ -789,25 +790,101 @@ export function useFallbackTracks() {
 
 /* ── Discover ──────────────────────────────────────────────────── */
 
-export function useGenreTracks(genre: string, limit = 20) {
+type RelatedPool = Map<string, { count: number; track: Track }>;
+
+/**
+ * Shared pool: fetches related tracks for up to 30 random liked tracks,
+ * counts frequency of each related track. Used by both Recommended and Discover.
+ */
+export function useRelatedPool(likedTracks: Track[]) {
+  const seedUrns = useMemo(() => {
+    if (likedTracks.length === 0) return [];
+    const shuffled = [...likedTracks].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, Math.min(30, shuffled.length)).map((t) => t.urn);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: stable seeds
+  }, [likedTracks.length > 0]);
+
+  const likedUrns = useMemo(() => new Set(likedTracks.map((t) => t.urn)), [likedTracks]);
+
   return useQuery({
-    queryKey: ['discover', 'genre', genre, limit],
-    queryFn: () =>
-      api<TrackListResponse>(
-        `/tracks?genres=${encodeURIComponent(genre)}&limit=${limit}&linked_partitioning=true&access=playable`,
-      ),
+    queryKey: ['discover', 'related-pool', seedUrns],
+    queryFn: async () => {
+      const results = await Promise.all(
+        seedUrns.map((urn) =>
+          api<TrackListResponse>(`/tracks/${encodeURIComponent(urn)}/related?limit=20`).catch(
+            () => ({ collection: [] as Track[] }),
+          ),
+        ),
+      );
+
+      const freq: RelatedPool = new Map();
+      for (const res of results) {
+        for (const track of res.collection) {
+          if (likedUrns.has(track.urn)) continue;
+          const entry = freq.get(track.urn);
+          if (entry) entry.count++;
+          else freq.set(track.urn, { count: 1, track });
+        }
+      }
+      return freq;
+    },
+    enabled: seedUrns.length > 0,
     staleTime: 1000 * 60 * 10,
   });
 }
 
-export function useRecommendedTracks(seedTrackUrn: string | undefined, limit = 20) {
-  return useQuery({
-    queryKey: ['discover', 'related', seedTrackUrn, limit],
-    queryFn: () =>
-      api<TrackListResponse>(`/tracks/${encodeURIComponent(seedTrackUrn!)}/related?limit=${limit}`),
-    enabled: !!seedTrackUrn,
-    staleTime: 1000 * 60 * 10,
-  });
+/** Top related tracks sorted by frequency — "Recommended For You" */
+export function useRecommendedTracks(pool: RelatedPool | undefined, limit = 40) {
+  return useMemo(() => {
+    if (!pool) return [];
+    return [...pool.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit)
+      .map((e) => e.track);
+  }, [pool, limit]);
+}
+
+/** Related tracks grouped by genre, sorted by frequency — "Discover" */
+export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Track[]) {
+  // Genre ranking from liked tracks
+  const genreRanking = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of likedTracks) {
+      const g = t.genre?.trim().toLowerCase();
+      if (g) counts.set(g, (counts.get(g) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
+  }, [likedTracks]);
+
+  return useMemo(() => {
+    if (!pool) return [];
+
+    // Group pool tracks by their genre, count frequency within genre
+    const byGenre = new Map<string, { count: number; track: Track }[]>();
+    for (const entry of pool.values()) {
+      const g = entry.track.genre?.trim().toLowerCase();
+      if (!g) continue;
+      const arr = byGenre.get(g);
+      if (arr) arr.push(entry);
+      else byGenre.set(g, [entry]);
+    }
+
+    // Sort tracks within each genre by frequency
+    for (const arr of byGenre.values()) {
+      arr.sort((a, b) => b.count - a.count);
+    }
+
+    // Walk genre ranking, skip genres with ≤3 tracks
+    const result: { genre: string; tracks: Track[] }[] = [];
+    for (const genre of genreRanking) {
+      const entries = byGenre.get(genre);
+      if (!entries || entries.length <= 3) continue;
+      result.push({ genre, tracks: entries.map((e) => e.track) });
+      if (result.length >= 7) break;
+    }
+
+    return result;
+  }, [pool, genreRanking]);
 }
 
 /* ── Infinite scroll ───────────────────────────────────────────── */

@@ -3,7 +3,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
 import { Session } from './auth/entities/session.entity.js';
-import { CdnProxyModule } from './cdn-proxy/cdn-proxy.module.js';
 import configuration from './config/configuration.js';
 import { HealthController } from './health/health.controller.js';
 import { LikesModule } from './likes/likes.module.js';
@@ -43,7 +42,6 @@ import { UsersModule } from './users/users.module.js';
     LikesModule,
     RepostsModule,
     ResolveModule,
-    CdnProxyModule,
   ],
   controllers: [HealthController],
 })
