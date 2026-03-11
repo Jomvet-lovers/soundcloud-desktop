@@ -1,6 +1,6 @@
 [package]
 name = "soundcloud-desktop"
-version = "5.5.0"
+version = "5.4.1"
 description = "Beautiful Soundcloud Desktop app"
 authors = ["zxcloli666"]
 edition = "2021"
@@ -29,4 +29,5 @@ futures-util = "0.3"
 tauri-plugin-localhost = "2"
 http = "1"
 urlencoding = "2"
+tauri-plugin-single-instance = "2.4.0"
 
