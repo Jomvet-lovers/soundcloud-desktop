@@ -65,6 +65,7 @@ export interface Playlist {
   last_modified: string;
   sharing: string;
   playlist_type: string;
+  user_favorite?: boolean;
   tracks: Track[];
   user: {
     id: number;

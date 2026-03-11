@@ -1,4 +1,4 @@
-import { Controller, Delete, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
@@ -35,5 +35,11 @@ export class LikesController {
   @ApiOperation({ summary: 'Unlike a playlist' })
   unlikePlaylist(@AccessToken() token: string, @Param('playlistUrn') playlistUrn: string) {
     return this.likesService.unlikePlaylist(token, playlistUrn);
+  }
+
+  @Get('playlists/:playlistUrn')
+  @ApiOperation({ summary: 'Check if playlist is liked' })
+  isPlaylistLiked(@AccessToken() token: string, @Param('playlistUrn') playlistUrn: string) {
+    return this.likesService.isPlaylistLiked(token, playlistUrn);
   }
 }
