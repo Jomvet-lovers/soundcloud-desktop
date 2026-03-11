@@ -32,6 +32,20 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .register_asynchronous_uri_scheme_protocol("scproxy", |_ctx, request, responder| {
+            let Some(state) = proxy::STATE.get() else {
+                responder.respond(
+                    http::Response::builder()
+                        .status(503)
+                        .body(b"not ready".to_vec())
+                        .unwrap(),
+                );
+                return;
+            };
+            state.rt_handle.spawn(async move {
+                responder.respond(proxy::handle_uri(request).await);
+            });
+        })
         .setup(move |app| {
             let cache_dir = app
                 .path()
@@ -41,14 +55,29 @@ pub fn run() {
             let audio_dir = cache_dir.join("audio");
             std::fs::create_dir_all(&audio_dir).ok();
 
+            let assets_dir = cache_dir.join("assets");
+            std::fs::create_dir_all(&assets_dir).ok();
+
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+
+            proxy::STATE
+                .set(proxy::State {
+                    assets_dir,
+                    http_client: reqwest::Client::new(),
+                    rt_handle: rt.handle().clone(),
+                })
+                .ok();
+
             let (audio_port, proxy_port) = rt.block_on(server::start_all(audio_dir));
 
             std::thread::spawn(move || {
                 rt.block_on(std::future::pending::<()>());
             });
 
-            app.manage(Arc::new(ServerState { audio_port, proxy_port }));
+            app.manage(Arc::new(ServerState {
+                audio_port,
+                proxy_port,
+            }));
             app.manage(Arc::new(DiscordState {
                 client: Mutex::new(None),
             }));
