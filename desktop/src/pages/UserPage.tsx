@@ -1,38 +1,43 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  AlertCircle,
-  Calendar,
-  Globe,
-  Instagram,
-  LinkIcon,
-  Loader2,
-  MapPin,
-  Music,
-  Twitter,
-  Users,
-  Youtube,
-} from '../lib/icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PlaylistCard } from '../components/music/PlaylistCard';
+import { Avatar } from '../components/ui/Avatar';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
+import { dur, fc } from '../lib/formatters';
 import {
   useInfiniteScroll,
   useUser,
+  useUserFollowings,
   useUserLikedTracks,
   useUserPlaylists,
   useUserPopularTracks,
   useUserTracks,
   useUserWebProfiles,
 } from '../lib/hooks';
-import { useAuthStore } from '../stores/auth';
-import { dur, fc } from '../lib/formatters';
+import {
+  AlertCircle,
+  Calendar,
+  Globe,
+  headphones11,
+  heart11,
+  Instagram,
+  LinkIcon,
+  Loader2,
+  MapPin,
+  Music,
+  pauseWhite14,
+  playWhite14,
+  Twitter,
+  Users,
+  Youtube,
+} from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
-import { headphones11, heart11, pauseWhite14, playWhite14 } from '../lib/icons';
+import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
 
 /* ── Helpers ──────────────────────────────────────────────── */
@@ -223,7 +228,6 @@ const TrackRow = React.memo(
     prev.queue.length === next.queue.length,
 );
 
-
 /* ── Isolated Tab Content ────────────────────────────────── */
 
 /* Each user tab is its own component — only fetches its own data */
@@ -271,10 +275,7 @@ const UserPopularTab = React.memo(function UserPopularTab({ urn }: { urn: string
   const allTracks = data ?? [];
   const [visibleCount, setVisibleCount] = useState(POPULAR_PAGE_SIZE);
 
-  const visibleTracks = useMemo(
-    () => allTracks.slice(0, visibleCount),
-    [allTracks, visibleCount],
-  );
+  const visibleTracks = useMemo(() => allTracks.slice(0, visibleCount), [allTracks, visibleCount]);
   const hasMore = visibleCount < allTracks.length;
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -396,6 +397,61 @@ const UserLikesTab = React.memo(function UserLikesTab({ urn }: { urn: string }) 
   );
 });
 
+const UserFollowingTab = React.memo(function UserFollowingTab({ urn }: { urn: string }) {
+  const navigate = useNavigate();
+  const followingsQuery = useUserFollowings(urn);
+  const uniqueUsers = useMemo(
+    () => Array.from(new Map(followingsQuery.users.map((u) => [u.urn, u])).values()),
+    [followingsQuery.users],
+  );
+  const sentinelRef = useInfiniteScroll(
+    !!followingsQuery.hasNextPage,
+    !!followingsQuery.isFetchingNextPage,
+    followingsQuery.fetchNextPage,
+  );
+
+  return (
+    <div className="min-h-[400px]">
+      {followingsQuery.isLoading ? (
+        <div className="py-12 flex justify-center">
+          <Loader2 size={24} className="animate-spin text-white/20" />
+        </div>
+      ) : uniqueUsers.length === 0 ? (
+        <div className="py-12 text-center text-white/30 text-sm">No followings found.</div>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
+          {uniqueUsers.map((user) => (
+            <div
+              key={user.urn}
+              onClick={() => navigate(`/user/${encodeURIComponent(user.urn)}`)}
+              className="group flex flex-col items-center gap-3 p-5 rounded-3xl bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.05] hover:border-white/[0.08] transition-all duration-300 ease-[var(--ease-apple)] cursor-pointer shadow-lg hover:shadow-xl"
+            >
+              <div className="w-20 h-20 rounded-full overflow-hidden ring-2 ring-white/[0.08] group-hover:ring-white/[0.15] transition-all duration-300 shadow-lg">
+                <Avatar src={user.avatar_url} alt={user.username} size={80} />
+              </div>
+              <div className="text-center min-w-0 w-full">
+                <p className="text-[13px] font-semibold text-white/80 truncate group-hover:text-white transition-colors">
+                  {user.username}
+                </p>
+                {user.followers_count != null && (
+                  <p className="text-[11px] text-white/30 mt-1 tabular-nums">
+                    {fc(user.followers_count)} followers
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
+        {followingsQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
+      </div>
+    </div>
+  );
+});
+
 /* ── Main: UserPage ──────────────────────────────────────── */
 
 export function UserPage() {
@@ -403,7 +459,9 @@ export function UserPage() {
   const { t } = useTranslation();
   const currentUser = useAuthStore((s) => s.user);
 
-  const [activeTab, setActiveTab] = useState<'popular' | 'tracks' | 'playlists' | 'likes'>('popular');
+  const [activeTab, setActiveTab] = useState<
+    'popular' | 'tracks' | 'playlists' | 'likes' | 'following'
+  >('popular');
 
   const { data: user, isLoading: userLoading } = useUser(urn);
   const { data: webProfiles } = useUserWebProfiles(urn);
@@ -424,6 +482,7 @@ export function UserPage() {
     { id: 'tracks', label: t('user.tracks'), count: user.track_count },
     { id: 'playlists', label: t('user.playlists'), count: user.playlist_count },
     { id: 'likes', label: t('user.likes'), count: user.public_favorites_count },
+    { id: 'following', label: t('user.following'), count: user.followings_count },
   ] as const;
 
   return (
@@ -556,6 +615,7 @@ export function UserPage() {
           {activeTab === 'tracks' && <UserTracksTab urn={urn!} />}
           {activeTab === 'playlists' && <UserPlaylistsTab urn={urn!} />}
           {activeTab === 'likes' && <UserLikesTab urn={urn!} />}
+          {activeTab === 'following' && <UserFollowingTab urn={urn!} />}
         </div>
 
         {/* Sidebar */}
@@ -572,15 +632,15 @@ export function UserPage() {
           )}
 
           {user.created_at && new Date(user.created_at).getFullYear() > 1970 && (
-          <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl flex flex-col gap-4">
-            <div className="flex items-center justify-between text-[13px]">
-              <span className="text-white/40 font-medium">{t('user.memberSince')}</span>
-              <span className="text-white/80 font-semibold flex items-center gap-2">
-                <Calendar size={14} className="text-white/30" />
-                {dateFormattedLong(user.created_at)}
-              </span>
-            </div>
-          </section>
+            <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl flex flex-col gap-4">
+              <div className="flex items-center justify-between text-[13px]">
+                <span className="text-white/40 font-medium">{t('user.memberSince')}</span>
+                <span className="text-white/80 font-semibold flex items-center gap-2">
+                  <Calendar size={14} className="text-white/30" />
+                  {dateFormattedLong(user.created_at)}
+                </span>
+              </div>
+            </section>
           )}
 
           {webProfiles && webProfiles.length > 0 && (

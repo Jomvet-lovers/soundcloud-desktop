@@ -65,6 +65,9 @@ pub fn run() {
             let assets_dir = cache_dir.join("assets");
             std::fs::create_dir_all(&assets_dir).ok();
 
+            let wallpapers_dir = cache_dir.join("wallpapers");
+            std::fs::create_dir_all(&wallpapers_dir).ok();
+
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
             proxy::STATE
@@ -75,7 +78,7 @@ pub fn run() {
                 })
                 .ok();
 
-            let (audio_port, proxy_port) = rt.block_on(server::start_all(audio_dir));
+            let (audio_port, proxy_port) = rt.block_on(server::start_all(audio_dir, wallpapers_dir));
 
             std::thread::spawn(move || {
                 rt.block_on(std::future::pending::<()>());
