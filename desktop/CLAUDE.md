@@ -38,6 +38,7 @@ desktop/
 - **useSyncExternalStore** — для аудио-стейта (currentTime, duration). Snapshot функция должна возвращать стабильное значение (напр. `Math.floor()` для секунд), иначе 60 ре-рендеров/сек.
 - **TanStack Query**: использовать `staleTime`, `setQueriesData` для optimistic updates, `invalidateQueries` с задержкой если API eventual consistent.
 - **useCallback/useMemo** — только где реально нужно (тяжёлые вычисления, пропсы в memo-компоненты). Не на каждую функцию.
+- **Data Storage** - НЕ используй localStorage, на проде при каждом запуске меняется порт. Для хранения данных используй tauri storage, примеры есть, например, у auth компонента.
 
 ## Правила для Tauri (Rust)
 
