@@ -54,6 +54,7 @@ import {
   Volume2 as _Volume2,
   VolumeX as _VolumeX,
   X as _X,
+  Link2 as _Link2,
 } from 'lucide-react';
 import { memo } from 'react';
 import { siInstagram, siX, siYoutube } from 'simple-icons';
@@ -130,6 +131,7 @@ export const Volume1 = memo(_Volume1);
 export const Volume2 = memo(_Volume2);
 export const VolumeX = memo(_VolumeX);
 export const X = memo(_X);
+export const Link = memo(_Link2);
 export const Youtube = memo(({ size, className }: { size?: number; className?: string }) => (
   <SimpleIcon icon={siYoutube} size={size} className={className} />
 ));

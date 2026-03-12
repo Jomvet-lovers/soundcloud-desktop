@@ -12,7 +12,7 @@ import {
   removeWallpaper,
   saveWallpaperFromBuffer,
 } from '../lib/cache';
-import { Loader2, Music, Trash2, X } from '../lib/icons';
+import { Loader2, Trash2, X, Link } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
 
@@ -307,7 +307,7 @@ const WallpaperPicker = React.memo(function WallpaperPicker() {
               : 'border-white/[0.1] hover:border-white/[0.2] hover:bg-white/[0.02]'
           }`}
         >
-          <Music size={12} className="text-white/30" />
+          <Link size={12} className="text-white/30" />
           <span className="text-[9px] text-white/25 font-medium">URL</span>
         </button>
       </div>
