@@ -1,11 +1,17 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Heart } from '../../lib/icons';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../../lib/api';
+import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
+import { art } from '../../lib/cdn';
+import { formatTime } from '../../lib/formatters';
+import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
+  Heart,
   listMusic16,
+  MicVocal,
   pauseBlack20,
   playBlack20,
   repeat1Icon16,
@@ -17,17 +23,13 @@ import {
   volume2Icon16,
   volumeXIcon16,
 } from '../../lib/icons';
-import { api } from '../../lib/api';
-import { invalidateAllLikesCache } from '../../lib/hooks';
 import { optimisticToggleLike } from '../../lib/likes';
-import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
-import { art } from '../../lib/cdn';
-import { formatTime } from '../../lib/formatters';
+import { useLyricsStore } from '../../stores/lyrics';
 import { type Track, usePlayerStore } from '../../stores/player';
 
 /* ── Progress Slider ─────────────────────────────────────────── */
 
-const ProgressSlider = React.memo(() => {
+export const ProgressSlider = React.memo(() => {
   const duration = useSyncExternalStore(subscribe, getDuration);
 
   const [dragging, setDragging] = useState(false);
@@ -80,7 +82,10 @@ const ProgressSlider = React.memo(() => {
       <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[5px] transition-all duration-150">
         <Slider.Range ref={rangeRef} className="absolute h-full rounded-full bg-accent" />
       </Slider.Track>
-      <Slider.Thumb ref={thumbRef} className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none" />
+      <Slider.Thumb
+        ref={thumbRef}
+        className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none"
+      />
     </Slider.Root>
   );
 });
@@ -157,7 +162,7 @@ const VolumeLabel = React.memo(() => {
 
 /* ── Progress Time (updates once per second) ─────────────────── */
 
-const ProgressTime = React.memo(() => {
+export const ProgressTime = React.memo(() => {
   const currentSecond = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
   const duration = useSyncExternalStore(subscribe, getDuration);
 
@@ -287,6 +292,16 @@ const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active:
   </button>
 ));
 
+const LyricsBtn = React.memo(() => {
+  const open = useLyricsStore((s) => s.open);
+  const toggle = useLyricsStore((s) => s.toggle);
+  return (
+    <button type="button" onClick={toggle} className={btnClass(open, 'sm')}>
+      <MicVocal size={16} />
+    </button>
+  );
+});
+
 /* ── Track Info (left section) ───────────────────────────────── */
 
 const TrackInfo = React.memo(() => {
@@ -315,7 +330,15 @@ const TrackInfo = React.memo(() => {
               <div className="w-full h-full bg-white/[0.04]" />
             )}
             <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 group-hover/art:bg-black/40 group-hover/art:opacity-100 transition-all duration-200">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-white"><path d="M3 7V3h4M11 3h4v4M15 11v4h-4M7 15H3v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" className="text-white">
+                <path
+                  d="M3 7V3h4M11 3h4v4M15 11v4h-4M7 15H3v-4"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </div>
           </div>
         </Dialog.Trigger>
@@ -323,7 +346,9 @@ const TrackInfo = React.memo(() => {
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/90 backdrop-blur-2xl" />
           <Dialog.Content
             className="fixed inset-0 z-50 flex flex-col items-center justify-center p-12 outline-none"
-            onClick={(e) => { if (e.target === e.currentTarget) setArtOpen(false); }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setArtOpen(false);
+            }}
             onInteractOutside={(e) => e.preventDefault()}
           >
             <button
@@ -331,7 +356,14 @@ const TrackInfo = React.memo(() => {
               onClick={() => setArtOpen(false)}
               className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center text-white/60 hover:text-white transition-all duration-200 cursor-pointer"
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M12 4L4 12M4 4l8 8"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
             </button>
             {artworkFull && (
               <img
@@ -412,6 +444,7 @@ export const NowPlayingBar = React.memo(
 
           {/* Right: volume + queue */}
           <div className="flex items-center gap-0.5 w-[220px] justify-end">
+            <LyricsBtn />
             <QueueBtn onClick={onQueueToggle} active={queueOpen} />
             <ControlVolumeBtn size="sm" />
             <VolumeSlider className="w-[100px]" />

@@ -152,3 +152,32 @@ body,
   background: rgba(255, 255, 255, 0.035);
   border-color: rgba(255, 255, 255, 0.1);
 }
+
+/* ── Synced lyrics lines ─────────────────────────────────── */
+.lyric-line {
+  cursor: pointer;
+  padding: 6px 0;
+  line-height: 1.4;
+  transform-origin: left;
+  transition: color 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+              font-size 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 20px;
+  font-weight: 500;
+  opacity: 1;
+}
+
+.lyric-line[data-state="active"] {
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  transform: scale(1.01);
+}
+
+.lyric-line[data-state="past"] {
+  color: rgba(255, 255, 255, 0.12);
+  font-size: 20px;
+  font-weight: 500;
+}

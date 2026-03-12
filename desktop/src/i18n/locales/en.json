@@ -11,6 +11,7 @@
     "nowPlaying": "Now Playing",
     "upNext": "Up Next",
     "clearQueue": "Clear Queue",
+    "addToQueue": "Add to Queue",
     "shuffle": "Shuffle",
     "repeat": "Repeat"
   },
@@ -42,7 +43,11 @@
     "favoriters": "Liked by",
     "reposters": "Reposted by",
     "tags": "Tags",
-    "commentAt": "at"
+    "commentAt": "at",
+    "lyrics": "Lyrics",
+    "lyricsNotFound": "Lyrics not found",
+    "lyricsNotFoundHint": "Try searching on Genius.com",
+    "lyricsLoading": "Searching lyrics..."
   },
   "playlist": {
     "playAll": "Play All",
