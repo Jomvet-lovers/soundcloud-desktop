@@ -17,18 +17,25 @@ export const PlaylistCard = React.memo(
   function PlaylistCard({ playlist, showPlayback }: PlaylistCardProps) {
     const navigate = useNavigate();
     const cover =
-      art(playlist.artwork_url, 't300x300') ??
-      art(playlist.tracks?.[0]?.artwork_url, 't300x300');
+      art(playlist.artwork_url, 't300x300') ?? art(playlist.tracks?.[0]?.artwork_url, 't300x300');
 
     const trackUrns = React.useMemo(
       () => new Set((playlist.tracks ?? []).map((t: Track) => t.urn)),
       [playlist.tracks],
     );
     const isPlayingFromThis = usePlayerStore(
-      (s) => !!showPlayback && s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+      (s) =>
+        !!showPlayback &&
+        s.isPlaying &&
+        s.currentTrack != null &&
+        trackUrns.has(s.currentTrack.urn),
     );
     const isPausedFromThis = usePlayerStore(
-      (s) => !!showPlayback && !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+      (s) =>
+        !!showPlayback &&
+        !s.isPlaying &&
+        s.currentTrack != null &&
+        trackUrns.has(s.currentTrack.urn),
     );
 
     const handlePlay = (e: React.MouseEvent) => {
@@ -99,7 +106,9 @@ export const PlaylistCard = React.memo(
           {playlist.track_count != null && (
             <div
               className={`absolute bottom-2.5 right-2.5 flex items-center gap-1.5 text-[11px] font-medium bg-black/60 backdrop-blur-md text-white/90 px-2.5 py-1 rounded-full shadow-lg ${
-                showPlayback ? 'opacity-0 group-hover:opacity-100 transition-opacity duration-300' : ''
+                showPlayback
+                  ? 'opacity-0 group-hover:opacity-100 transition-opacity duration-300'
+                  : ''
               }`}
             >
               <ListMusic size={11} />
@@ -133,5 +142,6 @@ export const PlaylistCard = React.memo(
       </div>
     );
   },
-  (prev, next) => prev.playlist.urn === next.playlist.urn && prev.showPlayback === next.showPlayback,
+  (prev, next) =>
+    prev.playlist.urn === next.playlist.urn && prev.showPlayback === next.showPlayback,
 );

@@ -115,14 +115,12 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
     <div
       ref={containerRef}
       className="flex-1 overflow-y-auto scrollbar-hide px-12 py-16 relative"
-      style={{ maskImage: 'linear-gradient(transparent 0%, black 10%, black 90%, transparent 100%)' }}
+      style={{
+        maskImage: 'linear-gradient(transparent 0%, black 10%, black 90%, transparent 100%)',
+      }}
     >
       {lines.map((line, i) => (
-        <div
-          key={`${line.time}-${i}`}
-          className="lyric-line"
-          onClick={() => seek(line.time)}
-        >
+        <div key={`${line.time}-${i}`} className="lyric-line" onClick={() => seek(line.time)}>
           {line.text}
         </div>
       ))}

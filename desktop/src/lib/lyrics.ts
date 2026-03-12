@@ -37,14 +37,20 @@ function clean(s: string): string {
     .replace(/\(feat\.?[^)]*\)/gi, '')
     .replace(/\(ft\.?[^)]*\)/gi, '')
     .replace(/\[.*?\]/g, '')
-    .replace(/\(.*?(remix|edit|version|mix|cover|live|acoustic|instrumental|original|prod).*?\)/gi, '')
+    .replace(
+      /\(.*?(remix|edit|version|mix|cover|live|acoustic|instrumental|original|prod).*?\)/gi,
+      '',
+    )
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 /** Strip everything non-alphanumeric (keep unicode letters) */
 function alphaOnly(s: string): string {
-  return s.replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+  return s
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Parse "Artist - Title" from a combined string */

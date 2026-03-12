@@ -159,10 +159,11 @@ body,
   padding: 6px 0;
   line-height: 1.4;
   transform-origin: left;
-  transition: color 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-              font-size 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-              opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    color 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    font-size 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   color: rgba(255, 255, 255, 0.3);
   font-size: 20px;
   font-weight: 500;

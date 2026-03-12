@@ -34,7 +34,9 @@ async function registerServiceWorker(port: number) {
     await navigator.serviceWorker.register(`/sw.js?port=${port}`);
     if (!navigator.serviceWorker.controller) {
       await new Promise<void>((resolve) =>
-        navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }),
+        navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), {
+          once: true,
+        }),
       );
     }
   } catch (e) {

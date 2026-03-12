@@ -1,12 +1,4 @@
-import {
-  ExternalLink,
-  Loader2,
-  Pause,
-  Play,
-  Search as SearchIcon,
-  Users,
-  X,
-} from '../lib/icons';
+import { ExternalLink, Loader2, Pause, Play, Search as SearchIcon, Users, X } from '../lib/icons';
 import { headphones11, heart11, musicIcon20 } from '../lib/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -113,7 +105,6 @@ const TrackRow = React.memo(
   },
   (prev, next) => prev.track.urn === next.track.urn,
 );
-
 
 const UserCard = React.memo(({ user }: { user: SCUser }) => {
   const navigate = useNavigate();
