@@ -46,7 +46,8 @@
     "commentAt": "at",
     "lyrics": "Lyrics",
     "lyricsNotFound": "Lyrics not found",
-    "lyricsLoading": "Loading lyrics..."
+    "lyricsNotFoundHint": "Try searching on Genius.com",
+    "lyricsLoading": "Searching lyrics..."
   },
   "playlist": {
     "playAll": "Play All",

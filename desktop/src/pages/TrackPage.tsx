@@ -1,4 +1,21 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router-dom';
+import { CopyLinkButton } from '../components/ui/CopyLinkButton';
+import { api } from '../lib/api';
+import { getCurrentTime, preloadTrack } from '../lib/audio';
+import { art } from '../lib/cdn';
+import { ago, dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import {
+  type Comment,
+  invalidateAllLikesCache,
+  useInfiniteScroll,
+  usePostComment,
+  useRelatedTracks,
+  useTrackComments,
+  useTrackFavoriters,
+} from '../lib/hooks';
 import {
   Calendar,
   ChevronDown,
@@ -10,29 +27,6 @@ import {
   Loader2,
   MessageCircle,
   Music,
-  Repeat2,
-  Send,
-} from '../lib/icons';
-import React, { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
-import { CopyLinkButton } from '../components/ui/CopyLinkButton';
-import { LyricsPanel } from '../components/music/LyricsPanel';
-import { api } from '../lib/api';
-import { getCurrentTime, preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
-import { type Comment, invalidateAllLikesCache } from '../lib/hooks';
-import { optimisticToggleLike } from '../lib/likes';
-import {
-  useInfiniteScroll,
-  usePostComment,
-  useRelatedTracks,
-  useTrackComments,
-  useTrackFavoriters,
-} from '../lib/hooks';
-import { ago, dateFormatted, dur, durLong, fc } from '../lib/formatters';
-import { useTrackPlay } from '../lib/useTrackPlay';
-import {
   musicIcon14,
   pauseBlack11,
   pauseBlack22,
@@ -40,7 +34,12 @@ import {
   playBlack11,
   playBlack22,
   playCurrent16,
+  Repeat2,
+  Send,
 } from '../lib/icons';
+import { optimisticToggleLike } from '../lib/likes';
+import { useTrackPlay } from '../lib/useTrackPlay';
+import { useLyricsStore } from '../stores/lyrics';
 import { type Track, usePlayerStore } from '../stores/player';
 
 function parseTags(tagList?: string): string[] {
@@ -309,7 +308,7 @@ export const TrackPage = React.memo(() => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [descExpanded, setDescExpanded] = useState(false);
-  const [lyricsOpen, setLyricsOpen] = useState(false);
+  const openLyrics = useLyricsStore((s) => s.openPanel);
 
   const { data: track, isLoading } = useQuery({
     queryKey: ['track', urn],
@@ -468,7 +467,7 @@ export const TrackPage = React.memo(() => {
               <RepostBtn trackUrn={track.urn} count={track.reposts_count} />
               <button
                 type="button"
-                onClick={() => setLyricsOpen(true)}
+                onClick={openLyrics}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer"
               >
                 <Music size={16} />
@@ -668,9 +667,6 @@ export const TrackPage = React.memo(() => {
           </section>
         </div>
       </div>
-
-      {/* Lyrics Panel */}
-      <LyricsPanel track={track} open={lyricsOpen} onClose={() => setLyricsOpen(false)} />
     </div>
   );
 });

@@ -20,6 +20,7 @@ import {
   ExternalLink as _ExternalLink,
   Globe as _Globe,
   GripVertical as _GripVertical,
+  MicVocal as _MicVocal,
   Hash as _Hash,
   Headphones as _Headphones,
   Heart as _Heart,
@@ -102,6 +103,7 @@ export const ListMusic = memo(_ListMusic);
 export const ListPlus = memo(_ListPlus);
 export const Loader2 = memo(_Loader2);
 export const MapPin = memo(_MapPin);
+export const MicVocal = memo(_MicVocal);
 export const MessageCircle = memo(_MessageCircle);
 export const Minus = memo(_Minus);
 export const Music = memo(_Music);

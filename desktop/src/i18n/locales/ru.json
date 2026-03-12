@@ -46,7 +46,8 @@
     "commentAt": "на",
     "lyrics": "Текст песни",
     "lyricsNotFound": "Текст не найден",
-    "lyricsLoading": "Загрузка текста..."
+    "lyricsNotFoundHint": "Попробуйте поискать на Genius.com",
+    "lyricsLoading": "Ищем текст..."
   },
   "playlist": {
     "playAll": "Воспроизвести",

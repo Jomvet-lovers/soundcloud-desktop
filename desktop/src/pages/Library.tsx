@@ -1,24 +1,34 @@
-import { Heart, ListMusic, ListPlus, Loader2, Music, User, Users } from '../lib/icons';
-
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { preloadTrack } from '../lib/audio';
 import { art } from '../lib/cdn';
-import { headphones11, heart11, pauseWhite14, playBlack20ml1, playWhite14 } from '../lib/icons';
+import { dur, fc } from '../lib/formatters';
 import {
-  type SCUser,
   fetchAllLikedTracks,
+  type SCUser,
   useInfiniteScroll,
   useLikedTracks,
   useMyFollowings,
   useMyLikedPlaylists,
   useMyPlaylists,
 } from '../lib/hooks';
-import { useAuthStore } from '../stores/auth';
-import { dur, fc } from '../lib/formatters';
+import {
+  Heart,
+  headphones11,
+  heart11,
+  ListPlus,
+  Loader2,
+  Music,
+  pauseWhite14,
+  playBlack20ml1,
+  playWhite14,
+  User,
+  Users,
+} from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
+import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 
@@ -111,6 +121,15 @@ const LibraryTrackRow = React.memo(
           </p>
         </div>
 
+        <button
+            type="button"
+            onClick={handleAddToQueue}
+            className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 shrink-0"
+            title={t('player.addToQueue')}
+        >
+          <ListPlus size={16} />
+        </button>
+
         <div className="hidden sm:flex items-center gap-4 shrink-0 pr-4">
           {track.playback_count != null && (
             <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
@@ -124,15 +143,6 @@ const LibraryTrackRow = React.memo(
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={handleAddToQueue}
-          className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 shrink-0"
-          title={t('player.addToQueue')}
-        >
-          <ListPlus size={16} />
-        </button>
-
         <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
           {dur(track.duration)}
         </span>
@@ -141,7 +151,6 @@ const LibraryTrackRow = React.memo(
   },
   (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index,
 );
-
 
 const UserCard = React.memo(({ user }: { user: SCUser }) => {
   const navigate = useNavigate();
@@ -333,7 +342,13 @@ const LikesTab = React.memo(function LikesTab() {
           </div>
         ) : likedTracks.length > 0 ? (
           likedTracks.map((track, i) => (
-            <LibraryTrackRow key={track.urn} track={track} index={i} queue={likedTracks} onPlay={expandQueue} />
+            <LibraryTrackRow
+              key={track.urn}
+              track={track}
+              index={i}
+              queue={likedTracks}
+              onPlay={expandQueue}
+            />
           ))
         ) : (
           <div className="py-20 text-center text-white/20">No liked tracks yet</div>

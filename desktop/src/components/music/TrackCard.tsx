@@ -73,7 +73,7 @@ export const TrackCard = React.memo(
           <button
             type="button"
             onClick={handleAddToQueue}
-            className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 opacity-0 group-hover:opacity-100 transition-all duration-200"
+            className="cursor-pointer absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 opacity-0 group-hover:opacity-100 transition-all duration-200"
             title={t('player.addToQueue')}
           >
             <ListPlus size={16} />
