@@ -4,6 +4,7 @@ services:
   db:
     container_name: soundcloud-desktop-db
     image: docker.io/library/postgres:17-alpine
+    restart: always
     environment:
       POSTGRES_USER: soundcloud
       POSTGRES_PASSWORD: soundcloud
@@ -20,6 +21,7 @@ services:
 
   app:
     build: .
+    restart: always
     ports:
       - "3000:3000"
     environment:
@@ -37,6 +39,7 @@ services:
         condition: service_healthy
 
   app-dev:
+    restart: always
     build:
       context: .
       target: deps
