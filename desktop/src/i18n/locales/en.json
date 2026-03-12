@@ -3,7 +3,8 @@
     "home": "Home",
     "search": "Search",
     "library": "Library",
-    "following": "Following"
+    "following": "Following",
+    "settings": "Settings"
   },
   "player": {
     "queue": "Queue",
@@ -86,6 +87,27 @@
     "recommended": "Recommended For You",
     "discover": "Discover",
     "startListening": "Start Listening"
+  },
+  "settings": {
+    "title": "Settings",
+    "cache": "Cache",
+    "total": "Total",
+    "audioCacheSize": "Audio",
+    "assetsCacheSize": "Images & assets",
+    "clearCache": "Clear",
+    "cacheCleared": "Cache cleared",
+    "appearance": "Appearance",
+    "accentColor": "Accent color",
+    "backgroundImage": "Background image",
+    "none": "None",
+    "addFile": "File",
+    "bgUrlPlaceholder": "Paste image URL...",
+    "download": "Download",
+    "wallpaperAdded": "Wallpaper added",
+    "bgLoadError": "Failed to load image",
+    "bgOpacity": "Background opacity",
+    "resetDefaults": "Reset to defaults",
+    "account": "Account"
   },
   "common": {
     "loading": "Loading...",

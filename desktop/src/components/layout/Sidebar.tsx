@@ -1,7 +1,7 @@
-import { Globe, Home, Library, Search } from '../../lib/icons';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
+import { Globe, Home, Library, Search, Settings } from '../../lib/icons';
 import { useAuthStore } from '../../stores/auth';
 import { Avatar } from '../ui/Avatar';
 
@@ -50,7 +50,7 @@ export const Sidebar = React.memo(() => {
 
       <div className="flex-1" />
 
-      <div className="px-3 pb-1">
+      <div className="px-3 pb-1 flex flex-col gap-0.5">
         <button
           type="button"
           onClick={toggleLanguage}
@@ -59,6 +59,19 @@ export const Sidebar = React.memo(() => {
           <Globe size={16} strokeWidth={1.8} />
           <span className="truncate">{currentLang.label}</span>
         </button>
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            `flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[12px] font-medium transition-all duration-200 ${
+              isActive
+                ? 'text-white/70 bg-white/[0.07]'
+                : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
+            }`
+          }
+        >
+          <Settings size={16} strokeWidth={1.8} />
+          <span className="truncate">{t('nav.settings')}</span>
+        </NavLink>
       </div>
 
       {user && (

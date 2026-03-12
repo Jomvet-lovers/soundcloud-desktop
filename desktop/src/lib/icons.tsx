@@ -40,6 +40,7 @@ import {
   Repeat2 as _Repeat2,
   Search as _Search,
   Send as _Send,
+  Settings as _Settings,
   Shuffle as _Shuffle,
   SkipBack as _SkipBack,
   SkipForward as _SkipForward,
@@ -58,7 +59,15 @@ import { siInstagram, siX, siYoutube } from 'simple-icons';
 
 // ── Simple Icons (brand icons, replaces deprecated lucide brands) ──
 const SimpleIcon = memo(
-  ({ icon, size = 24, className }: { icon: { path: string }; size?: number; className?: string }) => (
+  ({
+    icon,
+    size = 24,
+    className,
+  }: {
+    icon: { path: string };
+    size?: number;
+    className?: string;
+  }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
       <path d={icon.path} />
     </svg>
@@ -103,6 +112,7 @@ export const Repeat1 = memo(_Repeat1);
 export const Repeat2 = memo(_Repeat2);
 export const Search = memo(_Search);
 export const Send = memo(_Send);
+export const Settings = memo(_Settings);
 export const Shuffle = memo(_Shuffle);
 export const SkipBack = memo(_SkipBack);
 export const SkipForward = memo(_SkipForward);

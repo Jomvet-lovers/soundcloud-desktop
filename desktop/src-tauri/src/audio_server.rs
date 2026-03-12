@@ -9,9 +9,26 @@ use warp::Filter;
 
 use crate::server::cors;
 
-async fn serve_audio(
+fn content_type_for(filename: &str) -> &'static str {
+    if filename.ends_with(".png") {
+        "image/png"
+    } else if filename.ends_with(".webp") {
+        "image/webp"
+    } else if filename.ends_with(".gif") {
+        "image/gif"
+    } else if filename.ends_with(".svg") {
+        "image/svg+xml"
+    } else if filename.ends_with(".jpg") || filename.ends_with(".jpeg") {
+        "image/jpeg"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+async fn serve_file(
     filename: String,
-    audio_dir: PathBuf,
+    dir: PathBuf,
+    content_type: &str,
     range_header: Option<String>,
 ) -> Result<Response<Body>, warp::Rejection> {
     if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
@@ -21,7 +38,7 @@ async fn serve_audio(
             .unwrap());
     }
 
-    let path = audio_dir.join(&filename);
+    let path = dir.join(&filename);
     let mut file = match File::open(&path).await {
         Ok(f) => f,
         Err(_) => {
@@ -62,7 +79,7 @@ async fn serve_audio(
 
             return Ok(Response::builder()
                 .status(StatusCode::PARTIAL_CONTENT)
-                .header("Content-Type", "audio/mpeg")
+                .header("Content-Type", content_type)
                 .header("Content-Length", length.to_string())
                 .header("Content-Range", format!("bytes {start}-{end}/{total}"))
                 .header("Accept-Ranges", "bytes")
@@ -77,7 +94,7 @@ async fn serve_audio(
 
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", "audio/mpeg")
+        .header("Content-Type", content_type)
         .header("Content-Length", total.to_string())
         .header("Accept-Ranges", "bytes")
         .header("Access-Control-Allow-Origin", "*")
@@ -85,21 +102,34 @@ async fn serve_audio(
         .unwrap())
 }
 
-pub async fn start(audio_dir: PathBuf) -> u16 {
-    let dir = audio_dir.clone();
+pub async fn start(audio_dir: PathBuf, wallpapers_dir: PathBuf) -> u16 {
+    let audio = audio_dir.clone();
+    let wallpapers = wallpapers_dir.clone();
 
-    let route = warp::path("audio")
+    let audio_route = warp::path("audio")
         .and(warp::path::param::<String>())
         .and(warp::path::end())
         .and(warp::header::optional::<String>("range"))
         .and_then(move |filename: String, range: Option<String>| {
-            let dir = dir.clone();
-            async move { serve_audio(filename, dir, range).await }
-        })
-        .with(cors());
+            let dir = audio.clone();
+            async move { serve_file(filename, dir, "audio/mpeg", range).await }
+        });
+
+    let wallpaper_route = warp::path("wallpapers")
+        .and(warp::path::param::<String>())
+        .and(warp::path::end())
+        .and_then(move |filename: String| {
+            let dir = wallpapers.clone();
+            async move {
+                let ct = content_type_for(&filename);
+                serve_file(filename, dir, ct, None).await
+            }
+        });
+
+    let routes = audio_route.or(wallpaper_route).with(cors());
 
     let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
-    let (addr, server) = warp::serve(route).bind_ephemeral(addr);
+    let (addr, server) = warp::serve(routes).bind_ephemeral(addr);
     tokio::spawn(server);
 
     println!("[AudioServer] http://127.0.0.1:{}", addr.port());

@@ -1,11 +1,31 @@
 import React, { useCallback, useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/cdn';
 import { usePlayerStore } from '../../stores/player';
+import { useSettingsStore } from '../../stores/settings';
 import { QueuePanel } from '../music/QueuePanel';
 import { NowPlayingBar } from './NowPlayingBar';
 import { Sidebar } from './Sidebar';
 import { Titlebar } from './Titlebar';
+
+/* Custom background image — from settings */
+const CustomBackground = React.memo(() => {
+  const bgName = useSettingsStore((s) => s.backgroundImage);
+  const bgOpacity = useSettingsStore((s) => s.backgroundOpacity);
+
+  const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
+  if (!bgUrl) return null;
+  return (
+    <div
+      className="absolute inset-0 pointer-events-none bg-cover bg-center bg-no-repeat transition-opacity duration-1000"
+      style={{
+        backgroundImage: `url(${bgUrl})`,
+        opacity: bgOpacity,
+      }}
+    />
+  );
+});
 
 /* Ambient glow — isolated, doesn't re-render AppShell */
 const AmbientGlow = React.memo(() => {
@@ -34,6 +54,7 @@ export const AppShell = React.memo(() => {
 
   return (
     <div className="flex flex-col h-screen relative overflow-hidden">
+      <CustomBackground />
       <AmbientGlow />
       <Titlebar />
       <div className="flex flex-1 min-h-0 relative z-10">

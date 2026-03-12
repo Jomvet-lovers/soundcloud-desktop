@@ -3,7 +3,8 @@
     "home": "Главная",
     "search": "Поиск",
     "library": "Библиотека",
-    "following": "Подписки"
+    "following": "Подписки",
+    "settings": "Настройки"
   },
   "player": {
     "queue": "Очередь",
@@ -87,6 +88,27 @@
     "recommended": "Рекомендации для вас",
     "discover": "Открывайте новое",
     "startListening": "Начните слушать"
+  },
+  "settings": {
+    "title": "Настройки",
+    "cache": "Кэш",
+    "total": "Всего",
+    "audioCacheSize": "Аудио",
+    "assetsCacheSize": "Изображения и ассеты",
+    "clearCache": "Очистить",
+    "cacheCleared": "Кэш очищен",
+    "appearance": "Оформление",
+    "accentColor": "Цвет акцента",
+    "backgroundImage": "Фоновое изображение",
+    "none": "Нет",
+    "addFile": "Файл",
+    "bgUrlPlaceholder": "Вставьте URL изображения...",
+    "download": "Скачать",
+    "wallpaperAdded": "Обои добавлены",
+    "bgLoadError": "Не удалось загрузить изображение",
+    "bgOpacity": "Прозрачность фона",
+    "resetDefaults": "Сбросить",
+    "account": "Аккаунт"
   },
   "common": {
     "loading": "Загрузка...",
