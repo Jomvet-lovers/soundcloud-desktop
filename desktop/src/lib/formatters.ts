@@ -1,3 +1,8 @@
+/** SoundCloud artwork URL: replace -large with desired size */
+export function art(url: string | null | undefined, size = 't500x500'): string | null {
+  return url?.replace('-large', `-${size}`) ?? null;
+}
+
 /** Format count: 1234 → "1.2K", 1234567 → "1.2M" */
 export function fc(n?: number): string {
   if (!n) return '0';

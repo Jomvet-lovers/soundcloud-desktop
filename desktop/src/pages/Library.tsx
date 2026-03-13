@@ -3,8 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
-import { dur, fc } from '../lib/formatters';
+import { art, dur, fc } from '../lib/formatters';
 import {
   fetchAllLikedTracks,
   type SCUser,

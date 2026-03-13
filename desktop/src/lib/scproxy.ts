@@ -23,17 +23,31 @@ function scproxyUrl(url: string): string {
   return IS_WINDOWS ? `http://scproxy.localhost/${encoded}` : `scproxy://localhost/${encoded}`;
 }
 
-// Hook <img>.src
+// Hook <img>.src — store original URL to enable retry on error
 const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
 Object.defineProperty(HTMLImageElement.prototype, 'src', {
   set(url: string) {
-    if (url?.startsWith('http') && !isWhitelisted(url)) url = scproxyUrl(url);
+    if (url?.startsWith('http') && !isWhitelisted(url)) {
+      (this as HTMLImageElement & { __origSrc: string }).__origSrc = url;
+      url = scproxyUrl(url);
+    }
     imgSrcDesc.set!.call(this, url);
   },
   get() {
     return imgSrcDesc.get!.call(this);
   },
 });
+
+// Global: hide broken images (proxy error, CDN blocked, etc.)
+document.addEventListener(
+  'error',
+  (e) => {
+    if (e.target instanceof HTMLImageElement) {
+      e.target.style.display = 'none';
+    }
+  },
+  true,
+);
 
 // Hook fetch()
 const origFetch = window.fetch.bind(window);

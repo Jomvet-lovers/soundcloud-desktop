@@ -5,8 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
-import { ago, dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import { ago, art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
 import {
   type Comment,
   invalidateAllLikesCache,

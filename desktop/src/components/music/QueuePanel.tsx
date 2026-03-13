@@ -1,9 +1,7 @@
-import { GripVertical, Trash2, X } from '../../lib/icons';
 import React, { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { art } from '../../lib/cdn';
-import { dur } from '../../lib/formatters';
-import { pauseTextWhite12, playIcon32 } from '../../lib/icons';
+import { art, dur } from '../../lib/formatters';
+import { GripVertical, pauseTextWhite12, playIcon32, Trash2, X } from '../../lib/icons';
 import { type Track, usePlayerStore } from '../../stores/player';
 
 /* ── Now Playing (single, non-draggable) ─────────────────────────── */

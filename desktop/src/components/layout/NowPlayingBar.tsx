@@ -5,8 +5,7 @@ import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore }
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
-import { art } from '../../lib/cdn';
-import { formatTime } from '../../lib/formatters';
+import { art, formatTime } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
   Heart,

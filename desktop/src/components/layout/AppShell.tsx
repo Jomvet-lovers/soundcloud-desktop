@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { getWallpaperUrl } from '../../lib/cache';
-import { art } from '../../lib/cdn';
+import { art } from '../../lib/formatters';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
 import { LyricsPanel } from '../music/LyricsPanel';

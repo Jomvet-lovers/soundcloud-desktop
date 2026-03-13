@@ -1,9 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { art } from '../../lib/cdn';
-import { fc } from '../../lib/formatters';
+import { art, fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
-import { Heart, ListMusic, pauseBlack22, Play } from '../../lib/icons';
+import { Heart, ListMusic, Play, pauseBlack22 } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 

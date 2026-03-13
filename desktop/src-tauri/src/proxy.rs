@@ -24,53 +24,6 @@ fn cache_key(url: &str) -> String {
     hex::encode(Sha256::digest(url.as_bytes()))
 }
 
-fn extension_from_content_type(ct: &str) -> &str {
-    if ct.starts_with("image/jpeg") {
-        ".jpg"
-    } else if ct.starts_with("image/png") {
-        ".png"
-    } else if ct.starts_with("image/webp") {
-        ".webp"
-    } else if ct.starts_with("image/gif") {
-        ".gif"
-    } else if ct.starts_with("image/svg") {
-        ".svg"
-    } else if ct.contains("font") {
-        ".font"
-    } else if ct.starts_with("text/css") {
-        ".css"
-    } else if ct.contains("javascript") {
-        ".js"
-    } else {
-        ".bin"
-    }
-}
-
-fn content_type_from_ext(ext: &str) -> &str {
-    match ext {
-        "jpg" | "jpeg" => "image/jpeg",
-        "png" => "image/png",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "svg" => "image/svg+xml",
-        "css" => "text/css",
-        "js" => "application/javascript",
-        _ => "application/octet-stream",
-    }
-}
-
-fn find_cached_file(dir: &PathBuf, key: &str) -> Option<PathBuf> {
-    let read_dir = std::fs::read_dir(dir).ok()?;
-    for entry in read_dir.flatten() {
-        let name = entry.file_name();
-        let name_str = name.to_str()?;
-        if name_str.starts_with(key) {
-            return Some(entry.path());
-        }
-    }
-    None
-}
-
 /// Core proxy logic — shared between scproxy:// protocol and HTTP proxy server.
 /// `encoded` is a (possibly percent-encoded) base64 target URL.
 pub async fn proxy_request(encoded: &str) -> ProxyResult {
@@ -121,20 +74,16 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         };
     }
 
-    // Cache check
+    // Cache check — single file per key, no extension
     let key = cache_key(&target_url);
-    if let Some(cached) = find_cached_file(&state.assets_dir, &key) {
-        let ext = cached
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("bin");
-        let ct = content_type_from_ext(ext);
-        if let Ok(data) = tokio::fs::read(&cached).await {
+    let cache_path = state.assets_dir.join(&key);
+    if cache_path.exists() {
+        if let Ok(data) = tokio::fs::read(&cache_path).await {
             #[cfg(debug_assertions)]
             println!("[Proxy] cache HIT {}", target_url);
             return ProxyResult {
                 status: 200,
-                content_type: ct.to_string(),
+                content_type: "application/octet-stream".into(),
                 data,
             };
         }
@@ -143,51 +92,57 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     #[cfg(debug_assertions)]
     println!("[Proxy] {} -> upstream", target_url);
 
-    // Upstream fetch
+    // Upstream fetch with retries (proxy can 504/502 under load)
     let encoded_for_header = BASE64.encode(target_url.as_bytes());
-    let upstream = match state
-        .http_client
-        .get(PROXY_URL)
-        .header("X-Target", &encoded_for_header)
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return ProxyResult {
-                status: 502,
-                content_type: "text/plain".into(),
-                data: format!("upstream error: {e}").into_bytes(),
-            }
+    let mut status = 502u16;
+    let mut content_type = String::new();
+    let mut data: Vec<u8> = Vec::new();
+
+    for attempt in 0..3u8 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
         }
-    };
 
-    let status = upstream.status().as_u16();
-    let content_type = upstream
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+        let resp = match state
+            .http_client
+            .get(PROXY_URL)
+            .header("X-Target", &encoded_for_header)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
 
-    let data = match upstream.bytes().await {
-        Ok(b) => b.to_vec(),
-        Err(e) => {
-            return ProxyResult {
-                status: 502,
-                content_type: "text/plain".into(),
-                data: format!("body read error: {e}").into_bytes(),
-            }
+        status = resp.status().as_u16();
+        content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+
+        match resp.bytes().await {
+            Ok(b) => data = b.to_vec(),
+            Err(_) => continue,
         }
-    };
 
-    // Cache in background
-    if status == 200 {
-        let ext = extension_from_content_type(&content_type);
-        let cache_path = state.assets_dir.join(format!("{key}{ext}"));
+        // Success or client error — no point retrying
+        if status < 500 {
+            break;
+        }
+    }
+
+    // Cache in background — skip html/text error pages
+    let is_cacheable = status == 200
+        && !content_type.starts_with("text/html")
+        && !content_type.starts_with("text/plain")
+        && !content_type.is_empty();
+    if is_cacheable {
         let data_clone = data.clone();
+        let path = cache_path.clone();
         tokio::spawn(async move {
-            let _ = tokio::fs::write(&cache_path, &data_clone).await;
+            let _ = tokio::fs::write(&path, &data_clone).await;
         });
     }
 

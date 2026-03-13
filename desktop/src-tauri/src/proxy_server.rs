@@ -8,10 +8,10 @@ use crate::server::cors;
 
 pub async fn start() -> u16 {
     let route = warp::path("p")
-        .and(warp::path::param::<String>())
-        .and(warp::path::end())
-        .and_then(|encoded_url: String| async move {
-            let result = proxy_request(&encoded_url).await;
+        .and(warp::path::tail())
+        .and_then(|tail: warp::path::Tail| async move {
+            let encoded_url = tail.as_str();
+            let result = proxy_request(encoded_url).await;
             Ok::<_, warp::Rejection>(
                 warp::http::Response::builder()
                     .status(result.status)

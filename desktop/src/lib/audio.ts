@@ -2,8 +2,8 @@ import { Howl } from 'howler';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { api, streamUrl } from './api';
-import { art } from './cdn';
 import { fetchAndCacheTrack, getCacheFilePath, getCacheUrl, isCached } from './cache';
+import { art } from './formatters';
 
 /* ── Audio engine state ──────────────────────────────────────── */
 

@@ -1,4 +1,4 @@
-import { art } from '../../lib/cdn';
+import { art } from '../../lib/formatters';
 
 interface AvatarProps {
   src?: string | null;

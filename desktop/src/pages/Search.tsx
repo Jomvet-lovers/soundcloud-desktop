@@ -1,12 +1,10 @@
-import { ExternalLink, Loader2, Pause, Play, Search as SearchIcon, Users, X } from '../lib/icons';
-import { headphones11, heart11, musicIcon20 } from '../lib/icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
+import { art, dur, fc } from '../lib/formatters';
 import {
   type SCUser,
   useInfiniteScroll,
@@ -14,7 +12,18 @@ import {
   useSearchTracks,
   useSearchUsers,
 } from '../lib/hooks';
-import { dur, fc } from '../lib/formatters';
+import {
+  ExternalLink,
+  headphones11,
+  heart11,
+  Loader2,
+  musicIcon20,
+  Pause,
+  Play,
+  Search as SearchIcon,
+  Users,
+  X,
+} from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import type { Track } from '../stores/player';
 

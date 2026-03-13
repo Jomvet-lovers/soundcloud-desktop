@@ -5,8 +5,7 @@ import { TrackCard } from '../components/music/TrackCard';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
 import { Skeleton } from '../components/ui/Skeleton';
 import { preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
-import { ago, dur, fc } from '../lib/formatters';
+import { ago, art, dur, fc } from '../lib/formatters';
 import type { FeedItem } from '../lib/hooks';
 import {
   useDiscoverData,

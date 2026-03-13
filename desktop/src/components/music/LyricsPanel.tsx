@@ -2,16 +2,16 @@ import { useQuery } from '@tanstack/react-query';
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getCurrentTime, handlePrev, seek, subscribe } from '../../lib/audio';
-import { art } from '../../lib/cdn';
+import { art } from '../../lib/formatters';
 import {
   Loader2,
   MicVocal,
-  SkipBack,
-  SkipForward,
   pauseBlack18,
   playBlack18,
   repeat1Icon16,
   repeatIcon16,
+  SkipBack,
+  SkipForward,
   shuffleIcon16,
   X,
 } from '../../lib/icons';

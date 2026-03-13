@@ -5,8 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
-import { dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import { art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
 import { useInfiniteScroll, usePlaylist, usePlaylistTracks } from '../lib/hooks';
 import {
   Calendar,

@@ -7,8 +7,7 @@ import { Avatar } from '../components/ui/Avatar';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
-import { art } from '../lib/cdn';
-import { dur, fc } from '../lib/formatters';
+import { art, dur, fc } from '../lib/formatters';
 import {
   useInfiniteScroll,
   useUser,

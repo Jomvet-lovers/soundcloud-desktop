@@ -1,13 +1,12 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { preloadTrack } from '../../lib/audio';
-import { art } from '../../lib/cdn';
+import { art, dur, fc } from '../../lib/formatters';
+import { ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
+import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
-import { dur, fc } from '../../lib/formatters';
-import { pauseBlack20, playBlack20, playIcon32, ListPlus } from '../../lib/icons';
-import { useTrackPlay } from '../../lib/useTrackPlay';
 
 interface TrackCardProps {
   track: Track;
