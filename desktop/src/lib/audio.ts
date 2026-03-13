@@ -82,7 +82,7 @@ let lastMediaSessionSync = 0;
 function startProgressLoop() {
   stopProgressLoop();
   const tick = () => {
-    if (!currentHowl || !currentHowl.playing()) {
+    if (!currentHowl || (!currentHowl.playing() && !usePlayerStore.getState().isPlaying)) {
       rafId = null;
       return;
     }
@@ -222,8 +222,8 @@ usePlayerStore.subscribe((state, prev) => {
     if (state.isPlaying) {
       if (!currentHowl && state.currentTrack) {
         void loadTrack(state.currentTrack);
-      } else {
-        currentHowl?.play();
+      } else if (currentHowl && !currentHowl.playing()) {
+        currentHowl.play();
       }
     } else {
       currentHowl?.pause();
