@@ -254,7 +254,7 @@ export const LyricsPanel = React.memo(() => {
             background: `
               radial-gradient(ellipse at 25% 50%, rgba(${r},${g},${b},0.2) 0%, transparent 60%),
               radial-gradient(ellipse at 75% 70%, rgba(${r},${g},${b},0.12) 0%, transparent 50%),
-              rgba(8, 8, 10, 0.88)
+              rgb(8, 8, 10)
             `,
           }}
         />
