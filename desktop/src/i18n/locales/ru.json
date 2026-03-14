@@ -109,7 +109,8 @@
     "bgLoadError": "Не удалось загрузить изображение",
     "bgOpacity": "Прозрачность фона",
     "resetDefaults": "Сбросить",
-    "account": "Аккаунт"
+    "account": "Аккаунт",
+    "language": "Язык"
   },
   "common": {
     "loading": "Загрузка...",

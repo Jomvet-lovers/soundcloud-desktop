@@ -108,7 +108,8 @@
     "bgLoadError": "Failed to load image",
     "bgOpacity": "Background opacity",
     "resetDefaults": "Reset to defaults",
-    "account": "Account"
+    "account": "Account",
+    "language": "Language"
   },
   "common": {
     "loading": "Loading...",
