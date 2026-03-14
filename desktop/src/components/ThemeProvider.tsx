@@ -23,6 +23,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const hover = `rgb(${Math.min(255, r + 26)}, ${Math.min(255, g + 26)}, ${Math.min(255, b + 26)})`;
     root.style.setProperty('--color-accent-hover', hover);
     root.style.setProperty('--color-accent-glow', `rgba(${rgb}, 0.2)`);
+    root.style.setProperty('--color-accent-selection', `rgba(${rgb}, 0.3)`);
   }, [accentColor]);
 
   return <>{children}</>;
