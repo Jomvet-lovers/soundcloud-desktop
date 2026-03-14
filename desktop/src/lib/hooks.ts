@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import { api } from './api';
+import { initLikedUrns } from './likes';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -236,6 +237,12 @@ export function useLikedTracks(limit = 30) {
     }
     return arr;
   }, [query.data]);
+
+  // Seed global liked URNs store
+  useEffect(() => {
+    if (tracks.length > 0) initLikedUrns(tracks);
+  }, [tracks]);
+
   return { tracks, ...query };
 }
 

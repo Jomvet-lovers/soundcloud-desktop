@@ -46,15 +46,6 @@ export const useSettingsStore = create<SettingsState>()(
         glassBlur: s.glassBlur,
         language: s.language,
       }),
-      onRehydrateStorage: () => (state) => {
-        if (!state) return;
-        // Sync language with i18n on hydration
-        import('../i18n').then(({ default: i18n }) => {
-          if (state.language && state.language !== i18n.language) {
-            i18n.changeLanguage(state.language);
-          }
-        });
-      },
     },
   ),
 );

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
+import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
@@ -121,6 +122,8 @@ const LibraryTrackRow = React.memo(
             {track.user.username}
           </p>
         </div>
+
+        <LikeButton track={track} />
 
         <AddToPlaylistDialog trackUrns={[track.urn]}>
           <button

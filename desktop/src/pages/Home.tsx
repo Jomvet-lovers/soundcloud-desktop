@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { LikeButton } from '../components/music/LikeButton';
 import { TrackCard } from '../components/music/TrackCard';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -363,6 +364,9 @@ const FeedTrackCard = React.memo(
             </span>
           </div>
         </div>
+
+        {/* Like */}
+        <LikeButton track={track} />
 
         {/* Duration + time */}
         <div className="text-right shrink-0 self-center">

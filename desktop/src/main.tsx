@@ -3,13 +3,21 @@ import { invoke } from '@tauri-apps/api/core';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import i18n from './i18n';
 import { setServerPorts } from './lib/constants';
-import './i18n';
 import './lib/audio';
 import './lib/discord';
 import './lib/tray';
 import './lib/scproxy';
 import './index.css';
+import { useSettingsStore } from './stores/settings';
+
+// Sync language from persisted settings → i18n after tauriStorage rehydration
+useSettingsStore.persist.onFinishHydration((state) => {
+  if (state.language && state.language !== i18n.language) {
+    i18n.changeLanguage(state.language);
+  }
+});
 
 if (import.meta.env.DEV) {
   const script = document.createElement('script');

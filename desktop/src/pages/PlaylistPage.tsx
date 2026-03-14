@@ -14,6 +14,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import { LikeButton } from '../components/music/LikeButton';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
@@ -222,6 +223,9 @@ const SortableTrackRow = React.memo(
           )}
         </div>
 
+        {/* Like */}
+        <LikeButton track={track} />
+
         {/* Duration */}
         <span className="text-[11px] text-white/25 tabular-nums font-medium shrink-0 w-10 text-right">
           {dur(track.duration)}
@@ -326,6 +330,9 @@ const TrackRow = React.memo(
           )}
         </div>
 
+        {/* Like */}
+        <LikeButton track={track} />
+
         {/* Duration */}
         <span className="text-[11px] text-white/25 tabular-nums font-medium shrink-0 w-10 text-right">
           {dur(track.duration)}
@@ -333,7 +340,10 @@ const TrackRow = React.memo(
       </div>
     );
   },
-  (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index,
+  (prev, next) =>
+    prev.track.urn === next.track.urn &&
+    prev.index === next.index &&
+    prev.track.user_favorite === next.track.user_favorite,
 );
 
 /* ── Main: PlaylistPage ──────────────────────────────────── */

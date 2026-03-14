@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { preloadTrack } from '../../lib/audio';
 import { art, dur, fc } from '../../lib/formatters';
-import { ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
+import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { AddToPlaylistDialog } from './AddToPlaylistDialog';
+import { LikeButton } from './LikeButton';
 
 interface TrackCardProps {
   track: Track;
@@ -68,15 +70,30 @@ export const TrackCard = React.memo(
             {dur(track.duration)}
           </div>
 
-          {/* Add to Queue button */}
-          <button
-            type="button"
-            onClick={handleAddToQueue}
-            className="cursor-pointer absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 opacity-0 group-hover:opacity-100 transition-all duration-200"
-            title={t('player.addToQueue')}
-          >
-            <ListPlus size={16} />
-          </button>
+          {/* Like button — top left */}
+          <LikeButton track={track} variant="overlay" />
+
+          {/* Top right: add to playlist + add to queue */}
+          <div className="absolute top-2 right-2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <AddToPlaylistDialog trackUrns={[track.urn]}>
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                className="cursor-pointer w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+                title={t('playlist.addToPlaylist')}
+              >
+                <ListPlus size={14} />
+              </button>
+            </AddToPlaylistDialog>
+            <button
+              type="button"
+              onClick={handleAddToQueue}
+              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+              title={t('player.addToQueue')}
+            >
+              <ListMusic size={14} />
+            </button>
+          </div>
         </div>
 
         {/* Info */}
@@ -102,5 +119,6 @@ export const TrackCard = React.memo(
       </div>
     );
   },
-  (prev, next) => prev.track.urn === next.track.urn,
+  (prev, next) =>
+    prev.track.urn === next.track.urn && prev.track.user_favorite === next.track.user_favorite,
 );
