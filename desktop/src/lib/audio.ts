@@ -10,7 +10,11 @@ import { art } from './formatters';
 let currentHowl: Howl | null = null;
 let currentUrn: string | null = null;
 let fallbackDuration = 0;
-let rafId: number | null = null;
+let progressTimerId: ReturnType<typeof setInterval> | null = null;
+let backgroundTimerId: ReturnType<typeof setInterval> | null = null;
+let isWindowVisible = true;
+let cachedTime = 0;
+let cachedDuration = 0;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -23,26 +27,33 @@ export function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-/** Read current playback position directly from Howl */
+/** Read current playback position (cached, updated in progress loop) */
 export function getCurrentTime(): number {
-  if (!currentHowl) return 0;
-  const t = currentHowl.seek();
-  return typeof t === 'number' ? t : 0;
+  return cachedTime;
 }
 
-/** Read duration directly from Howl, fallback to API value */
+/** Read duration (cached, updated in progress loop) */
 export function getDuration(): number {
-  if (currentHowl) {
-    const d = currentHowl.duration();
-    if (d > 0) return d;
+  return cachedDuration;
+}
+
+function syncFromHowl() {
+  if (!currentHowl) {
+    cachedTime = 0;
+    cachedDuration = fallbackDuration;
+    return;
   }
-  return fallbackDuration;
+  const t = currentHowl.seek();
+  cachedTime = typeof t === 'number' ? t : 0;
+  const d = currentHowl.duration();
+  cachedDuration = d > 0 ? d : fallbackDuration;
 }
 
 /** Seek audio to position in seconds */
 export function seek(seconds: number) {
   if (currentHowl) {
     currentHowl.seek(seconds);
+    syncFromHowl();
     notify();
     // Delay SMTC update so Howler settles to actual position
     setTimeout(() => {
@@ -69,40 +80,76 @@ function toHowlerVolume(v: number) {
 
 function destroyHowl() {
   stopProgressLoop();
+  stopBackgroundTimer();
   if (currentHowl) {
     currentHowl.off();
     currentHowl.stop();
     currentHowl.unload();
     currentHowl = null;
   }
+  cachedTime = 0;
 }
 
 let lastMediaSessionSync = 0;
 
 function startProgressLoop() {
   stopProgressLoop();
-  const tick = () => {
+  if (!isWindowVisible) {
+    startBackgroundTimer();
+    return;
+  }
+  progressTimerId = setInterval(() => {
     if (!currentHowl || (!currentHowl.playing() && !usePlayerStore.getState().isPlaying)) {
-      rafId = null;
+      stopProgressLoop();
       return;
     }
+    syncFromHowl();
     notify();
     const now = performance.now();
     if (now - lastMediaSessionSync > 5000) {
       lastMediaSessionSync = now;
       updateMediaSessionPosition();
     }
-    rafId = requestAnimationFrame(tick);
-  };
-  rafId = requestAnimationFrame(tick);
+}, 30); // ~33 fps
 }
 
 function stopProgressLoop() {
-  if (rafId !== null) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
+  if (progressTimerId !== null) {
+    clearInterval(progressTimerId);
+    progressTimerId = null;
   }
 }
+
+function startBackgroundTimer() {
+  stopBackgroundTimer();
+  backgroundTimerId = setInterval(() => {
+    syncFromHowl();
+    updateMediaSessionPosition();
+  }, 5000);
+}
+
+function stopBackgroundTimer() {
+  if (backgroundTimerId !== null) {
+    clearInterval(backgroundTimerId);
+    backgroundTimerId = null;
+  }
+}
+
+/* ── Visibility change: stop UI updates when window hidden ── */
+
+document.addEventListener('visibilitychange', () => {
+  isWindowVisible = document.visibilityState === 'visible';
+  if (!currentHowl?.playing()) return;
+  if (isWindowVisible) {
+    stopBackgroundTimer();
+    syncFromHowl();
+    notify(); // sync UI immediately on restore
+    startProgressLoop();
+  } else {
+    stopProgressLoop();
+    startBackgroundTimer();
+  }
+});
 
 function createHowl(src: string, urn: string, onFail?: () => void): Howl {
   return new Howl({
@@ -127,7 +174,8 @@ function createHowl(src: string, urn: string, onFail?: () => void): Howl {
     },
     onload: () => {
       if (currentUrn !== urn) return;
-      notify(); // duration is now available from howl
+      syncFromHowl(); // duration is now available from howl
+      notify();
     },
     onend: () => {
       if (currentUrn !== urn) return;
@@ -152,6 +200,7 @@ async function loadTrack(track: Track) {
   const urn = track.urn;
 
   fallbackDuration = track.duration / 1000;
+  syncFromHowl();
   notify();
 
   const cachedPath = await getCacheFilePath(urn);
@@ -213,6 +262,7 @@ usePlayerStore.subscribe((state, prev) => {
       destroyHowl();
       currentUrn = null;
       fallbackDuration = 0;
+      cachedDuration = 0;
       notify();
     }
     return;

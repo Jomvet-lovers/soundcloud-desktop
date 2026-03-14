@@ -39,6 +39,8 @@ const AmbientGlow = React.memo(() => {
         backgroundImage: `url(${artwork})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
+        contain: 'strict',
+        transform: 'translateZ(0)',
       }}
     />
   );
@@ -58,7 +60,7 @@ export const AppShell = React.memo(() => {
       <CustomBackground />
       <AmbientGlow />
       <Titlebar />
-      <div className="flex flex-1 min-h-0 relative z-10">
+      <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
         <Sidebar />
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
           <StableOutlet />

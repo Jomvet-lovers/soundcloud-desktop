@@ -52,6 +52,54 @@ desktop/
 - **Ошибки**: возвращать HTTP-статусы (502, 400, 404), НЕ паниковать. `.unwrap()` допустим только для заведомо валидных операций (builder patterns).
 - **Проверка**: `cargo check` после каждого изменения в Rust.
 
+## Производительность CSS (КРИТИЧНО)
+
+Это десктопное приложение на WebView (WebKitGTK / WebView2), а не браузер. WebView НЕ throttlит таймеры/rAF при сворачивании окна. Каждый лишний repaint стоит дорого.
+
+### Blur и backdrop-filter
+- **`filter: blur()` и `backdrop-filter: blur()`** — самые дорогие CSS-свойства. Blur пересчитывается при КАЖДОМ repaint в той же compositing layer.
+- **НИКОГДА** не класть динамический контент (слайдеры, анимации, скролл) в один compositing layer с blur-элементом. Blur-фон и контент ОБЯЗАНЫ быть в разных слоях.
+- Blur-элемент: `contain: strict` + `transform: translateZ(0)` — выносит в отдельный GPU layer.
+- Контент поверх blur: `isolation: isolate` — создаёт новый stacking context, repaints не каскадируют к blur.
+- Пример правильной структуры:
+  ```tsx
+  <div className="relative">
+    {/* GPU-isolated blur background */}
+    <div className="absolute inset-0 blur-3xl" style={{ contain: 'strict', transform: 'translateZ(0)' }} />
+    {/* Content — repaints here don't recalculate blur */}
+    <div className="relative" style={{ isolation: 'isolate' }}>
+      <DynamicContent />
+    </div>
+  </div>
+  ```
+
+### Transitions и анимации
+- **НИКОГДА** не анимировать `font-size`, `width`, `height`, `padding`, `margin` — это layout properties, вызывают reflow (пересчёт геометрии ВСЕГО поддерева).
+- Для визуального увеличения текста — `transform: scale()` вместо `font-size`. Scale — composite-only, GPU.
+- Безопасные для анимации свойства: `transform`, `opacity`, `color`, `background-color`.
+- `will-change: transform` — на элементах с частыми style changes (слайдеры, progress bars). Но не злоупотреблять — каждый `will-change` создаёт GPU layer и ест память.
+
+### DOM-обновления
+- **querySelectorAll** — дорого. Вызывать один раз при mount, кешировать в `useRef`. Не вызывать в циклах/таймерах.
+- **scrollTo({ behavior: 'smooth' })** — запускает CSS-анимацию скролла. Не вызывать чаще чем раз в 200ms.
+
+## Производительность JS
+
+### Таймеры и циклы обновления
+- **requestAnimationFrame** — 60 вызовов/сек. Использовать только если нужна синхронизация с vsync (drag, жесты). Для progress bars достаточно `setInterval(100)` (~10fps).
+- **Частота обновления должна соответствовать скорости изменения данных.** Прогресс-бар аудио: 10-30fps. Синхронизированная лирика: 5fps (строки меняются раз в 2-4 сек). MediaSession sync: раз в 5 сек.
+- **Visibility API** — при `document.visibilityState === 'hidden'` полностью останавливать все UI-обновления (setInterval/rAF). Оставлять только фоновые задачи (MediaSession sync). WebView НЕ замедляет таймеры автоматически.
+
+### Аудио engine (lib/audio.ts)
+- `currentTime` и `duration` кешируются в переменных, обновляются один раз за tick через `syncFromHowl()`. Listeners читают кеш, НЕ вызывают `howl.seek()` / `howl.duration()` напрямую.
+- `subscribe()` + `notify()` — паттерн для useSyncExternalStore. Notify вызывается в setInterval, НЕ в rAF.
+- При `visibilitychange: hidden` — progress loop останавливается, запускается background timer (5сек) только для MediaSession.
+
+### Общие правила
+- **Не подписываться на audio subscribe из компонентов без необходимости.** Если данные обновляются редко (лирика, waveform), использовать свой `setInterval` с подходящей частотой.
+- **Partial DOM updates.** Если из 100 элементов изменился один — обновлять только его, не проходить по всему списку.
+- **Кешировать DOM-ссылки.** `querySelectorAll` → `useRef<HTMLElement[]>`, обновлять при mount/unmount.
+
 ## Проверки
 
 - `npx tsc --noEmit` — типы React/TS

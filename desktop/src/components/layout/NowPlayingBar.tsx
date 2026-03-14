@@ -79,11 +79,14 @@ export const ProgressSlider = React.memo(() => {
       onValueCommit={onValueCommit}
     >
       <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[5px] transition-all duration-150">
-        <Slider.Range ref={rangeRef} className="absolute h-full rounded-full bg-accent" />
+        <Slider.Range
+          ref={rangeRef}
+          className="absolute h-full rounded-full bg-accent will-change-transform"
+        />
       </Slider.Track>
       <Slider.Thumb
         ref={thumbRef}
-        className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none"
+        className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none will-change-transform"
       />
     </Slider.Root>
   );
@@ -411,6 +414,8 @@ const BackgroundGlow = React.memo(() => {
         backgroundImage: `url(${artwork})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
+        contain: 'strict',
+        transform: 'translateZ(0)',
       }}
     />
   );
@@ -423,31 +428,34 @@ export const NowPlayingBar = React.memo(
     return (
       <div className="shrink-0 relative">
         <BackgroundGlow />
-        <ProgressSlider />
+        {/* Isolated layer — repaints here won't cascade to blur background */}
+        <div className="relative" style={{ isolation: 'isolate' }}>
+          <ProgressSlider />
 
-        <div className="h-[76px] flex items-center px-5 gap-3 relative">
-          {/* Left: track info */}
-          <TrackInfo />
+          <div className="h-[76px] flex items-center px-5 gap-3 relative">
+            {/* Left: track info */}
+            <TrackInfo />
 
-          {/* Center: controls */}
-          <div className="flex-1 flex flex-col items-center gap-0.5">
-            <div className="flex items-center gap-0.5">
-              <ShuffleBtn />
-              <PrevBtn />
-              <PlayPauseBtn />
-              <NextBtn />
-              <RepeatBtn />
+            {/* Center: controls */}
+            <div className="flex-1 flex flex-col items-center gap-0.5">
+              <div className="flex items-center gap-0.5">
+                <ShuffleBtn />
+                <PrevBtn />
+                <PlayPauseBtn />
+                <NextBtn />
+                <RepeatBtn />
+              </div>
+              <ProgressTime />
             </div>
-            <ProgressTime />
-          </div>
 
-          {/* Right: volume + queue */}
-          <div className="flex items-center gap-0.5 w-[220px] justify-end">
-            <LyricsBtn />
-            <QueueBtn onClick={onQueueToggle} active={queueOpen} />
-            <ControlVolumeBtn size="sm" />
-            <VolumeSlider className="w-[100px]" />
-            <VolumeLabel />
+            {/* Right: volume + queue */}
+            <div className="flex items-center gap-0.5 w-[220px] justify-end">
+              <LyricsBtn />
+              <QueueBtn onClick={onQueueToggle} active={queueOpen} />
+              <ControlVolumeBtn size="sm" />
+              <VolumeSlider className="w-[100px]" />
+              <VolumeLabel />
+            </div>
           </div>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getCurrentTime, handlePrev, seek, subscribe } from '../../lib/audio';
+import { getCurrentTime, handlePrev, seek } from '../../lib/audio';
 import { art } from '../../lib/formatters';
 import {
   Loader2,
@@ -60,14 +60,22 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(-1);
   const linesRef = useRef(lines);
+  const lineElsRef = useRef<HTMLElement[]>([]);
   linesRef.current = lines;
 
+  // Cache DOM refs + start sync interval. Re-run when lines change (new track).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: lines triggers DOM re-cache
   useEffect(() => {
+    const container = containerRef.current;
+    if (container) {
+      lineElsRef.current = Array.from(container.querySelectorAll<HTMLElement>('.lyric-line'));
+    }
     activeRef.current = -1;
 
-    return subscribe(() => {
-      const container = containerRef.current;
-      if (!container) return;
+    // Own interval — lyrics change ~every 2-4s, 5fps is plenty
+    const timerId = setInterval(() => {
+      const lineEls = lineElsRef.current;
+      if (!container || lineEls.length === 0) return;
 
       const time = getCurrentTime();
       const currentLines = linesRef.current;
@@ -85,31 +93,34 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
       const prev = activeRef.current;
       activeRef.current = idx;
 
-      const lineEls = container.querySelectorAll<HTMLElement>('.lyric-line');
-
-      // Clear previous active
+      // Update only prev and current — not all lines
       if (prev >= 0 && prev < lineEls.length) {
         lineEls[prev].dataset.state = prev < idx ? 'past' : '';
       }
 
-      // Set new active
       if (idx >= 0 && idx < lineEls.length) {
         lineEls[idx].dataset.state = 'active';
 
-        // Scroll: center the active line in the container
+        // Scroll: center the active line
         const el = lineEls[idx];
         const top = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
         container.scrollTo({ top, behavior: 'smooth' });
       }
 
-      // Mark all before active as past
-      for (let i = 0; i < lineEls.length; i++) {
-        if (i === idx || i === prev) continue;
-        const state = i < idx ? 'past' : '';
-        if (lineEls[i].dataset.state !== state) lineEls[i].dataset.state = state;
+      // Batch-fix states only between prev and idx (not ALL lines)
+      if (prev !== -1 && idx !== -1) {
+        const lo = Math.min(prev, idx);
+        const hi = Math.max(prev, idx);
+        for (let i = lo; i <= hi; i++) {
+          if (i === idx || i === prev) continue;
+          const state = i < idx ? 'past' : '';
+          if (lineEls[i].dataset.state !== state) lineEls[i].dataset.state = state;
+        }
       }
-    });
-  }, []);
+    }, 200);
+
+    return () => clearInterval(timerId);
+  }, [lines]);
 
   return (
     <div
@@ -238,9 +249,12 @@ export const LyricsPanel = React.memo(() => {
   const artwork500 = art(artworkUrl, 't500x500');
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden animate-fade-in-up">
-      {/* Dynamic background */}
-      <div className="absolute inset-0 pointer-events-none">
+    <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden animate-fade-in-up bg-[#08080a]">
+      {/* Dynamic background — GPU-isolated to prevent blur recalc on content repaints */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ contain: 'strict', transform: 'translateZ(0)' }}
+      >
         {artwork500 && (
           <img
             src={artwork500}
@@ -253,8 +267,7 @@ export const LyricsPanel = React.memo(() => {
           style={{
             background: `
               radial-gradient(ellipse at 25% 50%, rgba(${r},${g},${b},0.2) 0%, transparent 60%),
-              radial-gradient(ellipse at 75% 70%, rgba(${r},${g},${b},0.12) 0%, transparent 50%),
-              rgb(8, 8, 10)
+              radial-gradient(ellipse at 75% 70%, rgba(${r},${g},${b},0.12) 0%, transparent 50%)
             `,
           }}
         />
@@ -271,8 +284,11 @@ export const LyricsPanel = React.memo(() => {
         </button>
       </div>
 
-      {/* 50/50 */}
-      <div className="relative z-10 grid grid-cols-2 flex-1 min-h-0">
+      {/* 50/50 — isolated from blur background */}
+      <div
+        className="relative z-10 grid grid-cols-2 flex-1 min-h-0"
+        style={{ isolation: 'isolate' }}
+      >
         {/* Left: artwork + info + slider + controls */}
         <div className="flex flex-col items-center justify-center gap-5 px-12">
           <div className="w-full max-w-[360px] aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/[0.08]">
