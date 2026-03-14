@@ -82,7 +82,12 @@
   "library": {
     "likedTracks": "Любимые треки",
     "likedPlaylists": "Любимые плейлисты",
-    "yourPlaylists": "Ваши плейлисты"
+    "yourPlaylists": "Ваши плейлисты",
+    "filter": "Фильтр...",
+    "noMatches": "Ничего не найдено",
+    "noLikedTracks": "Нет любимых треков",
+    "notFollowing": "Вы ни на кого не подписаны",
+    "noPlaylists": "Плейлисты не найдены"
   },
   "home": {
     "goodMorning": "Доброе утро",

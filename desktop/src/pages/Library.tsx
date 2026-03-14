@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
@@ -17,6 +17,8 @@ import {
 } from '../lib/hooks';
 import {
   Heart,
+  Search as SearchIcon,
+  X,
   headphones11,
   heart11,
   ListMusic,
@@ -332,7 +334,8 @@ const LibraryHero = React.memo(function LibraryHero({
 
 /* Each tab is its own component — only fetches its own data */
 
-const LikesTab = React.memo(function LikesTab() {
+const LikesTab = React.memo(function LikesTab({ filter }: { filter: string }) {
+  const { t } = useTranslation();
   const likesQuery = useLikedTracks();
   const { tracks: likedTracks, isLoading } = likesQuery;
   const sentinelRef = useInfiniteScroll(
@@ -340,6 +343,21 @@ const LikesTab = React.memo(function LikesTab() {
     !!likesQuery.isFetchingNextPage,
     likesQuery.fetchNextPage,
   );
+
+  // Auto-fetch remaining pages when filtering
+  useEffect(() => {
+    if (filter && likesQuery.hasNextPage && !likesQuery.isFetchingNextPage) {
+      likesQuery.fetchNextPage();
+    }
+  }, [filter, likesQuery.hasNextPage, likesQuery.isFetchingNextPage]);
+
+  const filtered = useMemo(() => {
+    if (!filter) return likedTracks;
+    const q = filter.toLowerCase();
+    return likedTracks.filter(
+      (t) => t.title.toLowerCase().includes(q) || t.user.username.toLowerCase().includes(q),
+    );
+  }, [likedTracks, filter]);
 
   const expandQueue = React.useCallback(() => {
     fetchAllLikedTracks().then((all) => {
@@ -354,30 +372,39 @@ const LikesTab = React.memo(function LikesTab() {
           <div className="flex justify-center py-20">
             <Loader2 size={32} className="animate-spin text-white/20" />
           </div>
-        ) : likedTracks.length > 0 ? (
-          likedTracks.map((track, i) => (
+        ) : filtered.length > 0 ? (
+          filtered.map((track, i) => (
             <LibraryTrackRow
               key={track.urn}
               track={track}
               index={i}
-              queue={likedTracks}
+              queue={filtered}
               onPlay={expandQueue}
             />
           ))
         ) : (
-          <div className="py-20 text-center text-white/20">No liked tracks yet</div>
+          <div className="py-20 text-center text-white/20">
+            {filter && likesQuery.hasNextPage ? t('common.loading') : filter ? t('library.noMatches') : t('library.noLikedTracks')}
+          </div>
         )}
       </div>
-      <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
-        {likesQuery.isFetchingNextPage && (
+      {!filter ? (
+        <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+          {likesQuery.isFetchingNextPage && (
+            <Loader2 size={20} className="text-white/15 animate-spin" />
+          )}
+        </div>
+      ) : likesQuery.isFetchingNextPage ? (
+        <div className="h-12 flex items-center justify-center mt-4">
           <Loader2 size={20} className="text-white/15 animate-spin" />
-        )}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 });
 
-const FollowingTab = React.memo(function FollowingTab() {
+const FollowingTab = React.memo(function FollowingTab({ filter }: { filter: string }) {
+  const { t } = useTranslation();
   const followingsQuery = useMyFollowings();
   const { users: followings, isLoading } = followingsQuery;
   const sentinelRef = useInfiniteScroll(
@@ -386,36 +413,65 @@ const FollowingTab = React.memo(function FollowingTab() {
     followingsQuery.fetchNextPage,
   );
 
+  // Auto-fetch remaining pages when filtering
+  useEffect(() => {
+    if (filter && followingsQuery.hasNextPage && !followingsQuery.isFetchingNextPage) {
+      followingsQuery.fetchNextPage();
+    }
+  }, [filter, followingsQuery.hasNextPage, followingsQuery.isFetchingNextPage]);
+
+  const filtered = useMemo(() => {
+    if (!filter) return followings;
+    const q = filter.toLowerCase();
+    return followings.filter((u) => u.username.toLowerCase().includes(q));
+  }, [followings, filter]);
+
   return (
     <div className="min-h-[400px]">
       {isLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : followings.length > 0 ? (
+      ) : filtered.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {followings.map((u) => (
+          {filtered.map((u) => (
             <UserCard key={u.urn} user={u} />
           ))}
         </div>
       ) : (
-        <div className="py-20 text-center text-white/20">You are not following anyone</div>
+        <div className="py-20 text-center text-white/20">
+          {filter ? t('library.noMatches') : t('library.notFollowing')}
+        </div>
       )}
-      <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
-        {followingsQuery.isFetchingNextPage && (
-          <Loader2 size={20} className="text-white/15 animate-spin" />
-        )}
-      </div>
+      {!filter && (
+        <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+          {followingsQuery.isFetchingNextPage && (
+            <Loader2 size={20} className="text-white/15 animate-spin" />
+          )}
+        </div>
+      )}
     </div>
   );
 });
 
-const PlaylistsTab = React.memo(function PlaylistsTab() {
+const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filter: string }) {
   const { t } = useTranslation();
   const myPlaylistsQuery = useMyPlaylists();
   const likedPlaylistsQuery = useMyLikedPlaylists();
   const createdPlaylists = myPlaylistsQuery.playlists;
   const likedPlaylists = likedPlaylistsQuery.playlists;
+
+  const filteredCreated = useMemo(() => {
+    if (!filter) return createdPlaylists;
+    const q = filter.toLowerCase();
+    return createdPlaylists.filter((p) => p.title.toLowerCase().includes(q));
+  }, [createdPlaylists, filter]);
+
+  const filteredLiked = useMemo(() => {
+    if (!filter) return likedPlaylists;
+    const q = filter.toLowerCase();
+    return likedPlaylists.filter((p) => p.title.toLowerCase().includes(q));
+  }, [likedPlaylists, filter]);
 
   const hasNextPage = likedPlaylistsQuery.hasNextPage || myPlaylistsQuery.hasNextPage;
   const isFetchingNextPage =
@@ -425,6 +481,13 @@ const PlaylistsTab = React.memo(function PlaylistsTab() {
     : myPlaylistsQuery.fetchNextPage;
   const sentinelRef = useInfiniteScroll(!!hasNextPage, !!isFetchingNextPage, fetchNextPage);
 
+  // Auto-fetch remaining pages when filtering
+  useEffect(() => {
+    if (filter && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [filter, hasNextPage, isFetchingNextPage]);
+
   return (
     <div className="min-h-[400px]">
       <div className="space-y-10">
@@ -432,13 +495,13 @@ const PlaylistsTab = React.memo(function PlaylistsTab() {
           <div className="flex justify-center py-10">
             <Loader2 size={24} className="animate-spin text-white/20" />
           </div>
-        ) : createdPlaylists.length > 0 ? (
+        ) : filteredCreated.length > 0 ? (
           <section>
             <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
               {t('library.yourPlaylists')}
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-              {createdPlaylists.map((p) => (
+              {filteredCreated.map((p) => (
                 <PlaylistCard key={p.urn} playlist={p} />
               ))}
             </div>
@@ -449,13 +512,13 @@ const PlaylistsTab = React.memo(function PlaylistsTab() {
           <div className="flex justify-center py-10">
             <Loader2 size={24} className="animate-spin text-white/20" />
           </div>
-        ) : likedPlaylists.length > 0 ? (
+        ) : filteredLiked.length > 0 ? (
           <section>
             <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
               {t('library.likedPlaylists')}
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-              {likedPlaylists.map((p) => (
+              {filteredLiked.map((p) => (
                 <PlaylistCard key={p.urn} playlist={p} />
               ))}
             </div>
@@ -464,14 +527,18 @@ const PlaylistsTab = React.memo(function PlaylistsTab() {
 
         {!myPlaylistsQuery.isLoading &&
           !likedPlaylistsQuery.isLoading &&
-          createdPlaylists.length === 0 &&
-          likedPlaylists.length === 0 && (
-            <div className="py-20 text-center text-white/20">No playlists found</div>
+          filteredCreated.length === 0 &&
+          filteredLiked.length === 0 && (
+            <div className="py-20 text-center text-white/20">
+              {filter ? t('library.noMatches') : t('library.noPlaylists')}
+            </div>
           )}
       </div>
-      <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
-        {isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
-      </div>
+      {!filter && (
+        <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+          {isFetchingNextPage && <Loader2 size={20} className="text-white/15 animate-spin" />}
+        </div>
+      )}
     </div>
   );
 });
@@ -481,6 +548,8 @@ const PlaylistsTab = React.memo(function PlaylistsTab() {
 export const Library = React.memo(() => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'playlists' | 'likes' | 'following'>('likes');
+  const [filter, setFilter] = useState('');
+  const deferredFilter = useDeferredValue(filter);
   const user = useAuthStore((s) => s.user);
 
   const onTabLikes = React.useCallback(() => setActiveTab('likes'), []);
@@ -498,29 +567,56 @@ export const Library = React.memo(() => {
     <div className="p-6 pb-4 space-y-8">
       <LibraryHero onTabLikes={onTabLikes} onTabFollowing={onTabFollowing} />
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-lg mx-auto md:mx-0">
-        {tabs.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
+      {/* Tabs + Search */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-lg">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id as any);
+                  setFilter('');
+                }}
+                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] ${
+                  isActive
+                    ? 'bg-white/[0.12] text-white shadow-md border border-white/[0.05]'
+                    : 'text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative flex-1 min-w-[200px] max-w-[320px]">
+          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+            <SearchIcon size={15} className="text-white/30" />
+          </div>
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={t('library.filter')}
+            className="w-full bg-white/[0.04] hover:bg-white/[0.06] focus:bg-white/[0.08] text-white/80 placeholder:text-white/25 text-[13px] py-2.5 pl-9 pr-8 rounded-xl outline-none border border-white/[0.05] focus:border-white/[0.12] transition-all duration-200"
+          />
+          {filter && (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] ${
-                isActive
-                  ? 'bg-white/[0.12] text-white shadow-md border border-white/[0.05]'
-                  : 'text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent'
-              }`}
+              type="button"
+              onClick={() => setFilter('')}
+              className="absolute inset-y-0 right-2 flex items-center text-white/30 hover:text-white/60 cursor-pointer transition-colors"
             >
-              {tab.label}
+              <X size={14} />
             </button>
-          );
-        })}
+          )}
+        </div>
       </div>
 
-      {activeTab === 'likes' && <LikesTab />}
-      {activeTab === 'following' && <FollowingTab />}
-      {activeTab === 'playlists' && <PlaylistsTab />}
+      {activeTab === 'likes' && <LikesTab filter={deferredFilter} />}
+      {activeTab === 'following' && <FollowingTab filter={deferredFilter} />}
+      {activeTab === 'playlists' && <PlaylistsTab filter={deferredFilter} />}
     </div>
   );
 });

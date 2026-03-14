@@ -81,7 +81,12 @@
   "library": {
     "likedTracks": "Liked Tracks",
     "likedPlaylists": "Liked Playlists",
-    "yourPlaylists": "Your Playlists"
+    "yourPlaylists": "Your Playlists",
+    "filter": "Filter...",
+    "noMatches": "No matches",
+    "noLikedTracks": "No liked tracks yet",
+    "notFollowing": "You are not following anyone",
+    "noPlaylists": "No playlists found"
   },
   "home": {
     "goodMorning": "Good morning",
