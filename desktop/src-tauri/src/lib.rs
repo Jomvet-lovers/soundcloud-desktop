@@ -19,7 +19,7 @@ pub fn run() {
 
     #[cfg(not(dev))]
     let localhost_port = {
-        let port = std::net::TcpListener::bind("localhost:0")
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
             .expect("no free port")
             .local_addr()
             .unwrap()
@@ -95,7 +95,7 @@ pub fn run() {
             #[cfg(not(dev))]
             {
                 let url: tauri::Url =
-                    format!("http://localhost:{localhost_port}").parse().unwrap();
+                    format!("http://127.0.0.1:{localhost_port}").parse().unwrap();
                 app.get_webview_window("main").unwrap().navigate(url)?;
             }
 
