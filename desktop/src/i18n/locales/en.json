@@ -55,7 +55,14 @@
     "tracks_one": "{{count}} track",
     "tracks_other": "{{count}} tracks",
     "by": "by",
-    "noTracks": "No tracks in this playlist"
+    "noTracks": "No tracks in this playlist",
+    "removeTrack": "Remove from playlist",
+    "trackRemoved": "Track removed",
+    "reordered": "Track order saved",
+    "addToPlaylist": "Add to playlist",
+    "addedToPlaylist": "Added to playlist",
+    "selectPlaylist": "Select playlist",
+    "noPlaylists": "No playlists found"
   },
   "user": {
     "followers": "Followers",

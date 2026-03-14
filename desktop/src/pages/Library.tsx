@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
@@ -17,6 +18,7 @@ import {
   Heart,
   headphones11,
   heart11,
+  ListMusic,
   ListPlus,
   Loader2,
   Music,
@@ -119,6 +121,16 @@ const LibraryTrackRow = React.memo(
             {track.user.username}
           </p>
         </div>
+
+        <AddToPlaylistDialog trackUrns={[track.urn]}>
+          <button
+            type="button"
+            className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 shrink-0"
+            title={t('playlist.addToPlaylist')}
+          >
+            <ListMusic size={16} />
+          </button>
+        </AddToPlaylistDialog>
 
         <button
           type="button"

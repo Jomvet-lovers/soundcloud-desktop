@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
+import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
@@ -23,6 +24,7 @@ import {
   Hash,
   Headphones,
   Heart,
+  ListPlus,
   Loader2,
   MessageCircle,
   Music,
@@ -472,6 +474,15 @@ export const TrackPage = React.memo(() => {
                 <Music size={16} />
                 {t('track.lyrics')}
               </button>
+              <AddToPlaylistDialog trackUrns={[track.urn]}>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer"
+                >
+                  <ListPlus size={16} />
+                  {t('playlist.addToPlaylist')}
+                </button>
+              </AddToPlaylistDialog>
               <CopyLinkButton url={track.permalink_url} />
             </div>
           </div>

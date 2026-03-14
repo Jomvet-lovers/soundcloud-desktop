@@ -713,6 +713,50 @@ export function useMyPlaylists(limit = 30) {
   return { playlists, ...query };
 }
 
+/* ── Playlist Mutations ────────────────────────────────────────── */
+
+export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (trackUrns: string[]) =>
+      api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn!)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ playlist: { tracks: trackUrns.map((urn) => ({ urn })) } }),
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(['playlist', playlistUrn], data);
+      qc.invalidateQueries({ queryKey: ['playlist', playlistUrn, 'tracks'] });
+      qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
+    },
+  });
+}
+
+export function useAddToPlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      playlistUrn,
+      existingTrackUrns,
+      newTrackUrns,
+    }: {
+      playlistUrn: string;
+      existingTrackUrns: string[];
+      newTrackUrns: string[];
+    }) => {
+      const allUrns = [...existingTrackUrns, ...newTrackUrns];
+      return api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ playlist: { tracks: allUrns.map((urn) => ({ urn })) } }),
+      });
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['playlist', vars.playlistUrn] });
+      qc.invalidateQueries({ queryKey: ['playlist', vars.playlistUrn, 'tracks'] });
+      qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
+    },
+  });
+}
+
 /* ── Search ────────────────────────────────────────────────────── */
 
 export function useSearchTracks(q: string) {

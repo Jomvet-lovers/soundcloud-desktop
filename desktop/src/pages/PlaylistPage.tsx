@@ -1,15 +1,33 @@
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
-import { useInfiniteScroll, usePlaylist, usePlaylistTracks } from '../lib/hooks';
+import {
+  useInfiniteScroll,
+  usePlaylist,
+  usePlaylistTracks,
+  useUpdatePlaylistTracks,
+} from '../lib/hooks';
 import {
   Calendar,
   Clock,
+  GripVertical,
   Heart,
   headphones9,
   heart9,
@@ -23,8 +41,10 @@ import {
   playCurrent16,
   playWhite12,
   Shuffle,
+  Trash2,
 } from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
+import { useAuthStore } from '../stores/auth';
 import { type Track, usePlayerStore } from '../stores/player';
 
 /* ── Playlist Like Button ─────────────────────────────────── */
@@ -83,7 +103,149 @@ const PlaylistLikeBtn = React.memo(
   },
 );
 
-/* ── Track Row ────────────────────────────────────────────── */
+/* ── Sortable Track Row ───────────────────────────────────── */
+
+const SortableTrackRow = React.memo(
+  function SortableTrackRow({
+    track,
+    index,
+    queue,
+    isOwner,
+    onRemove,
+  }: {
+    track: Track;
+    index: number;
+    queue: Track[];
+    isOwner: boolean;
+    onRemove?: (urn: string) => void;
+  }) {
+    const navigate = useNavigate();
+    const { t } = useTranslation();
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const cover = art(track.artwork_url, 't200x200');
+
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+      id: track.urn,
+      disabled: !isOwner,
+    });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.5 : 1,
+      zIndex: isDragging ? 50 : undefined,
+    };
+
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`group flex items-center gap-3.5 px-4 py-3 rounded-xl transition-colors duration-200 ease-[var(--ease-apple)] ${
+          isThis ? 'bg-accent/[0.05] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
+        }`}
+      >
+        {/* Drag handle */}
+        {isOwner && (
+          <div
+            className="w-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-white/15 hover:text-white/40 transition-colors"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical size={14} />
+          </div>
+        )}
+
+        {/* Index / play */}
+        <div
+          className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
+          onClick={togglePlay}
+          onMouseEnter={() => preloadTrack(track.urn)}
+        >
+          {isThisPlaying ? (
+            <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
+              {pauseWhite12}
+            </div>
+          ) : (
+            <>
+              <span className="text-[12px] text-white/25 tabular-nums font-medium group-hover:hidden">
+                {index + 1}
+              </span>
+              <div className="hidden group-hover:flex w-7 h-7 rounded-full bg-white/10 items-center justify-center">
+                {playWhite12}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Artwork */}
+        <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
+          {cover ? (
+            <img src={cover} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
+              {musicIcon12}
+            </div>
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <p
+            className={`text-[13px] font-medium truncate cursor-pointer transition-colors duration-150 ${
+              isThis ? 'text-accent' : 'text-white/85 hover:text-white'
+            }`}
+            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+          >
+            {track.title}
+          </p>
+          <p
+            className="text-[11px] text-white/30 truncate mt-0.5 cursor-pointer hover:text-white/50 transition-colors duration-150"
+            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+          >
+            {track.user.username}
+          </p>
+        </div>
+
+        {/* Stats */}
+        <div className="hidden sm:flex items-center gap-3 shrink-0">
+          {track.playback_count != null && (
+            <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
+              {headphones9}
+              {fc(track.playback_count)}
+            </span>
+          )}
+          {(track.favoritings_count ?? track.likes_count) != null && (
+            <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
+              {heart9}
+              {fc(track.favoritings_count ?? track.likes_count)}
+            </span>
+          )}
+        </div>
+
+        {/* Duration */}
+        <span className="text-[11px] text-white/25 tabular-nums font-medium shrink-0 w-10 text-right">
+          {dur(track.duration)}
+        </span>
+
+        {/* Remove button */}
+        {isOwner && onRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(track.urn)}
+            className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 shrink-0"
+            title={t('playlist.removeTrack')}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.track.urn === next.track.urn && prev.index === next.index && prev.isOwner === next.isOwner,
+);
+
+/* ── Non-sortable Track Row (for non-owner view) ─────────── */
 
 const TrackRow = React.memo(
   function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
@@ -180,6 +342,7 @@ export const PlaylistPage = React.memo(() => {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const myUrn = useAuthStore((s) => s.user?.urn);
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
   const {
     tracks: playlistTracks,
@@ -188,23 +351,71 @@ export const PlaylistPage = React.memo(() => {
     isFetchingNextPage,
     fetchNextPage,
   } = usePlaylistTracks(urn);
+  const updateTracks = useUpdatePlaylistTracks(urn);
 
   const isLoading = playlistLoading || tracksLoading;
+  const isOwner = !!playlist && !!myUrn && playlist.user.urn === myUrn;
 
-  const tracks: Track[] = React.useMemo(() => {
+  const serverTracks: Track[] = React.useMemo(() => {
     if (isLoading || !playlist) return [];
     return playlistTracks.length > 0 ? playlistTracks : (playlist.tracks ?? []);
   }, [isLoading, playlist, playlistTracks]);
 
-  const trackUrns = React.useMemo(() => new Set(tracks.map((t) => t.urn)), [tracks]);
+  // Local track order for DnD
+  const [localTracks, setLocalTracks] = useState<Track[]>([]);
+  useEffect(() => {
+    setLocalTracks(serverTracks);
+  }, [serverTracks]);
+
+  const tracks = isOwner ? localTracks : serverTracks;
+
+  const trackUrnSet = React.useMemo(() => new Set(tracks.map((t) => t.urn)), [tracks]);
   const isPlayingFromThis = usePlayerStore(
-    (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+    (s) => s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
   );
   const isPausedFromThis = usePlayerStore(
-    (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+    (s) => !s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
   );
 
   const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = localTracks.findIndex((t) => t.urn === active.id);
+    const newIndex = localTracks.findIndex((t) => t.urn === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newTracks = [...localTracks];
+    const [moved] = newTracks.splice(oldIndex, 1);
+    newTracks.splice(newIndex, 0, moved);
+    setLocalTracks(newTracks);
+
+    updateTracks.mutate(
+      newTracks.map((t) => t.urn),
+      {
+        onSuccess: () => toast.success(t('playlist.reordered')),
+      },
+    );
+  };
+
+  const handleRemoveTrack = (trackUrn: string) => {
+    const newTracks = localTracks.filter((t) => t.urn !== trackUrn);
+    setLocalTracks(newTracks);
+
+    updateTracks.mutate(
+      newTracks.map((t) => t.urn),
+      {
+        onSuccess: () => toast.success(t('playlist.trackRemoved')),
+      },
+    );
+  };
 
   if (isLoading || !playlist) {
     return (
@@ -389,6 +600,49 @@ export const PlaylistPage = React.memo(() => {
           <div className="text-center py-12">
             <ListMusic size={32} className="text-white/10 mx-auto mb-3" />
             <p className="text-[13px] text-white/20">{t('playlist.noTracks')}</p>
+          </div>
+        ) : isOwner ? (
+          <div className="space-y-0.5">
+            {/* Header */}
+            <div className="flex items-center gap-3.5 px-4 py-2 text-[10px] text-white/20 uppercase tracking-wider font-medium">
+              <span className="w-5" />
+              <span className="w-8 text-center">#</span>
+              <span className="w-10" />
+              <span className="flex-1">Title</span>
+              <span className="hidden sm:block w-[100px]" />
+              <span className="w-10 text-right">
+                <Clock size={10} className="inline" />
+              </span>
+              <span className="w-7" />
+            </div>
+            <div className="h-px bg-white/[0.04] mx-4 mb-1" />
+
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={tracks.map((t) => t.urn)}
+                strategy={verticalListSortingStrategy}
+              >
+                {tracks.map((track, i) => (
+                  <SortableTrackRow
+                    key={track.urn}
+                    track={track}
+                    index={i}
+                    queue={tracks}
+                    isOwner={true}
+                    onRemove={handleRemoveTrack}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+            {hasNextPage && (
+              <div ref={scrollRef} className="flex justify-center py-4">
+                {isFetchingNextPage && <Loader2 size={20} className="animate-spin text-white/30" />}
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-0.5">
