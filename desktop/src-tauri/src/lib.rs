@@ -1,10 +1,10 @@
 mod audio_player;
-mod audio_server;
 mod constants;
 mod discord;
 mod proxy;
 mod proxy_server;
 mod server;
+mod static_server;
 mod tray;
 
 use std::sync::{Arc, Mutex};
@@ -15,19 +15,7 @@ use server::ServerState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default();
-
-    #[cfg(not(dev))]
-    let localhost_port = {
-        let port = std::net::TcpListener::bind("localhost:0")
-            .expect("no free port")
-            .local_addr()
-            .unwrap()
-            .port();
-        builder = builder.plugin(tauri_plugin_localhost::Builder::new(port).build());
-        port
-    };
+    let builder = tauri::Builder::default();
 
     builder
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -79,26 +67,20 @@ pub fn run() {
                 })
                 .ok();
 
-            let (audio_port, proxy_port) = rt.block_on(server::start_all(audio_dir, wallpapers_dir));
+            let (static_port, proxy_port) =
+                rt.block_on(server::start_all(wallpapers_dir));
 
             std::thread::spawn(move || {
                 rt.block_on(std::future::pending::<()>());
             });
 
             app.manage(Arc::new(ServerState {
-                audio_port,
+                static_port,
                 proxy_port,
             }));
             app.manage(Arc::new(DiscordState {
                 client: Mutex::new(None),
             }));
-
-            #[cfg(not(dev))]
-            {
-                let url: tauri::Url =
-                    format!("http://localhost:{localhost_port}").parse().unwrap();
-                app.get_webview_window("main").unwrap().navigate(url)?;
-            }
 
             let audio_state = audio_player::init();
             app.manage(audio_state);

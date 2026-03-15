@@ -36,10 +36,10 @@ export const queryClient = new QueryClient({
   },
 });
 
-async function registerServiceWorker(port: number) {
+async function registerServiceWorker(proxyPort: number) {
   if (!('serviceWorker' in navigator)) return;
   try {
-    await navigator.serviceWorker.register(`/sw.js?port=${port}`);
+    await navigator.serviceWorker.register(`/sw.js?port=${proxyPort}`);
     if (!navigator.serviceWorker.controller) {
       await new Promise<void>((resolve) =>
         navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), {
@@ -53,8 +53,8 @@ async function registerServiceWorker(port: number) {
 }
 
 async function bootstrap() {
-  const [audioPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
-  setServerPorts(audioPort, proxyPort);
+  const [staticPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
+  setServerPorts(staticPort, proxyPort);
 
   await registerServiceWorker(proxyPort);
 

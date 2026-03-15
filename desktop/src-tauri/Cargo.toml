@@ -26,7 +26,6 @@ sha2 = "0.10"
 hex = "0.4"
 reqwest = { version = "0.12", features = ["rustls-tls", "stream"], default-features = false }
 futures-util = "0.3"
-tauri-plugin-localhost = "2"
 http = "1"
 urlencoding = "2"
 tauri-plugin-single-instance = "2.4.0"
