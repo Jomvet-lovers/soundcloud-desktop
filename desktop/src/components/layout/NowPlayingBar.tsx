@@ -8,6 +8,7 @@ import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../
 import { art, formatTime } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
+  audioLines16,
   Heart,
   listMusic16,
   MicVocal,
@@ -25,6 +26,8 @@ import {
 import { optimisticToggleLike } from '../../lib/likes';
 import { useLyricsStore } from '../../stores/lyrics';
 import { type Track, usePlayerStore } from '../../stores/player';
+import { useSettingsStore } from '../../stores/settings';
+import { EqualizerPanel } from '../music/EqualizerPanel';
 
 /* ── Progress Slider ─────────────────────────────────────────── */
 
@@ -304,6 +307,17 @@ const LyricsBtn = React.memo(() => {
   );
 });
 
+const EqBtn = React.memo(() => {
+  const eqEnabled = useSettingsStore((s) => s.eqEnabled);
+  return (
+    <EqualizerPanel>
+      <button type="button" className={btnClass(eqEnabled, 'sm')}>
+        {audioLines16}
+      </button>
+    </EqualizerPanel>
+  );
+});
+
 /* ── Track Info (left section) ───────────────────────────────── */
 
 const TrackInfo = React.memo(() => {
@@ -449,7 +463,8 @@ export const NowPlayingBar = React.memo(
             </div>
 
             {/* Right: volume + queue */}
-            <div className="flex items-center gap-0.5 w-[220px] justify-end">
+            <div className="flex items-center gap-0.5 w-[250px] justify-end">
+              <EqBtn />
               <LyricsBtn />
               <QueueBtn onClick={onQueueToggle} active={queueOpen} />
               <ControlVolumeBtn size="sm" />

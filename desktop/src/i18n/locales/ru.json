@@ -124,6 +124,14 @@
     "account": "Аккаунт",
     "language": "Язык"
   },
+  "eq": {
+    "title": "Эквалайзер",
+    "enabled": "Включён",
+    "preset": "Пресет",
+    "reset": "Сброс",
+    "custom": "Свой",
+    "streamingNote": "EQ работает с кэшированными треками (Web Audio)"
+  },
   "common": {
     "loading": "Загрузка...",
     "error": "Что-то пошло не так",

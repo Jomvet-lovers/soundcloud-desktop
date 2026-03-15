@@ -30,4 +30,7 @@ tauri-plugin-localhost = "2"
 http = "1"
 urlencoding = "2"
 tauri-plugin-single-instance = "2.4.0"
+rodio = { version = "0.20", features = ["mp3"] }
+biquad = "0.5"
+souvlaki = "0.8"
 

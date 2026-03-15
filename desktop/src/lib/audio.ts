@@ -1,18 +1,18 @@
-import { Howl } from 'howler';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
-import { api, streamUrl } from './api';
-import { fetchAndCacheTrack, getCacheFilePath, getCacheUrl, isCached } from './cache';
+import { useSettingsStore } from '../stores/settings';
+import { api, getSessionId } from './api';
+import { fetchAndCacheTrack, getCacheFilePath, isCached } from './cache';
+import { API_BASE } from './constants';
 import { art } from './formatters';
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
-let currentHowl: Howl | null = null;
 let currentUrn: string | null = null;
+let hasTrack = false;
 let fallbackDuration = 0;
-let progressTimerId: ReturnType<typeof setInterval> | null = null;
-let backgroundTimerId: ReturnType<typeof setInterval> | null = null;
-let isWindowVisible = true;
 let cachedTime = 0;
 let cachedDuration = 0;
 const listeners = new Set<() => void>();
@@ -21,49 +21,27 @@ function notify() {
   for (const l of listeners) l();
 }
 
-/** Subscribe to audio time changes (for useSyncExternalStore) */
 export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-/** Read current playback position (cached, updated in progress loop) */
 export function getCurrentTime(): number {
   return cachedTime;
 }
 
-/** Read duration (cached, updated in progress loop) */
 export function getDuration(): number {
   return cachedDuration;
 }
 
-function syncFromHowl() {
-  if (!currentHowl) {
-    cachedTime = 0;
-    cachedDuration = fallbackDuration;
-    return;
-  }
-  const t = currentHowl.seek();
-  cachedTime = typeof t === 'number' ? t : 0;
-  const d = currentHowl.duration();
-  cachedDuration = d > 0 ? d : fallbackDuration;
-}
-
-/** Seek audio to position in seconds */
 export function seek(seconds: number) {
-  if (currentHowl) {
-    currentHowl.seek(seconds);
-    syncFromHowl();
-    notify();
-    // Delay SMTC update so Howler settles to actual position
-    setTimeout(() => {
-      updateMediaSessionPosition();
-      lastMediaSessionSync = performance.now();
-    }, 150);
-  }
+  if (!hasTrack) return;
+  invoke('audio_seek', { position: seconds }).catch(console.error);
+  cachedTime = seconds;
+  notify();
+  setTimeout(() => updateMediaPosition(), 150);
 }
 
-/** Smart prev: restart if >3s in, otherwise previous track */
 export function handlePrev() {
   if (getCurrentTime() > 3) {
     seek(0);
@@ -72,171 +50,73 @@ export function handlePrev() {
   }
 }
 
-/* ── Howl management ─────────────────────────────────────────── */
+/* ── Native audio control ────────────────────────────────────── */
 
-function toHowlerVolume(v: number) {
-  return Math.min(1, Math.max(0, v / 200));
-}
-
-function destroyHowl() {
-  stopProgressLoop();
-  stopBackgroundTimer();
-  if (currentHowl) {
-    currentHowl.off();
-    currentHowl.stop();
-    currentHowl.unload();
-    currentHowl = null;
-  }
+function stopTrack() {
+  invoke('audio_stop').catch(console.error);
+  hasTrack = false;
   cachedTime = 0;
 }
 
-let lastMediaSessionSync = 0;
-
-function startProgressLoop() {
-  stopProgressLoop();
-  if (!isWindowVisible) {
-    startBackgroundTimer();
-    return;
-  }
-  progressTimerId = setInterval(() => {
-    if (!currentHowl || (!currentHowl.playing() && !usePlayerStore.getState().isPlaying)) {
-      stopProgressLoop();
-      return;
-    }
-    syncFromHowl();
-    notify();
-    const now = performance.now();
-    if (now - lastMediaSessionSync > 5000) {
-      lastMediaSessionSync = now;
-      updateMediaSessionPosition();
-    }
-}, 30); // ~33 fps
-}
-
-function stopProgressLoop() {
-  if (progressTimerId !== null) {
-    clearInterval(progressTimerId);
-    progressTimerId = null;
-  }
-}
-
-function startBackgroundTimer() {
-  stopBackgroundTimer();
-  backgroundTimerId = setInterval(() => {
-    syncFromHowl();
-    updateMediaSessionPosition();
-  }, 5000);
-}
-
-function stopBackgroundTimer() {
-  if (backgroundTimerId !== null) {
-    clearInterval(backgroundTimerId);
-    backgroundTimerId = null;
-  }
-}
-
-/* ── Visibility change: stop UI updates when window hidden ── */
-
-document.addEventListener('visibilitychange', () => {
-  isWindowVisible = document.visibilityState === 'visible';
-  if (!currentHowl?.playing()) return;
-  if (isWindowVisible) {
-    stopBackgroundTimer();
-    syncFromHowl();
-    notify(); // sync UI immediately on restore
-    startProgressLoop();
-  } else {
-    stopProgressLoop();
-    startBackgroundTimer();
-  }
-});
-
-function createHowl(src: string, urn: string, onFail?: () => void): Howl {
-  return new Howl({
-    src: [src],
-    html5: true,
-    format: ['mp3'],
-    volume: toHowlerVolume(usePlayerStore.getState().volume),
-    onplay: () => {
-      if (currentUrn === urn && !usePlayerStore.getState().isPlaying) {
-        usePlayerStore.getState().resume();
-      }
-      startProgressLoop();
-      updateMediaSessionState(true);
-      updateMediaSessionPosition();
-    },
-    onpause: () => {
-      if (currentUrn === urn && usePlayerStore.getState().isPlaying) {
-        usePlayerStore.getState().pause();
-      }
-      updateMediaSessionState(false);
-      updateMediaSessionPosition();
-    },
-    onload: () => {
-      if (currentUrn !== urn) return;
-      syncFromHowl(); // duration is now available from howl
-      notify();
-    },
-    onend: () => {
-      if (currentUrn !== urn) return;
-      handleTrackEnd();
-    },
-    onloaderror: (_id, error) => {
-      console.error(`[Audio] Load error (${src.slice(0, 60)}):`, error);
-      if (currentUrn !== urn) return;
-      onFail ? onFail() : usePlayerStore.getState().pause();
-    },
-    onplayerror: (_id, error) => {
-      console.error(`[Audio] Play error (${src.slice(0, 60)}):`, error);
-      if (currentUrn !== urn) return;
-      onFail ? onFail() : usePlayerStore.getState().pause();
-    },
-  });
-}
-
 async function loadTrack(track: Track) {
-  destroyHowl();
+  stopTrack();
   currentUrn = track.urn;
   const urn = track.urn;
 
   fallbackDuration = track.duration / 1000;
-  syncFromHowl();
+  cachedDuration = fallbackDuration;
+  cachedTime = 0;
   notify();
 
+  // Sync EQ state to Rust
+  const { eqEnabled, eqGains } = useSettingsStore.getState();
+  invoke('audio_set_eq', { enabled: eqEnabled, gains: eqGains }).catch(console.error);
+
+  // Sync volume
+  invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
+
+  // Try cached file first
   const cachedPath = await getCacheFilePath(urn);
   if (currentUrn !== urn) return;
 
-  const httpUrl = streamUrl(urn);
-
-  const playHowl = (howl: Howl) => {
-    currentHowl = howl;
-    if (usePlayerStore.getState().isPlaying) howl.play();
-  };
-
-  const fallbackToStream = () => {
-    if (currentUrn !== urn) return;
-    destroyHowl();
-    playHowl(createHowl(httpUrl, urn));
-  };
-
-  if (cachedPath) {
-    const cacheUrl = getCacheUrl(urn);
-    if (cacheUrl) {
-      playHowl(createHowl(cacheUrl, urn, fallbackToStream));
+  try {
+    if (cachedPath) {
+      await invoke('audio_load_file', { path: cachedPath });
     } else {
-      playHowl(createHowl(httpUrl, urn));
+      const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
+      const sessionId = getSessionId();
+      await invoke('audio_load_url', {
+        url,
+        sessionId: sessionId || null,
+        cachePath: null,
+      });
+      // Background cache for next time
+      fetchAndCacheTrack(urn).catch(() => {});
     }
-  } else {
-    playHowl(createHowl(httpUrl, urn));
-    fetchAndCacheTrack(urn).catch(() => {});
+  } catch (e) {
+    console.error('[Audio] Load failed:', e);
+    if (currentUrn !== urn) return;
+    usePlayerStore.getState().pause();
+    return;
   }
+
+  if (currentUrn !== urn) return;
+  hasTrack = true;
+
+  if (!usePlayerStore.getState().isPlaying) {
+    invoke('audio_pause').catch(console.error);
+  }
+
+  updatePlaybackState(usePlayerStore.getState().isPlaying);
+  updateMediaPosition();
+  preloadQueue();
 }
 
 function handleTrackEnd() {
   const state = usePlayerStore.getState();
   if (state.repeat === 'one') {
-    currentHowl?.seek(0);
-    currentHowl?.play();
+    // rodio sink is empty after track ends — must reload
+    if (state.currentTrack) void loadTrack(state.currentTrack);
   } else {
     const { queue, queueIndex, shuffle } = state;
     const isLast = !shuffle && queueIndex >= queue.length - 1;
@@ -248,6 +128,19 @@ function handleTrackEnd() {
   }
 }
 
+/* ── Tauri event listeners ───────────────────────────────────── */
+
+listen<number>('audio:tick', (event) => {
+  cachedTime = event.payload;
+  if (cachedDuration <= 0) cachedDuration = fallbackDuration;
+  notify();
+});
+
+listen('audio:ended', () => {
+  hasTrack = false;
+  handleTrackEnd();
+});
+
 /* ── Store subscriber ────────────────────────────────────────── */
 
 usePlayerStore.subscribe((state, prev) => {
@@ -256,10 +149,10 @@ usePlayerStore.subscribe((state, prev) => {
 
   if (trackChanged) {
     if (state.currentTrack) {
-      updateMediaSession(state.currentTrack);
+      updateMetadata(state.currentTrack);
       void loadTrack(state.currentTrack);
     } else {
-      destroyHowl();
+      stopTrack();
       currentUrn = null;
       fallbackDuration = 0;
       cachedDuration = 0;
@@ -270,72 +163,68 @@ usePlayerStore.subscribe((state, prev) => {
 
   if (playToggled && !trackChanged) {
     if (state.isPlaying) {
-      if (!currentHowl && state.currentTrack) {
+      if (!hasTrack && state.currentTrack) {
         void loadTrack(state.currentTrack);
-      } else if (currentHowl && !currentHowl.playing()) {
-        currentHowl.play();
+      } else {
+        invoke('audio_play').catch(console.error);
       }
     } else {
-      currentHowl?.pause();
+      invoke('audio_pause').catch(console.error);
     }
+    updatePlaybackState(state.isPlaying);
   }
 
-  if (state.volume !== prev.volume && currentHowl) {
-    currentHowl.volume(toHowlerVolume(state.volume));
+  if (state.volume !== prev.volume) {
+    invoke('audio_set_volume', { volume: state.volume }).catch(console.error);
   }
 });
 
-/* ── Media Session ───────────────────────────────────────────── */
+/* ── EQ settings subscriber ──────────────────────────────────── */
 
-function updateMediaSession(track: Track) {
-  if (!('mediaSession' in navigator)) return;
+useSettingsStore.subscribe((state, prev) => {
+  if (state.eqEnabled !== prev.eqEnabled || state.eqGains !== prev.eqGains) {
+    invoke('audio_set_eq', { enabled: state.eqEnabled, gains: state.eqGains }).catch(console.error);
+  }
+});
 
-  const artwork500 = art(track.artwork_url, 't500x500');
-  const artwork128 = art(track.artwork_url, 't120x120');
+/* ── Native Media Controls (souvlaki: MPRIS/SMTC) ───────────── */
 
-  navigator.mediaSession.metadata = new MediaMetadata({
+function updateMetadata(track: Track) {
+  const coverUrl = art(track.artwork_url, 't500x500') || undefined;
+  invoke('audio_set_metadata', {
     title: track.title,
     artist: track.user.username,
-    artwork: [
-      ...(artwork128 ? [{ src: artwork128, sizes: '120x120', type: 'image/jpeg' }] : []),
-      ...(artwork500 ? [{ src: artwork500, sizes: '500x500', type: 'image/jpeg' }] : []),
-    ],
-  });
+    coverUrl: coverUrl || null,
+    durationSecs: track.duration / 1000,
+  }).catch(console.error);
 }
 
-function updateMediaSessionState(playing: boolean) {
-  if (!('mediaSession' in navigator)) return;
-  navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+function updatePlaybackState(playing: boolean) {
+  invoke('audio_set_playback_state', { playing }).catch(console.error);
 }
 
-function updateMediaSessionPosition() {
-  if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
-  const duration = getDuration();
-  if (duration > 0) {
-    navigator.mediaSession.setPositionState({
-      duration,
-      position: Math.min(getCurrentTime(), duration),
-      playbackRate: 1,
-    });
+function updateMediaPosition() {
+  const pos = getCurrentTime();
+  if (pos > 0) {
+    invoke('audio_set_media_position', { position: pos }).catch(console.error);
   }
 }
 
-if ('mediaSession' in navigator) {
-  const ms = navigator.mediaSession;
-  ms.setActionHandler('play', () => usePlayerStore.getState().resume());
-  ms.setActionHandler('pause', () => usePlayerStore.getState().pause());
-  ms.setActionHandler('nexttrack', () => usePlayerStore.getState().next());
-  ms.setActionHandler('previoustrack', () => handlePrev());
-  ms.setActionHandler('seekto', (d) => {
-    if (d.seekTime != null) seek(d.seekTime);
-  });
-  ms.setActionHandler('seekforward', (d) => {
-    seek(Math.min(getCurrentTime() + (d.seekOffset ?? 10), getDuration()));
-  });
-  ms.setActionHandler('seekbackward', (d) => {
-    seek(Math.max(getCurrentTime() - (d.seekOffset ?? 10), 0));
-  });
-}
+// Listen for media control events from souvlaki (MPRIS/SMTC)
+listen('media:play', () => usePlayerStore.getState().resume());
+listen('media:pause', () => usePlayerStore.getState().pause());
+listen('media:toggle', () => usePlayerStore.getState().togglePlay());
+listen('media:next', () => usePlayerStore.getState().next());
+listen('media:prev', () => handlePrev());
+listen<number>('media:seek', (e) => seek(e.payload));
+listen<number>('media:seek-relative', (e) => {
+  const offset = e.payload;
+  if (offset > 0) {
+    seek(Math.min(getCurrentTime() + offset, getDuration()));
+  } else {
+    seek(Math.max(getCurrentTime() + offset, 0));
+  }
+});
 
 /* ── Autoplay ────────────────────────────────────────────────── */
 
@@ -389,7 +278,7 @@ export function preloadTrack(urn: string) {
 
 export function preloadQueue() {
   const { queue, queueIndex } = usePlayerStore.getState();
-  for (let i = 1; i <= 2; i++) {
+  for (let i = 1; i <= 3; i++) {
     const idx = queueIndex + i;
     if (idx < queue.length) {
       const urn = queue[idx].urn;

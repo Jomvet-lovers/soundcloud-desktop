@@ -123,6 +123,14 @@
     "account": "Account",
     "language": "Language"
   },
+  "eq": {
+    "title": "Equalizer",
+    "enabled": "Enabled",
+    "preset": "Preset",
+    "reset": "Reset",
+    "custom": "Custom",
+    "streamingNote": "EQ works with cached tracks (Web Audio)"
+  },
   "common": {
     "loading": "Loading...",
     "error": "Something went wrong",

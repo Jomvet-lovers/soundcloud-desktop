@@ -7,6 +7,7 @@
  */
 import {
   AlertCircle as _AlertCircle,
+  AudioLines as _AudioLines,
   Calendar as _Calendar,
   Check as _Check,
   ChevronDown as _ChevronDown,
@@ -20,31 +21,35 @@ import {
   ExternalLink as _ExternalLink,
   Globe as _Globe,
   GripVertical as _GripVertical,
-  MicVocal as _MicVocal,
   Hash as _Hash,
   Headphones as _Headphones,
   Heart as _Heart,
   Home as _Home,
   Library as _Library,
   Link as _Link,
+  Link2 as _Link2,
   ListMusic as _ListMusic,
   ListPlus as _ListPlus,
   Loader2 as _Loader2,
   MapPin as _MapPin,
   MessageCircle as _MessageCircle,
+  MicVocal as _MicVocal,
   Minus as _Minus,
   Music as _Music,
   Pause as _Pause,
   Play as _Play,
+  Power as _Power,
   Repeat as _Repeat,
   Repeat1 as _Repeat1,
   Repeat2 as _Repeat2,
+  RotateCcw as _RotateCcw,
   Search as _Search,
   Send as _Send,
   Settings as _Settings,
   Shuffle as _Shuffle,
   SkipBack as _SkipBack,
   SkipForward as _SkipForward,
+  SlidersHorizontal as _SlidersHorizontal,
   Sparkles as _Sparkles,
   Square as _Square,
   Trash2 as _Trash2,
@@ -54,7 +59,6 @@ import {
   Volume2 as _Volume2,
   VolumeX as _VolumeX,
   X as _X,
-  Link2 as _Link2,
 } from 'lucide-react';
 import { memo } from 'react';
 import { siInstagram, siX, siYoutube } from 'simple-icons';
@@ -132,6 +136,10 @@ export const Volume2 = memo(_Volume2);
 export const VolumeX = memo(_VolumeX);
 export const X = memo(_X);
 export const Link = memo(_Link2);
+export const SlidersHorizontal = memo(_SlidersHorizontal);
+export const AudioLines = memo(_AudioLines);
+export const Power = memo(_Power);
+export const RotateCcw = memo(_RotateCcw);
 export const Youtube = memo(({ size, className }: { size?: number; className?: string }) => (
   <SimpleIcon icon={siYoutube} size={size} className={className} />
 ));
@@ -192,3 +200,4 @@ export const musicIcon12 = <_Music size={12} className="text-white/15" />;
 export const musicIcon14 = <_Music size={14} className="text-white/15" />;
 export const musicIcon22 = <_Music size={22} className="text-white/15" />;
 export const musicIcon20 = <_Music size={16} className="text-white/20" />;
+export const audioLines16 = <_AudioLines size={16} />;

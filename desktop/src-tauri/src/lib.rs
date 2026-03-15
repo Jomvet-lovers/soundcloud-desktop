@@ -1,3 +1,4 @@
+mod audio_player;
 mod audio_server;
 mod constants;
 mod discord;
@@ -99,6 +100,11 @@ pub fn run() {
                 app.get_webview_window("main").unwrap().navigate(url)?;
             }
 
+            let audio_state = audio_player::init();
+            app.manage(audio_state);
+            audio_player::start_tick_emitter(app.handle());
+            audio_player::start_media_controls(app.handle());
+
             tray::setup_tray(app).expect("failed to setup tray");
 
             Ok(())
@@ -115,6 +121,19 @@ pub fn run() {
             discord::discord_disconnect,
             discord::discord_set_activity,
             discord::discord_clear_activity,
+            audio_player::audio_load_file,
+            audio_player::audio_load_url,
+            audio_player::audio_play,
+            audio_player::audio_pause,
+            audio_player::audio_stop,
+            audio_player::audio_seek,
+            audio_player::audio_set_volume,
+            audio_player::audio_get_position,
+            audio_player::audio_set_eq,
+            audio_player::audio_is_playing,
+            audio_player::audio_set_metadata,
+            audio_player::audio_set_playback_state,
+            audio_player::audio_set_media_position,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
