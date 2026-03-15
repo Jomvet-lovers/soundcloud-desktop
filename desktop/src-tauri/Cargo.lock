@@ -4185,6 +4185,7 @@ dependencies = [
  "futures-util",
  "hex",
  "http 1.4.0",
+ "raw-window-handle",
  "reqwest 0.12.28",
  "rodio",
  "serde",
