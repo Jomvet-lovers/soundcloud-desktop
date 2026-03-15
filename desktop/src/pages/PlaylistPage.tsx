@@ -9,6 +9,7 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,12 +21,14 @@ import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
 import {
+  useDeletePlaylist,
   useInfiniteScroll,
   usePlaylist,
   usePlaylistTracks,
   useUpdatePlaylistTracks,
 } from '../lib/hooks';
 import {
+  AlertCircle,
   Calendar,
   Clock,
   GripVertical,
@@ -43,6 +46,7 @@ import {
   playWhite12,
   Shuffle,
   Trash2,
+  X,
 } from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
@@ -362,6 +366,8 @@ export const PlaylistPage = React.memo(() => {
     fetchNextPage,
   } = usePlaylistTracks(urn);
   const updateTracks = useUpdatePlaylistTracks(urn);
+  const deletePlaylist = useDeletePlaylist();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const isLoading = playlistLoading || tracksLoading;
   const isOwner = !!playlist && !!myUrn && playlist.user.urn === myUrn;
@@ -453,6 +459,15 @@ export const PlaylistPage = React.memo(() => {
     const { play } = usePlayerStore.getState();
     const shuffled = [...tracks].sort(() => Math.random() - 0.5);
     play(shuffled[0], shuffled);
+  };
+
+  const handleDelete = () => {
+    deletePlaylist.mutate(playlist.urn, {
+      onSuccess: () => {
+        toast.success(t('playlist.deleted'));
+        navigate(-1);
+      },
+    });
   };
 
   return (
@@ -566,6 +581,16 @@ export const PlaylistPage = React.memo(() => {
               </button>
               <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
               <CopyLinkButton url={playlist.permalink_url} />
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-red-500/10 text-white/40 hover:text-red-400 transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer"
+                >
+                  <Trash2 size={16} />
+                  {t('playlist.delete')}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -679,6 +704,42 @@ export const PlaylistPage = React.memo(() => {
           </div>
         )}
       </section>
+
+      {/* ── Delete confirmation ────────────────────── */}
+      <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-fade-in" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[380px] rounded-2xl glass border border-white/[0.08] shadow-2xl animate-fade-in-up p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                <AlertCircle size={20} className="text-red-400" />
+              </div>
+              <Dialog.Title className="text-[15px] font-bold text-white/90">
+                {t('playlist.delete')}
+              </Dialog.Title>
+              <Dialog.Close className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/[0.08] transition-all">
+                <X size={14} />
+              </Dialog.Close>
+            </div>
+            <p className="text-[13px] text-white/50 leading-relaxed">
+              {t('playlist.deleteConfirm', { title: playlist.title })}
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-1">
+              <Dialog.Close className="px-4 py-2 rounded-xl text-[13px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition-all cursor-pointer">
+                {t('common.cancel') ?? 'Cancel'}
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deletePlaylist.isPending}
+                className="px-4 py-2 rounded-xl text-[13px] font-semibold bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {deletePlaylist.isPending ? t('common.loading') : t('playlist.delete')}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 });

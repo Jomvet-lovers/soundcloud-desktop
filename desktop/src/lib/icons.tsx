@@ -31,6 +31,7 @@ import {
   ListMusic as _ListMusic,
   ListPlus as _ListPlus,
   Loader2 as _Loader2,
+  Lock as _Lock,
   MapPin as _MapPin,
   MessageCircle as _MessageCircle,
   MicVocal as _MicVocal,
@@ -38,6 +39,7 @@ import {
   Music as _Music,
   Pause as _Pause,
   Play as _Play,
+  Plus as _Plus,
   Power as _Power,
   Repeat as _Repeat,
   Repeat1 as _Repeat1,
@@ -107,6 +109,7 @@ export const LinkIcon = memo(_Link);
 export const ListMusic = memo(_ListMusic);
 export const ListPlus = memo(_ListPlus);
 export const Loader2 = memo(_Loader2);
+export const Lock = memo(_Lock);
 export const MapPin = memo(_MapPin);
 export const MicVocal = memo(_MicVocal);
 export const MessageCircle = memo(_MessageCircle);
@@ -114,6 +117,7 @@ export const Minus = memo(_Minus);
 export const Music = memo(_Music);
 export const Pause = memo(_Pause);
 export const Play = memo(_Play);
+export const Plus = memo(_Plus);
 export const Repeat = memo(_Repeat);
 export const Repeat1 = memo(_Repeat1);
 export const Repeat2 = memo(_Repeat2);

@@ -1,11 +1,16 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, { useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { art, fc } from '../../lib/formatters';
-import { type Playlist, useAddToPlaylist, useMyPlaylists } from '../../lib/hooks';
-import { ListMusic, ListPlus, Loader2, X } from '../../lib/icons';
+import {
+  type Playlist,
+  useAddToPlaylist,
+  useCreatePlaylist,
+  useMyPlaylists,
+} from '../../lib/hooks';
+import { Globe, ListMusic, ListPlus, Loader2, Lock, Plus, X } from '../../lib/icons';
 
 interface AddToPlaylistDialogProps {
   trackUrns: string[];
@@ -43,9 +48,78 @@ const PlaylistOption = React.memo(function PlaylistOption({
         <p className="text-[13px] font-medium text-white/85 truncate">{playlist.title}</p>
         <p className="text-[11px] text-white/30">{fc(playlist.track_count)} tracks</p>
       </div>
+      {playlist.sharing === 'private' && <Lock size={12} className="text-white/20 shrink-0" />}
     </button>
   );
 });
+
+/* ── Inline Create Form ──────────────────────────────────────── */
+
+const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
+  trackUrns,
+  onCreated,
+}: {
+  trackUrns: string[];
+  onCreated: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const createPlaylist = useCreatePlaylist();
+
+  const handleSubmit = useCallback(() => {
+    const title = name.trim();
+    if (!title) return;
+    createPlaylist.mutate(
+      { title, sharing: isPrivate ? 'private' : 'public', trackUrns },
+      {
+        onSuccess: () => {
+          toast.success(t('playlist.created'));
+          onCreated();
+        },
+      },
+    );
+  }, [name, isPrivate, trackUrns, createPlaylist, onCreated, t]);
+
+  return (
+    <div className="px-3 pb-3">
+      <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-2.5">
+        <input
+          ref={inputRef}
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+          placeholder={t('playlist.playlistName')}
+          className="w-full bg-white/[0.04] text-[13px] text-white/90 placeholder:text-white/25 px-3 py-2 rounded-lg outline-none border border-white/[0.06] focus:border-accent/30 transition-colors"
+          autoFocus
+          disabled={createPlaylist.isPending}
+        />
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setIsPrivate((v) => !v)}
+            className="flex items-center gap-1.5 text-[11px] text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+          >
+            {isPrivate ? <Lock size={12} /> : <Globe size={12} />}
+            {isPrivate ? t('playlist.private') : t('playlist.public')}
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!name.trim() || createPlaylist.isPending}
+            className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-accent text-white hover:bg-accent-hover disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
+          >
+            {createPlaylist.isPending ? t('playlist.creating') : t('playlist.create')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ── Main Dialog ─────────────────────────────────────────────── */
 
 export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
   trackUrns,
@@ -53,6 +127,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
 }: AddToPlaylistDialogProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const { playlists, isLoading } = useMyPlaylists();
   const addToPlaylist = useAddToPlaylist();
 
@@ -93,8 +168,13 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
     );
   };
 
+  const handleOpenChange = (v: boolean) => {
+    setOpen(v);
+    if (!v) setShowCreate(false);
+  };
+
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Trigger asChild>{children}</Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-fade-in" />
@@ -110,8 +190,37 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
             </Dialog.Close>
           </div>
 
+          {/* New playlist button / form */}
+          {showCreate ? (
+            <CreatePlaylistForm
+              trackUrns={trackUrns}
+              onCreated={() => {
+                setShowCreate(false);
+                setOpen(false);
+              }}
+            />
+          ) : (
+            <div className="px-3 pb-2">
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.06] transition-all duration-200 text-left"
+              >
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-accent/10 ring-1 ring-accent/20">
+                  <Plus size={18} className="text-accent" />
+                </div>
+                <span className="text-[13px] font-medium text-accent">
+                  {t('playlist.newPlaylist')}
+                </span>
+              </button>
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="h-px bg-white/[0.04] mx-5" />
+
           {/* Playlist list */}
-          <div className="px-3 pb-4 overflow-y-auto flex-1 min-h-0">
+          <div className="px-3 py-2 pb-4 overflow-y-auto flex-1 min-h-0">
             {isLoading ? (
               <div className="flex justify-center py-10">
                 <Loader2 size={20} className="animate-spin text-white/20" />

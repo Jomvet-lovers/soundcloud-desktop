@@ -764,6 +764,39 @@ export function useAddToPlaylist() {
   });
 }
 
+export function useCreatePlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { title: string; sharing?: 'public' | 'private'; trackUrns?: string[] }) =>
+      api<Playlist>('/playlists', {
+        method: 'POST',
+        body: JSON.stringify({
+          playlist: {
+            title: params.title,
+            sharing: params.sharing ?? 'public',
+            ...(params.trackUrns?.length
+              ? { tracks: params.trackUrns.map((urn) => ({ urn })) }
+              : {}),
+          },
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
+    },
+  });
+}
+
+export function useDeletePlaylist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (playlistUrn: string) =>
+      api(`/playlists/${encodeURIComponent(playlistUrn)}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
+    },
+  });
+}
+
 /* ── Search ────────────────────────────────────────────────────── */
 
 export function useSearchTracks(q: string) {

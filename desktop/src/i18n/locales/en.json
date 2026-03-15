@@ -62,7 +62,17 @@
     "addToPlaylist": "Add to playlist",
     "addedToPlaylist": "Added to playlist",
     "selectPlaylist": "Select playlist",
-    "noPlaylists": "No playlists found"
+    "noPlaylists": "No playlists found",
+    "newPlaylist": "New playlist",
+    "playlistName": "Playlist name",
+    "create": "Create",
+    "creating": "Creating...",
+    "created": "Playlist created",
+    "delete": "Delete playlist",
+    "deleteConfirm": "Delete \"{{title}}\"? This cannot be undone.",
+    "deleted": "Playlist deleted",
+    "private": "Private",
+    "public": "Public"
   },
   "user": {
     "followers": "Followers",
@@ -135,6 +145,7 @@
     "loading": "Loading...",
     "error": "Something went wrong",
     "retry": "Retry",
-    "seeAll": "See All"
+    "seeAll": "See All",
+    "cancel": "Cancel"
   }
 }
