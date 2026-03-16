@@ -28,19 +28,18 @@ export class PlaylistsController {
   @Get()
   @ApiOperation({ summary: 'Search playlists' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiQuery({ name: 'show_tracks', required: false, type: Boolean })
   @ApiOkResponse({ type: PaginatedPlaylistResponse })
   search(
     @AccessToken() token: string,
     @Query() query: PaginationQuery,
     @Query('q') q?: string,
-    @Query('access') access?: string,
+    @Query('access') access: string = 'playable,preview,blocked',
     @Query('show_tracks') showTracks?: string,
   ) {
-    const params: Record<string, unknown> = { ...query };
+    const params: Record<string, unknown> = { ...query, access };
     if (q) params.q = q;
-    if (access) params.access = access;
     if (showTracks !== undefined) params.show_tracks = showTracks;
     return this.playlistsService.search(token, params);
   }
@@ -75,19 +74,18 @@ export class PlaylistsController {
   @Get(':playlistUrn')
   @ApiOperation({ summary: 'Get playlist by URN' })
   @ApiQuery({ name: 'secret_token', required: false })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiQuery({ name: 'show_tracks', required: false, type: Boolean })
   @ApiOkResponse({ type: ScPlaylist })
   getById(
     @AccessToken() token: string,
     @Param('playlistUrn') playlistUrn: string,
     @Query('secret_token') secretToken?: string,
-    @Query('access') access?: string,
+    @Query('access') access: string = 'playable,preview,blocked',
     @Query('show_tracks') showTracks?: string,
   ) {
-    const params: Record<string, unknown> = {};
+    const params: Record<string, unknown> = { access };
     if (secretToken) params.secret_token = secretToken;
-    if (access) params.access = access;
     if (showTracks !== undefined) params.show_tracks = showTracks;
     return this.playlistsService.getById(token, playlistUrn, params);
   }
@@ -112,18 +110,17 @@ export class PlaylistsController {
   @Get(':playlistUrn/tracks')
   @ApiOperation({ summary: 'Get playlist tracks' })
   @ApiQuery({ name: 'secret_token', required: false })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getTracks(
     @AccessToken() token: string,
     @Param('playlistUrn') playlistUrn: string,
     @Query() query: PaginationQuery,
     @Query('secret_token') secretToken?: string,
-    @Query('access') access?: string,
+    @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query };
+    const params: Record<string, unknown> = { ...query, access };
     if (secretToken) params.secret_token = secretToken;
-    if (access) params.access = access;
     return this.playlistsService.getTracks(token, playlistUrn, params);
   }
 

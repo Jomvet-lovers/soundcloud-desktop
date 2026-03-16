@@ -47,7 +47,7 @@ export class TracksController {
   @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated track IDs' })
   @ApiQuery({ name: 'genres', required: false, description: 'Comma-separated genres' })
   @ApiQuery({ name: 'tags', required: false, description: 'Comma-separated tags' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   search(
     @AccessToken() token: string,
@@ -56,14 +56,13 @@ export class TracksController {
     @Query('ids') ids?: string,
     @Query('genres') genres?: string,
     @Query('tags') tags?: string,
-    @Query('access') access?: string,
+    @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query };
+    const params: Record<string, unknown> = { ...query, access };
     if (q) params.q = q;
     if (ids) params.ids = ids;
     if (genres) params.genres = genres;
     if (tags) params.tags = tags;
-    if (access) params.access = access;
     return this.tracksService.search(token, params);
   }
 
@@ -139,28 +138,27 @@ export class TracksController {
     @AccessToken() token: string,
     @Res({ passthrough: true }) res: any,
     @Param('trackUrn') trackUrn: string,
-    @Query('format') format: string = 'http_mp3_128',
+    @Query('format') format: string = 'hls_aac_160',
     @Query('secret_token') secretToken?: string,
     @Headers('range') range?: string,
   ) {
     const params: Record<string, unknown> = {};
     if (secretToken) params.secret_token = secretToken;
 
-    const streams = await this.tracksService.getStreams(token, trackUrn, params);
-    const urlKey = `${format}_url` as keyof typeof streams;
-    const streamUrl = streams[urlKey];
+    let streamData = await this.tracksService.tryOAuthStream(token, trackUrn, format, params, range);
 
-    if (!streamUrl) {
+    if (!streamData) {
+      streamData = await this.tracksService.getPublicStream(trackUrn, format);
+    }
+
+    if (!streamData) {
       return {
         statusCode: HttpStatus.NOT_FOUND,
-        error: 'Stream format not available',
-        available: Object.keys(streams).filter(
-          (k) => k.endsWith('_url') && streams[k as keyof typeof streams],
-        ),
+        error: 'Track not available for streaming',
       };
     }
 
-    const { stream, headers } = await this.tracksService.proxyStream(token, streamUrl, range);
+    const { stream, headers } = streamData;
 
     res.header('Accept-Ranges', 'bytes');
     if (headers['content-range']) {
@@ -235,13 +233,15 @@ export class TracksController {
 
   @Get(':trackUrn/related')
   @ApiOperation({ summary: 'Get related tracks' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getRelated(
     @AccessToken() token: string,
     @Param('trackUrn') trackUrn: string,
     @Query() query: PaginationQuery,
+    @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    return this.tracksService.getRelated(token, trackUrn, query as Record<string, unknown>);
+    const params: Record<string, unknown> = { ...query, access };
+    return this.tracksService.getRelated(token, trackUrn, params);
   }
 }

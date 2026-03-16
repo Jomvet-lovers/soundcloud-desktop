@@ -42,10 +42,15 @@ export class MeController {
 
   @Get('likes/tracks')
   @ApiOperation({ summary: 'Get liked tracks' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiOkResponse({ type: PaginatedTrackResponse })
-  getLikedTracks(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getLikedTracks(token, query as Record<string, unknown>);
+  getLikedTracks(
+    @AccessToken() token: string,
+    @Query() query: PaginationQuery,
+    @Query('access') access: string = 'playable,preview,blocked',
+  ) {
+    const params: Record<string, unknown> = { ...query, access };
+    return this.meService.getLikedTracks(token, params);
   }
 
   @Get('likes/playlists')

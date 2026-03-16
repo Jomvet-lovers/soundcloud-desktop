@@ -78,39 +78,45 @@ export class UsersController {
 
   @Get(':userUrn/tracks')
   @ApiOperation({ summary: 'Get user tracks' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getTracks(
     @AccessToken() token: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
+    @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    return this.usersService.getTracks(token, userUrn, query as Record<string, unknown>);
+    const params: Record<string, unknown> = { ...query, access };
+    return this.usersService.getTracks(token, userUrn, params);
   }
 
   @Get(':userUrn/playlists')
   @ApiOperation({ summary: 'Get user playlists' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiQuery({ name: 'show_tracks', required: false, type: Boolean })
   @ApiOkResponse({ type: PaginatedPlaylistResponse })
   getPlaylists(
     @AccessToken() token: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
+    @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    return this.usersService.getPlaylists(token, userUrn, query as Record<string, unknown>);
+    const params: Record<string, unknown> = { ...query, access };
+    return this.usersService.getPlaylists(token, userUrn, params);
   }
 
   @Get(':userUrn/likes/tracks')
   @ApiOperation({ summary: 'Get user liked tracks' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getLikedTracks(
     @AccessToken() token: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
+    @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    return this.usersService.getLikedTracks(token, userUrn, query as Record<string, unknown>);
+    const params: Record<string, unknown> = { ...query, access };
+    return this.usersService.getLikedTracks(token, userUrn, params);
   }
 
   @Get(':userUrn/likes/playlists')

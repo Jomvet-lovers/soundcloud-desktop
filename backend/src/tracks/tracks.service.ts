@@ -1,7 +1,8 @@
 import type { Readable } from 'node:stream';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ScPublicApiService } from '../soundcloud/sc-public-api.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
-import {
+import type {
   ScComment,
   ScPaginatedResponse,
   ScStreams,
@@ -11,7 +12,12 @@ import {
 
 @Injectable()
 export class TracksService {
-  constructor(private readonly sc: SoundcloudService) {}
+  private readonly logger = new Logger(TracksService.name);
+
+  constructor(
+    private readonly sc: SoundcloudService,
+    private readonly scPublicApi: ScPublicApiService,
+  ) {}
 
   search(token: string, params?: Record<string, unknown>): Promise<ScPaginatedResponse<ScTrack>> {
     return this.sc.apiGet('/tracks', token, params);
@@ -43,6 +49,53 @@ export class TracksService {
     range?: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> }> {
     return this.sc.proxyStream(url, token, range);
+  }
+
+  async tryOAuthStream(
+    token: string,
+    trackUrn: string,
+    format: string,
+    params: Record<string, unknown>,
+    range?: string,
+  ): Promise<{ stream: Readable; headers: Record<string, string> } | null> {
+    try {
+      const streams = await this.getStreams(token, trackUrn, params);
+      const urlKey = `${format}_url` as keyof typeof streams;
+      const streamUrl = streams[urlKey] ?? Object.values(streams).filter(Boolean)[0];
+
+      if (!streamUrl) return null;
+
+      // HLS URLs point to m3u8 playlists — need to resolve segments
+      if (format.startsWith('hls_')) {
+        return await this.scPublicApi.streamFromHls(streamUrl as string, this.hlsMimeType(format));
+      }
+
+      return await this.proxyStream(token, streamUrl as string, range);
+    } catch {
+      return null;
+    }
+  }
+
+  private hlsMimeType(format: string): string {
+    if (format.includes('aac')) return 'audio/mp4; codecs="mp4a.40.2"';
+    if (format.includes('opus')) return 'audio/ogg; codecs="opus"';
+    return 'audio/mpeg';
+  }
+
+  /**
+   * Fallback: resolve stream via SoundCloud public API (no OAuth).
+   * Used when the authenticated /streams endpoint fails or returns empty.
+   */
+  async getPublicStream(
+    trackUrn: string,
+    format?: string,
+  ): Promise<{ stream: Readable; headers: Record<string, string> } | null> {
+    try {
+      return await this.scPublicApi.getStreamForTrack(trackUrn, format);
+    } catch (err: any) {
+      this.logger.warn(`Public API fallback failed for ${trackUrn}: ${err.message}`);
+      return null;
+    }
   }
 
   getComments(
