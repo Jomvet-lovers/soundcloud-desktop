@@ -7,6 +7,7 @@ dist/
 .DS_Store
 Thumbs.db
 .flatpak-builder
+.claude
 
 # Tauri build output
 src-tauri/target/

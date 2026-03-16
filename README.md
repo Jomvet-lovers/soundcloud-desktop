@@ -191,7 +191,7 @@ npx biome check src/     # линтинг
 | Оболочка | Tauri 2 (Rust) |
 | Фронтенд | React 19, Vite 7, Tailwind CSS 4 |
 | Стейт | Zustand, TanStack Query |
-| Аудио | Howler.js |
+| Аудио | rodio (rust) |
 | UI-компоненты | Radix UI |
 | Бэкенд | NestJS 11, TypeORM, PostgreSQL |
 | CI/CD | GitHub Actions — сборка под все платформы |
