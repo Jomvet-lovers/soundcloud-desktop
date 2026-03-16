@@ -1,10 +1,14 @@
 use std::io::{BufReader, Cursor};
+use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
 use biquad::{Biquad, Coefficients, DirectForm1, Hertz, ToHertz, Type, Q_BUTTERWORTH_F64};
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::mixer::Mixer;
+use rodio::source::SeekError;
+use rodio::stream::DeviceSinkBuilder;
+use rodio::{Decoder, Player, Source};
 use souvlaki::{
     MediaControlEvent, MediaControls, MediaMetadata as SmtcMetadata, MediaPlayback, MediaPosition,
     PlatformConfig,
@@ -19,6 +23,9 @@ const EQ_FREQS: [f64; EQ_BANDS] = [
 ];
 const EQ_Q: f64 = 1.414; // ~1 octave bandwidth for peaking filters
 const TICK_INTERVAL_MS: u64 = 100;
+
+type ChannelCount = NonZero<u16>;
+type SampleRate = NonZero<u32>;
 
 /* ── EQ Parameters (shared between audio thread and commands) ─ */
 
@@ -43,8 +50,8 @@ struct EqSource<S: Source<Item = f32>> {
     params: Arc<RwLock<EqParams>>,
     filters_l: [DirectForm1<f64>; EQ_BANDS],
     filters_r: [DirectForm1<f64>; EQ_BANDS],
-    channels: u16,
-    sample_rate: u32,
+    channels: ChannelCount,
+    sample_rate: SampleRate,
     current_channel: u16,
     // Cached gains to detect changes and recompute coefficients
     cached_gains: [f64; EQ_BANDS],
@@ -55,7 +62,7 @@ impl<S: Source<Item = f32>> EqSource<S> {
     fn new(source: S, params: Arc<RwLock<EqParams>>) -> Self {
         let sample_rate = source.sample_rate();
         let channels = source.channels();
-        let fs: Hertz<f64> = (sample_rate as f64).hz();
+        let fs: Hertz<f64> = (sample_rate.get() as f64).hz();
 
         let make_filters = || {
             std::array::from_fn(|i| {
@@ -92,7 +99,7 @@ impl<S: Source<Item = f32>> EqSource<S> {
     }
 
     fn update_coefficients(&mut self, gains: &[f64; EQ_BANDS]) {
-        let fs: Hertz<f64> = (self.sample_rate as f64).hz();
+        let fs: Hertz<f64> = (self.sample_rate.get() as f64).hz();
         for i in 0..EQ_BANDS {
             if (gains[i] - self.cached_gains[i]).abs() < 0.01 {
                 continue;
@@ -127,7 +134,7 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
     fn next(&mut self) -> Option<f32> {
         let sample = self.source.next()?;
         let ch = self.current_channel;
-        self.current_channel = (ch + 1) % self.channels;
+        self.current_channel = (ch + 1) % self.channels.get();
 
         // Read EQ params (non-blocking — skip if locked)
         let snapshot = self.params.try_read().ok().map(|p| (p.enabled, p.gains));
@@ -158,19 +165,19 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
 }
 
 impl<S: Source<Item = f32>> Source for EqSource<S> {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.source.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
     }
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
     fn total_duration(&self) -> Option<Duration> {
         self.source.total_duration()
     }
-    fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
         self.source.try_seek(pos)
     }
 }
@@ -190,7 +197,7 @@ enum MediaCmd {
 }
 
 pub struct AudioState {
-    sink: Mutex<Option<Sink>>,
+    player: Mutex<Option<Player>>,
     eq_params: Arc<RwLock<EqParams>>,
     volume: Mutex<f32>, // 0.0 - 2.0
     has_track: AtomicBool,
@@ -198,30 +205,33 @@ pub struct AudioState {
     media_tx: Mutex<Option<std::sync::mpsc::Sender<MediaCmd>>>,
 }
 
-// Keep OutputStream alive globally (it's !Send on some platforms)
-static STREAM_HANDLE: OnceLock<OutputStreamHandle> = OnceLock::new();
+// Keep MixerDeviceSink alive globally; Mixer (Clone + Send) is extracted for creating Players
+static MIXER: OnceLock<Mixer> = OnceLock::new();
 
 pub fn init() -> AudioState {
-    // Spawn audio output on a dedicated thread (OutputStream is !Send on macOS)
+    // Spawn audio output on a dedicated thread (MixerDeviceSink may be !Send on some platforms)
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::Builder::new()
         .name("audio-output".into())
         .spawn(move || {
-            let (stream, handle) = OutputStream::try_default().expect("no audio output device");
-            tx.send(handle).ok();
-            // Keep stream alive
-            let _keep = stream;
+            let mut device_sink =
+                DeviceSinkBuilder::open_default_sink().expect("no audio output device");
+            device_sink.log_on_drop(false);
+            let mixer = device_sink.mixer().clone();
+            tx.send(mixer).ok();
+            // Keep device_sink alive — dropping it stops all audio
+            let _keep = device_sink;
             loop {
                 std::thread::park();
             }
         })
         .expect("failed to spawn audio thread");
 
-    let handle = rx.recv().expect("audio thread failed to init");
-    STREAM_HANDLE.set(handle).ok();
+    let mixer = rx.recv().expect("audio thread failed to init");
+    MIXER.set(mixer).ok();
 
     AudioState {
-        sink: Mutex::new(None),
+        player: Mutex::new(None),
         eq_params: Arc::new(RwLock::new(EqParams::default())),
         volume: Mutex::new(0.25), // 50/200
         has_track: AtomicBool::new(false),
@@ -243,15 +253,15 @@ pub fn start_tick_emitter(app: &AppHandle) {
                 continue;
             }
 
-            let sink = state.sink.lock().unwrap();
-            if let Some(ref s) = *sink {
-                if s.empty() {
+            let player = state.player.lock().unwrap();
+            if let Some(ref p) = *player {
+                if p.empty() {
                     // Track ended
                     if !state.ended_notified.swap(true, Ordering::Relaxed) {
                         handle.emit("audio:ended", ()).ok();
                     }
                 } else {
-                    let pos = s.get_pos().as_secs_f64();
+                    let pos = p.get_pos().as_secs_f64();
                     handle.emit("audio:tick", pos).ok();
                 }
             }
@@ -364,11 +374,11 @@ pub fn start_media_controls(app: &AppHandle) {
                     Ok(MediaCmd::SetPlaying(playing)) => {
                         let state = handle.state::<AudioState>();
                         let pos = state
-                            .sink
+                            .player
                             .lock()
                             .unwrap()
                             .as_ref()
-                            .map(|s| s.get_pos())
+                            .map(|p| p.get_pos())
                             .unwrap_or_default();
                         let progress = Some(MediaPosition(pos));
                         let playback = if playing {
@@ -382,11 +392,11 @@ pub fn start_media_controls(app: &AppHandle) {
                         // Just update position without changing play state
                         let state = handle.state::<AudioState>();
                         let is_playing = state
-                            .sink
+                            .player
                             .lock()
                             .unwrap()
                             .as_ref()
-                            .map(|s| !s.is_paused() && !s.empty())
+                            .map(|p| !p.is_paused() && !p.empty())
                             .unwrap_or(false);
                         let progress = Some(MediaPosition(Duration::from_secs_f64(secs)));
                         let playback = if is_playing {
@@ -413,27 +423,26 @@ fn volume_to_rodio(v: f64) -> f32 {
 /// Load and play audio from a file path
 #[tauri::command]
 pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<(), String> {
-    let handle = STREAM_HANDLE.get().ok_or("audio not initialized")?;
+    let mixer = MIXER.get().ok_or("audio not initialized")?;
 
     let file =
         std::fs::File::open(&path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
     let source =
         Decoder::new(BufReader::new(file)).map_err(|e| format!("Failed to decode: {}", e))?;
-    let source = source.convert_samples::<f32>();
 
     let eq_source = EqSource::new(source, state.eq_params.clone());
 
-    let new_sink = Sink::try_new(handle).map_err(|e| e.to_string())?;
+    let new_player = Player::connect_new(mixer);
     let vol = *state.volume.lock().unwrap();
-    new_sink.set_volume(vol);
-    new_sink.append(eq_source);
+    new_player.set_volume(vol);
+    new_player.append(eq_source);
 
-    // Replace old sink
-    let mut sink = state.sink.lock().unwrap();
-    if let Some(old) = sink.take() {
+    // Replace old player
+    let mut player = state.player.lock().unwrap();
+    if let Some(old) = player.take() {
         old.stop();
     }
-    *sink = Some(new_sink);
+    *player = Some(new_player);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
 
@@ -469,22 +478,21 @@ pub async fn audio_load_url(
     }
 
     // Decode and play
-    let handle = STREAM_HANDLE.get().ok_or("audio not initialized")?;
+    let mixer = MIXER.get().ok_or("audio not initialized")?;
     let cursor = Cursor::new(bytes);
     let source = Decoder::new(cursor).map_err(|e| format!("Failed to decode: {}", e))?;
-    let source = source.convert_samples::<f32>();
     let eq_source = EqSource::new(source, state.eq_params.clone());
 
-    let new_sink = Sink::try_new(handle).map_err(|e| e.to_string())?;
+    let new_player = Player::connect_new(mixer);
     let vol = *state.volume.lock().unwrap();
-    new_sink.set_volume(vol);
-    new_sink.append(eq_source);
+    new_player.set_volume(vol);
+    new_player.append(eq_source);
 
-    let mut sink = state.sink.lock().unwrap();
-    if let Some(old) = sink.take() {
+    let mut player = state.player.lock().unwrap();
+    if let Some(old) = player.take() {
         old.stop();
     }
-    *sink = Some(new_sink);
+    *player = Some(new_player);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
 
@@ -493,22 +501,22 @@ pub async fn audio_load_url(
 
 #[tauri::command]
 pub fn audio_play(state: tauri::State<'_, AudioState>) {
-    if let Some(ref s) = *state.sink.lock().unwrap() {
-        s.play();
+    if let Some(ref p) = *state.player.lock().unwrap() {
+        p.play();
     }
 }
 
 #[tauri::command]
 pub fn audio_pause(state: tauri::State<'_, AudioState>) {
-    if let Some(ref s) = *state.sink.lock().unwrap() {
-        s.pause();
+    if let Some(ref p) = *state.player.lock().unwrap() {
+        p.pause();
     }
 }
 
 #[tauri::command]
 pub fn audio_stop(state: tauri::State<'_, AudioState>) {
-    let mut sink = state.sink.lock().unwrap();
-    if let Some(old) = sink.take() {
+    let mut player = state.player.lock().unwrap();
+    if let Some(old) = player.take() {
         old.stop();
     }
     state.has_track.store(false, Ordering::Relaxed);
@@ -516,8 +524,8 @@ pub fn audio_stop(state: tauri::State<'_, AudioState>) {
 
 #[tauri::command]
 pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<(), String> {
-    if let Some(ref s) = *state.sink.lock().unwrap() {
-        s.try_seek(Duration::from_secs_f64(position))
+    if let Some(ref p) = *state.player.lock().unwrap() {
+        p.try_seek(Duration::from_secs_f64(position))
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -527,19 +535,19 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
 pub fn audio_set_volume(volume: f64, state: tauri::State<'_, AudioState>) {
     let vol = volume_to_rodio(volume);
     *state.volume.lock().unwrap() = vol;
-    if let Some(ref s) = *state.sink.lock().unwrap() {
-        s.set_volume(vol);
+    if let Some(ref p) = *state.player.lock().unwrap() {
+        p.set_volume(vol);
     }
 }
 
 #[tauri::command]
 pub fn audio_get_position(state: tauri::State<'_, AudioState>) -> f64 {
     state
-        .sink
+        .player
         .lock()
         .unwrap()
         .as_ref()
-        .map(|s| s.get_pos().as_secs_f64())
+        .map(|p| p.get_pos().as_secs_f64())
         .unwrap_or(0.0)
 }
 
@@ -556,11 +564,11 @@ pub fn audio_set_eq(enabled: bool, gains: Vec<f64>, state: tauri::State<'_, Audi
 #[tauri::command]
 pub fn audio_is_playing(state: tauri::State<'_, AudioState>) -> bool {
     state
-        .sink
+        .player
         .lock()
         .unwrap()
         .as_ref()
-        .map(|s| !s.is_paused() && !s.empty())
+        .map(|p| !p.is_paused() && !p.empty())
         .unwrap_or(false)
 }
 

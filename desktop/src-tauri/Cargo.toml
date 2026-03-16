@@ -29,7 +29,7 @@ futures-util = "0.3"
 http = "1"
 urlencoding = "2"
 tauri-plugin-single-instance = "2.4.0"
-rodio = { version = "0.20", features = ["mp3"] }
+rodio = { version = "0.22.2", features = ["mp3", "symphonia-aac", "symphonia-isomp4"] }
 biquad = "0.5"
 souvlaki = "0.8"
 raw-window-handle = "0.6"

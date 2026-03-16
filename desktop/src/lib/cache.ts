@@ -8,7 +8,7 @@ import { API_BASE, getStaticPort } from './constants';
 const AUDIO_DIR = 'audio';
 const ASSETS_DIR = 'assets';
 const WALLPAPERS_DIR = 'wallpapers';
-const MIN_MP3_SIZE = 8192;
+const MIN_AUDIO_SIZE = 8192;
 
 let cacheBasePath: string | null = null;
 
@@ -21,7 +21,7 @@ async function getAudioDir(): Promise<string> {
 }
 
 function urnToFilename(urn: string): string {
-  return `${urn.replace(/:/g, '_')}.mp3`;
+  return `${urn.replace(/:/g, '_')}.audio`;
 }
 
 async function filePath(urn: string): Promise<string> {
@@ -34,7 +34,7 @@ export async function isCached(urn: string): Promise<boolean> {
     const path = await filePath(urn);
     if (!(await exists(path))) return false;
     const info = await stat(path);
-    if (info.size < MIN_MP3_SIZE) {
+    if (info.size < MIN_AUDIO_SIZE) {
       await remove(path).catch(() => {});
       return false;
     }
@@ -44,11 +44,15 @@ export async function isCached(urn: string): Promise<boolean> {
   }
 }
 
-function isValidMp3(buffer: ArrayBuffer): boolean {
+function isValidAudio(buffer: ArrayBuffer): boolean {
   const data = new Uint8Array(buffer);
-  if (data.length < MIN_MP3_SIZE) return false;
-  if (data[0] === 0x49 && data[1] === 0x44 && data[2] === 0x33) return true; // ID3
-  if (data[0] === 0xff && (data[1] & 0xe0) === 0xe0) return true; // MPEG Sync
+  if (data.length < MIN_AUDIO_SIZE) return false;
+  // ID3 (MP3)
+  if (data[0] === 0x49 && data[1] === 0x44 && data[2] === 0x33) return true;
+  // MPEG Sync (MP3)
+  if (data[0] === 0xff && (data[1] & 0xe0) === 0xe0) return true;
+  // ftyp (MP4/AAC)
+  if (data[4] === 0x66 && data[5] === 0x74 && data[6] === 0x79 && data[7] === 0x70) return true;
   return false;
 }
 
@@ -76,13 +80,13 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
 
       const buffer = await res.arrayBuffer();
 
-      if (isValidMp3(buffer)) {
-        console.log(`💾 [Cache] Download complete for ${urn}. Valid MP3. Saving...`);
+      if (isValidAudio(buffer)) {
+        console.log(`💾 [Cache] Download complete for ${urn}. Saving...`);
         const path = await filePath(urn);
         await writeFile(path, new Uint8Array(buffer)).catch((e) => console.error('Write fail', e));
       } else {
-        console.error(`💾 [Cache] Invalid MP3 received for ${urn}`);
-        throw new Error('Invalid MP3');
+        console.error(`💾 [Cache] Invalid audio received for ${urn}`);
+        throw new Error('Invalid audio');
       }
       return buffer;
     } catch (e: any) {
@@ -110,7 +114,7 @@ export async function getCacheSize(): Promise<number> {
     const entries = await readDir(dir);
     let total = 0;
     for (const entry of entries) {
-      if (entry.name?.endsWith('.mp3')) {
+      if (entry.name && entry.isFile) {
         const info = await stat(`${dir}/${entry.name}`);
         total += info.size;
       }
@@ -126,7 +130,7 @@ export async function clearCache(): Promise<void> {
     const dir = await getAudioDir();
     const entries = await readDir(dir);
     for (const entry of entries) {
-      if (entry.name?.endsWith('.mp3')) {
+      if (entry.name && entry.isFile) {
         await remove(`${dir}/${entry.name}`).catch(() => {});
       }
     }

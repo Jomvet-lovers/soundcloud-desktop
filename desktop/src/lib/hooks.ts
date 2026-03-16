@@ -443,7 +443,7 @@ export function useUserTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'tracks'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '30', access: 'playable' });
+      const params = new URLSearchParams({ limit: '30', access: 'playable,preview,blocked' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -483,7 +483,7 @@ export function useUserPopularTracks(userUrn: string | undefined) {
 
       // Paginate through all tracks
       for (;;) {
-        const params = new URLSearchParams({ limit: String(pageSize), access: 'playable' });
+        const params = new URLSearchParams({ limit: String(pageSize), access: 'playable,preview,blocked' });
         if (cursor) params.set('cursor', cursor);
         const page = await api<TrackListResponse>(
           `/users/${encodeURIComponent(userUrn!)}/tracks?${params}`,
@@ -543,7 +543,7 @@ export function useUserLikedTracks(userUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['user', userUrn, 'likes', 'tracks'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '30', access: 'playable' });
+      const params = new URLSearchParams({ limit: '30', access: 'playable,preview,blocked' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
