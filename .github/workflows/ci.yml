@@ -66,7 +66,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev nasm
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
 
       - uses: pnpm/action-setup@v4
         with:
@@ -77,14 +77,6 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: desktop/pnpm-lock.yaml
-
-      - name: Install nasm (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: choco install nasm -y
-
-      - name: Install nasm (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: brew install nasm
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable

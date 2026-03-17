@@ -36,8 +36,4 @@ biquad = "0.5"
 souvlaki = "0.8"
 raw-window-handle = "0.6"
 tauri-plugin-dialog = "2.6.0"
-ffmpeg-next = { version = "7", features = ["codec", "format"] }
-ffmpeg-sys-next = { version = "7", features = ["build"] }
-tempfile = "3"
-bytemuck = "1"
 
