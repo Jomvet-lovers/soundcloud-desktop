@@ -153,24 +153,25 @@ export class ScPublicApiService {
     transcodings: ScTranscodingInfo[],
     preferredFormat?: string,
   ): ScTranscodingInfo | null {
-    if (!transcodings.length) return null;
+    const decryptedTranscodings = transcodings.filter((t) => !t.format?.protocol?.includes('encrypted'));
+    if (!decryptedTranscodings.length) return null;
 
     // Try preferred format first
     if (preferredFormat) {
       const presets = FORMAT_TO_PRESETS[preferredFormat];
       if (presets) {
-        const match = transcodings.find((t) => presets.includes(t.preset));
+        const match = decryptedTranscodings.find((t) => presets.includes(t.preset));
         if (match) return match;
       }
     }
 
     // Fallback order
     for (const preset of PRESET_FALLBACK_ORDER) {
-      const match = transcodings.find((t) => t.preset === preset);
+      const match = decryptedTranscodings.find((t) => t.preset === preset);
       if (match) return match;
     }
 
-    return transcodings[0];
+    return decryptedTranscodings[0];
   }
 
   /* ── Transcoding URL → Stream URL ──────────────────── */
