@@ -61,16 +61,34 @@ export class TracksService {
     try {
       const streams = await this.getStreams(token, trackUrn, params);
       const urlKey = `${format}_url` as keyof typeof streams;
-      const streamUrl = streams[urlKey] ?? Object.values(streams).filter(Boolean)[0];
 
-      if (!streamUrl) return null;
+      const fallbackOrder: (keyof ScStreams)[] = [
+        'hls_aac_160_url', 'http_mp3_128_url',
+        'hls_mp3_128_url', 'preview_mp3_128_url',
+      ];
+      let streamUrl = streams[urlKey] as string | undefined;
+      let actualKey = streamUrl ? urlKey : undefined;
 
-      // HLS URLs point to m3u8 playlists — need to resolve segments
-      if (format.startsWith('hls_')) {
-        return await this.scPublicApi.streamFromHls(streamUrl as string, this.hlsMimeType(format));
+      if (!streamUrl) {
+        for (const key of fallbackOrder) {
+          if (streams[key]) {
+            streamUrl = streams[key] as string;
+            actualKey = key;
+            break;
+          }
+        }
       }
 
-      return await this.proxyStream(token, streamUrl as string, range);
+      if (!streamUrl || !actualKey) return null;
+
+      const actualFormat = (actualKey as string).replace('_url', '');
+      const isHls = actualFormat.startsWith('hls_');
+
+      if (isHls) {
+        return await this.scPublicApi.streamFromHls(streamUrl, this.hlsMimeType(actualFormat));
+      }
+
+      return await this.proxyStream(token, streamUrl, range);
     } catch {
       return null;
     }
