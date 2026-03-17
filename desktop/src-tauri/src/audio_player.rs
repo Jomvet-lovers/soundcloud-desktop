@@ -1,10 +1,11 @@
-use std::io::{BufReader, Cursor};
+use std::io::{BufReader, Cursor, Write};
 use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use biquad::{Biquad, Coefficients, DirectForm1, Hertz, ToHertz, Type, Q_BUTTERWORTH_F64};
+use rodio::buffer::SamplesBuffer;
 use rodio::mixer::Mixer;
 use rodio::source::SeekError;
 use rodio::stream::DeviceSinkBuilder;
@@ -471,6 +472,177 @@ pub fn start_media_controls(app: &AppHandle) {
         .expect("failed to spawn media-controls thread");
 }
 
+/* ── FFmpeg fallback decoder ───────────────────────────────── */
+
+/// Decode any audio format via FFmpeg into interleaved f32 PCM.
+/// Returns (samples, sample_rate, channels).
+fn decode_any(data: &[u8]) -> Result<(Vec<f32>, u32, u16), String> {
+    use ffmpeg_next as ffmpeg;
+
+    static FFMPEG_INIT: std::sync::Once = std::sync::Once::new();
+    FFMPEG_INIT.call_once(|| {
+        ffmpeg::init().expect("Failed to init FFmpeg");
+        ffmpeg::log::set_level(ffmpeg::log::Level::Quiet);
+    });
+
+    // Write data to a temp file (FFmpeg needs seekable input for many containers)
+    let mut tmp = tempfile::NamedTempFile::new().map_err(|e| format!("tempfile: {}", e))?;
+    tmp.write_all(data)
+        .map_err(|e| format!("write tmp: {}", e))?;
+    tmp.flush().map_err(|e| format!("flush tmp: {}", e))?;
+
+    let path = tmp.path().to_string_lossy().to_string();
+    let mut ictx =
+        ffmpeg::format::input(&path).map_err(|e| format!("FFmpeg open failed: {}", e))?;
+
+    let stream = ictx
+        .streams()
+        .best(ffmpeg::media::Type::Audio)
+        .ok_or("No audio stream found")?;
+    let stream_index = stream.index();
+
+    let codec_params = stream.parameters();
+    let mut decoder = ffmpeg::codec::Context::from_parameters(codec_params)
+        .and_then(|ctx| ctx.decoder().audio())
+        .map_err(|e| format!("FFmpeg decoder: {}", e))?;
+
+    let target_format = ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Packed);
+
+    let mut all_samples: Vec<f32> = Vec::new();
+    let mut out_rate = 0u32;
+    let mut out_channels = 0u16;
+    let mut resampler: Option<ffmpeg::software::resampling::Context> = None;
+    // Track resampler input params to detect changes
+    let mut rs_fmt = ffmpeg::format::Sample::None;
+    let mut rs_layout = ffmpeg::ChannelLayout::default(0);
+    let mut rs_rate = 0u32;
+
+    let extract_frame = |decoded: &ffmpeg::frame::Audio,
+                         all_samples: &mut Vec<f32>,
+                         out_rate: &mut u32,
+                         out_channels: &mut u16,
+                         resampler: &mut Option<ffmpeg::software::resampling::Context>,
+                         rs_fmt: &mut ffmpeg::format::Sample,
+                         rs_layout: &mut ffmpeg::ChannelLayout,
+                         rs_rate: &mut u32| {
+        let src_rate = decoded.rate();
+        let src_layout = decoded.channel_layout();
+        let src_format = decoded.format();
+        let target_layout = if decoded.channels() <= 1 {
+            ffmpeg::ChannelLayout::MONO
+        } else {
+            ffmpeg::ChannelLayout::STEREO
+        };
+        let actual_channels = if decoded.channels() <= 1 { 1u16 } else { 2u16 };
+
+        *out_rate = src_rate;
+        *out_channels = actual_channels;
+
+        let needs_resample = src_format != target_format || src_layout != target_layout;
+
+        if needs_resample {
+            // Recreate resampler if input params changed
+            if resampler.is_none()
+                || *rs_fmt != src_format
+                || *rs_layout != src_layout
+                || *rs_rate != src_rate
+            {
+                *resampler = ffmpeg::software::resampling::Context::get(
+                    src_format,
+                    src_layout,
+                    src_rate,
+                    target_format,
+                    target_layout,
+                    src_rate,
+                )
+                .ok();
+                *rs_fmt = src_format;
+                *rs_layout = src_layout;
+                *rs_rate = src_rate;
+            }
+
+            if let Some(r) = resampler.as_mut() {
+                let mut resampled = ffmpeg::frame::Audio::empty();
+                if r.run(decoded, &mut resampled).is_ok() && resampled.samples() > 0 {
+                    let sample_count = resampled.samples() * actual_channels as usize;
+                    let byte_slice = &resampled.data(0)[..sample_count * 4];
+                    let float_slice: &[f32] = bytemuck::cast_slice(byte_slice);
+                    all_samples.extend_from_slice(float_slice);
+                }
+            }
+        } else {
+            let sample_count = decoded.samples() * actual_channels as usize;
+            let byte_slice = &decoded.data(0)[..sample_count * 4];
+            let float_slice: &[f32] = bytemuck::cast_slice(byte_slice);
+            all_samples.extend_from_slice(float_slice);
+        }
+    };
+
+    let mut total_packets = 0u32;
+    let mut failed_packets = 0u32;
+
+    for (stream, packet) in ictx.packets() {
+        if stream.index() != stream_index {
+            continue;
+        }
+        total_packets += 1;
+        if decoder.send_packet(&packet).is_err() {
+            failed_packets += 1;
+            continue;
+        }
+        let mut decoded = ffmpeg::frame::Audio::empty();
+        while decoder.receive_frame(&mut decoded).is_ok() {
+            extract_frame(
+                &decoded,
+                &mut all_samples,
+                &mut out_rate,
+                &mut out_channels,
+                &mut resampler,
+                &mut rs_fmt,
+                &mut rs_layout,
+                &mut rs_rate,
+            );
+        }
+    }
+
+    // Flush decoder
+    decoder.send_eof().ok();
+    let mut decoded = ffmpeg::frame::Audio::empty();
+    while decoder.receive_frame(&mut decoded).is_ok() {
+        extract_frame(
+            &decoded,
+            &mut all_samples,
+            &mut out_rate,
+            &mut out_channels,
+            &mut resampler,
+            &mut rs_fmt,
+            &mut rs_layout,
+            &mut rs_rate,
+        );
+    }
+
+    if all_samples.is_empty() || out_rate == 0 {
+        return Err("FFmpeg decoded 0 samples".into());
+    }
+
+    // If most packets failed, the data is likely encrypted/corrupt — don't play garbage
+    if total_packets > 0 && failed_packets > total_packets / 2 {
+        return Err(format!(
+            "FFmpeg: too many bad packets ({}/{}), data likely encrypted",
+            failed_packets, total_packets
+        ));
+    }
+
+    // Sanity check: if decoded audio is extremely short (< 0.5s), likely garbage
+    let duration_secs = all_samples.len() as f64
+        / (out_rate as f64 * out_channels.max(1) as f64);
+    if duration_secs < 0.5 {
+        return Err("FFmpeg: decoded audio too short, likely corrupt".into());
+    }
+
+    Ok((all_samples, out_rate, out_channels))
+}
+
 /* ── Tauri Commands ────────────────────────────────────────── */
 
 fn volume_to_rodio(v: f64) -> f32 {
@@ -482,18 +654,28 @@ fn volume_to_rodio(v: f64) -> f32 {
 #[tauri::command]
 pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<(), String> {
     let mixer = state.mixer.lock().unwrap().clone();
-
-    let file =
-        std::fs::File::open(&path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
-    let source =
-        Decoder::new(BufReader::new(file)).map_err(|e| format!("Failed to decode: {}", e))?;
-
-    let eq_source = EqSource::new(source, state.eq_params.clone());
-
     let new_player = Player::connect_new(&mixer);
     let vol = *state.volume.lock().unwrap();
     new_player.set_volume(vol);
-    new_player.append(eq_source);
+
+    // Try rodio first (fast path for MP3/WAV/FLAC)
+    let file =
+        std::fs::File::open(&path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
+    match Decoder::new(BufReader::new(file)) {
+        Ok(source) => {
+            let eq_source = EqSource::new(source, state.eq_params.clone());
+            new_player.append(eq_source);
+        }
+        Err(_) => {
+            // FFmpeg fallback
+            let data = std::fs::read(&path)
+                .map_err(|e| format!("Failed to read {}: {}", path, e))?;
+            let (samples, sample_rate, channels) = decode_any(&data)?;
+            let buf = SamplesBuffer::new(NonZero::new(channels).unwrap(), NonZero::new(sample_rate).unwrap(), samples);
+            let eq_source = EqSource::new(buf, state.eq_params.clone());
+            new_player.append(eq_source);
+        }
+    }
 
     // Replace old player
     let mut player = state.player.lock().unwrap();
@@ -534,7 +716,7 @@ pub async fn audio_load_url(
         return Ok(());
     }
 
-    // Cache in background (cache converted ADTS, not raw fMP4)
+    // Cache in background
     if let Some(path) = cache_path {
         let data = bytes.clone();
         tokio::spawn(async move {
@@ -544,14 +726,24 @@ pub async fn audio_load_url(
 
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
-    let cursor = Cursor::new(bytes);
-    let source = Decoder::new(cursor).map_err(|e| format!("Failed to decode: {}", e))?;
-    let eq_source = EqSource::new(source, state.eq_params.clone());
-
     let new_player = Player::connect_new(&mixer);
     let vol = *state.volume.lock().unwrap();
     new_player.set_volume(vol);
-    new_player.append(eq_source);
+
+    // Try rodio first, fallback to FFmpeg
+    let cursor = Cursor::new(bytes.clone());
+    match Decoder::new(cursor) {
+        Ok(source) => {
+            let eq_source = EqSource::new(source, state.eq_params.clone());
+            new_player.append(eq_source);
+        }
+        Err(_) => {
+            let (samples, sample_rate, channels) = decode_any(&bytes)?;
+            let buf = SamplesBuffer::new(NonZero::new(channels).unwrap(), NonZero::new(sample_rate).unwrap(), samples);
+            let eq_source = EqSource::new(buf, state.eq_params.clone());
+            new_player.append(eq_source);
+        }
+    }
 
     // Final stale check while holding the lock
     let mut player = state.player.lock().unwrap();

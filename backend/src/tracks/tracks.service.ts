@@ -66,29 +66,37 @@ export class TracksService {
         'hls_aac_160_url', 'http_mp3_128_url',
         'hls_mp3_128_url', 'preview_mp3_128_url',
       ];
-      let streamUrl = streams[urlKey] as string | undefined;
-      let actualKey = streamUrl ? urlKey : undefined;
 
-      if (!streamUrl) {
-        for (const key of fallbackOrder) {
-          if (streams[key]) {
-            streamUrl = streams[key] as string;
-            actualKey = key;
-            break;
-          }
+      // Build ordered list: requested format first, then fallbacks
+      const candidates: { key: keyof ScStreams; url: string }[] = [];
+      const requestedUrl = streams[urlKey] as string | undefined;
+      if (requestedUrl) {
+        candidates.push({ key: urlKey as keyof ScStreams, url: requestedUrl });
+      }
+      for (const key of fallbackOrder) {
+        if (streams[key] && key !== urlKey) {
+          candidates.push({ key, url: streams[key] as string });
         }
       }
 
-      if (!streamUrl || !actualKey) return null;
+      if (!candidates.length) return null;
 
-      const actualFormat = (actualKey as string).replace('_url', '');
-      const isHls = actualFormat.startsWith('hls_');
+      for (const { key, url } of candidates) {
+        const fmt = (key as string).replace('_url', '');
+        const isHls = fmt.startsWith('hls_');
 
-      if (isHls) {
-        return await this.scPublicApi.streamFromHls(streamUrl, this.hlsMimeType(actualFormat));
+        try {
+          if (isHls) {
+            return await this.scPublicApi.streamFromHls(url, this.hlsMimeType(fmt));
+          }
+          return await this.proxyStream(token, url, range);
+        } catch (err: any) {
+          this.logger.warn(`Stream format ${fmt} failed: ${err.message}, trying next...`);
+          continue;
+        }
       }
 
-      return await this.proxyStream(token, streamUrl, range);
+      return null;
     } catch {
       return null;
     }

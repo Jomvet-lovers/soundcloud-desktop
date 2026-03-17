@@ -200,11 +200,20 @@ export class ScPublicApiService {
       throw new Error('No segments found in m3u8 playlist');
     }
 
+    // Check init segment for CENC encryption (enca box)
+    let initSegment: Buffer | null = null;
+    if (initUrl) {
+      initSegment = await this.downloadSegment(initUrl);
+      if (initSegment.includes(Buffer.from('enca'))) {
+        throw new Error('Stream is CENC encrypted');
+      }
+    }
+
     const contentType = MIME_TO_CONTENT_TYPE[mimeType] ?? 'application/octet-stream';
     const passthrough = new PassThrough();
 
     // Pipe segments in background — don't await
-    this.pipeSegments(passthrough, initUrl, segmentUrls).catch((err) => {
+    this.pipeSegmentsWithInit(passthrough, initSegment, segmentUrls).catch((err) => {
       this.logger.error(`HLS segment streaming failed: ${err.message}`);
       passthrough.destroy(err);
     });
@@ -275,6 +284,25 @@ export class ScPublicApiService {
     try {
       if (initUrl) {
         output.write(await this.downloadSegment(initUrl));
+      }
+      for (const url of segmentUrls) {
+        if (!output.writable) break;
+        output.write(await this.downloadSegment(url));
+      }
+      output.end();
+    } catch (err) {
+      output.destroy(err as Error);
+    }
+  }
+
+  private async pipeSegmentsWithInit(
+    output: PassThrough,
+    initSegment: Buffer | null,
+    segmentUrls: string[],
+  ): Promise<void> {
+    try {
+      if (initSegment) {
+        output.write(initSegment);
       }
       for (const url of segmentUrls) {
         if (!output.writable) break;
