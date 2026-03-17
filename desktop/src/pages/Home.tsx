@@ -124,7 +124,7 @@ function FeedSkeleton({ count = 6 }: { count?: number }) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-2.5">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="glass rounded-2xl p-3 flex items-center gap-3.5">
+        <div key={i} className="glass-flat rounded-2xl p-3 flex items-center gap-3.5">
           <Skeleton className="w-[76px] h-[76px] shrink-0" rounded="lg" />
           <div className="flex-1 space-y-2">
             <Skeleton className="h-4 w-3/4" rounded="sm" />
@@ -292,7 +292,7 @@ const FeedTrackCard = React.memo(
 
     return (
       <div
-        className={`group glass rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
+        className={`group glass-flat rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
           isThis ? 'ring-1 ring-accent/20 bg-accent/[0.02]' : 'hover:bg-white/[0.035]'
         }`}
         onMouseEnter={() => preloadTrack(track.urn)}
@@ -440,7 +440,7 @@ const FeedPlaylistCard = React.memo(
 
     return (
       <div
-        className={`group glass rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
+        className={`group glass-flat rounded-2xl p-3 flex items-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] ${
           isPlayingFromThis ? 'ring-1 ring-accent/20 bg-accent/[0.02]' : 'hover:bg-white/[0.035]'
         }`}
       >

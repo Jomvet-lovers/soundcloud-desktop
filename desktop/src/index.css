@@ -75,6 +75,11 @@ body,
   border-color: rgba(255, 255, 255, 0.1);
 }
 
+.glass-flat {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
 /* ── Shimmer ───────────────────────────────────────────────── */
 @keyframes shimmer {
   0% {

@@ -70,7 +70,7 @@ const TrackRow = React.memo(
 
         <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+            <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
               {musicIcon20}
@@ -149,7 +149,7 @@ const UserCard = React.memo(({ user }: { user: SCUser }) => {
             src={avatar}
             alt={user.username}
             className="w-full h-full object-cover"
-            loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="w-full h-full bg-white/5 flex items-center justify-center">

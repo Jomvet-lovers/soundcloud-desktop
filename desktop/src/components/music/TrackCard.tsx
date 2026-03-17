@@ -40,7 +40,7 @@ export const TrackCard = React.memo(
               src={artwork}
               alt={track.title}
               className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover:scale-[1.04]"
-              loading="lazy"
+              decoding="async"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-white/20">
