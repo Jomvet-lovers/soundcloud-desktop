@@ -93,21 +93,26 @@ async function loadTrack(track: Track) {
   if (gen !== loadGen) return;
 
   try {
+    let result: { duration_secs: number | null };
     if (cachedPath) {
-      await invoke('audio_load_file', { path: cachedPath });
+      result = await invoke<{ duration_secs: number | null }>('audio_load_file', { path: cachedPath });
     } else {
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
       const sessionId = getSessionId();
-      const result = await invoke<{ snipped: boolean }>('audio_load_url', {
+      result = await invoke<{ duration_secs: number | null }>('audio_load_url', {
         url,
         sessionId: sessionId || null,
         cachePath: null,
       });
-      if (result.snipped) {
-        usePlayerStore.getState().setCurrentTrackAccess('preview');
-      }
       // Background cache for next time
       fetchAndCacheTrack(urn).catch(() => {});
+    }
+    // Detect preview: real audio duration is much shorter than track metadata duration
+    if (result.duration_secs != null && fallbackDuration > 0) {
+      const ratio = result.duration_secs / fallbackDuration;
+      if (ratio < 0.5) {
+        usePlayerStore.getState().setCurrentTrackAccess('preview');
+      }
     }
   } catch (e) {
     console.error('[Audio] Load failed:', e);

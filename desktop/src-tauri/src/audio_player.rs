@@ -343,19 +343,22 @@ fn create_player_from_bytes(
     mixer: &Mixer,
     volume: f32,
     eq_params: Arc<RwLock<EqParams>>,
-) -> Result<Player, String> {
+) -> Result<(Player, Option<f64>), String> {
     let player = Player::connect_new(mixer);
     player.set_volume(volume);
 
+    let duration;
     if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
+        duration = source.total_duration().map(|d| d.as_secs_f64());
         player.append(EqSource::new(source, eq_params));
     } else {
         let source = OpusSource::new(bytes.to_vec())
             .map_err(|e| format!("Failed to decode: {}", e))?;
+        duration = source.total_duration().map(|d| d.as_secs_f64());
         player.append(EqSource::new(source, eq_params));
     }
 
-    Ok(player)
+    Ok((player, duration))
 }
 
 /* ── Audio State (managed by Tauri) ────────────────────────── */
@@ -659,7 +662,7 @@ fn volume_to_rodio(v: f64) -> f32 {
 
 /// Load and play audio from a file path
 #[tauri::command]
-pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<(), String> {
+pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<AudioLoadResult, String> {
     let bytes =
         std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
 
@@ -673,19 +676,19 @@ pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Res
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let new_player = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
+    let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
 
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
 
-    Ok(())
+    Ok(AudioLoadResult { duration_secs })
 }
 
 #[derive(serde::Serialize)]
 pub struct AudioLoadResult {
-    pub snipped: bool,
+    pub duration_secs: Option<f64>,
 }
 
 /// Load and play audio from a URL (downloads fully, optionally caches).
@@ -708,18 +711,13 @@ pub async fn audio_load_url(
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
-    let snipped = resp
-        .headers()
-        .get("x-snipped")
-        .and_then(|v| v.to_str().ok())
-        == Some("true");
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
 
-    let result = AudioLoadResult { snipped };
+    let empty_result = AudioLoadResult { duration_secs: None };
 
     // Stale check after download — another track may have started loading
     if state.load_gen.load(Ordering::Relaxed) != gen {
-        return Ok(result);
+        return Ok(empty_result);
     }
 
     // Cache in background
@@ -740,20 +738,20 @@ pub async fn audio_load_url(
 
     // Stale check again after stopping
     if state.load_gen.load(Ordering::Relaxed) != gen {
-        return Ok(result);
+        return Ok(empty_result);
     }
 
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let new_player = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
+    let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
 
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
 
-    Ok(result)
+    Ok(AudioLoadResult { duration_secs })
 }
 
 #[tauri::command]
@@ -803,7 +801,7 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let new_player = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
+    let (new_player, _) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
 
     if position > 0.0 {
         new_player.try_seek(target).ok();

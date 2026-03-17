@@ -250,10 +250,6 @@ export class ScPublicApiService {
     const m3u8Url = await this.resolveTranscodingUrl(transcoding.url);
     const result = await this.streamFromHls(m3u8Url, transcoding.format.mime_type);
 
-    if (transcoding.snipped) {
-      result.headers['x-snipped'] = 'true';
-    }
-
     return result;
   }
 
