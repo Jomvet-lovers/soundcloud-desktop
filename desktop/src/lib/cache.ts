@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
@@ -49,10 +50,16 @@ function isValidAudio(buffer: ArrayBuffer): boolean {
   if (data.length < MIN_AUDIO_SIZE) return false;
   // ID3 (MP3)
   if (data[0] === 0x49 && data[1] === 0x44 && data[2] === 0x33) return true;
-  // MPEG Sync (MP3)
+  // MPEG Sync (MP3 / ADTS AAC)
   if (data[0] === 0xff && (data[1] & 0xe0) === 0xe0) return true;
   // ftyp (MP4/AAC)
   if (data[4] === 0x66 && data[5] === 0x74 && data[6] === 0x79 && data[7] === 0x70) return true;
+  // OggS (Ogg Vorbis/Opus)
+  if (data[0] === 0x4f && data[1] === 0x67 && data[2] === 0x67 && data[3] === 0x53) return true;
+  // RIFF/WAV
+  if (data[0] === 0x52 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x46) return true;
+  // fLaC
+  if (data[0] === 0x66 && data[1] === 0x4c && data[2] === 0x61 && data[3] === 0x43) return true;
   return false;
 }
 
@@ -271,4 +278,35 @@ export function getWallpaperUrl(name: string): string | null {
   const port = getStaticPort();
   if (!port) return null;
   return `http://127.0.0.1:${port}/wallpapers/${encodeURIComponent(name)}`;
+}
+
+/* ── Track Download ──────────────────────────────────────── */
+
+function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export async function downloadTrack(urn: string, artist: string, title: string): Promise<string> {
+  const { save } = await import('@tauri-apps/plugin-dialog');
+
+  const filename = sanitizeFilename(`${artist} - ${title}.mp3`);
+
+  const dest = await save({
+    defaultPath: filename,
+    filters: [{ name: 'Audio', extensions: ['mp3'] }],
+  });
+  if (!dest) throw new Error('cancelled');
+
+  // Ensure cached
+  let cachedPath = await getCacheFilePath(urn);
+  if (!cachedPath) {
+    await fetchAndCacheTrack(urn);
+    cachedPath = await getCacheFilePath(urn);
+  }
+  if (!cachedPath) throw new Error('Failed to cache track');
+
+  return invoke<string>('save_track_to_path', { cachePath: cachedPath, destPath: dest });
 }

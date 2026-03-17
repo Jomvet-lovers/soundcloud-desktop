@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
 export interface Track {
@@ -31,9 +31,17 @@ export interface Track {
 
 type RepeatMode = 'off' | 'one' | 'all';
 
+function shuffleArray<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
 interface PlayerState {
   currentTrack: Track | null;
   queue: Track[];
+  originalQueue: Track[] | null;
   queueIndex: number;
   isPlaying: boolean;
   volume: number;
@@ -41,6 +49,7 @@ interface PlayerState {
   repeat: RepeatMode;
 
   play: (track: Track, queue?: Track[]) => void;
+  playFromQueue: (index: number) => void;
   pause: () => void;
   resume: () => void;
   togglePlay: () => void;
@@ -62,6 +71,7 @@ export const usePlayerStore = create<PlayerState>()(
     (set, get) => ({
       currentTrack: null,
       queue: [],
+      originalQueue: null,
       queueIndex: -1,
       isPlaying: false,
       volume: 50,
@@ -70,13 +80,30 @@ export const usePlayerStore = create<PlayerState>()(
 
       play: (track, queue) => {
         if (queue) {
+          const { shuffle } = get();
           const idx = queue.findIndex((t) => t.urn === track.urn);
-          set({
-            currentTrack: track,
-            queue,
-            queueIndex: idx >= 0 ? idx : 0,
-            isPlaying: true,
-          });
+          const realIdx = idx >= 0 ? idx : 0;
+
+          if (shuffle) {
+            const original = [...queue];
+            const rest = [...queue.slice(0, realIdx), ...queue.slice(realIdx + 1)];
+            shuffleArray(rest);
+            set({
+              currentTrack: track,
+              queue: [track, ...rest],
+              queueIndex: 0,
+              isPlaying: true,
+              originalQueue: original,
+            });
+          } else {
+            set({
+              currentTrack: track,
+              queue,
+              queueIndex: realIdx,
+              isPlaying: true,
+              originalQueue: null,
+            });
+          }
         } else {
           const { queue: currentQueue } = get();
           set({
@@ -88,6 +115,16 @@ export const usePlayerStore = create<PlayerState>()(
         }
       },
 
+      playFromQueue: (index) => {
+        const { queue } = get();
+        if (index < 0 || index >= queue.length) return;
+        set({
+          currentTrack: queue[index],
+          queueIndex: index,
+          isPlaying: true,
+        });
+      },
+
       pause: () => set({ isPlaying: false }),
       resume: () => set({ isPlaying: true }),
 
@@ -97,15 +134,10 @@ export const usePlayerStore = create<PlayerState>()(
       },
 
       next: () => {
-        const { queue, queueIndex, repeat, shuffle } = get();
+        const { queue, queueIndex, repeat } = get();
         if (queue.length === 0) return;
 
-        let nextIdx: number;
-        if (shuffle) {
-          nextIdx = Math.floor(Math.random() * queue.length);
-        } else {
-          nextIdx = queueIndex + 1;
-        }
+        let nextIdx = queueIndex + 1;
 
         if (nextIdx >= queue.length) {
           if (repeat === 'all') nextIdx = 0;
@@ -137,21 +169,33 @@ export const usePlayerStore = create<PlayerState>()(
       setQueue: (queue) =>
         set((s) => {
           const idx = s.currentTrack ? queue.findIndex((t) => t.urn === s.currentTrack!.urn) : -1;
-          return { queue, queueIndex: idx >= 0 ? idx : s.queueIndex };
+          return {
+            queue,
+            queueIndex: idx >= 0 ? idx : s.queueIndex,
+            originalQueue: s.shuffle ? [...queue] : null,
+          };
         }),
 
-      addToQueue: (tracks) => set((s) => ({ queue: [...s.queue, ...tracks] })),
+      addToQueue: (tracks) =>
+        set((s) => ({
+          queue: [...s.queue, ...tracks],
+          originalQueue: s.originalQueue ? [...s.originalQueue, ...tracks] : null,
+        })),
 
       addToQueueNext: (tracks) =>
         set((s) => {
           const queue = [...s.queue];
           const insertIndex = s.queueIndex >= 0 ? s.queueIndex + 1 : 0;
           queue.splice(insertIndex, 0, ...tracks);
-          return { queue };
+          return {
+            queue,
+            originalQueue: s.originalQueue ? [...s.originalQueue, ...tracks] : null,
+          };
         }),
 
       removeFromQueue: (index) =>
         set((s) => {
+          const removed = s.queue[index];
           const queue = s.queue.filter((_, i) => i !== index);
           const queueIndex =
             index < s.queueIndex
@@ -159,7 +203,14 @@ export const usePlayerStore = create<PlayerState>()(
               : index === s.queueIndex
                 ? Math.min(s.queueIndex, queue.length - 1)
                 : s.queueIndex;
-          return { queue, queueIndex };
+          let originalQueue = s.originalQueue;
+          if (originalQueue && removed) {
+            const oq = [...originalQueue];
+            const oi = oq.findIndex((t) => t.urn === removed.urn);
+            if (oi >= 0) oq.splice(oi, 1);
+            originalQueue = oq;
+          }
+          return { queue, queueIndex, originalQueue };
         }),
 
       moveInQueue: (from, to) =>
@@ -174,8 +225,37 @@ export const usePlayerStore = create<PlayerState>()(
           return { queue, queueIndex };
         }),
 
-      clearQueue: () => set({ queue: [], queueIndex: -1 }),
-      toggleShuffle: () => set((s) => ({ shuffle: !s.shuffle })),
+      clearQueue: () => set({ queue: [], queueIndex: -1, originalQueue: null }),
+
+      toggleShuffle: () => {
+        const { shuffle, queue, queueIndex, currentTrack } = get();
+        if (!shuffle) {
+          // ON: save original order, shuffle everything after current track
+          const original = [...queue];
+          const after = [...queue.slice(queueIndex + 1)];
+          shuffleArray(after);
+          set({
+            shuffle: true,
+            originalQueue: original,
+            queue: [...queue.slice(0, queueIndex + 1), ...after],
+          });
+        } else {
+          // OFF: restore original order
+          const { originalQueue } = get();
+          if (originalQueue && currentTrack) {
+            const idx = originalQueue.findIndex((t) => t.urn === currentTrack.urn);
+            set({
+              shuffle: false,
+              queue: originalQueue,
+              queueIndex: idx >= 0 ? idx : 0,
+              originalQueue: null,
+            });
+          } else {
+            set({ shuffle: false, originalQueue: null });
+          }
+        }
+      },
+
       toggleRepeat: () =>
         set((s) => ({
           repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
@@ -189,6 +269,7 @@ export const usePlayerStore = create<PlayerState>()(
         volume: state.volume,
         currentTrack: state.currentTrack,
         queue: state.queue,
+        originalQueue: state.originalQueue,
         queueIndex: state.queueIndex,
         shuffle: state.shuffle,
         repeat: state.repeat,

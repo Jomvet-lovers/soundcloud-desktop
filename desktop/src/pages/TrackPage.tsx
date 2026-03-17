@@ -2,10 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
+import { downloadTrack } from '../lib/cache';
 import { ago, art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
 import {
   type Comment,
@@ -21,6 +23,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Download,
   Hash,
   Headphones,
   Heart,
@@ -288,6 +291,40 @@ const RelatedRow = React.memo(
   (prev, next) => prev.track.urn === next.track.urn,
 );
 
+/* ── Download Button ─────────────────────────────────────── */
+
+const DownloadButton = React.memo(({ track }: { track: Track }) => {
+  const { t } = useTranslation();
+  const [loading, setLoading] = useState(false);
+
+  const handleDownload = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      await downloadTrack(track.urn, track.user.username, track.title);
+      toast.success(t('track.downloaded'));
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message === 'cancelled') return;
+      console.error('Download failed:', e);
+      toast.error(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={loading}
+      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer disabled:opacity-50"
+    >
+      {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+      {t('track.download')}
+    </button>
+  );
+});
+
 /* ── Main: TrackPage ─────────────────────────────────────── */
 
 export const TrackPage = React.memo(() => {
@@ -472,6 +509,7 @@ export const TrackPage = React.memo(() => {
                 </button>
               </AddToPlaylistDialog>
               <CopyLinkButton url={track.permalink_url} />
+              <DownloadButton track={track} />
             </div>
           </div>
         </div>

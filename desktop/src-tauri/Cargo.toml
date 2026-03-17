@@ -17,6 +17,7 @@ tauri = { version = "2", features = ["devtools", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
 warp = "0.3"
 discord-rich-presence = "1"
@@ -30,7 +31,9 @@ http = "1"
 urlencoding = "2"
 tauri-plugin-single-instance = "2.4.0"
 rodio = { version = "0.22.2", features = ["mp3", "symphonia-aac", "symphonia-isomp4"] }
+cpal = "0.17"
 biquad = "0.5"
 souvlaki = "0.8"
 raw-window-handle = "0.6"
+tauri-plugin-dialog = "2.6.0"
 

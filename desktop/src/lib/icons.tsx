@@ -18,6 +18,7 @@ import {
   Clock as _Clock,
   Compass as _Compass,
   Disc3 as _Disc3,
+  Download as _Download,
   ExternalLink as _ExternalLink,
   Globe as _Globe,
   GripVertical as _GripVertical,
@@ -87,6 +88,7 @@ export const AlertCircle = memo(_AlertCircle);
 export const Calendar = memo(_Calendar);
 export const Check = memo(_Check);
 export const ClipboardCopy = memo(_ClipboardCopy);
+export const Download = memo(_Download);
 export const ChevronDown = memo(_ChevronDown);
 export const ChevronLeft = memo(_ChevronLeft);
 export const ChevronRight = memo(_ChevronRight);

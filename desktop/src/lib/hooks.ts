@@ -396,7 +396,7 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
   const query = useInfiniteQuery({
     queryKey: ['playlist', playlistUrn, 'tracks'],
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '50' });
+      const params = new URLSearchParams({ limit: '200' });
       if (pageParam) {
         for (const [key, val] of Object.entries(pageParam)) {
           params.set(key, val);
@@ -416,6 +416,13 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
     enabled: !!playlistUrn,
     refetchOnMount: 'always',
   });
+
+  // Auto-fetch all pages so full playlist loads without scrolling
+  useEffect(() => {
+    if (query.hasNextPage && !query.isFetchingNextPage) {
+      query.fetchNextPage();
+    }
+  }, [query.hasNextPage, query.isFetchingNextPage, query.data]);
 
   const tracks = useMemo(() => {
     if (!query.data) return [];

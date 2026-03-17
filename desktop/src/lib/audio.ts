@@ -15,6 +15,7 @@ let hasTrack = false;
 let fallbackDuration = 0;
 let cachedTime = 0;
 let cachedDuration = 0;
+let loadGen = 0;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -58,7 +59,19 @@ function stopTrack() {
   cachedTime = 0;
 }
 
+/** Reload the current track on new audio device, preserving position */
+export async function reloadCurrentTrack() {
+  const track = usePlayerStore.getState().currentTrack;
+  if (!track) return;
+  const wasPlaying = usePlayerStore.getState().isPlaying;
+  const pos = cachedTime;
+  await loadTrack(track);
+  if (pos > 0) seek(pos);
+  if (!wasPlaying) invoke('audio_pause').catch(console.error);
+}
+
 async function loadTrack(track: Track) {
+  const gen = ++loadGen;
   stopTrack();
   currentUrn = track.urn;
   const urn = track.urn;
@@ -77,7 +90,7 @@ async function loadTrack(track: Track) {
 
   // Try cached file first
   const cachedPath = await getCacheFilePath(urn);
-  if (currentUrn !== urn) return;
+  if (gen !== loadGen) return;
 
   try {
     if (cachedPath) {
@@ -95,12 +108,16 @@ async function loadTrack(track: Track) {
     }
   } catch (e) {
     console.error('[Audio] Load failed:', e);
-    if (currentUrn !== urn) return;
+    if (gen !== loadGen) return;
     usePlayerStore.getState().pause();
     return;
   }
 
-  if (currentUrn !== urn) return;
+  // Stale check — another loadTrack started while we were loading
+  if (gen !== loadGen) {
+    invoke('audio_stop').catch(console.error);
+    return;
+  }
   hasTrack = true;
 
   if (!usePlayerStore.getState().isPlaying) {
@@ -118,11 +135,13 @@ function handleTrackEnd() {
     // rodio sink is empty after track ends — must reload
     if (state.currentTrack) void loadTrack(state.currentTrack);
   } else {
-    const { queue, queueIndex, shuffle } = state;
-    const isLast = !shuffle && queueIndex >= queue.length - 1;
+    const { queue, queueIndex } = state;
+    const isLast = queueIndex >= queue.length - 1;
     if (isLast && state.repeat === 'off' && queue.length > 0) {
       void autoplayRelated(queue[queueIndex]);
     } else {
+      // Clear currentUrn so subscriber detects change even if next track has same URN
+      currentUrn = null;
       usePlayerStore.getState().next();
     }
   }
@@ -241,7 +260,10 @@ async function autoplayRelated(lastTrack: Track) {
       `/tracks/${encodeURIComponent(lastTrack.urn)}/related?limit=20`,
     );
     const fresh = res.collection.filter((t) => !existingUrns.has(t.urn));
-    if (fresh.length === 0) return;
+    if (fresh.length === 0) {
+      usePlayerStore.getState().pause();
+      return;
+    }
 
     usePlayerStore.getState().addToQueue(fresh);
     usePlayerStore.getState().next();

@@ -47,7 +47,9 @@
     "lyrics": "Lyrics",
     "lyricsNotFound": "Lyrics not found",
     "lyricsNotFoundHint": "Try searching on Genius.com",
-    "lyricsLoading": "Searching lyrics..."
+    "lyricsLoading": "Searching lyrics...",
+    "download": "Download",
+    "downloaded": "Saved"
   },
   "playlist": {
     "playAll": "Play All",
@@ -131,7 +133,10 @@
     "bgOpacity": "Background opacity",
     "resetDefaults": "Reset to defaults",
     "account": "Account",
-    "language": "Language"
+    "language": "Language",
+    "audioDevice": "Audio output",
+    "audioDeviceDefault": "System default",
+    "audioDeviceSwitched": "Audio device switched"
   },
   "eq": {
     "title": "Equalizer",

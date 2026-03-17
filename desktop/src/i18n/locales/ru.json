@@ -47,7 +47,9 @@
     "lyrics": "Текст песни",
     "lyricsNotFound": "Текст не найден",
     "lyricsNotFoundHint": "Попробуйте поискать на Genius.com",
-    "lyricsLoading": "Ищем текст..."
+    "lyricsLoading": "Ищем текст...",
+    "download": "Скачать",
+    "downloaded": "Скачано"
   },
   "playlist": {
     "playAll": "Воспроизвести",
@@ -132,7 +134,10 @@
     "bgOpacity": "Прозрачность фона",
     "resetDefaults": "Сбросить",
     "account": "Аккаунт",
-    "language": "Язык"
+    "language": "Язык",
+    "audioDevice": "Аудиовыход",
+    "audioDeviceDefault": "Системный по умолчанию",
+    "audioDeviceSwitched": "Аудиоустройство переключено"
   },
   "eq": {
     "title": "Эквалайзер",

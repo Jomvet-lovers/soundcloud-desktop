@@ -456,9 +456,11 @@ export const PlaylistPage = React.memo(() => {
 
   const handleShuffle = () => {
     if (tracks.length === 0) return;
-    const { play } = usePlayerStore.getState();
-    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-    play(shuffled[0], shuffled);
+    if (!usePlayerStore.getState().shuffle) {
+      usePlayerStore.setState({ shuffle: true });
+    }
+    const random = tracks[Math.floor(Math.random() * tracks.length)];
+    usePlayerStore.getState().play(random, tracks);
   };
 
   const handleDelete = () => {

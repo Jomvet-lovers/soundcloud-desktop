@@ -28,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol("scproxy", |_ctx, request, responder| {
             let Some(state) = proxy::STATE.get() else {
                 responder.respond(
@@ -116,6 +117,9 @@ pub fn run() {
             audio_player::audio_set_metadata,
             audio_player::audio_set_playback_state,
             audio_player::audio_set_media_position,
+            audio_player::audio_list_devices,
+            audio_player::audio_switch_device,
+            audio_player::save_track_to_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

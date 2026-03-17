@@ -17,8 +17,6 @@ import {
 } from '../lib/hooks';
 import {
   Heart,
-  Search as SearchIcon,
-  X,
   headphones11,
   heart11,
   ListMusic,
@@ -28,8 +26,10 @@ import {
   pauseWhite14,
   playBlack20ml1,
   playWhite14,
+  Search as SearchIcon,
   User,
   Users,
+  X,
 } from '../lib/icons';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
@@ -231,8 +231,11 @@ const LibraryHero = React.memo(function LibraryHero({
       const all = await fetchAllLikedTracks();
       if (all.length === 0) return;
 
-      const shuffled = [...all].sort(() => Math.random() - 0.5);
-      usePlayerStore.getState().play(shuffled[0], shuffled);
+      if (!usePlayerStore.getState().shuffle) {
+        usePlayerStore.setState({ shuffle: true });
+      }
+      const random = all[Math.floor(Math.random() * all.length)];
+      usePlayerStore.getState().play(random, all);
     } finally {
       setShuffleLoading(false);
     }
@@ -384,7 +387,11 @@ const LikesTab = React.memo(function LikesTab({ filter }: { filter: string }) {
           ))
         ) : (
           <div className="py-20 text-center text-white/20">
-            {filter && likesQuery.hasNextPage ? t('common.loading') : filter ? t('library.noMatches') : t('library.noLikedTracks')}
+            {filter && likesQuery.hasNextPage
+              ? t('common.loading')
+              : filter
+                ? t('library.noMatches')
+                : t('library.noLikedTracks')}
           </div>
         )}
       </div>

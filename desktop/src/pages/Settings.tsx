@@ -1,6 +1,8 @@
+import { invoke } from '@tauri-apps/api/core';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { reloadCurrentTrack } from '../lib/audio';
 import {
   clearAssetsCache,
   clearCache,
@@ -12,7 +14,7 @@ import {
   removeWallpaper,
   saveWallpaperFromBuffer,
 } from '../lib/cache';
-import { Globe, Loader2, Trash2, X, Link } from '../lib/icons';
+import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
 
@@ -460,6 +462,66 @@ const ThemeSection = React.memo(function ThemeSection() {
   );
 });
 
+/* ── Audio Device Section ──────────────────────────────── */
+
+interface AudioSink {
+  name: string;
+  description: string;
+  is_default: boolean;
+}
+
+const AudioDeviceSection = React.memo(function AudioDeviceSection() {
+  const { t } = useTranslation();
+  const [sinks, setSinks] = useState<AudioSink[]>([]);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    invoke<AudioSink[]>('audio_list_devices').then(setSinks).catch(console.error);
+  }, []);
+
+  const handleSwitch = async (sinkName: string) => {
+    const current = sinks.find((s) => s.is_default);
+    if (switching || current?.name === sinkName) return;
+    setSwitching(true);
+    try {
+      await invoke('audio_switch_device', { deviceName: sinkName });
+      setSinks((prev) => prev.map((s) => ({ ...s, is_default: s.name === sinkName })));
+      await reloadCurrentTrack();
+      toast.success(t('settings.audioDeviceSwitched'));
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  if (sinks.length === 0) return null;
+
+  return (
+    <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl">
+      <h3 className="text-[15px] font-bold text-white/80 tracking-tight mb-4">
+        {t('settings.audioDevice')}
+      </h3>
+      <div className="flex gap-2 flex-wrap">
+        {sinks.map((sink) => (
+          <button
+            key={sink.name}
+            onClick={() => handleSwitch(sink.name)}
+            disabled={switching}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 cursor-pointer border ${
+              sink.is_default
+                ? 'bg-white/[0.1] text-white/90 border-white/[0.15]'
+                : 'bg-white/[0.02] text-white/40 border-white/[0.05] hover:bg-white/[0.06] hover:text-white/60'
+            } disabled:opacity-50`}
+          >
+            {sink.description}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+});
+
 /* ── Account Section ────────────────────────────────────── */
 
 const AccountSection = React.memo(function AccountSection() {
@@ -492,6 +554,7 @@ export function Settings() {
       <LanguageSection />
       <CacheSection />
       <ThemeSection />
+      <AudioDeviceSection />
       <AccountSection />
     </div>
   );

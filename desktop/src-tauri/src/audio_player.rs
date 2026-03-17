@@ -1,7 +1,7 @@
 use std::io::{BufReader, Cursor};
 use std::num::NonZero;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use biquad::{Biquad, Coefficients, DirectForm1, Hertz, ToHertz, Type, Q_BUTTERWORTH_F64};
@@ -196,47 +196,105 @@ enum MediaCmd {
     SetPosition(f64),
 }
 
+/// Command sent to the audio output thread (which owns MixerDeviceSink)
+enum AudioThreadCmd {
+    SwitchDevice {
+        name: Option<String>,
+        reply: std::sync::mpsc::Sender<Result<Mixer, String>>,
+    },
+}
+
 pub struct AudioState {
     player: Mutex<Option<Player>>,
+    mixer: Mutex<Mixer>,
     eq_params: Arc<RwLock<EqParams>>,
     volume: Mutex<f32>, // 0.0 - 2.0
     has_track: AtomicBool,
     ended_notified: AtomicBool,
+    load_gen: AtomicU64,
     media_tx: Mutex<Option<std::sync::mpsc::Sender<MediaCmd>>>,
+    audio_tx: std::sync::mpsc::Sender<AudioThreadCmd>,
 }
 
-// Keep MixerDeviceSink alive globally; Mixer (Clone + Send) is extracted for creating Players
-static MIXER: OnceLock<Mixer> = OnceLock::new();
+fn device_display_name(dev: &cpal::Device) -> Option<String> {
+    use cpal::traits::DeviceTrait;
+    dev.description().ok().map(|d| d.name().to_string())
+}
+
+fn open_device_sink(name: Option<&str>) -> Result<rodio::stream::MixerDeviceSink, String> {
+    use cpal::traits::HostTrait;
+
+    if let Some(name) = name {
+        let host = cpal::default_host();
+        if let Ok(devices) = host.output_devices() {
+            for dev in devices {
+                if device_display_name(&dev).as_deref() == Some(name) {
+                    let mut sink = DeviceSinkBuilder::from_device(dev)
+                        .and_then(|b| b.open_stream())
+                        .map_err(|e| format!("Failed to open device '{}': {}", name, e))?;
+                    sink.log_on_drop(false);
+                    return Ok(sink);
+                }
+            }
+        }
+        return Err(format!("Device '{}' not found", name));
+    }
+
+    let mut sink =
+        DeviceSinkBuilder::open_default_sink().map_err(|e| format!("No audio output: {}", e))?;
+    sink.log_on_drop(false);
+    Ok(sink)
+}
 
 pub fn init() -> AudioState {
     // Spawn audio output on a dedicated thread (MixerDeviceSink may be !Send on some platforms)
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (mixer_tx, mixer_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<AudioThreadCmd>();
+
     std::thread::Builder::new()
         .name("audio-output".into())
         .spawn(move || {
-            let mut device_sink =
-                DeviceSinkBuilder::open_default_sink().expect("no audio output device");
-            device_sink.log_on_drop(false);
-            let mixer = device_sink.mixer().clone();
-            tx.send(mixer).ok();
-            // Keep device_sink alive — dropping it stops all audio
-            let _keep = device_sink;
+            let mut device_sink = open_device_sink(None).expect("no audio output device");
+            mixer_tx.send(device_sink.mixer().clone()).ok();
+
             loop {
-                std::thread::park();
+                match cmd_rx.recv() {
+                    Ok(AudioThreadCmd::SwitchDevice { name, reply }) => {
+                        // Drop old sink first
+                        drop(device_sink);
+
+                        match open_device_sink(name.as_deref()) {
+                            Ok(new_sink) => {
+                                let mixer = new_sink.mixer().clone();
+                                device_sink = new_sink;
+                                reply.send(Ok(mixer)).ok();
+                            }
+                            Err(e) => {
+                                // Fallback to default
+                                device_sink =
+                                    open_device_sink(None).expect("no audio output device");
+                                reply.send(Err(e)).ok();
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
             }
         })
         .expect("failed to spawn audio thread");
 
-    let mixer = rx.recv().expect("audio thread failed to init");
-    MIXER.set(mixer).ok();
+    let mixer = mixer_rx.recv().expect("audio thread failed to init");
 
     AudioState {
         player: Mutex::new(None),
+        mixer: Mutex::new(mixer),
         eq_params: Arc::new(RwLock::new(EqParams::default())),
         volume: Mutex::new(0.25), // 50/200
         has_track: AtomicBool::new(false),
         ended_notified: AtomicBool::new(false),
+        load_gen: AtomicU64::new(0),
         media_tx: Mutex::new(None),
+        audio_tx: cmd_tx,
     }
 }
 
@@ -423,7 +481,7 @@ fn volume_to_rodio(v: f64) -> f32 {
 /// Load and play audio from a file path
 #[tauri::command]
 pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<(), String> {
-    let mixer = MIXER.get().ok_or("audio not initialized")?;
+    let mixer = state.mixer.lock().unwrap().clone();
 
     let file =
         std::fs::File::open(&path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
@@ -432,7 +490,7 @@ pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Res
 
     let eq_source = EqSource::new(source, state.eq_params.clone());
 
-    let new_player = Player::connect_new(mixer);
+    let new_player = Player::connect_new(&mixer);
     let vol = *state.volume.lock().unwrap();
     new_player.set_volume(vol);
     new_player.append(eq_source);
@@ -457,6 +515,8 @@ pub async fn audio_load_url(
     cache_path: Option<String>,
     state: tauri::State<'_, AudioState>,
 ) -> Result<(), String> {
+    let gen = state.load_gen.load(Ordering::Relaxed);
+
     // Download
     let client = reqwest::Client::new();
     let mut req = client.get(&url);
@@ -469,7 +529,12 @@ pub async fn audio_load_url(
     }
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
 
-    // Cache in background
+    // Stale check after download — another track may have started loading
+    if state.load_gen.load(Ordering::Relaxed) != gen {
+        return Ok(());
+    }
+
+    // Cache in background (cache converted ADTS, not raw fMP4)
     if let Some(path) = cache_path {
         let data = bytes.clone();
         tokio::spawn(async move {
@@ -478,17 +543,22 @@ pub async fn audio_load_url(
     }
 
     // Decode and play
-    let mixer = MIXER.get().ok_or("audio not initialized")?;
+    let mixer = state.mixer.lock().unwrap().clone();
     let cursor = Cursor::new(bytes);
     let source = Decoder::new(cursor).map_err(|e| format!("Failed to decode: {}", e))?;
     let eq_source = EqSource::new(source, state.eq_params.clone());
 
-    let new_player = Player::connect_new(mixer);
+    let new_player = Player::connect_new(&mixer);
     let vol = *state.volume.lock().unwrap();
     new_player.set_volume(vol);
     new_player.append(eq_source);
 
+    // Final stale check while holding the lock
     let mut player = state.player.lock().unwrap();
+    if state.load_gen.load(Ordering::Relaxed) != gen {
+        new_player.stop();
+        return Ok(());
+    }
     if let Some(old) = player.take() {
         old.stop();
     }
@@ -520,6 +590,7 @@ pub fn audio_stop(state: tauri::State<'_, AudioState>) {
         old.stop();
     }
     state.has_track.store(false, Ordering::Relaxed);
+    state.load_gen.fetch_add(1, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -603,4 +674,107 @@ pub fn audio_set_media_position(position: f64, state: tauri::State<'_, AudioStat
     if let Some(tx) = state.media_tx.lock().unwrap().as_ref() {
         tx.send(MediaCmd::SetPosition(position)).ok();
     }
+}
+
+/* ── Audio Device Management ──────────────────────────────── */
+
+/// Audio sink info from PulseAudio/PipeWire
+#[derive(serde::Serialize, Clone)]
+pub struct AudioSink {
+    pub name: String,        // internal name for pactl
+    pub description: String, // human-readable
+    pub is_default: bool,
+}
+
+#[tauri::command]
+pub fn audio_list_devices() -> Vec<AudioSink> {
+    // Use pactl to list real PipeWire/PulseAudio sinks
+    let output = match std::process::Command::new("pactl")
+        .args(["--format=json", "list", "sinks"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return Vec::new(),
+    };
+
+    // Get current default sink name
+    let default_sink = std::process::Command::new("pactl")
+        .args(["get-default-sink"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    let sinks: Vec<serde_json::Value> = match serde_json::from_slice(&output) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    sinks
+        .iter()
+        .filter_map(|s| {
+            let name = s.get("name")?.as_str()?.to_string();
+            let description = s.get("description")?.as_str()?.to_string();
+            Some(AudioSink {
+                is_default: name == default_sink,
+                name,
+                description,
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn audio_switch_device(
+    device_name: Option<String>,
+    state: tauri::State<'_, AudioState>,
+) -> Result<(), String> {
+    // Set PipeWire/PulseAudio default sink
+    if let Some(ref name) = device_name {
+        std::process::Command::new("pactl")
+            .args(["set-default-sink", name])
+            .status()
+            .map_err(|e| format!("pactl failed: {}", e))?;
+    }
+
+    // Stop current playback
+    {
+        let mut player = state.player.lock().unwrap();
+        if let Some(old) = player.take() {
+            old.stop();
+        }
+        state.has_track.store(false, Ordering::Relaxed);
+        state.load_gen.fetch_add(1, Ordering::Relaxed);
+    }
+
+    // Re-open default cpal device (which follows PipeWire default)
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+    state
+        .audio_tx
+        .send(AudioThreadCmd::SwitchDevice {
+            name: None, // always re-open default — pactl already switched it
+            reply: reply_tx,
+        })
+        .map_err(|e| e.to_string())?;
+
+    let new_mixer = reply_rx
+        .recv()
+        .map_err(|e| format!("Device switch failed: {}", e))?
+        .map_err(|e| e)?;
+
+    *state.mixer.lock().unwrap() = new_mixer;
+    Ok(())
+}
+
+/* ── Track Download ───────────────────────────────────────── */
+
+#[tauri::command]
+pub async fn save_track_to_path(
+    cache_path: String,
+    dest_path: String,
+) -> Result<String, String> {
+    tokio::fs::copy(&cache_path, &dest_path)
+        .await
+        .map_err(|e| format!("Copy failed: {}", e))?;
+    Ok(dest_path)
 }
