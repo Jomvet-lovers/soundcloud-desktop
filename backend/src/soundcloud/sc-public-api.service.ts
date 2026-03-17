@@ -153,25 +153,28 @@ export class ScPublicApiService {
     transcodings: ScTranscodingInfo[],
     preferredFormat?: string,
   ): ScTranscodingInfo | null {
-    const decryptedTranscodings = transcodings.filter((t) => !t.format?.protocol?.includes('encrypted'));
-    if (!decryptedTranscodings.length) return null;
+    // Filter encrypted, sort snipped to the end
+    const candidates = transcodings
+      .filter((t) => !t.format?.protocol?.includes('encrypted'))
+      .sort((a, b) => Number(a.snipped) - Number(b.snipped));
+    if (!candidates.length) return null;
 
-    // Try preferred format first
+    // Try preferred format first (prefer non-snipped)
     if (preferredFormat) {
       const presets = FORMAT_TO_PRESETS[preferredFormat];
       if (presets) {
-        const match = decryptedTranscodings.find((t) => presets.includes(t.preset));
+        const match = candidates.find((t) => presets.includes(t.preset));
         if (match) return match;
       }
     }
 
-    // Fallback order
+    // Fallback order (candidates already sorted: non-snipped first)
     for (const preset of PRESET_FALLBACK_ORDER) {
-      const match = decryptedTranscodings.find((t) => t.preset === preset);
+      const match = candidates.find((t) => t.preset === preset);
       if (match) return match;
     }
 
-    return decryptedTranscodings[0];
+    return candidates[0];
   }
 
   /* ── Transcoding URL → Stream URL ──────────────────── */
@@ -245,7 +248,13 @@ export class ScPublicApiService {
     if (!transcoding) return null;
 
     const m3u8Url = await this.resolveTranscodingUrl(transcoding.url);
-    return this.streamFromHls(m3u8Url, transcoding.format.mime_type);
+    const result = await this.streamFromHls(m3u8Url, transcoding.format.mime_type);
+
+    if (transcoding.snipped) {
+      result.headers['x-snipped'] = 'true';
+    }
+
+    return result;
   }
 
   /* ── Private: m3u8 parsing ─────────────────────────── */

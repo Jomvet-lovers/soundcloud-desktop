@@ -165,6 +165,9 @@ export class TracksController {
       res.status(206);
       res.header('Content-Range', headers['content-range']);
     }
+    if (headers['x-snipped']) {
+      res.header('X-Snipped', 'true');
+    }
 
     return new StreamableFile(stream, {
       type: headers['content-type'],
