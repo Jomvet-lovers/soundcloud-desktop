@@ -4177,7 +4177,7 @@ dependencies = [
 
 [[package]]
 name = "soundcloud-desktop"
-version = "5.9.1"
+version = "5.9.3"
 dependencies = [
  "base64 0.22.1",
  "biquad",

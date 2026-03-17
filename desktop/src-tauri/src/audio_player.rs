@@ -1,4 +1,4 @@
-use std::io::{BufReader, Cursor};
+use std::io::Cursor;
 use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -214,6 +214,8 @@ pub struct AudioState {
     load_gen: AtomicU64,
     media_tx: Mutex<Option<std::sync::mpsc::Sender<MediaCmd>>>,
     audio_tx: std::sync::mpsc::Sender<AudioThreadCmd>,
+    /// Saved source bytes for seek fallback (reload + seek forward)
+    source_bytes: Mutex<Option<Vec<u8>>>,
 }
 
 fn device_display_name(dev: &cpal::Device) -> Option<String> {
@@ -295,6 +297,7 @@ pub fn init() -> AudioState {
         load_gen: AtomicU64::new(0),
         media_tx: Mutex::new(None),
         audio_tx: cmd_tx,
+        source_bytes: Mutex::new(None),
     }
 }
 
@@ -483,10 +486,10 @@ fn volume_to_rodio(v: f64) -> f32 {
 pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<(), String> {
     let mixer = state.mixer.lock().unwrap().clone();
 
-    let file =
-        std::fs::File::open(&path).map_err(|e| format!("Failed to open {}: {}", path, e))?;
-    let source =
-        Decoder::new(BufReader::new(file)).map_err(|e| format!("Failed to decode: {}", e))?;
+    let bytes =
+        std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+    let source = Decoder::new(Cursor::new(bytes.clone()))
+        .map_err(|e| format!("Failed to decode: {}", e))?;
 
     let eq_source = EqSource::new(source, state.eq_params.clone());
 
@@ -501,6 +504,7 @@ pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Res
         old.stop();
     }
     *player = Some(new_player);
+    *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
 
@@ -544,8 +548,8 @@ pub async fn audio_load_url(
 
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
-    let cursor = Cursor::new(bytes);
-    let source = Decoder::new(cursor).map_err(|e| format!("Failed to decode: {}", e))?;
+    let source = Decoder::new(Cursor::new(bytes.clone()))
+        .map_err(|e| format!("Failed to decode: {}", e))?;
     let eq_source = EqSource::new(source, state.eq_params.clone());
 
     let new_player = Player::connect_new(&mixer);
@@ -563,6 +567,7 @@ pub async fn audio_load_url(
         old.stop();
     }
     *player = Some(new_player);
+    *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
 
@@ -589,16 +594,65 @@ pub fn audio_stop(state: tauri::State<'_, AudioState>) {
     if let Some(old) = player.take() {
         old.stop();
     }
+    *state.source_bytes.lock().unwrap() = None;
     state.has_track.store(false, Ordering::Relaxed);
     state.load_gen.fetch_add(1, Ordering::Relaxed);
 }
 
 #[tauri::command]
 pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<(), String> {
-    if let Some(ref p) = *state.player.lock().unwrap() {
-        p.try_seek(Duration::from_secs_f64(position))
-            .map_err(|e| e.to_string())?;
+    let target = Duration::from_secs_f64(position);
+
+    // Try normal seek first
+    {
+        let player = state.player.lock().unwrap();
+        if let Some(ref p) = *player {
+            if p.try_seek(target).is_ok() {
+                return Ok(());
+            }
+        }
     }
+
+    // Fallback: reload from saved source bytes and seek forward
+    let bytes = state.source_bytes.lock().unwrap().clone();
+    let Some(bytes) = bytes else {
+        return Err("No source to reload for seek".into());
+    };
+
+    let mixer = state.mixer.lock().unwrap().clone();
+    let source =
+        Decoder::new(Cursor::new(bytes)).map_err(|e| format!("Failed to decode: {}", e))?;
+    let eq_source = EqSource::new(source, state.eq_params.clone());
+
+    let new_player = Player::connect_new(&mixer);
+    new_player.set_volume(*state.volume.lock().unwrap());
+    new_player.append(eq_source);
+
+    if position > 0.0 {
+        new_player.try_seek(target).ok();
+    }
+
+    let was_paused = state
+        .player
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|p| p.is_paused())
+        .unwrap_or(false);
+
+    let mut player = state.player.lock().unwrap();
+    if let Some(old) = player.take() {
+        old.stop();
+    }
+    *player = Some(new_player);
+    state.ended_notified.store(false, Ordering::Relaxed);
+
+    if was_paused {
+        if let Some(ref p) = *player {
+            p.pause();
+        }
+    }
+
     Ok(())
 }
 
