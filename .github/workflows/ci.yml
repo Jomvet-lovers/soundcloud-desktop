@@ -68,6 +68,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
 
+      - name: Install dependencies (macos only)
+        if: matrix.platform == 'macos-latest'
+        run: brew install autoconf automake libtool
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10
