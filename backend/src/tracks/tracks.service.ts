@@ -63,8 +63,7 @@ export class TracksService {
       const urlKey = `${format}_url` as keyof typeof streams;
 
       const fallbackOrder: (keyof ScStreams)[] = [
-        'hls_aac_160_url', 'http_mp3_128_url',
-        'hls_mp3_128_url', 'preview_mp3_128_url',
+        'hls_aac_160_url', 'http_mp3_128_url', 'hls_mp3_128_url',
       ];
 
       // Build ordered list: requested format first, then fallbacks
