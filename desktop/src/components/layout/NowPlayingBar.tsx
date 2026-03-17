@@ -396,12 +396,19 @@ const TrackInfo = React.memo(() => {
         </Dialog.Portal>
       </Dialog.Root>
       <div className="min-w-0 flex-1">
-        <p
-          className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
-          onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
-        >
-          {currentTrack.title}
-        </p>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p
+            className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
+            onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
+          >
+            {currentTrack.title}
+          </p>
+          {currentTrack.access === 'preview' && (
+            <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/20 text-amber-400/90 px-1.5 py-px rounded">
+              Preview
+            </span>
+          )}
+        </div>
         <p
           className="text-[11px] text-white/35 truncate mt-1 cursor-pointer hover:text-white/55 transition-colors"
           onClick={() => navigate(`/user/${encodeURIComponent(currentTrack.user.urn)}`)}

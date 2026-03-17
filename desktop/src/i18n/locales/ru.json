@@ -49,7 +49,8 @@
     "lyricsNotFoundHint": "Попробуйте поискать на Genius.com",
     "lyricsLoading": "Ищем текст...",
     "download": "Скачать",
-    "downloaded": "Скачано"
+    "downloaded": "Скачано",
+    "preview": "Превью"
   },
   "playlist": {
     "playAll": "Воспроизвести",

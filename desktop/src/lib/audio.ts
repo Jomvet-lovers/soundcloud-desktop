@@ -98,11 +98,14 @@ async function loadTrack(track: Track) {
     } else {
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
       const sessionId = getSessionId();
-      await invoke('audio_load_url', {
+      const result = await invoke<{ snipped: boolean }>('audio_load_url', {
         url,
         sessionId: sessionId || null,
         cachePath: null,
       });
+      if (result.snipped) {
+        usePlayerStore.getState().setCurrentTrackAccess('preview');
+      }
       // Background cache for next time
       fetchAndCacheTrack(urn).catch(() => {});
     }

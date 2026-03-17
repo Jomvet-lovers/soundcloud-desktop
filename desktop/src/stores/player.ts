@@ -20,6 +20,7 @@ export interface Track {
   favoritings_count?: number;
   reposts_count?: number;
   user_favorite?: boolean;
+  access?: 'playable' | 'preview' | 'blocked';
   user: {
     id: number;
     urn: string;
@@ -64,6 +65,7 @@ interface PlayerState {
   clearQueue: () => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  setCurrentTrackAccess: (access: Track['access']) => void;
 }
 
 export const usePlayerStore = create<PlayerState>()(
@@ -260,6 +262,11 @@ export const usePlayerStore = create<PlayerState>()(
         set((s) => ({
           repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
         })),
+
+      setCurrentTrackAccess: (access) =>
+        set((s) =>
+          s.currentTrack ? { currentTrack: { ...s.currentTrack, access } } : {},
+        ),
     }),
     {
       name: 'sc-player',

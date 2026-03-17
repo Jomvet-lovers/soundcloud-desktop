@@ -182,6 +182,182 @@ impl<S: Source<Item = f32>> Source for EqSource<S> {
     }
 }
 
+/* ── OGG/Opus Source ───────────────────────────────────────── */
+
+struct OpusSource {
+    reader: ogg::reading::PacketReader<Cursor<Vec<u8>>>,
+    decoder: audiopus::coder::Decoder,
+    channels: ChannelCount,
+    buffer: Vec<f32>,
+    buf_pos: usize,
+    serial: u32,
+    pre_skip: usize,
+    samples_skipped: usize,
+}
+
+impl OpusSource {
+    fn new(data: Vec<u8>) -> Result<Self, String> {
+        let mut reader = ogg::reading::PacketReader::new(Cursor::new(data));
+
+        let head_pkt = reader
+            .read_packet()
+            .map_err(|e| format!("OGG read error: {}", e))?
+            .ok_or("No OpusHead packet")?;
+
+        let head = &head_pkt.data;
+        if head.len() < 19 || &head[..8] != b"OpusHead" {
+            return Err("Invalid OpusHead".into());
+        }
+
+        let serial = head_pkt.stream_serial();
+        let ch_count = head[9];
+        let pre_skip = u16::from_le_bytes([head[10], head[11]]) as usize;
+
+        let opus_ch = if ch_count == 1 {
+            audiopus::Channels::Mono
+        } else {
+            audiopus::Channels::Stereo
+        };
+
+        // Skip OpusTags
+        reader
+            .read_packet()
+            .map_err(|e| format!("OGG read error: {}", e))?;
+
+        let decoder = audiopus::coder::Decoder::new(audiopus::SampleRate::Hz48000, opus_ch)
+            .map_err(|e| format!("Opus decoder error: {:?}", e))?;
+
+        let ch = if ch_count == 1 { 1u16 } else { 2u16 };
+
+        Ok(Self {
+            reader,
+            decoder,
+            channels: NonZero::new(ch).unwrap(),
+            buffer: Vec::new(),
+            buf_pos: 0,
+            serial,
+            pre_skip: pre_skip * ch as usize,
+            samples_skipped: 0,
+        })
+    }
+
+    fn decode_next_packet(&mut self) -> bool {
+        loop {
+            match self.reader.read_packet() {
+                Ok(Some(pkt)) => {
+                    if pkt.data.is_empty() {
+                        continue;
+                    }
+                    let ch = self.channels.get() as usize;
+                    let mut buf = vec![0f32; 5760 * ch];
+                    match self
+                        .decoder
+                        .decode_float(Some(&pkt.data), &mut buf, false)
+                    {
+                        Ok(samples_per_ch) => {
+                            let total = samples_per_ch * ch;
+                            buf.truncate(total);
+
+                            if self.samples_skipped < self.pre_skip {
+                                let skip = (self.pre_skip - self.samples_skipped).min(total);
+                                self.samples_skipped += skip;
+                                if skip >= total {
+                                    continue;
+                                }
+                                self.buffer = buf[skip..].to_vec();
+                            } else {
+                                self.buffer = buf;
+                            }
+                            self.buf_pos = 0;
+                            return true;
+                        }
+                        Err(_) => continue,
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl Iterator for OpusSource {
+    type Item = f32;
+
+    #[inline]
+    fn next(&mut self) -> Option<f32> {
+        if self.buf_pos >= self.buffer.len() {
+            if !self.decode_next_packet() {
+                return None;
+            }
+        }
+        let sample = self.buffer[self.buf_pos];
+        self.buf_pos += 1;
+        Some(sample)
+    }
+}
+
+impl Source for OpusSource {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> ChannelCount {
+        self.channels
+    }
+    fn sample_rate(&self) -> SampleRate {
+        NonZero::new(48000).unwrap()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        let target_gp = (pos.as_secs_f64() * 48000.0) as u64;
+
+        match self.reader.seek_absgp(Some(self.serial), target_gp) {
+            Ok(_) => {
+                let opus_ch = if self.channels.get() == 1 {
+                    audiopus::Channels::Mono
+                } else {
+                    audiopus::Channels::Stereo
+                };
+                self.decoder =
+                    audiopus::coder::Decoder::new(audiopus::SampleRate::Hz48000, opus_ch)
+                        .map_err(|_| SeekError::NotSupported {
+                            underlying_source: "opus decoder reinit failed",
+                        })?;
+                self.buffer.clear();
+                self.buf_pos = 0;
+                self.samples_skipped = self.pre_skip;
+                Ok(())
+            }
+            Err(_) => Err(SeekError::NotSupported {
+                underlying_source: "ogg seek failed",
+            }),
+        }
+    }
+}
+
+/* ── Decode helper ─────────────────────────────────────────── */
+
+fn create_player_from_bytes(
+    bytes: &[u8],
+    mixer: &Mixer,
+    volume: f32,
+    eq_params: Arc<RwLock<EqParams>>,
+) -> Result<Player, String> {
+    let player = Player::connect_new(mixer);
+    player.set_volume(volume);
+
+    if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
+        player.append(EqSource::new(source, eq_params));
+    } else {
+        let source = OpusSource::new(bytes.to_vec())
+            .map_err(|e| format!("Failed to decode: {}", e))?;
+        player.append(EqSource::new(source, eq_params));
+    }
+
+    Ok(player)
+}
+
 /* ── Audio State (managed by Tauri) ────────────────────────── */
 
 /// Messages sent to the media controls thread
@@ -484,26 +660,22 @@ fn volume_to_rodio(v: f64) -> f32 {
 /// Load and play audio from a file path
 #[tauri::command]
 pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Result<(), String> {
-    let mixer = state.mixer.lock().unwrap().clone();
-
     let bytes =
         std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
-    let source = Decoder::new(Cursor::new(bytes.clone()))
-        .map_err(|e| format!("Failed to decode: {}", e))?;
 
-    let eq_source = EqSource::new(source, state.eq_params.clone());
-
-    let new_player = Player::connect_new(&mixer);
-    let vol = *state.volume.lock().unwrap();
-    new_player.set_volume(vol);
-    new_player.append(eq_source);
-
-    // Replace old player
-    let mut player = state.player.lock().unwrap();
-    if let Some(old) = player.take() {
-        old.stop();
+    // Stop old player BEFORE creating new one to prevent overlap
+    {
+        let mut player = state.player.lock().unwrap();
+        if let Some(old) = player.take() {
+            old.stop();
+        }
     }
-    *player = Some(new_player);
+
+    let mixer = state.mixer.lock().unwrap().clone();
+    let vol = *state.volume.lock().unwrap();
+    let new_player = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
+
+    *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
@@ -511,14 +683,19 @@ pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Res
     Ok(())
 }
 
-/// Load and play audio from a URL (downloads fully, optionally caches)
+#[derive(serde::Serialize)]
+pub struct AudioLoadResult {
+    pub snipped: bool,
+}
+
+/// Load and play audio from a URL (downloads fully, optionally caches).
 #[tauri::command]
 pub async fn audio_load_url(
     url: String,
     session_id: Option<String>,
     cache_path: Option<String>,
     state: tauri::State<'_, AudioState>,
-) -> Result<(), String> {
+) -> Result<AudioLoadResult, String> {
     let gen = state.load_gen.load(Ordering::Relaxed);
 
     // Download
@@ -531,11 +708,18 @@ pub async fn audio_load_url(
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
+    let snipped = resp
+        .headers()
+        .get("x-snipped")
+        .and_then(|v| v.to_str().ok())
+        == Some("true");
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
+
+    let result = AudioLoadResult { snipped };
 
     // Stale check after download — another track may have started loading
     if state.load_gen.load(Ordering::Relaxed) != gen {
-        return Ok(());
+        return Ok(result);
     }
 
     // Cache in background
@@ -546,32 +730,30 @@ pub async fn audio_load_url(
         });
     }
 
+    // Stop old player BEFORE creating new one to prevent overlap
+    {
+        let mut player = state.player.lock().unwrap();
+        if let Some(old) = player.take() {
+            old.stop();
+        }
+    }
+
+    // Stale check again after stopping
+    if state.load_gen.load(Ordering::Relaxed) != gen {
+        return Ok(result);
+    }
+
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
-    let source = Decoder::new(Cursor::new(bytes.clone()))
-        .map_err(|e| format!("Failed to decode: {}", e))?;
-    let eq_source = EqSource::new(source, state.eq_params.clone());
-
-    let new_player = Player::connect_new(&mixer);
     let vol = *state.volume.lock().unwrap();
-    new_player.set_volume(vol);
-    new_player.append(eq_source);
+    let new_player = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
 
-    // Final stale check while holding the lock
-    let mut player = state.player.lock().unwrap();
-    if state.load_gen.load(Ordering::Relaxed) != gen {
-        new_player.stop();
-        return Ok(());
-    }
-    if let Some(old) = player.take() {
-        old.stop();
-    }
-    *player = Some(new_player);
+    *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
 
-    Ok(())
+    Ok(result)
 }
 
 #[tauri::command]
@@ -620,13 +802,8 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
     };
 
     let mixer = state.mixer.lock().unwrap().clone();
-    let source =
-        Decoder::new(Cursor::new(bytes)).map_err(|e| format!("Failed to decode: {}", e))?;
-    let eq_source = EqSource::new(source, state.eq_params.clone());
-
-    let new_player = Player::connect_new(&mixer);
-    new_player.set_volume(*state.volume.lock().unwrap());
-    new_player.append(eq_source);
+    let vol = *state.volume.lock().unwrap();
+    let new_player = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
 
     if position > 0.0 {
         new_player.try_seek(target).ok();
