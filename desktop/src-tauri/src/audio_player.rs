@@ -397,28 +397,23 @@ pub struct AudioState {
     source_bytes: Mutex<Option<Vec<u8>>>,
 }
 
-fn device_display_name(dev: &cpal::Device) -> Option<String> {
-    use cpal::traits::DeviceTrait;
-    dev.description().ok().map(|d| d.name().to_string())
-}
+fn open_device_sink(device_id: Option<&str>) -> Result<rodio::stream::MixerDeviceSink, String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
 
-fn open_device_sink(name: Option<&str>) -> Result<rodio::stream::MixerDeviceSink, String> {
-    use cpal::traits::HostTrait;
-
-    if let Some(name) = name {
+    if let Some(id) = device_id {
         let host = cpal::default_host();
         if let Ok(devices) = host.output_devices() {
             for dev in devices {
-                if device_display_name(&dev).as_deref() == Some(name) {
+                if dev.id().ok().map(|d| d.to_string()).as_deref() == Some(id) {
                     let mut sink = DeviceSinkBuilder::from_device(dev)
                         .and_then(|b| b.open_stream())
-                        .map_err(|e| format!("Failed to open device '{}': {}", name, e))?;
+                        .map_err(|e| format!("Failed to open device '{}': {}", id, e))?;
                     sink.log_on_drop(false);
                     return Ok(sink);
                 }
             }
         }
-        return Err(format!("Device '{}' not found", name));
+        return Err(format!("Device '{}' not found", id));
     }
 
     let mut sink =
@@ -917,36 +912,30 @@ pub struct AudioSink {
 
 #[tauri::command]
 pub fn audio_list_devices() -> Vec<AudioSink> {
-    // Use pactl to list real PipeWire/PulseAudio sinks
-    let output = match std::process::Command::new("pactl")
-        .args(["--format=json", "list", "sinks"])
-        .output()
-    {
-        Ok(o) if o.status.success() => o.stdout,
-        _ => return Vec::new(),
-    };
+    use cpal::traits::{DeviceTrait, HostTrait};
 
-    // Get current default sink name
-    let default_sink = std::process::Command::new("pactl")
-        .args(["get-default-sink"])
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default();
+    let host = cpal::default_host();
+    let default_id = host
+        .default_output_device()
+        .and_then(|d| d.id().ok())
+        .map(|id| id.to_string());
 
-    let sinks: Vec<serde_json::Value> = match serde_json::from_slice(&output) {
-        Ok(v) => v,
+    let devices = match host.output_devices() {
+        Ok(d) => d,
         Err(_) => return Vec::new(),
     };
 
-    sinks
-        .iter()
-        .filter_map(|s| {
-            let name = s.get("name")?.as_str()?.to_string();
-            let description = s.get("description")?.as_str()?.to_string();
+    devices
+        .filter_map(|dev| {
+            let id = dev.id().ok()?.to_string();
+            let description = dev
+                .description()
+                .ok()
+                .map(|d| d.name().to_string())
+                .unwrap_or_else(|| id.clone());
             Some(AudioSink {
-                is_default: name == default_sink,
-                name,
+                is_default: default_id.as_deref() == Some(id.as_str()),
+                name: id,
                 description,
             })
         })
@@ -955,17 +944,9 @@ pub fn audio_list_devices() -> Vec<AudioSink> {
 
 #[tauri::command]
 pub fn audio_switch_device(
-    device_name: Option<String>,
+    device_id: Option<String>,
     state: tauri::State<'_, AudioState>,
 ) -> Result<(), String> {
-    // Set PipeWire/PulseAudio default sink
-    if let Some(ref name) = device_name {
-        std::process::Command::new("pactl")
-            .args(["set-default-sink", name])
-            .status()
-            .map_err(|e| format!("pactl failed: {}", e))?;
-    }
-
     // Stop current playback
     {
         let mut player = state.player.lock().unwrap();
@@ -976,12 +957,12 @@ pub fn audio_switch_device(
         state.load_gen.fetch_add(1, Ordering::Relaxed);
     }
 
-    // Re-open default cpal device (which follows PipeWire default)
+    // Re-open cpal device by id (or default if None)
     let (reply_tx, reply_rx) = std::sync::mpsc::channel();
     state
         .audio_tx
         .send(AudioThreadCmd::SwitchDevice {
-            name: None, // always re-open default — pactl already switched it
+            name: device_id,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;

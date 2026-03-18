@@ -475,16 +475,24 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
   const [sinks, setSinks] = useState<AudioSink[]>([]);
   const [switching, setSwitching] = useState(false);
 
-  useEffect(() => {
+  const refreshSinks = React.useCallback(() => {
     invoke<AudioSink[]>('audio_list_devices').then(setSinks).catch(console.error);
   }, []);
+
+  // Refresh on mount + when window regains focus (device may have changed)
+  useEffect(() => {
+    refreshSinks();
+    const onFocus = () => refreshSinks();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshSinks]);
 
   const handleSwitch = async (sinkName: string) => {
     const current = sinks.find((s) => s.is_default);
     if (switching || current?.name === sinkName) return;
     setSwitching(true);
     try {
-      await invoke('audio_switch_device', { deviceName: sinkName });
+      await invoke('audio_switch_device', { deviceId: sinkName });
       setSinks((prev) => prev.map((s) => ({ ...s, is_default: s.name === sinkName })));
       await reloadCurrentTrack();
       toast.success(t('settings.audioDeviceSwitched'));
