@@ -492,7 +492,7 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
     if (switching || current?.name === sinkName) return;
     setSwitching(true);
     try {
-      await invoke('audio_switch_device', { deviceId: sinkName });
+      await invoke('audio_switch_device', { deviceName: sinkName });
       setSinks((prev) => prev.map((s) => ({ ...s, is_default: s.name === sinkName })));
       await reloadCurrentTrack();
       toast.success(t('settings.audioDeviceSwitched'));

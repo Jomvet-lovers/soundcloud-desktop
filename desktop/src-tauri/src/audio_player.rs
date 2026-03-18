@@ -912,6 +912,56 @@ pub struct AudioSink {
 
 #[tauri::command]
 pub fn audio_list_devices() -> Vec<AudioSink> {
+    #[cfg(target_os = "linux")]
+    {
+        audio_list_devices_pactl()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        audio_list_devices_cpal()
+    }
+}
+
+/// Linux: pactl returns clean PipeWire/PulseAudio sinks (no ALSA plugin spam)
+#[cfg(target_os = "linux")]
+fn audio_list_devices_pactl() -> Vec<AudioSink> {
+    let output = match std::process::Command::new("pactl")
+        .args(["--format=json", "list", "sinks"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return Vec::new(),
+    };
+
+    let default_sink = std::process::Command::new("pactl")
+        .args(["get-default-sink"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    let sinks: Vec<serde_json::Value> = match serde_json::from_slice(&output) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    sinks
+        .iter()
+        .filter_map(|s| {
+            let name = s.get("name")?.as_str()?.to_string();
+            let description = s.get("description")?.as_str()?.to_string();
+            Some(AudioSink {
+                is_default: name == default_sink,
+                name,
+                description,
+            })
+        })
+        .collect()
+}
+
+/// Windows/macOS: cpal returns clean device list
+#[cfg(not(target_os = "linux"))]
+fn audio_list_devices_cpal() -> Vec<AudioSink> {
     use cpal::traits::{DeviceTrait, HostTrait};
 
     let host = cpal::default_host();
@@ -944,9 +994,24 @@ pub fn audio_list_devices() -> Vec<AudioSink> {
 
 #[tauri::command]
 pub fn audio_switch_device(
-    device_id: Option<String>,
+    device_name: Option<String>,
     state: tauri::State<'_, AudioState>,
 ) -> Result<(), String> {
+    // On Linux, set PipeWire/PulseAudio default sink first, then reopen default cpal device.
+    // On other platforms, open the cpal device directly by id.
+    #[cfg(target_os = "linux")]
+    let switch_name: Option<String> = {
+        if let Some(ref name) = device_name {
+            std::process::Command::new("pactl")
+                .args(["set-default-sink", name])
+                .status()
+                .map_err(|e| format!("pactl failed: {}", e))?;
+        }
+        None // always reopen default — pactl already switched it
+    };
+    #[cfg(not(target_os = "linux"))]
+    let switch_name: Option<String> = device_name;
+
     // Stop current playback
     {
         let mut player = state.player.lock().unwrap();
@@ -957,12 +1022,11 @@ pub fn audio_switch_device(
         state.load_gen.fetch_add(1, Ordering::Relaxed);
     }
 
-    // Re-open cpal device by id (or default if None)
     let (reply_tx, reply_rx) = std::sync::mpsc::channel();
     state
         .audio_tx
         .send(AudioThreadCmd::SwitchDevice {
-            name: device_id,
+            name: switch_name,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
