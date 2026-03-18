@@ -144,6 +144,37 @@ body,
   animation: fadeInUp 0.5s var(--ease-apple) both;
 }
 
+/* ── Dialog animations (Radix data-state) ────────────────── */
+@keyframes dialogOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dialogOverlayOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes dialogContentIn {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes dialogContentOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+}
+
+.dialog-overlay[data-state="open"] {
+  animation: dialogOverlayIn 0.2s var(--ease-apple) forwards;
+}
+.dialog-overlay[data-state="closed"] {
+  animation: dialogOverlayOut 0.15s var(--ease-apple) forwards;
+}
+.dialog-content[data-state="open"] {
+  animation: dialogContentIn 0.25s var(--ease-apple) forwards;
+}
+.dialog-content[data-state="closed"] {
+  animation: dialogContentOut 0.15s var(--ease-apple) forwards;
+}
+
 /* ── Featured card glass ──────────────────────────────────── */
 .glass-featured {
   background: rgba(255, 255, 255, 0.02);

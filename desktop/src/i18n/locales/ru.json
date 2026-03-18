@@ -148,6 +148,28 @@
     "custom": "Свой",
     "streamingNote": "EQ работает с кэшированными треками (Web Audio)"
   },
+  "kb": {
+    "title": "Горячие клавиши",
+    "toToggle": "чтобы открыть это окно",
+    "groupPlayback": "Воспроизведение",
+    "groupNavigation": "Навигация",
+    "groupPanels": "Панели",
+    "playPause": "Плей / Пауза",
+    "seekBack": "Назад на 5 сек",
+    "seekForward": "Вперёд на 5 сек",
+    "nextTrack": "Следующий трек",
+    "prevTrack": "Предыдущий трек",
+    "shuffle": "Перемешать",
+    "repeat": "Повтор",
+    "volumeUp": "Громкость +",
+    "volumeDown": "Громкость −",
+    "mute": "Без звука",
+    "search": "Поиск",
+    "queue": "Очередь",
+    "lyrics": "Текст песни",
+    "close": "Закрыть",
+    "showBindings": "Горячие клавиши"
+  },
   "common": {
     "loading": "Загрузка...",
     "error": "Что-то пошло не так",

@@ -147,6 +147,28 @@
     "custom": "Custom",
     "streamingNote": "EQ works with cached tracks (Web Audio)"
   },
+  "kb": {
+    "title": "Keyboard Shortcuts",
+    "toToggle": "to show this dialog",
+    "groupPlayback": "Playback",
+    "groupNavigation": "Navigation",
+    "groupPanels": "Panels",
+    "playPause": "Play / Pause",
+    "seekBack": "Seek back 5s",
+    "seekForward": "Seek forward 5s",
+    "nextTrack": "Next track",
+    "prevTrack": "Previous track",
+    "shuffle": "Toggle shuffle",
+    "repeat": "Toggle repeat",
+    "volumeUp": "Volume up",
+    "volumeDown": "Volume down",
+    "mute": "Mute / Unmute",
+    "search": "Search",
+    "queue": "Toggle queue",
+    "lyrics": "Toggle lyrics",
+    "close": "Close",
+    "showBindings": "Show shortcuts"
+  },
   "common": {
     "loading": "Loading...",
     "error": "Something went wrong",
