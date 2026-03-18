@@ -33,6 +33,8 @@ import {
   ListPlus as _ListPlus,
   Loader2 as _Loader2,
   Lock as _Lock,
+  PanelLeftClose as _PanelLeftClose,
+  PanelLeftOpen as _PanelLeftOpen,
   MapPin as _MapPin,
   MessageCircle as _MessageCircle,
   MicVocal as _MicVocal,
@@ -117,6 +119,8 @@ export const MicVocal = memo(_MicVocal);
 export const MessageCircle = memo(_MessageCircle);
 export const Minus = memo(_Minus);
 export const Music = memo(_Music);
+export const PanelLeftClose = memo(_PanelLeftClose);
+export const PanelLeftOpen = memo(_PanelLeftOpen);
 export const Pause = memo(_Pause);
 export const Play = memo(_Play);
 export const Plus = memo(_Plus);

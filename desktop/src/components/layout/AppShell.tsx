@@ -38,6 +38,7 @@ const keybindings: Keybinding[] = [
   { key: 'Ctrl+K', label: 'kb.search', group: 'navigation', display: isMac() ? '⌘ K' : 'Ctrl K' },
   { key: 'q', label: 'kb.queue', group: 'panels', display: 'Q' },
   { key: 'l', label: 'kb.lyrics', group: 'panels', display: 'L' },
+  { key: '[', label: 'kb.sidebar', group: 'panels', display: '[' },
   { key: 'Escape', label: 'kb.close', group: 'panels', display: 'Esc' },
   { key: 'Ctrl+/', label: 'kb.showBindings', group: 'panels', display: isMac() ? '⌘ /' : 'Ctrl /' },
 ];
@@ -257,6 +258,9 @@ export const AppShell = React.memo(() => {
           break;
         case 'KeyQ':
           setQueueOpen((v) => !v);
+          break;
+        case 'BracketLeft':
+          useSettingsStore.getState().toggleSidebar();
           break;
         case 'Escape':
           if (kbOpen) {

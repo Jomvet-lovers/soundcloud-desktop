@@ -11,6 +11,7 @@ export interface SettingsState {
   eqEnabled: boolean;
   eqGains: number[];
   eqPreset: string;
+  sidebarCollapsed: boolean;
   setAccentColor: (color: string) => void;
   setBackgroundImage: (url: string) => void;
   setBackgroundOpacity: (opacity: number) => void;
@@ -20,6 +21,7 @@ export interface SettingsState {
   setEqGains: (gains: number[]) => void;
   setEqPreset: (preset: string) => void;
   setEqBand: (index: number, gain: number) => void;
+  toggleSidebar: () => void;
   resetTheme: () => void;
 }
 
@@ -34,6 +36,7 @@ const DEFAULTS = {
   eqEnabled: false,
   eqGains: DEFAULT_EQ_GAINS,
   eqPreset: 'flat',
+  sidebarCollapsed: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -54,6 +57,7 @@ export const useSettingsStore = create<SettingsState>()(
           eqGains[index] = gain;
           return { eqGains, eqPreset: 'custom' };
         }),
+      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       resetTheme: () => set(DEFAULTS),
     }),
     {
@@ -69,6 +73,7 @@ export const useSettingsStore = create<SettingsState>()(
         eqEnabled: s.eqEnabled,
         eqGains: s.eqGains,
         eqPreset: s.eqPreset,
+        sidebarCollapsed: s.sidebarCollapsed,
       }),
     },
   ),

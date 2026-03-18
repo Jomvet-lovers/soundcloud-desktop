@@ -4,7 +4,9 @@
     "search": "Search",
     "library": "Library",
     "following": "Following",
-    "settings": "Settings"
+    "settings": "Settings",
+    "collapse": "Collapse",
+    "expand": "Expand"
   },
   "player": {
     "queue": "Queue",
@@ -166,6 +168,7 @@
     "search": "Search",
     "queue": "Toggle queue",
     "lyrics": "Toggle lyrics",
+    "sidebar": "Toggle sidebar",
     "close": "Close",
     "showBindings": "Show shortcuts"
   },
