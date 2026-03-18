@@ -8,7 +8,7 @@ import { art } from '../../lib/formatters';
 import { useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
-import { LyricsPanel } from '../music/LyricsPanel';
+import { ArtworkPanel, LyricsPanel } from '../music/LyricsPanel';
 import { QueuePanel } from '../music/QueuePanel';
 import { NowPlayingBar } from './NowPlayingBar';
 import { Sidebar } from './Sidebar';
@@ -287,6 +287,7 @@ export const AppShell = React.memo(() => {
       <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} />
       <QueuePanel open={queueOpen} onClose={onQueueClose} />
       <LyricsPanel />
+      <ArtworkPanel />
       <KeybindingsDialog open={kbOpen} onOpenChange={setKbOpen} />
     </div>
   );

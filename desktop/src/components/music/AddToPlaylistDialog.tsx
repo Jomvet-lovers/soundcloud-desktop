@@ -177,8 +177,8 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Trigger asChild>{children}</Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-fade-in" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[380px] max-h-[70vh] rounded-2xl glass border border-white/[0.08] shadow-2xl animate-fade-in-up flex flex-col">
+        <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] animate-fade-in" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[70] w-[380px] max-h-[70vh] rounded-2xl glass border border-white/[0.08] shadow-2xl animate-fade-in-up flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
             <Dialog.Title className="text-[15px] font-bold text-white/90 flex items-center gap-2">
