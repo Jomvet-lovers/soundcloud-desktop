@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
+import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
 
 interface TrackListResponse {
@@ -60,6 +61,14 @@ export function optimisticToggleLike(qc: QueryClient, track: Track, nowLiked: bo
   // Update global liked URNs
   setLikedUrn(track.urn, nowLiked);
 
+  // Update favorites count in auth store
+  const { user } = useAuthStore.getState();
+  if (user) {
+    useAuthStore.setState({
+      user: { ...user, public_favorites_count: user.public_favorites_count + (nowLiked ? 1 : -1) },
+    });
+  }
+
   // Update all liked tracks infinite queries
   qc.setQueriesData<{ pages: TrackListResponse[]; pageParams: unknown[] }>(
     { queryKey: ['me', 'likes', 'tracks'] },
@@ -89,9 +98,11 @@ export function optimisticToggleLike(qc: QueryClient, track: Track, nowLiked: bo
     return { ...old, user_favorite: nowLiked };
   });
 
-  // Delayed refetch for eventual consistency
+  // Delayed refetch for single track (eventual consistency).
+  // Liked tracks list is NOT invalidated — the optimistic cache update above
+  // is already correct, and SC API is eventually consistent so early refetch
+  // would overwrite optimistic data with stale results.
   setTimeout(() => {
-    qc.invalidateQueries({ queryKey: ['me', 'likes', 'tracks'] });
     qc.invalidateQueries({ queryKey: ['track', track.urn], exact: true });
-  }, 3000);
+  }, 5000);
 }
