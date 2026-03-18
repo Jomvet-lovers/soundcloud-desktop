@@ -137,12 +137,13 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
 
 const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'default' | 'sm' }) => {
   const volume = usePlayerStore((s) => s.volume);
+  const volumeBeforeMute = usePlayerStore((s) => s.volumeBeforeMute);
   const setVolume = usePlayerStore((s) => s.setVolume);
   const s = size === 'sm' ? 'w-9 h-9' : 'w-10 h-10';
   return (
     <button
       type="button"
-      onClick={() => setVolume(volume > 0 ? 0 : 50)}
+      onClick={() => setVolume(volume > 0 ? 0 : volumeBeforeMute)}
       className={`${s} rounded-full flex items-center justify-center transition-all duration-150 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.04] ${
         volume === 0 ? 'text-accent' : 'text-white/40 hover:text-white/70'
       }`}

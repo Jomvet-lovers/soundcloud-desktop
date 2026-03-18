@@ -46,6 +46,7 @@ interface PlayerState {
   queueIndex: number;
   isPlaying: boolean;
   volume: number;
+  volumeBeforeMute: number;
   shuffle: boolean;
   repeat: RepeatMode;
 
@@ -77,6 +78,7 @@ export const usePlayerStore = create<PlayerState>()(
       queueIndex: -1,
       isPlaying: false,
       volume: 50,
+      volumeBeforeMute: 50,
       shuffle: false,
       repeat: 'off',
 
@@ -166,7 +168,14 @@ export const usePlayerStore = create<PlayerState>()(
         });
       },
 
-      setVolume: (v) => set({ volume: Math.round(Math.max(0, Math.min(200, v))) }),
+      setVolume: (v) => {
+        const clamped = Math.round(Math.max(0, Math.min(200, v)));
+        const prev = get().volume;
+        set({
+          volume: clamped,
+          ...(clamped === 0 && prev > 0 ? { volumeBeforeMute: prev } : {}),
+        });
+      },
 
       setQueue: (queue) =>
         set((s) => {
@@ -274,6 +283,7 @@ export const usePlayerStore = create<PlayerState>()(
       version: 3,
       partialize: (state) => ({
         volume: state.volume,
+        volumeBeforeMute: state.volumeBeforeMute,
         currentTrack: state.currentTrack,
         queue: state.queue,
         originalQueue: state.originalQueue,
