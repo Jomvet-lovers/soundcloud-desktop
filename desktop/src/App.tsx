@@ -52,7 +52,7 @@ export default function App() {
       <BrowserRouter>
         <Toaster
           theme="dark"
-          position="bottom-right"
+          position="top-right"
           toastOptions={{
             style: {
               background: 'rgba(30, 30, 34, 0.9)',
