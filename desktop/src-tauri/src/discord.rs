@@ -43,7 +43,7 @@ pub fn discord_connect(state: tauri::State<'_, Arc<DiscordState>>) -> Result<boo
 
 #[tauri::command]
 pub fn discord_disconnect(state: tauri::State<'_, Arc<DiscordState>>) {
-    let mut guard = state.client.lock().unwrap();
+    let Ok(mut guard) = state.client.lock() else { return; };
     if let Some(ref mut client) = *guard {
         let _ = client.close();
         println!("[Discord] Disconnected");
@@ -89,9 +89,13 @@ pub fn discord_set_activity(
         activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
     }
 
-    client
-        .set_activity(activity)
-        .map_err(|e| format!("set_activity: {e}"))?;
+    let result = client.set_activity(activity);
+
+    if result.is_err() {
+        *guard = None;
+    }
+
+    result.map_err(|e| format!("set_activity: {e}"))?;
 
     Ok(())
 }

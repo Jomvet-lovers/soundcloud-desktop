@@ -17,7 +17,7 @@ async function ensureConnected(): Promise<boolean> {
 
 function artworkToLarge(url: string | null): string | undefined {
   if (!url) return undefined;
-  return url.replace(/-[^./]*\./, '-t500x500.');
+  return url.replace(/-[^-./]+(\.[^.]+)$/, '-t500x500$1');
 }
 
 async function updatePresence(track: Track) {
