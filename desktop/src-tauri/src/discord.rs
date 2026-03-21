@@ -75,8 +75,7 @@ pub fn discord_set_activity(
     let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
     let assets = Assets::new()
-        .large_image(large_image)
-        .large_text(&track.title);
+        .large_image(large_image);
 
     let mut activity = Activity::new()
         .activity_type(ActivityType::Listening)
