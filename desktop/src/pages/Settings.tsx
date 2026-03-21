@@ -43,6 +43,7 @@ const PRESET_COLORS = [
 const LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'ru', label: 'Русский' },
+  { code: 'tr', label: 'Turkce' },
 ] as const;
 
 /* ── Language Section ─────────────────────────────────────── */

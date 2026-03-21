@@ -205,6 +205,11 @@
     "done": "Import complete!",
     "savingPlaylist": "Saving playlist..."
   },
+  "update": {
+    "available": "Update available",
+    "later": "Later",
+    "download": "Download"
+  },
   "common": {
     "loading": "Loading...",
     "error": "Something went wrong",

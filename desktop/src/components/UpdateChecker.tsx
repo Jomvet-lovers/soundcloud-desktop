@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
 import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO, GITHUB_REPO_EN } from '../lib/constants';
 import i18n from '../i18n';
+import { useTranslation } from 'react-i18next';
 
 interface GithubRelease {
   tag_name: string;
@@ -25,6 +26,7 @@ async function fetchRelease(repo: string): Promise<GithubRelease | null> {
 }
 
 export function UpdateChecker() {
+  const { t } = useTranslation();
   const [release, setRelease] = useState<GithubRelease | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
@@ -51,8 +53,6 @@ export function UpdateChecker() {
 
   if (!release || dismissed) return null;
 
-  const isRu = i18n.language?.startsWith('ru');
-
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e]/95 backdrop-blur-2xl border border-white/[0.12] shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden">
@@ -64,7 +64,7 @@ export function UpdateChecker() {
             </div>
             <div>
               <h2 className="text-sm font-semibold">
-                {isRu ? 'Доступно обновление' : 'Update available'}
+                {t('update.available')}
               </h2>
               <p className="text-[11px] text-white/30 mt-0.5">
                 {stripLeadingV(APP_VERSION)} → {stripLeadingV(release.tag_name)}
@@ -101,14 +101,14 @@ export function UpdateChecker() {
             onClick={() => setDismissed(true)}
             className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
           >
-            {isRu ? 'Позже' : 'Later'}
+            {t('update.later')}
           </button>
           <button
             type="button"
             onClick={() => openUrl(release.html_url)}
             className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_20px_var(--color-accent-glow)]"
           >
-            {isRu ? 'Скачать' : 'Download'}
+            {t('update.download')}
             <ExternalLink size={13} />
           </button>
         </div>

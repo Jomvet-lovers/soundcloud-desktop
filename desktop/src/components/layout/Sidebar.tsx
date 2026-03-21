@@ -18,6 +18,7 @@ import { Avatar } from '../ui/Avatar';
 const languages = [
   { code: 'en', label: 'English' },
   { code: 'ru', label: 'Русский' },
+  { code: 'tr', label: 'Turkce' },
 ] as const;
 
 const navItems = [
