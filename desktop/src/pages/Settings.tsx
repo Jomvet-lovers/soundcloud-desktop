@@ -17,6 +17,7 @@ import {
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
+import { Skeleton } from "../components/ui/Skeleton.tsx";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -93,14 +94,19 @@ function CacheRow({
     <div className="flex items-center justify-between py-3">
       <div className="flex items-center gap-4">
         <div>
-          <p className="text-[13px] text-white/60 font-medium">{label}</p>
-          <p className="text-[17px] font-bold text-white/90 tabular-nums mt-0.5">
-            {size === null ? (
-              <Loader2 size={14} className="animate-spin text-white/20" />
-            ) : (
-              formatBytes(size)
-            )}
+          <p className="text-[13px] text-white/60 font-medium">
+            {label}
           </p>
+
+          <div className="h-[25px] flex items-center">
+            {size === null ? (
+              <Skeleton className="w-25 h-[20px]" />
+            ) : (
+              <p className="text-[17px] font-bold text-white/90 tabular-nums">
+                {formatBytes(size)}
+              </p>
+            )}
+          </div>
         </div>
       </div>
       <button
@@ -161,11 +167,16 @@ const CacheSection = React.memo(function CacheSection() {
         <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
           {t('settings.cache')}
         </h3>
-        {audioSize !== null && assetsSize !== null && (
-          <span className="text-[12px] text-white/30 tabular-nums">
-            {t('settings.total')}: {formatBytes(totalSize)}
-          </span>
-        )}
+
+        <div className="min-w-[80px] flex justify-end">
+          {audioSize !== null && assetsSize !== null ? (
+            <span className="text-[12px] text-white/30 tabular-nums">
+                {t('settings.total')}: {formatBytes(totalSize)}
+            </span>
+          ) : (
+            <Skeleton className="h-[12px] w-[80px]" />
+          )}
+        </div>
       </div>
       <CacheRow
         label={t('settings.audioCacheSize')}
