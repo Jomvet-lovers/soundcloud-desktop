@@ -683,10 +683,15 @@ const HistoryTab = React.memo(function HistoryTab() {
 export const Library = React.memo(() => {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
-  const tabParam = searchParams.get('tab') as 'playlists' | 'likes' | 'following' | 'history' | null;
-  const [activeTab, setActiveTab] = useState<
-    'playlists' | 'likes' | 'following' | 'history'
-  >(tabParam || 'likes');
+  const tabParam = searchParams.get('tab') as
+    | 'playlists'
+    | 'likes'
+    | 'following'
+    | 'history'
+    | null;
+  const [activeTab, setActiveTab] = useState<'playlists' | 'likes' | 'following' | 'history'>(
+    tabParam || 'likes',
+  );
   const [filter, setFilter] = useState('');
 
   // Sync tab from URL param

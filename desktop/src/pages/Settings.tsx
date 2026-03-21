@@ -431,7 +431,10 @@ const ThemeSection = React.memo(function ThemeSection() {
                     : 'border-white/[0.06] hover:border-white/15'
                 }`}
               >
-                <div className="relative h-16 overflow-hidden" style={{ backgroundColor: def.preview[1] }}>
+                <div
+                  className="relative h-16 overflow-hidden"
+                  style={{ backgroundColor: def.preview[1] }}
+                >
                   <div
                     className="absolute left-3 top-3 w-5 h-5 rounded-full"
                     style={{ backgroundColor: def.preview[0] }}
@@ -442,7 +445,9 @@ const ThemeSection = React.memo(function ThemeSection() {
                   />
                 </div>
                 <div className="px-3 py-2 bg-white/[0.03] text-center">
-                  <span className={`text-[12px] font-medium ${isActive ? 'text-white/90' : 'text-white/50'}`}>
+                  <span
+                    className={`text-[12px] font-medium ${isActive ? 'text-white/90' : 'text-white/50'}`}
+                  >
                     {def.name}
                   </span>
                 </div>
@@ -461,10 +466,14 @@ const ThemeSection = React.memo(function ThemeSection() {
             }`}
           >
             <div className="h-16 flex items-center justify-center">
-              <span className="text-[20px] text-white/30 group-hover:text-white/50 transition-colors">+</span>
+              <span className="text-[20px] text-white/30 group-hover:text-white/50 transition-colors">
+                +
+              </span>
             </div>
             <div className="px-3 py-2 bg-white/[0.02] text-center">
-              <span className={`text-[12px] font-medium ${themePreset === 'custom' ? 'text-white/90' : 'text-white/40'}`}>
+              <span
+                className={`text-[12px] font-medium ${themePreset === 'custom' ? 'text-white/90' : 'text-white/40'}`}
+              >
                 {t('settings.themeCustom')}
               </span>
             </div>

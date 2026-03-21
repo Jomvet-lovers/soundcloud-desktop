@@ -106,4 +106,3 @@ export function optimisticToggleLike(qc: QueryClient, track: Track, nowLiked: bo
     qc.invalidateQueries({ queryKey: ['track', track.urn], exact: true });
   }, 5000);
 }
-

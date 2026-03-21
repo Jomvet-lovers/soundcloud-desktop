@@ -1,7 +1,16 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
-import { Clock, Globe, Home, Library, PanelLeftClose, PanelLeftOpen, Search, Settings } from '../../lib/icons';
+import {
+  Clock,
+  Globe,
+  Home,
+  Library,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  Settings,
+} from '../../lib/icons';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
 import { Avatar } from '../ui/Avatar';
@@ -68,7 +77,11 @@ export const Sidebar = React.memo(() => {
           title={collapsed ? t('nav.expand') : undefined}
           className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[12px] font-medium text-white/40 hover:text-white/70 hover:bg-white/[0.04] transition-all duration-200 cursor-pointer ${collapsed ? 'justify-center' : ''}`}
         >
-          {collapsed ? <PanelLeftOpen size={16} strokeWidth={1.8} /> : <PanelLeftClose size={16} strokeWidth={1.8} />}
+          {collapsed ? (
+            <PanelLeftOpen size={16} strokeWidth={1.8} />
+          ) : (
+            <PanelLeftClose size={16} strokeWidth={1.8} />
+          )}
           {!collapsed && <span className="truncate">{t('nav.collapse')}</span>}
         </button>
         <button
@@ -114,7 +127,11 @@ export const Sidebar = React.memo(() => {
             }
           >
             <Avatar src={user.avatar_url} alt={user.username} size={26} />
-            {!collapsed && <span className="text-[12px] text-white/40 truncate font-medium">{user.username}</span>}
+            {!collapsed && (
+              <span className="text-[12px] text-white/40 truncate font-medium">
+                {user.username}
+              </span>
+            )}
           </NavLink>
         </div>
       )}

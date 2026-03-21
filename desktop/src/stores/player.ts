@@ -273,9 +273,7 @@ export const usePlayerStore = create<PlayerState>()(
         })),
 
       setCurrentTrackAccess: (access) =>
-        set((s) =>
-          s.currentTrack ? { currentTrack: { ...s.currentTrack, access } } : {},
-        ),
+        set((s) => (s.currentTrack ? { currentTrack: { ...s.currentTrack, access } } : {})),
     }),
     {
       name: 'sc-player',

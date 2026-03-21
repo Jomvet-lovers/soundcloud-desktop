@@ -98,7 +98,9 @@ async function loadTrack(track: Track) {
   try {
     let result: { duration_secs: number | null };
     if (cachedPath) {
-      result = await invoke<{ duration_secs: number | null }>('audio_load_file', { path: cachedPath });
+      result = await invoke<{ duration_secs: number | null }>('audio_load_file', {
+        path: cachedPath,
+      });
     } else {
       const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
       const sessionId = getSessionId();
@@ -221,7 +223,9 @@ document.addEventListener('visibilitychange', () => {
       const idle = Date.now() - lastTickAt;
       // If no ticks for >30s, audio device is likely dead — force reconnect
       if (idle > 30000) {
-        console.log(`[Audio] Resuming after ${Math.round(idle / 1000)}s idle, forcing device reconnect...`);
+        console.log(
+          `[Audio] Resuming after ${Math.round(idle / 1000)}s idle, forcing device reconnect...`,
+        );
         invoke('audio_switch_device', { deviceName: null })
           .then(() => {
             console.log('[Audio] Device reconnected after idle, reloading track...');

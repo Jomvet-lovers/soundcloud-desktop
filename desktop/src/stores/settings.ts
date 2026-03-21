@@ -13,11 +13,36 @@ export interface ThemePresetDef {
 }
 
 export const THEME_PRESETS: Record<Exclude<ThemePreset, 'custom'>, ThemePresetDef> = {
-  soundcloud: { accent: '#ff5500', bg: '#08080a', name: 'SoundCloud', preview: ['#ff5500', '#08080a', '#1a1a1e'] },
-  dark: { accent: '#ffffff', bg: '#000000', name: 'Тьма', preview: ['#ffffff', '#000000', '#111111'] },
-  neon: { accent: '#bf5af2', bg: '#08060f', name: 'Неон', preview: ['#bf5af2', '#08060f', '#18102a'] },
-  forest: { accent: '#22c55e', bg: '#050e08', name: 'Лес', preview: ['#22c55e', '#050e08', '#0a1f10'] },
-  crimson: { accent: '#ff2d55', bg: '#0c0507', name: 'Кармин', preview: ['#ff2d55', '#0c0507', '#1e0a10'] },
+  soundcloud: {
+    accent: '#ff5500',
+    bg: '#08080a',
+    name: 'SoundCloud',
+    preview: ['#ff5500', '#08080a', '#1a1a1e'],
+  },
+  dark: {
+    accent: '#ffffff',
+    bg: '#000000',
+    name: 'Тьма',
+    preview: ['#ffffff', '#000000', '#111111'],
+  },
+  neon: {
+    accent: '#bf5af2',
+    bg: '#08060f',
+    name: 'Неон',
+    preview: ['#bf5af2', '#08060f', '#18102a'],
+  },
+  forest: {
+    accent: '#22c55e',
+    bg: '#050e08',
+    name: 'Лес',
+    preview: ['#22c55e', '#050e08', '#0a1f10'],
+  },
+  crimson: {
+    accent: '#ff2d55',
+    bg: '#0c0507',
+    name: 'Кармин',
+    preview: ['#ff2d55', '#0c0507', '#1e0a10'],
+  },
 };
 
 export interface SettingsState {

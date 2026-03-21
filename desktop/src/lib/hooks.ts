@@ -565,7 +565,10 @@ export function useUserPopularTracks(userUrn: string | undefined) {
 
       // Paginate through all tracks
       for (;;) {
-        const params = new URLSearchParams({ limit: String(pageSize), access: 'playable,preview,blocked' });
+        const params = new URLSearchParams({
+          limit: String(pageSize),
+          access: 'playable,preview,blocked',
+        });
         if (cursor) params.set('cursor', cursor);
         const page = await api<TrackListResponse>(
           `/users/${encodeURIComponent(userUrn!)}/tracks?${params}`,
