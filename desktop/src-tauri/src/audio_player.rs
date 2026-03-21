@@ -826,27 +826,35 @@ pub async fn audio_load_url(
 
 #[tauri::command]
 pub fn audio_play(state: tauri::State<'_, AudioState>) {
-    if let Some(ref p) = *state.player.lock().unwrap() {
-        p.play();
+    if let Ok(player) = state.player.try_lock() {
+        if let Some(ref p) = *player {
+            p.play();
+        }
     }
 }
 
 #[tauri::command]
 pub fn audio_pause(state: tauri::State<'_, AudioState>) {
-    if let Some(ref p) = *state.player.lock().unwrap() {
-        p.pause();
+    if let Ok(player) = state.player.try_lock() {
+        if let Some(ref p) = *player {
+            p.pause();
+        }
     }
 }
 
 #[tauri::command]
 pub fn audio_stop(state: tauri::State<'_, AudioState>) {
-    let mut player = state.player.lock().unwrap();
-    if let Some(old) = player.take() {
-        old.stop();
-    }
-    *state.source_bytes.lock().unwrap() = None;
+    // Use try_lock to avoid blocking IPC if another thread holds the lock (e.g. stuck stop())
     state.has_track.store(false, Ordering::Relaxed);
     state.load_gen.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut player) = state.player.try_lock() {
+        if let Some(old) = player.take() {
+            old.stop();
+        }
+    }
+    if let Ok(mut bytes) = state.source_bytes.try_lock() {
+        *bytes = None;
+    }
 }
 
 #[tauri::command]

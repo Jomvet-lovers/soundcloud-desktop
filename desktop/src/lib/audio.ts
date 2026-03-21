@@ -193,17 +193,48 @@ listen('audio:device-reconnected', () => {
 
 // Fallback stall detector: if playing but no ticks for 2s, assume device died and reload
 const STALL_THRESHOLD_MS = 2000;
+const STALL_COOLDOWN_MS = 10000; // after a stall reload, wait 10s before detecting again
+let stallCooldownUntil = 0;
+let resumeGuardUntil = 0; // suppress stall detection right after visibility resume
 stallCheckTimer = setInterval(() => {
   if (!hasTrack || !lastTickAt) return;
   const { isPlaying } = usePlayerStore.getState();
   if (!isPlaying) return;
-  const elapsed = Date.now() - lastTickAt;
+  const now = Date.now();
+  if (now < stallCooldownUntil || now < resumeGuardUntil) return;
+  const elapsed = now - lastTickAt;
   if (elapsed > STALL_THRESHOLD_MS) {
     console.log(`[Audio] Stall detected (no ticks for ${elapsed}ms), reloading track...`);
-    lastTickAt = Date.now(); // prevent re-trigger
+    lastTickAt = now; // prevent re-trigger
+    stallCooldownUntil = now + STALL_COOLDOWN_MS;
     void reloadCurrentTrack();
   }
 }, 1000);
+
+// On visibility resume after long idle, force device reconnect before playing
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    // Suppress stall detector for 5s after resume to give audio time to warm up
+    resumeGuardUntil = Date.now() + 5000;
+    // If we had a track and were playing, verify audio is alive
+    if (hasTrack && usePlayerStore.getState().isPlaying && lastTickAt > 0) {
+      const idle = Date.now() - lastTickAt;
+      // If no ticks for >30s, audio device is likely dead — force reconnect
+      if (idle > 30000) {
+        console.log(`[Audio] Resuming after ${Math.round(idle / 1000)}s idle, forcing device reconnect...`);
+        invoke('audio_switch_device', { deviceName: null })
+          .then(() => {
+            console.log('[Audio] Device reconnected after idle, reloading track...');
+            void reloadCurrentTrack();
+          })
+          .catch((e) => {
+            console.error('[Audio] Device reconnect failed:', e);
+            void reloadCurrentTrack();
+          });
+      }
+    }
+  }
+});
 
 /* ── Store subscriber ────────────────────────────────────────── */
 

@@ -11,7 +11,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -379,9 +379,37 @@ export const PlaylistPage = React.memo(() => {
 
   // Local track order for DnD
   const [localTracks, setLocalTracks] = useState<Track[]>([]);
+  // Skip server sync while a debounced mutation is pending
+  const pendingMutationRef = useRef(false);
   useEffect(() => {
-    setLocalTracks(serverTracks);
+    if (!pendingMutationRef.current) setLocalTracks(serverTracks);
   }, [serverTracks]);
+
+  // Debounced mutation: accumulate rapid changes, only send the latest state
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>(null!);
+  const debouncedUpdate = useCallback(
+    (tracks: Track[], successMsg?: string) => {
+      pendingMutationRef.current = true;
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        updateTracks.mutate(
+          tracks.map((t) => t.urn),
+          {
+            onSuccess: () => {
+              pendingMutationRef.current = false;
+              if (successMsg) toast.success(successMsg);
+            },
+            onError: () => {
+              pendingMutationRef.current = false;
+              // Revert to server state on error
+              setLocalTracks(serverTracks);
+            },
+          },
+        );
+      }, 600);
+    },
+    [updateTracks, serverTracks],
+  );
 
   const tracks = isOwner ? localTracks : serverTracks;
 
@@ -412,25 +440,13 @@ export const PlaylistPage = React.memo(() => {
     const [moved] = newTracks.splice(oldIndex, 1);
     newTracks.splice(newIndex, 0, moved);
     setLocalTracks(newTracks);
-
-    updateTracks.mutate(
-      newTracks.map((t) => t.urn),
-      {
-        onSuccess: () => toast.success(t('playlist.reordered')),
-      },
-    );
+    debouncedUpdate(newTracks, t('playlist.reordered'));
   };
 
   const handleRemoveTrack = (trackUrn: string) => {
     const newTracks = localTracks.filter((t) => t.urn !== trackUrn);
     setLocalTracks(newTracks);
-
-    updateTracks.mutate(
-      newTracks.map((t) => t.urn),
-      {
-        onSuccess: () => toast.success(t('playlist.trackRemoved')),
-      },
-    );
+    debouncedUpdate(newTracks, t('playlist.trackRemoved'));
   };
 
   if (isLoading || !playlist) {
