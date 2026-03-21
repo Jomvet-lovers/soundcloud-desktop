@@ -16,6 +16,9 @@ let fallbackDuration = 0;
 let cachedTime = 0;
 let cachedDuration = 0;
 let loadGen = 0;
+let lastTickAt = 0;
+// @ts-expect-error — used for stall detection interval
+let stallCheckTimer: ReturnType<typeof setInterval> | null = null; // eslint-disable-line
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -159,6 +162,7 @@ function handleTrackEnd() {
 
 listen<number>('audio:tick', (event) => {
   cachedTime = event.payload;
+  lastTickAt = Date.now();
   if (cachedDuration <= 0) cachedDuration = fallbackDuration;
   notify();
 });
@@ -167,6 +171,25 @@ listen('audio:ended', () => {
   hasTrack = false;
   handleTrackEnd();
 });
+
+listen('audio:device-reconnected', () => {
+  console.log('[Audio] Device reconnected (BT profile switch?), reloading track...');
+  void reloadCurrentTrack();
+});
+
+// Fallback stall detector: if playing but no ticks for 2s, assume device died and reload
+const STALL_THRESHOLD_MS = 2000;
+stallCheckTimer = setInterval(() => {
+  if (!hasTrack || !lastTickAt) return;
+  const { isPlaying } = usePlayerStore.getState();
+  if (!isPlaying) return;
+  const elapsed = Date.now() - lastTickAt;
+  if (elapsed > STALL_THRESHOLD_MS) {
+    console.log(`[Audio] Stall detected (no ticks for ${elapsed}ms), reloading track...`);
+    lastTickAt = Date.now(); // prevent re-trigger
+    void reloadCurrentTrack();
+  }
+}, 1000);
 
 /* ── Store subscriber ────────────────────────────────────────── */
 

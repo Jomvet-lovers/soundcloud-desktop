@@ -381,15 +381,21 @@ enum AudioThreadCmd {
         name: Option<String>,
         reply: std::sync::mpsc::Sender<Result<Mixer, String>>,
     },
+    /// Auto-reconnect when the audio device is invalidated (e.g. BT profile switch)
+    Reconnect,
 }
 
 pub struct AudioState {
     player: Mutex<Option<Player>>,
-    mixer: Mutex<Mixer>,
+    mixer: Arc<Mutex<Mixer>>,
     eq_params: Arc<RwLock<EqParams>>,
     volume: Mutex<f32>, // 0.0 - 2.0
     has_track: AtomicBool,
     ended_notified: AtomicBool,
+    /// Set by error callback when stream breaks, cleared after reconnect completes
+    device_error: Arc<AtomicBool>,
+    /// Set by audio thread on device reconnect (e.g. BT profile switch), cleared by tick emitter
+    device_reconnected: Arc<AtomicBool>,
     load_gen: AtomicU64,
     media_tx: Mutex<Option<std::sync::mpsc::Sender<MediaCmd>>>,
     audio_tx: std::sync::mpsc::Sender<AudioThreadCmd>,
@@ -397,8 +403,26 @@ pub struct AudioState {
     source_bytes: Mutex<Option<Vec<u8>>>,
 }
 
-fn open_device_sink(device_id: Option<&str>) -> Result<rodio::stream::MixerDeviceSink, String> {
+fn open_device_sink(
+    device_id: Option<&str>,
+    reconnect_tx: &std::sync::mpsc::Sender<AudioThreadCmd>,
+    error_flag: &Arc<AtomicBool>,
+) -> Result<rodio::stream::MixerDeviceSink, String> {
     use cpal::traits::{DeviceTrait, HostTrait};
+
+    // Error callback: on stream error (e.g. BT profile switch → AUDCLNT_E_DEVICE_INVALIDATED),
+    // signal audio thread to reconnect. AtomicBool prevents spamming.
+    let sent = Arc::new(AtomicBool::new(false));
+    let sent_clone = sent.clone();
+    let tx = reconnect_tx.clone();
+    let err_flag = error_flag.clone();
+    let error_cb = move |err: cpal::StreamError| {
+        eprintln!("[audio] stream error: {err}");
+        err_flag.store(true, Ordering::Relaxed);
+        if !sent_clone.swap(true, Ordering::Relaxed) {
+            tx.send(AudioThreadCmd::Reconnect).ok();
+        }
+    };
 
     if let Some(id) = device_id {
         let host = cpal::default_host();
@@ -406,7 +430,9 @@ fn open_device_sink(device_id: Option<&str>) -> Result<rodio::stream::MixerDevic
             for dev in devices {
                 if dev.id().ok().map(|d| d.to_string()).as_deref() == Some(id) {
                     let mut sink = DeviceSinkBuilder::from_device(dev)
-                        .and_then(|b| b.open_stream())
+                        .map_err(|e| format!("Failed to open device '{}': {}", id, e))?
+                        .with_error_callback(error_cb)
+                        .open_stream()
                         .map_err(|e| format!("Failed to open device '{}': {}", id, e))?;
                     sink.log_on_drop(false);
                     return Ok(sink);
@@ -416,22 +442,35 @@ fn open_device_sink(device_id: Option<&str>) -> Result<rodio::stream::MixerDevic
         return Err(format!("Device '{}' not found", id));
     }
 
-    let mut sink =
-        DeviceSinkBuilder::open_default_sink().map_err(|e| format!("No audio output: {}", e))?;
+    let mut sink = DeviceSinkBuilder::from_default_device()
+        .map_err(|e| format!("No audio output: {}", e))?
+        .with_error_callback(error_cb)
+        .open_stream()
+        .map_err(|e| format!("No audio output: {}", e))?;
     sink.log_on_drop(false);
     Ok(sink)
 }
 
 pub fn init() -> AudioState {
     // Spawn audio output on a dedicated thread (MixerDeviceSink may be !Send on some platforms)
-    let (mixer_tx, mixer_rx) = std::sync::mpsc::channel();
+    let (mixer_tx, mixer_rx) = std::sync::mpsc::channel::<Arc<Mutex<Mixer>>>();
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<AudioThreadCmd>();
+    let device_error_flag = Arc::new(AtomicBool::new(false));
+    let reconnected_flag = Arc::new(AtomicBool::new(false));
 
+    let cmd_tx_for_thread = cmd_tx.clone();
+    let reconnected_for_thread = reconnected_flag.clone();
+    let error_flag_for_thread = device_error_flag.clone();
     std::thread::Builder::new()
         .name("audio-output".into())
         .spawn(move || {
-            let mut device_sink = open_device_sink(None).expect("no audio output device");
-            mixer_tx.send(device_sink.mixer().clone()).ok();
+            let cmd_tx = cmd_tx_for_thread;
+            let reconnected = reconnected_for_thread;
+            let error_flag = error_flag_for_thread;
+            let mut device_sink =
+                open_device_sink(None, &cmd_tx, &error_flag).expect("no audio output device");
+            let shared_mixer = Arc::new(Mutex::new(device_sink.mixer().clone()));
+            mixer_tx.send(shared_mixer.clone()).ok();
 
             loop {
                 match cmd_rx.recv() {
@@ -439,17 +478,42 @@ pub fn init() -> AudioState {
                         // Drop old sink first
                         drop(device_sink);
 
-                        match open_device_sink(name.as_deref()) {
+                        match open_device_sink(name.as_deref(), &cmd_tx, &error_flag) {
                             Ok(new_sink) => {
                                 let mixer = new_sink.mixer().clone();
+                                *shared_mixer.lock().unwrap() = mixer.clone();
                                 device_sink = new_sink;
                                 reply.send(Ok(mixer)).ok();
                             }
                             Err(e) => {
                                 // Fallback to default
                                 device_sink =
-                                    open_device_sink(None).expect("no audio output device");
+                                    open_device_sink(None, &cmd_tx, &error_flag).expect("no audio output device");
+                                *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
                                 reply.send(Err(e)).ok();
+                            }
+                        }
+                    }
+                    Ok(AudioThreadCmd::Reconnect) => {
+                        eprintln!("[audio] device invalidated, reconnecting...");
+                        // Small delay to let the OS settle after BT profile switch
+                        std::thread::sleep(Duration::from_millis(500));
+
+                        drop(device_sink);
+                        match open_device_sink(None, &cmd_tx, &error_flag) {
+                            Ok(new_sink) => {
+                                *shared_mixer.lock().unwrap() = new_sink.mixer().clone();
+                                device_sink = new_sink;
+                                reconnected.store(true, Ordering::Relaxed);
+                                eprintln!("[audio] reconnected successfully");
+                            }
+                            Err(e) => {
+                                eprintln!("[audio] reconnect failed: {e}, retrying...");
+                                std::thread::sleep(Duration::from_secs(1));
+                                device_sink =
+                                    open_device_sink(None, &cmd_tx, &error_flag).expect("no audio output device");
+                                *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
+                                reconnected.store(true, Ordering::Relaxed);
                             }
                         }
                     }
@@ -459,15 +523,17 @@ pub fn init() -> AudioState {
         })
         .expect("failed to spawn audio thread");
 
-    let mixer = mixer_rx.recv().expect("audio thread failed to init");
+    let shared_mixer = mixer_rx.recv().expect("audio thread failed to init");
 
     AudioState {
         player: Mutex::new(None),
-        mixer: Mutex::new(mixer),
+        mixer: shared_mixer,
         eq_params: Arc::new(RwLock::new(EqParams::default())),
         volume: Mutex::new(0.25), // 50/200
         has_track: AtomicBool::new(false),
         ended_notified: AtomicBool::new(false),
+        device_error: device_error_flag,
+        device_reconnected: reconnected_flag,
         load_gen: AtomicU64::new(0),
         media_tx: Mutex::new(None),
         audio_tx: cmd_tx,
@@ -484,6 +550,11 @@ pub fn start_tick_emitter(app: &AppHandle) {
             std::thread::sleep(Duration::from_millis(TICK_INTERVAL_MS));
             let state = handle.state::<AudioState>();
 
+            // Check if audio device was reconnected (e.g. BT profile switch)
+            if state.device_reconnected.swap(false, Ordering::Relaxed) {
+                handle.emit("audio:device-reconnected", ()).ok();
+            }
+
             if !state.has_track.load(Ordering::Relaxed) {
                 continue;
             }
@@ -491,8 +562,10 @@ pub fn start_tick_emitter(app: &AppHandle) {
             let player = state.player.lock().unwrap();
             if let Some(ref p) = *player {
                 if p.empty() {
-                    // Track ended
-                    if !state.ended_notified.swap(true, Ordering::Relaxed) {
+                    // Suppress track-end during device error (BT profile switch etc.)
+                    if !state.device_error.load(Ordering::Relaxed)
+                        && !state.ended_notified.swap(true, Ordering::Relaxed)
+                    {
                         handle.emit("audio:ended", ()).ok();
                     }
                 } else {
@@ -677,6 +750,7 @@ pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Res
     *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
+    state.device_error.store(false, Ordering::Relaxed);
 
     Ok(AudioLoadResult { duration_secs })
 }
@@ -745,6 +819,7 @@ pub async fn audio_load_url(
     *state.source_bytes.lock().unwrap() = Some(bytes);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
+    state.device_error.store(false, Ordering::Relaxed);
 
     Ok(AudioLoadResult { duration_secs })
 }
