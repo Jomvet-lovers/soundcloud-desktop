@@ -482,7 +482,7 @@ export const TrackPage = React.memo(() => {
                 className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_20px_var(--color-accent-glow)] ${
                   isThisPlaying
                     ? 'bg-white text-black hover:bg-white/90'
-                    : 'bg-accent text-white hover:bg-accent-hover active:scale-[0.97]'
+                    : 'bg-accent text-accent-contrast hover:bg-accent-hover active:scale-[0.97]'
                 }`}
               >
                 {isThisPlaying ? pauseCurrent16 : playCurrent16}

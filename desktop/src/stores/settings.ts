@@ -2,8 +2,28 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
+export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
+
+export interface ThemePresetDef {
+  accent: string;
+  bg: string;
+  name: string;
+  /** [accent, bg, card] for preview swatch */
+  preview: [string, string, string];
+}
+
+export const THEME_PRESETS: Record<Exclude<ThemePreset, 'custom'>, ThemePresetDef> = {
+  soundcloud: { accent: '#ff5500', bg: '#08080a', name: 'SoundCloud', preview: ['#ff5500', '#08080a', '#1a1a1e'] },
+  dark: { accent: '#ffffff', bg: '#000000', name: 'Тьма', preview: ['#ffffff', '#000000', '#111111'] },
+  neon: { accent: '#bf5af2', bg: '#08060f', name: 'Неон', preview: ['#bf5af2', '#08060f', '#18102a'] },
+  forest: { accent: '#22c55e', bg: '#050e08', name: 'Лес', preview: ['#22c55e', '#050e08', '#0a1f10'] },
+  crimson: { accent: '#ff2d55', bg: '#0c0507', name: 'Кармин', preview: ['#ff2d55', '#0c0507', '#1e0a10'] },
+};
+
 export interface SettingsState {
   accentColor: string;
+  bgPrimary: string;
+  themePreset: ThemePreset;
   backgroundImage: string;
   backgroundOpacity: number;
   glassBlur: number;
@@ -12,7 +32,10 @@ export interface SettingsState {
   eqGains: number[];
   eqPreset: string;
   sidebarCollapsed: boolean;
+  floatingComments: boolean;
   setAccentColor: (color: string) => void;
+  setBgPrimary: (bg: string) => void;
+  setThemePreset: (id: ThemePreset) => void;
   setBackgroundImage: (url: string) => void;
   setBackgroundOpacity: (opacity: number) => void;
   setGlassBlur: (blur: number) => void;
@@ -22,6 +45,7 @@ export interface SettingsState {
   setEqPreset: (preset: string) => void;
   setEqBand: (index: number, gain: number) => void;
   toggleSidebar: () => void;
+  setFloatingComments: (v: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -29,6 +53,8 @@ const DEFAULT_EQ_GAINS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 const DEFAULTS = {
   accentColor: '#ff5500',
+  bgPrimary: '#08080a',
+  themePreset: 'soundcloud' as ThemePreset,
   backgroundImage: '',
   backgroundOpacity: 0.15,
   glassBlur: 40,
@@ -37,13 +63,23 @@ const DEFAULTS = {
   eqGains: DEFAULT_EQ_GAINS,
   eqPreset: 'flat',
   sidebarCollapsed: false,
+  floatingComments: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       ...DEFAULTS,
-      setAccentColor: (accentColor) => set({ accentColor }),
+      setAccentColor: (accentColor) => set({ accentColor, themePreset: 'custom' }),
+      setBgPrimary: (bgPrimary) => set({ bgPrimary, themePreset: 'custom' }),
+      setThemePreset: (id) => {
+        if (id === 'custom') {
+          set({ themePreset: 'custom' });
+        } else {
+          const preset = THEME_PRESETS[id];
+          set({ themePreset: id, accentColor: preset.accent, bgPrimary: preset.bg });
+        }
+      },
       setBackgroundImage: (backgroundImage) => set({ backgroundImage }),
       setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
       setGlassBlur: (glassBlur) => set({ glassBlur }),
@@ -58,14 +94,17 @@ export const useSettingsStore = create<SettingsState>()(
           return { eqGains, eqPreset: 'custom' };
         }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setFloatingComments: (floatingComments) => set({ floatingComments }),
       resetTheme: () => set(DEFAULTS),
     }),
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 3,
+      version: 4,
       partialize: (s) => ({
         accentColor: s.accentColor,
+        bgPrimary: s.bgPrimary,
+        themePreset: s.themePreset,
         backgroundImage: s.backgroundImage,
         backgroundOpacity: s.backgroundOpacity,
         glassBlur: s.glassBlur,
@@ -74,6 +113,7 @@ export const useSettingsStore = create<SettingsState>()(
         eqGains: s.eqGains,
         eqPreset: s.eqPreset,
         sidebarCollapsed: s.sidebarCollapsed,
+        floatingComments: s.floatingComments,
       }),
     },
   ),

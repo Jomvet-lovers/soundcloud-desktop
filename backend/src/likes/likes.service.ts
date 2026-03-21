@@ -1,17 +1,45 @@
 import { Injectable } from '@nestjs/common';
-import { ScPaginatedResponse, ScPlaylist } from '../soundcloud/soundcloud.types.js';
+import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
+import { ScPaginatedResponse, ScPlaylist } from '../soundcloud/soundcloud.types.js';
 
 @Injectable()
 export class LikesService {
-  constructor(private readonly sc: SoundcloudService) {}
+  constructor(
+    private readonly sc: SoundcloudService,
+    private readonly localLikes: LocalLikesService,
+  ) {}
 
-  likeTrack(token: string, trackUrn: string): Promise<unknown> {
-    return this.sc.apiPost(`/likes/tracks/${trackUrn}`, token);
+  async likeTrack(
+    token: string,
+    sessionId: string,
+    trackUrn: string,
+    trackData?: Record<string, unknown>,
+  ): Promise<unknown> {
+    try {
+      return await this.sc.apiPost(`/likes/tracks/${trackUrn}`, token);
+    } catch {
+      // SC API failed (track removed, rate limit, etc.) — save as local like
+      if (trackData) {
+        await this.localLikes.add(sessionId, trackUrn, trackData);
+      }
+      return { status: 'local' };
+    }
   }
 
-  unlikeTrack(token: string, trackUrn: string): Promise<unknown> {
-    return this.sc.apiDelete(`/likes/tracks/${trackUrn}`, token);
+  async unlikeTrack(token: string, sessionId: string, trackUrn: string): Promise<unknown> {
+    // Delete from both SC and local
+    const results = await Promise.allSettled([
+      this.sc.apiDelete(`/likes/tracks/${trackUrn}`, token),
+      this.localLikes.remove(sessionId, trackUrn),
+    ]);
+    // If SC succeeded, return its result
+    if (results[0].status === 'fulfilled') return results[0].value;
+    return { status: 'removed' };
+  }
+
+  async isLocalLiked(sessionId: string, trackUrn: string): Promise<boolean> {
+    return this.localLikes.isLiked(sessionId, trackUrn);
   }
 
   likePlaylist(token: string, playlistUrn: string): Promise<unknown> {

@@ -26,6 +26,7 @@ import { useLyricsStore } from '../../stores/lyrics';
 import { type Track, usePlayerStore } from '../../stores/player';
 import { ProgressSlider, ProgressTime } from '../layout/NowPlayingBar';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
+import { FloatingComments } from './FloatingComments';
 
 /* ── Color extraction ──────────────────────────────────────── */
 
@@ -405,6 +406,8 @@ export const LyricsPanel = React.memo(() => {
           )}
         </div>
       </div>
+
+      <FloatingComments />
     </div>
   );
 });
@@ -457,6 +460,8 @@ export const ArtworkPanel = React.memo(() => {
       >
         <TrackColumn track={track} maxArt="max-w-[420px]" />
       </div>
+
+      <FloatingComments />
     </div>
   );
 });

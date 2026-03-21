@@ -1,6 +1,7 @@
-import { Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
+import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import { LikesService } from './likes.service.js';
 
@@ -14,14 +15,23 @@ export class LikesController {
   @Post('tracks/:trackUrn')
   @HttpCode(200)
   @ApiOperation({ summary: 'Like a track' })
-  likeTrack(@AccessToken() token: string, @Param('trackUrn') trackUrn: string) {
-    return this.likesService.likeTrack(token, trackUrn);
+  likeTrack(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Param('trackUrn') trackUrn: string,
+    @Body() trackData?: Record<string, unknown>,
+  ) {
+    return this.likesService.likeTrack(token, sessionId, trackUrn, trackData);
   }
 
   @Delete('tracks/:trackUrn')
   @ApiOperation({ summary: 'Unlike a track' })
-  unlikeTrack(@AccessToken() token: string, @Param('trackUrn') trackUrn: string) {
-    return this.likesService.unlikeTrack(token, trackUrn);
+  unlikeTrack(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Param('trackUrn') trackUrn: string,
+  ) {
+    return this.likesService.unlikeTrack(token, sessionId, trackUrn);
   }
 
   @Post('playlists/:playlistUrn')

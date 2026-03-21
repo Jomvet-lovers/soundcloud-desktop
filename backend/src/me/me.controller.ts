@@ -1,6 +1,7 @@
 import { Controller, Delete, Get, Param, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
+import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
@@ -42,15 +43,21 @@ export class MeController {
 
   @Get('likes/tracks')
   @ApiOperation({ summary: 'Get liked tracks' })
-  @ApiQuery({ name: 'access', required: false, enum: ['playable', 'preview', 'blocked'], default: ['playable', 'preview', 'blocked'] })
+  @ApiQuery({
+    name: 'access',
+    required: false,
+    enum: ['playable', 'preview', 'blocked'],
+    default: ['playable', 'preview', 'blocked'],
+  })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getLikedTracks(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
     const params: Record<string, unknown> = { ...query, access };
-    return this.meService.getLikedTracks(token, params);
+    return this.meService.getLikedTracks(token, sessionId, params);
   }
 
   @Get('likes/playlists')

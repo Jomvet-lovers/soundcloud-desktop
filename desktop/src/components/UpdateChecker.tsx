@@ -106,7 +106,7 @@ export function UpdateChecker() {
           <button
             type="button"
             onClick={() => openUrl(release.html_url)}
-            className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-white font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_20px_var(--color-accent-glow)]"
+            className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_20px_var(--color-accent-glow)]"
           >
             {isRu ? 'Скачать' : 'Download'}
             <ExternalLink size={13} />

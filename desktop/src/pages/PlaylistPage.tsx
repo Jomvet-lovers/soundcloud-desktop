@@ -167,7 +167,7 @@ const SortableTrackRow = React.memo(
           onMouseEnter={() => preloadTrack(track.urn)}
         >
           {isThisPlaying ? (
-            <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
+            <div className="w-7 h-7 rounded-full bg-accent text-accent-contrast flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
               {pauseWhite12}
             </div>
           ) : (
@@ -274,7 +274,7 @@ const TrackRow = React.memo(
           onMouseEnter={() => preloadTrack(track.urn)}
         >
           {isThisPlaying ? (
-            <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
+            <div className="w-7 h-7 rounded-full bg-accent text-accent-contrast flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
               {pauseWhite12}
             </div>
           ) : (
@@ -566,7 +566,7 @@ export const PlaylistPage = React.memo(() => {
                 className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_20px_var(--color-accent-glow)] ${
                   isPlayingFromThis
                     ? 'bg-white text-black hover:bg-white/90'
-                    : 'bg-accent text-white hover:bg-accent-hover active:scale-[0.97]'
+                    : 'bg-accent text-accent-contrast hover:bg-accent-hover active:scale-[0.97]'
                 }`}
               >
                 {isPlayingFromThis ? pauseCurrent16 : playCurrent16}

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
-import { Globe, Home, Library, PanelLeftClose, PanelLeftOpen, Search, Settings } from '../../lib/icons';
+import { Clock, Globe, Home, Library, PanelLeftClose, PanelLeftOpen, Search, Settings } from '../../lib/icons';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
 import { Avatar } from '../ui/Avatar';
@@ -15,6 +15,7 @@ const navItems = [
   { to: '/', icon: Home, label: 'nav.home' },
   { to: '/search', icon: Search, label: 'nav.search' },
   { to: '/library', icon: Library, label: 'nav.library' },
+  { to: '/library?tab=history', icon: Clock, label: 'library.history' },
 ];
 
 export const Sidebar = React.memo(() => {

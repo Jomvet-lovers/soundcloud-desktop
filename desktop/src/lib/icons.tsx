@@ -170,12 +170,12 @@ export const pauseBlack20 = <_Pause size={20} fill="black" strokeWidth={0} />;
 export const playBlack22 = <_Play size={22} fill="black" strokeWidth={0} className="ml-0.5" />;
 export const pauseBlack22 = <_Pause size={22} fill="black" strokeWidth={0} />;
 
-// Play / Pause (filled, white)
-export const playWhite12 = <_Play size={12} fill="white" strokeWidth={0} className="ml-px" />;
-export const pauseWhite12 = <_Pause size={12} fill="white" strokeWidth={0} />;
-export const playWhite14 = <_Play size={14} fill="white" strokeWidth={0} className="ml-0.5" />;
-export const pauseWhite14 = <_Pause size={14} fill="white" strokeWidth={0} />;
-export const playWhite16 = <_Play size={16} fill="white" strokeWidth={0} className="ml-0.5" />;
+// Play / Pause (filled, inherits color via currentColor — use text-accent-contrast on parent)
+export const playWhite12 = <_Play size={12} fill="currentColor" strokeWidth={0} className="ml-px" />;
+export const pauseWhite12 = <_Pause size={12} fill="currentColor" strokeWidth={0} />;
+export const playWhite14 = <_Play size={14} fill="currentColor" strokeWidth={0} className="ml-0.5" />;
+export const pauseWhite14 = <_Pause size={14} fill="currentColor" strokeWidth={0} />;
+export const playWhite16 = <_Play size={16} fill="currentColor" strokeWidth={0} className="ml-0.5" />;
 
 // Play / Pause (filled, currentColor)
 export const playCurrent16 = <_Play size={16} fill="currentColor" strokeWidth={0} />;

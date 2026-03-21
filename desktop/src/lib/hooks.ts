@@ -154,6 +154,81 @@ function extractPagination(href: string | null): PageParam | undefined {
   }
 }
 
+/* ── History ───────────────────────────────────────────────────── */
+
+export interface HistoryEntry {
+  id: string;
+  scTrackId: string;
+  title: string;
+  artistName: string;
+  artworkUrl: string | null;
+  duration: number;
+  playedAt: string;
+}
+
+export function useHistory(limit = 50) {
+  const query = useInfiniteQuery({
+    queryKey: ['history'],
+    queryFn: async ({ pageParam = 0 }) => {
+      return api<{ collection: HistoryEntry[]; total: number }>(
+        `/history?limit=${limit}&offset=${pageParam}`,
+      );
+    },
+    initialPageParam: 0,
+    getNextPageParam: (last, _all, lastOffset) => {
+      const nextOffset = (lastOffset as number) + limit;
+      return nextOffset < last.total ? nextOffset : undefined;
+    },
+    staleTime: 0,
+  });
+
+  const entries = useMemo(() => {
+    if (!query.data) return [];
+    const arr: HistoryEntry[] = [];
+    for (const page of query.data.pages) {
+      for (const e of page.collection) arr.push(e);
+    }
+    return arr;
+  }, [query.data]);
+
+  return { entries, ...query };
+}
+
+/* ── Local Likes ──────────────────────────────────────────────── */
+
+export function useLocalLikes(limit = 50) {
+  const query = useInfiniteQuery({
+    queryKey: ['local-likes'],
+    queryFn: async ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pageParam) params.set('cursor', pageParam as string);
+      return api<TrackListResponse>(`/local-likes?${params}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => {
+      if (!last.next_href) return undefined;
+      try {
+        const url = new URL(last.next_href, 'http://x');
+        return url.searchParams.get('cursor') || undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    staleTime: 0,
+  });
+
+  const tracks = useMemo(() => {
+    if (!query.data) return [];
+    const arr: Track[] = [];
+    for (const page of query.data.pages) {
+      for (const t of page.collection) arr.push(t);
+    }
+    return arr;
+  }, [query.data]);
+
+  return { tracks, ...query };
+}
+
 /* ── Feed ──────────────────────────────────────────────────────── */
 
 export function useFeed() {

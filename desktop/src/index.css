@@ -14,6 +14,7 @@
   --color-accent-hover: #ff6a1a;
   --color-accent-glow: rgba(255, 85, 0, 0.2);
   --color-accent-selection: rgba(255, 85, 0, 0.3);
+  --color-accent-contrast: #ffffff;
 
   --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);

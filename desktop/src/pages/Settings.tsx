@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { Skeleton } from '../components/ui/Skeleton.tsx';
 import { reloadCurrentTrack } from '../lib/audio';
 import {
   clearAssetsCache,
@@ -16,8 +17,7 @@ import {
 } from '../lib/cache';
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
-import { useSettingsStore } from '../stores/settings';
-import { Skeleton } from "../components/ui/Skeleton.tsx";
+import { THEME_PRESETS, useSettingsStore } from '../stores/settings';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -94,9 +94,7 @@ function CacheRow({
     <div className="flex items-center justify-between py-3">
       <div className="flex items-center gap-4">
         <div>
-          <p className="text-[13px] text-white/60 font-medium">
-            {label}
-          </p>
+          <p className="text-[13px] text-white/60 font-medium">{label}</p>
 
           <div className="h-[25px] flex items-center">
             {size === null ? (
@@ -171,7 +169,7 @@ const CacheSection = React.memo(function CacheSection() {
         <div className="min-w-[80px] flex justify-end">
           {audioSize !== null && assetsSize !== null ? (
             <span className="text-[12px] text-white/30 tabular-nums">
-                {t('settings.total')}: {formatBytes(totalSize)}
+              {t('settings.total')}: {formatBytes(totalSize)}
             </span>
           ) : (
             <Skeleton className="h-[12px] w-[80px]" />
@@ -387,12 +385,16 @@ const WallpaperPicker = React.memo(function WallpaperPicker() {
 
 /* ── Theme Section ──────────────────────────────────────── */
 
+const THEME_PRESET_KEYS = ['soundcloud', 'dark', 'neon', 'forest', 'crimson'] as const;
+
 const ThemeSection = React.memo(function ThemeSection() {
   const { t } = useTranslation();
   const accentColor = useSettingsStore((s) => s.accentColor);
+  const themePreset = useSettingsStore((s) => s.themePreset);
   const backgroundImage = useSettingsStore((s) => s.backgroundImage);
   const backgroundOpacity = useSettingsStore((s) => s.backgroundOpacity);
   const setAccentColor = useSettingsStore((s) => s.setAccentColor);
+  const setThemePreset = useSettingsStore((s) => s.setThemePreset);
   const setBackgroundOpacity = useSettingsStore((s) => s.setBackgroundOpacity);
   const resetTheme = useSettingsStore((s) => s.resetTheme);
 
@@ -412,37 +414,99 @@ const ThemeSection = React.memo(function ThemeSection() {
         </button>
       </div>
 
-      {/* Accent Color */}
+      {/* Theme Presets */}
       <div className="space-y-3">
-        <label className="text-[13px] text-white/50 font-medium">{t('settings.accentColor')}</label>
-        <div className="flex items-center gap-2 flex-wrap">
-          {PRESET_COLORS.map((color) => (
-            <button
-              key={color}
-              onClick={() => setAccentColor(color)}
-              className="w-8 h-8 rounded-full border-2 transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 shadow-md"
-              style={{
-                backgroundColor: color,
-                borderColor: accentColor === color ? 'white' : 'transparent',
-                boxShadow: accentColor === color ? `0 0 16px ${color}60` : undefined,
-              }}
-            />
-          ))}
+        <label className="text-[13px] text-white/50 font-medium">{t('settings.themePreset')}</label>
+        <div className="grid grid-cols-3 gap-3">
+          {THEME_PRESET_KEYS.map((id) => {
+            const def = THEME_PRESETS[id];
+            const isActive = themePreset === id;
+            return (
+              <button
+                key={id}
+                onClick={() => setThemePreset(id)}
+                className={`group relative rounded-2xl overflow-hidden border transition-all duration-200 cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
+                  isActive
+                    ? 'border-white/30 ring-1 ring-white/20'
+                    : 'border-white/[0.06] hover:border-white/15'
+                }`}
+              >
+                <div className="relative h-16 overflow-hidden" style={{ backgroundColor: def.preview[1] }}>
+                  <div
+                    className="absolute left-3 top-3 w-5 h-5 rounded-full"
+                    style={{ backgroundColor: def.preview[0] }}
+                  />
+                  <div
+                    className="absolute right-3 bottom-2 left-3 h-6 rounded-lg"
+                    style={{ backgroundColor: def.preview[2] }}
+                  />
+                </div>
+                <div className="px-3 py-2 bg-white/[0.03] text-center">
+                  <span className={`text-[12px] font-medium ${isActive ? 'text-white/90' : 'text-white/50'}`}>
+                    {def.name}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
           <button
-            onClick={() => colorInputRef.current?.click()}
-            className="w-8 h-8 rounded-full border-2 border-dashed border-white/20 hover:border-white/40 transition-all cursor-pointer flex items-center justify-center text-white/30 hover:text-white/60 hover:scale-110"
+            onClick={() => {
+              setThemePreset('custom');
+              colorInputRef.current?.click();
+            }}
+            className={`group relative rounded-2xl overflow-hidden border border-dashed transition-all duration-200 cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
+              themePreset === 'custom'
+                ? 'border-white/30 bg-white/[0.04]'
+                : 'border-white/[0.1] hover:border-white/20'
+            }`}
           >
-            <span className="text-[11px] font-bold">+</span>
+            <div className="h-16 flex items-center justify-center">
+              <span className="text-[20px] text-white/30 group-hover:text-white/50 transition-colors">+</span>
+            </div>
+            <div className="px-3 py-2 bg-white/[0.02] text-center">
+              <span className={`text-[12px] font-medium ${themePreset === 'custom' ? 'text-white/90' : 'text-white/40'}`}>
+                {t('settings.themeCustom')}
+              </span>
+            </div>
           </button>
-          <input
-            ref={colorInputRef}
-            type="color"
-            value={accentColor}
-            onChange={(e) => setAccentColor(e.target.value)}
-            className="sr-only"
-          />
         </div>
       </div>
+
+      {/* Accent Color (for custom) */}
+      {themePreset === 'custom' && (
+        <div className="space-y-3">
+          <label className="text-[13px] text-white/50 font-medium">
+            {t('settings.accentColor')}
+          </label>
+          <div className="flex items-center gap-2 flex-wrap">
+            {PRESET_COLORS.map((color) => (
+              <button
+                key={color}
+                onClick={() => setAccentColor(color)}
+                className="w-8 h-8 rounded-full border-2 transition-all duration-200 cursor-pointer hover:scale-110 active:scale-95 shadow-md"
+                style={{
+                  backgroundColor: color,
+                  borderColor: accentColor === color ? 'white' : 'transparent',
+                  boxShadow: accentColor === color ? `0 0 16px ${color}60` : undefined,
+                }}
+              />
+            ))}
+            <button
+              onClick={() => colorInputRef.current?.click()}
+              className="w-8 h-8 rounded-full border-2 border-dashed border-white/20 hover:border-white/40 transition-all cursor-pointer flex items-center justify-center text-white/30 hover:text-white/60 hover:scale-110"
+            >
+              <span className="text-[11px] font-bold">+</span>
+            </button>
+          </div>
+        </div>
+      )}
+      <input
+        ref={colorInputRef}
+        type="color"
+        value={accentColor}
+        onChange={(e) => setAccentColor(e.target.value)}
+        className="sr-only"
+      />
 
       {/* Background Image */}
       <WallpaperPicker />
@@ -541,6 +605,69 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
   );
 });
 
+/* ── Playback Section ─────────────────────────────────── */
+
+const PlaybackSection = React.memo(function PlaybackSection() {
+  const { t } = useTranslation();
+  const floatingComments = useSettingsStore((s) => s.floatingComments);
+  const setFloatingComments = useSettingsStore((s) => s.setFloatingComments);
+  return (
+    <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-5">
+      <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
+        {t('settings.playback')}
+      </h3>
+
+      {/* Floating Comments */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[13px] text-white/70 font-medium">{t('settings.floatingComments')}</p>
+          <p className="text-[11px] text-white/30 mt-0.5">{t('settings.floatingCommentsDesc')}</p>
+        </div>
+        <button
+          onClick={() => setFloatingComments(!floatingComments)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            floatingComments ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              floatingComments ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
+      </div>
+    </section>
+  );
+});
+
+/* ── Import Section ──────────────────────────────────────── */
+
+const ImportSection = React.memo(function ImportSection() {
+  const { t } = useTranslation();
+  const [ymOpen, setYmOpen] = useState(false);
+
+  return (
+    <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl">
+      <h3 className="text-[15px] font-bold text-white/80 tracking-tight mb-4">
+        {t('settings.import')}
+      </h3>
+      <button
+        onClick={() => setYmOpen(true)}
+        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-white/[0.06] text-white/70 hover:bg-white/[0.1] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-300 cursor-pointer"
+      >
+        {t('settings.importYandex')}
+      </button>
+      {ymOpen && (
+        <React.Suspense fallback={null}>
+          <YMImportDialogLazy open={ymOpen} onOpenChange={setYmOpen} />
+        </React.Suspense>
+      )}
+    </section>
+  );
+});
+
+const YMImportDialogLazy = React.lazy(() => import('../components/music/YMImportDialog'));
+
 /* ── Account Section ────────────────────────────────────── */
 
 const AccountSection = React.memo(function AccountSection() {
@@ -573,7 +700,9 @@ export function Settings() {
       <LanguageSection />
       <CacheSection />
       <ThemeSection />
+      <PlaybackSection />
       <AudioDeviceSection />
+      <ImportSection />
       <AccountSection />
     </div>
   );

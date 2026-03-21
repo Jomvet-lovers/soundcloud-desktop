@@ -5,7 +5,11 @@ import { AuthModule } from './auth/auth.module.js';
 import { Session } from './auth/entities/session.entity.js';
 import configuration from './config/configuration.js';
 import { HealthController } from './health/health.controller.js';
+import { ListeningHistory } from './history/entities/listening-history.entity.js';
+import { HistoryModule } from './history/history.module.js';
 import { LikesModule } from './likes/likes.module.js';
+import { LocalLike } from './local-likes/entities/local-like.entity.js';
+import { LocalLikesModule } from './local-likes/local-likes.module.js';
 import { MeModule } from './me/me.module.js';
 import { PlaylistsModule } from './playlists/playlists.module.js';
 import { RepostsModule } from './reposts/reposts.module.js';
@@ -29,7 +33,7 @@ import { UsersModule } from './users/users.module.js';
         username: config.get<string>('database.username'),
         password: config.get<string>('database.password'),
         database: config.get<string>('database.name'),
-        entities: [Session],
+        entities: [Session, ListeningHistory, LocalLike],
         synchronize: true,
       }),
     }),
@@ -42,6 +46,8 @@ import { UsersModule } from './users/users.module.js';
     LikesModule,
     RepostsModule,
     ResolveModule,
+    HistoryModule,
+    LocalLikesModule,
   ],
   controllers: [HealthController],
 })

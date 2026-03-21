@@ -6,6 +6,7 @@ mod proxy_server;
 mod server;
 mod static_server;
 mod tray;
+mod ym_import;
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -120,6 +121,8 @@ pub fn run() {
             audio_player::audio_list_devices,
             audio_player::audio_switch_device,
             audio_player::save_track_to_path,
+            ym_import::ym_import_start,
+            ym_import::ym_import_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

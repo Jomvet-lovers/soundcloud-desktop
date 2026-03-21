@@ -131,6 +131,20 @@ async function loadTrack(track: Track) {
   }
   hasTrack = true;
 
+  // Record to listening history (fire-and-forget)
+  if (track.urn && track.title) {
+    api('/history', {
+      method: 'POST',
+      body: JSON.stringify({
+        scTrackId: track.urn,
+        title: track.title,
+        artistName: track.user?.username || '',
+        artworkUrl: track.artwork_url || null,
+        duration: track.duration || 0,
+      }),
+    }).catch(() => {});
+  }
+
   if (!usePlayerStore.getState().isPlaying) {
     invoke('audio_pause').catch(console.error);
   }

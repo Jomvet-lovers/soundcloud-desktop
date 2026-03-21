@@ -1,14 +1,17 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
+import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
 import {
   fetchAllLikedTracks,
+  type HistoryEntry,
   type SCUser,
+  useHistory,
   useInfiniteScroll,
   useLikedTracks,
   useMyFollowings,
@@ -81,7 +84,7 @@ const LibraryTrackRow = React.memo(
           onMouseEnter={() => preloadTrack(track.urn)}
         >
           {isThisPlaying ? (
-            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
+            <div className="w-8 h-8 rounded-full bg-accent text-accent-contrast flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
               {pauseWhite14}
             </div>
           ) : (
@@ -550,12 +553,146 @@ const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filter: stri
   );
 });
 
+/* ── History Tab ──────────────────────────────────────────── */
+
+function formatHistoryDate(dateStr: string, t: (k: string) => string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  if (d >= today) return t('library.today');
+  if (d >= yesterday) return t('library.yesterday');
+  return t('library.earlier');
+}
+
+const HistoryTab = React.memo(function HistoryTab() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const historyQuery = useHistory();
+  const { entries, isLoading } = historyQuery;
+  const sentinelRef = useInfiniteScroll(
+    !!historyQuery.hasNextPage,
+    !!historyQuery.isFetchingNextPage,
+    historyQuery.fetchNextPage,
+  );
+
+  const handleClearHistory = useCallback(async () => {
+    await api('/history', { method: 'DELETE' });
+    historyQuery.refetch();
+  }, [historyQuery]);
+
+  // Group entries by date
+  const grouped = useMemo(() => {
+    const groups: { label: string; items: HistoryEntry[] }[] = [];
+    let currentLabel = '';
+    for (const entry of entries) {
+      const label = formatHistoryDate(entry.playedAt, t);
+      if (label !== currentLabel) {
+        currentLabel = label;
+        groups.push({ label, items: [] });
+      }
+      groups[groups.length - 1].items.push(entry);
+    }
+    return groups;
+  }, [entries, t]);
+
+  return (
+    <div className="min-h-[400px]">
+      {entries.length > 0 && (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={handleClearHistory}
+            className="text-[12px] text-white/30 hover:text-red-400 transition-colors cursor-pointer"
+          >
+            {t('library.clearHistory')}
+          </button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
+        </div>
+      ) : grouped.length > 0 ? (
+        <div className="space-y-6">
+          {grouped.map((group) => (
+            <div key={group.label}>
+              <h3 className="text-[13px] font-bold text-white/30 uppercase tracking-wider mb-3 px-1">
+                {group.label}
+              </h3>
+              <div className="flex flex-col gap-1">
+                {group.items.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="group flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/[0.04] transition-all duration-300"
+                  >
+                    <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
+                      {entry.artworkUrl ? (
+                        <img
+                          src={entry.artworkUrl.replace('large', 't200x200')}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
+                          <Music size={14} className="text-white/20" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <p
+                        className="text-[14px] font-medium truncate text-white/90 hover:text-white cursor-pointer transition-colors"
+                        onClick={() => navigate(`/track/${encodeURIComponent(entry.scTrackId)}`)}
+                      >
+                        {entry.title}
+                      </p>
+                      <p className="text-[12px] text-white/40 truncate mt-0.5">
+                        {entry.artistName}
+                      </p>
+                    </div>
+
+                    <span className="text-[11px] text-white/20 tabular-nums shrink-0">
+                      {new Date(entry.playedAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="py-20 text-center text-white/20">{t('library.historyEmpty')}</div>
+      )}
+
+      <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+        {historyQuery.isFetchingNextPage && (
+          <Loader2 size={20} className="text-white/15 animate-spin" />
+        )}
+      </div>
+    </div>
+  );
+});
+
 /* ── Main Page ────────────────────────────────────────────── */
 
 export const Library = React.memo(() => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'playlists' | 'likes' | 'following'>('likes');
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as 'playlists' | 'likes' | 'following' | 'history' | null;
+  const [activeTab, setActiveTab] = useState<
+    'playlists' | 'likes' | 'following' | 'history'
+  >(tabParam || 'likes');
   const [filter, setFilter] = useState('');
+
+  // Sync tab from URL param
+  useEffect(() => {
+    if (tabParam && tabParam !== activeTab) setActiveTab(tabParam);
+  }, [tabParam]);
   const deferredFilter = useDeferredValue(filter);
   const user = useAuthStore((s) => s.user);
 
@@ -566,6 +703,7 @@ export const Library = React.memo(() => {
     { id: 'playlists', label: t('search.playlists') },
     { id: 'likes', label: t('library.likedTracks') },
     { id: 'following', label: t('nav.following') },
+    { id: 'history', label: t('library.history') },
   ] as const;
 
   if (!user) return null;
@@ -624,6 +762,7 @@ export const Library = React.memo(() => {
       {activeTab === 'likes' && <LikesTab filter={deferredFilter} />}
       {activeTab === 'following' && <FollowingTab filter={deferredFilter} />}
       {activeTab === 'playlists' && <PlaylistsTab filter={deferredFilter} />}
+      {activeTab === 'history' && <HistoryTab />}
     </div>
   );
 });

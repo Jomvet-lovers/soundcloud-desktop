@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import {
   ScActivity,
@@ -11,7 +12,10 @@ import {
 
 @Injectable()
 export class MeService {
-  constructor(private readonly sc: SoundcloudService) {}
+  constructor(
+    private readonly sc: SoundcloudService,
+    private readonly localLikes: LocalLikesService,
+  ) {}
 
   getProfile(token: string): Promise<ScMe> {
     return this.sc.apiGet<ScMe>('/me', token);
@@ -31,11 +35,33 @@ export class MeService {
     return this.sc.apiGet('/me/feed/tracks', token, params);
   }
 
-  getLikedTracks(
+  async getLikedTracks(
     token: string,
+    sessionId: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet('/me/likes/tracks', token, params);
+    const scResult = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
+      '/me/likes/tracks',
+      token,
+      params,
+    );
+
+    // On the first page (no cursor/offset), prepend local likes
+    const hasCursor = params && (params.cursor || params.offset);
+    if (!hasCursor) {
+      const localResult = await this.localLikes.findAll(sessionId, 200);
+      if (localResult.collection.length > 0) {
+        const scUrns = new Set(scResult.collection.map((t) => t.urn));
+        const localTracks = localResult.collection
+          .map((data) => data as unknown as ScTrack)
+          .filter((t) => t.urn && !scUrns.has(t.urn));
+        if (localTracks.length > 0) {
+          scResult.collection = [...localTracks, ...scResult.collection];
+        }
+      }
+    }
+
+    return scResult;
   }
 
   getLikedPlaylists(

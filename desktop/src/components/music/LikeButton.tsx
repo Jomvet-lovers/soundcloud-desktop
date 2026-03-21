@@ -29,6 +29,7 @@ export const LikeButton = React.memo(function LikeButton({
     try {
       await api(`/likes/tracks/${encodeURIComponent(track.urn)}`, {
         method: next ? 'POST' : 'DELETE',
+        body: next ? JSON.stringify(track) : undefined,
       });
     } catch {
       optimisticToggleLike(qc, track, !next);
@@ -42,7 +43,7 @@ export const LikeButton = React.memo(function LikeButton({
         onClick={toggle}
         className={`cursor-pointer absolute top-2 left-2 w-8 h-8 rounded-full backdrop-blur-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
           liked
-            ? 'bg-accent/80 text-white'
+            ? 'bg-accent/80 text-accent-contrast'
             : 'bg-black/50 text-white/80 hover:text-white hover:bg-black/70'
         }`}
       >

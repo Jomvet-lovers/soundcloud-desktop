@@ -109,7 +109,7 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
             type="button"
             onClick={handleSubmit}
             disabled={!name.trim() || createPlaylist.isPending}
-            className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-accent text-white hover:bg-accent-hover disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
+            className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-accent text-accent-contrast hover:bg-accent-hover disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
           >
             {createPlaylist.isPending ? t('playlist.creating') : t('playlist.create')}
           </button>

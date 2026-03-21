@@ -15,7 +15,7 @@ const variants: Record<Variant, string> = {
   ghost:
     'px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-glass-hover active:bg-bg-glass-active',
   primary:
-    'px-5 py-2.5 text-sm bg-accent text-white hover:bg-accent-hover active:scale-[0.97] shadow-[0_0_20px_var(--color-accent-glow)]',
+    'px-5 py-2.5 text-sm bg-accent text-accent-contrast hover:bg-accent-hover active:scale-[0.97] shadow-[0_0_20px_var(--color-accent-glow)]',
   icon: 'w-9 h-9 text-text-secondary hover:text-text-primary hover:bg-bg-glass-hover active:bg-bg-glass-active rounded-lg',
 };
 
