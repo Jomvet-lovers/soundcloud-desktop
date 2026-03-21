@@ -225,13 +225,14 @@ export const QueuePanel = React.memo(
 
         {/* Panel */}
         <div
-          className={`fixed top-0 right-0 bottom-0 w-[360px] z-50 flex flex-col transition-transform duration-300 ease-[var(--ease-apple)] ${
-            open ? 'translate-x-0' : 'translate-x-full'
-          }`}
+          className="fixed top-0 right-0 bottom-0 w-[360px] z-50 flex flex-col"
           style={{
             background: 'rgba(18, 18, 20, 0.88)',
             backdropFilter: 'blur(60px) saturate(1.8)',
             borderLeft: '1px solid rgba(255,255,255,0.06)',
+            transform: open ? 'translateX(0)' : 'translateX(100%)',
+            visibility: open ? 'visible' : 'hidden',
+            transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1), visibility 300ms',
           }}
         >
           {/* Header */}
