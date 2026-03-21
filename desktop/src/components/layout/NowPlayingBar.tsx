@@ -110,6 +110,10 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
         max={200}
         step={1}
         onValueChange={([v]) => setVolume(v)}
+        onKeyDown={(e) => {
+          // Prevent slider from reacting to Left/Right, let event bubble to global binds
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
+        }}
         onWheel={(e) => {
           e.preventDefault();
           setVolume(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 2 : -2))));
