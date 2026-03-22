@@ -977,6 +977,13 @@ pub fn audio_stop(state: tauri::State<'_, AudioState>) {
 #[tauri::command]
 pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<(), String> {
     let target = Duration::from_secs_f64(position);
+    let was_paused = state
+        .player
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|p| p.is_paused())
+        .unwrap_or(false);
 
     // Try normal seek first
     {
@@ -1005,17 +1012,13 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
         state.eq_params.clone(),
     )?;
 
+    if was_paused {
+        new_player.pause();
+    }
+
     if position > 0.0 {
         new_player.try_seek(target).ok();
     }
-
-    let was_paused = state
-        .player
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|p| p.is_paused())
-        .unwrap_or(false);
 
     let mut player = state.player.lock().unwrap();
     if let Some(old) = player.take() {

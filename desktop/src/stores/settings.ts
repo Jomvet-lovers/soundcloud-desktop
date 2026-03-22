@@ -62,9 +62,6 @@ export interface SettingsState {
   sidebarCollapsed: boolean;
   floatingComments: boolean;
   startupPage: StartupPage;
-  windowWidth: number;
-  windowHeight: number;
-  windowMaximized: boolean;
   discordRpcEnabled: boolean;
   discordRpcMode: DiscordRpcMode;
   discordRpcShowButton: boolean;
@@ -83,11 +80,6 @@ export interface SettingsState {
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   setStartupPage: (page: StartupPage) => void;
-  setWindowState: (state: {
-    width?: number;
-    height?: number;
-    maximized?: boolean;
-  }) => void;
   setDiscordRpcEnabled: (enabled: boolean) => void;
   setDiscordRpcMode: (mode: DiscordRpcMode) => void;
   setDiscordRpcShowButton: (show: boolean) => void;
@@ -111,9 +103,6 @@ const DEFAULTS = {
   sidebarCollapsed: false,
   floatingComments: true,
   startupPage: 'home' as StartupPage,
-  windowWidth: 1200,
-  windowHeight: 800,
-  windowMaximized: false,
   discordRpcEnabled: true,
   discordRpcMode: 'track' as DiscordRpcMode,
   discordRpcShowButton: true,
@@ -150,12 +139,6 @@ export const useSettingsStore = create<SettingsState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setStartupPage: (startupPage) => set({ startupPage }),
-      setWindowState: ({ width, height, maximized }) =>
-        set((s) => ({
-          windowWidth: width ?? s.windowWidth,
-          windowHeight: height ?? s.windowHeight,
-          windowMaximized: maximized ?? s.windowMaximized,
-        })),
       setDiscordRpcEnabled: (discordRpcEnabled) => set({ discordRpcEnabled }),
       setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
@@ -193,9 +176,6 @@ export const useSettingsStore = create<SettingsState>()(
         sidebarCollapsed: s.sidebarCollapsed,
         floatingComments: s.floatingComments,
         startupPage: s.startupPage,
-        windowWidth: s.windowWidth,
-        windowHeight: s.windowHeight,
-        windowMaximized: s.windowMaximized,
         discordRpcEnabled: s.discordRpcEnabled,
         discordRpcMode: s.discordRpcMode,
         discordRpcShowButton: s.discordRpcShowButton,
