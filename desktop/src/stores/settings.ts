@@ -4,6 +4,7 @@ import { tauriStorage } from '../lib/tauri-storage';
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
 export type StartupPage = 'home' | 'search' | 'library' | 'settings';
+export type DiscordRpcMode = 'track' | 'artist' | 'activity';
 
 export interface ThemePresetDef {
   accent: string;
@@ -64,6 +65,9 @@ export interface SettingsState {
   windowWidth: number;
   windowHeight: number;
   windowMaximized: boolean;
+  discordRpcEnabled: boolean;
+  discordRpcMode: DiscordRpcMode;
+  discordRpcShowButton: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -84,6 +88,9 @@ export interface SettingsState {
     height?: number;
     maximized?: boolean;
   }) => void;
+  setDiscordRpcEnabled: (enabled: boolean) => void;
+  setDiscordRpcMode: (mode: DiscordRpcMode) => void;
+  setDiscordRpcShowButton: (show: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -107,6 +114,9 @@ const DEFAULTS = {
   windowWidth: 1200,
   windowHeight: 800,
   windowMaximized: false,
+  discordRpcEnabled: true,
+  discordRpcMode: 'track' as DiscordRpcMode,
+  discordRpcShowButton: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -146,6 +156,9 @@ export const useSettingsStore = create<SettingsState>()(
           windowHeight: height ?? s.windowHeight,
           windowMaximized: maximized ?? s.windowMaximized,
         })),
+      setDiscordRpcEnabled: (discordRpcEnabled) => set({ discordRpcEnabled }),
+      setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
+      setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -159,7 +172,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 6,
+      version: 7,
       migrate: (persistedState) =>
         ({
           ...DEFAULTS,
@@ -183,6 +196,9 @@ export const useSettingsStore = create<SettingsState>()(
         windowWidth: s.windowWidth,
         windowHeight: s.windowHeight,
         windowMaximized: s.windowMaximized,
+        discordRpcEnabled: s.discordRpcEnabled,
+        discordRpcMode: s.discordRpcMode,
+        discordRpcShowButton: s.discordRpcShowButton,
       }),
     },
   ),

@@ -17,7 +17,12 @@ import {
 } from '../lib/cache';
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
-import { THEME_PRESETS, useSettingsStore, type StartupPage } from '../stores/settings';
+import {
+  THEME_PRESETS,
+  useSettingsStore,
+  type DiscordRpcMode,
+  type StartupPage,
+} from '../stores/settings';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -51,6 +56,12 @@ const STARTUP_PAGES: Array<{ id: StartupPage; labelKey: string }> = [
   { id: 'search', labelKey: 'nav.search' },
   { id: 'library', labelKey: 'nav.library' },
   { id: 'settings', labelKey: 'nav.settings' },
+];
+
+const DISCORD_RPC_MODES: Array<{ id: DiscordRpcMode; labelKey: string }> = [
+  { id: 'track', labelKey: 'settings.discordRpcModeTrack' },
+  { id: 'artist', labelKey: 'settings.discordRpcModeArtist' },
+  { id: 'activity', labelKey: 'settings.discordRpcModeActivity' },
 ];
 
 /* ── Language Section ─────────────────────────────────────── */
@@ -665,6 +676,12 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const setFloatingComments = useSettingsStore((s) => s.setFloatingComments);
   const normalizeVolume = useSettingsStore((s) => s.normalizeVolume);
   const setNormalizeVolume = useSettingsStore((s) => s.setNormalizeVolume);
+  const discordRpcEnabled = useSettingsStore((s) => s.discordRpcEnabled);
+  const setDiscordRpcEnabled = useSettingsStore((s) => s.setDiscordRpcEnabled);
+  const discordRpcMode = useSettingsStore((s) => s.discordRpcMode);
+  const setDiscordRpcMode = useSettingsStore((s) => s.setDiscordRpcMode);
+  const discordRpcShowButton = useSettingsStore((s) => s.discordRpcShowButton);
+  const setDiscordRpcShowButton = useSettingsStore((s) => s.setDiscordRpcShowButton);
   return (
     <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-5">
       <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
@@ -708,6 +725,80 @@ const PlaybackSection = React.memo(function PlaybackSection() {
             }`}
           />
         </button>
+      </div>
+
+      <div className="border-t border-white/[0.04]" />
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[13px] text-white/70 font-medium">{t('settings.discordRpc')}</p>
+            <p className="text-[11px] text-white/30 mt-0.5">{t('settings.discordRpcDesc')}</p>
+          </div>
+          <button
+            onClick={() => setDiscordRpcEnabled(!discordRpcEnabled)}
+            className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+              discordRpcEnabled ? 'bg-accent' : 'bg-white/10'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+                discordRpcEnabled ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+              }`}
+            />
+          </button>
+        </div>
+
+        {discordRpcEnabled && (
+          <>
+            <div className="space-y-2">
+              <p className="text-[13px] text-white/50 font-medium">
+                {t('settings.discordRpcMode')}
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {DISCORD_RPC_MODES.map((mode) => {
+                  const active = discordRpcMode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      onClick={() => setDiscordRpcMode(mode.id)}
+                      className={`rounded-2xl border px-3 py-2.5 text-[12px] font-semibold transition-all duration-200 cursor-pointer ${
+                        active
+                          ? 'border-white/[0.16] bg-white/[0.08] text-white/90'
+                          : 'border-white/[0.05] bg-white/[0.02] text-white/45 hover:bg-white/[0.05] hover:text-white/70'
+                      }`}
+                    >
+                      {t(mode.labelKey)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[13px] text-white/70 font-medium">
+                  {t('settings.discordRpcButton')}
+                </p>
+                <p className="text-[11px] text-white/30 mt-0.5">
+                  {t('settings.discordRpcButtonDesc')}
+                </p>
+              </div>
+              <button
+                onClick={() => setDiscordRpcShowButton(!discordRpcShowButton)}
+                className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+                  discordRpcShowButton ? 'bg-accent' : 'bg-white/10'
+                }`}
+              >
+                <div
+                  className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+                    discordRpcShowButton ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+                  }`}
+                />
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </section>
   );

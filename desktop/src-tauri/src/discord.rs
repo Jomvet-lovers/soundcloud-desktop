@@ -20,6 +20,16 @@ pub struct DiscordTrackInfo {
     duration_secs: Option<i64>,
     elapsed_secs: Option<i64>,
     is_playing: Option<bool>,
+    mode: Option<DiscordRpcMode>,
+    show_button: Option<bool>,
+}
+
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscordRpcMode {
+    Track,
+    Artist,
+    Activity,
 }
 
 #[tauri::command]
@@ -68,21 +78,39 @@ pub fn discord_set_activity(
     let elapsed = track.elapsed_secs.unwrap_or(0);
     let start = now - elapsed;
     let is_playing = track.is_playing.unwrap_or(true);
+    let mode = track.mode.unwrap_or(DiscordRpcMode::Track);
+    let show_button = track.show_button.unwrap_or(true);
 
     let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
-    let assets = Assets::new()
-        .large_image(large_image);
+    let assets = Assets::new().large_image(large_image);
 
     let mut activity = Activity::new()
         .activity_type(ActivityType::Listening)
-        .details(&track.title)
-        .state(if is_playing {
+        .assets(assets);
+
+    activity = match mode {
+        DiscordRpcMode::Track => activity.details(&track.title).state(if is_playing {
             track.artist.as_str()
         } else {
             "Paused"
-        })
-        .assets(assets);
+        }),
+        DiscordRpcMode::Artist => {
+            let activity = activity.details(&track.artist);
+            if is_playing {
+                activity
+            } else {
+                activity.state("Paused")
+            }
+        }
+        DiscordRpcMode::Activity => {
+            if is_playing {
+                activity
+            } else {
+                activity.details("Paused")
+            }
+        }
+    };
 
     if is_playing {
         let mut timestamps = Timestamps::new().start(start);
@@ -92,8 +120,10 @@ pub fn discord_set_activity(
         activity = activity.timestamps(timestamps);
     }
 
-    if let Some(ref url) = track.track_url {
-        activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
+    if show_button {
+        if let Some(ref url) = track.track_url {
+            activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
+        }
     }
 
     let result = client.set_activity(activity);

@@ -1,12 +1,23 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
+import { useSettingsStore } from '../stores/settings';
 import { getCurrentTime, subscribe as subscribeAudioTime } from './audio';
 
 let connected = false;
+let lastConnectAttemptAt = 0;
+const CONNECT_RETRY_MS = 5000;
 
 async function ensureConnected(): Promise<boolean> {
+  if (!useSettingsStore.getState().discordRpcEnabled) {
+    return false;
+  }
   if (connected) return true;
+  const now = Date.now();
+  if (now - lastConnectAttemptAt < CONNECT_RETRY_MS) {
+    return false;
+  }
+  lastConnectAttemptAt = now;
   try {
     connected = await invoke<boolean>('discord_connect');
     return connected;
@@ -25,6 +36,7 @@ async function updatePresence(track: Track) {
 
   try {
     const isPlaying = usePlayerStore.getState().isPlaying;
+    const { discordRpcMode, discordRpcShowButton } = useSettingsStore.getState();
     await invoke('discord_set_activity', {
       track: {
         title: track.title,
@@ -36,6 +48,8 @@ async function updatePresence(track: Track) {
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(getCurrentTime()),
         is_playing: isPlaying,
+        mode: discordRpcMode,
+        show_button: discordRpcShowButton,
       },
     });
   } catch (e) {
@@ -95,9 +109,42 @@ usePlayerStore.subscribe((state) => {
   }
 });
 
+useSettingsStore.subscribe((state, prev) => {
+  const rpcSettingsChanged =
+    state.discordRpcEnabled !== prev.discordRpcEnabled ||
+    state.discordRpcMode !== prev.discordRpcMode ||
+    state.discordRpcShowButton !== prev.discordRpcShowButton;
+
+  if (!rpcSettingsChanged) return;
+
+  if (!state.discordRpcEnabled) {
+    if (seekSyncTimer) {
+      clearTimeout(seekSyncTimer);
+      seekSyncTimer = null;
+    }
+    void clearPresence().finally(() => {
+      connected = false;
+      void invoke('discord_disconnect').catch(() => undefined);
+    });
+    return;
+  }
+
+  const { currentTrack } = usePlayerStore.getState();
+  if (currentTrack) {
+    void updatePresence(currentTrack);
+  }
+});
+
 subscribeAudioTime(() => {
   const { currentTrack, isPlaying } = usePlayerStore.getState();
-  if (!currentTrack || !isPlaying) return;
+  if (!currentTrack || !useSettingsStore.getState().discordRpcEnabled) return;
+
+  if (!connected) {
+    void updatePresence(currentTrack);
+    return;
+  }
+
+  if (!isPlaying) return;
 
   const elapsed = Math.round(getCurrentTime());
   const drift = Math.abs(elapsed - lastElapsed);

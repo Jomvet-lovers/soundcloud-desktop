@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/shallow';
 import { AppShell } from './components/layout/AppShell';
 import { ThemeProvider } from './components/ThemeProvider';
 import { UpdateChecker } from './components/UpdateChecker';
+import { ApiError } from './lib/api';
 import { Home } from './pages/Home';
 import { Library } from './pages/Library';
 import { Login } from './pages/Login';
@@ -41,7 +42,15 @@ export default function App() {
   useEffect(() => {
     if (sessionId) {
       fetchUser()
-        .catch(() => useAuthStore.getState().logout())
+        .catch((error) => {
+          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+            useAuthStore.getState().logout();
+            return;
+          }
+
+          console.warn('[Auth] Keeping local session after /me bootstrap failure:', error);
+          useAuthStore.setState({ isAuthenticated: true });
+        })
         .finally(() => setChecking(false));
     } else {
       setChecking(false);
