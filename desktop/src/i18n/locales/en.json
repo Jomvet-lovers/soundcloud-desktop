@@ -8,6 +8,13 @@
     "collapse": "Collapse",
     "expand": "Expand"
   },
+  "sidebar": {
+    "quickAccess": "Quick Access",
+    "pinPlaylist": "Pin playlist",
+    "unpinPlaylist": "Unpin playlist",
+    "pinned": "Pinned to sidebar",
+    "unpinned": "Removed from sidebar"
+  },
   "player": {
     "queue": "Queue",
     "nowPlaying": "Now Playing",
@@ -130,6 +137,8 @@
     "total": "Total",
     "audioCacheSize": "Audio",
     "assetsCacheSize": "Images & assets",
+    "audioCacheLimit": "Audio cache limit",
+    "audioCacheLimitDesc": "Older cached tracks are deleted automatically when the limit is exceeded",
     "clearCache": "Clear",
     "cacheCleared": "Cache cleared",
     "appearance": "Appearance",
@@ -141,6 +150,7 @@
     "download": "Download",
     "wallpaperAdded": "Wallpaper added",
     "bgLoadError": "Failed to load image",
+    "unlimited": "Unlimited",
     "bgOpacity": "Background opacity",
     "resetDefaults": "Reset to defaults",
     "account": "Account",

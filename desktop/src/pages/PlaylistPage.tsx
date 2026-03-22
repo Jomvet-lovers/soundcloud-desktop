@@ -37,6 +37,7 @@ import {
   heart9,
   ListMusic,
   Loader2,
+  MapPin,
   musicIcon12,
   pauseBlack22,
   pauseCurrent16,
@@ -51,6 +52,7 @@ import {
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
 import { type Track, usePlayerStore } from '../stores/player';
+import { useSettingsStore } from '../stores/settings';
 
 /* ── Playlist Like Button ─────────────────────────────────── */
 
@@ -368,9 +370,13 @@ export const PlaylistPage = React.memo(() => {
   const updateTracks = useUpdatePlaylistTracks(urn);
   const deletePlaylist = useDeletePlaylist();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const pinnedPlaylists = useSettingsStore((s) => s.pinnedPlaylists);
+  const pinPlaylist = useSettingsStore((s) => s.pinPlaylist);
+  const unpinPlaylist = useSettingsStore((s) => s.unpinPlaylist);
 
   const isLoading = playlistLoading || tracksLoading;
   const isOwner = !!playlist && !!myUrn && playlist.user.urn === myUrn;
+  const isPinned = pinnedPlaylists.some((item) => item.urn === playlist?.urn);
 
   const serverTracks: Track[] = React.useMemo(() => {
     if (isLoading || !playlist) return [];
@@ -447,6 +453,23 @@ export const PlaylistPage = React.memo(() => {
     const newTracks = localTracks.filter((t) => t.urn !== trackUrn);
     setLocalTracks(newTracks);
     debouncedUpdate(newTracks, t('playlist.trackRemoved'));
+  };
+
+  const handleTogglePin = () => {
+    if (!playlist) return;
+
+    if (isPinned) {
+      unpinPlaylist(playlist.urn);
+      toast.success(t('sidebar.unpinned'));
+      return;
+    }
+
+    pinPlaylist({
+      urn: playlist.urn,
+      title: playlist.title,
+      artworkUrl: playlist.artwork_url ?? tracks[0]?.artwork_url ?? null,
+    });
+    toast.success(t('sidebar.pinned'));
   };
 
   if (isLoading || !playlist) {
@@ -596,6 +619,18 @@ export const PlaylistPage = React.memo(() => {
               >
                 <Shuffle size={16} />
                 {t('playlist.shuffle')}
+              </button>
+              <button
+                type="button"
+                onClick={handleTogglePin}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+                  isPinned
+                    ? 'bg-white/[0.08] text-white/85 border border-white/[0.12]'
+                    : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
+                }`}
+              >
+                <MapPin size={16} />
+                {isPinned ? t('sidebar.unpinPlaylist') : t('sidebar.pinPlaylist')}
               </button>
               <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
               <CopyLinkButton url={playlist.permalink_url} />

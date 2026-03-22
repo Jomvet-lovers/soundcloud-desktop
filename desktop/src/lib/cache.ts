@@ -3,6 +3,7 @@ import { appCacheDir, join } from '@tauri-apps/api/path';
 import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { getSessionId } from './api';
+import { useSettingsStore } from '../stores/settings';
 
 import { API_BASE, getStaticPort } from './constants';
 
@@ -10,8 +11,13 @@ const AUDIO_DIR = 'audio';
 const ASSETS_DIR = 'assets';
 const WALLPAPERS_DIR = 'wallpapers';
 const MIN_AUDIO_SIZE = 8192;
+const IDLE_ASSETS_CLEAR_MS = 20 * 60 * 1000;
+const CACHE_MAINTENANCE_INTERVAL_MS = 60 * 1000;
 
 let cacheBasePath: string | null = null;
+let cacheMaintenanceStarted = false;
+let lastUserActivityAt = Date.now();
+let assetsClearedDuringIdle = false;
 
 async function getAudioDir(): Promise<string> {
   if (cacheBasePath) return cacheBasePath;
@@ -91,6 +97,7 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
         console.log(`💾 [Cache] Download complete for ${urn}. Saving...`);
         const path = await filePath(urn);
         await writeFile(path, new Uint8Array(buffer)).catch((e) => console.error('Write fail', e));
+        await enforceAudioCacheLimit();
       } else {
         console.error(`💾 [Cache] Invalid audio received for ${urn}`);
         throw new Error('Invalid audio');
@@ -143,6 +150,45 @@ export async function clearCache(): Promise<void> {
     }
   } catch (e) {
     console.error('clearCache failed:', e);
+  }
+}
+
+export async function enforceAudioCacheLimit(limitMb = useSettingsStore.getState().audioCacheLimitMB): Promise<void> {
+  if (!limitMb || limitMb <= 0) return;
+
+  try {
+    const dir = await getAudioDir();
+    const entries = await readDir(dir);
+    const files: Array<{ path: string; size: number; lastUsed: number }> = [];
+    let total = 0;
+
+    for (const entry of entries) {
+      if (!entry.name || !entry.isFile) continue;
+      const path = `${dir}/${entry.name}`;
+      const info = await stat(path);
+      const size = info.size ?? 0;
+      const lastUsed =
+        info.atime?.getTime() ??
+        info.mtime?.getTime() ??
+        info.birthtime?.getTime() ??
+        0;
+
+      total += size;
+      files.push({ path, size, lastUsed });
+    }
+
+    const limitBytes = limitMb * 1024 * 1024;
+    if (total <= limitBytes) return;
+
+    files.sort((a, b) => a.lastUsed - b.lastUsed);
+
+    for (const file of files) {
+      if (total <= limitBytes) break;
+      await remove(file.path).catch(() => {});
+      total -= file.size;
+    }
+  } catch (error) {
+    console.error('enforceAudioCacheLimit failed:', error);
   }
 }
 
@@ -200,6 +246,38 @@ export async function clearAssetsCache(): Promise<void> {
   } catch (e) {
     console.error('clearAssetsCache failed:', e);
   }
+}
+
+export function setupCacheMaintenance() {
+  if (cacheMaintenanceStarted) return;
+  cacheMaintenanceStarted = true;
+
+  const markUserActive = () => {
+    lastUserActivityAt = Date.now();
+    assetsClearedDuringIdle = false;
+  };
+
+  for (const eventName of ['mousemove', 'mousedown', 'keydown', 'touchstart', 'focus']) {
+    window.addEventListener(eventName, markUserActive, { passive: true });
+  }
+
+  void enforceAudioCacheLimit();
+
+  useSettingsStore.subscribe((state, prev) => {
+    if (state.audioCacheLimitMB !== prev.audioCacheLimitMB) {
+      void enforceAudioCacheLimit(state.audioCacheLimitMB);
+    }
+  });
+
+  window.setInterval(() => {
+    void enforceAudioCacheLimit();
+
+    if (assetsClearedDuringIdle) return;
+    if (Date.now() - lastUserActivityAt < IDLE_ASSETS_CLEAR_MS) return;
+
+    assetsClearedDuringIdle = true;
+    void clearAssetsCache();
+  }, CACHE_MAINTENANCE_INTERVAL_MS);
 }
 
 /* ── Wallpapers ──────────────────────────────────────────── */

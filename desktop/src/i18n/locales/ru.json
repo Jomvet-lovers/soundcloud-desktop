@@ -8,6 +8,13 @@
     "collapse": "Свернуть",
     "expand": "Развернуть"
   },
+  "sidebar": {
+    "quickAccess": "Быстрый доступ",
+    "pinPlaylist": "Закрепить плейлист",
+    "unpinPlaylist": "Открепить плейлист",
+    "pinned": "Плейлист закреплён в сайдбаре",
+    "unpinned": "Плейлист убран из сайдбара"
+  },
   "player": {
     "queue": "Очередь",
     "nowPlaying": "Сейчас играет",
@@ -131,6 +138,8 @@
     "total": "Всего",
     "audioCacheSize": "Аудио",
     "assetsCacheSize": "Изображения и ассеты",
+    "audioCacheLimit": "Лимит аудиокэша",
+    "audioCacheLimitDesc": "Старые кэшированные треки будут удаляться автоматически при превышении лимита",
     "clearCache": "Очистить",
     "cacheCleared": "Кэш очищен",
     "appearance": "Оформление",
@@ -142,6 +151,7 @@
     "download": "Скачать",
     "wallpaperAdded": "Обои добавлены",
     "bgLoadError": "Не удалось загрузить изображение",
+    "unlimited": "Без лимита",
     "bgOpacity": "Прозрачность фона",
     "resetDefaults": "Сбросить",
     "account": "Аккаунт",

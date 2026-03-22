@@ -140,6 +140,8 @@ function CacheRow({
 
 const CacheSection = React.memo(function CacheSection() {
   const { t } = useTranslation();
+  const audioCacheLimitMB = useSettingsStore((s) => s.audioCacheLimitMB);
+  const setAudioCacheLimitMB = useSettingsStore((s) => s.setAudioCacheLimitMB);
   const [audioSize, setAudioSize] = useState<number | null>(null);
   const [assetsSize, setAssetsSize] = useState<number | null>(null);
   const [clearingAudio, setClearingAudio] = useState(false);
@@ -177,6 +179,12 @@ const CacheSection = React.memo(function CacheSection() {
   }, [t]);
 
   const totalSize = (audioSize ?? 0) + (assetsSize ?? 0);
+  const limitLabel =
+    audioCacheLimitMB <= 0
+      ? t('settings.unlimited')
+      : audioCacheLimitMB >= 1024
+        ? `${(audioCacheLimitMB / 1024).toFixed(audioCacheLimitMB % 1024 === 0 ? 0 : 1)} GB`
+        : `${audioCacheLimitMB} MB`;
 
   return (
     <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-2">
@@ -210,6 +218,25 @@ const CacheSection = React.memo(function CacheSection() {
         onClear={handleClearAssets}
         t={t}
       />
+      <div className="border-t border-white/[0.04]" />
+      <div className="pt-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[13px] text-white/60 font-medium">{t('settings.audioCacheLimit')}</p>
+            <p className="text-[11px] text-white/30 mt-0.5">{t('settings.audioCacheLimitDesc')}</p>
+          </div>
+          <span className="text-[12px] text-white/30 tabular-nums">{limitLabel}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={8192}
+          step={256}
+          value={audioCacheLimitMB}
+          onChange={(e) => setAudioCacheLimitMB(Number(e.target.value))}
+          className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+        />
+      </div>
     </section>
   );
 });

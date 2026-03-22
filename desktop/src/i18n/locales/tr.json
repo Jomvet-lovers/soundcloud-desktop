@@ -8,6 +8,13 @@
     "collapse": "Daralt",
     "expand": "Genislet"
   },
+  "sidebar": {
+    "quickAccess": "Hizli Erisim",
+    "pinPlaylist": "Calma listesini sabitle",
+    "unpinPlaylist": "Calma listesinin sabitini kaldir",
+    "pinned": "Kenar cubuguna sabitlendi",
+    "unpinned": "Kenar cubugundan kaldirildi"
+  },
   "player": {
     "queue": "Kuyruk",
     "nowPlaying": "Simdi Calan",
@@ -130,6 +137,8 @@
     "total": "Toplam",
     "audioCacheSize": "Ses",
     "assetsCacheSize": "Gorseller ve varliklar",
+    "audioCacheLimit": "Ses onbellek limiti",
+    "audioCacheLimitDesc": "Limit asildiginda eski onbelleklenmis parcilar otomatik silinir",
     "clearCache": "Temizle",
     "cacheCleared": "Onbellek temizlendi",
     "appearance": "Gorunum",
@@ -141,6 +150,7 @@
     "download": "Indir",
     "wallpaperAdded": "Duvar kagidi eklendi",
     "bgLoadError": "Resim yuklenemedi",
+    "unlimited": "Sinirsiz",
     "bgOpacity": "Arka plan opakligi",
     "resetDefaults": "Varsayilanlara don",
     "account": "Hesap",
