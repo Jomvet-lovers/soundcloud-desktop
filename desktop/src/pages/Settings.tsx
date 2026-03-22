@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -15,6 +14,7 @@ import {
   removeWallpaper,
   saveWallpaperFromBuffer,
 } from '../lib/cache';
+import { trackedInvoke } from '../lib/diagnostics';
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -579,7 +579,7 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
   const [switching, setSwitching] = useState(false);
 
   const refreshSinks = React.useCallback(() => {
-    invoke<AudioSink[]>('audio_list_devices').then(setSinks).catch(console.error);
+    trackedInvoke<AudioSink[]>('audio_list_devices').then(setSinks).catch(console.error);
   }, []);
 
   // Refresh on mount + when window regains focus (device may have changed)

@@ -1,8 +1,8 @@
-import { invoke } from '@tauri-apps/api/core';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { getCurrentTime, subscribe as subscribeAudioTime } from './audio';
+import { trackedInvoke as invoke } from './diagnostics';
 
 let connected = false;
 let lastConnectAttemptAt = 0;

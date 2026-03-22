@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
@@ -6,6 +5,7 @@ import { useSettingsStore } from '../stores/settings';
 import { api, getSessionId } from './api';
 import { fetchAndCacheTrack, getCacheFilePath, isCached } from './cache';
 import { API_BASE } from './constants';
+import { trackedInvoke as invoke } from './diagnostics';
 import { art } from './formatters';
 
 interface AudioSink {
@@ -26,6 +26,7 @@ let lastTickAt = 0;
 let followSystemOutput = true;
 let lastKnownDefaultSink: string | null = null;
 let autoDeviceSwitchInFlight = false;
+let defaultSinkCheckInFlight = false;
 // @ts-expect-error — used for stall detection interval
 let stallCheckTimer: ReturnType<typeof setInterval> | null = null; // eslint-disable-line
 const listeners = new Set<() => void>();
@@ -280,27 +281,30 @@ document.addEventListener('visibilitychange', () => {
 });
 
 async function syncDefaultOutputDevice() {
-  if (!followSystemOutput || autoDeviceSwitchInFlight) return;
+  if (!followSystemOutput || autoDeviceSwitchInFlight || defaultSinkCheckInFlight) return;
+  if (document.visibilityState !== 'visible') return;
 
-  const defaultSink = await getDefaultAudioSinkName();
-  if (!defaultSink) return;
-
-  if (lastKnownDefaultSink == null) {
-    lastKnownDefaultSink = defaultSink;
-    return;
-  }
-
-  if (defaultSink === lastKnownDefaultSink) return;
-
-  lastKnownDefaultSink = defaultSink;
-  autoDeviceSwitchInFlight = true;
+  defaultSinkCheckInFlight = true;
   try {
+    const defaultSink = await getDefaultAudioSinkName();
+    if (!defaultSink) return;
+
+    if (lastKnownDefaultSink == null) {
+      lastKnownDefaultSink = defaultSink;
+      return;
+    }
+
+    if (defaultSink === lastKnownDefaultSink) return;
+
+    lastKnownDefaultSink = defaultSink;
+    autoDeviceSwitchInFlight = true;
     console.log(`[Audio] Default output changed to '${defaultSink}', switching automatically...`);
     await switchAudioDevice(null);
   } catch (error) {
     console.error('[Audio] Failed to auto-switch default output:', error);
   } finally {
     autoDeviceSwitchInFlight = false;
+    defaultSinkCheckInFlight = false;
   }
 }
 
@@ -309,8 +313,10 @@ void getDefaultAudioSinkName().then((name) => {
 });
 
 setInterval(() => {
-  void syncDefaultOutputDevice();
-}, 3000);
+  if (usePlayerStore.getState().currentTrack) {
+    void syncDefaultOutputDevice();
+  }
+}, 10000);
 
 window.addEventListener('focus', () => {
   void syncDefaultOutputDevice();

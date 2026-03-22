@@ -1,5 +1,6 @@
 mod audio_player;
 mod constants;
+mod diagnostics;
 mod discord;
 mod proxy;
 mod proxy_server;
@@ -80,6 +81,7 @@ pub fn run() {
                 static_port,
                 proxy_port,
             }));
+            diagnostics::mark_session_started(&app.handle());
             app.manage(Arc::new(DiscordState {
                 client: Mutex::new(None),
             }));
@@ -101,6 +103,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             server::get_server_ports,
+            diagnostics::diagnostics_log,
             discord::discord_connect,
             discord::discord_disconnect,
             discord::discord_set_activity,

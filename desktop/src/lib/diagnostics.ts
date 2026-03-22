@@ -1,0 +1,89 @@
+import { invoke as coreInvoke } from '@tauri-apps/api/core';
+
+const EVENT_LOOP_TICK_MS = 1000;
+const EVENT_LOOP_WARN_MS = 500;
+const INVOKE_WARN_MS = 1500;
+const ASYNC_WARN_MS = 2500;
+
+let watchdogStarted = false;
+
+function roundMs(value: number) {
+  return Math.round(value);
+}
+
+function writeLog(level: 'INFO' | 'WARN' | 'ERROR', message: string) {
+  void coreInvoke('diagnostics_log', { level, message }).catch(() => undefined);
+}
+
+function logInfo(message: string) {
+  console.info(message);
+  writeLog('INFO', message);
+}
+
+function logWarn(message: string) {
+  console.warn(message);
+  writeLog('WARN', message);
+}
+
+function logError(message: string) {
+  console.error(message);
+  writeLog('ERROR', message);
+}
+
+export function setupUiWatchdog() {
+  if (watchdogStarted) return;
+  watchdogStarted = true;
+
+  logInfo('[Perf] UI watchdog started');
+
+  let expectedAt = performance.now() + EVENT_LOOP_TICK_MS;
+  window.setInterval(() => {
+    const now = performance.now();
+    const lag = now - expectedAt;
+    expectedAt = now + EVENT_LOOP_TICK_MS;
+
+    if (document.visibilityState === 'visible' && lag > EVENT_LOOP_WARN_MS) {
+      logWarn(`[Perf] UI event loop lag detected: ${roundMs(lag)}ms`);
+    }
+  }, EVENT_LOOP_TICK_MS);
+
+  window.addEventListener('error', (event) => {
+    logError(`[UI] Unhandled error: ${event.message}`);
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    logError(`[UI] Unhandled rejection: ${String(event.reason)}`);
+  });
+}
+
+export async function trackAsync<T>(
+  label: string,
+  promise: Promise<T>,
+  warnMs = ASYNC_WARN_MS,
+): Promise<T> {
+  const startedAt = performance.now();
+  const slowTimer = window.setTimeout(() => {
+    logWarn(`[Perf] Slow task still running: ${label} (${warnMs}ms+)`);
+  }, warnMs);
+
+  try {
+    return await promise;
+  } catch (error) {
+    logError(`[Perf] Task failed: ${label}: ${String(error)}`);
+    throw error;
+  } finally {
+    window.clearTimeout(slowTimer);
+    const elapsed = performance.now() - startedAt;
+    if (elapsed > warnMs) {
+      logWarn(`[Perf] Slow task finished: ${label} (${roundMs(elapsed)}ms)`);
+    }
+  }
+}
+
+export function trackedInvoke<T>(
+  command: string,
+  args?: Record<string, unknown>,
+  warnMs = INVOKE_WARN_MS,
+): Promise<T> {
+  return trackAsync(`invoke:${command}`, coreInvoke<T>(command, args), warnMs);
+}
