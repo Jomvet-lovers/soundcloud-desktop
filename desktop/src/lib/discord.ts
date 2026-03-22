@@ -56,6 +56,16 @@ async function clearPresence() {
 let lastUrn: string | null = null;
 let lastPlaying = false;
 let lastElapsed = 0;
+let seekSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function schedulePresenceSync(track: Track, delayMs: number) {
+  if (seekSyncTimer) clearTimeout(seekSyncTimer);
+  seekSyncTimer = setTimeout(() => {
+    seekSyncTimer = null;
+    lastElapsed = Math.round(getCurrentTime());
+    updatePresence(track);
+  }, delayMs);
+}
 
 usePlayerStore.subscribe((state) => {
   const { currentTrack, isPlaying } = state;
@@ -66,6 +76,10 @@ usePlayerStore.subscribe((state) => {
   if (!currentTrack) {
     if (lastPlaying || trackChanged) {
       clearPresence();
+    }
+    if (seekSyncTimer) {
+      clearTimeout(seekSyncTimer);
+      seekSyncTimer = null;
     }
     lastUrn = null;
     lastPlaying = false;
@@ -90,8 +104,7 @@ subscribeAudioTime(() => {
 
   // Re-sync Discord timestamps on manual seek / large jumps without spamming updates every second.
   if (drift >= 2) {
-    lastElapsed = elapsed;
-    updatePresence(currentTrack);
+    schedulePresenceSync(currentTrack, 180);
   } else {
     lastElapsed = elapsed;
   }
