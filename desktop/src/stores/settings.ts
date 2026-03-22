@@ -56,6 +56,7 @@ export interface SettingsState {
   eqEnabled: boolean;
   eqGains: number[];
   eqPreset: string;
+  normalizeVolume: boolean;
   sidebarCollapsed: boolean;
   floatingComments: boolean;
   setAccentColor: (color: string) => void;
@@ -69,6 +70,7 @@ export interface SettingsState {
   setEqGains: (gains: number[]) => void;
   setEqPreset: (preset: string) => void;
   setEqBand: (index: number, gain: number) => void;
+  setNormalizeVolume: (enabled: boolean) => void;
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   resetTheme: () => void;
@@ -87,6 +89,7 @@ const DEFAULTS = {
   eqEnabled: false,
   eqGains: DEFAULT_EQ_GAINS,
   eqPreset: 'flat',
+  normalizeVolume: true,
   sidebarCollapsed: false,
   floatingComments: true,
 };
@@ -118,6 +121,7 @@ export const useSettingsStore = create<SettingsState>()(
           eqGains[index] = gain;
           return { eqGains, eqPreset: 'custom' };
         }),
+      setNormalizeVolume: (normalizeVolume) => set({ normalizeVolume }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       resetTheme: () => set(DEFAULTS),
@@ -125,7 +129,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 4,
+      version: 5,
       partialize: (s) => ({
         accentColor: s.accentColor,
         bgPrimary: s.bgPrimary,
@@ -137,6 +141,7 @@ export const useSettingsStore = create<SettingsState>()(
         eqEnabled: s.eqEnabled,
         eqGains: s.eqGains,
         eqPreset: s.eqPreset,
+        normalizeVolume: s.normalizeVolume,
         sidebarCollapsed: s.sidebarCollapsed,
         floatingComments: s.floatingComments,
       }),

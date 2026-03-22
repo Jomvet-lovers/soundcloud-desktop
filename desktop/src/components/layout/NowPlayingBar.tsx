@@ -111,12 +111,19 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
         step={1}
         onValueChange={([v]) => setVolume(v)}
         onKeyDown={(e) => {
-          // Prevent slider from reacting to Left/Right, let event bubble to global binds
-          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.preventDefault();
+          // Prevent slider from handling arrows itself, otherwise it stacks with global hotkeys.
+          if (
+            e.key === 'ArrowLeft' ||
+            e.key === 'ArrowRight' ||
+            e.key === 'ArrowUp' ||
+            e.key === 'ArrowDown'
+          ) {
+            e.preventDefault();
+          }
         }}
         onWheel={(e) => {
           e.preventDefault();
-          setVolume(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 2 : -2))));
+          setVolume(Math.max(0, Math.min(200, volume + (e.deltaY < 0 ? 1 : -1))));
         }}
       >
         <Slider.Track className="relative h-[3px] grow rounded-full bg-white/[0.08] group-hover:h-[4px] transition-all duration-150">

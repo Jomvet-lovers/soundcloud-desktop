@@ -158,6 +158,8 @@
     "playback": "Playback",
     "floatingComments": "Floating comments",
     "floatingCommentsDesc": "Show comments as floating pills during playback",
+    "normalizeVolume": "Volume normalization",
+    "normalizeVolumeDesc": "Balances quiet and loud tracks to a more even level",
     "import": "Import",
     "importYandex": "Import from Yandex Music"
   },

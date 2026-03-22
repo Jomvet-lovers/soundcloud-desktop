@@ -19,6 +19,7 @@ pub struct DiscordTrackInfo {
     track_url: Option<String>,
     duration_secs: Option<i64>,
     elapsed_secs: Option<i64>,
+    is_playing: Option<bool>,
 }
 
 #[tauri::command]
@@ -66,11 +67,7 @@ pub fn discord_set_activity(
 
     let elapsed = track.elapsed_secs.unwrap_or(0);
     let start = now - elapsed;
-
-    let mut timestamps = Timestamps::new().start(start);
-    if let Some(dur) = track.duration_secs {
-        timestamps = timestamps.end(start + dur);
-    }
+    let is_playing = track.is_playing.unwrap_or(true);
 
     let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
@@ -80,9 +77,20 @@ pub fn discord_set_activity(
     let mut activity = Activity::new()
         .activity_type(ActivityType::Listening)
         .details(&track.title)
-        .state(&track.artist)
-        .assets(assets)
-        .timestamps(timestamps);
+        .state(if is_playing {
+            track.artist.as_str()
+        } else {
+            "Paused"
+        })
+        .assets(assets);
+
+    if is_playing {
+        let mut timestamps = Timestamps::new().start(start);
+        if let Some(dur) = track.duration_secs {
+            timestamps = timestamps.end(start + dur);
+        }
+        activity = activity.timestamps(timestamps);
+    }
 
     if let Some(ref url) = track.track_url {
         activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);

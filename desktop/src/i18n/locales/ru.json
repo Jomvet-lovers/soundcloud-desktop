@@ -159,6 +159,8 @@
     "playback": "Воспроизведение",
     "floatingComments": "Плавающие комментарии",
     "floatingCommentsDesc": "Показывать комментарии как всплывающие пилюли во время воспроизведения",
+    "normalizeVolume": "Нормализация громкости",
+    "normalizeVolumeDesc": "Выравнивает тихие и громкие треки до более ровного уровня",
     "import": "Импорт",
     "importYandex": "Импорт из Yandex Music"
   },

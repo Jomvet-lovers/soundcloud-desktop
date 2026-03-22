@@ -621,6 +621,8 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const { t } = useTranslation();
   const floatingComments = useSettingsStore((s) => s.floatingComments);
   const setFloatingComments = useSettingsStore((s) => s.setFloatingComments);
+  const normalizeVolume = useSettingsStore((s) => s.normalizeVolume);
+  const setNormalizeVolume = useSettingsStore((s) => s.setNormalizeVolume);
   return (
     <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-5">
       <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
@@ -642,6 +644,25 @@ const PlaybackSection = React.memo(function PlaybackSection() {
           <div
             className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
               floatingComments ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[13px] text-white/70 font-medium">{t('settings.normalizeVolume')}</p>
+          <p className="text-[11px] text-white/30 mt-0.5">{t('settings.normalizeVolumeDesc')}</p>
+        </div>
+        <button
+          onClick={() => setNormalizeVolume(!normalizeVolume)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            normalizeVolume ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              normalizeVolume ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
             }`}
           />
         </button>

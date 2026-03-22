@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
-import { getCurrentTime } from './audio';
+import { getCurrentTime, subscribe as subscribeAudioTime } from './audio';
 
 let connected = false;
 
@@ -24,6 +24,7 @@ async function updatePresence(track: Track) {
   if (!(await ensureConnected())) return;
 
   try {
+    const isPlaying = usePlayerStore.getState().isPlaying;
     await invoke('discord_set_activity', {
       track: {
         title: track.title,
@@ -34,6 +35,7 @@ async function updatePresence(track: Track) {
           : undefined,
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(getCurrentTime()),
+        is_playing: isPlaying,
       },
     });
   } catch (e) {
@@ -53,6 +55,7 @@ async function clearPresence() {
 
 let lastUrn: string | null = null;
 let lastPlaying = false;
+let lastElapsed = 0;
 
 usePlayerStore.subscribe((state) => {
   const { currentTrack, isPlaying } = state;
@@ -60,18 +63,36 @@ usePlayerStore.subscribe((state) => {
   const trackChanged = currentTrack?.urn !== lastUrn;
   const playChanged = isPlaying !== lastPlaying;
 
-  if (!currentTrack || !isPlaying) {
+  if (!currentTrack) {
     if (lastPlaying || trackChanged) {
       clearPresence();
     }
-    lastUrn = currentTrack?.urn ?? null;
+    lastUrn = null;
     lastPlaying = false;
+    lastElapsed = 0;
     return;
   }
 
   if (trackChanged || playChanged) {
     lastUrn = currentTrack.urn;
     lastPlaying = isPlaying;
+    lastElapsed = Math.round(getCurrentTime());
     updatePresence(currentTrack);
+  }
+});
+
+subscribeAudioTime(() => {
+  const { currentTrack, isPlaying } = usePlayerStore.getState();
+  if (!currentTrack || !isPlaying) return;
+
+  const elapsed = Math.round(getCurrentTime());
+  const drift = Math.abs(elapsed - lastElapsed);
+
+  // Re-sync Discord timestamps on manual seek / large jumps without spamming updates every second.
+  if (drift >= 2) {
+    lastElapsed = elapsed;
+    updatePresence(currentTrack);
+  } else {
+    lastElapsed = elapsed;
   }
 });

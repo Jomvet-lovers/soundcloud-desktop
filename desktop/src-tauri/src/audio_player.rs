@@ -22,6 +22,11 @@ const EQ_FREQS: [f64; EQ_BANDS] = [
     32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
 ];
 const EQ_Q: f64 = 1.414; // ~1 octave bandwidth for peaking filters
+const NORMALIZATION_ANALYSIS_SAMPLES: usize = 48_000 * 2 * 30; // ~30s stereo at 48kHz
+const NORMALIZATION_TARGET_RMS: f64 = 0.14;
+const NORMALIZATION_TARGET_PEAK: f64 = 0.95;
+const NORMALIZATION_MAX_BOOST_DB: f64 = 9.0;
+const NORMALIZATION_MAX_ATTENUATION_DB: f64 = -8.0;
 const TICK_INTERVAL_MS: u64 = 100;
 
 type ChannelCount = NonZero<u16>;
@@ -44,6 +49,46 @@ impl Default for EqParams {
 }
 
 /* ── EQ Source wrapper ─────────────────────────────────────── */
+
+struct GainSource<S: Source<Item = f32>> {
+    source: S,
+    gain: f32,
+}
+
+impl<S: Source<Item = f32>> GainSource<S> {
+    fn new(source: S, gain: f32) -> Self {
+        Self { source, gain }
+    }
+}
+
+impl<S: Source<Item = f32>> Iterator for GainSource<S> {
+    type Item = f32;
+
+    #[inline]
+    fn next(&mut self) -> Option<f32> {
+        self.source
+            .next()
+            .map(|sample| (sample * self.gain).clamp(-1.0, 1.0))
+    }
+}
+
+impl<S: Source<Item = f32>> Source for GainSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.source.current_span_len()
+    }
+    fn channels(&self) -> ChannelCount {
+        self.source.channels()
+    }
+    fn sample_rate(&self) -> SampleRate {
+        self.source.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.source.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.source.try_seek(pos)
+    }
+}
 
 struct EqSource<S: Source<Item = f32>> {
     source: S,
@@ -338,10 +383,52 @@ impl Source for OpusSource {
 
 /* ── Decode helper ─────────────────────────────────────────── */
 
+fn normalization_gain_from_samples<I>(samples: I) -> f32
+where
+    I: IntoIterator<Item = f32>,
+{
+    let mut sum_sq = 0.0f64;
+    let mut peak = 0.0f64;
+    let mut count = 0usize;
+
+    for sample in samples.into_iter().take(NORMALIZATION_ANALYSIS_SAMPLES) {
+        let v = sample as f64;
+        let abs = v.abs();
+        peak = peak.max(abs);
+        sum_sq += v * v;
+        count += 1;
+    }
+
+    if count == 0 {
+        return 1.0;
+    }
+
+    let rms = (sum_sq / count as f64).sqrt().max(1e-6);
+    let target_gain = NORMALIZATION_TARGET_RMS / rms;
+    let peak_safe_gain = if peak > 0.0 {
+        NORMALIZATION_TARGET_PEAK / peak
+    } else {
+        target_gain
+    };
+
+    let max_boost = 10f64.powf(NORMALIZATION_MAX_BOOST_DB / 20.0);
+    let max_attenuation = 10f64.powf(NORMALIZATION_MAX_ATTENUATION_DB / 20.0);
+    let gain = target_gain
+        .min(peak_safe_gain)
+        .clamp(max_attenuation, max_boost);
+
+    if (gain - 1.0).abs() < 0.05 {
+        1.0
+    } else {
+        gain as f32
+    }
+}
+
 fn create_player_from_bytes(
     bytes: &[u8],
     mixer: &Mixer,
     volume: f32,
+    normalization_enabled: bool,
     eq_params: Arc<RwLock<EqParams>>,
 ) -> Result<(Player, Option<f64>), String> {
     let player = Player::connect_new(mixer);
@@ -349,13 +436,27 @@ fn create_player_from_bytes(
 
     let duration;
     if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
+        let gain = if normalization_enabled {
+            normalization_gain_from_samples(source)
+        } else {
+            1.0
+        };
+        let source = Decoder::new(Cursor::new(bytes.to_vec()))
+            .map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
-        player.append(EqSource::new(source, eq_params));
+        player.append(EqSource::new(GainSource::new(source, gain), eq_params));
     } else {
+        let gain = if normalization_enabled {
+            normalization_gain_from_samples(
+                OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?,
+            )
+        } else {
+            1.0
+        };
         let source = OpusSource::new(bytes.to_vec())
             .map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
-        player.append(EqSource::new(source, eq_params));
+        player.append(EqSource::new(GainSource::new(source, gain), eq_params));
     }
 
     Ok((player, duration))
@@ -389,6 +490,7 @@ pub struct AudioState {
     player: Mutex<Option<Player>>,
     mixer: Arc<Mutex<Mixer>>,
     eq_params: Arc<RwLock<EqParams>>,
+    normalization_enabled: AtomicBool,
     volume: Mutex<f32>, // 0.0 - 2.0
     has_track: AtomicBool,
     ended_notified: AtomicBool,
@@ -529,6 +631,7 @@ pub fn init() -> AudioState {
         player: Mutex::new(None),
         mixer: shared_mixer,
         eq_params: Arc::new(RwLock::new(EqParams::default())),
+        normalization_enabled: AtomicBool::new(true),
         volume: Mutex::new(0.25), // 50/200
         has_track: AtomicBool::new(false),
         ended_notified: AtomicBool::new(false),
@@ -744,7 +847,14 @@ pub fn audio_load_file(path: String, state: tauri::State<'_, AudioState>) -> Res
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
+    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
+    let (new_player, duration_secs) = create_player_from_bytes(
+        &bytes,
+        &mixer,
+        vol,
+        normalization_enabled,
+        state.eq_params.clone(),
+    )?;
 
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
@@ -813,7 +923,14 @@ pub async fn audio_load_url(
     // Decode and play
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let (new_player, duration_secs) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
+    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
+    let (new_player, duration_secs) = create_player_from_bytes(
+        &bytes,
+        &mixer,
+        vol,
+        normalization_enabled,
+        state.eq_params.clone(),
+    )?;
 
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
@@ -879,7 +996,14 @@ pub fn audio_seek(position: f64, state: tauri::State<'_, AudioState>) -> Result<
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let (new_player, _) = create_player_from_bytes(&bytes, &mixer, vol, state.eq_params.clone())?;
+    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
+    let (new_player, _) = create_player_from_bytes(
+        &bytes,
+        &mixer,
+        vol,
+        normalization_enabled,
+        state.eq_params.clone(),
+    )?;
 
     if position > 0.0 {
         new_player.try_seek(target).ok();
@@ -937,6 +1061,11 @@ pub fn audio_set_eq(enabled: bool, gains: Vec<f64>, state: tauri::State<'_, Audi
             params.gains[i] = g.clamp(-12.0, 12.0);
         }
     }
+}
+
+#[tauri::command]
+pub fn audio_set_normalization(enabled: bool, state: tauri::State<'_, AudioState>) {
+    state.normalization_enabled.store(enabled, Ordering::Relaxed);
 }
 
 #[tauri::command]
