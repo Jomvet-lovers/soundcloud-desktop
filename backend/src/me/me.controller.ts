@@ -30,15 +30,23 @@ export class MeController {
   @Get('feed')
   @ApiOperation({ summary: 'Get authenticated user feed' })
   @ApiOkResponse({ type: PaginatedActivityResponse })
-  getFeed(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getFeed(token, query as Record<string, unknown>);
+  getFeed(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getFeed(token, sessionId, query as Record<string, unknown>);
   }
 
   @Get('feed/tracks')
   @ApiOperation({ summary: 'Get authenticated user track feed' })
   @ApiOkResponse({ type: PaginatedActivityResponse })
-  getFeedTracks(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getFeedTracks(token, query as Record<string, unknown>);
+  getFeedTracks(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getFeedTracks(token, sessionId, query as Record<string, unknown>);
   }
 
   @Get('likes/tracks')
@@ -77,8 +85,12 @@ export class MeController {
   @Get('followings/tracks')
   @ApiOperation({ summary: 'Get tracks from followed users' })
   @ApiOkResponse({ type: PaginatedTrackResponse })
-  getFollowingsTracks(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getFollowingsTracks(token, query as Record<string, unknown>);
+  getFollowingsTracks(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getFollowingsTracks(token, sessionId, query as Record<string, unknown>);
   }
 
   @Put('followings/:userUrn')
@@ -111,7 +123,11 @@ export class MeController {
   @Get('tracks')
   @ApiOperation({ summary: 'Get user tracks' })
   @ApiOkResponse({ type: PaginatedTrackResponse })
-  getTracks(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getTracks(token, query as Record<string, unknown>);
+  getTracks(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getTracks(token, sessionId, query as Record<string, unknown>);
   }
 }

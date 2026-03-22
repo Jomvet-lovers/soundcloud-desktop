@@ -26,6 +26,27 @@ interface ScPlaylist {
 }
 
 const PLAYLIST_NAME = 'Yandex Music';
+const PLAYLIST_TRACK_LIMIT = 500;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function getPlaylistName(index: number): string {
+  return index === 0 ? PLAYLIST_NAME : `${PLAYLIST_NAME} ${index + 1}`;
+}
+
+function getPlaylistChunkIndex(title: string): number | null {
+  if (title === PLAYLIST_NAME) return 0;
+  const match = /^Yandex Music (\d+)$/.exec(title);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1] ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 2 ? parsed - 1 : null;
+}
 
 function YMImportDialog({
   open,
@@ -41,6 +62,7 @@ function YMImportDialog({
   const [progress, setProgress] = useState<YmProgress | null>(null);
   const [done, setDone] = useState(false);
   const [playlist, setPlaylist] = useState<ScPlaylist | null>(null);
+  const [playlistCount, setPlaylistCount] = useState(0);
   const [saving, setSaving] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
 
@@ -57,12 +79,31 @@ function YMImportDialog({
     };
   }, []);
 
-  const findExistingPlaylist = useCallback(async (): Promise<ScPlaylist | null> => {
+  const findExistingPlaylists = useCallback(async (): Promise<ScPlaylist[]> => {
     try {
-      const res = await api<{ collection: ScPlaylist[] }>('/me/playlists?limit=200');
-      return res.collection.find((p) => p.title === PLAYLIST_NAME) || null;
+      const all: ScPlaylist[] = [];
+      let cursor: string | undefined;
+
+      for (;;) {
+        const params = new URLSearchParams({ limit: '200', linked_partitioning: 'true' });
+        if (cursor) params.set('cursor', cursor);
+
+        const res = await api<{ collection: ScPlaylist[]; next_href?: string | null }>(
+          `/me/playlists?${params}`,
+        );
+        all.push(...(res.collection ?? []));
+
+        if (!res.next_href) break;
+        const next = new URL(res.next_href).searchParams.get('cursor');
+        if (!next || next === cursor) break;
+        cursor = next;
+      }
+
+      return all
+        .filter((p) => getPlaylistChunkIndex(p.title) != null)
+        .sort((a, b) => (getPlaylistChunkIndex(a.title) ?? 0) - (getPlaylistChunkIndex(b.title) ?? 0));
     } catch {
-      return null;
+      return [];
     }
   }, []);
 
@@ -70,37 +111,62 @@ function YMImportDialog({
     async (urns: string[]) => {
       setSaving(true);
       try {
-        const trackObjects = urns.map((urn) => ({ urn }));
-        const existing = await findExistingPlaylist();
+        // YM gives old -> new here; in SC we want newest at the top.
+        const orderedUrns = [...urns].reverse();
+        const chunks = chunkArray(orderedUrns, PLAYLIST_TRACK_LIMIT);
+        const existing = await findExistingPlaylists();
+        const results: ScPlaylist[] = [];
 
-        let result: ScPlaylist;
-        if (existing) {
-          // Update existing playlist with new track list
-          result = await api<ScPlaylist>(`/playlists/${encodeURIComponent(existing.urn)}`, {
-            method: 'PUT',
-            body: JSON.stringify({ playlist: { tracks: trackObjects } }),
-          });
-        } else {
-          // Create new playlist
-          result = await api<ScPlaylist>('/playlists', {
-            method: 'POST',
-            body: JSON.stringify({
-              playlist: {
-                title: PLAYLIST_NAME,
-                sharing: 'private',
-                tracks: trackObjects,
-              },
-            }),
-          });
+        for (let index = 0; index < chunks.length; index++) {
+          const chunk = chunks[index] ?? [];
+          const trackObjects = chunk.map((urn) => ({ urn }));
+          const title = getPlaylistName(index);
+          const existingPlaylist = existing.find((playlist) => playlist.title === title) ?? null;
+
+          let result: ScPlaylist;
+          if (existingPlaylist) {
+            result = await api<ScPlaylist>(`/playlists/${encodeURIComponent(existingPlaylist.urn)}`, {
+              method: 'PUT',
+              body: JSON.stringify({ playlist: { tracks: trackObjects } }),
+            });
+          } else {
+            result = await api<ScPlaylist>('/playlists', {
+              method: 'POST',
+              body: JSON.stringify({
+                playlist: {
+                  title,
+                  sharing: 'private',
+                  tracks: trackObjects,
+                },
+              }),
+            });
+          }
+
+          results.push(result);
         }
-        setPlaylist(result);
+
+        const stalePlaylists = existing.filter((playlist) => {
+          const index = getPlaylistChunkIndex(playlist.title);
+          return index != null && index >= chunks.length;
+        });
+
+        await Promise.all(
+          stalePlaylists.map((playlist) =>
+            api(`/playlists/${encodeURIComponent(playlist.urn)}`, { method: 'DELETE' }).catch(
+              () => undefined,
+            ),
+          ),
+        );
+
+        setPlaylist(results[0] ?? null);
+        setPlaylistCount(results.length);
       } catch (e) {
         console.error('[YM Import] playlist save failed:', e);
       } finally {
         setSaving(false);
       }
     },
-    [findExistingPlaylist],
+    [findExistingPlaylists],
   );
 
   const handleStart = useCallback(async () => {
@@ -109,6 +175,7 @@ function YMImportDialog({
     setDone(false);
     setProgress(null);
     setPlaylist(null);
+    setPlaylistCount(0);
     try {
       const urns: string[] = await invoke('ym_import_start', {
         ymToken: token.trim(),
@@ -186,6 +253,7 @@ function YMImportDialog({
                     <p className="text-[15px] font-bold text-white/90 truncate">{playlist.title}</p>
                     <p className="text-[12px] text-white/40 mt-0.5">
                       {progress?.found || 0} {t('search.tracks').toLowerCase()}
+                      {playlistCount > 1 ? ` • ${playlistCount} ${t('search.playlists').toLowerCase()}` : ''}
                     </p>
                     <p className="text-[11px] text-green-400/80 mt-1">{t('ym.done')}</p>
                   </div>

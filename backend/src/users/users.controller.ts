@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
+import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
@@ -82,12 +83,13 @@ export class UsersController {
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getTracks(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
     const params: Record<string, unknown> = { ...query, access };
-    return this.usersService.getTracks(token, userUrn, params);
+    return this.usersService.getTracks(token, sessionId, userUrn, params);
   }
 
   @Get(':userUrn/playlists')
@@ -111,12 +113,13 @@ export class UsersController {
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getLikedTracks(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
     const params: Record<string, unknown> = { ...query, access };
-    return this.usersService.getLikedTracks(token, userUrn, params);
+    return this.usersService.getLikedTracks(token, sessionId, userUrn, params);
   }
 
   @Get(':userUrn/likes/playlists')

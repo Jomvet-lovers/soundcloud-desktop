@@ -21,18 +21,71 @@ export class MeService {
     return this.sc.apiGet<ScMe>('/me', token);
   }
 
-  getFeed(
-    token: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScActivity>> {
-    return this.sc.apiGet('/me/feed', token, params);
+  private async applyLocalLikeFlags(
+    sessionId: string,
+    tracks: ScTrack[],
+  ): Promise<ScTrack[]> {
+    const urns = tracks.map((track) => track.urn).filter(Boolean);
+    const likedUrns = await this.localLikes.getLikedTrackIds(sessionId, urns);
+    if (likedUrns.size === 0) {
+      return tracks;
+    }
+
+    return tracks.map((track) =>
+      likedUrns.has(track.urn) ? { ...track, user_favorite: true } : track,
+    );
   }
 
-  getFeedTracks(
+  private async applyLocalLikeFlagsToActivities(
+    sessionId: string,
+    activities: ScActivity[],
+  ): Promise<ScActivity[]> {
+    const trackOrigins = activities
+      .map((activity) => activity.origin)
+      .filter((origin): origin is ScTrack => origin?.kind === 'track');
+
+    const annotatedTracks = await this.applyLocalLikeFlags(sessionId, trackOrigins);
+    const byUrn = new Map(annotatedTracks.map((track) => [track.urn, track]));
+
+    return activities.map((activity) => {
+      if (activity.origin?.kind !== 'track') {
+        return activity;
+      }
+      return {
+        ...activity,
+        origin: byUrn.get(activity.origin.urn) ?? activity.origin,
+      };
+    });
+  }
+
+  async getFeed(
     token: string,
+    sessionId: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScActivity>> {
-    return this.sc.apiGet('/me/feed/tracks', token, params);
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScActivity>>('/me/feed', token, params);
+    response.collection = await this.applyLocalLikeFlagsToActivities(
+      sessionId,
+      response.collection ?? [],
+    );
+    return response;
+  }
+
+  async getFeedTracks(
+    token: string,
+    sessionId: string,
+    params?: Record<string, unknown>,
+  ): Promise<ScPaginatedResponse<ScActivity>> {
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScActivity>>(
+      '/me/feed/tracks',
+      token,
+      params,
+    );
+    response.collection = await this.applyLocalLikeFlagsToActivities(
+      sessionId,
+      response.collection ?? [],
+    );
+    return response;
   }
 
   async getLikedTracks(
@@ -78,11 +131,18 @@ export class MeService {
     return this.sc.apiGet('/me/followings', token, params);
   }
 
-  getFollowingsTracks(
+  async getFollowingsTracks(
     token: string,
+    sessionId: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet('/me/followings/tracks', token, params);
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
+      '/me/followings/tracks',
+      token,
+      params,
+    );
+    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
+    return response;
   }
 
   followUser(token: string, userUrn: string): Promise<unknown> {
@@ -107,10 +167,13 @@ export class MeService {
     return this.sc.apiGet('/me/playlists', token, params);
   }
 
-  getTracks(
+  async getTracks(
     token: string,
+    sessionId: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet('/me/tracks', token, params);
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>('/me/tracks', token, params);
+    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
+    return response;
   }
 }

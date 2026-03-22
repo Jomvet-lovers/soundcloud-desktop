@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import {
   ScPaginatedResponse,
@@ -10,7 +11,25 @@ import {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly sc: SoundcloudService) {}
+  constructor(
+    private readonly sc: SoundcloudService,
+    private readonly localLikes: LocalLikesService,
+  ) {}
+
+  private async applyLocalLikeFlags(
+    sessionId: string,
+    tracks: ScTrack[],
+  ): Promise<ScTrack[]> {
+    const urns = tracks.map((track) => track.urn).filter(Boolean);
+    const likedUrns = await this.localLikes.getLikedTrackIds(sessionId, urns);
+    if (likedUrns.size === 0) {
+      return tracks;
+    }
+
+    return tracks.map((track) =>
+      likedUrns.has(track.urn) ? { ...track, user_favorite: true } : track,
+    );
+  }
 
   search(token: string, params?: Record<string, unknown>): Promise<ScPaginatedResponse<ScUser>> {
     return this.sc.apiGet('/users', token, params);
@@ -49,12 +68,19 @@ export class UsersService {
     }
   }
 
-  getTracks(
+  async getTracks(
     token: string,
+    sessionId: string,
     userUrn: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet(`/users/${userUrn}/tracks`, token, params);
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
+      `/users/${userUrn}/tracks`,
+      token,
+      params,
+    );
+    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
+    return response;
   }
 
   getPlaylists(
@@ -65,12 +91,19 @@ export class UsersService {
     return this.sc.apiGet(`/users/${userUrn}/playlists`, token, params);
   }
 
-  getLikedTracks(
+  async getLikedTracks(
     token: string,
+    sessionId: string,
     userUrn: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet(`/users/${userUrn}/likes/tracks`, token, params);
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
+      `/users/${userUrn}/likes/tracks`,
+      token,
+      params,
+    );
+    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
+    return response;
   }
 
   getLikedPlaylists(
