@@ -5,6 +5,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import i18n from './i18n';
 import { setServerPorts } from './lib/constants';
+import { applySavedWindowState, setupWindowStatePersistence } from './lib/window-state';
 import './lib/audio';
 import './lib/discord';
 import './lib/tray';
@@ -53,6 +54,16 @@ async function registerServiceWorker(proxyPort: number) {
 }
 
 async function bootstrap() {
+  await useSettingsStore.persist.rehydrate();
+
+  const settings = useSettingsStore.getState();
+  if (settings.language && settings.language !== i18n.language) {
+    await i18n.changeLanguage(settings.language);
+  }
+
+  await applySavedWindowState();
+  await setupWindowStatePersistence();
+
   const [staticPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
   setServerPorts(staticPort, proxyPort);
 

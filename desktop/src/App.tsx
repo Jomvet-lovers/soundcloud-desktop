@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { AppShell } from './components/layout/AppShell';
@@ -14,6 +14,19 @@ import { Settings } from './pages/Settings';
 import { TrackPage } from './pages/TrackPage';
 import { UserPage } from './pages/UserPage';
 import { useAuthStore } from './stores/auth';
+import { useSettingsStore, type StartupPage } from './stores/settings';
+
+const STARTUP_PAGE_ROUTES: Record<StartupPage, string> = {
+  home: '/home',
+  search: '/search',
+  library: '/library',
+  settings: '/settings',
+};
+
+function StartPageRedirect() {
+  const startupPage = useSettingsStore((s) => s.startupPage);
+  return <Navigate to={STARTUP_PAGE_ROUTES[startupPage]} replace />;
+}
 
 export default function App() {
   const { isAuthenticated, sessionId, fetchUser } = useAuthStore(
@@ -66,7 +79,8 @@ export default function App() {
         <UpdateChecker />
         <Routes>
           <Route element={<AppShell />}>
-            <Route index element={<Home />} />
+            <Route index element={<StartPageRedirect />} />
+            <Route path="home" element={<Home />} />
             <Route path="search" element={<Search />} />
             <Route path="library" element={<Library />} />
             <Route path="track/:urn" element={<TrackPage />} />

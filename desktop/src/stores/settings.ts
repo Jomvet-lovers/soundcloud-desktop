@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
+export type StartupPage = 'home' | 'search' | 'library' | 'settings';
 
 export interface ThemePresetDef {
   accent: string;
@@ -59,6 +60,10 @@ export interface SettingsState {
   normalizeVolume: boolean;
   sidebarCollapsed: boolean;
   floatingComments: boolean;
+  startupPage: StartupPage;
+  windowWidth: number;
+  windowHeight: number;
+  windowMaximized: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -73,6 +78,12 @@ export interface SettingsState {
   setNormalizeVolume: (enabled: boolean) => void;
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
+  setStartupPage: (page: StartupPage) => void;
+  setWindowState: (state: {
+    width?: number;
+    height?: number;
+    maximized?: boolean;
+  }) => void;
   resetTheme: () => void;
 }
 
@@ -92,6 +103,10 @@ const DEFAULTS = {
   normalizeVolume: true,
   sidebarCollapsed: false,
   floatingComments: true,
+  startupPage: 'home' as StartupPage,
+  windowWidth: 1200,
+  windowHeight: 800,
+  windowMaximized: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -124,12 +139,32 @@ export const useSettingsStore = create<SettingsState>()(
       setNormalizeVolume: (normalizeVolume) => set({ normalizeVolume }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
-      resetTheme: () => set(DEFAULTS),
+      setStartupPage: (startupPage) => set({ startupPage }),
+      setWindowState: ({ width, height, maximized }) =>
+        set((s) => ({
+          windowWidth: width ?? s.windowWidth,
+          windowHeight: height ?? s.windowHeight,
+          windowMaximized: maximized ?? s.windowMaximized,
+        })),
+      resetTheme: () =>
+        set({
+          accentColor: DEFAULTS.accentColor,
+          bgPrimary: DEFAULTS.bgPrimary,
+          themePreset: DEFAULTS.themePreset,
+          backgroundImage: DEFAULTS.backgroundImage,
+          backgroundOpacity: DEFAULTS.backgroundOpacity,
+          glassBlur: DEFAULTS.glassBlur,
+        }),
     }),
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 5,
+      version: 6,
+      migrate: (persistedState) =>
+        ({
+          ...DEFAULTS,
+          ...(persistedState as Partial<SettingsState>),
+        }) as SettingsState,
       partialize: (s) => ({
         accentColor: s.accentColor,
         bgPrimary: s.bgPrimary,
@@ -144,6 +179,10 @@ export const useSettingsStore = create<SettingsState>()(
         normalizeVolume: s.normalizeVolume,
         sidebarCollapsed: s.sidebarCollapsed,
         floatingComments: s.floatingComments,
+        startupPage: s.startupPage,
+        windowWidth: s.windowWidth,
+        windowHeight: s.windowHeight,
+        windowMaximized: s.windowMaximized,
       }),
     },
   ),

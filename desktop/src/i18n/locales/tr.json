@@ -155,6 +155,8 @@
     "theme_forest": "Orman",
     "theme_crimson": "Kirmizi",
     "themeCustom": "Ozel",
+    "startup": "Baslangic",
+    "startupPageDesc": "Uygulama acildiginda hangi sayfanin gosterilecegini secin",
     "playback": "Oynatma",
     "floatingComments": "Yuzen yorumlar",
     "floatingCommentsDesc": "Calarken yorumlari kayan baloncuklar olarak goster",

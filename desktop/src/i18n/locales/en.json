@@ -155,6 +155,8 @@
     "theme_forest": "Forest",
     "theme_crimson": "Crimson",
     "themeCustom": "Custom",
+    "startup": "Startup",
+    "startupPageDesc": "Choose which page opens when the app launches",
     "playback": "Playback",
     "floatingComments": "Floating comments",
     "floatingCommentsDesc": "Show comments as floating pills during playback",

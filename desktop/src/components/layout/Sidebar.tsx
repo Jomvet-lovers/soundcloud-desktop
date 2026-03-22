@@ -22,7 +22,7 @@ const languages = [
 ] as const;
 
 const navItems = [
-  { to: '/', icon: Home, label: 'nav.home' },
+  { to: '/home', icon: Home, label: 'nav.home' },
   { to: '/search', icon: Search, label: 'nav.search' },
   { to: '/library', icon: Library, label: 'nav.library' },
   { to: '/library?tab=history', icon: Clock, label: 'library.history' },

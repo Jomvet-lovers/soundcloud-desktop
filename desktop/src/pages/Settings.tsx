@@ -17,7 +17,7 @@ import {
 } from '../lib/cache';
 import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
 import { useAuthStore } from '../stores/auth';
-import { THEME_PRESETS, useSettingsStore } from '../stores/settings';
+import { THEME_PRESETS, useSettingsStore, type StartupPage } from '../stores/settings';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -45,6 +45,13 @@ const LANGUAGES = [
   { code: 'ru', label: 'Русский' },
   { code: 'tr', label: 'Turkce' },
 ] as const;
+
+const STARTUP_PAGES: Array<{ id: StartupPage; labelKey: string }> = [
+  { id: 'home', labelKey: 'nav.home' },
+  { id: 'search', labelKey: 'nav.search' },
+  { id: 'library', labelKey: 'nav.library' },
+  { id: 'settings', labelKey: 'nav.settings' },
+];
 
 /* ── Language Section ─────────────────────────────────────── */
 
@@ -615,6 +622,41 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
   );
 });
 
+const StartupSection = React.memo(function StartupSection() {
+  const { t } = useTranslation();
+  const startupPage = useSettingsStore((s) => s.startupPage);
+  const setStartupPage = useSettingsStore((s) => s.setStartupPage);
+
+  return (
+    <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl space-y-4">
+      <div>
+        <h3 className="text-[15px] font-bold text-white/80 tracking-tight">
+          {t('settings.startup')}
+        </h3>
+        <p className="text-[12px] text-white/35 mt-1">{t('settings.startupPageDesc')}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {STARTUP_PAGES.map((page) => {
+          const active = startupPage === page.id;
+          return (
+            <button
+              key={page.id}
+              onClick={() => setStartupPage(page.id)}
+              className={`rounded-2xl border px-4 py-3 text-left transition-all duration-200 cursor-pointer ${
+                active
+                  ? 'border-white/[0.16] bg-white/[0.08] text-white/90'
+                  : 'border-white/[0.05] bg-white/[0.02] text-white/45 hover:bg-white/[0.05] hover:text-white/70'
+              }`}
+            >
+              <span className="text-[13px] font-semibold">{t(page.labelKey)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+});
+
 /* ── Playback Section ─────────────────────────────────── */
 
 const PlaybackSection = React.memo(function PlaybackSection() {
@@ -731,6 +773,7 @@ export function Settings() {
       <LanguageSection />
       <CacheSection />
       <ThemeSection />
+      <StartupSection />
       <PlaybackSection />
       <AudioDeviceSection />
       <ImportSection />
