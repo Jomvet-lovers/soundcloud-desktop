@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 import { Injectable, Logger } from '@nestjs/common';
+import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { ScPublicApiService } from '../soundcloud/sc-public-api.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import type {
@@ -17,14 +18,43 @@ export class TracksService {
   constructor(
     private readonly sc: SoundcloudService,
     private readonly scPublicApi: ScPublicApiService,
+    private readonly localLikes: LocalLikesService,
   ) {}
 
-  search(token: string, params?: Record<string, unknown>): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet('/tracks', token, params);
+  private async applyLocalLikeFlags(
+    sessionId: string,
+    tracks: ScTrack[],
+  ): Promise<ScTrack[]> {
+    const urns = tracks.map((track) => track.urn).filter(Boolean);
+    const likedUrns = await this.localLikes.getLikedTrackIds(sessionId, urns);
+    if (likedUrns.size === 0) {
+      return tracks;
+    }
+
+    return tracks.map((track) =>
+      likedUrns.has(track.urn) ? { ...track, user_favorite: true } : track,
+    );
   }
 
-  getById(token: string, trackUrn: string, params?: Record<string, unknown>): Promise<ScTrack> {
-    return this.sc.apiGet(`/tracks/${trackUrn}`, token, params);
+  async search(
+    token: string,
+    sessionId: string,
+    params?: Record<string, unknown>,
+  ): Promise<ScPaginatedResponse<ScTrack>> {
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>('/tracks', token, params);
+    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
+    return response;
+  }
+
+  async getById(
+    token: string,
+    sessionId: string,
+    trackUrn: string,
+    params?: Record<string, unknown>,
+  ): Promise<ScTrack> {
+    const track = await this.sc.apiGet<ScTrack>(`/tracks/${trackUrn}`, token, params);
+    const [annotated] = await this.applyLocalLikeFlags(sessionId, [track]);
+    return annotated;
   }
 
   update(token: string, trackUrn: string, body: unknown): Promise<ScTrack> {
@@ -155,11 +185,18 @@ export class TracksService {
     return this.sc.apiGet(`/tracks/${trackUrn}/reposters`, token, params);
   }
 
-  getRelated(
+  async getRelated(
     token: string,
+    sessionId: string,
     trackUrn: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet(`/tracks/${trackUrn}/related`, token, params);
+    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
+      `/tracks/${trackUrn}/related`,
+      token,
+      params,
+    );
+    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
+    return response;
   }
 }

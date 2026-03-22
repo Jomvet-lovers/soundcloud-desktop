@@ -22,6 +22,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
+import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
@@ -51,6 +52,7 @@ export class TracksController {
   @ApiOkResponse({ type: PaginatedTrackResponse })
   search(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Query() query: PaginationQuery,
     @Query('q') q?: string,
     @Query('ids') ids?: string,
@@ -63,7 +65,7 @@ export class TracksController {
     if (ids) params.ids = ids;
     if (genres) params.genres = genres;
     if (tags) params.tags = tags;
-    return this.tracksService.search(token, params);
+    return this.tracksService.search(token, sessionId, params);
   }
 
   @Get(':trackUrn')
@@ -72,12 +74,13 @@ export class TracksController {
   @ApiOkResponse({ type: ScTrack })
   getById(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Param('trackUrn') trackUrn: string,
     @Query('secret_token') secretToken?: string,
   ) {
     const params: Record<string, unknown> = {};
     if (secretToken) params.secret_token = secretToken;
-    return this.tracksService.getById(token, trackUrn, params);
+    return this.tracksService.getById(token, sessionId, trackUrn, params);
   }
 
   @Put(':trackUrn')
@@ -236,11 +239,12 @@ export class TracksController {
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getRelated(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Param('trackUrn') trackUrn: string,
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
     const params: Record<string, unknown> = { ...query, access };
-    return this.tracksService.getRelated(token, trackUrn, params);
+    return this.tracksService.getRelated(token, sessionId, trackUrn, params);
   }
 }

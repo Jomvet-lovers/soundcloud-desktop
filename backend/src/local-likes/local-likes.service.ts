@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { In, LessThan, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service.js';
 import { LocalLike } from './entities/local-like.entity.js';
 
@@ -68,5 +68,22 @@ export class LocalLikesService {
   async isLiked(sessionId: string, scTrackId: string): Promise<boolean> {
     const soundcloudUserId = await this.getScUserId(sessionId);
     return !!(await this.repo.findOne({ where: { soundcloudUserId, scTrackId } }));
+  }
+
+  async getLikedTrackIds(sessionId: string, scTrackIds: string[]): Promise<Set<string>> {
+    if (scTrackIds.length === 0) {
+      return new Set();
+    }
+
+    const soundcloudUserId = await this.getScUserId(sessionId);
+    const items = await this.repo.find({
+      select: { scTrackId: true },
+      where: {
+        soundcloudUserId,
+        scTrackId: In(scTrackIds),
+      },
+    });
+
+    return new Set(items.map((item) => item.scTrackId));
   }
 }
