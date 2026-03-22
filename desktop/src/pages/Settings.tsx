@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Skeleton } from '../components/ui/Skeleton.tsx';
-import { reloadCurrentTrack } from '../lib/audio';
+import { switchAudioDevice } from '../lib/audio';
 import {
   clearAssetsCache,
   clearCache,
@@ -595,9 +595,8 @@ const AudioDeviceSection = React.memo(function AudioDeviceSection() {
     if (switching || current?.name === sinkName) return;
     setSwitching(true);
     try {
-      await invoke('audio_switch_device', { deviceName: sinkName });
+      await switchAudioDevice(sinkName, true);
       setSinks((prev) => prev.map((s) => ({ ...s, is_default: s.name === sinkName })));
-      await reloadCurrentTrack();
       toast.success(t('settings.audioDeviceSwitched'));
     } catch (err) {
       toast.error(String(err));

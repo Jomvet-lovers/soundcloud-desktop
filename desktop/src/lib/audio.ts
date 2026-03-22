@@ -8,6 +8,12 @@ import { fetchAndCacheTrack, getCacheFilePath, isCached } from './cache';
 import { API_BASE } from './constants';
 import { art } from './formatters';
 
+interface AudioSink {
+  name: string;
+  description: string;
+  is_default: boolean;
+}
+
 /* ── Audio engine state ──────────────────────────────────────── */
 
 let currentUrn: string | null = null;
@@ -17,6 +23,9 @@ let cachedTime = 0;
 let cachedDuration = 0;
 let loadGen = 0;
 let lastTickAt = 0;
+let followSystemOutput = true;
+let lastKnownDefaultSink: string | null = null;
+let autoDeviceSwitchInFlight = false;
 // @ts-expect-error — used for stall detection interval
 let stallCheckTimer: ReturnType<typeof setInterval> | null = null; // eslint-disable-line
 const listeners = new Set<() => void>();
@@ -60,6 +69,31 @@ function stopTrack() {
   invoke('audio_stop').catch(console.error);
   hasTrack = false;
   cachedTime = 0;
+}
+
+async function getDefaultAudioSinkName(): Promise<string | null> {
+  try {
+    const sinks = await invoke<AudioSink[]>('audio_list_devices');
+    return sinks.find((sink) => sink.is_default)?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function switchAudioDevice(deviceName: string | null, manual = false) {
+  if (manual) {
+    followSystemOutput = deviceName == null;
+  }
+
+  await invoke('audio_switch_device', { deviceName });
+
+  if (deviceName == null) {
+    lastKnownDefaultSink = await getDefaultAudioSinkName();
+  }
+
+  if (usePlayerStore.getState().currentTrack) {
+    await reloadCurrentTrack();
+  }
 }
 
 /** Reload the current track on new audio device, preserving position */
@@ -191,6 +225,11 @@ listen('audio:ended', () => {
 
 listen('audio:device-reconnected', () => {
   console.log('[Audio] Device reconnected (BT profile switch?), reloading track...');
+  if (followSystemOutput) {
+    void getDefaultAudioSinkName().then((name) => {
+      lastKnownDefaultSink = name;
+    });
+  }
   void reloadCurrentTrack();
 });
 
@@ -227,10 +266,9 @@ document.addEventListener('visibilitychange', () => {
         console.log(
           `[Audio] Resuming after ${Math.round(idle / 1000)}s idle, forcing device reconnect...`,
         );
-        invoke('audio_switch_device', { deviceName: null })
+        switchAudioDevice(null)
           .then(() => {
             console.log('[Audio] Device reconnected after idle, reloading track...');
-            void reloadCurrentTrack();
           })
           .catch((e) => {
             console.error('[Audio] Device reconnect failed:', e);
@@ -239,6 +277,43 @@ document.addEventListener('visibilitychange', () => {
       }
     }
   }
+});
+
+async function syncDefaultOutputDevice() {
+  if (!followSystemOutput || autoDeviceSwitchInFlight) return;
+
+  const defaultSink = await getDefaultAudioSinkName();
+  if (!defaultSink) return;
+
+  if (lastKnownDefaultSink == null) {
+    lastKnownDefaultSink = defaultSink;
+    return;
+  }
+
+  if (defaultSink === lastKnownDefaultSink) return;
+
+  lastKnownDefaultSink = defaultSink;
+  autoDeviceSwitchInFlight = true;
+  try {
+    console.log(`[Audio] Default output changed to '${defaultSink}', switching automatically...`);
+    await switchAudioDevice(null);
+  } catch (error) {
+    console.error('[Audio] Failed to auto-switch default output:', error);
+  } finally {
+    autoDeviceSwitchInFlight = false;
+  }
+}
+
+void getDefaultAudioSinkName().then((name) => {
+  lastKnownDefaultSink = name;
+});
+
+setInterval(() => {
+  void syncDefaultOutputDevice();
+}, 3000);
+
+window.addEventListener('focus', () => {
+  void syncDefaultOutputDevice();
 });
 
 /* ── Store subscriber ────────────────────────────────────────── */
