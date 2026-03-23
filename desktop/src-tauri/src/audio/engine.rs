@@ -9,11 +9,27 @@ use crate::audio::decode::{create_player_from_bytes, resolve_normalization_gain}
 use crate::audio::state::AudioState;
 use crate::audio::types::{AudioLoadResult, MediaCmd, EQ_BANDS};
 
+const ENDED_SUPPRESS_MS: u64 = 1200;
+
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn suppress_ended_temporarily(state: &AudioState) {
+    state
+        .suppress_ended_until_ms
+        .store(now_ms() + ENDED_SUPPRESS_MS, Ordering::Relaxed);
+}
+
 fn volume_to_rodio(v: f64) -> f32 {
     (v / 100.0).clamp(0.0, 2.0) as f32
 }
 
 fn stop_current_player(state: &AudioState) {
+    suppress_ended_temporarily(state);
     let mut player = state.player.lock().unwrap();
     if let Some(old) = player.take() {
         old.stop();
@@ -67,6 +83,7 @@ async fn build_player_from_bytes(
 }
 
 pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
+    suppress_ended_temporarily(state);
     let bytes = state.source_bytes.lock().unwrap().clone();
     let Some(bytes) = bytes else {
         return Ok(());
@@ -237,6 +254,7 @@ pub fn stop(state: State<'_, AudioState>) {
 }
 
 pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
+    suppress_ended_temporarily(&state);
     let target = Duration::from_secs_f64(position);
     let was_paused = state
         .player
