@@ -30,7 +30,7 @@ export const TrackCard = React.memo(
 
     return (
       <div
-        className="group relative"
+        className="group relative select-none"
         onMouseEnter={() => preloadTrack(track.urn)}
         style={{
           contentVisibility: 'auto',
