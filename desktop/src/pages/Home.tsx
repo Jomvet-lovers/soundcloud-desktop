@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
 import { LikeButton } from '../components/music/LikeButton';
 import { TrackCard } from '../components/music/TrackCard';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
@@ -161,6 +162,7 @@ const FeaturedCard = React.memo(
               src={cover}
               alt=""
               className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
+              decoding="async"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
           </div>
@@ -178,6 +180,8 @@ const FeaturedCard = React.memo(
                 src={cover}
                 alt={track.title}
                 className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
+                decoding="async"
+                fetchPriority="high"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
@@ -232,6 +236,7 @@ const FeaturedCard = React.memo(
                   src={avatar}
                   alt=""
                   className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
+                  decoding="async"
                 />
               )}
               <p className="text-[13px] text-white/40 truncate group-hover/artist:text-white/60 transition-colors duration-150">
@@ -303,7 +308,13 @@ const FeedTrackCard = React.memo(
           onClick={togglePlay}
         >
           {cover ? (
-            <img src={cover} alt={track.title} className="w-full h-full object-cover" />
+            <img
+              src={cover}
+              alt={track.title}
+              className="w-full h-full object-cover"
+              decoding="async"
+              loading="lazy"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
               {musicIcon22}
@@ -398,11 +409,11 @@ const FeedPlaylistCard = React.memo(
       () => new Set((origin.tracks ?? []).map((t: Track) => t.urn)),
       [origin.tracks],
     );
-    const isPlayingFromThis = usePlayerStore(
-      (s) => s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
-    );
-    const isPausedFromThis = usePlayerStore(
-      (s) => !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+    const { isPausedFromThis, isPlayingFromThis } = usePlayerStore(
+      useShallow((s) => ({
+        isPlayingFromThis: s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+        isPausedFromThis: !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+      })),
     );
 
     const handlePlay = async (e: React.MouseEvent) => {
@@ -450,7 +461,13 @@ const FeedPlaylistCard = React.memo(
           onClick={handlePlay}
         >
           {cover ? (
-            <img src={cover} alt={origin.title} className="w-full h-full object-cover" />
+            <img
+              src={cover}
+              alt={origin.title}
+              className="w-full h-full object-cover"
+              decoding="async"
+              loading="lazy"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
               <ListMusic size={22} className="text-white/15" />
@@ -531,15 +548,15 @@ const FeedPlaylistCard = React.memo(
 
 /* ── Isolated Sections ────────────────────────────────────── */
 
-const FeaturedHero = React.memo(function FeaturedHero() {
-  const { items, isLoading } = useFeed();
-
-  const featuredItem = useMemo(() => items.find((i) => i.type.includes('track')), [items]);
-  const feedTrackQueue = useMemo(
-    () => items.filter((i) => i.type.includes('track')).map((i) => i.origin as Track),
-    [items],
-  );
-
+const FeaturedHero = React.memo(function FeaturedHero({
+  featuredItem,
+  feedTrackQueue,
+  isLoading,
+}: {
+  featuredItem: FeedItem | undefined;
+  feedTrackQueue: Track[];
+  isLoading: boolean;
+}) {
   if (isLoading) return <FeaturedSkeleton />;
   if (!featuredItem) return null;
 
@@ -583,10 +600,15 @@ const FallbackShelf = React.memo(function FallbackShelf() {
   );
 });
 
-const LikedShelf = React.memo(function LikedShelf() {
+const LikedShelf = React.memo(function LikedShelf({
+  likedTracks,
+  isLoading,
+}: {
+  likedTracks: Track[];
+  isLoading: boolean;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { tracks: likedTracks, isLoading } = useLikedTracks(50);
 
   if (!isLoading && likedTracks.length === 0) return null;
 
@@ -612,10 +634,14 @@ const LikedShelf = React.memo(function LikedShelf() {
   );
 });
 
-const FollowingShelf = React.memo(function FollowingShelf() {
+const FollowingShelf = React.memo(function FollowingShelf({
+  followingTracks,
+  isLoading,
+}: {
+  followingTracks: Track[];
+  isLoading: boolean;
+}) {
   const { t } = useTranslation();
-  const { data: following, isLoading } = useFollowingTracks(20);
-  const followingTracks = useMemo(() => following?.collection ?? [], [following]);
 
   if (!isLoading && followingTracks.length === 0) return null;
 
@@ -640,9 +666,12 @@ const FollowingShelf = React.memo(function FollowingShelf() {
   );
 });
 
-const DiscoverSection = React.memo(function DiscoverSection() {
+const DiscoverSection = React.memo(function DiscoverSection({
+  likedTracks,
+}: {
+  likedTracks: Track[];
+}) {
   const { t } = useTranslation();
-  const { tracks: likedTracks } = useLikedTracks(100);
   const { data: pool, isLoading } = useRelatedPool(likedTracks);
 
   // ── Recommended ──
@@ -722,20 +751,29 @@ const DiscoverSection = React.memo(function DiscoverSection() {
   );
 });
 
-const FeedStream = React.memo(function FeedStream() {
+const FeedStream = React.memo(function FeedStream({
+  feedItems,
+  featuredItem,
+  feedTrackQueue,
+  fetchNextPage,
+  hasNextPage,
+  isFetchingNextPage,
+  isLoading,
+}: {
+  feedItems: FeedItem[];
+  featuredItem: FeedItem | undefined;
+  feedTrackQueue: Track[];
+  fetchNextPage: () => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isLoading: boolean;
+}) {
   const { t } = useTranslation();
-  const { items: feedItems, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useFeed();
-
   const sentinelRef = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
 
-  const featuredItem = useMemo(() => feedItems.find((i) => i.type.includes('track')), [feedItems]);
   const streamItems = useMemo(
     () => feedItems.filter((i) => i !== featuredItem),
     [feedItems, featuredItem],
-  );
-  const feedTrackQueue = useMemo(
-    () => feedItems.filter((i) => i.type.includes('track')).map((i) => i.origin as Track),
-    [feedItems],
   );
 
   return (
@@ -750,7 +788,14 @@ const FeedStream = React.memo(function FeedStream() {
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-2.5">
           {streamItems.map((item) => (
-            <div key={item.origin.urn}>
+            <div
+              key={item.origin.urn}
+              style={{
+                contentVisibility: 'auto',
+                contain: 'layout paint style',
+                containIntrinsicSize: '380px 110px',
+              }}
+            >
               {item.type.includes('track') ? (
                 <FeedTrackCard item={item} queue={feedTrackQueue} />
               ) : (
@@ -781,6 +826,29 @@ const FeedStream = React.memo(function FeedStream() {
 export function Home() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
+  const feedQuery = useFeed();
+  const likedTracksQuery = useLikedTracks(100);
+  const followingQuery = useFollowingTracks(20);
+
+  const featuredItem = useMemo(
+    () => feedQuery.items.find((item) => item.type.includes('track')),
+    [feedQuery.items],
+  );
+  const feedTrackQueue = useMemo(
+    () =>
+      feedQuery.items
+        .filter((item) => item.type.includes('track'))
+        .map((item) => item.origin as Track),
+    [feedQuery.items],
+  );
+  const followingTracks = useMemo(
+    () => followingQuery.data?.collection ?? [],
+    [followingQuery.data],
+  );
+  const likedShelfTracks = useMemo(
+    () => likedTracksQuery.tracks.slice(0, 50),
+    [likedTracksQuery.tracks],
+  );
 
   return (
     <div className="p-6 pb-4 space-y-8">
@@ -794,12 +862,24 @@ export function Home() {
       </section>
 
       {/* Each section is isolated — own hooks, own re-render boundary */}
-      <FeaturedHero />
+      <FeaturedHero
+        featuredItem={featuredItem}
+        feedTrackQueue={feedTrackQueue}
+        isLoading={feedQuery.isLoading}
+      />
       <FallbackShelf />
-      <LikedShelf />
-      <FollowingShelf />
-      <DiscoverSection />
-      <FeedStream />
+      <LikedShelf likedTracks={likedShelfTracks} isLoading={likedTracksQuery.isLoading} />
+      <FollowingShelf followingTracks={followingTracks} isLoading={followingQuery.isLoading} />
+      <DiscoverSection likedTracks={likedTracksQuery.tracks} />
+      <FeedStream
+        feedItems={feedQuery.items}
+        featuredItem={featuredItem}
+        feedTrackQueue={feedTrackQueue}
+        fetchNextPage={feedQuery.fetchNextPage}
+        hasNextPage={feedQuery.hasNextPage}
+        isFetchingNextPage={feedQuery.isFetchingNextPage}
+        isLoading={feedQuery.isLoading}
+      />
     </div>
   );
 }

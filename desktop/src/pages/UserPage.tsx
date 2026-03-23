@@ -7,6 +7,7 @@ import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { Avatar } from '../components/ui/Avatar';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
+import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
@@ -249,10 +250,6 @@ const TrackRow = React.memo(
 
 const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }) {
   const tracksQuery = useUserTracks(urn);
-  const uniqueTracks = useMemo(
-    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
-    [tracksQuery.tracks],
-  );
   const sentinelRef = useInfiniteScroll(
     !!tracksQuery.hasNextPage,
     !!tracksQuery.isFetchingNextPage,
@@ -265,14 +262,20 @@ const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }
         <div className="py-12 flex justify-center">
           <Loader2 size={24} className="animate-spin text-white/20" />
         </div>
-      ) : uniqueTracks.length === 0 ? (
+      ) : tracksQuery.tracks.length === 0 ? (
         <div className="py-12 text-center text-white/30 text-sm">No tracks found.</div>
       ) : (
-        <div className="flex flex-col gap-1">
-          {uniqueTracks.map((track, i) => (
-            <TrackRow key={`${track.urn}-${i}`} track={track} index={i} queue={uniqueTracks} />
-          ))}
-        </div>
+        <VirtualList
+          items={tracksQuery.tracks}
+          rowHeight={96}
+          overscan={8}
+          className="flex flex-col gap-1"
+          disabled={tracksQuery.tracks.length < 40}
+          getItemKey={(track) => track.urn}
+          renderItem={(track, i) => (
+            <TrackRow track={track} index={i} queue={tracksQuery.tracks} />
+          )}
+        />
       )}
       <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
         {tracksQuery.isFetchingNextPage && (
@@ -325,11 +328,15 @@ const UserPopularTab = React.memo(function UserPopularTab({ urn }: { urn: string
       ) : allTracks.length === 0 ? (
         <div className="py-12 text-center text-white/30 text-sm">No popular tracks found.</div>
       ) : (
-        <div className="flex flex-col gap-1">
-          {visibleTracks.map((track, i) => (
-            <TrackRow key={track.urn} track={track} index={i} queue={allTracks} />
-          ))}
-        </div>
+        <VirtualList
+          items={visibleTracks}
+          rowHeight={96}
+          overscan={8}
+          className="flex flex-col gap-1"
+          disabled={visibleTracks.length < 40}
+          getItemKey={(track) => track.urn}
+          renderItem={(track, i) => <TrackRow track={track} index={i} queue={allTracks} />}
+        />
       )}
       {hasMore && (
         <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
@@ -342,10 +349,6 @@ const UserPopularTab = React.memo(function UserPopularTab({ urn }: { urn: string
 
 const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: string }) {
   const playlistsQuery = useUserPlaylists(urn);
-  const uniquePlaylists = useMemo(
-    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
-    [playlistsQuery.playlists],
-  );
   const sentinelRef = useInfiniteScroll(
     !!playlistsQuery.hasNextPage,
     !!playlistsQuery.isFetchingNextPage,
@@ -358,11 +361,11 @@ const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: st
         <div className="py-12 flex justify-center">
           <Loader2 size={24} className="animate-spin text-white/20" />
         </div>
-      ) : uniquePlaylists.length === 0 ? (
+      ) : playlistsQuery.playlists.length === 0 ? (
         <div className="py-12 text-center text-white/30 text-sm">No playlists found.</div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-6">
-          {uniquePlaylists.map((playlist, i) => (
+          {playlistsQuery.playlists.map((playlist, i) => (
             <PlaylistCard key={`${playlist.urn}-${i}`} playlist={playlist} showPlayback />
           ))}
         </div>
@@ -378,10 +381,6 @@ const UserPlaylistsTab = React.memo(function UserPlaylistsTab({ urn }: { urn: st
 
 const UserLikesTab = React.memo(function UserLikesTab({ urn }: { urn: string }) {
   const likesQuery = useUserLikedTracks(urn);
-  const uniqueLikes = useMemo(
-    () => Array.from(new Map(likesQuery.tracks.map((t) => [t.urn, t])).values()),
-    [likesQuery.tracks],
-  );
   const sentinelRef = useInfiniteScroll(
     !!likesQuery.hasNextPage,
     !!likesQuery.isFetchingNextPage,
@@ -394,14 +393,18 @@ const UserLikesTab = React.memo(function UserLikesTab({ urn }: { urn: string }) 
         <div className="py-12 flex justify-center">
           <Loader2 size={24} className="animate-spin text-white/20" />
         </div>
-      ) : uniqueLikes.length === 0 ? (
+      ) : likesQuery.tracks.length === 0 ? (
         <div className="py-12 text-center text-white/30 text-sm">No liked tracks.</div>
       ) : (
-        <div className="flex flex-col gap-1">
-          {uniqueLikes.map((track, i) => (
-            <TrackRow key={`${track.urn}-${i}`} track={track} index={i} queue={uniqueLikes} />
-          ))}
-        </div>
+        <VirtualList
+          items={likesQuery.tracks}
+          rowHeight={96}
+          overscan={8}
+          className="flex flex-col gap-1"
+          disabled={likesQuery.tracks.length < 40}
+          getItemKey={(track) => track.urn}
+          renderItem={(track, i) => <TrackRow track={track} index={i} queue={likesQuery.tracks} />}
+        />
       )}
       <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
         {likesQuery.isFetchingNextPage && (
@@ -415,10 +418,6 @@ const UserLikesTab = React.memo(function UserLikesTab({ urn }: { urn: string }) 
 const UserFollowingTab = React.memo(function UserFollowingTab({ urn }: { urn: string }) {
   const navigate = useNavigate();
   const followingsQuery = useUserFollowings(urn);
-  const uniqueUsers = useMemo(
-    () => Array.from(new Map(followingsQuery.users.map((u) => [u.urn, u])).values()),
-    [followingsQuery.users],
-  );
   const sentinelRef = useInfiniteScroll(
     !!followingsQuery.hasNextPage,
     !!followingsQuery.isFetchingNextPage,
@@ -431,11 +430,11 @@ const UserFollowingTab = React.memo(function UserFollowingTab({ urn }: { urn: st
         <div className="py-12 flex justify-center">
           <Loader2 size={24} className="animate-spin text-white/20" />
         </div>
-      ) : uniqueUsers.length === 0 ? (
+      ) : followingsQuery.users.length === 0 ? (
         <div className="py-12 text-center text-white/30 text-sm">No followings found.</div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
-          {uniqueUsers.map((user) => (
+          {followingsQuery.users.map((user) => (
             <div
               key={user.urn}
               onClick={() => navigate(`/user/${encodeURIComponent(user.urn)}`)}

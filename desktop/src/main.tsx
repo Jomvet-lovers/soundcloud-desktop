@@ -2,21 +2,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import i18n from './i18n';
+import { changeAppLanguage } from './i18n';
 import { setupCacheMaintenance } from './lib/cache';
 import { setServerPorts } from './lib/constants';
 import { setupUiWatchdog, trackedInvoke as invoke } from './lib/diagnostics';
-import './lib/audio';
-import './lib/discord';
-import './lib/tray';
-import './lib/scproxy';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
 
 // Sync language from persisted settings → i18n after tauriStorage rehydration
 useSettingsStore.persist.onFinishHydration((state) => {
-  if (state.language && state.language !== i18n.language) {
-    i18n.changeLanguage(state.language);
+  if (state.language) {
+    void changeAppLanguage(state.language);
   }
 });
 
@@ -31,43 +27,44 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 3,
       retry: 1,
       refetchOnWindowFocus: false,
     },
   },
 });
 
-async function registerServiceWorker(proxyPort: number) {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    await navigator.serviceWorker.register(`/sw.js?port=${proxyPort}`);
-    if (!navigator.serviceWorker.controller) {
-      await new Promise<void>((resolve) =>
-        navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), {
-          once: true,
-        }),
-      );
-    }
-  } catch (e) {
-    console.warn('[SW] Registration failed, running without proxy SW:', e);
-  }
+function scheduleAfterFirstPaint(task: () => void) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if ('requestIdleCallback' in window) {
+        window.requestIdleCallback(() => task(), { timeout: 1500 });
+      } else {
+        setTimeout(task, 1);
+      }
+    });
+  });
+}
+
+function startDeferredRuntime() {
+  scheduleAfterFirstPaint(() => {
+    setupUiWatchdog();
+    setupCacheMaintenance();
+    void import('./lib/scproxy');
+    void import('./lib/tray');
+    void import('./lib/audio');
+    void import('./lib/discord');
+  });
 }
 
 async function bootstrap() {
-  setupUiWatchdog();
-  setupCacheMaintenance();
-
   await useSettingsStore.persist.rehydrate();
 
   const settings = useSettingsStore.getState();
-  if (settings.language && settings.language !== i18n.language) {
-    await i18n.changeLanguage(settings.language);
-  }
+  await changeAppLanguage(settings.language);
 
   const [staticPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
   setServerPorts(staticPort, proxyPort);
-
-  await registerServiceWorker(proxyPort);
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
@@ -76,6 +73,8 @@ async function bootstrap() {
       </QueryClientProvider>
     </React.StrictMode>,
   );
+
+  void startDeferredRuntime();
 }
 
 void bootstrap();

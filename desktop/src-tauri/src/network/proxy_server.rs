@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 use warp::hyper::Body;
 use warp::Filter;
 
-use crate::proxy::proxy_request;
-use crate::server::cors;
+use crate::network::proxy::proxy_request;
+use crate::network::server::cors;
 
 pub async fn start() -> u16 {
     let route = warp::path("p")

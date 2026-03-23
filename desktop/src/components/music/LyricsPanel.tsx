@@ -1,8 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/shallow';
+import { artworkPanelApi } from './artworkPanelApi';
 import { api } from '../../lib/api';
-import { getCurrentTime, handlePrev, seek } from '../../lib/audio';
+import { handlePrev, seek } from '../../lib/audio';
 import { art } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
@@ -127,13 +131,18 @@ const FullscreenLikeButton = React.memo(({ track }: { track: Track }) => {
 /* ── Shared: transport controls + like ────────────────────── */
 
 const Controls = React.memo(({ track }: { track: Track }) => {
-  const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const togglePlay = usePlayerStore((s) => s.togglePlay);
-  const next = usePlayerStore((s) => s.next);
-  const shuffle = usePlayerStore((s) => s.shuffle);
-  const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
-  const repeat = usePlayerStore((s) => s.repeat);
-  const toggleRepeat = usePlayerStore((s) => s.toggleRepeat);
+  const { isPlaying, next, repeat, shuffle, togglePlay, toggleRepeat, toggleShuffle } =
+    usePlayerStore(
+      useShallow((s) => ({
+        isPlaying: s.isPlaying,
+        next: s.next,
+        repeat: s.repeat,
+        shuffle: s.shuffle,
+        togglePlay: s.togglePlay,
+        toggleRepeat: s.toggleRepeat,
+        toggleShuffle: s.toggleShuffle,
+      })),
+    );
 
   const ctrl =
     'w-10 h-10 rounded-full flex items-center justify-center transition-all duration-150 cursor-pointer hover:bg-white/[0.06]';
@@ -194,7 +203,7 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
         className={`w-full ${maxArt ?? 'max-w-[360px]'} aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/[0.08]`}
       >
         {artwork500 ? (
-          <img src={artwork500} alt="" className="w-full h-full object-cover" />
+          <img src={artwork500} alt="" className="w-full h-full object-cover" decoding="async" />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-white/[0.06] to-white/[0.02] flex items-center justify-center">
             <MicVocal size={48} className="text-white/10" />
@@ -254,20 +263,15 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
     }
     activeRef.current = -1;
 
-    const timerId = setInterval(() => {
+    void invoke('audio_set_lyrics_timeline', {
+      lines: lines.map((line) => ({ timeSecs: line.time })),
+    });
+
+    const unlistenPromise = listen<number | null>('lyrics:active_line', (event) => {
       const lineEls = lineElsRef.current;
       if (!container || lineEls.length === 0) return;
 
-      const time = getCurrentTime();
-      const currentLines = linesRef.current;
-
-      let idx = -1;
-      for (let i = currentLines.length - 1; i >= 0; i--) {
-        if (currentLines[i].time <= time + 0.3) {
-          idx = i;
-          break;
-        }
-      }
+      const idx = typeof event.payload === 'number' ? event.payload : -1;
       if (idx === activeRef.current) return;
 
       const prev = activeRef.current;
@@ -293,9 +297,12 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
           if (lineEls[i].dataset.state !== state) lineEls[i].dataset.state = state;
         }
       }
-    }, 200);
+    });
 
-    return () => clearInterval(timerId);
+    return () => {
+      void invoke('audio_clear_lyrics_timeline');
+      unlistenPromise.then((unlisten) => unlisten());
+    };
   }, [lines]);
 
   return (
@@ -467,4 +474,3 @@ export const ArtworkPanel = React.memo(() => {
 });
 
 /** Imperative API so NowPlayingBar can open without prop drilling */
-export const artworkPanelApi = { open: () => {}, close: () => {} };

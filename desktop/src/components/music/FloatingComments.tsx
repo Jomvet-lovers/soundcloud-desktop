@@ -1,5 +1,6 @@
+import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import React, { useEffect, useRef } from 'react';
-import { getCurrentTime, subscribe } from '../../lib/audio';
 import { art } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
 import { useTrackComments } from '../../lib/hooks';
@@ -10,6 +11,13 @@ interface Pill {
   id: number;
   comment: Comment;
   addedAt: number;
+}
+
+interface NativeFloatingComment {
+  id: number;
+  body: string;
+  timestamp_ms: number;
+  user_avatar_url: string | null;
 }
 
 function getMaxVisible(): number {
@@ -45,50 +53,62 @@ const FloatingCommentsInner = React.memo(function FloatingCommentsInner({
   useEffect(() => {
     timedComments.current = comments.filter((c) => c.timestamp != null && c.body);
     shownIds.current.clear();
+
+    void invoke('audio_set_comments_timeline', {
+      comments: timedComments.current.map((comment) => ({
+        id: comment.id,
+        body: comment.body,
+        timestampMs: comment.timestamp ?? 0,
+        userAvatarUrl: comment.user.avatar_url || null,
+      })),
+    });
+
+    return () => {
+      void invoke('audio_clear_comments_timeline');
+    };
   }, [comments]);
 
   useEffect(() => {
-    let lastCheck = 0;
+    const container = containerRef.current;
+    if (!container) return;
 
-    const unsub = subscribe(() => {
+    const unlistenPromise = listen<NativeFloatingComment>('comments:show', (event) => {
       const now = Date.now();
-      if (now - lastCheck < 500) return; // throttle 500ms
-      lastCheck = now;
-
-      const currentMs = getCurrentTime() * 1000;
       const container = containerRef.current;
       if (!container) return;
-
       const maxVisible = getMaxVisible();
-
-      // Check for new comments to show
-      for (const c of timedComments.current) {
-        if (shownIds.current.has(c.id)) continue;
-        if (c.timestamp == null) continue;
-        if (Math.abs(c.timestamp - currentMs) < 2000) {
-          if (pillsRef.current.length >= maxVisible) break;
-          shownIds.current.add(c.id);
-          const pill: Pill = { id: nextPillId.current++, comment: c, addedAt: now };
-          pillsRef.current.push(pill);
-          renderPill(container, pill);
-        }
+      const comment = timedComments.current.find((item) => item.id === event.payload.id);
+      if (!comment || shownIds.current.has(comment.id) || pillsRef.current.length >= maxVisible) {
+        return;
       }
 
-      // Remove expired pills (>5.5s)
-      const expired = pillsRef.current.filter((p) => now - p.addedAt > 5500);
-      for (const p of expired) {
-        const el = container.querySelector(`[data-pill-id="${p.id}"]`) as HTMLElement | null;
+      shownIds.current.add(comment.id);
+      const pill: Pill = { id: nextPillId.current++, comment, addedAt: now };
+      pillsRef.current.push(pill);
+      renderPill(container, pill);
+      window.setTimeout(() => {
+        const el = container.querySelector(`[data-pill-id="${pill.id}"]`) as HTMLElement | null;
         if (el) {
           el.style.opacity = '0';
           el.style.transform = 'translateY(8px)';
-          setTimeout(() => el.remove(), 300);
+          window.setTimeout(() => el.remove(), 300);
         }
-      }
-      pillsRef.current = pillsRef.current.filter((p) => now - p.addedAt <= 5800);
+        pillsRef.current = pillsRef.current.filter((entry) => entry.id !== pill.id);
+      }, 5500);
     });
 
-    return unsub;
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
   }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    pillsRef.current = [];
+    nextPillId.current = 0;
+    container.replaceChildren();
+  }, [trackUrn]);
 
   return (
     <div

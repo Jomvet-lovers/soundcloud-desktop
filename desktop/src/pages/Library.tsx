@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
+import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
@@ -379,15 +380,17 @@ const LikesTab = React.memo(function LikesTab({ filter }: { filter: string }) {
             <Loader2 size={32} className="animate-spin text-white/20" />
           </div>
         ) : filtered.length > 0 ? (
-          filtered.map((track, i) => (
-            <LibraryTrackRow
-              key={track.urn}
-              track={track}
-              index={i}
-              queue={filtered}
-              onPlay={expandQueue}
-            />
-          ))
+          <VirtualList
+            items={filtered}
+            rowHeight={96}
+            overscan={8}
+            className="flex flex-col gap-1"
+            disabled={filtered.length < 40}
+            getItemKey={(track) => track.urn}
+            renderItem={(track, i) => (
+              <LibraryTrackRow track={track} index={i} queue={filtered} onPlay={expandQueue} />
+            )}
+          />
         ) : (
           <div className="py-20 text-center text-white/20">
             {filter && likesQuery.hasNextPage
@@ -445,7 +448,12 @@ const FollowingTab = React.memo(function FollowingTab({ filter }: { filter: stri
       ) : filtered.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {filtered.map((u) => (
-            <UserCard key={u.urn} user={u} />
+            <div
+              key={u.urn}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: '220px' }}
+            >
+              <UserCard user={u} />
+            </div>
           ))}
         </div>
       ) : (
@@ -512,7 +520,12 @@ const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filter: stri
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
               {filteredCreated.map((p) => (
-                <PlaylistCard key={p.urn} playlist={p} />
+                <div
+                  key={p.urn}
+                  style={{ contentVisibility: 'auto', containIntrinsicSize: '320px' }}
+                >
+                  <PlaylistCard playlist={p} />
+                </div>
               ))}
             </div>
           </section>
@@ -529,7 +542,12 @@ const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filter: stri
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
               {filteredLiked.map((p) => (
-                <PlaylistCard key={p.urn} playlist={p} />
+                <div
+                  key={p.urn}
+                  style={{ contentVisibility: 'auto', containIntrinsicSize: '320px' }}
+                >
+                  <PlaylistCard playlist={p} />
+                </div>
               ))}
             </div>
           </section>
@@ -616,7 +634,10 @@ const HistoryTab = React.memo(function HistoryTab() {
       ) : grouped.length > 0 ? (
         <div className="space-y-6">
           {grouped.map((group) => (
-            <div key={group.label}>
+            <div
+              key={group.label}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: '320px' }}
+            >
               <h3 className="text-[13px] font-bold text-white/30 uppercase tracking-wider mb-3 px-1">
                 {group.label}
               </h3>
@@ -625,6 +646,7 @@ const HistoryTab = React.memo(function HistoryTab() {
                   <div
                     key={entry.id}
                     className="group flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/[0.04] transition-all duration-300"
+                    style={{ contentVisibility: 'auto', containIntrinsicSize: '76px' }}
                   >
                     <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
                       {entry.artworkUrl ? (

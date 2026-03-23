@@ -1,13 +1,21 @@
-import React, { useRef, useState } from 'react';
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/shallow';
 import { art, dur } from '../../lib/formatters';
 import { GripVertical, pauseTextWhite12, playIcon32, Trash2, X } from '../../lib/icons';
 import { usePlayerStore } from '../../stores/player';
 
 /* ── Now Playing (single, non-draggable) ─────────────────────────── */
 const NowPlayingItem = React.memo(() => {
-  const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const { currentTrack, isPlaying } = usePlayerStore(
+    useShallow((s) => ({
+      currentTrack: s.currentTrack,
+      isPlaying: s.isPlaying,
+    })),
+  );
 
   if (!currentTrack) return null;
   const artwork = art(currentTrack.artwork_url, 't200x200');
@@ -24,7 +32,7 @@ const NowPlayingItem = React.memo(() => {
     >
       <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 relative bg-white/[0.04]">
         {artwork ? (
-          <img src={artwork} alt="" className="w-full h-full object-cover" />
+          <img src={artwork} alt="" className="w-full h-full object-cover" decoding="async" />
         ) : (
           <div className="w-full h-full" />
         )}
@@ -54,152 +62,125 @@ const NowPlayingItem = React.memo(() => {
 });
 
 /* ── Draggable queue list ────────────────────────────────────────── */
-const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
-  const queue = usePlayerStore((s) => s.queue);
+const QueueRow = React.memo(function QueueRow({
+  track,
+  absIdx,
+}: {
+  track: ReturnType<typeof usePlayerStore.getState>['queue'][number];
+  absIdx: number;
+}) {
   const queueIndex = usePlayerStore((s) => s.queueIndex);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
+  const isCurrent = absIdx === queueIndex;
+  const artwork = art(track.artwork_url, 't200x200');
 
-  const items = queue.slice(startIndex);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [overIdx, setOverIdx] = useState<number | null>(null);
-  const dragStartY = useRef(0);
-  const dragElRef = useRef<HTMLDivElement | null>(null);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: String(absIdx),
+  });
 
-  const handleGripDown = (e: React.PointerEvent, localIdx: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const absIdx = startIndex + localIdx;
-    setDragIdx(absIdx);
-    setOverIdx(absIdx);
-    dragStartY.current = e.clientY;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (dragIdx === null || !dragElRef.current) return;
-    const container = dragElRef.current;
-    const children = container.querySelectorAll('[data-queue-item]');
-    const y = e.clientY;
-
-    for (let i = 0; i < children.length; i++) {
-      const rect = children[i].getBoundingClientRect();
-      const mid = rect.top + rect.height / 2;
-      if (y < mid) {
-        setOverIdx(startIndex + i);
-        return;
-      }
-    }
-    setOverIdx(startIndex + children.length - 1);
-  };
-
-  const handlePointerUp = () => {
-    if (dragIdx !== null && overIdx !== null && dragIdx !== overIdx) {
-      usePlayerStore.getState().moveInQueue(dragIdx, overIdx);
-    }
-    setDragIdx(null);
-    setOverIdx(null);
-  };
-
-  const handleClick = (absIdx: number) => {
+  const handleClick = () => {
     const { playFromQueue, pause, resume } = usePlayerStore.getState();
     if (absIdx === queueIndex && isPlaying) pause();
     else if (absIdx === queueIndex) resume();
     else playFromQueue(absIdx);
   };
 
-  const handleRemove = (absIdx: number) => {
+  const handleRemove = () => {
     usePlayerStore.getState().removeFromQueue(absIdx);
   };
 
   return (
     <div
-      ref={dragElRef}
-      className="flex flex-col gap-0.5"
-      onPointerMove={dragIdx !== null ? handlePointerMove : undefined}
-      onPointerUp={dragIdx !== null ? handlePointerUp : undefined}
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`flex items-center gap-3 px-3 py-2 rounded-xl group transition-all duration-150 select-none ${
+        isDragging
+          ? 'opacity-40 scale-[0.97]'
+          : isCurrent
+            ? 'bg-white/[0.08] ring-1 ring-white/[0.08]'
+            : 'hover:bg-white/[0.04]'
+      }`}
     >
-      {items.map((track, localIdx) => {
-        const absIdx = startIndex + localIdx;
-        const isCurrent = absIdx === queueIndex;
-        const isDragging = absIdx === dragIdx;
-        const isOver = absIdx === overIdx && dragIdx !== null && dragIdx !== overIdx;
-        const artwork = art(track.artwork_url, 't200x200');
+      <div
+        className="text-white/15 group-hover:text-white/30 hover:!text-white/50 cursor-grab active:cursor-grabbing transition-colors touch-none"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={14} />
+      </div>
 
-        return (
-          <div
-            key={`${track.urn}-${absIdx}`}
-            data-queue-item
-            className={`flex items-center gap-3 px-3 py-2 rounded-xl group transition-all duration-150 select-none ${
-              isDragging
-                ? 'opacity-40 scale-[0.97]'
-                : isCurrent
-                  ? 'bg-white/[0.08] ring-1 ring-white/[0.08]'
-                  : 'hover:bg-white/[0.04]'
-            } ${isOver ? 'border-t-2 border-accent' : ''}`}
-          >
-            {/* Grip handle */}
-            <div
-              className="text-white/15 group-hover:text-white/30 hover:!text-white/50 cursor-grab active:cursor-grabbing transition-colors touch-none"
-              onPointerDown={(e) => handleGripDown(e, localIdx)}
-            >
-              <GripVertical size={14} />
-            </div>
-
-            {/* Artwork */}
-            <div
-              className="w-9 h-9 rounded-lg overflow-hidden shrink-0 relative bg-white/[0.04] cursor-pointer"
-              onClick={() => handleClick(absIdx)}
-            >
-              {artwork ? (
-                <img src={artwork} alt="" className="w-full h-full object-cover" decoding="async" />
-              ) : (
-                <div className="w-full h-full" />
-              )}
-              {isCurrent && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                  {isPlaying ? (
-                    <div className="flex items-center gap-[2px]">
-                      <div className="w-[2px] h-3 bg-accent rounded-full animate-pulse" />
-                      <div className="w-[2px] h-2 bg-accent rounded-full animate-pulse [animation-delay:150ms]" />
-                      <div className="w-[2px] h-3.5 bg-accent rounded-full animate-pulse [animation-delay:300ms]" />
-                    </div>
-                  ) : (
-                    pauseTextWhite12
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleClick(absIdx)}>
-              <p
-                className={`text-[12px] truncate leading-snug ${isCurrent ? 'text-accent font-medium' : 'text-white/80'}`}
-              >
-                {track.title}
-              </p>
-              <p className="text-[10px] text-white/30 truncate mt-0.5">{track.user.username}</p>
-            </div>
-
-            {/* Duration */}
-            <span className="text-[10px] text-white/20 tabular-nums shrink-0">
-              {dur(track.duration)}
-            </span>
-
-            {/* Remove */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemove(absIdx);
-              }}
-              className="w-6 h-6 rounded-md flex items-center justify-center text-white/0 group-hover:text-white/20 hover:!text-white/50 hover:!bg-white/[0.06] transition-all duration-150 cursor-pointer shrink-0"
-            >
-              <X size={12} />
-            </button>
+      <div
+        className="w-9 h-9 rounded-lg overflow-hidden shrink-0 relative bg-white/[0.04] cursor-pointer"
+        onClick={handleClick}
+      >
+        {artwork ? (
+          <img src={artwork} alt="" className="w-full h-full object-cover" decoding="async" />
+        ) : (
+          <div className="w-full h-full" />
+        )}
+        {isCurrent && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+            {isPlaying ? (
+              <div className="flex items-center gap-[2px]">
+                <div className="w-[2px] h-3 bg-accent rounded-full animate-pulse" />
+                <div className="w-[2px] h-2 bg-accent rounded-full animate-pulse [animation-delay:150ms]" />
+                <div className="w-[2px] h-3.5 bg-accent rounded-full animate-pulse [animation-delay:300ms]" />
+              </div>
+            ) : (
+              pauseTextWhite12
+            )}
           </div>
-        );
-      })}
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={handleClick}>
+        <p
+          className={`text-[12px] truncate leading-snug ${isCurrent ? 'text-accent font-medium' : 'text-white/80'}`}
+        >
+          {track.title}
+        </p>
+        <p className="text-[10px] text-white/30 truncate mt-0.5">{track.user.username}</p>
+      </div>
+
+      <span className="text-[10px] text-white/20 tabular-nums shrink-0">{dur(track.duration)}</span>
+
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleRemove();
+        }}
+        className="w-6 h-6 rounded-md flex items-center justify-center text-white/0 group-hover:text-white/20 hover:!text-white/50 hover:!bg-white/[0.06] transition-all duration-150 cursor-pointer shrink-0"
+      >
+        <X size={12} />
+      </button>
     </div>
+  );
+});
+
+const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
+  const queue = usePlayerStore((s) => s.queue);
+  const items = queue.slice(startIndex);
+  const itemIds = items.map((_, localIdx) => String(startIndex + localIdx));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={({ active, over }) => {
+        if (!over || active.id === over.id) return;
+        usePlayerStore.getState().moveInQueue(Number(active.id), Number(over.id));
+      }}
+    >
+      <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+        <div className="flex flex-col gap-0.5">
+          {items.map((track, localIdx) => (
+            <QueueRow key={`${track.urn}-${startIndex + localIdx}`} track={track} absIdx={startIndex + localIdx} />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 });
 
@@ -207,9 +188,13 @@ const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
 export const QueuePanel = React.memo(
   ({ open, onClose }: { open: boolean; onClose: () => void }) => {
     const { t } = useTranslation();
-    const queue = usePlayerStore((s) => s.queue);
-    const queueIndex = usePlayerStore((s) => s.queueIndex);
-    const currentTrack = usePlayerStore((s) => s.currentTrack);
+    const { currentTrack, queue, queueIndex } = usePlayerStore(
+      useShallow((s) => ({
+        currentTrack: s.currentTrack,
+        queue: s.queue,
+        queueIndex: s.queueIndex,
+      })),
+    );
 
     const upNextCount = queue.length - queueIndex - 1;
 

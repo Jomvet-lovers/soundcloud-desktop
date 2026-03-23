@@ -24,7 +24,15 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
   }, []);
 
   return (
-    <div ref={ref} className={`flex gap-4 overflow-x-auto pb-2 scrollbar-hide ${className}`}>
+    <div
+      ref={ref}
+      className={`flex gap-4 overflow-x-auto pb-2 scrollbar-hide ${className}`}
+      style={{
+        contentVisibility: 'auto',
+        contain: 'layout paint style',
+        containIntrinsicSize: '240px',
+      }}
+    >
       {children}
     </div>
   );

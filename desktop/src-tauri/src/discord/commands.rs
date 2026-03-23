@@ -5,7 +5,7 @@ use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
 };
 
-use crate::constants::DISCORD_CLIENT_ID;
+use crate::shared::constants::DISCORD_CLIENT_ID;
 
 pub struct DiscordState {
     pub client: Mutex<Option<DiscordIpcClient>>,
@@ -54,7 +54,9 @@ pub fn discord_connect(state: tauri::State<'_, Arc<DiscordState>>) -> Result<boo
 
 #[tauri::command]
 pub fn discord_disconnect(state: tauri::State<'_, Arc<DiscordState>>) {
-    let Ok(mut guard) = state.client.lock() else { return; };
+    let Ok(mut guard) = state.client.lock() else {
+        return;
+    };
     if let Some(ref mut client) = *guard {
         let _ = client.close();
         println!("[Discord] Disconnected");

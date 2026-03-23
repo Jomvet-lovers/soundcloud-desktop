@@ -32,6 +32,10 @@ fn format_log_line(level: &str, message: &str) -> String {
     format!("[{timestamp}] [{level}] {message}")
 }
 
+pub fn log_native(app: &AppHandle, level: &str, message: impl AsRef<str>) {
+    let _ = append_log_line(app, &format_log_line(level, message.as_ref()));
+}
+
 pub fn mark_session_started(app: &AppHandle) {
     let _ = append_log_line(
         app,
@@ -46,10 +50,6 @@ pub fn mark_session_started(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub fn diagnostics_log(
-    app: AppHandle,
-    level: String,
-    message: String,
-) -> Result<(), String> {
+pub fn diagnostics_log(app: AppHandle, level: String, message: String) -> Result<(), String> {
     append_log_line(&app, &format_log_line(&level, &message))
 }

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { changeAppLanguage } from '../i18n';
 import { toast } from 'sonner';
 import { Skeleton } from '../components/ui/Skeleton.tsx';
 import { switchAudioDevice } from '../lib/audio';
@@ -78,7 +79,7 @@ const LanguageSection = React.memo(function LanguageSection() {
         {LANGUAGES.map((lang) => (
           <button
             key={lang.code}
-            onClick={() => i18n.changeLanguage(lang.code)}
+            onClick={() => void changeAppLanguage(lang.code)}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 cursor-pointer border ${
               i18n.language === lang.code
                 ? 'bg-white/[0.1] text-white/90 border-white/[0.15]'

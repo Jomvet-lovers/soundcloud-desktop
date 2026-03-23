@@ -29,7 +29,15 @@ export const TrackCard = React.memo(
     };
 
     return (
-      <div className="group relative" onMouseEnter={() => preloadTrack(track.urn)}>
+      <div
+        className="group relative"
+        onMouseEnter={() => preloadTrack(track.urn)}
+        style={{
+          contentVisibility: 'auto',
+          contain: 'layout paint style',
+          containIntrinsicSize: '180px 260px',
+        }}
+      >
         {/* Artwork */}
         <div
           className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.03] cursor-pointer ring-1 ring-white/[0.06] group-hover:ring-white/[0.12] transition-all duration-300 ease-[var(--ease-apple)]"
@@ -41,6 +49,7 @@ export const TrackCard = React.memo(
               alt={track.title}
               className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover:scale-[1.04]"
               decoding="async"
+              loading="lazy"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-white/20">

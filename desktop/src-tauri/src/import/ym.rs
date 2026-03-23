@@ -60,7 +60,6 @@ struct ScTrackResult {
     urn: Option<String>,
 }
 
-/// Returns list of found SC track URNs
 #[tauri::command]
 pub async fn ym_import_start(
     ym_token: String,
@@ -72,7 +71,6 @@ pub async fn ym_import_start(
 
     let client = reqwest::Client::new();
 
-    // Get YM user ID from token
     let uid_resp = client
         .get("https://api.music.yandex.net/account/status")
         .header("Authorization", format!("OAuth {}", ym_token))
@@ -89,7 +87,6 @@ pub async fn ym_import_start(
         .as_i64()
         .ok_or("Failed to get YM user ID")?;
 
-    // Get liked tracks
     let likes_resp = client
         .get(format!(
             "https://api.music.yandex.net/users/{}/likes/tracks",
@@ -118,13 +115,11 @@ pub async fn ym_import_start(
     let mut not_found = 0usize;
     let mut found_urns: Vec<String> = Vec::new();
 
-    // Process in batches of 50 for track info
     for (batch_idx, chunk) in track_ids.chunks(50).enumerate() {
         if CANCEL_FLAG.load(Ordering::Relaxed) {
             break;
         }
 
-        // Get track info from YM
         let ids_param = chunk.join(",");
         let info_resp = client
             .get(format!(
@@ -176,7 +171,6 @@ pub async fn ym_import_start(
             )
             .ok();
 
-            // Search on SC backend
             let query = format!("{} {}", artist, title);
             let search_url = format!(
                 "{}/tracks?q={}&limit=3&linked_partitioning=true",
@@ -205,12 +199,10 @@ pub async fn ym_import_start(
                 not_found += 1;
             }
 
-            // Rate limiting
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
     }
 
-    // Final progress
     app.emit(
         "ym_import:progress",
         YmImportProgress {

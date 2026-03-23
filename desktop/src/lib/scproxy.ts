@@ -63,3 +63,5 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   }
   return origFetch(input, init);
 }) as typeof fetch;
+
+export {};

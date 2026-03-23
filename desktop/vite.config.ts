@@ -12,6 +12,32 @@ export default defineConfig(async () => ({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("react-router")) return "router";
+          if (id.includes("@tanstack/react-query") || id.includes("@tanstack/react-virtual")) {
+            return "tanstack";
+          }
+          if (id.includes("@dnd-kit")) return "dnd-kit";
+          if (id.includes("@radix-ui")) return "radix";
+          if (id.includes("i18next") || id.includes("react-i18next")) return "i18n";
+          if (id.includes("lucide-react") || id.includes("simple-icons")) return "icons";
+          if (id.includes("react-markdown")) return "markdown";
+          if (id.includes("@tauri-apps")) return "tauri";
+          if (
+            id.includes("/node_modules/react/") ||
+            id.includes("/node_modules/react-dom/") ||
+            id.includes("/node_modules/scheduler/")
+          ) {
+            return "react-vendor";
+          }
+        },
+      },
+    },
+  },
   clearScreen: false,
   server: {
     port: 1420,

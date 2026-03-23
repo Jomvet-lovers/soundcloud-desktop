@@ -132,6 +132,10 @@ interface PlaylistListResponse {
 }
 
 type PageParam = Record<string, string>;
+const SHORT_CACHE_MS = 1000 * 60 * 2;
+const MEDIUM_CACHE_MS = 1000 * 60 * 5;
+const SEARCH_CACHE_MS = 1000 * 60 * 2;
+const INFINITE_GC_MS = 1000 * 60 * 3;
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
@@ -152,6 +156,31 @@ function extractPagination(href: string | null): PageParam | undefined {
   } catch {
     return undefined;
   }
+}
+
+function flattenCollectionPages<T>(pages: Array<{ collection: T[] }> | undefined): T[] {
+  if (!pages) return [];
+  const items: T[] = [];
+  for (const page of pages) {
+    items.push(...page.collection);
+  }
+  return items;
+}
+
+export function dedupeByKey<T, K>(items: T[], getKey: (item: T) => K): T[] {
+  const seen = new Set<K>();
+  const unique: T[] = [];
+  for (const item of items) {
+    const key = getKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique;
+}
+
+export function dedupeByUrn<T extends { urn: string }>(items: T[]): T[] {
+  return dedupeByKey(items, (item) => item.urn);
 }
 
 /* ── History ───────────────────────────────────────────────────── */
@@ -175,6 +204,8 @@ export function useHistory(limit = 50) {
       );
     },
     initialPageParam: 0,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 8,
     getNextPageParam: (last, _all, lastOffset) => {
       const nextOffset = (lastOffset as number) + limit;
       return nextOffset < last.total ? nextOffset : undefined;
@@ -183,12 +214,7 @@ export function useHistory(limit = 50) {
   });
 
   const entries = useMemo(() => {
-    if (!query.data) return [];
-    const arr: HistoryEntry[] = [];
-    for (const page of query.data.pages) {
-      for (const e of page.collection) arr.push(e);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
 
   return { entries, ...query };
@@ -218,12 +244,7 @@ export function useLocalLikes(limit = 50) {
   });
 
   const tracks = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Track[] = [];
-    for (const page of query.data.pages) {
-      for (const t of page.collection) arr.push(t);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
 
   return { tracks, ...query };
@@ -244,6 +265,8 @@ export function useFeed() {
       return api<FeedResponse>(`/me/feed?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 8,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -252,23 +275,14 @@ export function useFeed() {
       }
       return next;
     },
-    staleTime: 1000 * 60 * 2,
+    staleTime: SHORT_CACHE_MS,
   });
 
   const items = useMemo(() => {
-    if (!query.data) return [];
-    const arr: FeedItem[] = [];
-    const seen = new Set<string>();
-    for (const page of query.data.pages) {
-      for (const item of page.collection) {
-        const urn = item.origin?.urn;
-        if (urn && !seen.has(urn)) {
-          seen.add(urn);
-          arr.push(item);
-        }
-      }
-    }
-    return arr;
+    return dedupeByKey(
+      flattenCollectionPages(query.data?.pages),
+      (item) => item.origin?.urn ?? `${item.type}:${item.created_at}`,
+    );
   }, [query.data]);
 
   return {
@@ -295,22 +309,18 @@ export function useLikedTracks(limit = 30) {
       return api<TrackListResponse>(`/me/likes/tracks?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
       if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
       return next;
     },
-    staleTime: 1000 * 60 * 2,
+    staleTime: SHORT_CACHE_MS,
   });
 
   const tracks = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Track[] = [];
-    for (const page of query.data.pages) {
-      for (const t of page.collection) arr.push(t);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
 
   // Seed global liked URNs store
@@ -367,7 +377,8 @@ export function useFollowingTracks(limit = 20) {
   return useQuery({
     queryKey: ['me', 'followings', 'tracks', limit],
     queryFn: () => api<TrackListResponse>(`/me/followings/tracks?limit=${limit}`),
-    staleTime: 1000 * 60 * 2,
+    staleTime: SHORT_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 }
 
@@ -388,6 +399,8 @@ export function useTrackComments(trackUrn: string | undefined) {
       );
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 6,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -395,16 +408,11 @@ export function useTrackComments(trackUrn: string | undefined) {
       return next;
     },
     enabled: !!trackUrn,
-    refetchOnMount: 'always',
+    staleTime: SHORT_CACHE_MS,
   });
 
   const comments = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Comment[] = [];
-    for (const page of query.data.pages) {
-      for (const c of page.collection) arr.push(c);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
 
   return { comments, ...query };
@@ -438,7 +446,8 @@ export function useRelatedTracks(trackUrn: string | undefined, limit = 10) {
     queryFn: () =>
       api<TrackListResponse>(`/tracks/${encodeURIComponent(trackUrn!)}/related?limit=${limit}`),
     enabled: !!trackUrn,
-    refetchOnMount: 'always',
+    staleTime: SHORT_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 }
 
@@ -450,7 +459,8 @@ export function useTrackFavoriters(trackUrn: string | undefined, limit = 12) {
     queryFn: () =>
       api<UserListResponse>(`/tracks/${encodeURIComponent(trackUrn!)}/favoriters?limit=${limit}`),
     enabled: !!trackUrn,
-    refetchOnMount: 'always',
+    staleTime: SHORT_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 }
 
@@ -461,7 +471,8 @@ export function usePlaylist(playlistUrn: string | undefined) {
     queryKey: ['playlist', playlistUrn],
     queryFn: () => api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn!)}`),
     enabled: !!playlistUrn,
-    refetchOnMount: 'always',
+    staleTime: MEDIUM_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 }
 
@@ -489,7 +500,8 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
       return next;
     },
     enabled: !!playlistUrn,
-    refetchOnMount: 'always',
+    staleTime: MEDIUM_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 
   // Auto-fetch all pages so full playlist loads without scrolling
@@ -500,12 +512,7 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
   }, [query.hasNextPage, query.isFetchingNextPage, query.data]);
 
   const tracks = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Track[] = [];
-    for (const page of query.data.pages) {
-      for (const t of page.collection) arr.push(t);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
   return { tracks, ...query };
 }
@@ -517,7 +524,8 @@ export function useUser(userUrn: string | undefined) {
     queryKey: ['user', userUrn],
     queryFn: () => api<UserProfile>(`/users/${encodeURIComponent(userUrn!)}`),
     enabled: !!userUrn,
-    refetchOnMount: 'always',
+    staleTime: MEDIUM_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 }
 
@@ -534,6 +542,8 @@ export function useUserTracks(userUrn: string | undefined) {
       return api<TrackListResponse>(`/users/${encodeURIComponent(userUrn!)}/tracks?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 8,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -541,16 +551,11 @@ export function useUserTracks(userUrn: string | undefined) {
       return next;
     },
     enabled: !!userUrn,
-    refetchOnMount: 'always',
+    staleTime: SHORT_CACHE_MS,
   });
 
   const tracks = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Track[] = [];
-    for (const page of query.data.pages) {
-      for (const t of page.collection) arr.push(t);
-    }
-    return arr;
+    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
   }, [query.data]);
   return { tracks, ...query };
 }
@@ -584,7 +589,8 @@ export function useUserPopularTracks(userUrn: string | undefined) {
       return all;
     },
     enabled: !!userUrn,
-    staleTime: 120_000,
+    staleTime: SHORT_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 }
 
@@ -603,6 +609,8 @@ export function useUserPlaylists(userUrn: string | undefined) {
       );
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 8,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -610,16 +618,11 @@ export function useUserPlaylists(userUrn: string | undefined) {
       return next;
     },
     enabled: !!userUrn,
-    refetchOnMount: 'always',
+    staleTime: SHORT_CACHE_MS,
   });
 
   const playlists = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Playlist[] = [];
-    for (const page of query.data.pages) {
-      for (const p of page.collection) arr.push(p);
-    }
-    return arr;
+    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
   }, [query.data]);
   return { playlists, ...query };
 }
@@ -639,6 +642,8 @@ export function useUserLikedTracks(userUrn: string | undefined) {
       );
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 8,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -646,16 +651,11 @@ export function useUserLikedTracks(userUrn: string | undefined) {
       return next;
     },
     enabled: !!userUrn,
-    refetchOnMount: 'always',
+    staleTime: SHORT_CACHE_MS,
   });
 
   const tracks = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Track[] = [];
-    for (const page of query.data.pages) {
-      for (const t of page.collection) arr.push(t);
-    }
-    return arr;
+    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
   }, [query.data]);
   return { tracks, ...query };
 }
@@ -673,6 +673,8 @@ export function useUserFollowings(userUrn: string | undefined) {
       return api<UserListResponse>(`/users/${encodeURIComponent(userUrn!)}/followings?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 8,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -680,16 +682,11 @@ export function useUserFollowings(userUrn: string | undefined) {
       return next;
     },
     enabled: !!userUrn,
-    refetchOnMount: 'always',
+    staleTime: SHORT_CACHE_MS,
   });
 
   const users = useMemo(() => {
-    if (!query.data) return [];
-    const arr: SCUser[] = [];
-    for (const page of query.data.pages) {
-      for (const u of page.collection) arr.push(u);
-    }
-    return arr;
+    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
   }, [query.data]);
   return { users, ...query };
 }
@@ -699,7 +696,8 @@ export function useUserWebProfiles(userUrn: string | undefined) {
     queryKey: ['user', userUrn, 'web-profiles'],
     queryFn: () => api<WebProfile[]>(`/users/${encodeURIComponent(userUrn!)}/web-profiles`),
     enabled: !!userUrn,
-    refetchOnMount: 'always',
+    staleTime: MEDIUM_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
   });
 }
 
@@ -718,6 +716,7 @@ export function useMyFollowings(limit = 30) {
       return api<UserListResponse>(`/me/followings?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -727,12 +726,7 @@ export function useMyFollowings(limit = 30) {
   });
 
   const users = useMemo(() => {
-    if (!query.data) return [];
-    const arr: SCUser[] = [];
-    for (const page of query.data.pages) {
-      for (const u of page.collection) arr.push(u);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
   return { users, ...query };
 }
@@ -750,6 +744,7 @@ export function useMyLikedPlaylists(limit = 30) {
       return api<PlaylistListResponse>(`/me/likes/playlists?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -759,12 +754,7 @@ export function useMyLikedPlaylists(limit = 30) {
   });
 
   const playlists = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Playlist[] = [];
-    for (const page of query.data.pages) {
-      for (const p of page.collection) arr.push(p);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
   return { playlists, ...query };
 }
@@ -786,6 +776,7 @@ export function useMyPlaylists(limit = 30) {
       return res;
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -795,12 +786,7 @@ export function useMyPlaylists(limit = 30) {
   });
 
   const playlists = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Playlist[] = [];
-    for (const page of query.data.pages) {
-      for (const p of page.collection) arr.push(p);
-    }
-    return arr;
+    return flattenCollectionPages(query.data?.pages);
   }, [query.data]);
   return { playlists, ...query };
 }
@@ -901,6 +887,8 @@ export function useSearchTracks(q: string) {
       return api<TrackListResponse>(`/tracks?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 5,
     getNextPageParam: (last, _all, lastPageParam) => {
       const next = extractPagination(last.next_href);
       if (!next) return undefined;
@@ -908,16 +896,11 @@ export function useSearchTracks(q: string) {
       return next;
     },
     enabled: !!q.trim(),
-    staleTime: 1000 * 60 * 5, // 5 min cache for search results
+    staleTime: SEARCH_CACHE_MS,
   });
 
   const tracks = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Track[] = [];
-    for (const page of query.data.pages) {
-      for (const t of page.collection) arr.push(t);
-    }
-    return arr;
+    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
   }, [query.data]);
   return { tracks, ...query };
 }
@@ -935,17 +918,15 @@ export function useSearchPlaylists(q: string) {
       return api<PlaylistListResponse>(`/playlists?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 5,
     getNextPageParam: (last, _all, _lastPageParam) => extractPagination(last.next_href),
     enabled: !!q.trim(),
+    staleTime: SEARCH_CACHE_MS,
   });
 
   const playlists = useMemo(() => {
-    if (!query.data) return [];
-    const arr: Playlist[] = [];
-    for (const page of query.data.pages) {
-      for (const p of page.collection) arr.push(p);
-    }
-    return arr;
+    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
   }, [query.data]);
   return { playlists, ...query };
 }
@@ -963,17 +944,15 @@ export function useSearchUsers(q: string) {
       return api<UserListResponse>(`/users?${params}`);
     },
     initialPageParam: undefined as PageParam | undefined,
+    gcTime: INFINITE_GC_MS,
+    maxPages: 5,
     getNextPageParam: (last, _all, _lastPageParam) => extractPagination(last.next_href),
     enabled: !!q.trim(),
+    staleTime: SEARCH_CACHE_MS,
   });
 
   const users = useMemo(() => {
-    if (!query.data) return [];
-    const arr: SCUser[] = [];
-    for (const page of query.data.pages) {
-      for (const u of page.collection) arr.push(u);
-    }
-    return arr;
+    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
   }, [query.data]);
   return { users, ...query };
 }
@@ -995,6 +974,22 @@ export function useFallbackTracks() {
 
 type RelatedPool = Map<string, { count: number; track: Track }>;
 
+function sampleTrackUrns(tracks: Track[], limit: number): string[] {
+  if (tracks.length <= limit) {
+    return tracks.map((track) => track.urn);
+  }
+
+  const sample = tracks.slice(0, limit);
+  for (let i = limit; i < tracks.length; i++) {
+    const swapIndex = Math.floor(Math.random() * (i + 1));
+    if (swapIndex < limit) {
+      sample[swapIndex] = tracks[i];
+    }
+  }
+
+  return sample.map((track) => track.urn);
+}
+
 /**
  * Shared pool: fetches related tracks for up to 30 random liked tracks,
  * counts frequency of each related track. Used by both Recommended and Discover.
@@ -1002,10 +997,8 @@ type RelatedPool = Map<string, { count: number; track: Track }>;
 export function useRelatedPool(likedTracks: Track[]) {
   const seedUrns = useMemo(() => {
     if (likedTracks.length === 0) return [];
-    const shuffled = [...likedTracks].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, Math.min(30, shuffled.length)).map((t) => t.urn);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: stable seeds
-  }, [likedTracks.length > 0]);
+    return sampleTrackUrns(likedTracks, 30);
+  }, [likedTracks]);
 
   const likedUrns = useMemo(() => new Set(likedTracks.map((t) => t.urn)), [likedTracks]);
 
@@ -1033,6 +1026,7 @@ export function useRelatedPool(likedTracks: Track[]) {
     },
     enabled: seedUrns.length > 0,
     staleTime: 1000 * 60 * 10,
+    gcTime: INFINITE_GC_MS,
   });
 }
 

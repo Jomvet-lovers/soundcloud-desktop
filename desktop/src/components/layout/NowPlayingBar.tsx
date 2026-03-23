@@ -2,7 +2,8 @@ import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { artworkPanelApi } from '../../components/music/LyricsPanel';
+import { useShallow } from 'zustand/shallow';
+import { artworkPanelApi } from '../../components/music/artworkPanelApi';
 import { api } from '../../lib/api';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
 import { art, formatTime } from '../../lib/formatters';
@@ -98,8 +99,9 @@ export const ProgressSlider = React.memo(() => {
 /* ── Volume Slider ───────────────────────────────────────────── */
 
 const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => {
-  const volume = usePlayerStore((s) => s.volume);
-  const setVolume = usePlayerStore((s) => s.setVolume);
+  const { volume, setVolume } = usePlayerStore(
+    useShallow((s) => ({ volume: s.volume, setVolume: s.setVolume })),
+  );
   const isOver100 = volume > 100;
 
   return (
@@ -147,9 +149,13 @@ const VolumeSlider = React.memo(({ className = '' }: { className?: string }) => 
 /* ── Volume button ───────────────────────────────────────────── */
 
 const ControlVolumeBtn = React.memo(({ size = 'default' }: { size?: 'default' | 'sm' }) => {
-  const volume = usePlayerStore((s) => s.volume);
-  const volumeBeforeMute = usePlayerStore((s) => s.volumeBeforeMute);
-  const setVolume = usePlayerStore((s) => s.setVolume);
+  const { volume, volumeBeforeMute, setVolume } = usePlayerStore(
+    useShallow((s) => ({
+      volume: s.volume,
+      volumeBeforeMute: s.volumeBeforeMute,
+      setVolume: s.setVolume,
+    })),
+  );
   const s = size === 'sm' ? 'w-9 h-9' : 'w-10 h-10';
   return (
     <button
@@ -211,10 +217,11 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
   const [liked, setLiked] = useState<boolean | null>(null);
   const prevUrn = useRef(trackUrn);
 
-  if (prevUrn.current !== trackUrn) {
+  useEffect(() => {
+    if (prevUrn.current === trackUrn) return;
     prevUrn.current = trackUrn;
     setLiked(null);
-  }
+  }, [trackUrn]);
 
   const isLiked = liked ?? trackData?.user_favorite ?? false;
 

@@ -1,55 +1,162 @@
-import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { ExternalLink, Sparkles, X } from '../lib/icons';
-import { useEffect, useState } from 'react';
-import Markdown from 'react-markdown';
-import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO, GITHUB_REPO_EN } from '../lib/constants';
-import i18n from '../i18n';
+import { AlertCircle, ExternalLink, Sparkles, X } from '../lib/icons';
+import { useMemo, useState } from 'react';
+import { APP_VERSION } from '../lib/constants';
+import type { GithubRelease } from '../lib/update-check';
 import { useTranslation } from 'react-i18next';
-
-interface GithubRelease {
-  tag_name: string;
-  name: string;
-  body: string;
-  html_url: string;
-  published_at: string;
-}
 
 function stripLeadingV(version: string) {
   return version.replace(/^v/, '');
 }
 
-async function fetchRelease(repo: string): Promise<GithubRelease | null> {
-  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${repo}/releases/latest`;
-  const r = await fetch(url);
-  return r.ok ? r.json() : null;
+function renderInlineMarkdown(text: string, keyPrefix: string) {
+  const parts: React.ReactNode[] = [];
+  const pattern = /!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = null;
+  let matchIndex = 0;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    const [, imageAlt, imageUrl, linkLabel, linkUrl] = match;
+    if (imageUrl) {
+      parts.push(
+        <img
+          key={`${keyPrefix}-img-${matchIndex}`}
+          src={imageUrl}
+          alt={imageAlt || ''}
+          loading="lazy"
+          decoding="async"
+          className="mt-2 rounded-lg border border-white/[0.08] max-w-full"
+        />,
+      );
+    } else if (linkUrl) {
+      parts.push(
+        <button
+          key={`${keyPrefix}-link-${matchIndex}`}
+          type="button"
+          onClick={() => openUrl(linkUrl)}
+          className="inline text-accent hover:underline cursor-pointer"
+        >
+          {linkLabel}
+        </button>,
+      );
+    }
+
+    lastIndex = pattern.lastIndex;
+    matchIndex += 1;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
 }
 
-export function UpdateChecker() {
+function calloutTone(kind: string) {
+  switch (kind) {
+    case 'WARNING':
+    case 'CAUTION':
+      return 'border-amber-500/20 bg-amber-500/10 text-amber-100';
+    case 'IMPORTANT':
+      return 'border-accent/25 bg-accent/10 text-white/85';
+    case 'TIP':
+      return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100';
+    default:
+      return 'border-sky-500/20 bg-sky-500/10 text-sky-100';
+  }
+}
+
+function renderReleaseBody(body: string) {
+  const lines = body.split(/\r?\n/);
+  const nodes: React.ReactNode[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      nodes.push(<div key={index} className="h-3" />);
+      continue;
+    }
+    if (trimmed.startsWith('### ')) {
+      nodes.push(
+        <h4 key={index} className="text-[13px] font-semibold text-white/80 mt-3 first:mt-0">
+          {renderInlineMarkdown(trimmed.slice(4), `h4-${index}`)}
+        </h4>
+      );
+      continue;
+    }
+    if (trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
+      nodes.push(
+        <h3 key={index} className="text-[14px] font-semibold text-white/85 mt-3 first:mt-0">
+          {renderInlineMarkdown(trimmed.replace(/^#+\s*/, ''), `h3-${index}`)}
+        </h3>
+      );
+      continue;
+    }
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      nodes.push(
+        <p key={index} className="text-[12px] leading-relaxed text-white/60 pl-3">
+          {'\u2022'} {renderInlineMarkdown(trimmed.slice(2), `li-${index}`)}
+        </p>
+      );
+      continue;
+    }
+
+    const calloutMatch = trimmed.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/);
+    if (calloutMatch) {
+      const [, kind, firstLine] = calloutMatch;
+      const bodyLines: string[] = [];
+      if (firstLine) bodyLines.push(firstLine);
+
+      while (index + 1 < lines.length) {
+        const nextLine = lines[index + 1];
+        if (!nextLine.trim().startsWith('>')) break;
+        index += 1;
+        bodyLines.push(nextLine.trim().replace(/^>\s?/, ''));
+      }
+
+      nodes.push(
+        <div
+          key={index}
+          className={`rounded-xl border px-3 py-2.5 mt-2 ${calloutTone(kind)}`}
+        >
+          <div className="flex items-start gap-2">
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">{kind}</p>
+              <div className="mt-1 space-y-1 text-[12px] leading-relaxed opacity-90">
+                {bodyLines.map((calloutLine, calloutIndex) => (
+                  <p key={`${index}-${calloutIndex}`}>
+                    {renderInlineMarkdown(calloutLine, `callout-${index}-${calloutIndex}`)}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>,
+      );
+      continue;
+    }
+
+    nodes.push(
+      <p key={index} className="text-[12px] leading-relaxed text-white/60 whitespace-pre-wrap">
+        {renderInlineMarkdown(trimmed, `p-${index}`)}
+      </p>,
+    );
+  }
+
+  return nodes;
+}
+
+export function UpdateChecker({ release }: { release: GithubRelease }) {
   const { t } = useTranslation();
-  const [release, setRelease] = useState<GithubRelease | null>(null);
   const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    fetchRelease(GITHUB_REPO)
-      .then(async (ru) => {
-        if (!ru) return;
-        const latest = stripLeadingV(ru.tag_name);
-        const current = stripLeadingV(APP_VERSION);
-        if (latest === current) return;
-
-        const isEn = !i18n.language?.startsWith('ru');
-        if (isEn) {
-          const en = await fetchRelease(GITHUB_REPO_EN).catch(() => null);
-          if (en && stripLeadingV(en.tag_name) === latest) {
-            setRelease(en);
-            return;
-          }
-        }
-        setRelease(ru);
-      })
-      .catch(() => {});
-  }, []);
+  const renderedNotes = useMemo(() => renderReleaseBody(release.body), [release.body]);
 
   if (!release || dismissed) return null;
 
@@ -89,8 +196,8 @@ export function UpdateChecker() {
 
         {/* Release notes */}
         {release.body && (
-          <div className="mx-5 mb-4 max-h-60 overflow-y-auto rounded-xl bg-black/30 border border-white/[0.08] p-4 prose prose-invert prose-sm max-w-none prose-p:text-white/60 prose-p:text-[12px] prose-p:leading-relaxed prose-headings:text-white/80 prose-headings:text-[13px] prose-headings:mt-3 prose-headings:mb-1 prose-strong:text-white/70 prose-a:text-accent prose-a:no-underline hover:prose-a:underline prose-li:text-white/60 prose-li:text-[12px] prose-code:text-accent/80 prose-code:text-[11px] prose-code:bg-white/[0.06] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-img:rounded-lg prose-img:max-w-full prose-hr:border-white/[0.08]">
-            <Markdown>{release.body}</Markdown>
+          <div className="mx-5 mb-4 max-h-60 overflow-y-auto rounded-xl bg-black/30 border border-white/[0.08] p-4 space-y-1">
+            {renderedNotes}
           </div>
         )}
 

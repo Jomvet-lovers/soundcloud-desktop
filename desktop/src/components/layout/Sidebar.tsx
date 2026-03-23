@@ -1,6 +1,8 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { changeAppLanguage } from '../../i18n';
 import {
   Clock,
   Globe,
@@ -33,13 +35,17 @@ const navItems = [
 export const Sidebar = React.memo(() => {
   const { t, i18n } = useTranslation();
   const user = useAuthStore((s) => s.user);
-  const collapsed = useSettingsStore((s) => s.sidebarCollapsed);
-  const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
-  const pinnedPlaylists = useSettingsStore((s) => s.pinnedPlaylists);
+  const { collapsed, pinnedPlaylists, toggleSidebar } = useSettingsStore(
+    useShallow((s) => ({
+      collapsed: s.sidebarCollapsed,
+      pinnedPlaylists: s.pinnedPlaylists,
+      toggleSidebar: s.toggleSidebar,
+    })),
+  );
 
   const toggleLanguage = () => {
     const next = i18n.language === 'ru' ? 'en' : 'ru';
-    i18n.changeLanguage(next);
+    void changeAppLanguage(next);
   };
 
   const currentLang = languages.find((l) => l.code === i18n.language) ?? languages[0];
@@ -119,6 +125,8 @@ export const Sidebar = React.memo(() => {
                   src={artwork}
                   alt=""
                   className="w-4 h-4 rounded-[4px] object-cover shrink-0 ring-1 ring-white/[0.08]"
+                  decoding="async"
+                  loading="lazy"
                 />
               ) : (
                 <ListMusic size={16} strokeWidth={1.8} />

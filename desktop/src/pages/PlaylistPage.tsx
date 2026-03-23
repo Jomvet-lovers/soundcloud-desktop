@@ -15,8 +15,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import { useShallow } from 'zustand/shallow';
 import { LikeButton } from '../components/music/LikeButton';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
+import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
@@ -187,7 +189,7 @@ const SortableTrackRow = React.memo(
         {/* Artwork */}
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" />
+            <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" loading="lazy" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
               {musicIcon12}
@@ -294,7 +296,7 @@ const TrackRow = React.memo(
         {/* Artwork */}
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" />
+            <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" loading="lazy" />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
               {musicIcon12}
@@ -370,9 +372,13 @@ export const PlaylistPage = React.memo(() => {
   const updateTracks = useUpdatePlaylistTracks(urn);
   const deletePlaylist = useDeletePlaylist();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const pinnedPlaylists = useSettingsStore((s) => s.pinnedPlaylists);
-  const pinPlaylist = useSettingsStore((s) => s.pinPlaylist);
-  const unpinPlaylist = useSettingsStore((s) => s.unpinPlaylist);
+  const { pinnedPlaylists, pinPlaylist, unpinPlaylist } = useSettingsStore(
+    useShallow((s) => ({
+      pinnedPlaylists: s.pinnedPlaylists,
+      pinPlaylist: s.pinPlaylist,
+      unpinPlaylist: s.unpinPlaylist,
+    })),
+  );
 
   const isLoading = playlistLoading || tracksLoading;
   const isOwner = !!playlist && !!myUrn && playlist.user.urn === myUrn;
@@ -420,11 +426,11 @@ export const PlaylistPage = React.memo(() => {
   const tracks = isOwner ? localTracks : serverTracks;
 
   const trackUrnSet = React.useMemo(() => new Set(tracks.map((t) => t.urn)), [tracks]);
-  const isPlayingFromThis = usePlayerStore(
-    (s) => s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
-  );
-  const isPausedFromThis = usePlayerStore(
-    (s) => !s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
+  const { isPausedFromThis, isPlayingFromThis } = usePlayerStore(
+    useShallow((s) => ({
+      isPlayingFromThis: s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
+      isPausedFromThis: !s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
+    })),
   );
 
   const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
@@ -746,9 +752,15 @@ export const PlaylistPage = React.memo(() => {
             </div>
             <div className="h-px bg-white/[0.04] mx-4 mb-1" />
 
-            {tracks.map((track, i) => (
-              <TrackRow key={track.urn} track={track} index={i} queue={tracks} />
-            ))}
+            <VirtualList
+              items={tracks}
+              rowHeight={84}
+              overscan={10}
+              className="space-y-0.5"
+              disabled={tracks.length < 60}
+              getItemKey={(track) => track.urn}
+              renderItem={(track, i) => <TrackRow track={track} index={i} queue={tracks} />}
+            />
             {hasNextPage && (
               <div ref={scrollRef} className="flex justify-center py-4">
                 {isFetchingNextPage && <Loader2 size={20} className="animate-spin text-white/30" />}

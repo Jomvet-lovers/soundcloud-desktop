@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use sha2::{Digest, Sha256};
 
-use crate::constants::{is_domain_whitelisted, PROXY_URL};
+use crate::shared::constants::{is_domain_whitelisted, PROXY_URL};
 
 pub struct State {
     pub assets_dir: PathBuf,
@@ -24,8 +24,6 @@ fn cache_key(url: &str) -> String {
     hex::encode(Sha256::digest(url.as_bytes()))
 }
 
-/// Core proxy logic — shared between scproxy:// protocol and HTTP proxy server.
-/// `encoded` is a (possibly percent-encoded) base64 target URL.
 pub async fn proxy_request(encoded: &str) -> ProxyResult {
     let state = match STATE.get() {
         Some(s) => s,
@@ -74,7 +72,6 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         };
     }
 
-    // Cache check — single file per key, no extension
     let key = cache_key(&target_url);
     let cache_path = state.assets_dir.join(&key);
     if cache_path.exists() {
@@ -92,7 +89,6 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     #[cfg(debug_assertions)]
     println!("[Proxy] {} -> upstream", target_url);
 
-    // Upstream fetch with retries (proxy can 504/502 under load)
     let encoded_for_header = BASE64.encode(target_url.as_bytes());
     let mut status = 502u16;
     let mut content_type = String::new();
@@ -127,13 +123,11 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
             Err(_) => continue,
         }
 
-        // Success or client error — no point retrying
         if status < 500 {
             break;
         }
     }
 
-    // Cache in background — skip html/text error pages
     let is_cacheable = status == 200
         && !content_type.starts_with("text/html")
         && !content_type.starts_with("text/plain")
@@ -153,7 +147,6 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     }
 }
 
-/// Handler for scproxy:// URI scheme protocol (used by img.src hooks)
 pub async fn handle_uri(request: http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
     let encoded = request.uri().path().trim_start_matches('/');
     let result = proxy_request(encoded).await;

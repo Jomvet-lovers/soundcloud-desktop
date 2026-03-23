@@ -1,18 +1,27 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
 import { useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
-import { ArtworkPanel, LyricsPanel } from '../music/LyricsPanel';
-import { QueuePanel } from '../music/QueuePanel';
 import { NowPlayingBar } from './NowPlayingBar';
 import { Sidebar } from './Sidebar';
 import { Titlebar } from './Titlebar';
+
+const ArtworkPanel = lazy(() =>
+  import('../music/LyricsPanel').then((module) => ({ default: module.ArtworkPanel })),
+);
+const LyricsPanel = lazy(() =>
+  import('../music/LyricsPanel').then((module) => ({ default: module.LyricsPanel })),
+);
+const QueuePanel = lazy(() =>
+  import('../music/QueuePanel').then((module) => ({ default: module.QueuePanel })),
+);
 
 /* ── Keybinding definitions ────────────────────────────────── */
 
@@ -140,8 +149,12 @@ const KeybindingsDialog = React.memo(
 /* ── Backgrounds ───────────────────────────────────────────── */
 
 const CustomBackground = React.memo(() => {
-  const bgName = useSettingsStore((s) => s.backgroundImage);
-  const bgOpacity = useSettingsStore((s) => s.backgroundOpacity);
+  const { bgName, bgOpacity } = useSettingsStore(
+    useShallow((s) => ({
+      bgName: s.backgroundImage,
+      bgOpacity: s.backgroundOpacity,
+    })),
+  );
 
   const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
   if (!bgUrl) return null;
@@ -187,6 +200,7 @@ const isInputEl = (el: EventTarget | null) =>
 export const AppShell = React.memo(() => {
   const [queueOpen, setQueueOpen] = useState(false);
   const [kbOpen, setKbOpen] = useState(false);
+  const lyricsOpen = useLyricsStore((s) => s.open);
   const volumeHoldRef = useRef<{ key: string | null; repeatCount: number; lastAt: number }>({
     key: null,
     repeatCount: 0,
@@ -321,9 +335,19 @@ export const AppShell = React.memo(() => {
         </main>
       </div>
       <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} />
-      <QueuePanel open={queueOpen} onClose={onQueueClose} />
-      <LyricsPanel />
-      <ArtworkPanel />
+      {queueOpen && (
+        <Suspense fallback={null}>
+          <QueuePanel open={queueOpen} onClose={onQueueClose} />
+        </Suspense>
+      )}
+      {lyricsOpen && (
+        <Suspense fallback={null}>
+          <LyricsPanel />
+        </Suspense>
+      )}
+      <Suspense fallback={null}>
+        <ArtworkPanel />
+      </Suspense>
       <KeybindingsDialog open={kbOpen} onOpenChange={setKbOpen} />
     </div>
   );

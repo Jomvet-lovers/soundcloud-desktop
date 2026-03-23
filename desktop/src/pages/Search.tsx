@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
+import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
 import { art, dur, fc } from '../lib/formatters';
@@ -255,10 +256,6 @@ function ResolveCard({ url, onDone }: { url: string; onDone: () => void }) {
 const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: string }) {
   const { t } = useTranslation();
   const tracksQuery = useSearchTracks(query);
-  const uniqueTracks = useMemo(
-    () => Array.from(new Map(tracksQuery.tracks.map((t) => [t.urn, t])).values()),
-    [tracksQuery.tracks],
-  );
   const sentinelRef = useInfiniteScroll(
     !!tracksQuery.hasNextPage,
     !!tracksQuery.isFetchingNextPage,
@@ -271,14 +268,18 @@ const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: 
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : uniqueTracks.length === 0 ? (
+      ) : tracksQuery.tracks.length === 0 ? (
         <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
       ) : (
-        <div className="flex flex-col gap-1">
-          {uniqueTracks.map((track, i) => (
-            <TrackRow key={`${track.urn}-${i}`} track={track} queue={uniqueTracks} />
-          ))}
-        </div>
+        <VirtualList
+          items={tracksQuery.tracks}
+          rowHeight={96}
+          overscan={8}
+          className="flex flex-col gap-1"
+          disabled={tracksQuery.tracks.length < 40}
+          getItemKey={(track) => track.urn}
+          renderItem={(track) => <TrackRow track={track} queue={tracksQuery.tracks} />}
+        />
       )}
       <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
         {tracksQuery.isFetchingNextPage && (
@@ -292,10 +293,6 @@ const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: 
 const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { query: string }) {
   const { t } = useTranslation();
   const playlistsQuery = useSearchPlaylists(query);
-  const uniquePlaylists = useMemo(
-    () => Array.from(new Map(playlistsQuery.playlists.map((p) => [p.urn, p])).values()),
-    [playlistsQuery.playlists],
-  );
   const sentinelRef = useInfiniteScroll(
     !!playlistsQuery.hasNextPage,
     !!playlistsQuery.isFetchingNextPage,
@@ -308,11 +305,11 @@ const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { q
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : uniquePlaylists.length === 0 ? (
+      ) : playlistsQuery.playlists.length === 0 ? (
         <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {uniquePlaylists.map((p, i) => (
+          {playlistsQuery.playlists.map((p, i) => (
             <PlaylistCard key={`${p.urn}-${i}`} playlist={p} />
           ))}
         </div>
@@ -329,10 +326,6 @@ const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { q
 const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: string }) {
   const { t } = useTranslation();
   const usersQuery = useSearchUsers(query);
-  const uniqueUsers = useMemo(
-    () => Array.from(new Map(usersQuery.users.map((u) => [u.urn, u])).values()),
-    [usersQuery.users],
-  );
   const sentinelRef = useInfiniteScroll(
     !!usersQuery.hasNextPage,
     !!usersQuery.isFetchingNextPage,
@@ -345,11 +338,11 @@ const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: st
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : uniqueUsers.length === 0 ? (
+      ) : usersQuery.users.length === 0 ? (
         <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {uniqueUsers.map((u, i) => (
+          {usersQuery.users.map((u, i) => (
             <UserCard key={`${u.urn}-${i}`} user={u} />
           ))}
         </div>

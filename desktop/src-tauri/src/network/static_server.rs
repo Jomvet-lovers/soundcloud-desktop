@@ -7,7 +7,7 @@ use warp::http::{Response, StatusCode};
 use warp::hyper::Body;
 use warp::Filter;
 
-use crate::server::cors;
+use crate::network::server::cors;
 
 fn content_type_for(filename: &str) -> &'static str {
     if filename.ends_with(".png") {
