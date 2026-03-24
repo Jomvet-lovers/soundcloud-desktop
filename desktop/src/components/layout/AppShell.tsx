@@ -146,23 +146,35 @@ const KeybindingsDialog = React.memo(
 /* ── Backgrounds ───────────────────────────────────────────── */
 
 const CustomBackground = React.memo(() => {
-  const { bgName, bgOpacity } = useSettingsStore(
+  const { bgName, bgOpacity, bgBlur } = useSettingsStore(
     useShallow((s) => ({
       bgName: s.backgroundImage,
       bgOpacity: s.backgroundOpacity,
+      bgBlur: s.backgroundBlur,
     })),
   );
 
   const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
   if (!bgUrl) return null;
   return (
-    <div
-      className="absolute inset-0 pointer-events-none bg-cover bg-center bg-no-repeat transition-opacity duration-1000"
-      style={{
-        backgroundImage: `url(${bgUrl})`,
-        opacity: bgOpacity,
-      }}
-    />
+    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      <div
+        className="absolute bg-cover bg-center bg-no-repeat transition-[filter] duration-500 ease-out"
+        style={{
+          inset: `${-Math.max(24, bgBlur * 2)}px`,
+          backgroundImage: `url(${bgUrl})`,
+          opacity: 0.18,
+          filter: bgBlur > 0 ? `blur(${bgBlur}px)` : 'none',
+          contain: 'strict',
+          transform: 'translateZ(0)',
+          willChange: 'filter',
+        }}
+      />
+      <div
+        className="absolute inset-0 bg-[rgb(8,8,10)] transition-opacity duration-300"
+        style={{ opacity: bgOpacity }}
+      />
+    </div>
   );
 });
 
