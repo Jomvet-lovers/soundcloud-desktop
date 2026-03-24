@@ -100,6 +100,8 @@
     "likes": "Likes",
     "follow": "Follow",
     "unfollow": "Unfollow",
+    "noFollowers": "No followers found.",
+    "noFollowings": "No followings found.",
     "publicProfile": "This is how your public profile looks to others",
     "about": "About",
     "memberSince": "Member since",

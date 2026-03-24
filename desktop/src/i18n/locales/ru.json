@@ -101,6 +101,8 @@
     "likes": "Лайки",
     "follow": "Подписаться",
     "unfollow": "Отписаться",
+    "noFollowers": "Подписчиков пока нет.",
+    "noFollowings": "Подписок пока нет.",
     "publicProfile": "Так выглядит ваш публичный профиль",
     "about": "О себе",
     "memberSince": "В SoundCloud с",

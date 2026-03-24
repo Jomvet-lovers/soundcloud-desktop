@@ -132,28 +132,26 @@ const SortableTrackRow = React.memo(
     const { t } = useTranslation();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
-
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
       id: track.urn,
       disabled: !isOwner,
     });
 
-    const style = {
-      transform: CSS.Transform.toString(transform),
-      transition,
-      opacity: isDragging ? 0.5 : 1,
-      zIndex: isDragging ? 50 : undefined,
-    };
-
     return (
       <div
         ref={setNodeRef}
-        style={style}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.5 : 1,
+          zIndex: isDragging ? 50 : undefined,
+          contentVisibility: 'auto',
+          containIntrinsicSize: '68px',
+        }}
         className={`group flex items-center gap-3.5 px-4 py-3 rounded-xl transition-colors duration-200 ease-[var(--ease-apple)] select-none ${
           isThis ? 'bg-accent/[0.05] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
         }`}
       >
-        {/* Drag handle */}
         {isOwner && (
           <div
             className="w-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-white/15 hover:text-white/40 transition-colors"
@@ -164,7 +162,6 @@ const SortableTrackRow = React.memo(
           </div>
         )}
 
-        {/* Index / play */}
         <div
           className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
           onClick={togglePlay}
@@ -186,7 +183,6 @@ const SortableTrackRow = React.memo(
           )}
         </div>
 
-        {/* Artwork */}
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
             <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" loading="lazy" />
@@ -197,7 +193,6 @@ const SortableTrackRow = React.memo(
           )}
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <p
             className={`text-[13px] font-medium truncate cursor-pointer transition-colors duration-150 ${
@@ -215,7 +210,6 @@ const SortableTrackRow = React.memo(
           </p>
         </div>
 
-        {/* Stats */}
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {track.playback_count != null && (
             <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
@@ -231,15 +225,12 @@ const SortableTrackRow = React.memo(
           )}
         </div>
 
-        {/* Like */}
         <LikeButton track={track} />
 
-        {/* Duration */}
         <span className="text-[11px] text-white/25 tabular-nums font-medium shrink-0 w-10 text-right">
           {dur(track.duration)}
         </span>
 
-        {/* Remove button */}
         {isOwner && onRemove && (
           <button
             type="button"
@@ -267,11 +258,11 @@ const TrackRow = React.memo(
 
     return (
       <div
+        style={{ contentVisibility: 'auto', containIntrinsicSize: '68px' }}
         className={`group flex items-center gap-3.5 px-4 py-3 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] select-none ${
           isThis ? 'bg-accent/[0.05] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
         }`}
       >
-        {/* Index / play */}
         <div
           className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
           onClick={togglePlay}
@@ -293,7 +284,6 @@ const TrackRow = React.memo(
           )}
         </div>
 
-        {/* Artwork */}
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
             <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" loading="lazy" />
@@ -304,7 +294,6 @@ const TrackRow = React.memo(
           )}
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <p
             className={`text-[13px] font-medium truncate cursor-pointer transition-colors duration-150 ${
@@ -322,7 +311,6 @@ const TrackRow = React.memo(
           </p>
         </div>
 
-        {/* Stats */}
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {track.playback_count != null && (
             <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
@@ -338,10 +326,8 @@ const TrackRow = React.memo(
           )}
         </div>
 
-        {/* Like */}
         <LikeButton track={track} />
 
-        {/* Duration */}
         <span className="text-[11px] text-white/25 tabular-nums font-medium shrink-0 w-10 text-right">
           {dur(track.duration)}
         </span>
@@ -720,16 +706,22 @@ export const PlaylistPage = React.memo(() => {
                 items={tracks.map((t) => t.urn)}
                 strategy={verticalListSortingStrategy}
               >
-                {tracks.map((track, i) => (
-                  <SortableTrackRow
-                    key={track.urn}
-                    track={track}
-                    index={i}
-                    queue={tracks}
-                    isOwner={true}
-                    onRemove={handleRemoveTrack}
-                  />
-                ))}
+                <VirtualList
+                  items={tracks}
+                  rowHeight={68}
+                  overscan={10}
+                  className="space-y-0.5"
+                  getItemKey={(track) => track.urn}
+                  renderItem={(track, i) => (
+                    <SortableTrackRow
+                      track={track}
+                      index={i}
+                      queue={tracks}
+                      isOwner={true}
+                      onRemove={handleRemoveTrack}
+                    />
+                  )}
+                />
               </SortableContext>
             </DndContext>
             {hasNextPage && (
@@ -757,7 +749,6 @@ export const PlaylistPage = React.memo(() => {
               rowHeight={68}
               overscan={10}
               className="space-y-0.5"
-              disabled={tracks.length < 60}
               getItemKey={(track) => track.urn}
               renderItem={(track, i) => <TrackRow track={track} index={i} queue={tracks} />}
             />

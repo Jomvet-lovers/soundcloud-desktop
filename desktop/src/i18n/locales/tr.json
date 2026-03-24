@@ -100,6 +100,8 @@
     "likes": "Begeniler",
     "follow": "Takip Et",
     "unfollow": "Takibi Birak",
+    "noFollowers": "Takipci bulunamadi.",
+    "noFollowings": "Takip edilen bulunamadi.",
     "publicProfile": "Diger insanlar profilinizi boyle gorur",
     "about": "Hakkinda",
     "memberSince": "Uyelik tarihi",

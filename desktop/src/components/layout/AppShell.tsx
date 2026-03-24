@@ -156,20 +156,33 @@ const CustomBackground = React.memo(() => {
 
   const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
   if (!bgUrl) return null;
+  const blurInset = Math.max(24, bgBlur * 2);
+  const blurScale = 1 + bgBlur / 160;
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       <div
-        className="absolute bg-cover bg-center bg-no-repeat transition-[filter] duration-500 ease-out"
+        className="absolute transition-[filter,transform] duration-500 ease-out"
         style={{
-          inset: `${-Math.max(24, bgBlur * 2)}px`,
-          backgroundImage: `url(${bgUrl})`,
-          opacity: 0.18,
-          filter: bgBlur > 0 ? `blur(${bgBlur}px)` : 'none',
-          contain: 'strict',
+          inset: -blurInset,
+          contain: 'paint',
           transform: 'translateZ(0)',
           willChange: 'filter',
         }}
-      />
+      >
+        <img
+          src={bgUrl}
+          alt=""
+          aria-hidden="true"
+          decoding="async"
+          className="w-full h-full object-cover select-none"
+          style={{
+            opacity: 0.18,
+            filter: bgBlur > 0 ? `blur(${bgBlur}px)` : 'none',
+            transform: `translateZ(0) scale(${blurScale})`,
+            transformOrigin: 'center',
+          }}
+        />
+      </div>
       <div
         className="absolute inset-0 bg-[rgb(8,8,10)] transition-opacity duration-300"
         style={{ opacity: bgOpacity }}
