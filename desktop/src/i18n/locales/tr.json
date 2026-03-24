@@ -57,6 +57,8 @@
     "lyricsNotFound": "Sarki sozleri bulunamadi",
     "lyricsNotFoundHint": "Genius.com uzerinde aramayi deneyin",
     "lyricsLoading": "Sarki sozleri aranıyor...",
+    "hidePanel": "Paneli gizle",
+    "showPanel": "Paneli goster",
     "download": "Indir",
     "downloaded": "Kaydedildi",
     "preview": "Onizleme"

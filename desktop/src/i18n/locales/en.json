@@ -57,6 +57,8 @@
     "lyricsNotFound": "Lyrics not found",
     "lyricsNotFoundHint": "Try searching on Genius.com",
     "lyricsLoading": "Searching lyrics...",
+    "hidePanel": "Hide panel",
+    "showPanel": "Show panel",
     "download": "Download",
     "downloaded": "Saved",
     "preview": "Preview"

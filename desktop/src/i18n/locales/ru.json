@@ -57,6 +57,8 @@
     "lyricsNotFound": "Текст не найден",
     "lyricsNotFoundHint": "Попробуйте поискать на Genius.com",
     "lyricsLoading": "Ищем текст...",
+    "hidePanel": "Скрыть панель",
+    "showPanel": "Показать панель",
     "download": "Скачать",
     "downloaded": "Скачано",
     "preview": "Превью"

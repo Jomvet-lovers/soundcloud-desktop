@@ -13,9 +13,6 @@ import { NowPlayingBar } from './NowPlayingBar';
 import { Sidebar } from './Sidebar';
 import { Titlebar } from './Titlebar';
 
-const ArtworkPanel = lazy(() =>
-  import('../music/LyricsPanel').then((module) => ({ default: module.ArtworkPanel })),
-);
 const LyricsPanel = lazy(() =>
   import('../music/LyricsPanel').then((module) => ({ default: module.LyricsPanel })),
 );
@@ -345,9 +342,6 @@ export const AppShell = React.memo(() => {
           <LyricsPanel />
         </Suspense>
       )}
-      <Suspense fallback={null}>
-        <ArtworkPanel />
-      </Suspense>
       <KeybindingsDialog open={kbOpen} onOpenChange={setKbOpen} />
     </div>
   );

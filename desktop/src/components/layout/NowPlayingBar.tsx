@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
-import { artworkPanelApi } from '../../components/music/artworkPanelApi';
 import { api } from '../../lib/api';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
 import { art, formatTime } from '../../lib/formatters';
@@ -318,9 +317,17 @@ const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active:
 
 const LyricsBtn = React.memo(() => {
   const open = useLyricsStore((s) => s.open);
-  const toggle = useLyricsStore((s) => s.toggle);
+  const closePanel = useLyricsStore((s) => s.close);
+  const openPanel = useLyricsStore((s) => s.openPanel);
   return (
-    <button type="button" onClick={toggle} className={btnClass(open, 'sm')}>
+    <button
+      type="button"
+      onClick={() => {
+        if (open) closePanel();
+        else openPanel({ tab: 'lyrics', rightPanelOpen: true });
+      }}
+      className={btnClass(open, 'sm')}
+    >
       <MicVocal size={16} />
     </button>
   );
@@ -342,6 +349,7 @@ const EqBtn = React.memo(() => {
 const TrackInfo = React.memo(() => {
   const navigate = useNavigate();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const openLyricsPanel = useLyricsStore((s) => s.openPanel);
   const artworkSmall = art(currentTrack?.artwork_url, 't200x200');
 
   if (!currentTrack) {
@@ -356,7 +364,7 @@ const TrackInfo = React.memo(() => {
     <div className="flex items-center gap-3.5 w-[280px] min-w-0">
       <div
         className="relative w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200 group/art"
-        onClick={() => artworkPanelApi.open()}
+        onClick={() => openLyricsPanel({ rightPanelOpen: false })}
       >
         {artworkSmall ? (
           <img src={artworkSmall} alt="" className="w-full h-full object-cover" />
