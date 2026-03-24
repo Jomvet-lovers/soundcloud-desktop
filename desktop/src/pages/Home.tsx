@@ -411,8 +411,10 @@ const FeedPlaylistCard = React.memo(
     );
     const { isPausedFromThis, isPlayingFromThis } = usePlayerStore(
       useShallow((s) => ({
-        isPlayingFromThis: s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
-        isPausedFromThis: !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+        isPlayingFromThis:
+          s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+        isPausedFromThis:
+          !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
       })),
     );
 

@@ -26,10 +26,7 @@ export const useLyricsStore = create<LyricsUIState>()((set) => ({
   toggle: () => set((s) => ({ open: !s.open })),
   openPanel: (options) =>
     set((s) => {
-      const normalized =
-        typeof options === 'string'
-          ? { tab: options }
-          : options ?? {};
+      const normalized = typeof options === 'string' ? { tab: options } : (options ?? {});
 
       return {
         open: true,

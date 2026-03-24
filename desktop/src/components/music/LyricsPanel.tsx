@@ -421,13 +421,8 @@ const TimedCommentsRail = React.memo(({ trackUrn }: { trackUrn: string }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<number, HTMLDivElement>());
   const [activeIndex, setActiveIndex] = useState(-1);
-  const {
-    comments,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-  } = useTrackComments(trackUrn);
+  const { comments, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
+    useTrackComments(trackUrn);
 
   const timedComments = useMemo(
     () =>
@@ -514,8 +509,7 @@ const TimedCommentsRail = React.memo(({ trackUrn }: { trackUrn: string }) => {
         }}
       >
         {timedComments.map((comment, index) => {
-          const state =
-            index < activeIndex ? 'past' : index === activeIndex ? 'active' : 'future';
+          const state = index < activeIndex ? 'past' : index === activeIndex ? 'active' : 'future';
           const distance = Math.abs(index - focusIndex);
           const scale = Math.max(0.9, 1 - distance * 0.035);
           const opacity =

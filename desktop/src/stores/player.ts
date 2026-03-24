@@ -278,7 +278,8 @@ export const usePlayerStore = create<PlayerState>()(
 
       replaceTrackMetadata: (track) =>
         set((s) => {
-          const mergeTrack = (item: Track) => (item.urn === track.urn ? { ...item, ...track } : item);
+          const mergeTrack = (item: Track) =>
+            item.urn === track.urn ? { ...item, ...track } : item;
 
           return {
             currentTrack:

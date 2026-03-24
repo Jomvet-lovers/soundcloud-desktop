@@ -185,7 +185,13 @@ const SortableTrackRow = React.memo(
 
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" loading="lazy" />
+            <img
+              src={cover}
+              alt=""
+              className="w-full h-full object-cover"
+              decoding="async"
+              loading="lazy"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
               {musicIcon12}
@@ -286,7 +292,13 @@ const TrackRow = React.memo(
 
         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
           {cover ? (
-            <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" loading="lazy" />
+            <img
+              src={cover}
+              alt=""
+              className="w-full h-full object-cover"
+              decoding="async"
+              loading="lazy"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
               {musicIcon12}
@@ -414,8 +426,10 @@ export const PlaylistPage = React.memo(() => {
   const trackUrnSet = React.useMemo(() => new Set(tracks.map((t) => t.urn)), [tracks]);
   const { isPausedFromThis, isPlayingFromThis } = usePlayerStore(
     useShallow((s) => ({
-      isPlayingFromThis: s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
-      isPausedFromThis: !s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
+      isPlayingFromThis:
+        s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
+      isPausedFromThis:
+        !s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
     })),
   );
 

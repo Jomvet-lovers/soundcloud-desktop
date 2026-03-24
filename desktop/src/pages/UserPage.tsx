@@ -273,9 +273,7 @@ const UserTracksTab = React.memo(function UserTracksTab({ urn }: { urn: string }
           overscan={8}
           className="flex flex-col gap-1"
           getItemKey={(track) => track.urn}
-          renderItem={(track, i) => (
-            <TrackRow track={track} index={i} queue={tracksQuery.tracks} />
-          )}
+          renderItem={(track, i) => <TrackRow track={track} index={i} queue={tracksQuery.tracks} />}
         />
       )}
       <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
@@ -462,9 +460,7 @@ const UserConnectionsTab = React.memo(function UserConnectionsTab({
         <UserConnectionsGrid users={query.users} />
       )}
       <div ref={sentinelRef} className="h-16 flex items-center justify-center mt-6">
-        {query.isFetchingNextPage && (
-          <Loader2 size={24} className="text-white/20 animate-spin" />
-        )}
+        {query.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
       </div>
     </div>
   );
@@ -603,31 +599,31 @@ export function UserPage() {
         <div className="min-w-0 flex flex-col gap-6">
           <div className="w-full overflow-x-auto">
             <div className="inline-flex min-w-full md:min-w-0 items-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl backdrop-blur-2xl shadow-lg">
-            {tabs.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] ${
-                    isActive
-                      ? 'bg-white/[0.12] text-white shadow-md border border-white/[0.05]'
-                      : 'text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent cursor-pointer'
-                  }`}
-                >
-                  {tab.label}
-                  {tab.count != null && (
-                    <span
-                      className={`text-[11px] tabular-nums px-2 py-0.5 rounded-full transition-colors ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-white/5 text-white/30'
-                      }`}
-                    >
-                      {fc(tab.count)}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] ${
+                      isActive
+                        ? 'bg-white/[0.12] text-white shadow-md border border-white/[0.05]'
+                        : 'text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent cursor-pointer'
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.count != null && (
+                      <span
+                        className={`text-[11px] tabular-nums px-2 py-0.5 rounded-full transition-colors ${
+                          isActive ? 'bg-white/20 text-white' : 'bg-white/5 text-white/30'
+                        }`}
+                      >
+                        {fc(tab.count)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
