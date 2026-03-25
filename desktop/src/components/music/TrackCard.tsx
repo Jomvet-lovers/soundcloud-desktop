@@ -76,11 +76,6 @@ export const TrackCard = React.memo(
 
           {/* Duration pill */}
           <div className="absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            {track.access === 'preview' && (
-              <div className="text-[10px] font-medium bg-amber-500/80 backdrop-blur-md text-white px-2 py-0.5 rounded-full">
-                {t('track.preview')}
-              </div>
-            )}
             <div className="text-[10px] font-medium bg-black/50 backdrop-blur-md text-white/80 px-2 py-0.5 rounded-full">
               {dur(track.duration)}
             </div>

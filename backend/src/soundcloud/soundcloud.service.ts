@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AxiosRequestConfig } from 'axios';
 import { firstValueFrom } from 'rxjs';
@@ -17,10 +17,10 @@ const AUTH_BASE = 'https://secure.soundcloud.com';
 
 @Injectable()
 export class SoundcloudService {
-  private readonly logger = new Logger(SoundcloudService.name);
   private readonly defaultClientId: string;
   private readonly defaultRedirectUri: string;
-  private readonly proxyUrl: string;
+  private readonly apiProxyUrl: string;
+  private readonly streamProxyUrl: string;
 
   constructor(
     private readonly httpService: HttpService,
@@ -28,11 +28,8 @@ export class SoundcloudService {
   ) {
     this.defaultClientId = this.configService.get<string>('soundcloud.clientId')!;
     this.defaultRedirectUri = this.configService.get<string>('soundcloud.redirectUri')!;
-    this.proxyUrl = this.configService.get<string>('soundcloud.proxyUrl') ?? '';
-
-    if (this.proxyUrl) {
-      this.logger.log(`CF proxy enabled: ${this.proxyUrl}`);
-    }
+    this.apiProxyUrl = this.configService.get<string>('soundcloud.proxyUrl') ?? '';
+    this.streamProxyUrl = this.configService.get<string>('soundcloud.streamProxyUrl') ?? '';
   }
 
   get scAuthBaseUrl() {
@@ -52,15 +49,19 @@ export class SoundcloudService {
    * - URL becomes proxyUrl (no path)
    * - X-Target header = base64(originalUrl)
    */
-  private proxy(targetUrl: string, extra: Record<string, string> = {}): {
+  private proxyWith(
+    proxyUrl: string,
+    targetUrl: string,
+    extra: Record<string, string> = {},
+  ): {
     url: string;
     headers: Record<string, string>;
   } {
-    if (!this.proxyUrl) {
+    if (!proxyUrl) {
       return { url: targetUrl, headers: extra };
     }
     return {
-      url: this.proxyUrl,
+      url: proxyUrl,
       headers: { ...extra, 'X-Target': Buffer.from(targetUrl).toString('base64') },
     };
   }
@@ -72,7 +73,7 @@ export class SoundcloudService {
     codeVerifier: string,
     creds: OAuthCredentials,
   ): Promise<ScTokenResponse> {
-    const { url, headers } = this.proxy(`${AUTH_BASE}/oauth/token`, {
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${AUTH_BASE}/oauth/token`, {
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json; charset=utf-8',
     });
@@ -98,7 +99,7 @@ export class SoundcloudService {
     refreshToken: string,
     creds: OAuthCredentials,
   ): Promise<ScTokenResponse> {
-    const { url, headers } = this.proxy(`${AUTH_BASE}/oauth/token`, {
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${AUTH_BASE}/oauth/token`, {
       'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json; charset=utf-8',
     });
@@ -119,7 +120,7 @@ export class SoundcloudService {
   }
 
   async signOut(accessToken: string): Promise<void> {
-    const { url, headers } = this.proxy(`${AUTH_BASE}/sign-out`, {
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${AUTH_BASE}/sign-out`, {
       'Content-Type': 'application/json; charset=utf-8',
       Accept: 'application/json; charset=utf-8',
     });
@@ -144,7 +145,7 @@ export class SoundcloudService {
       }
     }
 
-    const { url, headers } = this.proxy(target.toString(), {
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, target.toString(), {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
     });
@@ -159,7 +160,7 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${API_BASE}${path}`, {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
       'Content-Type': 'application/json; charset=utf-8',
@@ -176,7 +177,7 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${API_BASE}${path}`, {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
       'Content-Type': 'application/json; charset=utf-8',
@@ -188,7 +189,7 @@ export class SoundcloudService {
   }
 
   async apiDelete<T>(path: string, accessToken: string): Promise<T> {
-    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${API_BASE}${path}`, {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
     });
@@ -212,8 +213,7 @@ export class SoundcloudService {
     const extra: Record<string, string> = { Authorization: `OAuth ${accessToken}` };
     if (range) extra.Range = range;
 
-    const { url, headers } = this.proxy(streamUrl, extra);
-
+    const { url, headers } = this.proxyWith(this.streamProxyUrl, streamUrl, extra);
     const { data, headers: resHeaders } = await firstValueFrom(
       this.httpService.get(url, { headers, responseType: 'stream', maxRedirects: 5 }),
     );

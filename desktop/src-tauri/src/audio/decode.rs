@@ -18,6 +18,10 @@ use crate::audio::types::{
 
 const NORMALIZATION_CACHE_VERSION: u8 = 2;
 
+fn is_ogg_opus(bytes: &[u8]) -> bool {
+    bytes.len() >= 36 && &bytes[0..4] == b"OggS" && bytes.windows(8).take(8).any(|w| w == b"OpusHead")
+}
+
 struct OpusSource {
     reader: ogg::reading::PacketReader<Cursor<Vec<u8>>>,
     decoder: audiopus::coder::Decoder,
@@ -271,7 +275,11 @@ pub fn resolve_normalization_gain(
         return Ok(gain);
     }
 
-    let gain = if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
+    let gain = if is_ogg_opus(bytes) {
+        normalization_gain_from_samples(
+            OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?,
+        )
+    } else if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
         normalization_gain_from_samples(source)
     } else {
         normalization_gain_from_samples(
@@ -294,7 +302,15 @@ pub fn create_player_from_bytes(
     player.set_volume(volume);
 
     let duration;
-    if Decoder::new(Cursor::new(bytes.to_vec())).is_ok() {
+    if is_ogg_opus(bytes) {
+        let source =
+            OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?;
+        duration = source.total_duration().map(|d| d.as_secs_f64());
+        player.append(EqSource::new(
+            GainSource::new(source, normalization_gain),
+            eq_params,
+        ));
+    } else if Decoder::new(Cursor::new(bytes.to_vec())).is_ok() {
         let source = Decoder::new(Cursor::new(bytes.to_vec()))
             .map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());

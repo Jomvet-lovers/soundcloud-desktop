@@ -391,11 +391,6 @@ const TrackInfo = React.memo(() => {
           >
             {currentTrack.title}
           </p>
-          {currentTrack.access === 'preview' && (
-            <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/20 text-amber-400/90 px-1.5 py-px rounded">
-              Preview
-            </span>
-          )}
         </div>
         <p
           className="text-[11px] text-white/35 truncate mt-1 cursor-pointer hover:text-white/55 transition-colors"

@@ -87,7 +87,11 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
   const promise = (async () => {
     try {
       const sessionId = getSessionId();
-      const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream`;
+      const params = new URLSearchParams();
+      if (useSettingsStore.getState().highQualityStreaming) {
+        params.set('hq', 'true');
+      }
+      const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream${params.size ? `?${params.toString()}` : ''}`;
 
       const res = await tauriFetch(url, {
         headers: sessionId ? { 'x-session-id': sessionId } : {},

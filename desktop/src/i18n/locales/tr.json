@@ -61,8 +61,7 @@
     "hidePanel": "Paneli gizle",
     "showPanel": "Paneli goster",
     "download": "Indir",
-    "downloaded": "Kaydedildi",
-    "preview": "Onizleme"
+    "downloaded": "Kaydedildi"
   },
   "playlist": {
     "playAll": "Hepsini Cal",
@@ -217,6 +216,8 @@
     "discordRpcButtonDesc": "Parcayi SoundCloud'da acan dugmeyi goster",
     "normalizeVolume": "Ses duzeyi dengeleme",
     "normalizeVolumeDesc": "Sessiz ve yuksek parcarlari daha esit bir seviyeye getirir",
+    "highQualityStreaming": "Yuksek kalite akis",
+    "highQualityStreamingDesc": "Oynatma sirasinda mevcut en yuksek kaliteyi tercih et",
     "import": "Ice aktar",
     "importYandex": "Yandex Music'ten ice aktar"
   },

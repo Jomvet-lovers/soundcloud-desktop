@@ -66,6 +66,7 @@ export interface SettingsState {
   eqGains: number[];
   eqPreset: string;
   normalizeVolume: boolean;
+  highQualityStreaming: boolean;
   sidebarCollapsed: boolean;
   floatingComments: boolean;
   startupPage: StartupPage;
@@ -87,6 +88,7 @@ export interface SettingsState {
   setEqPreset: (preset: string) => void;
   setEqBand: (index: number, gain: number) => void;
   setNormalizeVolume: (enabled: boolean) => void;
+  setHighQualityStreaming: (enabled: boolean) => void;
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   setStartupPage: (page: StartupPage) => void;
@@ -114,6 +116,7 @@ const DEFAULTS = {
   eqGains: DEFAULT_EQ_GAINS,
   eqPreset: 'flat',
   normalizeVolume: true,
+  highQualityStreaming: false,
   sidebarCollapsed: false,
   floatingComments: true,
   startupPage: 'home' as StartupPage,
@@ -153,6 +156,7 @@ export const useSettingsStore = create<SettingsState>()(
           return { eqGains, eqPreset: 'custom' };
         }),
       setNormalizeVolume: (normalizeVolume) => set({ normalizeVolume }),
+      setHighQualityStreaming: (highQualityStreaming) => set({ highQualityStreaming }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setStartupPage: (startupPage) => set({ startupPage }),
@@ -184,7 +188,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 8,
+      version: 9,
       migrate: (persistedState) =>
         ({
           ...DEFAULTS,
@@ -204,6 +208,7 @@ export const useSettingsStore = create<SettingsState>()(
         eqGains: s.eqGains,
         eqPreset: s.eqPreset,
         normalizeVolume: s.normalizeVolume,
+        highQualityStreaming: s.highQualityStreaming,
         sidebarCollapsed: s.sidebarCollapsed,
         floatingComments: s.floatingComments,
         startupPage: s.startupPage,

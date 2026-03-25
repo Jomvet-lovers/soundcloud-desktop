@@ -57,7 +57,9 @@ PORT=3000
 
 | Переменная | Описание |
 |---|---|
-| `SC_PROXY_URL` | CF Worker URL — все запросы к SC API пойдут через него с `X-Target` header |
+| `SC_COOKIES` | HTTP cookies с soundcloud.com для cookie-based стриминга (Go+ HQ). Формат: `"cookie1=value1; cookie2=value2"` |
+| `SC_PROXY_URL` | CF Worker URL для OAuth/auth и HTTP-запросов к `api.soundcloud.com` |
+| `SC_STREAM_PROXY_URL` | CF Worker URL для reverse proxy стриминга: `soundcloud.com`, `api-v2.soundcloud.com`, HLS/m3u8 и аудио-сегментов |
 | `CDN_BASE_URL` | SecureServe CDN URL для кэширования аудио |
 | `CDN_AUTH_TOKEN` | Токен авторизации CDN |
 | `TELEGRAM_BOT_TOKEN` | Бот для алертов при бане OAuth-аппки |
@@ -192,7 +194,13 @@ pnpm build && pnpm start:prod  # production
 Backward-compatible: если в БД нет аппок, автоматически создаётся одна из env-переменных `SOUNDCLOUD_CLIENT_ID` / `SOUNDCLOUD_CLIENT_SECRET`.
 
 ### Cloudflare proxy
-Если задан `SC_PROXY_URL` — все запросы к SC API идут через CF Worker. Паттерн: `{SC_PROXY_URL}/{base64(originalUrl)}` с заголовком `X-Target: base64(originalUrl)`. Тот же CF Worker что и для `images.soundcloud.su` в Tauri-прокси.
+Если задан `SC_PROXY_URL` — OAuth/auth и HTTP-запросы к `api.soundcloud.com` идут через CF Worker.
+
+Если задан `SC_STREAM_PROXY_URL` — стриминг и публичные reverse-запросы (`soundcloud.com`, `api-v2.soundcloud.com`, `m3u8`, сегменты, прямые stream URL) идут через отдельный CF Worker.
+
+Паттерн одинаковый: запрос отправляется на URL воркера, а оригинальный URL кладётся в заголовок `X-Target: base64(originalUrl)`.
+
+Для обратной совместимости, если `SC_STREAM_PROXY_URL` не задан, стриминг продолжит использовать `SC_PROXY_URL`.
 
 ### CDN аудио кэш
 При запросе стрима: проверяется наличие на CDN (`HEAD`). Если есть — `302 Redirect`. Если нет — стримится с SC, параллельно заливается на CDN (fire-and-forget). Клиент ничего не знает о CDN.

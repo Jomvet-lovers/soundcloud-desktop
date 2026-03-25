@@ -61,8 +61,7 @@
     "hidePanel": "Скрыть панель",
     "showPanel": "Показать панель",
     "download": "Скачать",
-    "downloaded": "Скачано",
-    "preview": "Превью"
+    "downloaded": "Скачано"
   },
   "playlist": {
     "playAll": "Воспроизвести",
@@ -222,6 +221,8 @@
     "discordRpcButtonDesc": "Показывать кнопку перехода к треку в SoundCloud",
     "normalizeVolume": "Нормализация громкости",
     "normalizeVolumeDesc": "Выравнивает тихие и громкие треки до более ровного уровня",
+    "highQualityStreaming": "Высокое качество стрима",
+    "highQualityStreamingDesc": "Стараться воспроизводить треки в максимально доступном качестве",
     "import": "Импорт",
     "importYandex": "Импорт из Yandex Music"
   },

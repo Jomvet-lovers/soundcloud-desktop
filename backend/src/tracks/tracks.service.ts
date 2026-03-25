@@ -3,7 +3,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CdnService } from '../cdn/cdn.service.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
-import { ScPublicApiService } from '../soundcloud/sc-public-api.service.js';
+import { ScPublicAnonService } from '../soundcloud/sc-public-anon.service.js';
+import { ScPublicCookiesService } from '../soundcloud/sc-public-cookies.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import type {
   ScComment,
@@ -19,7 +20,8 @@ export class TracksService {
 
   constructor(
     private readonly sc: SoundcloudService,
-    private readonly scPublicApi: ScPublicApiService,
+    private readonly scPublicAnon: ScPublicAnonService,
+    private readonly scPublicCookies: ScPublicCookiesService,
     private readonly localLikes: LocalLikesService,
     private readonly cdn: CdnService,
     private readonly pendingActions: PendingActionsService,
@@ -95,6 +97,7 @@ export class TracksService {
     format: string,
     params: Record<string, unknown>,
     range?: string,
+    hq?: boolean,
   ): Promise<
     | { type: 'redirect'; url: string }
     | { type: 'stream'; stream: Readable; headers: Record<string, string> }
@@ -104,15 +107,39 @@ export class TracksService {
     if (this.cdn.enabled && !range) {
       const onCdn = await this.cdn.isOnCdn(trackUrn);
       if (onCdn) {
-        this.logger.debug(`CDN hit for ${trackUrn}`);
         return { type: 'redirect', url: this.cdn.getCdnUrl(trackUrn) };
       }
     }
 
+    let access: "playable" | "preview" | "blocked" = 'playable';
+    try {
+      const track = await this.sc.apiGet<ScTrack>(`/tracks/${trackUrn}`, token, params);
+      access = track.access;
+    } catch (err) {
+      console.log(err);
+    }
+
     // 2. Качаем с SC
-    let streamData = await this.tryOAuthStream(token, trackUrn, format, params, range);
-    if (!streamData) {
-      streamData = await this.getPublicStream(trackUrn, format);
+    let streamData: { stream: Readable; headers: Record<string, string> } | null = null;
+
+    if (hq || access !== 'playable') {
+      // hq=true → куки ДО апи
+      streamData = await this.getCookieStream(trackUrn);
+      if (!streamData) {
+        streamData = await this.tryOAuthStream(token, trackUrn, format, params, range);
+      }
+      if (!streamData) {
+        streamData = await this.getPublicStream(trackUrn, format);
+      }
+    } else {
+      // default → апи → анонимная сессия → куки
+      streamData = await this.tryOAuthStream(token, trackUrn, format, params, range);
+      if (!streamData) {
+        streamData = await this.getPublicStream(trackUrn, format);
+      }
+      if (!streamData) {
+        streamData = await this.getCookieStream(trackUrn);
+      }
     }
     if (!streamData) return null;
 
@@ -183,12 +210,11 @@ export class TracksService {
 
         try {
           if (isHls) {
-            return await this.scPublicApi.streamFromHls(url, this.hlsMimeType(fmt));
+            return await this.scPublicAnon.streamFromHls(url, this.hlsMimeType(fmt));
           }
           return await this.proxyStream(token, url, range);
         } catch (err: any) {
           this.logger.warn(`Stream format ${fmt} failed: ${err.message}, trying next...`);
-          continue;
         }
       }
 
@@ -205,6 +231,25 @@ export class TracksService {
   }
 
   /**
+   * Cookie-based stream: фетчит HTML страницу трека с куками из env,
+   * парсит hydration data, достаёт транскодинги с приоритетом HQ.
+   */
+  async getCookieStream(
+    trackUrn: string,
+  ): Promise<{ stream: Readable; headers: Record<string, string> } | null> {
+    if (!this.scPublicCookies.hasCookies) return null;
+    try {
+      return (await this.scPublicCookies.getStreamViaCookies(trackUrn)) as {
+        stream: Readable;
+        headers: Record<string, string>;
+      } | null;
+    } catch (err: any) {
+      this.logger.warn(`Cookie stream failed for ${trackUrn}: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
    * Fallback: resolve stream via SoundCloud public API (no OAuth).
    * Used when the authenticated /streams endpoint fails or returns empty.
    */
@@ -213,7 +258,7 @@ export class TracksService {
     format?: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> } | null> {
     try {
-      return await this.scPublicApi.getStreamForTrack(trackUrn, format);
+      return await this.scPublicAnon.getStreamForTrack(trackUrn, format);
     } catch (err: any) {
       this.logger.warn(`Public API fallback failed for ${trackUrn}: ${err.message}`);
       return null;
@@ -238,7 +283,12 @@ export class TracksService {
       return await this.sc.apiPost<ScComment>(`/tracks/${trackUrn}/comments`, token, body);
     } catch (error) {
       if (this.pendingActions.isBanError(error)) {
-        await this.pendingActions.enqueue(sessionId, 'comment', trackUrn, body as unknown as Record<string, unknown>);
+        await this.pendingActions.enqueue(
+          sessionId,
+          'comment',
+          trackUrn,
+          body as unknown as Record<string, unknown>,
+        );
         return { queued: true, actionType: 'comment', targetUrn: trackUrn };
       }
       throw error;

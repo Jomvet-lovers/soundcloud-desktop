@@ -1,6 +1,7 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { toast } from 'sonner';
 import { useAppStatusStore } from '../stores/app-status';
+import { useSettingsStore } from '../stores/settings';
 import { API_BASE } from './constants';
 import { trackAsync } from './diagnostics';
 import { isSoundCloudAppBan, showSoundCloudAppBanToast } from './soundcloud-ban-toast';
@@ -81,5 +82,12 @@ export class ApiError extends Error {
 }
 
 export function streamUrl(trackUrn: string, format = 'http_mp3_128') {
-  return `${API_BASE}/tracks/${encodeURIComponent(trackUrn)}/stream?format=${format}${sessionId ? `&session_id=${sessionId}` : ''}`;
+  const params = new URLSearchParams({ format });
+  if (useSettingsStore.getState().highQualityStreaming) {
+    params.set('hq', 'true');
+  }
+  if (sessionId) {
+    params.set('session_id', sessionId);
+  }
+  return `${API_BASE}/tracks/${encodeURIComponent(trackUrn)}/stream?${params.toString()}`;
 }

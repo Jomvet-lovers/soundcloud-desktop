@@ -61,8 +61,7 @@
     "hidePanel": "Hide panel",
     "showPanel": "Show panel",
     "download": "Download",
-    "downloaded": "Saved",
-    "preview": "Preview"
+    "downloaded": "Saved"
   },
   "playlist": {
     "playAll": "Play All",
@@ -217,6 +216,8 @@
     "discordRpcButtonDesc": "Display the button that opens the track in SoundCloud",
     "normalizeVolume": "Volume normalization",
     "normalizeVolumeDesc": "Balances quiet and loud tracks to a more even level",
+    "highQualityStreaming": "High quality streaming",
+    "highQualityStreamingDesc": "Prefer the highest available quality during playback",
     "import": "Import",
     "importYandex": "Import from Yandex Music"
   },

@@ -132,11 +132,16 @@ export class TracksController {
   @ApiQuery({
     name: 'format',
     required: false,
-    description:
-      'Stream format: http_mp3_128, hls_mp3_128, hls_aac_160, hls_opus_64, preview_mp3_128',
+    description: 'Stream format: http_mp3_128, hls_mp3_128, hls_aac_160, hls_opus_64',
     example: 'http_mp3_128',
   })
   @ApiQuery({ name: 'secret_token', required: false })
+  @ApiQuery({
+    name: 'hq',
+    required: false,
+    description: 'If true, prioritize cookie-based HQ stream before OAuth API',
+    example: 'true',
+  })
   @ApiHeader({
     name: 'range',
     required: false,
@@ -148,6 +153,7 @@ export class TracksController {
     @Param('trackUrn') trackUrn: string,
     @Query('format') format: string = 'hls_aac_160',
     @Query('secret_token') secretToken?: string,
+    @Query('hq') hq?: string,
     @Headers('range') range?: string,
   ) {
     const params: Record<string, unknown> = {};
@@ -159,6 +165,7 @@ export class TracksController {
       format,
       params,
       range,
+      hq === 'true',
     );
 
     if (!result) {
