@@ -1,10 +1,12 @@
 import { PassThrough, type Readable } from 'node:stream';
+import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { CdnService } from '../cdn/cdn.service.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
 import { ScPublicAnonService } from '../soundcloud/sc-public-anon.service.js';
 import { ScPublicCookiesService } from '../soundcloud/sc-public-cookies.service.js';
+import { streamFromHls } from '../soundcloud/sc-public-utils.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import type {
   ScComment,
@@ -25,6 +27,7 @@ export class TracksService {
     private readonly localLikes: LocalLikesService,
     private readonly cdn: CdnService,
     private readonly pendingActions: PendingActionsService,
+    private readonly httpService: HttpService,
   ) {}
 
   private async applyLocalLikeFlags(sessionId: string, tracks: ScTrack[]): Promise<ScTrack[]> {
@@ -111,7 +114,7 @@ export class TracksService {
       }
     }
 
-    let access: "playable" | "preview" | "blocked" = 'playable';
+    let access: 'playable' | 'preview' | 'blocked' = 'playable';
     try {
       const track = await this.sc.apiGet<ScTrack>(`/tracks/${trackUrn}`, token, params);
       access = track.access;
@@ -210,7 +213,12 @@ export class TracksService {
 
         try {
           if (isHls) {
-            return await this.scPublicAnon.streamFromHls(url, this.hlsMimeType(fmt));
+            return await streamFromHls(
+              this.httpService,
+              this.sc.scApiProxyUrl,
+              url,
+              this.hlsMimeType(fmt),
+            );
           }
           return await this.proxyStream(token, url, range);
         } catch (err: any) {
