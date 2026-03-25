@@ -2,8 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
-import { getSessionId } from './api';
 import { useSettingsStore } from '../stores/settings';
+import { getSessionId } from './api';
 
 import { API_BASE, getStaticPort } from './constants';
 
@@ -29,6 +29,11 @@ async function getAudioDir(): Promise<string> {
 
 function urnToFilename(urn: string): string {
   return `${urn.replace(/:/g, '_')}.audio`;
+}
+
+function filenameToUrn(filename: string): string | null {
+  if (!filename.endsWith('.audio')) return null;
+  return filename.slice(0, -'.audio'.length).replace(/_/g, ':');
 }
 
 async function filePath(urn: string): Promise<string> {
@@ -103,8 +108,8 @@ export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Pro
         throw new Error('Invalid audio');
       }
       return buffer;
-    } catch (e: any) {
-      if (e.name === 'AbortError') {
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') {
         console.warn(`💾[Cache] Fetch ABORTED for ${urn}`);
       } else {
         console.error(`💾[Cache] Fetch failed for ${urn}:`, e);
@@ -150,6 +155,33 @@ export async function clearCache(): Promise<void> {
     }
   } catch (e) {
     console.error('clearCache failed:', e);
+  }
+}
+
+export async function listCachedUrns(): Promise<string[]> {
+  try {
+    const dir = await getAudioDir();
+    const entries = await readDir(dir);
+    const urns: string[] = [];
+
+    for (const entry of entries) {
+      if (!entry.name || !entry.isFile) continue;
+      const path = `${dir}/${entry.name}`;
+      const info = await stat(path);
+      if ((info.size ?? 0) < MIN_AUDIO_SIZE) {
+        await remove(path).catch(() => {});
+        continue;
+      }
+
+      const urn = filenameToUrn(entry.name);
+      if (urn) {
+        urns.push(urn);
+      }
+    }
+
+    return urns;
+  } catch {
+    return [];
   }
 }
 

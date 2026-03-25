@@ -3,6 +3,7 @@
     "home": "Home",
     "search": "Search",
     "library": "Library",
+    "offline": "Offline",
     "following": "Following",
     "settings": "Settings",
     "collapse": "Collapse",
@@ -138,6 +139,34 @@
     "discover": "Discover",
     "startListening": "Start Listening"
   },
+  "offline": {
+    "blockedBadge": "Local mode",
+    "offlineBadge": "No network",
+    "readyBadge": "Local library",
+    "blockedTitle": "Local library",
+    "blockedDescription": "While the API is unavailable because of the block, the app switches to your local library. Anything already cached on this device can still be played.",
+    "offlineTitle": "Offline mode",
+    "offlineDescription": "This offline page shows your locally saved likes and every track that already has an audio file in cache.",
+    "readyTitle": "Local library is ready",
+    "readyDescription": "This page shows what the app can already play without network: liked tracks with cache markers and the full local audio cache in one place.",
+    "lastSync": "Last likes sync: {{date}}",
+    "tryOnline": "Try online again",
+    "openSettings": "Cache settings",
+    "statsLikes": "Likes",
+    "statsPlayableLikes": "Playable likes",
+    "statsCached": "Cached",
+    "likesTitle": "Likes",
+    "likesSubtitle": "{{cached}} of {{total}} are already cached locally and playable offline",
+    "likesEmpty": "No liked tracks have been cached on this device yet.",
+    "cachedTitle": "In cache",
+    "cachedSubtitle": "Every track that already has a local audio file",
+    "cachedEmpty": "The cache is empty for now. Play or download tracks online and they will appear here.",
+    "cached": "Cached",
+    "notCached": "Not cached",
+    "pendingCount": "{{count}} pending",
+    "failedCount": "{{count}} failed",
+    "syncNow": "Sync now"
+  },
   "settings": {
     "title": "Settings",
     "cache": "Cache",
@@ -246,5 +275,14 @@
     "retry": "Retry",
     "seeAll": "See All",
     "cancel": "Cancel"
+  },
+  "news": {
+    "dismissOnce": "Close",
+    "dismissForever": "Don't show again",
+    "artistPro": {
+      "title": "Artist PRO subscribers",
+      "description": "Help make the app harder to ban — reach out on Discord",
+      "body": "If you have an Artist PRO subscription on SoundCloud, you can help the project become more resilient to bans.\n\nWrite to @nonameex666 on Discord — I'll create an OAuth app linked to your account. The more apps in the rotation pool, the harder it is for SoundCloud to block us all at once.\n\nYour account won't be affected in any way — the app is only used for API authentication."
+    }
   }
 }

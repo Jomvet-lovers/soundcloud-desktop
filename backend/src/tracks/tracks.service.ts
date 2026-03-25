@@ -1,6 +1,8 @@
-import type { Readable } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
 import { Injectable, Logger } from '@nestjs/common';
+import { CdnService } from '../cdn/cdn.service.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
+import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
 import { ScPublicApiService } from '../soundcloud/sc-public-api.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import type {
@@ -19,6 +21,8 @@ export class TracksService {
     private readonly sc: SoundcloudService,
     private readonly scPublicApi: ScPublicApiService,
     private readonly localLikes: LocalLikesService,
+    private readonly cdn: CdnService,
+    private readonly pendingActions: PendingActionsService,
   ) {}
 
   private async applyLocalLikeFlags(sessionId: string, tracks: ScTrack[]): Promise<ScTrack[]> {
@@ -76,6 +80,70 @@ export class TracksService {
     range?: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> }> {
     return this.sc.proxyStream(url, token, range);
+  }
+
+  // ─── Stream with CDN ─────────────────────────────────────
+
+  /**
+   * Основной метод получения стрима.
+   * 1. Проверяет CDN — если есть, редиректит
+   * 2. Качает с SC, параллельно заливает на CDN
+   */
+  async getStreamWithCdn(
+    token: string,
+    trackUrn: string,
+    format: string,
+    params: Record<string, unknown>,
+    range?: string,
+  ): Promise<
+    | { type: 'redirect'; url: string }
+    | { type: 'stream'; stream: Readable; headers: Record<string, string> }
+    | null
+  > {
+    // 1. Проверяем CDN (только если нет range — CDN не поддерживает partial)
+    if (this.cdn.enabled && !range) {
+      const onCdn = await this.cdn.isOnCdn(trackUrn);
+      if (onCdn) {
+        this.logger.debug(`CDN hit for ${trackUrn}`);
+        return { type: 'redirect', url: this.cdn.getCdnUrl(trackUrn) };
+      }
+    }
+
+    // 2. Качаем с SC
+    let streamData = await this.tryOAuthStream(token, trackUrn, format, params, range);
+    if (!streamData) {
+      streamData = await this.getPublicStream(trackUrn, format);
+    }
+    if (!streamData) return null;
+
+    // 3. Если CDN включён и нет range — tee stream: один отдаём клиенту, второй на CDN
+    if (this.cdn.enabled && !range) {
+      const { stream, headers } = streamData;
+      const clientStream = new PassThrough();
+      const cdnChunks: Buffer[] = [];
+
+      stream.on('data', (chunk: Buffer) => {
+        clientStream.write(chunk);
+        cdnChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      stream.on('end', () => {
+        clientStream.end();
+        // Fire-and-forget CDN upload
+        const buffer = Buffer.concat(cdnChunks);
+        if (buffer.length > 8192) {
+          this.cdn.uploadToCdn(trackUrn, buffer).catch((err) => {
+            this.logger.warn(`CDN upload failed for ${trackUrn}: ${err.message}`);
+          });
+        }
+      });
+      stream.on('error', (err) => {
+        clientStream.destroy(err);
+      });
+
+      return { type: 'stream', stream: clientStream, headers };
+    }
+
+    return { type: 'stream', ...streamData };
   }
 
   async tryOAuthStream(
@@ -160,12 +228,21 @@ export class TracksService {
     return this.sc.apiGet(`/tracks/${trackUrn}/comments`, token, params);
   }
 
-  createComment(
+  async createComment(
     token: string,
+    sessionId: string,
     trackUrn: string,
     body: { comment: { body: string; timestamp?: number } },
-  ): Promise<ScComment> {
-    return this.sc.apiPost(`/tracks/${trackUrn}/comments`, token, body);
+  ): Promise<unknown> {
+    try {
+      return await this.sc.apiPost<ScComment>(`/tracks/${trackUrn}/comments`, token, body);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'comment', trackUrn, body as unknown as Record<string, unknown>);
+        return { queued: true, actionType: 'comment', targetUrn: trackUrn };
+      }
+      throw error;
+    }
   }
 
   getFavoriters(

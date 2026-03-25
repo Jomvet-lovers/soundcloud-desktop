@@ -3,8 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { changeAppLanguage } from '../../i18n';
+import { art } from '../../lib/formatters';
 import {
   Clock,
+  Download,
   Globe,
   Home,
   Library,
@@ -15,7 +17,7 @@ import {
   Search,
   Settings,
 } from '../../lib/icons';
-import { art } from '../../lib/formatters';
+import { useAppStatusStore } from '../../stores/app-status';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
 import { Avatar } from '../ui/Avatar';
@@ -30,11 +32,19 @@ const navItems = [
   { to: '/home', icon: Home, label: 'nav.home' },
   { to: '/search', icon: Search, label: 'nav.search' },
   { to: '/library', icon: Library, label: 'nav.library' },
+  { to: '/offline', icon: Download, label: 'nav.offline' },
 ];
 
 export const Sidebar = React.memo(() => {
   const { t, i18n } = useTranslation();
   const user = useAuthStore((s) => s.user);
+  const appMode = useAppStatusStore((s) =>
+    s.soundcloudBlocked
+      ? 'blocked'
+      : !s.navigatorOnline || !s.backendReachable
+        ? 'offline'
+        : 'online',
+  );
   const { collapsed, pinnedPlaylists, toggleSidebar } = useSettingsStore(
     useShallow((s) => ({
       collapsed: s.sidebarCollapsed,
@@ -67,7 +77,9 @@ export const Sidebar = React.memo(() => {
               } ${
                 isActive
                   ? 'text-white bg-white/[0.07] shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]'
-                  : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
+                  : item.to === '/offline' && appMode !== 'online'
+                    ? 'text-white/82 bg-accent/[0.08] ring-1 ring-accent/15'
+                    : 'text-white/40 hover:text-white/70 hover:bg-white/[0.04]'
               }`
             }
           >

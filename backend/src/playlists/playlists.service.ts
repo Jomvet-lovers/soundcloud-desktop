@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import {
   ScPaginatedResponse,
@@ -9,7 +10,10 @@ import {
 
 @Injectable()
 export class PlaylistsService {
-  constructor(private readonly sc: SoundcloudService) {}
+  constructor(
+    private readonly sc: SoundcloudService,
+    private readonly pendingActions: PendingActionsService,
+  ) {}
 
   search(
     token: string,
@@ -18,8 +22,16 @@ export class PlaylistsService {
     return this.sc.apiGet('/playlists', token, params);
   }
 
-  create(token: string, body: unknown): Promise<ScPlaylist> {
-    return this.sc.apiPost('/playlists', token, body);
+  async create(token: string, sessionId: string, body: unknown): Promise<unknown> {
+    try {
+      return await this.sc.apiPost<ScPlaylist>('/playlists', token, body);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'playlist_create', 'new', body as Record<string, unknown>);
+        return { queued: true, actionType: 'playlist_create' };
+      }
+      throw error;
+    }
   }
 
   getById(
@@ -30,12 +42,28 @@ export class PlaylistsService {
     return this.sc.apiGet(`/playlists/${playlistUrn}`, token, params);
   }
 
-  update(token: string, playlistUrn: string, body: unknown): Promise<ScPlaylist> {
-    return this.sc.apiPut(`/playlists/${playlistUrn}`, token, body);
+  async update(token: string, sessionId: string, playlistUrn: string, body: unknown): Promise<unknown> {
+    try {
+      return await this.sc.apiPut<ScPlaylist>(`/playlists/${playlistUrn}`, token, body);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'playlist_update', playlistUrn, body as Record<string, unknown>);
+        return { queued: true, actionType: 'playlist_update', targetUrn: playlistUrn };
+      }
+      throw error;
+    }
   }
 
-  delete(token: string, playlistUrn: string): Promise<unknown> {
-    return this.sc.apiDelete(`/playlists/${playlistUrn}`, token);
+  async delete(token: string, sessionId: string, playlistUrn: string): Promise<unknown> {
+    try {
+      return await this.sc.apiDelete(`/playlists/${playlistUrn}`, token);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'playlist_delete', playlistUrn);
+        return { queued: true, actionType: 'playlist_delete', targetUrn: playlistUrn };
+      }
+      throw error;
+    }
   }
 
   getTracks(

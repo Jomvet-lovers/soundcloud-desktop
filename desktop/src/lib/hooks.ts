@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import { api } from './api';
 import { initLikedUrns } from './likes';
+import { rememberLikedTracks, rememberTracks } from './offline-index';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -328,6 +329,11 @@ export function useLikedTracks(limit = 30) {
     if (tracks.length > 0) initLikedUrns(tracks);
   }, [tracks]);
 
+  useEffect(() => {
+    if (!query.data) return;
+    void rememberLikedTracks(tracks);
+  }, [query.data, tracks]);
+
   return { tracks, ...query };
 }
 
@@ -352,10 +358,16 @@ export function fetchAllLikedTracks(pageSize = 200): Promise<Track[]> {
       const page = await api<TrackListResponse>(`/me/likes/tracks?${params}`);
       for (const t of page.collection) all.push(t);
 
+      // Incrementally remember tracks for offline (no re-render)
+      void rememberTracks(page.collection);
+
       const next = page.next_href ? extractPagination(page.next_href) : undefined;
       if (!next?.cursor) break;
       cursor = next.cursor;
     }
+
+    // Save full liked list to offline index
+    void rememberLikedTracks(all);
 
     return all;
   })();

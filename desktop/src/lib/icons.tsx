@@ -46,6 +46,7 @@ import {
   Power as _Power,
   Repeat as _Repeat,
   Repeat1 as _Repeat1,
+  RefreshCw as _RefreshCw,
   Repeat2 as _Repeat2,
   RotateCcw as _RotateCcw,
   Search as _Search,
@@ -126,6 +127,7 @@ export const Play = memo(_Play);
 export const Plus = memo(_Plus);
 export const Repeat = memo(_Repeat);
 export const Repeat1 = memo(_Repeat1);
+export const RefreshCw = memo(_RefreshCw);
 export const Repeat2 = memo(_Repeat2);
 export const Search = memo(_Search);
 export const Send = memo(_Send);

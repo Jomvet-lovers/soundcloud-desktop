@@ -1,23 +1,59 @@
 import { Injectable } from '@nestjs/common';
+import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 
 @Injectable()
 export class RepostsService {
-  constructor(private readonly sc: SoundcloudService) {}
+  constructor(
+    private readonly sc: SoundcloudService,
+    private readonly pendingActions: PendingActionsService,
+  ) {}
 
-  repostTrack(token: string, trackUrn: string): Promise<unknown> {
-    return this.sc.apiPost(`/reposts/tracks/${trackUrn}`, token);
+  async repostTrack(token: string, sessionId: string, trackUrn: string): Promise<unknown> {
+    try {
+      return await this.sc.apiPost(`/reposts/tracks/${trackUrn}`, token);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'repost', trackUrn);
+        return { queued: true, actionType: 'repost', targetUrn: trackUrn };
+      }
+      throw error;
+    }
   }
 
-  removeTrackRepost(token: string, trackUrn: string): Promise<unknown> {
-    return this.sc.apiDelete(`/reposts/tracks/${trackUrn}`, token);
+  async removeTrackRepost(token: string, sessionId: string, trackUrn: string): Promise<unknown> {
+    try {
+      return await this.sc.apiDelete(`/reposts/tracks/${trackUrn}`, token);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'unrepost', trackUrn);
+        return { queued: true, actionType: 'unrepost', targetUrn: trackUrn };
+      }
+      throw error;
+    }
   }
 
-  repostPlaylist(token: string, playlistUrn: string): Promise<unknown> {
-    return this.sc.apiPost(`/reposts/playlists/${playlistUrn}`, token);
+  async repostPlaylist(token: string, sessionId: string, playlistUrn: string): Promise<unknown> {
+    try {
+      return await this.sc.apiPost(`/reposts/playlists/${playlistUrn}`, token);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'repost_playlist', playlistUrn);
+        return { queued: true, actionType: 'repost_playlist', targetUrn: playlistUrn };
+      }
+      throw error;
+    }
   }
 
-  removePlaylistRepost(token: string, playlistUrn: string): Promise<unknown> {
-    return this.sc.apiDelete(`/reposts/playlists/${playlistUrn}`, token);
+  async removePlaylistRepost(token: string, sessionId: string, playlistUrn: string): Promise<unknown> {
+    try {
+      return await this.sc.apiDelete(`/reposts/playlists/${playlistUrn}`, token);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'unrepost_playlist', playlistUrn);
+        return { queued: true, actionType: 'unrepost_playlist', targetUrn: playlistUrn };
+      }
+      throw error;
+    }
   }
 }

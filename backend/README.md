@@ -53,6 +53,19 @@ DATABASE_NAME=soundcloud_desktop
 PORT=3000
 ```
 
+### Дополнительные переменные (опционально)
+
+| Переменная | Описание |
+|---|---|
+| `SC_PROXY_URL` | CF Worker URL — все запросы к SC API пойдут через него с `X-Target` header |
+| `SC_API_PROXY_URL` | Прямая замена `api.soundcloud.com` (без X-Target) |
+| `SC_AUTH_PROXY_URL` | Прямая замена `secure.soundcloud.com` |
+| `CDN_BASE_URL` | SecureServe CDN URL для кэширования аудио |
+| `CDN_AUTH_TOKEN` | Токен авторизации CDN |
+| `TELEGRAM_BOT_TOKEN` | Бот для алертов при бане OAuth-аппки |
+| `TELEGRAM_CHAT_ID` | Чат для Telegram алертов |
+| `ADMIN_TOKEN` | Токен для Admin API (`/oauth-apps`) |
+
 ---
 
 ## 3. Запуск
@@ -151,17 +164,47 @@ pnpm build && pnpm start:prod  # production
 ### Likes
 `POST /likes/tracks/:id` · `DELETE /likes/tracks/:id`
 `POST /likes/playlists/:id` · `DELETE /likes/playlists/:id`
+`GET /likes/playlists/:id` — проверка
 
 ### Reposts
 `POST /reposts/tracks/:id` · `DELETE /reposts/tracks/:id`
 `POST /reposts/playlists/:id` · `DELETE /reposts/playlists/:id`
+
+### OAuth Apps (Admin)
+`GET /oauth-apps` · `POST /oauth-apps` · `PATCH /oauth-apps/:id` · `DELETE /oauth-apps/:id`
+> Требуют хедер `x-admin-token`.
+
+### Pending Actions
+`GET /pending-actions` — список ожидающих действий для сессии
+`GET /pending-actions/stats` — `{ pending, failed }` счётчики
+`POST /pending-actions/sync` — ручная синхронизация
 
 ### Resolve
 `GET /resolve?url=...` — резолв SoundCloud URL в ресурс
 
 ---
 
-## 7. Структура проекта
+## 7. Bypass-система
+
+### Multi-app OAuth ротация
+Пул OAuth-аппок в PostgreSQL (`oauth_apps`). При логине выбирается случайная активная аппка. При 403 CloudFront — аппка помечается забаненной, отправляется Telegram алерт, выбирается следующая.
+
+Управление через Admin API (`/oauth-apps`) с токеном `ADMIN_TOKEN`.
+
+Backward-compatible: если в БД нет аппок, автоматически создаётся одна из env-переменных `SOUNDCLOUD_CLIENT_ID` / `SOUNDCLOUD_CLIENT_SECRET`.
+
+### Cloudflare proxy
+Если задан `SC_PROXY_URL` — все запросы к SC API идут через CF Worker. Паттерн: `{SC_PROXY_URL}/{base64(originalUrl)}` с заголовком `X-Target: base64(originalUrl)`. Тот же CF Worker что и для `images.soundcloud.su` в Tauri-прокси.
+
+### CDN аудио кэш
+При запросе стрима: проверяется наличие на CDN (`HEAD`). Если есть — `302 Redirect`. Если нет — стримится с SC, параллельно заливается на CDN (fire-and-forget). Клиент ничего не знает о CDN.
+
+### Очередь отложенных действий
+При бане (403 CloudFront) действия пользователя (лайки, репосты, комменты, плейлисты) сохраняются в `pending_actions` (PostgreSQL). Background job каждые 60 сек пытается синхронизировать. Макс. 5 ретраев на действие.
+
+---
+
+## 8. Структура проекта
 
 ```
 src/
@@ -173,23 +216,28 @@ src/
 │   ├── callback-page.ts        # Glass UI страница колбэка
 │   └── ...
 ├── soundcloud/                 # HTTP-клиент к SC API + типы
+├── oauth-apps/                 # Пул OAuth-аппок, ротация, Telegram алерты
+├── cdn/                        # CDN-интеграция (SecureServe)
+├── pending-actions/            # Очередь отложенных действий
 ├── me/                         # /me/*
 ├── tracks/                     # /tracks/*
 ├── playlists/                  # /playlists/*
 ├── users/                      # /users/*
 ├── likes/                      # /likes/*
 ├── reposts/                    # /reposts/*
+├── local-likes/                # Локальные лайки (fallback)
 ├── resolve/                    # /resolve
 ├── health/                     # /health
 └── common/
     ├── guards/auth.guard.ts    # Проверка x-session-id
-    ├── decorators/             # @AccessToken()
+    ├── interceptors/           # BanDetectorInterceptor
+    ├── decorators/             # @AccessToken(), @SessionId()
     └── dto/pagination.dto.ts   # Пагинация
 ```
 
 ---
 
-## 8. Скрипты
+## 9. Скрипты
 
 ```bash
 pnpm start:dev      # Dev с hot-reload

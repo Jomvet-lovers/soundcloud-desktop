@@ -11,6 +11,11 @@ import { LikesModule } from './likes/likes.module.js';
 import { LocalLike } from './local-likes/entities/local-like.entity.js';
 import { LocalLikesModule } from './local-likes/local-likes.module.js';
 import { MeModule } from './me/me.module.js';
+import { CdnModule } from './cdn/cdn.module.js';
+import { OAuthApp } from './oauth-apps/entities/oauth-app.entity.js';
+import { OAuthAppsModule } from './oauth-apps/oauth-apps.module.js';
+import { PendingAction } from './pending-actions/entities/pending-action.entity.js';
+import { PendingActionsModule } from './pending-actions/pending-actions.module.js';
 import { PlaylistsModule } from './playlists/playlists.module.js';
 import { RepostsModule } from './reposts/reposts.module.js';
 import { ResolveModule } from './resolve/resolve.module.js';
@@ -33,10 +38,11 @@ import { UsersModule } from './users/users.module.js';
         username: config.get<string>('database.username'),
         password: config.get<string>('database.password'),
         database: config.get<string>('database.name'),
-        entities: [Session, ListeningHistory, LocalLike],
+        entities: [Session, ListeningHistory, LocalLike, OAuthApp, PendingAction],
         synchronize: true,
       }),
     }),
+    OAuthAppsModule,
     AuthModule,
     SoundcloudModule,
     MeModule,
@@ -48,6 +54,7 @@ import { UsersModule } from './users/users.module.js';
     ResolveModule,
     HistoryModule,
     LocalLikesModule,
+    PendingActionsModule,
   ],
   controllers: [HealthController],
 })

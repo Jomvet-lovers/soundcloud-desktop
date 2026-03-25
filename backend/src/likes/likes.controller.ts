@@ -37,14 +37,22 @@ export class LikesController {
   @Post('playlists/:playlistUrn')
   @HttpCode(200)
   @ApiOperation({ summary: 'Like a playlist' })
-  likePlaylist(@AccessToken() token: string, @Param('playlistUrn') playlistUrn: string) {
-    return this.likesService.likePlaylist(token, playlistUrn);
+  likePlaylist(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Param('playlistUrn') playlistUrn: string,
+  ) {
+    return this.likesService.likePlaylist(token, sessionId, playlistUrn);
   }
 
   @Delete('playlists/:playlistUrn')
   @ApiOperation({ summary: 'Unlike a playlist' })
-  unlikePlaylist(@AccessToken() token: string, @Param('playlistUrn') playlistUrn: string) {
-    return this.likesService.unlikePlaylist(token, playlistUrn);
+  unlikePlaylist(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Param('playlistUrn') playlistUrn: string,
+  ) {
+    return this.likesService.unlikePlaylist(token, sessionId, playlistUrn);
   }
 
   @Get('playlists/:playlistUrn')

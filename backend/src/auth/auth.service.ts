@@ -1,18 +1,23 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { AxiosError } from 'axios';
 import { Repository } from 'typeorm';
-import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
+import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
+import { type OAuthCredentials, SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import { ScMe } from '../soundcloud/soundcloud.types.js';
 import { Session } from './entities/session.entity.js';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(Session)
     private readonly sessionRepo: Repository<Session>,
     private readonly soundcloudService: SoundcloudService,
+    private readonly oauthAppsService: OAuthAppsService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -21,6 +26,10 @@ export class AuthService {
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
     const state = randomBytes(16).toString('hex');
 
+    // Рандомно выбираем OAuth-аппку
+    const app = this.oauthAppsService.pickRandomApp();
+    this.logger.log(`Login initiated with app "${app.name}" (${app.id})`);
+
     const session = this.sessionRepo.create({
       codeVerifier,
       state,
@@ -28,16 +37,15 @@ export class AuthService {
       refreshToken: '',
       expiresAt: new Date(),
       scope: '',
+      oauthAppId: app.id,
     });
     await this.sessionRepo.save(session);
 
-    const clientId = this.soundcloudService.scClientId;
-    const redirectUri = this.soundcloudService.scRedirectUri;
-    const authBaseUrl = this.configService.get<string>('soundcloud.authBaseUrl');
+    const authBaseUrl = this.soundcloudService.scAuthBaseUrl;
 
     const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
+      client_id: app.clientId,
+      redirect_uri: app.redirectUri,
       response_type: 'code',
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
@@ -63,10 +71,13 @@ export class AuthService {
       throw new BadRequestException('No code verifier found for this session');
     }
 
+    const creds = await this.getSessionCredentials(session);
+
     try {
       const tokenResponse = await this.soundcloudService.exchangeCodeForToken(
         code,
         session.codeVerifier,
+        creds,
       );
 
       session.accessToken = tokenResponse.access_token;
@@ -85,6 +96,9 @@ export class AuthService {
       await this.sessionRepo.save(session);
       return { session, success: true };
     } catch (error: any) {
+      // Проверяем, не бан ли это
+      await this.checkAndHandleBan(error, session.oauthAppId);
+
       return {
         session,
         success: false,
@@ -104,8 +118,13 @@ export class AuthService {
       throw new UnauthorizedException('No refresh token available');
     }
 
+    const creds = await this.getSessionCredentials(session);
+
     try {
-      const tokenResponse = await this.soundcloudService.refreshAccessToken(session.refreshToken);
+      const tokenResponse = await this.soundcloudService.refreshAccessToken(
+        session.refreshToken,
+        creds,
+      );
 
       session.accessToken = tokenResponse.access_token;
       session.refreshToken = tokenResponse.refresh_token;
@@ -113,9 +132,19 @@ export class AuthService {
 
       await this.sessionRepo.save(session);
       return session;
-    } catch {
-      await this.sessionRepo.remove(session);
-      throw new UnauthorizedException('Refresh token expired or invalid. Please re-authenticate.');
+    } catch (error: any) {
+      // Проверяем, не бан ли это
+      const isBan = await this.checkAndHandleBan(error, session.oauthAppId);
+
+      if (!isBan) {
+        await this.sessionRepo.remove(session);
+        throw new UnauthorizedException(
+          'Refresh token expired or invalid. Please re-authenticate.',
+        );
+      }
+
+      // Если бан — не удаляем сессию, юзер может переавторизоваться
+      throw new UnauthorizedException('SoundCloud app banned. Please re-authenticate.');
     }
   }
 
@@ -145,5 +174,48 @@ export class AuthService {
     }
 
     return session.accessToken;
+  }
+
+  /**
+   * Проверяет, является ли ошибка баном аппки.
+   * Если да — помечает аппку как забаненную.
+   * @returns true если это был бан
+   */
+  private async checkAndHandleBan(error: unknown, oauthAppId: string | null): Promise<boolean> {
+    if (!oauthAppId) return false;
+
+    if (error instanceof AxiosError && error.response) {
+      const { status, data } = error.response;
+      if (this.oauthAppsService.isSoundCloudAppBan(status, data)) {
+        await this.oauthAppsService.markBanned(
+          oauthAppId,
+          `CloudFront 403 block at ${new Date().toISOString()}`,
+        );
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /** Получить OAuth credentials для сессии (из привязанной аппки или fallback из env) */
+  private async getSessionCredentials(session: Session): Promise<OAuthCredentials> {
+    if (session.oauthAppId) {
+      const app = await this.oauthAppsService.getById(session.oauthAppId);
+      if (app) {
+        return {
+          clientId: app.clientId,
+          clientSecret: app.clientSecret,
+          redirectUri: app.redirectUri,
+        };
+      }
+    }
+
+    // Fallback: env credentials (для старых сессий без oauthAppId)
+    return {
+      clientId: this.configService.get<string>('soundcloud.clientId') || '',
+      clientSecret: this.configService.get<string>('soundcloud.clientSecret') || '',
+      redirectUri: this.configService.get<string>('soundcloud.redirectUri') || '',
+    };
   }
 }

@@ -8,6 +8,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
+import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
@@ -72,8 +73,12 @@ export class PlaylistsController {
     },
   })
   @ApiOkResponse({ type: ScPlaylist })
-  create(@AccessToken() token: string, @Body() body: Record<string, unknown>) {
-    return this.playlistsService.create(token, body);
+  create(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.playlistsService.create(token, sessionId, body);
   }
 
   @Get(':playlistUrn')
@@ -105,16 +110,21 @@ export class PlaylistsController {
   @ApiOkResponse({ type: ScPlaylist })
   update(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Param('playlistUrn') playlistUrn: string,
     @Body() body: Record<string, unknown>,
   ) {
-    return this.playlistsService.update(token, playlistUrn, body);
+    return this.playlistsService.update(token, sessionId, playlistUrn, body);
   }
 
   @Delete(':playlistUrn')
   @ApiOperation({ summary: 'Delete a playlist' })
-  delete(@AccessToken() token: string, @Param('playlistUrn') playlistUrn: string) {
-    return this.playlistsService.delete(token, playlistUrn);
+  delete(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Param('playlistUrn') playlistUrn: string,
+  ) {
+    return this.playlistsService.delete(token, sessionId, playlistUrn);
   }
 
   @Get(':playlistUrn/tracks')

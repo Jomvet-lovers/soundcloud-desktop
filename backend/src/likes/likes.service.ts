@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
+import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import { ScPaginatedResponse, ScPlaylist, ScTrack } from '../soundcloud/soundcloud.types.js';
 
@@ -24,6 +25,7 @@ export class LikesService {
   constructor(
     private readonly sc: SoundcloudService,
     private readonly localLikes: LocalLikesService,
+    private readonly pendingActions: PendingActionsService,
   ) {}
 
   private async sleep(ms: number): Promise<void> {
@@ -383,12 +385,28 @@ export class LikesService {
     return this.localLikes.isLiked(sessionId, trackUrn);
   }
 
-  likePlaylist(token: string, playlistUrn: string): Promise<unknown> {
-    return this.sc.apiPost(`/likes/playlists/${playlistUrn}`, token);
+  async likePlaylist(token: string, sessionId: string, playlistUrn: string): Promise<unknown> {
+    try {
+      return await this.sc.apiPost(`/likes/playlists/${playlistUrn}`, token);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'like_playlist', playlistUrn);
+        return { queued: true, actionType: 'like_playlist', targetUrn: playlistUrn };
+      }
+      throw error;
+    }
   }
 
-  unlikePlaylist(token: string, playlistUrn: string): Promise<unknown> {
-    return this.sc.apiDelete(`/likes/playlists/${playlistUrn}`, token);
+  async unlikePlaylist(token: string, sessionId: string, playlistUrn: string): Promise<unknown> {
+    try {
+      return await this.sc.apiDelete(`/likes/playlists/${playlistUrn}`, token);
+    } catch (error) {
+      if (this.pendingActions.isBanError(error)) {
+        await this.pendingActions.enqueue(sessionId, 'unlike_playlist', playlistUrn);
+        return { queued: true, actionType: 'unlike_playlist', targetUrn: playlistUrn };
+      }
+      throw error;
+    }
   }
 
   async isPlaylistLiked(token: string, playlistUrn: string): Promise<{ liked: boolean }> {

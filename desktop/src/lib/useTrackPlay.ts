@@ -1,5 +1,6 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { type Track, usePlayerStore } from '../stores/player';
+import { rememberTracks } from './offline-index';
 
 /**
  * Optimized hook for track play/pause.
@@ -13,6 +14,10 @@ export function useTrackPlay(track: Track, queue?: Track[]) {
   const queueRef = useRef(queue);
   trackRef.current = track;
   queueRef.current = queue;
+
+  useEffect(() => {
+    void rememberTracks([track]);
+  }, [track]);
 
   const togglePlay = useCallback(() => {
     const { play, pause, resume } = usePlayerStore.getState();

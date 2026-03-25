@@ -44,6 +44,10 @@ export class Session {
   @Column({ nullable: true })
   state: string;
 
+  /** ID OAuth-аппки, через которую была авторизация */
+  @Column({ nullable: true })
+  oauthAppId: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

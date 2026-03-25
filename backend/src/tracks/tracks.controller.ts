@@ -153,7 +153,7 @@ export class TracksController {
     const params: Record<string, unknown> = {};
     if (secretToken) params.secret_token = secretToken;
 
-    let streamData = await this.tracksService.tryOAuthStream(
+    const result = await this.tracksService.getStreamWithCdn(
       token,
       trackUrn,
       format,
@@ -161,18 +161,21 @@ export class TracksController {
       range,
     );
 
-    if (!streamData) {
-      streamData = await this.tracksService.getPublicStream(trackUrn, format);
-    }
-
-    if (!streamData) {
+    if (!result) {
       return {
         statusCode: HttpStatus.NOT_FOUND,
         error: 'Track not available for streaming',
       };
     }
 
-    const { stream, headers } = streamData;
+    if (result.type === 'redirect') {
+      res.status(302);
+      res.header('Location', result.url);
+      res.header('Cache-Control', 'public, max-age=86400');
+      return;
+    }
+
+    const { stream, headers } = result;
 
     res.header('Accept-Ranges', 'bytes');
     if (headers['content-range']) {
@@ -216,10 +219,11 @@ export class TracksController {
   @ApiOkResponse({ type: ScComment })
   createComment(
     @AccessToken() token: string,
+    @SessionId() sessionId: string,
     @Param('trackUrn') trackUrn: string,
     @Body() body: { comment: { body: string; timestamp?: number } },
   ) {
-    return this.tracksService.createComment(token, trackUrn, body);
+    return this.tracksService.createComment(token, sessionId, trackUrn, body);
   }
 
   @Get(':trackUrn/favoriters')

@@ -3,6 +3,7 @@
     "home": "Ana Sayfa",
     "search": "Ara",
     "library": "Kutuphane",
+    "offline": "Offline",
     "following": "Takip Edilenler",
     "settings": "Ayarlar",
     "collapse": "Daralt",
@@ -138,6 +139,34 @@
     "discover": "Kesfet",
     "startListening": "Dinlemeye Basla"
   },
+  "offline": {
+    "blockedBadge": "Yerel mod",
+    "offlineBadge": "Ag yok",
+    "readyBadge": "Yerel kutuphane",
+    "blockedTitle": "Yerel kutuphane",
+    "blockedDescription": "API blok nedeniyle kullanilamazken uygulama yerel kutuphaneye gecer. Bu cihazda zaten onbellekte olan her sey calabilir.",
+    "offlineTitle": "Offline mod",
+    "offlineDescription": "Bu sayfa yerel kaydedilmis begenileri ve onbellekte ses dosyasi olan tum parcalari gosterir.",
+    "readyTitle": "Yerel kutuphane hazir",
+    "readyDescription": "Bu sayfa uygulamanin ag olmadan neleri calabildigini gosterir: onbellek isaretli begeniler ve tum yerel ses onbellegi.",
+    "lastSync": "Son begeni esitleme: {{date}}",
+    "tryOnline": "Tekrar dene",
+    "openSettings": "Onbellek ayarlari",
+    "statsLikes": "Begeniler",
+    "statsPlayableLikes": "Calinabilir",
+    "statsCached": "Onbellekte",
+    "likesTitle": "Begeniler",
+    "likesSubtitle": "{{cached}} / {{total}} yerelde hazir ve offline calar",
+    "likesEmpty": "Bu cihazda henuz onbellege alinan begeni yok.",
+    "cachedTitle": "Onbellekte",
+    "cachedSubtitle": "Yerel ses dosyasi bulunan tum parcalar",
+    "cachedEmpty": "Onbellek su an bos. Parcalari online calin veya indirin, burada goreceksiniz.",
+    "cached": "Onbellekte",
+    "notCached": "Indirilmedi",
+    "pendingCount": "{{count}} bekliyor",
+    "failedCount": "{{count}} basarisiz",
+    "syncNow": "Simdi esitle"
+  },
   "settings": {
     "title": "Ayarlar",
     "cache": "Onbellek",
@@ -246,5 +275,14 @@
     "retry": "Tekrar dene",
     "seeAll": "Tumunu Gor",
     "cancel": "Iptal"
+  },
+  "news": {
+    "dismissOnce": "Kapat",
+    "dismissForever": "Bir daha gosterme",
+    "artistPro": {
+      "title": "Artist PRO aboneleri",
+      "description": "Uygulamanin yasaklanmasini zorlastirmak icin Discord'dan ulasin",
+      "body": "SoundCloud'da Artist PRO aboneliginiz varsa, projenin yasaklamalara karsi daha dayanikli olmasina yardimci olabilirsiniz.\n\nDiscord'da @nonameex666 adresine yazin — hesabiniza bagli bir OAuth uygulamasi olusturacagim. Rotasyon havuzunda ne kadar cok uygulama olursa, SoundCloud'un hepsini bir anda engellemesi o kadar zor olur.\n\nHesabiniz hicbir sekilde etkilenmeyecek — uygulama yalnizca API kimlik dogrulamasi icin kullanilir."
+    }
   }
 }
