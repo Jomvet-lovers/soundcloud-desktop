@@ -4,9 +4,6 @@ export default () => ({
     clientId: process.env.SOUNDCLOUD_CLIENT_ID || '',
     clientSecret: process.env.SOUNDCLOUD_CLIENT_SECRET || '',
     redirectUri: process.env.SOUNDCLOUD_REDIRECT_URI || 'http://localhost:3000/auth/callback',
-    apiBaseUrl: process.env.SC_API_PROXY_URL || 'https://api.soundcloud.com',
-    authBaseUrl: process.env.SC_AUTH_PROXY_URL || 'https://secure.soundcloud.com',
-    /** CF proxy URL (напр. https://images.soundcloud.su). Если задан — все запросы через X-Target */
     proxyUrl: process.env.SC_PROXY_URL || '',
   },
   database: {

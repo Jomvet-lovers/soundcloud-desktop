@@ -58,8 +58,6 @@ PORT=3000
 | Переменная | Описание |
 |---|---|
 | `SC_PROXY_URL` | CF Worker URL — все запросы к SC API пойдут через него с `X-Target` header |
-| `SC_API_PROXY_URL` | Прямая замена `api.soundcloud.com` (без X-Target) |
-| `SC_AUTH_PROXY_URL` | Прямая замена `secure.soundcloud.com` |
 | `CDN_BASE_URL` | SecureServe CDN URL для кэширования аудио |
 | `CDN_AUTH_TOKEN` | Токен авторизации CDN |
 | `TELEGRAM_BOT_TOKEN` | Бот для алертов при бане OAuth-аппки |

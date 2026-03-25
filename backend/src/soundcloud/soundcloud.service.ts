@@ -12,26 +12,20 @@ export interface OAuthCredentials {
   redirectUri: string;
 }
 
+const API_BASE = 'https://api.soundcloud.com';
+const AUTH_BASE = 'https://secure.soundcloud.com';
+
 @Injectable()
 export class SoundcloudService {
   private readonly logger = new Logger(SoundcloudService.name);
-  private readonly apiBaseUrl: string;
-  private readonly authBaseUrl: string;
   private readonly defaultClientId: string;
   private readonly defaultRedirectUri: string;
-
-  /**
-   * CF proxy URL (напр. https://images.soundcloud.su).
-   * Если задан — ВСЕ запросы к SC идут через этот URL с X-Target header.
-   */
   private readonly proxyUrl: string;
 
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.apiBaseUrl = this.configService.get<string>('soundcloud.apiBaseUrl')!;
-    this.authBaseUrl = this.configService.get<string>('soundcloud.authBaseUrl')!;
     this.defaultClientId = this.configService.get<string>('soundcloud.clientId')!;
     this.defaultRedirectUri = this.configService.get<string>('soundcloud.redirectUri')!;
     this.proxyUrl = this.configService.get<string>('soundcloud.proxyUrl') ?? '';
@@ -42,7 +36,7 @@ export class SoundcloudService {
   }
 
   get scAuthBaseUrl() {
-    return this.authBaseUrl;
+    return AUTH_BASE;
   }
 
   get scDefaultClientId() {
@@ -53,36 +47,35 @@ export class SoundcloudService {
     return this.defaultRedirectUri;
   }
 
-  // ─── Proxy helpers ───────────────────────────────────────
-
   /**
-   * Если proxyUrl задан — подменяет URL на proxy и добавляет X-Target header.
-   * Если нет — возвращает original URL без изменений.
+   * If proxyUrl is set, rewrites the request to go through CF Worker:
+   * - URL becomes proxyUrl (no path)
+   * - X-Target header = base64(originalUrl)
    */
-  private proxyRewrite(originalUrl: string, headers: Record<string, string> = {}): {
+  private proxy(targetUrl: string, extra: Record<string, string> = {}): {
     url: string;
     headers: Record<string, string>;
   } {
     if (!this.proxyUrl) {
-      return { url: originalUrl, headers };
+      return { url: targetUrl, headers: extra };
     }
-
-    const encoded = Buffer.from(originalUrl).toString('base64');
     return {
-      url: `${this.proxyUrl}/${encoded}`,
-      headers: { ...headers, 'X-Target': encoded },
+      url: this.proxyUrl,
+      headers: { ...extra, 'X-Target': Buffer.from(targetUrl).toString('base64') },
     };
   }
 
-  // ─── Auth endpoints ──────────────────────────────────────
+  // ─── Auth ──────────────────────────────────────────────────
 
   async exchangeCodeForToken(
     code: string,
     codeVerifier: string,
     creds: OAuthCredentials,
   ): Promise<ScTokenResponse> {
-    const targetUrl = `${this.authBaseUrl}/oauth/token`;
-    const { url, headers: proxyHeaders } = this.proxyRewrite(targetUrl);
+    const { url, headers } = this.proxy(`${AUTH_BASE}/oauth/token`, {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json; charset=utf-8',
+    });
 
     const { data } = await firstValueFrom(
       this.httpService.post<ScTokenResponse>(
@@ -95,13 +88,7 @@ export class SoundcloudService {
           redirect_uri: creds.redirectUri,
           code_verifier: codeVerifier,
         }).toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json; charset=utf-8',
-            ...proxyHeaders,
-          },
-        },
+        { headers },
       ),
     );
     return data;
@@ -111,8 +98,10 @@ export class SoundcloudService {
     refreshToken: string,
     creds: OAuthCredentials,
   ): Promise<ScTokenResponse> {
-    const targetUrl = `${this.authBaseUrl}/oauth/token`;
-    const { url, headers: proxyHeaders } = this.proxyRewrite(targetUrl);
+    const { url, headers } = this.proxy(`${AUTH_BASE}/oauth/token`, {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json; charset=utf-8',
+    });
 
     const { data } = await firstValueFrom(
       this.httpService.post<ScTokenResponse>(
@@ -123,57 +112,44 @@ export class SoundcloudService {
           client_secret: creds.clientSecret,
           refresh_token: refreshToken,
         }).toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json; charset=utf-8',
-            ...proxyHeaders,
-          },
-        },
+        { headers },
       ),
     );
     return data;
   }
 
   async signOut(accessToken: string): Promise<void> {
-    const targetUrl = `${this.authBaseUrl}/sign-out`;
-    const { url, headers: proxyHeaders } = this.proxyRewrite(targetUrl);
+    const { url, headers } = this.proxy(`${AUTH_BASE}/sign-out`, {
+      'Content-Type': 'application/json; charset=utf-8',
+      Accept: 'application/json; charset=utf-8',
+    });
 
     await firstValueFrom(
-      this.httpService.post(
-        url,
-        JSON.stringify({ access_token: accessToken }),
-        {
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-            Accept: 'application/json; charset=utf-8',
-            ...proxyHeaders,
-          },
-        },
-      ),
+      this.httpService.post(url, JSON.stringify({ access_token: accessToken }), { headers }),
     ).catch(() => {});
   }
 
-  // ─── API methods ─────────────────────────────────────────
+  // ─── API ───────────────────────────────────────────────────
 
   async apiGet<T>(path: string, accessToken: string, params?: Record<string, unknown>): Promise<T> {
     const cleanParams = params
       ? Object.fromEntries(Object.entries(params).filter(([, v]) => v != null))
       : undefined;
 
-    const targetUrl = `${this.apiBaseUrl}${path}`;
-    const { url, headers: proxyHeaders } = this.proxyRewrite(targetUrl);
+    // Build full URL with query params so proxy gets the complete URL
+    const target = new URL(`${API_BASE}${path}`);
+    if (cleanParams) {
+      for (const [k, v] of Object.entries(cleanParams)) {
+        target.searchParams.set(k, String(v));
+      }
+    }
 
-    const config: AxiosRequestConfig = {
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-        ...proxyHeaders,
-      },
-      params: cleanParams,
-    };
+    const { url, headers } = this.proxy(target.toString(), {
+      Authorization: `OAuth ${accessToken}`,
+      Accept: 'application/json; charset=utf-8',
+    });
 
-    const { data } = await firstValueFrom(this.httpService.get<T>(url, config));
+    const { data } = await firstValueFrom(this.httpService.get<T>(url, { headers }));
     return data;
   }
 
@@ -183,23 +159,14 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const targetUrl = `${this.apiBaseUrl}${path}`;
-    const { url, headers: proxyHeaders } = this.proxyRewrite(targetUrl);
+    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+      Authorization: `OAuth ${accessToken}`,
+      Accept: 'application/json; charset=utf-8',
+      'Content-Type': 'application/json; charset=utf-8',
+      ...(config?.headers as Record<string, string>),
+    });
 
-    const mergedConfig: AxiosRequestConfig = {
-      ...config,
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-        'Content-Type': 'application/json; charset=utf-8',
-        ...config?.headers,
-        ...proxyHeaders,
-      },
-    };
-
-    const { data } = await firstValueFrom(
-      this.httpService.post<T>(url, body, mergedConfig),
-    );
+    const { data } = await firstValueFrom(this.httpService.post<T>(url, body, { headers }));
     return data;
   }
 
@@ -209,78 +176,51 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const targetUrl = `${this.apiBaseUrl}${path}`;
-    const { url, headers: proxyHeaders } = this.proxyRewrite(targetUrl);
+    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+      Authorization: `OAuth ${accessToken}`,
+      Accept: 'application/json; charset=utf-8',
+      'Content-Type': 'application/json; charset=utf-8',
+      ...(config?.headers as Record<string, string>),
+    });
 
-    const mergedConfig: AxiosRequestConfig = {
-      ...config,
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-        'Content-Type': 'application/json; charset=utf-8',
-        ...config?.headers,
-        ...proxyHeaders,
-      },
-    };
-
-    const { data } = await firstValueFrom(
-      this.httpService.put<T>(url, body, mergedConfig),
-    );
+    const { data } = await firstValueFrom(this.httpService.put<T>(url, body, { headers }));
     return data;
   }
 
   async apiDelete<T>(path: string, accessToken: string): Promise<T> {
-    const targetUrl = `${this.apiBaseUrl}${path}`;
-    const { url, headers: proxyHeaders } = this.proxyRewrite(targetUrl);
-
-    const config: AxiosRequestConfig = {
-      headers: {
-        Authorization: `OAuth ${accessToken}`,
-        Accept: 'application/json; charset=utf-8',
-        ...proxyHeaders,
-      },
-      validateStatus: (status) => status >= 200 && status < 300,
-    };
+    const { url, headers } = this.proxy(`${API_BASE}${path}`, {
+      Authorization: `OAuth ${accessToken}`,
+      Accept: 'application/json; charset=utf-8',
+    });
 
     const { data, status } = await firstValueFrom(
-      this.httpService.delete<T>(url, config),
+      this.httpService.delete<T>(url, {
+        headers,
+        validateStatus: (s) => s >= 200 && s < 300,
+      }),
     );
-    if (status === 204 || data === undefined || data === null || data === '') {
-      return null as T;
-    }
-    return data;
+    return status === 204 || data == null || data === '' ? (null as T) : data;
   }
 
-  // ─── Stream proxy ────────────────────────────────────────
+  // ─── Stream ────────────────────────────────────────────────
 
   async proxyStream(
     streamUrl: string,
     accessToken: string,
     range?: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> }> {
-    const { url, headers: proxyHeaders } = this.proxyRewrite(streamUrl);
+    const extra: Record<string, string> = { Authorization: `OAuth ${accessToken}` };
+    if (range) extra.Range = range;
 
-    const headers: Record<string, string> = {
-      Authorization: `OAuth ${accessToken}`,
-      ...proxyHeaders,
-    };
-    if (range) {
-      headers.Range = range;
-    }
+    const { url, headers } = this.proxy(streamUrl, extra);
 
     const { data, headers: resHeaders } = await firstValueFrom(
-      this.httpService.get(url, {
-        headers,
-        responseType: 'stream',
-        maxRedirects: 5,
-      }),
+      this.httpService.get(url, { headers, responseType: 'stream', maxRedirects: 5 }),
     );
 
     const responseHeaders: Record<string, string> = {};
     for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-      if (resHeaders[key]) {
-        responseHeaders[key] = String(resHeaders[key]);
-      }
+      if (resHeaders[key]) responseHeaders[key] = String(resHeaders[key]);
     }
 
     return { stream: data as Readable, headers: responseHeaders };
