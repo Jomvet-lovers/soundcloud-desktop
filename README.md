@@ -11,6 +11,9 @@
 Без рекламы · Без капчи · Без цензуры · Доступно в России
 </p>
 
+> [!CAUTION]
+> SoundCloud начал банить аппку. офк я это обойду, но голосовалка за будущее тут - [#264](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/264)
+
 <p align="center">
 <a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
 <img src="https://img.shields.io/github/v/release/zxcloli666/SoundCloud-Desktop?style=for-the-badge&logo=github&color=FF5500&label=VERSION" alt="Version"/>
