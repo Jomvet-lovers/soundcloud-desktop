@@ -195,14 +195,43 @@ const Controls = React.memo(({ track }: { track: Track }) => {
 
 const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: string }) => {
   const artwork500 = art(track.artwork_url, 't500x500');
+  const artwork200 = art(track.artwork_url, 't200x200');
+  const [loaded, setLoaded] = useState(false);
+
+  // Reset loaded state when track changes
+  const prevUrlRef = useRef(track.artwork_url);
+  if (prevUrlRef.current !== track.artwork_url) {
+    prevUrlRef.current = track.artwork_url;
+    setLoaded(false);
+  }
 
   return (
     <div className="flex flex-col items-center justify-center gap-5 px-12">
       <div
-        className={`w-full ${maxArt ?? 'max-w-[360px]'} aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/[0.08]`}
+        className={`w-full ${maxArt ?? 'max-w-[360px]'} aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/[0.08] relative`}
       >
         {artwork500 ? (
-          <img src={artwork500} alt="" className="w-full h-full object-cover" decoding="async" />
+          <>
+            {/* Low-res preview */}
+            <img
+              src={artwork200 || artwork500}
+              alt=""
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${
+                loaded ? 'opacity-0' : 'opacity-100'
+              }`}
+              decoding="async"
+            />
+            {/* High-res */}
+            <img
+              src={artwork500}
+              alt=""
+              onLoad={() => setLoaded(true)}
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${
+                loaded ? 'opacity-100' : 'opacity-0'
+              }`}
+              decoding="async"
+            />
+          </>
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-white/[0.06] to-white/[0.02] flex items-center justify-center">
             <MicVocal size={48} className="text-white/10" />
@@ -575,11 +604,11 @@ export const LyricsPanel = React.memo(() => {
 
   if (!open || !track) return null;
 
-  const artwork500 = art(track.artwork_url, 't500x500');
+  const artwork200 = art(track.artwork_url, 't200x200');
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden animate-fade-in-up bg-[#08080a]">
-      <FullscreenBackground artworkSrc={artwork500} color={colorRef.current} />
+      <FullscreenBackground artworkSrc={artwork200} color={colorRef.current} />
 
       <div
         className={`relative z-10 px-6 pt-5 pb-2 ${rightPanelOpen ? 'flex items-center justify-between gap-4' : 'flex items-center justify-center gap-4'}`}
