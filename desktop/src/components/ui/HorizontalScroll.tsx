@@ -39,8 +39,6 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
       startX: e.clientX,
       startScrollLeft: el.scrollLeft,
     };
-
-    el.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -51,6 +49,7 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
     const deltaX = e.clientX - dragState.startX;
     if (!dragState.dragging && Math.abs(deltaX) > 6) {
       dragState.dragging = true;
+      el.setPointerCapture(dragState.pointerId);
       document.body.style.userSelect = 'none';
     }
 
