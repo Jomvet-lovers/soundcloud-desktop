@@ -1,5 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AxiosError } from 'axios';
@@ -26,9 +32,26 @@ export class AuthService {
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
     const state = randomBytes(16).toString('hex');
 
-    // Рандомно выбираем OAuth-аппку
-    const app = this.oauthAppsService.pickRandomApp();
-    this.logger.log(`Login initiated with app "${app.name}" (${app.id})`);
+    let oauthAppId: string | undefined;
+    let creds: OAuthCredentials;
+    try {
+      const app = this.oauthAppsService.pickRandomApp();
+      oauthAppId = app.id;
+      creds = {
+        clientId: app.clientId,
+        clientSecret: app.clientSecret,
+        redirectUri: app.redirectUri,
+      };
+      this.logger.log(`Login initiated with app "${app.name}" (${app.id})`);
+    } catch {
+      creds = this.getEnvCredentials();
+      if (!creds.clientId || !creds.clientSecret) {
+        throw new NotFoundException(
+          'No active OAuth apps available and env fallback is not configured',
+        );
+      }
+      this.logger.warn('No active OAuth apps available, using env OAuth fallback');
+    }
 
     const session = this.sessionRepo.create({
       codeVerifier,
@@ -37,15 +60,15 @@ export class AuthService {
       refreshToken: '',
       expiresAt: new Date(),
       scope: '',
-      oauthAppId: app.id,
+      oauthAppId,
     });
     await this.sessionRepo.save(session);
 
     const authBaseUrl = this.soundcloudService.scAuthBaseUrl;
 
     const params = new URLSearchParams({
-      client_id: app.clientId,
-      redirect_uri: app.redirectUri,
+      client_id: creds.clientId,
+      redirect_uri: creds.redirectUri,
       response_type: 'code',
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
@@ -211,7 +234,10 @@ export class AuthService {
       }
     }
 
-    // Fallback: env credentials (для старых сессий без oauthAppId)
+    return this.getEnvCredentials();
+  }
+
+  private getEnvCredentials(): OAuthCredentials {
     return {
       clientId: this.configService.get<string>('soundcloud.clientId') || '',
       clientSecret: this.configService.get<string>('soundcloud.clientSecret') || '',
