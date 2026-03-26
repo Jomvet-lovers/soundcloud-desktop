@@ -79,23 +79,6 @@ export class ScPublicAnonService {
     }
   }
 
-  async resolveEncryptedTranscoding(
-    transcodingUrl: string,
-    trackAuthorization: string,
-    explicitClientId?: string,
-  ): Promise<string> {
-    const clientId = explicitClientId ?? (await this.getClientId());
-    const separator = transcodingUrl.includes('?') ? '&' : '?';
-    const target = `${transcodingUrl}${separator}client_id=${clientId}&track_authorization=${trackAuthorization}`;
-
-    const { data } = await proxyGetWithRetry<{ url: string; licenseAuthToken?: string }>(
-      this.httpService,
-      this.streamProxyUrls,
-      target,
-    );
-    return data.url;
-  }
-
   async getStreamForTrack(
     trackUrn: string,
     format?: string,

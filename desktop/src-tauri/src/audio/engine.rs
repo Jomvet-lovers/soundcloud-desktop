@@ -173,17 +173,51 @@ pub async fn load_url(
     let generation = state.load_gen.load(Ordering::Relaxed);
 
     let client = reqwest::Client::new();
-    let mut req = client.get(&url);
-    if let Some(session_id) = &session_id {
-        req = req.header("x-session-id", session_id);
+    let retry_delays = [300u64, 800, 2000];
+    let mut last_err = String::new();
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut success = false;
+
+    for attempt in 0..=retry_delays.len() {
+        let mut req = client.get(&url);
+        if let Some(sid) = &session_id {
+            req = req.header("x-session-id", sid);
+        }
+
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.bytes().await {
+                        Ok(b) => {
+                            bytes = b.to_vec();
+                            success = true;
+                            break;
+                        }
+                        Err(e) => last_err = e.to_string(),
+                    }
+                } else if status.as_u16() == 429
+                    || (status.as_u16() >= 500 && status.as_u16() <= 599)
+                {
+                    last_err = format!("HTTP {}", status);
+                } else {
+                    return Err(format!("HTTP {}", status));
+                }
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+
+        if attempt < retry_delays.len() {
+            tokio::time::sleep(std::time::Duration::from_millis(retry_delays[attempt])).await;
+            if state.load_gen.load(Ordering::Relaxed) != generation {
+                return Ok(AudioLoadResult { duration_secs: None });
+            }
+        }
     }
 
-    let resp = req.send().await.map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+    if !success {
+        return Err(last_err);
     }
-
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
     let empty_result = AudioLoadResult {
         duration_secs: None,
     };
