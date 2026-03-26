@@ -102,6 +102,10 @@ usePlayerStore.subscribe((state) => {
   }
 
   if (trackChanged || playChanged) {
+    if (seekSyncTimer) {
+      clearTimeout(seekSyncTimer);
+      seekSyncTimer = null;
+    }
     lastUrn = currentTrack.urn;
     lastPlaying = isPlaying;
     lastElapsed = Math.round(getCurrentTime());
@@ -151,6 +155,7 @@ subscribeAudioTime(() => {
 
   // Re-sync Discord timestamps on manual seek / large jumps without spamming updates every second.
   if (drift >= 2) {
+    lastElapsed = elapsed;
     schedulePresenceSync(currentTrack, 180);
   } else {
     lastElapsed = elapsed;
