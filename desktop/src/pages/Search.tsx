@@ -16,6 +16,7 @@ import {
   useSearchUsers,
 } from '../lib/hooks';
 import {
+  Clock,
   ExternalLink,
   headphones11,
   heart11,
@@ -25,9 +26,11 @@ import {
   Pause,
   Play,
   Search as SearchIcon,
+  Trash2,
   Users,
   X,
 } from '../lib/icons';
+import { useSearchHistoryStore } from '../stores/searchHistory';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import type { Track } from '../stores/player';
 
@@ -111,7 +114,6 @@ const TrackRow = React.memo(
           </span>
         </div>
 
-        {/* Like + Add to playlist */}
         <div className="flex items-center gap-0.5 shrink-0">
           <LikeButton track={track} />
           <AddToPlaylistDialog trackUrns={[track.urn]}>
@@ -249,9 +251,62 @@ function ResolveCard({ url, onDone }: { url: string; onDone: () => void }) {
   );
 }
 
-/* ── Isolated Search Results ──────────────────────────────── */
+/* ── Search History ──────────────────────────────────────── */
 
-/* Each search tab is its own component — only fetches its own data type */
+const SearchHistory = React.memo(function SearchHistory({
+  onSelect,
+}: {
+  onSelect: (query: string) => void;
+}) {
+  const { t } = useTranslation();
+  const { queries, removeQuery, clearHistory } = useSearchHistoryStore();
+
+  if (queries.length === 0) return null;
+
+  return (
+    <div className="max-w-2xl mx-auto animate-fade-in-up">
+      <div className="flex items-center justify-between mb-3 px-1">
+        <span className="text-[12px] font-semibold text-white/30 uppercase tracking-wider">
+          {t('search.history')}
+        </span>
+        <button
+          type="button"
+          onClick={clearHistory}
+          className="flex items-center gap-1.5 text-[11px] text-white/25 hover:text-white/60 transition-colors cursor-pointer"
+        >
+          <Trash2 size={11} />
+          {t('search.clearHistory')}
+        </button>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        {queries.map((query) => (
+          <div
+            key={query}
+            className="group flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-all duration-200 cursor-pointer"
+            onClick={() => onSelect(query)}
+          >
+            <Clock size={13} className="text-white/20 shrink-0" />
+            <span className="flex-1 text-[13px] text-white/60 group-hover:text-white/90 transition-colors truncate">
+              {query}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                removeQuery(query);
+              }}
+              className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center text-white/20 hover:text-white/60 transition-all cursor-pointer shrink-0"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/* ── Isolated Search Results ──────────────────────────────── */
 
 const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: string }) {
   const { t } = useTranslation();
@@ -357,10 +412,11 @@ const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: st
 });
 
 const SearchEmpty = React.memo(function SearchEmpty() {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center justify-center h-[400px] text-white/20">
       <SearchIcon size={48} className="mb-4 opacity-50" />
-      <p className="text-sm font-medium">Search for artists, bands, tracks, podcasts</p>
+      <p className="text-sm font-medium">{t('search.hint')}</p>
     </div>
   );
 });
@@ -374,6 +430,8 @@ export const Search = React.memo(() => {
   const [activeTab, setActiveTab] = useState<'tracks' | 'playlists' | 'users'>('tracks');
   const [resolveUrl, setResolveUrl] = useState<string | null>(null);
 
+  const addQuery = useSearchHistoryStore((s) => s.addQuery);
+
   const isUrl = isSoundCloudUrl(inputValue);
 
   // Debounce logic — skip debounce for URLs
@@ -384,10 +442,12 @@ export const Search = React.memo(() => {
     }
     setResolveUrl(null);
     const handler = setTimeout(() => {
-      setDebouncedQuery(inputValue);
+      const q = inputValue.trim();
+      setDebouncedQuery(q);
+      if (q) addQuery(q);
     }, 500);
     return () => clearTimeout(handler);
-  }, [inputValue, isUrl]);
+  }, [inputValue, isUrl, addQuery]);
 
   // Handle Enter for URL resolve
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -396,7 +456,6 @@ export const Search = React.memo(() => {
     }
   };
 
-  // Handle paste — auto-resolve if it's a SC URL
   const handlePaste = (e: React.ClipboardEvent) => {
     const pasted = e.clipboardData.getData('text');
     if (isSoundCloudUrl(pasted)) {
@@ -406,11 +465,20 @@ export const Search = React.memo(() => {
     }
   };
 
+  const handleHistorySelect = (query: string) => {
+    setInputValue(query);
+    setDebouncedQuery(query);
+  };
+
   const tabs = [
     { id: 'tracks', label: t('search.tracks') },
     { id: 'playlists', label: t('search.playlists') },
     { id: 'users', label: t('search.users') },
   ] as const;
+
+  const historyQueries = useSearchHistoryStore((s) => s.queries);
+  const showHistory = !inputValue && !resolveUrl && historyQueries.length > 0;
+  const showEmpty = !inputValue && !resolveUrl && historyQueries.length === 0;
 
   return (
     <div className="p-6 pb-4 space-y-8">
@@ -489,8 +557,13 @@ export const Search = React.memo(() => {
         />
       )}
 
-      {/* Results — each tab only fetches its own data */}
-      {!resolveUrl && !debouncedQuery && <SearchEmpty />}
+      {/* History (when input is empty) */}
+      {showHistory && <SearchHistory onSelect={handleHistorySelect} />}
+
+      {/* Empty state (when input is empty and no history) */}
+      {showEmpty && <SearchEmpty />}
+
+      {/* Results */}
       {!resolveUrl && debouncedQuery && activeTab === 'tracks' && (
         <SearchTracksTab query={debouncedQuery} />
       )}
