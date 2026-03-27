@@ -3,7 +3,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
 import { Session } from './auth/entities/session.entity.js';
+import { CdnModule } from './cdn/cdn.module.js';
 import configuration from './config/configuration.js';
+import { FeaturedItem } from './featured/entities/featured-item.entity.js';
+import { FeaturedModule } from './featured/featured.module.js';
 import { HealthController } from './health/health.controller.js';
 import { ListeningHistory } from './history/entities/listening-history.entity.js';
 import { HistoryModule } from './history/history.module.js';
@@ -11,7 +14,6 @@ import { LikesModule } from './likes/likes.module.js';
 import { LocalLike } from './local-likes/entities/local-like.entity.js';
 import { LocalLikesModule } from './local-likes/local-likes.module.js';
 import { MeModule } from './me/me.module.js';
-import { CdnModule } from './cdn/cdn.module.js';
 import { OAuthApp } from './oauth-apps/entities/oauth-app.entity.js';
 import { OAuthAppsModule } from './oauth-apps/oauth-apps.module.js';
 import { PendingAction } from './pending-actions/entities/pending-action.entity.js';
@@ -38,12 +40,13 @@ import { UsersModule } from './users/users.module.js';
         username: config.get<string>('database.username'),
         password: config.get<string>('database.password'),
         database: config.get<string>('database.name'),
-        entities: [Session, ListeningHistory, LocalLike, OAuthApp, PendingAction],
+        entities: [Session, ListeningHistory, LocalLike, OAuthApp, PendingAction, FeaturedItem],
         synchronize: true,
       }),
     }),
     OAuthAppsModule,
     AuthModule,
+    FeaturedModule,
     SoundcloudModule,
     MeModule,
     TracksModule,

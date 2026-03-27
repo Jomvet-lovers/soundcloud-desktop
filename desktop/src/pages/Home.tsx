@@ -8,10 +8,11 @@ import { HorizontalScroll } from '../components/ui/HorizontalScroll';
 import { Skeleton } from '../components/ui/Skeleton';
 import { preloadTrack } from '../lib/audio';
 import { ago, art, dur, fc } from '../lib/formatters';
-import type { FeedItem } from '../lib/hooks';
+import type { FeedItem, Playlist, SCUser } from '../lib/hooks';
 import {
   useDiscoverData,
   useFallbackTracks,
+  useFeatured,
   useFeed,
   useFollowingTracks,
   useInfiniteScroll,
@@ -548,6 +549,256 @@ const FeedPlaylistCard = React.memo(
   (prev, next) => prev.item.origin.urn === next.item.origin.urn,
 );
 
+/* ── Featured Playlist Hero ───────────────────────────────── */
+
+const FeaturedPlaylistHero = React.memo(function FeaturedPlaylistHero({
+  playlist,
+}: {
+  playlist: Playlist;
+}) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+
+  const trackUrns = useMemo(
+    () => new Set((playlist.tracks ?? []).map((t: Track) => t.urn)),
+    [playlist.tracks],
+  );
+  const { isPausedFromThis, isPlayingFromThis } = usePlayerStore(
+    useShallow((s) => ({
+      isPlayingFromThis: s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+      isPausedFromThis: !s.isPlaying && s.currentTrack != null && trackUrns.has(s.currentTrack.urn),
+    })),
+  );
+
+  const cover = art(playlist.artwork_url) ?? art(playlist.tracks?.[0]?.artwork_url);
+
+  const handlePlay = async () => {
+    const { play, pause, resume } = usePlayerStore.getState();
+    if (isPlayingFromThis) {
+      pause();
+      return;
+    }
+    if (isPausedFromThis) {
+      resume();
+      return;
+    }
+
+    if (playlist.tracks && playlist.tracks.length > 0) {
+      play(playlist.tracks[0], playlist.tracks);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const data = await import('../lib/api').then((m) =>
+        m.api<{ collection: Track[] }>(`/playlists/${encodeURIComponent(playlist.urn)}/tracks`),
+      );
+      if (data.collection.length > 0) {
+        usePlayerStore.getState().play(data.collection[0], data.collection);
+      }
+    } catch {
+      navigate(`/playlist/${encodeURIComponent(playlist.urn)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="relative rounded-3xl overflow-hidden group glass-featured select-none">
+      {cover && (
+        <div className="absolute inset-0 pointer-events-none">
+          <img
+            src={cover}
+            alt=""
+            className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
+            decoding="async"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
+        </div>
+      )}
+
+      <div className="relative flex items-center gap-6 p-6">
+        <div
+          className="relative w-[160px] h-[160px] rounded-2xl overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1] cursor-pointer group/cover"
+          onClick={handlePlay}
+        >
+          {cover ? (
+            <img
+              src={cover}
+              alt={playlist.title}
+              className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.05]"
+              decoding="async"
+              fetchPriority="high"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
+              <ListMusic size={40} className="text-white/15" />
+            </div>
+          )}
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${isPlayingFromThis ? 'bg-black/30 opacity-100' : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'}`}
+          >
+            {loading ? (
+              <Loader2 size={24} className="text-white animate-spin" />
+            ) : (
+              <div
+                className={`w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${isPlayingFromThis ? 'bg-white scale-100' : 'bg-white/90 scale-75 group-hover/cover:scale-100'}`}
+              >
+                {isPlayingFromThis ? pauseBlack18 : playBlack18}
+              </div>
+            )}
+          </div>
+          {playlist.track_count != null && (
+            <div className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[10px] font-medium bg-black/50 backdrop-blur-md text-white/70 px-2 py-0.5 rounded-full">
+              <ListMusic size={10} />
+              {playlist.track_count}
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0 py-1">
+          <div className="flex items-center gap-1.5 mb-2.5 text-[11px] text-white/30 font-medium">
+            <ListMusic size={11} />
+            <span>{t('search.playlists')}</span>
+          </div>
+
+          <h2
+            className="text-xl font-bold text-white/95 truncate leading-tight cursor-pointer hover:text-white transition-colors duration-200"
+            onClick={() => navigate(`/playlist/${encodeURIComponent(playlist.urn)}`)}
+          >
+            {playlist.title}
+          </h2>
+
+          {playlist.user && (
+            <div
+              className="flex items-center gap-2 mt-2 cursor-pointer group/artist"
+              onClick={() => navigate(`/user/${encodeURIComponent(playlist.user.urn)}`)}
+            >
+              {playlist.user.avatar_url && (
+                <img
+                  src={art(playlist.user.avatar_url, 'small')!}
+                  alt=""
+                  className="w-5 h-5 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
+                  decoding="async"
+                />
+              )}
+              <p className="text-[13px] text-white/40 truncate group-hover/artist:text-white/60 transition-colors duration-150">
+                {playlist.user.username}
+              </p>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 mt-4 text-[11px] text-white/25 tabular-nums">
+            {playlist.genre && (
+              <span className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white/[0.06] text-white/45 border border-white/[0.06]">
+                {playlist.genre}
+              </span>
+            )}
+            <span className="flex items-center gap-1">
+              <ListMusic size={11} />
+              {playlist.track_count ?? 0} {t('search.tracks').toLowerCase()}
+            </span>
+            <span className="flex items-center gap-1">
+              <Heart size={11} />
+              {fc(playlist.likes_count)}
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handlePlay}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ease-[var(--ease-apple)] shadow-xl cursor-pointer ${isPlayingFromThis ? 'bg-white scale-100' : 'bg-white/90 hover:bg-white hover:scale-105 active:scale-95'}`}
+        >
+          {loading ? (
+            <Loader2 size={22} className="text-black animate-spin" />
+          ) : isPlayingFromThis ? (
+            pauseBlack22
+          ) : (
+            playBlack22
+          )}
+        </button>
+      </div>
+    </div>
+  );
+});
+
+/* ── Featured User Hero ──────────────────────────────────── */
+
+const FeaturedUserHero = React.memo(function FeaturedUserHero({ user }: { user: SCUser }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const avatar = art(user.avatar_url);
+
+  return (
+    <div
+      className="relative rounded-3xl overflow-hidden group glass-featured select-none cursor-pointer"
+      onClick={() => navigate(`/user/${encodeURIComponent(user.urn)}`)}
+    >
+      {avatar && (
+        <div className="absolute inset-0 pointer-events-none">
+          <img
+            src={avatar}
+            alt=""
+            className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
+            decoding="async"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
+        </div>
+      )}
+
+      <div className="relative flex items-center gap-6 p-6">
+        <div className="w-[160px] h-[160px] rounded-full overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1]">
+          {avatar ? (
+            <img
+              src={avatar}
+              alt={user.username}
+              className="w-full h-full object-cover"
+              decoding="async"
+              fetchPriority="high"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
+              <Music size={40} className="text-white/15" />
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0 py-1">
+          <h2 className="text-xl font-bold text-white/95 truncate leading-tight group-hover:text-white transition-colors duration-200">
+            {user.username}
+          </h2>
+
+          {(user.city || user.country) && (
+            <p className="text-[13px] text-white/30 mt-1.5">
+              {[user.city, user.country].filter(Boolean).join(', ')}
+            </p>
+          )}
+
+          <div className="flex items-center gap-4 mt-4 text-[11px] text-white/25 tabular-nums">
+            {user.followers_count != null && (
+              <span>
+                {fc(user.followers_count)} {t('user.followers')}
+              </span>
+            )}
+            {user.track_count != null && (
+              <span>
+                {fc(user.track_count)} {t('search.tracks').toLowerCase()}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <ChevronRight
+          size={28}
+          className="text-white/20 shrink-0 group-hover:text-white/40 transition-colors"
+        />
+      </div>
+    </div>
+  );
+});
+
 /* ── Isolated Sections ────────────────────────────────────── */
 
 const FeaturedHero = React.memo(function FeaturedHero({
@@ -559,9 +810,39 @@ const FeaturedHero = React.memo(function FeaturedHero({
   feedTrackQueue: Track[];
   isLoading: boolean;
 }) {
-  if (isLoading) return <FeaturedSkeleton />;
-  if (!featuredItem) return null;
+  const { data: featured, isLoading: featuredLoading } = useFeatured();
 
+  if (featuredLoading || isLoading) return <FeaturedSkeleton />;
+
+  // Admin-pinned content
+  if (featured) {
+    switch (featured.type) {
+      case 'track':
+        return (
+          <section>
+            <FeaturedCard
+              item={{ type: 'track', created_at: '', origin: featured.data as Track }}
+              queue={[featured.data as Track]}
+            />
+          </section>
+        );
+      case 'playlist':
+        return (
+          <section>
+            <FeaturedPlaylistHero playlist={featured.data as Playlist} />
+          </section>
+        );
+      case 'user':
+        return (
+          <section>
+            <FeaturedUserHero user={featured.data as SCUser} />
+          </section>
+        );
+    }
+  }
+
+  // Fallback: first feed track
+  if (!featuredItem) return null;
   return (
     <section>
       <FeaturedCard item={featuredItem} queue={feedTrackQueue} />

@@ -222,6 +222,21 @@ export function useHistory(limit = 50) {
   return { entries, ...query };
 }
 
+/* ── Featured ─────────────────────────────────────────────────── */
+
+export interface FeaturedResponse {
+  type: 'track' | 'playlist' | 'user';
+  data: any;
+}
+
+export function useFeatured() {
+  return useQuery<FeaturedResponse | null>({
+    queryKey: ['featured'],
+    queryFn: () => api<FeaturedResponse | null>('/featured'),
+    staleTime: 5 * 60_000,
+  });
+}
+
 /* ── Local Likes ──────────────────────────────────────────────── */
 
 export function useLocalLikes(limit = 50) {
