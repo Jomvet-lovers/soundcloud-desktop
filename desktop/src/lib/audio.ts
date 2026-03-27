@@ -137,14 +137,15 @@ async function loadTrack(track: Track) {
   }
   hasTrack = true;
 
-  // Record to listening history (fire-and-forget)
-  if (track.urn && track.title) {
+  // Record to listening history (fire-and-forget), skip on repeat-one (same track looping)
+  if (track.urn && track.title && usePlayerStore.getState().repeat !== 'one') {
     api('/history', {
       method: 'POST',
       body: JSON.stringify({
         scTrackId: track.urn,
         title: track.title,
         artistName: track.user?.username || '',
+        artistUrn: track.user?.urn || null,
         artworkUrl: track.artwork_url || null,
         duration: track.duration || 0,
       }),

@@ -19,6 +19,10 @@ class RecordHistoryDto {
 
   @IsString()
   @IsOptional()
+  artistUrn?: string;
+
+  @IsString()
+  @IsOptional()
   artworkUrl?: string;
 
   @IsInt()

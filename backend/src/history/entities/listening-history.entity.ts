@@ -19,6 +19,9 @@ export class ListeningHistory {
   artistName: string;
 
   @Column({ nullable: true })
+  artistUrn: string;
+
+  @Column({ nullable: true })
   artworkUrl: string;
 
   @Column({ type: 'int' })

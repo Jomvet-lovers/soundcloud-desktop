@@ -584,9 +584,27 @@ function formatHistoryDate(dateStr: string, t: (k: string) => string): string {
   return t('library.earlier');
 }
 
+function historyEntryToTrack(entry: HistoryEntry): Track {
+  return {
+    id: 0,
+    urn: entry.scTrackId,
+    title: entry.title,
+    duration: entry.duration,
+    artwork_url: entry.artworkUrl,
+    user: {
+      id: 0,
+      urn: entry.artistUrn || '',
+      username: entry.artistName,
+      avatar_url: '',
+      permalink_url: '',
+    },
+  };
+}
+
 const HistoryTab = React.memo(function HistoryTab() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const play = usePlayerStore((s) => s.play);
   const historyQuery = useHistory();
   const { entries, isLoading } = historyQuery;
   const sentinelRef = useInfiniteScroll(
@@ -653,7 +671,15 @@ const HistoryTab = React.memo(function HistoryTab() {
               </div>
             ) : (
               <div className="group flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/[0.04] transition-all duration-300">
-                <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
+                <button
+                  type="button"
+                  className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md cursor-pointer"
+                  onClick={() => {
+                    const tracks = entries.map(historyEntryToTrack);
+                    const idx = entries.findIndex((e) => e.id === row.entry.id);
+                    play(tracks[idx], tracks);
+                  }}
+                >
                   {row.entry.artworkUrl ? (
                     <img
                       src={row.entry.artworkUrl.replace('large', 't200x200')}
@@ -666,7 +692,10 @@ const HistoryTab = React.memo(function HistoryTab() {
                       <Music size={14} className="text-white/20" />
                     </div>
                   )}
-                </div>
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity text-white">
+                    {playWhite14}
+                  </div>
+                </button>
 
                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                   <p
@@ -675,7 +704,13 @@ const HistoryTab = React.memo(function HistoryTab() {
                   >
                     {row.entry.title}
                   </p>
-                  <p className="text-[12px] text-white/40 truncate mt-0.5">
+                  <p
+                    className={`text-[12px] text-white/40 truncate mt-0.5${row.entry.artistUrn ? ' hover:text-white/60 cursor-pointer transition-colors' : ''}`}
+                    onClick={() =>
+                      row.entry.artistUrn &&
+                      navigate(`/user/${encodeURIComponent(row.entry.artistUrn)}`)
+                    }
+                  >
                     {row.entry.artistName}
                   </p>
                 </div>

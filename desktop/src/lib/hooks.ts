@@ -191,6 +191,7 @@ export interface HistoryEntry {
   scTrackId: string;
   title: string;
   artistName: string;
+  artistUrn: string | null;
   artworkUrl: string | null;
   duration: number;
   playedAt: string;

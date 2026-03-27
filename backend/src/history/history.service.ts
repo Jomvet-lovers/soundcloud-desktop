@@ -26,6 +26,7 @@ export class HistoryService {
       scTrackId: string;
       title: string;
       artistName: string;
+      artistUrn?: string;
       artworkUrl?: string;
       duration: number;
     },
