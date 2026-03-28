@@ -91,7 +91,7 @@ pub fn init() -> AudioState {
                             Ok(new_sink) => {
                                 *shared_mixer.lock().unwrap() = new_sink.mixer().clone();
                                 device_sink = new_sink;
-                                reconnected.store(true, std::sync::atomic::Ordering::Relaxed);
+                                reconnected.store(true, std::sync::atomic::Ordering::Release);
                                 eprintln!("[audio] reconnected successfully");
                             }
                             Err(error) => {
@@ -100,7 +100,7 @@ pub fn init() -> AudioState {
                                 device_sink = open_device_sink(None, &cmd_tx, &error_flag)
                                     .expect("no audio output device");
                                 *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
-                                reconnected.store(true, std::sync::atomic::Ordering::Relaxed);
+                                reconnected.store(true, std::sync::atomic::Ordering::Release);
                             }
                         }
                     }

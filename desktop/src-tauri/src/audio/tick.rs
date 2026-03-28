@@ -22,7 +22,7 @@ pub fn start_tick_emitter(app: &AppHandle) {
                 std::thread::sleep(Duration::from_millis(TICK_INTERVAL_MS));
                 let state = handle.state::<AudioState>();
 
-                if state.device_reconnected.swap(false, Ordering::Relaxed) {
+                if state.device_reconnected.swap(false, Ordering::Acquire) {
                     let _ = engine::reload_current_track(&state);
                     diagnostics::log_native(
                         &handle,

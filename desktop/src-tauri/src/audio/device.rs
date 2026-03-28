@@ -139,45 +139,97 @@ pub fn start_default_output_monitor(app: &AppHandle) {
 
     std::thread::Builder::new()
         .name("audio-default-output".into())
-        .spawn(move || loop {
-            std::thread::sleep(Duration::from_secs(10));
+        .spawn(move || {
+            #[cfg(target_os = "linux")]
+            start_pactl_subscribe_loop(&handle);
 
-            let state = handle.state::<AudioState>();
-            if !state.follow_default_output.load(Ordering::Relaxed) {
-                continue;
-            }
-
-            let Some(current_default) = current_default_output_name() else {
-                continue;
-            };
-
-            let mut known_default = state.last_known_default_output.lock().unwrap();
-            if known_default.as_deref() == Some(current_default.as_str()) {
-                continue;
-            }
-            *known_default = Some(current_default.clone());
-            drop(known_default);
-
-            diagnostics::log_native(
-                &handle,
-                "INFO",
-                format!("[Audio] Default output changed to '{current_default}'"),
-            );
-
-            if let Err(error) = switch_to_device_internal(&state, None) {
-                diagnostics::log_native(
-                    &handle,
-                    "WARN",
-                    format!("[Audio] Failed to follow default output: {error}"),
-                );
-                continue;
-            }
-
-            handle
-                .emit("audio:default-device-changed", current_default)
-                .ok();
+            #[cfg(not(target_os = "linux"))]
+            start_polling_loop(&handle);
         })
         .expect("failed to spawn default-output monitor");
+}
+
+#[cfg(target_os = "linux")]
+fn start_pactl_subscribe_loop(handle: &AppHandle) {
+    use std::io::BufRead;
+
+    loop {
+        // Use pactl subscribe for instant sink change notifications
+        let child = std::process::Command::new("pactl")
+            .args(["subscribe"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        let Ok(mut child) = child else {
+            // Fallback to polling if pactl subscribe fails
+            eprintln!("[Audio] pactl subscribe failed, falling back to polling");
+            start_polling_loop(handle);
+            return;
+        };
+
+        let stdout = child.stdout.take().unwrap();
+        let reader = std::io::BufReader::new(stdout);
+
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            // Listen for sink changes: "Event 'change' on sink #..."
+            // and server changes (default sink changed): "Event 'change' on server"
+            if !line.contains("sink") && !line.contains("server") {
+                continue;
+            }
+
+            handle_default_output_change(handle);
+        }
+
+        // pactl subscribe exited, wait and retry
+        let _ = child.wait();
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
+fn start_polling_loop(handle: &AppHandle) {
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+        handle_default_output_change(handle);
+    }
+}
+
+fn handle_default_output_change(handle: &AppHandle) {
+    let state = handle.state::<AudioState>();
+    if !state.follow_default_output.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let Some(current_default) = current_default_output_name() else {
+        return;
+    };
+
+    let mut known_default = state.last_known_default_output.lock().unwrap();
+    if known_default.as_deref() == Some(current_default.as_str()) {
+        return;
+    }
+    *known_default = Some(current_default.clone());
+    drop(known_default);
+
+    diagnostics::log_native(
+        handle,
+        "INFO",
+        format!("[Audio] Default output changed to '{current_default}'"),
+    );
+
+    if let Err(error) = switch_to_device_internal(&state, None) {
+        diagnostics::log_native(
+            handle,
+            "WARN",
+            format!("[Audio] Failed to follow default output: {error}"),
+        );
+        return;
+    }
+
+    handle
+        .emit("audio:default-device-changed", current_default)
+        .ok();
 }
 
 #[cfg(target_os = "linux")]
