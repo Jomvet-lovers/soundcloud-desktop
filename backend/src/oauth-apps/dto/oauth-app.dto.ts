@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class CreateOAuthAppDto {
   @IsString()
@@ -42,7 +42,5 @@ export class OAuthAppResponseDto {
   clientId: string;
   redirectUri: string;
   active: boolean;
-  bannedAt: Date | null;
-  banReason: string | null;
   createdAt: Date;
 }

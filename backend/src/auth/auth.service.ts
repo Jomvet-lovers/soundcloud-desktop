@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AxiosError } from 'axios';
 import { Repository } from 'typeorm';
 import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
 import { type OAuthCredentials, SoundcloudService } from '../soundcloud/soundcloud.service.js';
@@ -119,9 +118,6 @@ export class AuthService {
       await this.sessionRepo.save(session);
       return { session, success: true };
     } catch (error: any) {
-      // Проверяем, не бан ли это
-      await this.checkAndHandleBan(error, session.oauthAppId);
-
       return {
         session,
         success: false,
@@ -155,19 +151,11 @@ export class AuthService {
 
       await this.sessionRepo.save(session);
       return session;
-    } catch (error: any) {
-      // Проверяем, не бан ли это
-      const isBan = await this.checkAndHandleBan(error, session.oauthAppId);
-
-      if (!isBan) {
-        await this.sessionRepo.remove(session);
-        throw new UnauthorizedException(
-          'Refresh token expired or invalid. Please re-authenticate.',
-        );
-      }
-
-      // Если бан — не удаляем сессию, юзер может переавторизоваться
-      throw new UnauthorizedException('SoundCloud app banned. Please re-authenticate.');
+    } catch {
+      await this.sessionRepo.remove(session);
+      throw new UnauthorizedException(
+        'Refresh token expired or invalid. Please re-authenticate.',
+      );
     }
   }
 
@@ -197,28 +185,6 @@ export class AuthService {
     }
 
     return session.accessToken;
-  }
-
-  /**
-   * Проверяет, является ли ошибка баном аппки.
-   * Если да — помечает аппку как забаненную.
-   * @returns true если это был бан
-   */
-  private async checkAndHandleBan(error: unknown, oauthAppId: string | null): Promise<boolean> {
-    if (!oauthAppId) return false;
-
-    if (error instanceof AxiosError && error.response) {
-      const { status, data } = error.response;
-      if (this.oauthAppsService.isSoundCloudAppBan(status, data)) {
-        await this.oauthAppsService.markBanned(
-          oauthAppId,
-          `CloudFront 403 block at ${new Date().toISOString()}`,
-        );
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /** Получить OAuth credentials для сессии (из привязанной аппки или fallback из env) */

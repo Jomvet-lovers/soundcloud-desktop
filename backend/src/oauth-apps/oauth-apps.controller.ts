@@ -35,8 +35,6 @@ export class OAuthAppsController {
       clientId: app.clientId,
       redirectUri: app.redirectUri,
       active: app.active,
-      bannedAt: app.bannedAt,
-      banReason: app.banReason,
       createdAt: app.createdAt,
     }));
   }

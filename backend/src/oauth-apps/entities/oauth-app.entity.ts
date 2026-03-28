@@ -33,17 +33,8 @@ export class OAuthApp {
   @Column()
   redirectUri: string;
 
-  /** Активна ли аппка (false = забанена или вручную выключена) */
   @Column({ default: true })
   active: boolean;
-
-  /** Когда была забанена (null = не банилась) */
-  @Column({ type: 'timestamptz', nullable: true })
-  bannedAt: Date | null;
-
-  /** Причина бана */
-  @Column({ type: 'text', nullable: true })
-  banReason: string | null;
 
   @CreateDateColumn()
   createdAt: Date;
