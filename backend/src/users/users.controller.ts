@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
@@ -21,6 +22,7 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
+  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Search users' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query' })
   @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated user IDs' })
@@ -38,6 +40,7 @@ export class UsersController {
   }
 
   @Get(':userUrn')
+  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get user by URN' })
   @ApiOkResponse({ type: ScUser })
   getById(@AccessToken() token: string, @Param('userUrn') userUrn: string) {
@@ -45,6 +48,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/followers')
+  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get user followers' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getFollowers(
@@ -56,6 +60,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/followings')
+  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get user followings' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getFollowings(
@@ -78,6 +83,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/tracks')
+  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user tracks' })
   @ApiQuery({
     name: 'access',
@@ -98,6 +104,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/playlists')
+  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user playlists' })
   @ApiQuery({
     name: 'access',
@@ -118,6 +125,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/likes/tracks')
+  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Get user liked tracks' })
   @ApiQuery({
     name: 'access',
@@ -138,6 +146,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/likes/playlists')
+  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Get user liked playlists' })
   @ApiOkResponse({ type: PaginatedPlaylistResponse })
   getLikedPlaylists(
@@ -149,6 +158,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/web-profiles')
+  @Cached({ ttl: 86400 })
   @ApiOperation({ summary: 'Get user web profiles' })
   @ApiOkResponse({ type: [ScWebProfile] })
   getWebProfiles(@AccessToken() token: string, @Param('userUrn') userUrn: string) {

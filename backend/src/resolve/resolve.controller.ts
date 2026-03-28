@@ -1,5 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import { ResolveService } from './resolve.service.js';
@@ -12,6 +13,7 @@ export class ResolveController {
   constructor(private readonly resolveService: ResolveService) {}
 
   @Get()
+  @Cached({ ttl: 86400 })
   @ApiOperation({ summary: 'Resolve a SoundCloud URL to a resource' })
   @ApiQuery({ name: 'url', required: true, description: 'SoundCloud URL to resolve' })
   resolve(@AccessToken() token: string, @Query('url') url: string) {

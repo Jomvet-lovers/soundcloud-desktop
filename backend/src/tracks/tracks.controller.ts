@@ -21,6 +21,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
@@ -43,6 +44,7 @@ export class TracksController {
   constructor(private readonly tracksService: TracksService) {}
 
   @Get()
+  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Search tracks' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query' })
   @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated track IDs' })
@@ -74,6 +76,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn')
+  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get track by URN' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiOkResponse({ type: ScTrack })
@@ -106,6 +109,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn/streams')
+  @Cached({ ttl: 3600 })
   @ApiOperation({ summary: 'Get track stream URLs' })
   @ApiQuery({
     name: 'secret_token',
@@ -196,6 +200,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn/comments')
+  @Cached({ ttl: 10 })
   @ApiOperation({ summary: 'Get track comments' })
   @ApiOkResponse({ type: PaginatedCommentResponse })
   getComments(
@@ -234,6 +239,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn/favoriters')
+  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get users who favorited a track' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getFavoriters(
@@ -245,6 +251,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn/reposters')
+  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get users who reposted a track' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getReposters(
@@ -256,6 +263,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn/related')
+  @Cached({ ttl: 86400 })
   @ApiOperation({ summary: 'Get related tracks' })
   @ApiQuery({
     name: 'access',

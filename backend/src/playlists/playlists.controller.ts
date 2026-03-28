@@ -7,6 +7,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
@@ -27,6 +28,7 @@ export class PlaylistsController {
   constructor(private readonly playlistsService: PlaylistsService) {}
 
   @Get()
+  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Search playlists' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query' })
   @ApiQuery({
@@ -82,6 +84,7 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn')
+  @Cached({ ttl: 10 })
   @ApiOperation({ summary: 'Get playlist by URN' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiQuery({
@@ -128,6 +131,7 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn/tracks')
+  @Cached({ ttl: 5 })
   @ApiOperation({ summary: 'Get playlist tracks' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiQuery({
@@ -150,6 +154,7 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn/reposters')
+  @Cached({ ttl: 360 })
   @ApiOperation({ summary: 'Get playlist reposters' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getReposters(

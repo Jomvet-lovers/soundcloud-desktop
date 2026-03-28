@@ -1,5 +1,6 @@
 import { Controller, Delete, Get, Param, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
@@ -21,6 +22,7 @@ export class MeController {
   constructor(private readonly meService: MeService) {}
 
   @Get()
+  @Cached({ ttl: 30, scope: 'user' })
   @ApiOperation({ summary: 'Get authenticated user profile' })
   @ApiOkResponse({ type: ScMe })
   getProfile(@AccessToken() token: string) {
@@ -28,6 +30,7 @@ export class MeController {
   }
 
   @Get('feed')
+  @Cached({ ttl: 60, scope: 'user' })
   @ApiOperation({ summary: 'Get authenticated user feed' })
   @ApiOkResponse({ type: PaginatedActivityResponse })
   getFeed(
@@ -39,6 +42,7 @@ export class MeController {
   }
 
   @Get('feed/tracks')
+  @Cached({ ttl: 60, scope: 'user' })
   @ApiOperation({ summary: 'Get authenticated user track feed' })
   @ApiOkResponse({ type: PaginatedActivityResponse })
   getFeedTracks(
@@ -76,6 +80,7 @@ export class MeController {
   }
 
   @Get('followings')
+  @Cached({ ttl: 5, scope: 'user' })
   @ApiOperation({ summary: 'Get users followed by authenticated user' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getFollowings(@AccessToken() token: string, @Query() query: PaginationQuery) {
@@ -83,6 +88,7 @@ export class MeController {
   }
 
   @Get('followings/tracks')
+  @Cached({ ttl: 30, scope: 'user' })
   @ApiOperation({ summary: 'Get tracks from followed users' })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getFollowingsTracks(
@@ -106,6 +112,7 @@ export class MeController {
   }
 
   @Get('followers')
+  @Cached({ ttl: 120, scope: 'user' })
   @ApiOperation({ summary: 'Get followers of authenticated user' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getFollowers(@AccessToken() token: string, @Query() query: PaginationQuery) {
@@ -121,6 +128,7 @@ export class MeController {
   }
 
   @Get('tracks')
+  @Cached({ ttl: 30, scope: 'user' })
   @ApiOperation({ summary: 'Get user tracks' })
   @ApiOkResponse({ type: PaginatedTrackResponse })
   getTracks(

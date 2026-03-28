@@ -3,7 +3,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
 import { Session } from './auth/entities/session.entity.js';
+import { ApiCacheModule } from './cache/cache.module.js';
+import { ApiCache } from './cache/entities/api-cache.entity.js';
 import { CdnModule } from './cdn/cdn.module.js';
+import { CdnTrack } from './cdn/entities/cdn-track.entity.js';
 import configuration from './config/configuration.js';
 import { FeaturedItem } from './featured/entities/featured-item.entity.js';
 import { FeaturedModule } from './featured/featured.module.js';
@@ -40,10 +43,20 @@ import { UsersModule } from './users/users.module.js';
         username: config.get<string>('database.username'),
         password: config.get<string>('database.password'),
         database: config.get<string>('database.name'),
-        entities: [Session, ListeningHistory, LocalLike, OAuthApp, PendingAction, FeaturedItem],
+        entities: [
+          Session,
+          ListeningHistory,
+          LocalLike,
+          OAuthApp,
+          PendingAction,
+          FeaturedItem,
+          CdnTrack,
+          ApiCache,
+        ],
         synchronize: true,
       }),
     }),
+    ApiCacheModule,
     OAuthAppsModule,
     AuthModule,
     FeaturedModule,
