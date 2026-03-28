@@ -11,9 +11,6 @@
 Без рекламы · Без капчи · Без цензуры · Доступно в России
 </p>
 
-> [!CAUTION]
-> SoundCloud начал банить аппку. офк я это обойду, но голосовалка за будущее тут - [#264](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/264)
-
 <p align="center">
 <a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
 <img src="https://img.shields.io/github/v/release/zxcloli666/SoundCloud-Desktop?style=for-the-badge&logo=github&color=FF5500&label=VERSION" alt="Version"/>
@@ -37,6 +34,19 @@
 <img src="https://img.shields.io/badge/English-README-0066FF?style=for-the-badge" alt="English"/>
 </a>
 </p>
+
+> [!CAUTION]
+> Поддержать проект:
+> 
+> Бусти: https://boosty.to/lolinamide
+> 
+> TON: UQAiVd_p6zV3iYNy0H9ZokH6_OEvzSrk-88taa7Mc2kE7pUZ
+> 
+> LTC: LLw3Wh1eGDetjoCc76cbfEHusy1vvaupo8
+> 
+> BTC: bc1qqjk9vy453q9jxvpwm7qa4wg3fw03rgzfa9xadf
+> 
+> и голосовалка - [#264](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/264)
 
 ---
 
