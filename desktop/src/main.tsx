@@ -57,7 +57,20 @@ function startDeferredRuntime() {
   });
 }
 
+async function fixWebviewScale() {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+    const monitorScale = await getCurrentWindow().scaleFactor();
+    const webviewDpr = window.devicePixelRatio;
+    if (monitorScale > 1 && webviewDpr < monitorScale * 0.8) {
+      await getCurrentWebview().setZoom(monitorScale / webviewDpr);
+    }
+  } catch {}
+}
+
 async function bootstrap() {
+  await fixWebviewScale();
   await useSettingsStore.persist.rehydrate();
 
   const settings = useSettingsStore.getState();
