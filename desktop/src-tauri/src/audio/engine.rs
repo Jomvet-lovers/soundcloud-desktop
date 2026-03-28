@@ -298,10 +298,12 @@ pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
         .map(|player| player.is_paused())
         .unwrap_or(false);
 
-    {
+    // For position 0, always recreate the player to avoid decoder state issues
+    if position > 0.0 {
         let player = state.player.lock().unwrap();
         if let Some(ref player) = *player {
             if player.try_seek(target).is_ok() {
+                state.ended_notified.store(false, Ordering::Relaxed);
                 return Ok(());
             }
         }

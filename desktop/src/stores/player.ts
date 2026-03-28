@@ -181,6 +181,16 @@ export const usePlayerStore = create<PlayerState>()(
       setQueue: (queue) =>
         set((s) => {
           const idx = s.currentTrack ? queue.findIndex((t) => t.urn === s.currentTrack!.urn) : -1;
+          if (s.shuffle && idx >= 0) {
+            // Shuffle everything after current track
+            const after = [...queue.slice(0, idx), ...queue.slice(idx + 1)];
+            shuffleArray(after);
+            return {
+              queue: [queue[idx], ...after],
+              queueIndex: 0,
+              originalQueue: [...queue],
+            };
+          }
           return {
             queue,
             queueIndex: idx >= 0 ? idx : s.queueIndex,
@@ -189,10 +199,24 @@ export const usePlayerStore = create<PlayerState>()(
         }),
 
       addToQueue: (tracks) =>
-        set((s) => ({
-          queue: [...s.queue, ...tracks],
-          originalQueue: s.originalQueue ? [...s.originalQueue, ...tracks] : null,
-        })),
+        set((s) => {
+          if (s.shuffle && s.queueIndex >= 0) {
+            // Insert new tracks at random positions after current index
+            const queue = [...s.queue];
+            for (const track of tracks) {
+              const pos = s.queueIndex + 1 + Math.floor(Math.random() * (queue.length - s.queueIndex));
+              queue.splice(pos, 0, track);
+            }
+            return {
+              queue,
+              originalQueue: s.originalQueue ? [...s.originalQueue, ...tracks] : null,
+            };
+          }
+          return {
+            queue: [...s.queue, ...tracks],
+            originalQueue: s.originalQueue ? [...s.originalQueue, ...tracks] : null,
+          };
+        }),
 
       addToQueueNext: (tracks) =>
         set((s) => {
