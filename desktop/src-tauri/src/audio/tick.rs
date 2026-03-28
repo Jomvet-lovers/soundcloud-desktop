@@ -7,7 +7,7 @@ use crate::app::diagnostics;
 use crate::audio::engine;
 use crate::audio::state::AudioState;
 use crate::audio::timing;
-use crate::audio::types::{STALL_COOLDOWN_MS, STALL_THRESHOLD_MS, TICK_INTERVAL_MS};
+use crate::audio::types::{AudioThreadCmd, STALL_COOLDOWN_MS, STALL_THRESHOLD_MS, TICK_INTERVAL_MS};
 
 pub fn start_tick_emitter(app: &AppHandle) {
     let handle = app.clone();
@@ -90,9 +90,12 @@ pub fn start_tick_emitter(app: &AppHandle) {
                             diagnostics::log_native(
                                 &handle,
                                 "WARN",
-                                "[Audio] Stall detected, reloading current track",
+                                "[Audio] Stall detected, reconnecting audio device",
                             );
-                            let _ = engine::reload_current_track(&state);
+                            // Reconnect device — stall often means the audio stream
+                            // died silently (macOS sleep/wake, headphone unplug).
+                            // Just reloading the track on a dead mixer won't help.
+                            state.audio_tx.send(AudioThreadCmd::Reconnect).ok();
                             stall_cooldown_until = std::time::Instant::now()
                                 + Duration::from_millis(STALL_COOLDOWN_MS);
                             last_progress_at = std::time::Instant::now();

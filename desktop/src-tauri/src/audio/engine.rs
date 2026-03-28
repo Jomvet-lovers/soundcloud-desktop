@@ -259,6 +259,15 @@ pub async fn load_url(
 }
 
 pub fn play(state: State<'_, AudioState>) {
+    // If the device errored (sleep/wake, headphone unplug), reconnect immediately
+    // instead of waiting for stall detection (2s delay).
+    if state.device_error.load(Ordering::Relaxed) {
+        state
+            .audio_tx
+            .send(crate::audio::types::AudioThreadCmd::Reconnect)
+            .ok();
+    }
+    // Always unpause so reload_current_track sees was_paused=false
     if let Ok(player) = state.player.try_lock() {
         if let Some(ref player) = *player {
             player.play();
