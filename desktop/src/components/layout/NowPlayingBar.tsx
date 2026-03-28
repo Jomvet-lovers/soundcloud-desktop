@@ -57,17 +57,40 @@ export const ProgressSlider = React.memo(() => {
 
   const displayValue = dragging ? dragValue : syncedValue;
 
+  // Safety net: if Radix onValueCommit doesn't fire (pointer leaves window, fast flick),
+  // reset dragging state on any pointerup so the progress bar doesn't freeze.
+  const pendingCommitRef = useRef<number | null>(null);
+
   const onValueChange = useCallback(([v]: number[]) => {
     setDragValue(v);
+    pendingCommitRef.current = v;
     if (!draggingRef.current) {
       draggingRef.current = true;
       setDragging(true);
+
+      const resetDrag = () => {
+        window.removeEventListener('pointerup', resetDrag);
+        window.removeEventListener('pointercancel', resetDrag);
+        // Give Radix a frame to fire onValueCommit first
+        requestAnimationFrame(() => {
+          if (draggingRef.current) {
+            const val = pendingCommitRef.current;
+            if (val != null) seek(val);
+            draggingRef.current = false;
+            setDragging(false);
+            setSyncedValue(val ?? 0);
+          }
+        });
+      };
+      window.addEventListener('pointerup', resetDrag);
+      window.addEventListener('pointercancel', resetDrag);
     }
   }, []);
 
   const onValueCommit = useCallback(([v]: number[]) => {
     seek(v);
     draggingRef.current = false;
+    pendingCommitRef.current = null;
     setDragging(false);
     setSyncedValue(v);
   }, []);

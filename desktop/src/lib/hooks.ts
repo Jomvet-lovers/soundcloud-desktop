@@ -1054,10 +1054,12 @@ function sampleTrackUrns(tracks: Track[], limit: number): string[] {
  * counts frequency of each related track. Used by both Recommended and Discover.
  */
 export function useRelatedPool(likedTracks: Track[]) {
-  const seedUrns = useMemo(() => {
-    if (likedTracks.length === 0) return [];
-    return sampleTrackUrns(likedTracks, 30);
-  }, [likedTracks]);
+  // Stable seed — compute once when liked tracks first arrive, don't recompute on likes
+  const seedRef = useRef<string[]>([]);
+  if (seedRef.current.length === 0 && likedTracks.length > 0) {
+    seedRef.current = sampleTrackUrns(likedTracks, 30);
+  }
+  const seedUrns = seedRef.current;
 
   const likedUrns = useMemo(() => new Set(likedTracks.map((t) => t.urn)), [likedTracks]);
 
