@@ -204,7 +204,8 @@ export const usePlayerStore = create<PlayerState>()(
             // Insert new tracks at random positions after current index
             const queue = [...s.queue];
             for (const track of tracks) {
-              const pos = s.queueIndex + 1 + Math.floor(Math.random() * (queue.length - s.queueIndex));
+              const pos =
+                s.queueIndex + 1 + Math.floor(Math.random() * (queue.length - s.queueIndex));
               queue.splice(pos, 0, track);
             }
             return {

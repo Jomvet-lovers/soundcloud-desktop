@@ -114,7 +114,9 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
       {/* Modal */}
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[9999] bg-black/55 backdrop-blur-sm animate-in fade-in duration-200" />
-        <Dialog.Content className={`fixed left-1/2 top-1/2 z-[10000] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-[#1a1a1e]/95 backdrop-blur-2xl shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${mBorder}`}>
+        <Dialog.Content
+          className={`fixed left-1/2 top-1/2 z-[10000] w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-[#1a1a1e]/95 backdrop-blur-2xl shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${mBorder}`}
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
             <div className="flex items-center gap-2.5">
@@ -175,8 +177,7 @@ export const NewsToast = React.memo(function NewsToast() {
   const visible = useMemo(
     () =>
       NEWS.filter(
-        (item) =>
-          !permanentlyDismissed.includes(item.id) && !sessionDismissed.includes(item.id),
+        (item) => !permanentlyDismissed.includes(item.id) && !sessionDismissed.includes(item.id),
       ),
     [permanentlyDismissed, sessionDismissed],
   );

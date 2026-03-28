@@ -173,7 +173,13 @@ const OfflineTrackRow = React.memo(function OfflineTrackRow({
       >
         {artwork ? (
           <>
-            <img src={artwork} alt="" className="size-full object-cover" decoding="async" loading="lazy" />
+            <img
+              src={artwork}
+              alt=""
+              className="size-full object-cover"
+              decoding="async"
+              loading="lazy"
+            />
             {canPlay && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
                 <Play size={16} fill="white" strokeWidth={0} />
@@ -363,7 +369,9 @@ export const OfflinePage = React.memo(() => {
       if (!cancelled) void syncAllLikes();
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Load pending actions stats
@@ -408,7 +416,10 @@ export const OfflinePage = React.memo(() => {
   return (
     <div className="relative min-h-full overflow-hidden px-6 py-6 md:px-8 md:py-8">
       {/* Ambient glow background */}
-      <div className="pointer-events-none absolute inset-0" style={{ contain: 'strict', transform: 'translateZ(0)' }}>
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ contain: 'strict', transform: 'translateZ(0)' }}
+      >
         <div className="absolute left-[-10%] top-[-8%] h-[480px] w-[480px] rounded-full bg-accent/[0.07] blur-[140px]" />
         <div className="absolute bottom-[-14%] right-[-10%] h-[520px] w-[520px] rounded-full bg-sky-400/[0.05] blur-[160px]" />
         {appMode === 'blocked' && (
@@ -416,7 +427,10 @@ export const OfflinePage = React.memo(() => {
         )}
       </div>
 
-      <div className="relative mx-auto flex w-full max-w-[1320px] flex-col gap-5" style={{ isolation: 'isolate' }}>
+      <div
+        className="relative mx-auto flex w-full max-w-[1320px] flex-col gap-5"
+        style={{ isolation: 'isolate' }}
+      >
         {/* Header */}
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge />

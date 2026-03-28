@@ -22,8 +22,7 @@ export const useSearchHistoryStore = create<SearchHistoryState>()(
           queries: [q, ...s.queries.filter((item) => item !== q)].slice(0, MAX_HISTORY),
         }));
       },
-      removeQuery: (query) =>
-        set((s) => ({ queries: s.queries.filter((item) => item !== query) })),
+      removeQuery: (query) => set((s) => ({ queries: s.queries.filter((item) => item !== query) })),
       clearHistory: () => set({ queries: [] }),
     }),
     {

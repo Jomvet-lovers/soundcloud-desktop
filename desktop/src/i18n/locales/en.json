@@ -41,7 +41,7 @@
     "hint": "Search for artists, bands, tracks, podcasts",
     "history": "Recent searches",
     "clearHistory": "Clear all"
-    },
+  },
   "track": {
     "comments": "Comments",
     "related": "Related Tracks",
