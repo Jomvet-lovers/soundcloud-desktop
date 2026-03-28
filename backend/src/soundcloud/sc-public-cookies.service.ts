@@ -44,9 +44,11 @@ export class ScPublicCookiesService {
     return !!this.cookies;
   }
 
-  async getStreamViaCookies(
-    trackUrn: string,
-  ): Promise<{ stream: NodeJS.ReadableStream; headers: Record<string, string> } | null> {
+  async getStreamViaCookies(trackUrn: string): Promise<{
+    stream: NodeJS.ReadableStream;
+    headers: Record<string, string>;
+    quality: 'hq' | 'sq';
+  } | null> {
     if (!this.cookies) return null;
 
     const trackId = trackUrn.replace(/.*:/, '');
@@ -104,7 +106,10 @@ export class ScPublicCookiesService {
           transcoding.format.mime_type,
         );
         await this.recordSuccess();
-        return result;
+        return {
+          ...result,
+          quality: (transcoding.quality === 'hq' ? 'hq' : 'sq') as 'hq' | 'sq',
+        };
       } catch (err: any) {
         this.logger.warn(`Cookie stream ${transcoding.preset} failed: ${err.message}`);
       }
@@ -112,6 +117,30 @@ export class ScPublicCookiesService {
 
     await this.recordFailure('all_cookie_transcodings_failed', trackUrn);
     return null;
+  }
+
+  /**
+   * Проверяет доступность HQ транскодинга для трека через cookie-client.
+   * Не стримит — только проверяет наличие quality='hq' в transcodings.
+   */
+  async checkHqAvailable(trackUrn: string): Promise<boolean> {
+    if (!this.cookies) return false;
+
+    const trackId = trackUrn.replace(/.*:/, '');
+    try {
+      const track = await this.scPublicAnon.getTrackById(trackId);
+      if (!track.permalink_url) return false;
+
+      const hydration = await this.fetchHydrationSound(track.permalink_url);
+      if (!hydration?.sound?.media?.transcodings) return false;
+
+      const full = hydration.sound.media.transcodings.filter(
+        (t) => !t.snipped && !t.url.includes('/preview'),
+      );
+      return full.some((t) => t.quality === 'hq');
+    } catch {
+      return false;
+    }
   }
 
   private async fetchHydrationSound(permalinkUrl: string): Promise<CookieHydrationData | null> {
