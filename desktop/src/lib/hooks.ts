@@ -1018,7 +1018,7 @@ export function useSearchUsers(q: string) {
 
 /* ── Fallback / Seed Tracks ────────────────────────────────────── */
 
-const FALLBACK_TRACK_IDS = '2028678528,2028677636,2078655668';
+const FALLBACK_TRACK_IDS = '2028682452,2065341288,2028677636,2209249766,2060818444,2064016848';
 
 export function useFallbackTracks() {
   return useQuery({

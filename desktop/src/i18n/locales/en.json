@@ -139,7 +139,9 @@
     "endOfFeed": "You're all caught up",
     "recommended": "Recommended For You",
     "discover": "Discover",
-    "startListening": "Start Listening"
+    "startListening": "Start Listening",
+    "startLikingTitle": "Like tracks — more music will appear here",
+    "startLikingDesc": "The more likes, the better recommendations and richer home page"
   },
   "offline": {
     "blockedBadge": "Local mode",

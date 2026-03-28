@@ -136,7 +136,9 @@
     "endOfFeed": "Her seyi gordunuz",
     "recommended": "Sizin Icin Onerilenler",
     "discover": "Kesfet",
-    "startListening": "Dinlemeye Basla"
+    "startListening": "Dinlemeye Basla",
+    "startLikingTitle": "Parçaları beğenin — burada daha fazla müzik görünecek",
+    "startLikingDesc": "Ne kadar çok beğeni, o kadar iyi öneriler ve daha zengin ana sayfa"
   },
   "offline": {
     "blockedBadge": "Yerel mod",

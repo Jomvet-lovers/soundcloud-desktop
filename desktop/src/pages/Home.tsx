@@ -863,23 +863,36 @@ const FallbackShelf = React.memo(function FallbackShelf() {
   if (hasActivity || (!fallbackLoading && fallbackTracks.length === 0)) return null;
 
   return (
-    <section>
-      <SectionHeader
-        title={t('home.startListening', 'Start Listening')}
-        icon={<Headphones size={15} className="text-accent" />}
-      />
-      <HorizontalScroll>
-        {fallbackLoading ? (
-          <ShelfSkeleton count={3} />
-        ) : (
-          fallbackTracks.map((track) => (
-            <div key={track.urn} className="w-[180px] shrink-0">
-              <TrackCard track={track} queue={fallbackTracks} />
-            </div>
-          ))
-        )}
-      </HorizontalScroll>
-    </section>
+    <>
+      {/* Hint to start liking */}
+      <section className="glass-flat rounded-2xl p-5 flex items-center gap-4">
+        <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+          <Heart size={18} className="text-accent" />
+        </div>
+        <div>
+          <p className="text-[13px] font-medium text-white/80">{t('home.startLikingTitle')}</p>
+          <p className="text-[11px] text-white/35 mt-0.5">{t('home.startLikingDesc')}</p>
+        </div>
+      </section>
+
+      <section>
+        <SectionHeader
+          title={t('home.startListening', 'Start Listening')}
+          icon={<Headphones size={15} className="text-accent" />}
+        />
+        <HorizontalScroll>
+          {fallbackLoading ? (
+            <ShelfSkeleton count={6} />
+          ) : (
+            fallbackTracks.map((track) => (
+              <div key={track.urn} className="w-[180px] shrink-0">
+                <TrackCard track={track} queue={fallbackTracks} />
+              </div>
+            ))
+          )}
+        </HorizontalScroll>
+      </section>
+    </>
   );
 });
 
