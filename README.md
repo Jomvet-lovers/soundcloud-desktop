@@ -119,7 +119,14 @@ chmod +x soundcloud-desktop-*.AppImage
 - **Apple Silicon** (M1/M2/M3/M4): `*_arm64.dmg`
 - **Intel**: `*_x64.dmg`
 
-Скачай со [страницы релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest). Первый запуск: ПКМ → Открыть.
+Скачай со [страницы релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest).
+
+> [!NOTE]
+> **macOS блокирует запуск?** Приложение не подписано Apple Developer сертификатом, поэтому Gatekeeper может показать ошибку «приложение повреждено». Исправляется одной командой:
+> ```bash
+> xattr -cr /Applications/soundcloud-desktop.app
+> ```
+> После этого приложение запустится нормально.
 
 ---
 
