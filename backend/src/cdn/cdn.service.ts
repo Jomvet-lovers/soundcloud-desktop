@@ -187,6 +187,7 @@ export class CdnService implements OnModuleInit {
       await this.cdnTrackRepo.update(record.id, { status: CdnStatus.ERROR });
       return false;
     } catch (err: any) {
+      console.log(err)
       this.logger.warn(`CDN upload error for ${trackUrn}: ${err.message}`);
       await this.cdnTrackRepo.update(record.id, { status: CdnStatus.ERROR });
       return false;
@@ -225,7 +226,7 @@ export class CdnService implements OnModuleInit {
     // Phase 2: Upload file (multipart)
     const FormData = (await import('form-data')).default;
     const form = new FormData();
-    form.append('token', uploadToken);
+    form.append('token', signRes.data.token);
     form.append('file', audioBuffer, {
       filename: 'track.mp3',
       contentType: 'audio/mpeg',
