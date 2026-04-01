@@ -31,6 +31,8 @@ export default () => ({
     baseUrl: process.env.CDN_BASE_URL || '',
     authToken: process.env.CDN_AUTH_TOKEN || '',
     uploadTimeoutMs: Number.parseInt(process.env.CDN_UPLOAD_TIMEOUT_MS || '300000', 10),
+    unavailableThreshold: Number.parseInt(process.env.CDN_UNAVAILABLE_THRESHOLD || '3', 10),
+    unavailableCooldownMs: Number.parseInt(process.env.CDN_UNAVAILABLE_COOLDOWN_MS || '60000', 10),
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',

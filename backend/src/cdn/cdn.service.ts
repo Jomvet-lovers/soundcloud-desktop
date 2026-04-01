@@ -1,3 +1,4 @@
+import type { AxiosResponse } from 'axios';
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -8,12 +9,19 @@ import { firstValueFrom } from 'rxjs';
 import { Repository } from 'typeorm';
 import { CdnQuality, CdnStatus, CdnTrack } from './entities/cdn-track.entity.js';
 
+export type CdnVerifyResult = 'ok' | 'missing' | 'unavailable';
+type CdnUploadResult = 'uploaded' | 'failed' | 'unavailable';
+
 @Injectable()
 export class CdnService implements OnModuleInit {
   private readonly logger = new Logger(CdnService.name);
   private readonly baseUrl: string;
   private readonly authToken: string;
   private readonly uploadTimeoutMs: number;
+  private readonly unavailableThreshold: number;
+  private readonly unavailableCooldownMs: number;
+  private consecutiveUnavailable = 0;
+  private unavailableUntil = 0;
 
   get enabled(): boolean {
     return !!(this.baseUrl && this.authToken);
@@ -28,6 +36,14 @@ export class CdnService implements OnModuleInit {
     this.baseUrl = (this.configService.get<string>('cdn.baseUrl') ?? '').replace(/\/+$/, '');
     this.authToken = this.configService.get<string>('cdn.authToken') ?? '';
     this.uploadTimeoutMs = this.configService.get<number>('cdn.uploadTimeoutMs') ?? 600_000;
+    this.unavailableThreshold = Math.max(
+      1,
+      this.configService.get<number>('cdn.unavailableThreshold') ?? 3,
+    );
+    this.unavailableCooldownMs = Math.max(
+      1_000,
+      this.configService.get<number>('cdn.unavailableCooldownMs') ?? 60_000,
+    );
   }
 
   onModuleInit() {
@@ -82,8 +98,17 @@ export class CdnService implements OnModuleInit {
     await this.cdnTrackRepo.update({ trackUrn }, { hqAvailable: available });
   }
 
-  /** Проверяет что CDN реально отдаёт файл (HEAD, 2xx) */
-  async verifyCdnUrl(url: string): Promise<boolean> {
+  isTemporarilyUnavailable(): boolean {
+    return this.unavailableUntil > Date.now();
+  }
+
+  /** Проверяет что CDN реально отдаёт файл. */
+  async verifyCdnUrl(url: string): Promise<CdnVerifyResult> {
+    if (this.isTemporarilyUnavailable()) {
+      this.logger.debug('CDN breaker open, skipping HEAD check');
+      return 'unavailable';
+    }
+
     try {
       const { status } = await firstValueFrom(
         this.httpService.head(url, {
@@ -91,9 +116,22 @@ export class CdnService implements OnModuleInit {
           timeout: 3000,
         }),
       );
-      return status >= 200 && status < 300;
-    } catch {
-      return false;
+
+      if (status >= 200 && status < 300) {
+        this.markAvailable();
+        return 'ok';
+      }
+
+      if (status === 404 || status === 410) {
+        this.markAvailable();
+        return 'missing';
+      }
+
+      this.markUnavailable(`HEAD ${status} ${url}`);
+      return 'unavailable';
+    } catch (err: any) {
+      this.markUnavailable(`HEAD error ${url}: ${err.message}`);
+      return 'unavailable';
     }
   }
 
@@ -147,6 +185,11 @@ export class CdnService implements OnModuleInit {
     filePath: string,
   ): Promise<boolean> {
     if (!this.enabled) return false;
+    if (this.isTemporarilyUnavailable()) {
+      this.logger.debug(`CDN breaker open, skipping upload for ${trackUrn} (${quality})`);
+      await this.cleanupTmpFile(filePath);
+      return false;
+    }
 
     const cdnPath = this.trackPath(trackUrn, quality);
 
@@ -180,8 +223,8 @@ export class CdnService implements OnModuleInit {
 
     try {
       const fileSize = statSync(filePath).size;
-      const success = await this.uploadToCdn(cdnPath, filePath, fileSize);
-      if (success) {
+      const uploadResult = await this.uploadToCdn(cdnPath, filePath, fileSize);
+      if (uploadResult === 'uploaded') {
         await this.cdnTrackRepo.update(record.id, {
           status: CdnStatus.OK,
           cdnPath,
@@ -191,6 +234,12 @@ export class CdnService implements OnModuleInit {
         );
         return true;
       }
+
+      if (uploadResult === 'unavailable') {
+        await this.cdnTrackRepo.delete(record.id);
+        return false;
+      }
+
       await this.cdnTrackRepo.update(record.id, { status: CdnStatus.ERROR });
       return false;
     } catch (err: any) {
@@ -203,32 +252,52 @@ export class CdnService implements OnModuleInit {
   }
 
   /** Двухфазная загрузка на SecureServe CDN (стримит файл, не грузит в память) */
-  private async uploadToCdn(path: string, filePath: string, fileSize: number): Promise<boolean> {
+  private async uploadToCdn(
+    path: string,
+    filePath: string,
+    fileSize: number,
+  ): Promise<CdnUploadResult> {
+    if (this.isTemporarilyUnavailable()) {
+      return 'unavailable';
+    }
+
     const uploadToken = `sc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     // Phase 1: Sign upload
-    const signRes = await firstValueFrom(
-      this.httpService.post(
-        `${this.baseUrl}/api/sign-upload`,
-        {
-          token: uploadToken,
-          path,
-          size: fileSize,
-          content_type: 'audio/mpeg',
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${this.authToken}`,
-            'Content-Type': 'application/json',
+    let signRes: AxiosResponse<{ token: string }>;
+    try {
+      signRes = await firstValueFrom(
+        this.httpService.post(
+          `${this.baseUrl}/api/sign-upload`,
+          {
+            token: uploadToken,
+            path,
+            size: fileSize,
+            content_type: 'audio/mpeg',
           },
-          timeout: 10_000,
-        },
-      ),
-    );
+          {
+            headers: {
+              Authorization: `Bearer ${this.authToken}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10_000,
+            validateStatus: () => true,
+          },
+        ),
+      );
+    } catch (err: any) {
+      this.markUnavailable(`sign-upload error ${path}: ${err.message}`);
+      return 'unavailable';
+    }
 
     if (signRes.status !== 200) {
+      if (this.isUnavailableStatus(signRes.status)) {
+        this.markUnavailable(`sign-upload ${signRes.status} ${path}`);
+        return 'unavailable';
+      }
+      this.markAvailable();
       this.logger.warn(`CDN sign-upload failed: ${signRes.status}`);
-      return false;
+      return 'failed';
     }
 
     // Phase 2: Upload file (стрим из tmp-файла)
@@ -241,28 +310,73 @@ export class CdnService implements OnModuleInit {
       knownLength: fileSize,
     });
 
-    const uploadRes = await firstValueFrom(
-      this.httpService.post(`${this.baseUrl}/api/upload`, form, {
-        headers: {
-          ...form.getHeaders(),
-        },
-        timeout: this.uploadTimeoutMs,
-        maxBodyLength: Infinity,
-        maxContentLength: Infinity,
-      }),
-    );
-
-    if (uploadRes.status !== 200) {
-      this.logger.warn(`CDN upload failed: ${uploadRes.status}`);
-      return false;
+    let uploadRes: AxiosResponse;
+    try {
+      uploadRes = await firstValueFrom(
+        this.httpService.post(`${this.baseUrl}/api/upload`, form, {
+          headers: {
+            ...form.getHeaders(),
+          },
+          timeout: this.uploadTimeoutMs,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          validateStatus: () => true,
+        }),
+      );
+    } catch (err: any) {
+      this.markUnavailable(`upload error ${path}: ${err.message}`);
+      return 'unavailable';
     }
 
-    return true;
+    if (uploadRes.status !== 200) {
+      if (this.isUnavailableStatus(uploadRes.status)) {
+        this.markUnavailable(`upload ${uploadRes.status} ${path}`);
+        return 'unavailable';
+      }
+      this.markAvailable();
+      this.logger.warn(`CDN upload failed: ${uploadRes.status}`);
+      return 'failed';
+    }
+
+    this.markAvailable();
+    return 'uploaded';
   }
 
   private async cleanupTmpFile(filePath: string): Promise<void> {
     try {
       await unlink(filePath);
     } catch {}
+  }
+
+  private isUnavailableStatus(status: number): boolean {
+    return status === 401 || status === 403 || status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+
+  private markAvailable(): void {
+    if (this.consecutiveUnavailable > 0 || this.unavailableUntil > 0) {
+      this.logger.log('CDN reachable again, closing breaker');
+    }
+    this.consecutiveUnavailable = 0;
+    this.unavailableUntil = 0;
+  }
+
+  private markUnavailable(reason: string): void {
+    this.consecutiveUnavailable += 1;
+
+    if (this.isTemporarilyUnavailable()) {
+      return;
+    }
+
+    if (this.consecutiveUnavailable < this.unavailableThreshold) {
+      this.logger.warn(
+        `CDN unavailable (${this.consecutiveUnavailable}/${this.unavailableThreshold}): ${reason}`,
+      );
+      return;
+    }
+
+    this.unavailableUntil = Date.now() + this.unavailableCooldownMs;
+    this.logger.warn(
+      `CDN breaker opened for ${this.unavailableCooldownMs}ms after ${this.consecutiveUnavailable} failures: ${reason}`,
+    );
   }
 }

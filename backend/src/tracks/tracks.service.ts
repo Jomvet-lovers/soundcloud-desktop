@@ -113,12 +113,17 @@ export class TracksService {
     | { type: 'stream'; stream: Readable; headers: Record<string, string> }
     | null
   > {
+    let skipCdnUpload = this.cdn.isTemporarilyUnavailable();
+
     // 1. CDN
     if (this.cdn.enabled) {
       const cdnResult = await this.tryServFromCdn(trackUrn);
       if (cdnResult) {
-        this.logger.log(`[stream] ${trackUrn} → CDN`);
-        return cdnResult;
+        if (cdnResult.type === 'redirect') {
+          this.logger.log(`[stream] ${trackUrn} → CDN`);
+          return cdnResult;
+        }
+        skipCdnUpload = true;
       }
     }
 
@@ -132,7 +137,7 @@ export class TracksService {
     this.logger.log(`[stream] ${trackUrn} → ${streamData.quality} via ${streamData.source}`);
 
     // 3. Tee на CDN если включён
-    if (this.cdn.enabled) {
+    if (this.cdn.enabled && !skipCdnUpload && !this.cdn.isTemporarilyUnavailable()) {
       return this.teeStreamToCdn(trackUrn, streamData);
     }
 
@@ -142,18 +147,26 @@ export class TracksService {
   /** Пытается отдать трек с CDN (HQ приоритет, потом SQ). */
   private async tryServFromCdn(
     trackUrn: string,
-  ): Promise<{ type: 'redirect'; url: string } | null> {
+  ): Promise<{ type: 'redirect'; url: string } | { type: 'unavailable' } | null> {
     const cached = await this.cdn.findCachedTrack(trackUrn, true);
     if (!cached) return null;
 
     const cdnUrl = this.cdn.getCdnUrl(trackUrn, cached.quality as CdnQuality);
-    const alive = await this.cdn.verifyCdnUrl(cdnUrl);
-    if (!alive) {
-      await this.cdn.markError(cached.id);
-      return null;
+    const verifyResult = await this.cdn.verifyCdnUrl(cdnUrl);
+
+    if (verifyResult === 'ok') {
+      return { type: 'redirect', url: cdnUrl };
     }
 
-    return { type: 'redirect', url: cdnUrl };
+    if (verifyResult === 'missing') {
+      await this.cdn.markError(cached.id);
+    }
+
+    if (verifyResult === 'unavailable') {
+      return { type: 'unavailable' };
+    }
+
+    return null;
   }
 
   /**
