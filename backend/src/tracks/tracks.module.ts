@@ -9,7 +9,14 @@ import { TracksController } from './tracks.controller.js';
 import { TracksService } from './tracks.service.js';
 
 @Module({
-  imports: [HttpModule, SoundcloudModule, AuthModule, LocalLikesModule, CdnModule, PendingActionsModule],
+  imports: [
+    HttpModule,
+    SoundcloudModule,
+    AuthModule,
+    LocalLikesModule,
+    CdnModule,
+    PendingActionsModule,
+  ],
   controllers: [TracksController],
   providers: [TracksService],
 })

@@ -229,9 +229,7 @@ export class CdnService implements OnModuleInit {
           status: CdnStatus.OK,
           cdnPath,
         });
-        this.logger.log(
-          `CDN uploaded: ${cdnPath} (${(fileSize / 1024 / 1024).toFixed(1)}MB)`,
-        );
+        this.logger.log(`CDN uploaded: ${cdnPath} (${(fileSize / 1024 / 1024).toFixed(1)}MB)`);
         return true;
       }
 
@@ -349,7 +347,14 @@ export class CdnService implements OnModuleInit {
   }
 
   private isUnavailableStatus(status: number): boolean {
-    return status === 401 || status === 403 || status === 408 || status === 425 || status === 429 || status >= 500;
+    return (
+      status === 401 ||
+      status === 403 ||
+      status === 408 ||
+      status === 425 ||
+      status === 429 ||
+      status >= 500
+    );
   }
 
   private markAvailable(): void {

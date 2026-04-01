@@ -136,7 +136,9 @@ export class PendingActionsService {
       } catch (err: any) {
         if (this.isBanError(err)) {
           // Все ещё забанены — не увеличиваем retry, просто пропускаем
-          this.logger.warn(`Still banned, skipping sync for ${action.actionType} ${action.targetUrn}`);
+          this.logger.warn(
+            `Still banned, skipping sync for ${action.actionType} ${action.targetUrn}`,
+          );
           break; // Не продолжаем — всё равно забанены
         }
 
@@ -208,11 +210,7 @@ export class PendingActionsService {
         await this.sc.apiDelete(`/reposts/tracks/${action.targetUrn}`, token);
         break;
       case 'comment':
-        await this.sc.apiPost(
-          `/tracks/${action.targetUrn}/comments`,
-          token,
-          action.payload,
-        );
+        await this.sc.apiPost(`/tracks/${action.targetUrn}/comments`, token, action.payload);
         break;
       case 'like_playlist':
         await this.sc.apiPost(`/likes/playlists/${action.targetUrn}`, token);

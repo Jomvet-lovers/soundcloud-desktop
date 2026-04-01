@@ -45,7 +45,11 @@ export class RepostsService {
     }
   }
 
-  async removePlaylistRepost(token: string, sessionId: string, playlistUrn: string): Promise<unknown> {
+  async removePlaylistRepost(
+    token: string,
+    sessionId: string,
+    playlistUrn: string,
+  ): Promise<unknown> {
     try {
       return await this.sc.apiDelete(`/reposts/playlists/${playlistUrn}`, token);
     } catch (error) {

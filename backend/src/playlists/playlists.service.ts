@@ -27,7 +27,12 @@ export class PlaylistsService {
       return await this.sc.apiPost<ScPlaylist>('/playlists', token, body);
     } catch (error) {
       if (this.pendingActions.isBanError(error)) {
-        await this.pendingActions.enqueue(sessionId, 'playlist_create', 'new', body as Record<string, unknown>);
+        await this.pendingActions.enqueue(
+          sessionId,
+          'playlist_create',
+          'new',
+          body as Record<string, unknown>,
+        );
         return { queued: true, actionType: 'playlist_create' };
       }
       throw error;
@@ -42,12 +47,22 @@ export class PlaylistsService {
     return this.sc.apiGet(`/playlists/${playlistUrn}`, token, params);
   }
 
-  async update(token: string, sessionId: string, playlistUrn: string, body: unknown): Promise<unknown> {
+  async update(
+    token: string,
+    sessionId: string,
+    playlistUrn: string,
+    body: unknown,
+  ): Promise<unknown> {
     try {
       return await this.sc.apiPut<ScPlaylist>(`/playlists/${playlistUrn}`, token, body);
     } catch (error) {
       if (this.pendingActions.isBanError(error)) {
-        await this.pendingActions.enqueue(sessionId, 'playlist_update', playlistUrn, body as Record<string, unknown>);
+        await this.pendingActions.enqueue(
+          sessionId,
+          'playlist_update',
+          playlistUrn,
+          body as Record<string, unknown>,
+        );
         return { queued: true, actionType: 'playlist_update', targetUrn: playlistUrn };
       }
       throw error;

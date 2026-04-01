@@ -124,14 +124,11 @@ export class OAuthAppsService implements OnModuleInit {
 
     try {
       await firstValueFrom(
-        this.httpService.post(
-          `https://api.telegram.org/bot${this.telegramBotToken}/sendMessage`,
-          {
-            chat_id: this.telegramChatId,
-            text,
-            parse_mode: 'HTML',
-          },
-        ),
+        this.httpService.post(`https://api.telegram.org/bot${this.telegramBotToken}/sendMessage`, {
+          chat_id: this.telegramChatId,
+          text,
+          parse_mode: 'HTML',
+        }),
       );
       this.logger.log('Telegram alert sent');
     } catch (err: any) {

@@ -149,12 +149,7 @@ export class TracksController {
     const params: Record<string, unknown> = {};
     if (secretToken) params.secret_token = secretToken;
 
-    const result = await this.tracksService.getStream(
-      token,
-      trackUrn,
-      params,
-      hq === 'true',
-    );
+    const result = await this.tracksService.getStream(token, trackUrn, params, hq === 'true');
 
     if (!result) {
       return {

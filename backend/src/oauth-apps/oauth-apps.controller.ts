@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CreateOAuthAppDto, OAuthAppResponseDto, UpdateOAuthAppDto } from './dto/oauth-app.dto.js';
@@ -42,10 +52,7 @@ export class OAuthAppsController {
   @Post()
   @ApiOperation({ summary: 'Create new OAuth app' })
   @ApiHeader({ name: 'x-admin-token', required: true })
-  async create(
-    @Headers('x-admin-token') adminToken: string,
-    @Body() dto: CreateOAuthAppDto,
-  ) {
+  async create(@Headers('x-admin-token') adminToken: string, @Body() dto: CreateOAuthAppDto) {
     this.checkAdmin(adminToken);
     return this.service.create(dto);
   }
@@ -65,10 +72,7 @@ export class OAuthAppsController {
   @Delete(':id')
   @ApiOperation({ summary: 'Delete OAuth app' })
   @ApiHeader({ name: 'x-admin-token', required: true })
-  async remove(
-    @Headers('x-admin-token') adminToken: string,
-    @Param('id') id: string,
-  ) {
+  async remove(@Headers('x-admin-token') adminToken: string, @Param('id') id: string) {
     this.checkAdmin(adminToken);
     await this.service.remove(id);
     return { success: true };

@@ -153,9 +153,7 @@ export class AuthService {
       return session;
     } catch {
       await this.sessionRepo.remove(session);
-      throw new UnauthorizedException(
-        'Refresh token expired or invalid. Please re-authenticate.',
-      );
+      throw new UnauthorizedException('Refresh token expired or invalid. Please re-authenticate.');
     }
   }
 

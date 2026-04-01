@@ -210,7 +210,10 @@ export class TracksService {
   ): { type: 'stream'; stream: Readable; headers: Record<string, string> } {
     const { stream, headers, quality } = streamData;
     const cdnQuality = quality === 'hq' ? CdnQuality.HQ : CdnQuality.SQ;
-    const tmpFile = join(tmpdir(), `cdn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`);
+    const tmpFile = join(
+      tmpdir(),
+      `cdn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`,
+    );
     const fileStream = createWriteStream(tmpFile);
     const clientStream = new PassThrough();
 
