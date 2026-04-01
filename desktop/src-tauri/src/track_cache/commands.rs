@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::track_cache::state::TrackCacheState;
+use crate::track_cache::state::{download_track_to_cache, TrackCacheState};
 
 #[derive(serde::Deserialize)]
 pub struct PreloadEntry {
@@ -42,49 +42,28 @@ pub async fn track_preload(
             continue;
         }
         queued += 1;
-        let client = state.client.clone();
         let audio_dir = state.audio_dir.clone();
+        let api_client = state.api_client.clone();
+        let storage_head_client = state.storage_head_client.clone();
+        let storage_get_client = state.storage_get_client.clone();
         let urn = entry.urn;
         let url = entry.url;
         let session_id = entry.session_id;
 
         tokio::spawn(async move {
             println!("[TrackCache] preloading {urn} from {url}");
-            let start = std::time::Instant::now();
-            let mut req = client.get(&url);
-            if let Some(sid) = &session_id {
-                req = req.header("x-session-id", sid.as_str());
-            }
-            match req.send().await {
-                Ok(resp) => {
-                    let final_url = resp.url().clone();
-                    let status = resp.status();
-                    if final_url.as_str() != url {
-                        println!("[TrackCache] preload {urn} redirected → {final_url}");
-                    }
-                    if !status.is_success() {
-                        eprintln!("[TrackCache] preload {urn}: HTTP {status} from {final_url}");
-                        return;
-                    }
-                    match resp.bytes().await {
-                        Ok(bytes) => {
-                            if bytes.len() < 8192 {
-                                eprintln!("[TrackCache] preload {urn}: too small ({} bytes)", bytes.len());
-                                return;
-                            }
-                            let filename = format!("{}.audio", urn.replace(':', "_"));
-                            let path = audio_dir.join(filename);
-                            tokio::fs::write(&path, &bytes).await.ok();
-                            let kb = bytes.len() / 1024;
-                            let ms = start.elapsed().as_millis();
-                            println!("[TrackCache] preloaded {urn} — {kb} KB in {ms}ms");
-                        }
-                        Err(e) => eprintln!("[TrackCache] preload {urn}: body read: {e}"),
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[TrackCache] preload {urn}: {e}");
-                }
+            if let Err(err) = download_track_to_cache(
+                &audio_dir,
+                &api_client,
+                &storage_head_client,
+                &storage_get_client,
+                &urn,
+                &url,
+                session_id.as_deref(),
+            )
+            .await
+            {
+                eprintln!("[TrackCache] preload {urn}: {err}");
             }
         });
     }

@@ -1,39 +1,73 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use futures_util::StreamExt;
+use reqwest::{Client, Url};
+use tokio::fs::File;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify};
 
+const STORAGE_BASE_URL: &str = "https://storage.soundcloud.su";
+const API_BASE_URL: &str = "https://api.soundcloud.su";
 const MIN_AUDIO_SIZE: u64 = 8192;
+const AUDIO_SNIFF_LEN: usize = 16;
+const STREAM_WRITE_BUFFER_SIZE: usize = 256 * 1024;
+const STORAGE_CONNECT_TIMEOUT_MS: u64 = 800;
+const STORAGE_HEAD_TIMEOUT_MS: u64 = 1200;
+const DOWNLOAD_CONNECT_TIMEOUT_MS: u64 = 1500;
+const DOWNLOAD_READ_TIMEOUT_SECS: u64 = 20;
+const RETRY_DELAYS_MS: [u64; 3] = [200, 600, 1500];
 
 /// Magic-byte validation for audio files
-fn is_valid_audio(data: &[u8]) -> bool {
-    if data.len() < MIN_AUDIO_SIZE as usize {
+fn is_valid_audio(prefix: &[u8], total_size: u64) -> bool {
+    if total_size < MIN_AUDIO_SIZE {
         return false;
     }
     // ID3 (MP3)
-    if data[0] == 0x49 && data[1] == 0x44 && data[2] == 0x33 {
+    if prefix.len() >= 3 && prefix[0] == 0x49 && prefix[1] == 0x44 && prefix[2] == 0x33 {
         return true;
     }
     // MPEG Sync (MP3 / ADTS AAC)
-    if data[0] == 0xff && (data[1] & 0xe0) == 0xe0 {
+    if prefix.len() >= 2 && prefix[0] == 0xff && (prefix[1] & 0xe0) == 0xe0 {
         return true;
     }
     // ftyp (MP4/AAC)
-    if data.len() >= 8 && data[4] == 0x66 && data[5] == 0x74 && data[6] == 0x79 && data[7] == 0x70
+    if prefix.len() >= 8
+        && prefix[4] == 0x66
+        && prefix[5] == 0x74
+        && prefix[6] == 0x79
+        && prefix[7] == 0x70
     {
         return true;
     }
     // OggS
-    if data[0] == 0x4f && data[1] == 0x67 && data[2] == 0x67 && data[3] == 0x53 {
+    if prefix.len() >= 4
+        && prefix[0] == 0x4f
+        && prefix[1] == 0x67
+        && prefix[2] == 0x67
+        && prefix[3] == 0x53
+    {
         return true;
     }
     // RIFF/WAV
-    if data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 {
+    if prefix.len() >= 4
+        && prefix[0] == 0x52
+        && prefix[1] == 0x49
+        && prefix[2] == 0x46
+        && prefix[3] == 0x46
+    {
         return true;
     }
     // fLaC
-    if data[0] == 0x66 && data[1] == 0x4c && data[2] == 0x61 && data[3] == 0x43 {
+    if prefix.len() >= 4
+        && prefix[0] == 0x66
+        && prefix[1] == 0x4c
+        && prefix[2] == 0x61
+        && prefix[3] == 0x43
+    {
         return true;
     }
     false
@@ -54,23 +88,382 @@ struct ActiveDownload {
     result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
 }
 
+#[derive(Clone, Copy)]
+enum DownloadSource {
+    Storage,
+    Api,
+}
+
+impl DownloadSource {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Storage => "storage",
+            Self::Api => "api",
+        }
+    }
+}
+
+struct DownloadTarget {
+    source: DownloadSource,
+    url: String,
+}
+
+enum DownloadError {
+    Fatal(String),
+    Retryable(String),
+}
+
+enum StorageProbeResult {
+    Hit,
+    Missing,
+    Unavailable,
+}
+
 pub struct TrackCacheState {
     pub audio_dir: PathBuf,
-    pub client: reqwest::Client,
+    pub api_client: Client,
+    pub storage_head_client: Client,
+    pub storage_get_client: Client,
     active: Mutex<HashMap<String, ActiveDownload>>,
 }
 
 pub fn init(audio_dir: PathBuf) -> TrackCacheState {
-    let client = reqwest::Client::builder()
+    let api_client = Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(16)
+        .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
+        .read_timeout(Duration::from_secs(DOWNLOAD_READ_TIMEOUT_SECS))
         .build()
         .expect("failed to build reqwest client");
+    let storage_head_client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(16)
+        .connect_timeout(Duration::from_millis(STORAGE_CONNECT_TIMEOUT_MS))
+        .timeout(Duration::from_millis(STORAGE_HEAD_TIMEOUT_MS))
+        .build()
+        .expect("failed to build storage HEAD client");
+    let storage_get_client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(16)
+        .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
+        .read_timeout(Duration::from_secs(DOWNLOAD_READ_TIMEOUT_SECS))
+        .build()
+        .expect("failed to build storage GET client");
 
     TrackCacheState {
         audio_dir,
-        client,
+        api_client,
+        storage_head_client,
+        storage_get_client,
         active: Mutex::new(HashMap::new()),
     }
+}
+
+fn prefer_hq_from_url(url: &str) -> bool {
+    Url::parse(url)
+        .ok()
+        .map(|parsed| {
+            parsed
+                .query_pairs()
+                .any(|(key, value)| key == "hq" && value == "true")
+        })
+        .unwrap_or(false)
+}
+
+fn build_storage_url(urn: &str, prefer_hq: bool) -> String {
+    let quality = if prefer_hq { "hq" } else { "sq" };
+    format!(
+        "{}/{}/{}.mp3",
+        STORAGE_BASE_URL,
+        quality,
+        urn.replace(':', "_")
+    )
+}
+
+fn build_api_url(urn: &str, original_url: &str) -> String {
+    if let Ok(original) = Url::parse(original_url) {
+        let mut target = Url::parse(API_BASE_URL).expect("invalid API base URL");
+        target.set_path(original.path());
+        target.set_query(original.query());
+        return target.to_string();
+    }
+
+    format!(
+        "{}/tracks/{}/stream",
+        API_BASE_URL,
+        urlencoding::encode(urn)
+    )
+}
+
+fn temp_file_path(audio_dir: &Path, urn: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    audio_dir.join(format!("{}.{}.part", urn_to_filename(urn), nonce))
+}
+
+async fn cleanup_temp_file(path: &Path) {
+    tokio::fs::remove_file(path).await.ok();
+}
+
+async fn probe_storage_head(
+    storage_head_client: &Client,
+    urn: &str,
+    storage_url: &str,
+) -> StorageProbeResult {
+    match storage_head_client.head(storage_url).send().await {
+        Ok(resp) if resp.status().as_u16() == 200 => {
+            println!("[TrackCache] storage HEAD hit for {urn}: {storage_url}");
+            StorageProbeResult::Hit
+        }
+        Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 410 => {
+            eprintln!(
+                "[TrackCache] storage HEAD miss for {urn}: HTTP {} from {storage_url}",
+                resp.status()
+            );
+            StorageProbeResult::Missing
+        }
+        Ok(resp) => {
+            eprintln!(
+                "[TrackCache] storage HEAD unavailable for {urn}: HTTP {} from {storage_url}",
+                resp.status()
+            );
+            StorageProbeResult::Unavailable
+        }
+        Err(err) => {
+            eprintln!("[TrackCache] storage HEAD failed for {urn}: {err}");
+            StorageProbeResult::Unavailable
+        }
+    }
+}
+
+async fn write_response_to_cache(
+    audio_dir: &Path,
+    urn: &str,
+    response: reqwest::Response,
+) -> Result<PathBuf, DownloadError> {
+    let final_path = audio_dir.join(urn_to_filename(urn));
+    let temp_path = temp_file_path(audio_dir, urn);
+    let file = File::create(&temp_path)
+        .await
+        .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
+    let mut writer = BufWriter::with_capacity(STREAM_WRITE_BUFFER_SIZE, file);
+    let mut stream = response.bytes_stream();
+    let mut total_size = 0u64;
+    let mut sniff = Vec::with_capacity(AUDIO_SNIFF_LEN);
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(err) => {
+                cleanup_temp_file(&temp_path).await;
+                return Err(DownloadError::Retryable(format!("body read: {err}")));
+            }
+        };
+
+        total_size += chunk.len() as u64;
+        if sniff.len() < AUDIO_SNIFF_LEN {
+            let copy_len = (AUDIO_SNIFF_LEN - sniff.len()).min(chunk.len());
+            sniff.extend_from_slice(&chunk[..copy_len]);
+        }
+
+        if let Err(err) = writer.write_all(&chunk).await {
+            cleanup_temp_file(&temp_path).await;
+            return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
+        }
+    }
+
+    if let Err(err) = writer.flush().await {
+        cleanup_temp_file(&temp_path).await;
+        return Err(DownloadError::Fatal(format!("Cache flush failed: {err}")));
+    }
+    drop(writer);
+
+    if !is_valid_audio(&sniff, total_size) {
+        cleanup_temp_file(&temp_path).await;
+        return Err(DownloadError::Fatal("Invalid audio data".into()));
+    }
+
+    if let Ok(meta) = tokio::fs::metadata(&final_path).await {
+        if meta.len() >= MIN_AUDIO_SIZE {
+            cleanup_temp_file(&temp_path).await;
+            return Ok(final_path);
+        }
+    }
+
+    match tokio::fs::rename(&temp_path, &final_path).await {
+        Ok(()) => Ok(final_path),
+        Err(first_err) => {
+            if tokio::fs::metadata(&final_path)
+                .await
+                .map(|meta| meta.len() >= MIN_AUDIO_SIZE)
+                .unwrap_or(false)
+            {
+                cleanup_temp_file(&temp_path).await;
+                return Ok(final_path);
+            }
+
+            tokio::fs::remove_file(&final_path).await.ok();
+            match tokio::fs::rename(&temp_path, &final_path).await {
+                Ok(()) => Ok(final_path),
+                Err(second_err) => {
+                    cleanup_temp_file(&temp_path).await;
+                    Err(DownloadError::Fatal(format!(
+                        "Cache rename failed: {first_err}; {second_err}"
+                    )))
+                }
+            }
+        }
+    }
+}
+
+async fn fetch_target_to_cache(
+    client: &Client,
+    audio_dir: &Path,
+    urn: &str,
+    target: &DownloadTarget,
+    session_id: Option<&str>,
+) -> Result<PathBuf, DownloadError> {
+    let mut req = client.get(&target.url);
+    if matches!(target.source, DownloadSource::Api) {
+        if let Some(sid) = session_id {
+            req = req.header("x-session-id", sid);
+        }
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|err| DownloadError::Retryable(format!("{} request: {err}", target.source.label())))?;
+    let status = response.status();
+
+    if status.is_success() {
+        return write_response_to_cache(audio_dir, urn, response).await;
+    }
+
+    let message = format!("{} HTTP {} from {}", target.source.label(), status, target.url);
+    if status.as_u16() == 429 || status.as_u16() >= 500 {
+        Err(DownloadError::Retryable(message))
+    } else {
+        Err(DownloadError::Fatal(message))
+    }
+}
+
+pub async fn download_track_to_cache(
+    audio_dir: &Path,
+    api_client: &Client,
+    storage_head_client: &Client,
+    storage_get_client: &Client,
+    urn: &str,
+    fallback_url: &str,
+    session_id: Option<&str>,
+) -> Result<PathBuf, String> {
+    println!("[TrackCache] resolving source for {urn}");
+    let start = std::time::Instant::now();
+    let mut last_err = String::new();
+
+    for attempt in 0..=RETRY_DELAYS_MS.len() {
+        if attempt > 0 {
+            eprintln!("[TrackCache] retry #{attempt} for {urn}: {last_err}");
+        }
+
+        let prefer_hq = prefer_hq_from_url(fallback_url);
+        let preferred_storage_url = build_storage_url(urn, prefer_hq);
+        let alternate_storage_url = build_storage_url(urn, !prefer_hq);
+        let api_url = build_api_url(urn, fallback_url);
+
+        let mut targets = Vec::with_capacity(2);
+        match probe_storage_head(storage_head_client, urn, &preferred_storage_url).await {
+            StorageProbeResult::Hit => {
+                targets.push(DownloadTarget {
+                    source: DownloadSource::Storage,
+                    url: preferred_storage_url,
+                });
+            }
+            StorageProbeResult::Missing => {
+                match probe_storage_head(storage_head_client, urn, &alternate_storage_url).await {
+                    StorageProbeResult::Hit => {
+                        println!(
+                            "[TrackCache] {urn} → storage quality fallback {}",
+                            if prefer_hq { "sq" } else { "hq" }
+                        );
+                        targets.push(DownloadTarget {
+                            source: DownloadSource::Storage,
+                            url: alternate_storage_url,
+                        });
+                    }
+                    StorageProbeResult::Missing => {
+                        println!("[TrackCache] {urn} → API fallback");
+                    }
+                    StorageProbeResult::Unavailable => {
+                        println!("[TrackCache] {urn} → API fallback after storage HEAD error");
+                    }
+                }
+            }
+            StorageProbeResult::Unavailable => {
+                println!("[TrackCache] {urn} → API fallback after storage HEAD error");
+            }
+        }
+
+        if targets.is_empty() {
+            targets.push(DownloadTarget {
+                source: DownloadSource::Api,
+                url: api_url,
+            });
+        } else {
+            targets.push(DownloadTarget {
+                source: DownloadSource::Api,
+                url: api_url,
+            });
+        }
+
+        for target in targets {
+            let client = match target.source {
+                DownloadSource::Storage => storage_get_client,
+                DownloadSource::Api => api_client,
+            };
+
+            match fetch_target_to_cache(client, audio_dir, urn, &target, session_id).await {
+                Ok(path) => {
+                    let kb = std::fs::metadata(&path).map(|meta| meta.len() / 1024).unwrap_or(0);
+                    let ms = start.elapsed().as_millis();
+                    println!(
+                        "[TrackCache] downloaded {urn} via {} — {kb} KB in {ms}ms",
+                        target.source.label()
+                    );
+                    return Ok(path);
+                }
+                Err(DownloadError::Fatal(err)) => {
+                    if matches!(target.source, DownloadSource::Api) {
+                        eprintln!("[TrackCache] failed {urn}: {err}");
+                        return Err(err);
+                    }
+                    eprintln!("[TrackCache] storage failed for {urn}, falling back to API: {err}");
+                    last_err = err;
+                }
+                Err(DownloadError::Retryable(err)) => {
+                    if matches!(target.source, DownloadSource::Storage) {
+                        eprintln!("[TrackCache] storage retry failed for {urn}, falling back to API: {err}");
+                    }
+                    last_err = err;
+                }
+            }
+        }
+
+        if attempt < RETRY_DELAYS_MS.len() {
+            tokio::time::sleep(Duration::from_millis(RETRY_DELAYS_MS[attempt])).await;
+        }
+    }
+
+    eprintln!(
+        "[TrackCache] gave up on {urn} after {} retries: {last_err}",
+        RETRY_DELAYS_MS.len()
+    );
+    Err(last_err)
 }
 
 impl TrackCacheState {
@@ -157,63 +550,16 @@ impl TrackCacheState {
         url: &str,
         session_id: Option<&str>,
     ) -> Result<PathBuf, String> {
-        println!("[TrackCache] downloading {urn} from {url}");
-        let start = std::time::Instant::now();
-        let retry_delays = [300u64, 800, 2000];
-        let mut last_err = String::new();
-
-        for attempt in 0..=retry_delays.len() {
-            if attempt > 0 {
-                eprintln!("[TrackCache] retry #{attempt} for {urn}: {last_err}");
-            }
-
-            let mut req = self.client.get(url);
-            if let Some(sid) = session_id {
-                req = req.header("x-session-id", sid);
-            }
-
-            match req.send().await {
-                Ok(resp) => {
-                    let final_url = resp.url().clone();
-                    let status = resp.status();
-                    if final_url.as_str() != url {
-                        println!("[TrackCache] {urn} redirected → {final_url} (HTTP {status})");
-                    }
-                    if status.is_success() {
-                        match resp.bytes().await {
-                            Ok(bytes) => {
-                                if !is_valid_audio(&bytes) {
-                                    eprintln!("[TrackCache] invalid audio for {urn}: {} bytes from {final_url}", bytes.len());
-                                    return Err("Invalid audio data".into());
-                                }
-                                let path = self.file_path(urn);
-                                tokio::fs::write(&path, &bytes)
-                                    .await
-                                    .map_err(|e| format!("Cache write failed: {e}"))?;
-                                let kb = bytes.len() / 1024;
-                                let ms = start.elapsed().as_millis();
-                                println!("[TrackCache] downloaded {urn} — {kb} KB in {ms}ms");
-                                return Ok(path);
-                            }
-                            Err(e) => last_err = format!("body read: {e}"),
-                        }
-                    } else if status.as_u16() == 429 || status.as_u16() >= 500 {
-                        last_err = format!("HTTP {status} from {final_url}");
-                    } else {
-                        eprintln!("[TrackCache] failed {urn}: HTTP {status} from {final_url}");
-                        return Err(format!("HTTP {status}"));
-                    }
-                }
-                Err(e) => last_err = format!("request: {e}"),
-            }
-
-            if attempt < retry_delays.len() {
-                tokio::time::sleep(std::time::Duration::from_millis(retry_delays[attempt])).await;
-            }
-        }
-
-        eprintln!("[TrackCache] gave up on {urn} after {} retries: {last_err}", retry_delays.len());
-        Err(last_err)
+        download_track_to_cache(
+            &self.audio_dir,
+            &self.api_client,
+            &self.storage_head_client,
+            &self.storage_get_client,
+            urn,
+            url,
+            session_id,
+        )
+        .await
     }
 
     pub fn cache_size(&self) -> u64 {

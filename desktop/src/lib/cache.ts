@@ -223,11 +223,23 @@ export async function downloadTrack(urn: string, artist: string, title: string):
   if (!cachedPath) {
     // Force download via stream URL
     const { streamUrl, getSessionId } = await import('./api');
-    await invoke('track_ensure_cached', {
-      urn,
-      url: streamUrl(urn),
-      sessionId: getSessionId(),
-    });
+    const sessionId = getSessionId();
+    const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
+    try {
+      await invoke('track_ensure_cached', {
+        urn,
+        url: streamUrl(urn, highQualityStreaming),
+        sessionId,
+      });
+    } catch (error) {
+      if (!highQualityStreaming) throw error;
+      console.warn('[Cache] HQ download failed, retrying without hq:', error);
+      await invoke('track_ensure_cached', {
+        urn,
+        url: streamUrl(urn, false),
+        sessionId,
+      });
+    }
     cachedPath = await getCacheFilePath(urn);
   }
   if (!cachedPath) throw new Error('Failed to cache track');

@@ -99,12 +99,26 @@ async function loadTrack(track: Track) {
   invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
 
   try {
-    // Download full track via Rust (handles redirects, retries, caching)
-    const cachedPath = await invoke<string>('track_ensure_cached', {
-      urn,
-      url: streamUrl(urn),
-      sessionId: getSessionId(),
-    });
+    const sessionId = getSessionId();
+    const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
+    let cachedPath: string;
+
+    try {
+      // Download full track via Rust (handles redirects, retries, caching)
+      cachedPath = await invoke<string>('track_ensure_cached', {
+        urn,
+        url: streamUrl(urn, highQualityStreaming),
+        sessionId,
+      });
+    } catch (error) {
+      if (!highQualityStreaming) throw error;
+      console.warn('[Audio] HQ load failed, retrying without hq:', error);
+      cachedPath = await invoke<string>('track_ensure_cached', {
+        urn,
+        url: streamUrl(urn, false),
+        sessionId,
+      });
+    }
 
     if (gen !== loadGen) return;
 
