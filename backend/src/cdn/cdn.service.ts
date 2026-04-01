@@ -2,6 +2,8 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import { createReadStream, statSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
 import { firstValueFrom } from 'rxjs';
 import { Repository } from 'typeorm';
 import { CdnQuality, CdnStatus, CdnTrack } from './entities/cdn-track.entity.js';
@@ -25,7 +27,7 @@ export class CdnService implements OnModuleInit {
   ) {
     this.baseUrl = (this.configService.get<string>('cdn.baseUrl') ?? '').replace(/\/+$/, '');
     this.authToken = this.configService.get<string>('cdn.authToken') ?? '';
-    this.uploadTimeoutMs = this.configService.get<number>('cdn.uploadTimeoutMs') ?? 300_000;
+    this.uploadTimeoutMs = this.configService.get<number>('cdn.uploadTimeoutMs') ?? 600_000;
   }
 
   onModuleInit() {
@@ -136,13 +138,13 @@ export class CdnService implements OnModuleInit {
   }
 
   /**
-   * Загружает буфер на CDN с трекингом в БД.
-   * Создаёт pending запись, грузит, ставит ok/error.
+   * Загружает файл на CDN с трекингом в БД.
+   * Принимает путь к tmp-файлу, стримит его при загрузке, удаляет после.
    */
   async uploadWithTracking(
     trackUrn: string,
     quality: CdnQuality,
-    audioBuffer: Buffer,
+    filePath: string,
   ): Promise<boolean> {
     if (!this.enabled) return false;
 
@@ -151,6 +153,7 @@ export class CdnService implements OnModuleInit {
     // Проверяем нет ли уже активного pending
     if (await this.hasPending(trackUrn, quality)) {
       this.logger.debug(`CDN upload already pending for ${trackUrn} (${quality}), skipping`);
+      await this.cleanupTmpFile(filePath);
       return false;
     }
 
@@ -161,7 +164,10 @@ export class CdnService implements OnModuleInit {
     const existing = await this.cdnTrackRepo.findOne({
       where: { trackUrn, quality, status: CdnStatus.OK },
     });
-    if (existing) return true;
+    if (existing) {
+      await this.cleanupTmpFile(filePath);
+      return true;
+    }
 
     // Создаём pending запись
     const record = this.cdnTrackRepo.create({
@@ -173,29 +179,31 @@ export class CdnService implements OnModuleInit {
     await this.cdnTrackRepo.save(record);
 
     try {
-      const success = await this.uploadToCdn(cdnPath, audioBuffer);
+      const fileSize = statSync(filePath).size;
+      const success = await this.uploadToCdn(cdnPath, filePath, fileSize);
       if (success) {
         await this.cdnTrackRepo.update(record.id, {
           status: CdnStatus.OK,
           cdnPath,
         });
         this.logger.log(
-          `CDN uploaded: ${cdnPath} (${(audioBuffer.length / 1024 / 1024).toFixed(1)}MB)`,
+          `CDN uploaded: ${cdnPath} (${(fileSize / 1024 / 1024).toFixed(1)}MB)`,
         );
         return true;
       }
       await this.cdnTrackRepo.update(record.id, { status: CdnStatus.ERROR });
       return false;
     } catch (err: any) {
-      console.log(err)
       this.logger.warn(`CDN upload error for ${trackUrn}: ${err.message}`);
       await this.cdnTrackRepo.update(record.id, { status: CdnStatus.ERROR });
       return false;
+    } finally {
+      await this.cleanupTmpFile(filePath);
     }
   }
 
-  /** Двухфазная загрузка на SecureServe CDN */
-  private async uploadToCdn(path: string, audioBuffer: Buffer): Promise<boolean> {
+  /** Двухфазная загрузка на SecureServe CDN (стримит файл, не грузит в память) */
+  private async uploadToCdn(path: string, filePath: string, fileSize: number): Promise<boolean> {
     const uploadToken = `sc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     // Phase 1: Sign upload
@@ -205,7 +213,7 @@ export class CdnService implements OnModuleInit {
         {
           token: uploadToken,
           path,
-          size: audioBuffer.length,
+          size: fileSize,
           content_type: 'audio/mpeg',
         },
         {
@@ -213,7 +221,7 @@ export class CdnService implements OnModuleInit {
             Authorization: `Bearer ${this.authToken}`,
             'Content-Type': 'application/json',
           },
-          timeout: 5000,
+          timeout: 10_000,
         },
       ),
     );
@@ -223,13 +231,14 @@ export class CdnService implements OnModuleInit {
       return false;
     }
 
-    // Phase 2: Upload file (multipart)
+    // Phase 2: Upload file (стрим из tmp-файла)
     const FormData = (await import('form-data')).default;
     const form = new FormData();
     form.append('token', signRes.data.token);
-    form.append('file', audioBuffer, {
+    form.append('file', createReadStream(filePath), {
       filename: 'track.mp3',
       contentType: 'audio/mpeg',
+      knownLength: fileSize,
     });
 
     const uploadRes = await firstValueFrom(
@@ -239,6 +248,7 @@ export class CdnService implements OnModuleInit {
         },
         timeout: this.uploadTimeoutMs,
         maxBodyLength: Infinity,
+        maxContentLength: Infinity,
       }),
     );
 
@@ -248,5 +258,11 @@ export class CdnService implements OnModuleInit {
     }
 
     return true;
+  }
+
+  private async cleanupTmpFile(filePath: string): Promise<void> {
+    try {
+      await unlink(filePath);
+    } catch {}
   }
 }

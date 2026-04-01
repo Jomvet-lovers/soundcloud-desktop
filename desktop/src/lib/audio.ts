@@ -3,13 +3,7 @@ import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { api, getSessionId, streamUrl } from './api';
-import {
-  enforceAudioCacheLimit,
-  fetchAndCacheTrack,
-  getCacheFilePath,
-  getCacheTargetPath,
-  isCached,
-} from './cache';
+import { enforceAudioCacheLimit } from './cache';
 import { trackedInvoke as invoke } from './diagnostics';
 import { art } from './formatters';
 
@@ -104,25 +98,23 @@ async function loadTrack(track: Track) {
   // Sync volume
   invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
 
-  // Try cached file first
-  const cachedPath = await getCacheFilePath(urn);
-  if (gen !== loadGen) return;
-
   try {
-    if (cachedPath) {
-      await invoke<{ duration_secs: number | null }>('audio_load_file', {
-        path: cachedPath,
-        cacheKey: urn,
-      });
-    } else {
-      await invoke<{ duration_secs: number | null }>('audio_load_url', {
-        url: streamUrl(urn),
-        sessionId: getSessionId(),
-        cachePath: await getCacheTargetPath(urn),
-        cacheKey: urn,
-      });
-      void enforceAudioCacheLimit().catch(console.error);
-    }
+    // Download full track via Rust (handles redirects, retries, caching)
+    const cachedPath = await invoke<string>('track_ensure_cached', {
+      urn,
+      url: streamUrl(urn),
+      sessionId: getSessionId(),
+    });
+
+    if (gen !== loadGen) return;
+
+    // Load from cached file
+    await invoke<{ duration_secs: number | null }>('audio_load_file', {
+      path: cachedPath,
+      cacheKey: urn,
+    });
+
+    void enforceAudioCacheLimit().catch(console.error);
   } catch (e) {
     console.error('[Audio] Load failed:', e);
     if (gen !== loadGen) return;
@@ -342,49 +334,40 @@ async function autoplayRelated(lastTrack: Track) {
 /* ── Preloading ──────────────────────────────────────────────── */
 
 let preloadTimer: ReturnType<typeof setTimeout> | null = null;
-let preloadQueueTimer: ReturnType<typeof setTimeout> | null = null;
-const MAX_CONCURRENT_PRELOADS = 2;
-let activePreloads = 0;
 
 export function preloadTrack(urn: string) {
   if (preloadTimer) clearTimeout(preloadTimer);
   preloadTimer = setTimeout(() => {
-    if (activePreloads >= MAX_CONCURRENT_PRELOADS) return;
-    isCached(urn).then((hit) => {
-      if (!hit && activePreloads < MAX_CONCURRENT_PRELOADS) {
-        activePreloads++;
-        fetchAndCacheTrack(urn)
-          .catch(() => {})
-          .finally(() => {
-            activePreloads--;
-          });
-      }
-    });
+    const sessionId = getSessionId();
+    invoke('track_preload', {
+      entries: [{ urn, url: streamUrl(urn), sessionId }],
+    }).catch(console.error);
   }, 500);
 }
 
 export function preloadQueue() {
   const { queue, queueIndex } = usePlayerStore.getState();
+  const entries: Array<{ urn: string; url: string; sessionId: string | null }> = [];
+  const sessionId = getSessionId();
+
   for (let i = 1; i <= 3; i++) {
     const idx = queueIndex + i;
     if (idx < queue.length) {
-      const urn = queue[idx].urn;
-      isCached(urn).then((hit) => {
-        if (!hit) fetchAndCacheTrack(urn).catch(() => {});
+      entries.push({
+        urn: queue[idx].urn,
+        url: streamUrl(queue[idx].urn),
+        sessionId,
       });
     }
   }
-}
 
-function schedulePreloadQueue() {
-  if (preloadQueueTimer) clearTimeout(preloadQueueTimer);
-  preloadQueueTimer = setTimeout(() => {
-    preloadQueue();
-  }, 150);
+  if (entries.length > 0) {
+    invoke('track_preload', { entries }).catch(console.error);
+  }
 }
 
 usePlayerStore.subscribe((state, prev) => {
   if (state.queueIndex !== prev.queueIndex || state.queue !== prev.queue) {
-    schedulePreloadQueue();
+    preloadQueue();
   }
 });

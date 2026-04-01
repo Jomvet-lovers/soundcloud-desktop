@@ -1,245 +1,46 @@
-import { invoke } from '@tauri-apps/api/core';
 import { appCacheDir, join } from '@tauri-apps/api/path';
-import { exists, mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
+import { mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { useSettingsStore } from '../stores/settings';
-import { getSessionId } from './api';
+import { getStaticPort } from './constants';
+import { trackedInvoke as invoke } from './diagnostics';
 
-import { API_BASE, getStaticPort } from './constants';
-
-const AUDIO_DIR = 'audio';
 const ASSETS_DIR = 'assets';
 const WALLPAPERS_DIR = 'wallpapers';
-const MIN_AUDIO_SIZE = 8192;
 const IDLE_ASSETS_CLEAR_MS = 20 * 60 * 1000;
 const CACHE_MAINTENANCE_INTERVAL_MS = 60 * 1000;
 
-let cacheBasePath: string | null = null;
 let cacheMaintenanceStarted = false;
 let lastUserActivityAt = Date.now();
 let assetsClearedDuringIdle = false;
 
-async function getAudioDir(): Promise<string> {
-  if (cacheBasePath) return cacheBasePath;
-  const base = await appCacheDir();
-  cacheBasePath = await join(base, AUDIO_DIR);
-  await mkdir(cacheBasePath, { recursive: true });
-  return cacheBasePath;
+/* ── Track cache (Rust) ─────────────────────────────────── */
+
+export function isCached(urn: string): Promise<boolean> {
+  return invoke<boolean>('track_is_cached', { urn });
 }
 
-function urnToFilename(urn: string): string {
-  return `${urn.replace(/:/g, '_')}.audio`;
+export function getCacheFilePath(urn: string): Promise<string | null> {
+  return invoke<string | null>('track_get_cache_path', { urn });
 }
 
-function filenameToUrn(filename: string): string | null {
-  if (!filename.endsWith('.audio')) return null;
-  return filename.slice(0, -'.audio'.length).replace(/_/g, ':');
+export function getCacheSize(): Promise<number> {
+  return invoke<number>('track_cache_size');
 }
 
-async function filePath(urn: string): Promise<string> {
-  const dir = await getAudioDir();
-  return await join(dir, urnToFilename(urn));
+export function clearCache(): Promise<void> {
+  return invoke('track_clear_cache');
 }
 
-export async function getCacheTargetPath(urn: string): Promise<string> {
-  return await filePath(urn);
+export function listCachedUrns(): Promise<string[]> {
+  return invoke<string[]>('track_list_cached');
 }
 
-export async function isCached(urn: string): Promise<boolean> {
-  try {
-    const path = await filePath(urn);
-    if (!(await exists(path))) return false;
-    const info = await stat(path);
-    if (info.size < MIN_AUDIO_SIZE) {
-      await remove(path).catch(() => {});
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isValidAudio(buffer: ArrayBuffer): boolean {
-  const data = new Uint8Array(buffer);
-  if (data.length < MIN_AUDIO_SIZE) return false;
-  // ID3 (MP3)
-  if (data[0] === 0x49 && data[1] === 0x44 && data[2] === 0x33) return true;
-  // MPEG Sync (MP3 / ADTS AAC)
-  if (data[0] === 0xff && (data[1] & 0xe0) === 0xe0) return true;
-  // ftyp (MP4/AAC)
-  if (data[4] === 0x66 && data[5] === 0x74 && data[6] === 0x79 && data[7] === 0x70) return true;
-  // OggS (Ogg Vorbis/Opus)
-  if (data[0] === 0x4f && data[1] === 0x67 && data[2] === 0x67 && data[3] === 0x53) return true;
-  // RIFF/WAV
-  if (data[0] === 0x52 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x46) return true;
-  // fLaC
-  if (data[0] === 0x66 && data[1] === 0x4c && data[2] === 0x61 && data[3] === 0x43) return true;
-  return false;
-}
-
-const activeDownloads = new Map<string, Promise<ArrayBuffer>>();
-
-export async function fetchAndCacheTrack(urn: string, signal?: AbortSignal): Promise<ArrayBuffer> {
-  if (activeDownloads.has(urn)) {
-    console.log(`💾[Cache] Reusing active download for: ${urn}`);
-    return activeDownloads.get(urn)!;
-  }
-
-  console.log(`💾 [Cache] Starting background fetch for: ${urn}`);
-
-  const promise = (async () => {
-    try {
-      const sessionId = getSessionId();
-      const params = new URLSearchParams();
-      if (useSettingsStore.getState().highQualityStreaming) {
-        params.set('hq', 'true');
-      }
-      const url = `${API_BASE}/tracks/${encodeURIComponent(urn)}/stream${params.size ? `?${params.toString()}` : ''}`;
-
-      const res = await tauriFetch(url, {
-        headers: sessionId ? { 'x-session-id': sessionId } : {},
-        signal,
-      });
-
-      if (!res.ok) throw new Error(`Stream ${res.status}`);
-
-      const buffer = await res.arrayBuffer();
-
-      if (isValidAudio(buffer)) {
-        console.log(`💾 [Cache] Download complete for ${urn}. Saving...`);
-        const path = await filePath(urn);
-        await writeFile(path, new Uint8Array(buffer)).catch((e) => console.error('Write fail', e));
-        await enforceAudioCacheLimit();
-      } else {
-        console.error(`💾 [Cache] Invalid audio received for ${urn}`);
-        throw new Error('Invalid audio');
-      }
-      return buffer;
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name === 'AbortError') {
-        console.warn(`💾[Cache] Fetch ABORTED for ${urn}`);
-      } else {
-        console.error(`💾[Cache] Fetch failed for ${urn}:`, e);
-      }
-      throw e;
-    }
-  })();
-
-  activeDownloads.set(urn, promise);
-
-  try {
-    return await promise;
-  } finally {
-    activeDownloads.delete(urn);
-  }
-}
-
-export async function getCacheSize(): Promise<number> {
-  try {
-    const dir = await getAudioDir();
-    const entries = await readDir(dir);
-    let total = 0;
-    for (const entry of entries) {
-      if (entry.name && entry.isFile) {
-        const info = await stat(`${dir}/${entry.name}`);
-        total += info.size;
-      }
-    }
-    return total;
-  } catch {
-    return 0;
-  }
-}
-
-export async function clearCache(): Promise<void> {
-  try {
-    const dir = await getAudioDir();
-    const entries = await readDir(dir);
-    for (const entry of entries) {
-      if (entry.name && entry.isFile) {
-        await remove(`${dir}/${entry.name}`).catch(() => {});
-      }
-    }
-  } catch (e) {
-    console.error('clearCache failed:', e);
-  }
-}
-
-export async function listCachedUrns(): Promise<string[]> {
-  try {
-    const dir = await getAudioDir();
-    const entries = await readDir(dir);
-    const urns: string[] = [];
-
-    for (const entry of entries) {
-      if (!entry.name || !entry.isFile) continue;
-      const path = `${dir}/${entry.name}`;
-      const info = await stat(path);
-      if ((info.size ?? 0) < MIN_AUDIO_SIZE) {
-        await remove(path).catch(() => {});
-        continue;
-      }
-
-      const urn = filenameToUrn(entry.name);
-      if (urn) {
-        urns.push(urn);
-      }
-    }
-
-    return urns;
-  } catch {
-    return [];
-  }
-}
-
-export async function enforceAudioCacheLimit(
+export function enforceAudioCacheLimit(
   limitMb = useSettingsStore.getState().audioCacheLimitMB,
 ): Promise<void> {
-  if (!limitMb || limitMb <= 0) return;
-
-  try {
-    const dir = await getAudioDir();
-    const entries = await readDir(dir);
-    const files: Array<{ path: string; size: number; lastUsed: number }> = [];
-    let total = 0;
-
-    for (const entry of entries) {
-      if (!entry.name || !entry.isFile) continue;
-      const path = `${dir}/${entry.name}`;
-      const info = await stat(path);
-      const size = info.size ?? 0;
-      const lastUsed =
-        info.atime?.getTime() ?? info.mtime?.getTime() ?? info.birthtime?.getTime() ?? 0;
-
-      total += size;
-      files.push({ path, size, lastUsed });
-    }
-
-    const limitBytes = limitMb * 1024 * 1024;
-    if (total <= limitBytes) return;
-
-    files.sort((a, b) => a.lastUsed - b.lastUsed);
-
-    for (const file of files) {
-      if (total <= limitBytes) break;
-      await remove(file.path).catch(() => {});
-      total -= file.size;
-    }
-  } catch (error) {
-    console.error('enforceAudioCacheLimit failed:', error);
-  }
-}
-
-/** Возвращает абсолютный путь к файлу в кэше */
-export async function getCacheFilePath(urn: string): Promise<string | null> {
-  try {
-    const path = await filePath(urn);
-    if (!(await exists(path))) return null;
-    return path;
-  } catch {
-    return null;
-  }
+  if (!limitMb || limitMb <= 0) return Promise.resolve();
+  return invoke('track_enforce_cache_limit', { limitMb });
 }
 
 /* ── Assets cache ────────────────────────────────────────── */
@@ -417,10 +218,16 @@ export async function downloadTrack(urn: string, artist: string, title: string):
   });
   if (!dest) throw new Error('cancelled');
 
-  // Ensure cached
+  // Ensure cached via Rust
   let cachedPath = await getCacheFilePath(urn);
   if (!cachedPath) {
-    await fetchAndCacheTrack(urn);
+    // Force download via stream URL
+    const { streamUrl, getSessionId } = await import('./api');
+    await invoke('track_ensure_cached', {
+      urn,
+      url: streamUrl(urn),
+      sessionId: getSessionId(),
+    });
     cachedPath = await getCacheFilePath(urn);
   }
   if (!cachedPath) throw new Error('Failed to cache track');

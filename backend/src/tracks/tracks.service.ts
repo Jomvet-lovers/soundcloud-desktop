@@ -1,3 +1,6 @@
+import { createWriteStream, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
@@ -89,97 +92,60 @@ export class TracksService {
   proxyStream(
     token: string,
     url: string,
-    range?: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> }> {
-    return this.sc.proxyStream(url, token, range);
+    return this.sc.proxyStream(url, token);
   }
 
-  // ─── Stream with CDN ─────────────────────────────────────
+  // ─── Stream ──────────────────────────────────────────────
 
-  async getStreamWithCdn(
+  /**
+   * Получить аудио-стрим для трека.
+   * Приоритет: CDN → cookies HQ → OAuth API → anon.
+   * Если CDN включён и стрим получен не с CDN — tee на диск для загрузки.
+   */
+  async getStream(
     token: string,
     trackUrn: string,
-    format: string,
     params: Record<string, unknown>,
-    range?: string,
-    hq?: boolean,
+    hq: boolean,
   ): Promise<
     | { type: 'redirect'; url: string }
     | { type: 'stream'; stream: Readable; headers: Record<string, string> }
     | null
   > {
-    // 1. Проверяем CDN (redirect — CDN сам обработает Range)
+    // 1. CDN
     if (this.cdn.enabled) {
-      const cdnResult = await this.tryServFromCdn(trackUrn, hq ?? false);
-      if (cdnResult) return cdnResult;
+      const cdnResult = await this.tryServFromCdn(trackUrn);
+      if (cdnResult) {
+        this.logger.log(`[stream] ${trackUrn} → CDN`);
+        return cdnResult;
+      }
     }
 
-    // 2. Качаем с SC
-    let access: 'playable' | 'preview' | 'blocked' = 'playable';
-    try {
-      const track = await this.sc.apiGet<ScTrack>(`/tracks/${trackUrn}`, token, params);
-      access = track.access;
-    } catch (err) {
-      console.log(err);
+    // 2. Получаем стрим с SC
+    const streamData = await this.fetchFromSc(token, trackUrn, params, hq);
+    if (!streamData) {
+      this.logger.warn(`[stream] ${trackUrn} → no source available`);
+      return null;
     }
 
-    const streamData = await this.fetchFromSc(
-      token,
-      trackUrn,
-      format,
-      params,
-      range,
-      hq ?? false,
-      access,
-    );
-    if (!streamData) return null;
+    this.logger.log(`[stream] ${trackUrn} → ${streamData.quality} via ${streamData.source}`);
 
-    // 3. Если CDN включён и полный стрим (не partial) — tee на CDN
-    if (this.cdn.enabled && !range) {
+    // 3. Tee на CDN если включён
+    if (this.cdn.enabled) {
       return this.teeStreamToCdn(trackUrn, streamData);
     }
 
     return { type: 'stream', stream: streamData.stream, headers: streamData.headers };
   }
 
-  /**
-   * Пытается отдать трек с CDN.
-   * Если клиент хочет hq а на CDN только sq — проверяет доступность HQ.
-   */
+  /** Пытается отдать трек с CDN (HQ приоритет, потом SQ). */
   private async tryServFromCdn(
     trackUrn: string,
-    wantHq: boolean,
-  ): Promise<
-    | { type: 'redirect'; url: string }
-    | { type: 'stream'; stream: Readable; headers: Record<string, string> }
-    | null
-  > {
-    const cached = await this.cdn.findCachedTrack(trackUrn, wantHq);
+  ): Promise<{ type: 'redirect'; url: string } | null> {
+    const cached = await this.cdn.findCachedTrack(trackUrn, true);
     if (!cached) return null;
 
-    // Клиент хочет HQ, но на CDN только SQ
-    if (wantHq && cached.quality === CdnQuality.SQ) {
-      const hqAvailable = cached.hqAvailable ?? (await this.cdn.getHqAvailable(trackUrn));
-
-      if (hqAvailable === null) {
-        // Не проверяли — проверяем через cookie-client
-        const hasHq = await this.scPublicCookies.checkHqAvailable(trackUrn);
-        await this.cdn.setHqAvailable(trackUrn, hasHq);
-
-        if (hasHq) {
-          // Есть HQ на SC — стримим HQ клиенту + загружаем на CDN
-          const hqStream = await this.getCookieStream(trackUrn);
-          if (hqStream && hqStream.quality === 'hq') {
-            return this.teeStreamToCdn(trackUrn, hqStream);
-          }
-          // Не удалось получить HQ стрим — отдаём SQ с CDN
-        }
-        // HQ недоступен — отдаём SQ
-      }
-      // hqAvailable === false — отдаём SQ с CDN
-    }
-
-    // Верифицируем что CDN реально отдаёт файл
     const cdnUrl = this.cdn.getCdnUrl(trackUrn, cached.quality as CdnQuality);
     const alive = await this.cdn.verifyCdnUrl(cdnUrl);
     if (!alive) {
@@ -190,99 +156,100 @@ export class TracksService {
     return { type: 'redirect', url: cdnUrl };
   }
 
-  /** Качает стрим с SC с fallback-логикой */
+  /**
+   * Качает стрим с SC.
+   * hq=true:  cookies HQ → OAuth → anon
+   * hq=false: OAuth → anon → cookies
+   */
   private async fetchFromSc(
     token: string,
     trackUrn: string,
-    format: string,
     params: Record<string, unknown>,
-    range: string | undefined,
     hq: boolean,
-    access: string,
-  ): Promise<StreamResult | null> {
-    if (hq || access !== 'playable') {
-      // hq=true → куки ДО апи
-      let data = await this.getCookieStream(trackUrn);
-      if (!data) {
-        const oauthData = await this.tryOAuthStream(token, trackUrn, format, params, range);
-        data = oauthData ? { ...oauthData, quality: 'sq' as const } : null;
-      }
-      if (!data) {
-        const pubData = await this.getPublicStream(trackUrn, format);
-        data = pubData ? { ...pubData, quality: 'sq' as const } : null;
-      }
-      return data;
+  ): Promise<(StreamResult & { source: string }) | null> {
+    if (hq) {
+      const cookieData = await this.getCookieStream(trackUrn);
+      if (cookieData) return { ...cookieData, source: 'cookies' };
+
+      const oauthData = await this.tryOAuthStream(token, trackUrn, params);
+      if (oauthData) return { ...oauthData, quality: 'sq', source: 'oauth' };
+
+      const anonData = await this.getPublicStream(trackUrn);
+      if (anonData) return { ...anonData, quality: 'sq', source: 'anon' };
+    } else {
+      const oauthData = await this.tryOAuthStream(token, trackUrn, params);
+      if (oauthData) return { ...oauthData, quality: 'sq', source: 'oauth' };
+
+      const anonData = await this.getPublicStream(trackUrn);
+      if (anonData) return { ...anonData, quality: 'sq', source: 'anon' };
+
+      const cookieData = await this.getCookieStream(trackUrn);
+      if (cookieData) return { ...cookieData, source: 'cookies' };
     }
 
-    // default → апи → анонимная сессия → куки
-    const oauthData = await this.tryOAuthStream(token, trackUrn, format, params, range);
-    if (oauthData) return { ...oauthData, quality: 'sq' as const };
-
-    const pubData = await this.getPublicStream(trackUrn, format);
-    if (pubData) return { ...pubData, quality: 'sq' as const };
-
-    const cookieData = await this.getCookieStream(trackUrn);
-    return cookieData ?? null;
+    return null;
   }
 
-  /** Tee: один стрим клиенту, буфер на CDN */
+  /** Tee: стрим клиенту + pipe на диск для CDN upload. Не буферизует в RAM. */
   private teeStreamToCdn(
     trackUrn: string,
-    streamData: StreamResult,
+    streamData: StreamResult & { source: string },
   ): { type: 'stream'; stream: Readable; headers: Record<string, string> } {
     const { stream, headers, quality } = streamData;
     const cdnQuality = quality === 'hq' ? CdnQuality.HQ : CdnQuality.SQ;
+    const tmpFile = join(tmpdir(), `cdn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp3`);
+    const fileStream = createWriteStream(tmpFile);
     const clientStream = new PassThrough();
-    const cdnChunks: Buffer[] = [];
 
+    // pipe source → clientStream (для клиента) + fileStream (для CDN)
+    // Ни один чанк не копируется в отдельный буфер
     stream.on('data', (chunk: Buffer) => {
       clientStream.write(chunk);
-      cdnChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      fileStream.write(chunk);
     });
+
     stream.on('end', () => {
       clientStream.end();
-      const buffer = Buffer.concat(cdnChunks);
-      if (buffer.length > 8192) {
-        this.cdn.uploadWithTracking(trackUrn, cdnQuality, buffer).catch((err) => {
+      fileStream.end();
+    });
+
+    // Upload на CDN после того как файл полностью записан на диск
+    fileStream.on('finish', () => {
+      const size = statSync(tmpFile).size;
+      if (size > 8192) {
+        this.logger.log(`[stream] ${trackUrn} → CDN upload (${(size / 1024).toFixed(0)} KB)`);
+        this.cdn.uploadWithTracking(trackUrn, cdnQuality, tmpFile).catch((err) => {
           this.logger.warn(`CDN upload failed for ${trackUrn}: ${err.message}`);
         });
       }
     });
+
     stream.on('error', (err) => {
       clientStream.destroy(err);
+      fileStream.destroy();
     });
 
     return { type: 'stream', stream: clientStream, headers };
   }
 
-  async tryOAuthStream(
+  /** OAuth API stream: пробует форматы по приоритету. */
+  private async tryOAuthStream(
     token: string,
     trackUrn: string,
-    format: string,
     params: Record<string, unknown>,
-    range?: string,
   ): Promise<{ stream: Readable; headers: Record<string, string> } | null> {
     try {
       const streams = await this.getStreams(token, trackUrn, params);
-      const urlKey = `${format}_url` as keyof typeof streams;
 
-      const fallbackOrder: (keyof ScStreams)[] = [
+      const formatOrder: (keyof ScStreams)[] = [
         'hls_aac_160_url',
         'http_mp3_128_url',
         'hls_mp3_128_url',
       ];
 
-      // Build ordered list: requested format first, then fallbacks
-      const candidates: { key: keyof ScStreams; url: string }[] = [];
-      const requestedUrl = streams[urlKey] as string | undefined;
-      if (requestedUrl) {
-        candidates.push({ key: urlKey as keyof ScStreams, url: requestedUrl });
-      }
-      for (const key of fallbackOrder) {
-        if (streams[key] && key !== urlKey) {
-          candidates.push({ key, url: streams[key] as string });
-        }
-      }
+      const candidates = formatOrder
+        .filter((key) => !!streams[key])
+        .map((key) => ({ key, url: streams[key] as string }));
 
       if (!candidates.length) return null;
 
@@ -299,9 +266,9 @@ export class TracksService {
               this.hlsMimeType(fmt),
             );
           }
-          return await this.proxyStream(token, url, range);
+          return await this.proxyStream(token, url);
         } catch (err: any) {
-          this.logger.warn(`Stream format ${fmt} failed: ${err.message}, trying next...`);
+          this.logger.warn(`[stream] format ${fmt} failed: ${err.message}`);
         }
       }
 

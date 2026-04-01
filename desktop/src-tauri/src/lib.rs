@@ -4,6 +4,7 @@ mod discord;
 mod import;
 mod network;
 mod shared;
+mod track_cache;
 
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
@@ -81,6 +82,9 @@ pub fn run() {
                 client: Mutex::new(None),
             }));
 
+            let track_cache_state = track_cache::init(audio_dir);
+            app.manage(track_cache_state);
+
             let audio_state = audio::init();
             app.manage(audio_state);
             audio::start_tick_emitter(app.handle());
@@ -128,6 +132,14 @@ pub fn run() {
             audio::save_track_to_path,
             import::ym_import_start,
             import::ym_import_stop,
+            track_cache::track_ensure_cached,
+            track_cache::track_is_cached,
+            track_cache::track_get_cache_path,
+            track_cache::track_preload,
+            track_cache::track_cache_size,
+            track_cache::track_clear_cache,
+            track_cache::track_list_cached,
+            track_cache::track_enforce_cache_limit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
