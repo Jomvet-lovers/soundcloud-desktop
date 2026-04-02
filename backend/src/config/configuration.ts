@@ -19,6 +19,7 @@ export default () => ({
     proxyUrl: process.env.SC_PROXY_URL || '',
     streamProxyUrls: collectStreamProxyUrls(),
     cookies: process.env.SC_COOKIES || '',
+    publicApiEnabled: process.env.SC_PUBLIC_API_ENABLED !== 'false',
   },
   database: {
     host: process.env.DATABASE_HOST || 'localhost',

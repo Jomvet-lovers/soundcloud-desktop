@@ -1,9 +1,11 @@
 import { createWriteStream, statSync } from 'node:fs';
+import { unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CdnService } from '../cdn/cdn.service.js';
 import { CdnQuality } from '../cdn/entities/cdn-track.entity.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
@@ -29,6 +31,7 @@ interface StreamResult {
 @Injectable()
 export class TracksService {
   private readonly logger = new Logger(TracksService.name);
+  private readonly publicApiEnabled: boolean;
 
   constructor(
     private readonly sc: SoundcloudService,
@@ -38,7 +41,10 @@ export class TracksService {
     private readonly cdn: CdnService,
     private readonly pendingActions: PendingActionsService,
     private readonly httpService: HttpService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.publicApiEnabled = configService.get<boolean>('soundcloud.publicApiEnabled') ?? true;
+  }
 
   private async applyLocalLikeFlags(sessionId: string, tracks: ScTrack[]): Promise<ScTrack[]> {
     const urns = tracks.map((track) => track.urn).filter(Boolean);
@@ -181,23 +187,29 @@ export class TracksService {
     hq: boolean,
   ): Promise<(StreamResult & { source: string }) | null> {
     if (hq) {
-      const cookieData = await this.getCookieStream(trackUrn);
-      if (cookieData) return { ...cookieData, source: 'cookies' };
+      if (this.publicApiEnabled) {
+        const cookieData = await this.getCookieStream(trackUrn);
+        if (cookieData) return { ...cookieData, source: 'cookies' };
+      }
 
       const oauthData = await this.tryOAuthStream(token, trackUrn, params);
       if (oauthData) return { ...oauthData, quality: 'sq', source: 'oauth' };
 
-      const anonData = await this.getPublicStream(trackUrn);
-      if (anonData) return { ...anonData, quality: 'sq', source: 'anon' };
+      if (this.publicApiEnabled) {
+        const anonData = await this.getPublicStream(trackUrn);
+        if (anonData) return { ...anonData, quality: 'sq', source: 'anon' };
+      }
     } else {
       const oauthData = await this.tryOAuthStream(token, trackUrn, params);
       if (oauthData) return { ...oauthData, quality: 'sq', source: 'oauth' };
 
-      const anonData = await this.getPublicStream(trackUrn);
-      if (anonData) return { ...anonData, quality: 'sq', source: 'anon' };
+      if (this.publicApiEnabled) {
+        const anonData = await this.getPublicStream(trackUrn);
+        if (anonData) return { ...anonData, quality: 'sq', source: 'anon' };
 
-      const cookieData = await this.getCookieStream(trackUrn);
-      if (cookieData) return { ...cookieData, source: 'cookies' };
+        const cookieData = await this.getCookieStream(trackUrn);
+        if (cookieData) return { ...cookieData, source: 'cookies' };
+      }
     }
 
     return null;
@@ -217,8 +229,11 @@ export class TracksService {
     const fileStream = createWriteStream(tmpFile);
     const clientStream = new PassThrough();
 
+    const cleanupTmp = () => {
+      unlink(tmpFile).catch(() => {});
+    };
+
     // pipe source → clientStream (для клиента) + fileStream (для CDN)
-    // Ни один чанк не копируется в отдельный буфер
     stream.on('data', (chunk: Buffer) => {
       clientStream.write(chunk);
       fileStream.write(chunk);
@@ -231,18 +246,27 @@ export class TracksService {
 
     // Upload на CDN после того как файл полностью записан на диск
     fileStream.on('finish', () => {
-      const size = statSync(tmpFile).size;
-      if (size > 8192) {
-        this.logger.log(`[stream] ${trackUrn} → CDN upload (${(size / 1024).toFixed(0)} KB)`);
-        this.cdn.uploadWithTracking(trackUrn, cdnQuality, tmpFile).catch((err) => {
-          this.logger.warn(`CDN upload failed for ${trackUrn}: ${err.message}`);
-        });
+      try {
+        const size = statSync(tmpFile).size;
+        if (size > 8192) {
+          this.logger.log(`[stream] ${trackUrn} → CDN upload (${(size / 1024).toFixed(0)} KB)`);
+          // uploadWithTracking удаляет файл в finally
+          this.cdn.uploadWithTracking(trackUrn, cdnQuality, tmpFile).catch((err) => {
+            this.logger.warn(`CDN upload failed for ${trackUrn}: ${err.message}`);
+            cleanupTmp();
+          });
+        } else {
+          cleanupTmp();
+        }
+      } catch {
+        cleanupTmp();
       }
     });
 
     stream.on('error', (err) => {
       clientStream.destroy(err);
       fileStream.destroy();
+      cleanupTmp();
     });
 
     return { type: 'stream', stream: clientStream, headers };
