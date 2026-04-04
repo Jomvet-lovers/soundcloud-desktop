@@ -1,29 +1,40 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { nestGet, nestPost, nestPatch, nestDelete } from "../lib/api";
+import { nestGet, nestPost, nestPatch } from "../lib/api";
 import DataTable, { type Column } from "../components/DataTable";
 import Modal from "../components/Modal";
-import ConfirmDialog from "../components/ConfirmDialog";
-import { Plus } from "lucide-react";
+import { Plus, Power } from "lucide-react";
 
 interface OAuthApp {
   id: string;
   name: string;
   clientId: string;
-  clientSecret: string;
   redirectUri: string;
   active?: boolean;
   createdAt?: string;
 }
 
-type FormData = Omit<OAuthApp, "id" | "active" | "createdAt">;
+interface FormData {
+  name: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  active: boolean;
+}
 
-const emptyForm: FormData = { name: "", clientId: "", clientSecret: "", redirectUri: "" };
+type UpdatePayload = Partial<FormData> & { id: string };
+
+const emptyForm: FormData = {
+  name: "",
+  clientId: "",
+  clientSecret: "",
+  redirectUri: "",
+  active: true,
+};
 
 export default function OAuthApps() {
   const qc = useQueryClient();
   const [modal, setModal] = useState<{ mode: "create" | "edit"; item?: OAuthApp } | null>(null);
-  const [deleteItem, setDeleteItem] = useState<OAuthApp | null>(null);
   const [form, setForm] = useState<FormData>(emptyForm);
 
   const { data = [], isLoading } = useQuery({
@@ -40,7 +51,7 @@ export default function OAuthApps() {
   });
 
   const update = useMutation({
-    mutationFn: ({ id, ...body }: FormData & { id: string }) =>
+    mutationFn: ({ id, ...body }: UpdatePayload) =>
       nestPatch(`/oauth-apps/${id}`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["oauth-apps"] });
@@ -48,11 +59,11 @@ export default function OAuthApps() {
     },
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => nestDelete(`/oauth-apps/${id}`),
+  const toggleActive = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      nestPatch(`/oauth-apps/${id}`, { active }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["oauth-apps"] });
-      setDeleteItem(null);
     },
   });
 
@@ -65,8 +76,9 @@ export default function OAuthApps() {
     setForm({
       name: item.name,
       clientId: item.clientId,
-      clientSecret: item.clientSecret,
+      clientSecret: "",
       redirectUri: item.redirectUri,
+      active: item.active !== false,
     });
     setModal({ mode: "edit", item });
   }
@@ -74,9 +86,22 @@ export default function OAuthApps() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (modal?.mode === "edit" && modal.item) {
-      update.mutate({ ...form, id: modal.item.id });
+      update.mutate({
+        id: modal.item.id,
+        name: form.name,
+        clientId: form.clientId,
+        redirectUri: form.redirectUri,
+        active: form.active,
+        ...(form.clientSecret ? { clientSecret: form.clientSecret } : {}),
+      });
     } else {
-      create.mutate(form);
+      create.mutate({
+        name: form.name,
+        clientId: form.clientId,
+        clientSecret: form.clientSecret,
+        redirectUri: form.redirectUri,
+        active: form.active,
+      });
     }
   }
 
@@ -102,6 +127,21 @@ export default function OAuthApps() {
       label: "Created",
       render: (a) =>
         a.createdAt ? new Date(a.createdAt).toLocaleDateString() : "—",
+    },
+    {
+      key: "toggle",
+      label: "Toggle",
+      render: (a) => (
+        <button
+          type="button"
+          onClick={() => toggleActive.mutate({ id: a.id, active: a.active === false })}
+          disabled={toggleActive.isPending}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
+        >
+          <Power size={14} />
+          {a.active === false ? "Enable" : "Disable"}
+        </button>
+      ),
     },
   ];
 
@@ -135,7 +175,6 @@ export default function OAuthApps() {
           data={data}
           keyExtractor={(a) => a.id}
           onEdit={openEdit}
-          onDelete={setDeleteItem}
         />
       )}
 
@@ -165,7 +204,7 @@ export default function OAuthApps() {
             type="password"
             value={form.clientSecret}
             onChange={(e) => setForm({ ...form, clientSecret: e.target.value })}
-            required
+            required={modal?.mode !== "edit"}
           />
           <input
             className={inputClass}
@@ -174,6 +213,15 @@ export default function OAuthApps() {
             onChange={(e) => setForm({ ...form, redirectUri: e.target.value })}
             required
           />
+          <label className="flex items-center gap-3 text-sm text-white/70 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(e) => setForm({ ...form, active: e.target.checked })}
+              className="rounded"
+            />
+            Active
+          </label>
           <div className="flex gap-3 justify-end pt-2">
             <button
               type="button"
@@ -192,15 +240,6 @@ export default function OAuthApps() {
           </div>
         </form>
       </Modal>
-
-      <ConfirmDialog
-        open={!!deleteItem}
-        onClose={() => setDeleteItem(null)}
-        onConfirm={() => deleteItem && remove.mutate(deleteItem.id)}
-        title="Delete OAuth App"
-        message={`Delete "${deleteItem?.name}"?`}
-        loading={remove.isPending}
-      />
     </div>
   );
 }

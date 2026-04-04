@@ -88,8 +88,9 @@ export class OAuthAppsService implements OnModuleInit {
     clientId: string;
     clientSecret: string;
     redirectUri: string;
+    active?: boolean;
   }): Promise<OAuthApp> {
-    const app = this.repo.create({ ...data, active: true });
+    const app = this.repo.create({ ...data, active: data.active !== false });
     const saved = await this.repo.save(app);
     await this.reloadActiveApps();
     return saved;

@@ -8,7 +8,7 @@ import { Plus } from "lucide-react";
 
 interface Subscription {
   user_urn: string;
-  exp_date: string;
+  exp_date: number;
 }
 
 export default function Subscriptions() {
@@ -23,7 +23,7 @@ export default function Subscriptions() {
   });
 
   const upsert = useMutation({
-    mutationFn: (body: { user_urn: string; exp_date: string }) =>
+    mutationFn: (body: { user_urn: string; exp_date: number }) =>
       streamPost("/admin/subscriptions", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["subscriptions"] });
@@ -45,23 +45,39 @@ export default function Subscriptions() {
   }
 
   function openEdit(item: Subscription) {
-    setForm({ user_urn: item.user_urn, exp_date: item.exp_date.split("T")[0] });
+    setForm({ user_urn: item.user_urn, exp_date: formatDateInput(item.exp_date) });
     setModal({ mode: "edit", item });
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    upsert.mutate(form);
+    upsert.mutate({
+      user_urn: form.user_urn.trim(),
+      exp_date: toUnixTimestamp(form.exp_date),
+    });
   }
 
-  const isExpired = (d: string) => new Date(d) < new Date();
+  const isExpired = (timestamp: number) => timestamp * 1000 < Date.now();
+
+  function toUnixTimestamp(value: string) {
+    const [year, month, day] = value.split("-").map(Number);
+    return Math.floor(new Date(year, month - 1, day, 23, 59, 59).getTime() / 1000);
+  }
+
+  function formatDateInput(timestamp: number) {
+    const date = new Date(timestamp * 1000);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
 
   const columns: Column<Subscription>[] = [
     { key: "user_urn", label: "User URN" },
     {
       key: "exp_date",
       label: "Expiry Date",
-      render: (s) => new Date(s.exp_date).toLocaleDateString(),
+      render: (s) => new Date(s.exp_date * 1000).toLocaleDateString(),
     },
     {
       key: "status",
@@ -120,7 +136,7 @@ export default function Subscriptions() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
             className={inputClass}
-            placeholder="User URN (e.g. soundcloud:users:123)"
+            placeholder="User URN (e.g. soundcloud:user:123)"
             value={form.user_urn}
             onChange={(e) => setForm({ ...form, user_urn: e.target.value })}
             disabled={modal?.mode === "edit"}

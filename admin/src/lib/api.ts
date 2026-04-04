@@ -32,7 +32,20 @@ async function request<T>(
   }
 
   const text = await res.text();
-  return text ? JSON.parse(text) : (undefined as T);
+  if (!text) {
+    return undefined as T;
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return JSON.parse(text) as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as T;
+  }
 }
 
 // NestJS

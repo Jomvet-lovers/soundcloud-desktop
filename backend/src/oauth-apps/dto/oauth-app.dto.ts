@@ -12,6 +12,10 @@ export class CreateOAuthAppDto {
 
   @IsString()
   redirectUri: string;
+
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
 }
 
 export class UpdateOAuthAppDto {
