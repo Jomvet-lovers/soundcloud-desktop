@@ -118,6 +118,17 @@ jobs:
           cache-from: type=gha,scope=streaming
           cache-to: type=gha,mode=max,scope=streaming
 
+      - name: Build & push storage
+        uses: docker/build-push-action@v6
+        with:
+          context: storage
+          push: true
+          tags: |
+            ghcr.io/${{ steps.repo.outputs.name }}/storage:${{ needs.version.outputs.version }}
+            ghcr.io/${{ steps.repo.outputs.name }}/storage:latest
+          cache-from: type=gha,scope=storage
+          cache-to: type=gha,mode=max,scope=storage
+
   build:
     needs: version
     strategy:

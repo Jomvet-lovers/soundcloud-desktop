@@ -57,7 +57,7 @@ services:
       SQLITE_PATH: /data/subscriptions.db
       SC_PROXY_URL: ${SC_PROXY_URL:-}
       SC_COOKIES: ${SC_COOKIES:-}
-      CDN_BASE_URL: ${CDN_BASE_URL:-}
+      CDN_BASE_URL: ${CDN_BASE_URL:-http://storage:3000}
       CDN_AUTH_TOKEN: ${CDN_AUTH_TOKEN:-}
       CDN_CLEANUP_DAYS: ${CDN_CLEANUP_DAYS:-7}
       CDN_MAX_SIZE_BYTES: ${CDN_MAX_SIZE_BYTES:-0}
@@ -68,7 +68,27 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      storage:
+        condition: service_started
+
+  storage:
+    image: ghcr.io/zxcloli666/soundcloud-desktop/storage:latest
+    restart: always
+    expose:
+      - "3000"
+    environment:
+      PORT: 3000
+      ADMIN_TOKEN: ${CDN_AUTH_TOKEN:-}
+      STORAGE_PATH: /data/storage
+      TMP_PATH: /tmp/transcode
+      MAX_TRANSCODES: ${MAX_TRANSCODES:-2}
+      RUST_LOG: storage=info
+    volumes:
+      - storage-data:/data/storage
+    tmpfs:
+      - /tmp/transcode:size=2G,mode=1777
 
 volumes:
   pgdata:
   streaming-data:
+  storage-data:
