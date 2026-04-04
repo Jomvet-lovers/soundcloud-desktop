@@ -11,15 +11,17 @@ use sha2::{Digest, Sha256};
 
 use crate::audio::eq::{EqSource, GainSource};
 use crate::audio::types::{
-    ChannelCount, EqParams, SampleRate, NORMALIZATION_ANALYSIS_SAMPLES, NORMALIZATION_BLOCK_SAMPLES,
-    NORMALIZATION_MAX_ATTENUATION_DB, NORMALIZATION_MAX_BOOST_DB, NORMALIZATION_TARGET_PEAK,
-    NORMALIZATION_TARGET_RMS,
+    ChannelCount, EqParams, SampleRate, NORMALIZATION_ANALYSIS_SAMPLES,
+    NORMALIZATION_BLOCK_SAMPLES, NORMALIZATION_MAX_ATTENUATION_DB, NORMALIZATION_MAX_BOOST_DB,
+    NORMALIZATION_TARGET_PEAK, NORMALIZATION_TARGET_RMS,
 };
 
 const NORMALIZATION_CACHE_VERSION: u8 = 2;
 
 pub fn is_ogg_opus(bytes: &[u8]) -> bool {
-    bytes.len() >= 36 && &bytes[0..4] == b"OggS" && bytes.windows(8).take(8).any(|w| w == b"OpusHead")
+    bytes.len() >= 36
+        && &bytes[0..4] == b"OggS"
+        && bytes.windows(8).take(8).any(|w| w == b"OpusHead")
 }
 
 struct OpusSource<R: std::io::Read + std::io::Seek> {
@@ -184,7 +186,10 @@ fn normalization_cache_file(cache_dir: &Path, cache_key: &str) -> PathBuf {
     cache_dir.join(format!("{hash}.gain"))
 }
 
-fn read_cached_normalization_gain(cache_dir: Option<&Path>, cache_key: Option<&str>) -> Option<f32> {
+fn read_cached_normalization_gain(
+    cache_dir: Option<&Path>,
+    cache_key: Option<&str>,
+) -> Option<f32> {
     let path = normalization_cache_file(cache_dir?, cache_key?);
     let raw = std::fs::read_to_string(path).ok()?;
     let (version, value) = raw.trim().split_once(':')?;

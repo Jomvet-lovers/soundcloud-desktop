@@ -23,7 +23,10 @@
     "clearQueue": "Очистить очередь",
     "addToQueue": "Добавить в очередь",
     "shuffle": "Перемешать",
-    "repeat": "Повтор"
+    "repeat": "Повтор",
+    "qualityHQ": "HQ",
+    "qualitySQ": "SQ",
+    "qualityCDN": "CDN"
   },
   "auth": {
     "signIn": "Войти через SoundCloud",

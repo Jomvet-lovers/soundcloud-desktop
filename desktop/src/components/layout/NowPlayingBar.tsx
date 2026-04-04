@@ -1,6 +1,7 @@
 import * as Slider from '@radix-ui/react-slider';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { api } from '../../lib/api';
@@ -293,6 +294,40 @@ export const ProgressTime = React.memo(() => {
   );
 });
 
+const PlaybackQualityBadge = React.memo(() => {
+  const { t } = useTranslation();
+  const { playbackQuality, playbackSource } = usePlayerStore(
+    useShallow((s) => ({
+      playbackQuality: s.playbackQuality,
+      playbackSource: s.playbackSource,
+    })),
+  );
+
+  if (!playbackQuality) return null;
+
+  const isHq = playbackQuality === 'hq';
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <span
+        className={`inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-[9px] font-semibold tracking-[0.14em] ${
+          isHq
+            ? 'border-white/[0.14] bg-white/[0.08] text-white/92'
+            : 'border-white/[0.08] bg-white/[0.04] text-white/68'
+        }`}
+      >
+        {isHq ? t('player.qualityHQ') : t('player.qualitySQ')}
+      </span>
+      {playbackSource === 'storage' && (
+        <span className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-[#b7ffd8]/[0.16] bg-[#b7ffd8]/[0.07] px-2 text-[8px] font-medium tracking-[0.12em] text-[#dff7e9]/82">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#b7ffd8] shadow-[0_0_8px_rgba(183,255,216,0.55)]" />
+          {t('player.qualityCDN')}
+        </span>
+      )}
+    </div>
+  );
+});
+
 /* ── Like button ─────────────────────────────────────────────── */
 
 function LikeButton({ trackUrn }: { trackUrn: string }) {
@@ -446,14 +481,14 @@ const TrackInfo = React.memo(() => {
 
   if (!currentTrack) {
     return (
-      <div className="flex items-center gap-3.5 w-[280px] min-w-0">
+      <div className="flex items-center gap-3.5 w-[340px] min-w-0">
         <p className="text-[13px] text-white/15">Not playing</p>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-3.5 w-[280px] min-w-0">
+    <div className="flex items-center gap-3.5 w-[340px] min-w-0">
       <div
         className="relative w-14 h-14 rounded-[10px] shrink-0 overflow-hidden cursor-pointer shadow-xl shadow-black/40 ring-1 ring-white/[0.06] hover:ring-white/[0.12] transition-all duration-200 group/art"
         onClick={() => openLyricsPanel({ rightPanelOpen: false })}
@@ -492,6 +527,7 @@ const TrackInfo = React.memo(() => {
         </p>
       </div>
       <LikeButton trackUrn={currentTrack.urn} />
+      <PlaybackQualityBadge />
     </div>
   );
 });

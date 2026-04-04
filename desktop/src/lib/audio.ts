@@ -5,7 +5,12 @@ import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { api, getSessionId, streamUrl } from './api';
-import { enforceAudioCacheLimit } from './cache';
+import {
+  enforceAudioCacheLimit,
+  ensureTrackCached,
+  getCacheInfo,
+  type TrackCacheInfo,
+} from './cache';
 import { trackedInvoke as invoke } from './diagnostics';
 import { art } from './formatters';
 
@@ -127,6 +132,7 @@ async function loadTrack(track: Track) {
   cachedDuration = fallbackDuration;
   cachedTime = 0;
   usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
+  usePlayerStore.getState().setPlaybackTransport(null, null);
   notify();
 
   // Sync EQ state to Rust
@@ -138,15 +144,15 @@ async function loadTrack(track: Track) {
   invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
 
   try {
-    const sessionId = getSessionId();
     const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
 
     // Strategy 1: Cache hit — instant
-    const cachedPath = await invoke<string | null>('track_get_cache_path', { urn });
-    if (cachedPath) {
+    const cached = await getCacheInfo(urn);
+    if (cached?.path) {
       if (gen !== loadGen) return;
+      usePlayerStore.getState().setPlaybackTransport(cached.quality, cached.source);
       console.log('[Audio] Playing from cache:', urn);
-      await invoke('audio_load_file', { path: cachedPath, cacheKey: urn });
+      await invoke('audio_load_file', { path: cached.path, cacheKey: urn });
       if (gen !== loadGen) return;
       afterLoad(track, gen);
       return;
@@ -155,28 +161,21 @@ async function loadTrack(track: Track) {
     // Strategy 2: Download full track to cache — Rust picks storage/API internally
     usePlayerStore.setState({ downloadProgress: 0, downloadSource: 'api' });
 
-    let downloadedPath: string;
+    let cachedInfo: TrackCacheInfo;
     try {
-      downloadedPath = await invoke<string>('track_ensure_cached', {
-        urn,
-        url: streamUrl(urn, highQualityStreaming),
-        sessionId,
-      });
+      cachedInfo = await ensureTrackCached(urn, highQualityStreaming);
     } catch (error) {
       if (!highQualityStreaming) throw error;
       console.warn('[Audio] HQ load failed, retrying without hq:', error);
-      downloadedPath = await invoke<string>('track_ensure_cached', {
-        urn,
-        url: streamUrl(urn, false),
-        sessionId,
-      });
+      cachedInfo = await ensureTrackCached(urn, false);
     }
 
     if (gen !== loadGen) return;
     usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
+    usePlayerStore.getState().setPlaybackTransport(cachedInfo.quality, cachedInfo.source);
 
     console.log('[Audio] Playing downloaded track:', urn);
-    await invoke('audio_load_file', { path: downloadedPath, cacheKey: urn });
+    await invoke('audio_load_file', { path: cachedInfo.path, cacheKey: urn });
     void enforceAudioCacheLimit().catch(console.error);
 
     if (gen !== loadGen) return;
@@ -184,6 +183,7 @@ async function loadTrack(track: Track) {
   } catch (e) {
     console.error('[Audio] Load failed:', e);
     usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
+    usePlayerStore.getState().setPlaybackTransport(null, null);
     if (gen !== loadGen) return;
     const errorText = getLoadErrorText(e);
     toast.error(i18n.t('track.loadError'), {
@@ -290,7 +290,8 @@ listen<string>('audio:default-device-changed', (event) => {
 /* ── Store subscriber ────────────────────────────────────────── */
 
 usePlayerStore.subscribe((state, prev) => {
-  const trackChanged = state.currentTrack?.urn !== currentUrn;
+  const nextUrn = state.currentTrack?.urn ?? null;
+  const trackChanged = nextUrn !== currentUrn;
   const playToggled = state.isPlaying !== prev.isPlaying;
 
   if (trackChanged) {
@@ -302,6 +303,7 @@ usePlayerStore.subscribe((state, prev) => {
       currentUrn = null;
       fallbackDuration = 0;
       cachedDuration = 0;
+      usePlayerStore.getState().setPlaybackTransport(null, null);
       notify();
     }
     return;

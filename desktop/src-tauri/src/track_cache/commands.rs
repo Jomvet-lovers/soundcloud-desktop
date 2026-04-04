@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::track_cache::state::TrackCacheState;
+use crate::track_cache::state::{TrackCacheEntry, TrackCacheState};
 
 #[derive(serde::Deserialize)]
 pub struct PreloadEntry {
@@ -15,10 +15,8 @@ pub async fn track_ensure_cached(
     url: String,
     session_id: Option<String>,
     state: State<'_, TrackCacheState>,
-) -> Result<String, String> {
-    state
-        .ensure_cached(&urn, &url, session_id.as_deref())
-        .await
+) -> Result<TrackCacheEntry, String> {
+    state.ensure_cached(&urn, &url, session_id.as_deref()).await
 }
 
 #[tauri::command]
@@ -29,6 +27,14 @@ pub fn track_is_cached(urn: String, state: State<'_, TrackCacheState>) -> bool {
 #[tauri::command]
 pub fn track_get_cache_path(urn: String, state: State<'_, TrackCacheState>) -> Option<String> {
     state.get_cache_path(&urn)
+}
+
+#[tauri::command]
+pub fn track_get_cache_info(
+    urn: String,
+    state: State<'_, TrackCacheState>,
+) -> Option<TrackCacheEntry> {
+    state.get_cache_entry(&urn)
 }
 
 #[tauri::command]
@@ -55,10 +61,7 @@ pub async fn track_preload(
         tokio::spawn(async move {
             let _permit = permit;
             println!("[TrackCache] preloading {urn} from {url}");
-            if let Err(err) = state
-                .ensure_cached(&urn, &url, session_id.as_deref())
-                .await
-            {
+            if let Err(err) = state.ensure_cached(&urn, &url, session_id.as_deref()).await {
                 eprintln!("[TrackCache] preload {urn}: {err}");
             }
         });

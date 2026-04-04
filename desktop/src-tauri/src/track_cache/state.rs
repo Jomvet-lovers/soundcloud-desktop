@@ -21,6 +21,7 @@ const DOWNLOAD_CONNECT_TIMEOUT_MS: u64 = 1500;
 const DOWNLOAD_READ_TIMEOUT_SECS: u64 = 20;
 const RETRY_DELAYS_MS: [u64; 3] = [200, 600, 1500];
 const MAX_PARALLEL_PRELOADS: usize = 20;
+const CACHE_METADATA_EXT: &str = ".meta.json";
 
 /// Magic-byte validation for audio files
 fn is_valid_audio(prefix: &[u8], total_size: u64) -> bool {
@@ -83,14 +84,43 @@ fn filename_to_urn(filename: &str) -> Option<String> {
     Some(stripped.replace('_', ":"))
 }
 
+fn is_audio_cache_file(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()) == Some("audio")
+}
+
+fn cache_metadata_path(path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}{}", path.display(), CACHE_METADATA_EXT))
+}
+
+fn remove_cache_metadata(path: &Path) {
+    std::fs::remove_file(cache_metadata_path(path)).ok();
+}
+
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlaybackQuality {
+    Hq,
+    Sq,
+}
+
+impl PlaybackQuality {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Hq => "hq",
+            Self::Sq => "sq",
+        }
+    }
+}
+
 /// Tracks active downloads so duplicate requests coalesce.
 struct ActiveDownload {
     notify: Arc<Notify>,
     result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
 }
 
-#[derive(Clone, Copy)]
-enum DownloadSource {
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DownloadSource {
     Storage,
     Api,
 }
@@ -104,8 +134,40 @@ impl DownloadSource {
     }
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct TrackCacheMetadata {
+    quality: PlaybackQuality,
+    source: DownloadSource,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct TrackCacheEntry {
+    pub path: String,
+    pub quality: Option<String>,
+    pub source: Option<String>,
+}
+
+impl TrackCacheEntry {
+    fn from_path_and_meta(path: &Path, meta: Option<TrackCacheMetadata>) -> Self {
+        let (quality, source) = match meta {
+            Some(meta) => (
+                Some(meta.quality.label().to_string()),
+                Some(meta.source.label().to_string()),
+            ),
+            None => (None, None),
+        };
+
+        Self {
+            path: path.to_string_lossy().into_owned(),
+            quality,
+            source,
+        }
+    }
+}
+
 struct DownloadTarget {
     source: DownloadSource,
+    quality: PlaybackQuality,
     url: String,
 }
 
@@ -118,6 +180,10 @@ enum StorageProbeResult {
     Hit,
     Missing,
     Unavailable,
+}
+
+struct DownloadResult {
+    path: PathBuf,
 }
 
 #[derive(Clone)]
@@ -201,6 +267,29 @@ async fn cleanup_temp_file(path: &Path) {
     tokio::fs::remove_file(path).await.ok();
 }
 
+fn read_cache_metadata(path: &Path) -> Option<TrackCacheMetadata> {
+    let raw = std::fs::read_to_string(cache_metadata_path(path)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+async fn write_cache_metadata(path: &Path, meta: &TrackCacheMetadata) {
+    let raw = match serde_json::to_vec(meta) {
+        Ok(raw) => raw,
+        Err(_) => return,
+    };
+
+    let final_path = cache_metadata_path(path);
+    let temp_path = PathBuf::from(format!("{}.tmp", final_path.display()));
+    if tokio::fs::write(&temp_path, raw).await.is_err() {
+        tokio::fs::remove_file(&temp_path).await.ok();
+        return;
+    }
+
+    if tokio::fs::rename(&temp_path, &final_path).await.is_err() {
+        tokio::fs::remove_file(&temp_path).await.ok();
+    }
+}
+
 async fn probe_storage_head(
     storage_head_client: &Client,
     urn: &str,
@@ -237,8 +326,9 @@ async fn write_response_to_cache(
     urn: &str,
     response: reqwest::Response,
     source: DownloadSource,
+    quality: PlaybackQuality,
     app_handle: Option<&tauri::AppHandle>,
-) -> Result<PathBuf, DownloadError> {
+) -> Result<DownloadResult, DownloadError> {
     let final_path = audio_dir.join(urn_to_filename(urn));
     let temp_path = temp_file_path(audio_dir, urn);
     let file = File::create(&temp_path)
@@ -298,15 +388,20 @@ async fn write_response_to_cache(
         return Err(DownloadError::Fatal("Invalid audio data".into()));
     }
 
+    let cache_meta = TrackCacheMetadata { quality, source };
+
     if let Ok(meta) = tokio::fs::metadata(&final_path).await {
         if meta.len() >= MIN_AUDIO_SIZE {
             cleanup_temp_file(&temp_path).await;
-            return Ok(final_path);
+            return Ok(DownloadResult { path: final_path });
         }
     }
 
     match tokio::fs::rename(&temp_path, &final_path).await {
-        Ok(()) => Ok(final_path),
+        Ok(()) => {
+            write_cache_metadata(&final_path, &cache_meta).await;
+            Ok(DownloadResult { path: final_path })
+        }
         Err(first_err) => {
             if tokio::fs::metadata(&final_path)
                 .await
@@ -314,12 +409,15 @@ async fn write_response_to_cache(
                 .unwrap_or(false)
             {
                 cleanup_temp_file(&temp_path).await;
-                return Ok(final_path);
+                return Ok(DownloadResult { path: final_path });
             }
 
             tokio::fs::remove_file(&final_path).await.ok();
             match tokio::fs::rename(&temp_path, &final_path).await {
-                Ok(()) => Ok(final_path),
+                Ok(()) => {
+                    write_cache_metadata(&final_path, &cache_meta).await;
+                    Ok(DownloadResult { path: final_path })
+                }
                 Err(second_err) => {
                     cleanup_temp_file(&temp_path).await;
                     Err(DownloadError::Fatal(format!(
@@ -338,7 +436,7 @@ async fn fetch_target_to_cache(
     target: &DownloadTarget,
     session_id: Option<&str>,
     app_handle: Option<&tauri::AppHandle>,
-) -> Result<PathBuf, DownloadError> {
+) -> Result<DownloadResult, DownloadError> {
     let mut req = client.get(&target.url);
     if matches!(target.source, DownloadSource::Api) {
         if let Some(sid) = session_id {
@@ -352,7 +450,15 @@ async fn fetch_target_to_cache(
     let status = response.status();
 
     if status.is_success() {
-        return write_response_to_cache(audio_dir, urn, response, target.source, app_handle).await;
+        return write_response_to_cache(
+            audio_dir,
+            urn,
+            response,
+            target.source,
+            target.quality,
+            app_handle,
+        )
+        .await;
     }
 
     let message = format!(
@@ -397,6 +503,11 @@ pub async fn download_track_to_cache(
             StorageProbeResult::Hit => {
                 targets.push(DownloadTarget {
                     source: DownloadSource::Storage,
+                    quality: if prefer_hq {
+                        PlaybackQuality::Hq
+                    } else {
+                        PlaybackQuality::Sq
+                    },
                     url: preferred_storage_url,
                 });
             }
@@ -409,6 +520,11 @@ pub async fn download_track_to_cache(
                         );
                         targets.push(DownloadTarget {
                             source: DownloadSource::Storage,
+                            quality: if prefer_hq {
+                                PlaybackQuality::Sq
+                            } else {
+                                PlaybackQuality::Hq
+                            },
                             url: alternate_storage_url,
                         });
                     }
@@ -428,11 +544,21 @@ pub async fn download_track_to_cache(
         if targets.is_empty() {
             targets.push(DownloadTarget {
                 source: DownloadSource::Api,
+                quality: if prefer_hq {
+                    PlaybackQuality::Hq
+                } else {
+                    PlaybackQuality::Sq
+                },
                 url: api_url,
             });
         } else {
             targets.push(DownloadTarget {
                 source: DownloadSource::Api,
+                quality: if prefer_hq {
+                    PlaybackQuality::Hq
+                } else {
+                    PlaybackQuality::Sq
+                },
                 url: api_url,
             });
         }
@@ -446,8 +572,8 @@ pub async fn download_track_to_cache(
             match fetch_target_to_cache(client, audio_dir, urn, &target, session_id, app_handle)
                 .await
             {
-                Ok(path) => {
-                    let kb = std::fs::metadata(&path)
+                Ok(result) => {
+                    let kb = std::fs::metadata(&result.path)
                         .map(|meta| meta.len() / 1024)
                         .unwrap_or(0);
                     let ms = start.elapsed().as_millis();
@@ -455,7 +581,7 @@ pub async fn download_track_to_cache(
                         "[TrackCache] downloaded {urn} via {} — {kb} KB in {ms}ms",
                         target.source.label()
                     );
-                    return Ok(path);
+                    return Ok(result.path);
                 }
                 Err(DownloadError::Fatal(err)) => {
                     if matches!(target.source, DownloadSource::Api) {
@@ -511,6 +637,17 @@ impl TrackCacheState {
         }
     }
 
+    pub fn get_cache_entry(&self, urn: &str) -> Option<TrackCacheEntry> {
+        let path = self.file_path(urn);
+        if !self.is_cached(urn) {
+            return None;
+        }
+        Some(TrackCacheEntry::from_path_and_meta(
+            &path,
+            read_cache_metadata(&path),
+        ))
+    }
+
     /// Download track fully, save to cache, return path.
     /// Coalesces concurrent requests for the same URN.
     pub async fn ensure_cached(
@@ -518,11 +655,11 @@ impl TrackCacheState {
         urn: &str,
         url: &str,
         session_id: Option<&str>,
-    ) -> Result<String, String> {
+    ) -> Result<TrackCacheEntry, String> {
         // Already cached?
-        if let Some(path) = self.get_cache_path(urn) {
+        if let Some(entry) = self.get_cache_entry(urn) {
             println!("[TrackCache] hit: {urn}");
-            return Ok(path);
+            return Ok(entry);
         }
 
         // Check if another task is already downloading this URN
@@ -535,7 +672,10 @@ impl TrackCacheState {
             notify.notified().await;
             let res = result_slot.lock().await;
             return match res.as_ref() {
-                Some(Ok(path)) => Ok(path.to_string_lossy().into_owned()),
+                Some(Ok(path)) => Ok(TrackCacheEntry::from_path_and_meta(
+                    path,
+                    read_cache_metadata(path),
+                )),
                 Some(Err(e)) => Err(e.clone()),
                 None => Err("download completed without result".into()),
             };
@@ -565,7 +705,8 @@ impl TrackCacheState {
         // Remove from active
         self.active.lock().await.remove(urn);
 
-        download_result.map(|p| p.to_string_lossy().into_owned())
+        download_result
+            .map(|path| TrackCacheEntry::from_path_and_meta(&path, read_cache_metadata(&path)))
     }
 
     async fn download(
@@ -592,7 +733,7 @@ impl TrackCacheState {
         if let Ok(entries) = std::fs::read_dir(&self.audio_dir) {
             for entry in entries.flatten() {
                 if let Ok(meta) = entry.metadata() {
-                    if meta.is_file() {
+                    if meta.is_file() && is_audio_cache_file(&entry.path()) {
                         total += meta.len();
                     }
                 }
@@ -604,8 +745,12 @@ impl TrackCacheState {
     pub fn clear_cache(&self) {
         if let Ok(entries) = std::fs::read_dir(&self.audio_dir) {
             for entry in entries.flatten() {
-                if entry.metadata().map(|m| m.is_file()).unwrap_or(false) {
-                    std::fs::remove_file(entry.path()).ok();
+                let path = entry.path();
+                if entry.metadata().map(|m| m.is_file()).unwrap_or(false)
+                    && is_audio_cache_file(&path)
+                {
+                    std::fs::remove_file(&path).ok();
+                    remove_cache_metadata(&path);
                 }
             }
         }
@@ -623,7 +768,9 @@ impl TrackCacheState {
                         urns.push(urn);
                     } else {
                         // Remove invalid/small files
-                        std::fs::remove_file(entry.path()).ok();
+                        let path = entry.path();
+                        std::fs::remove_file(&path).ok();
+                        remove_cache_metadata(&path);
                     }
                 }
             }
@@ -642,6 +789,10 @@ impl TrackCacheState {
 
         if let Ok(entries) = std::fs::read_dir(&self.audio_dir) {
             for entry in entries.flatten() {
+                let path = entry.path();
+                if !is_audio_cache_file(&path) {
+                    continue;
+                }
                 if let Ok(meta) = entry.metadata() {
                     if meta.is_file() {
                         let size = meta.len();
@@ -650,7 +801,7 @@ impl TrackCacheState {
                             .or_else(|_| meta.modified())
                             .unwrap_or(std::time::UNIX_EPOCH);
                         total += size;
-                        files.push((entry.path(), size, accessed));
+                        files.push((path, size, accessed));
                     }
                 }
             }
@@ -670,6 +821,7 @@ impl TrackCacheState {
                 break;
             }
             if std::fs::remove_file(&path).is_ok() {
+                remove_cache_metadata(&path);
                 total -= size;
                 removed += 1;
             }

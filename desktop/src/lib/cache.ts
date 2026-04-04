@@ -1,6 +1,7 @@
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import type { PlaybackQuality, PlaybackSource } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { getStaticPort } from './constants';
 import { trackedInvoke as invoke } from './diagnostics';
@@ -16,12 +17,51 @@ let assetsClearedDuringIdle = false;
 
 /* ── Track cache (Rust) ─────────────────────────────────── */
 
+export interface TrackCacheInfo {
+  path: string;
+  quality: PlaybackQuality | null;
+  source: PlaybackSource | null;
+}
+
 export function isCached(urn: string): Promise<boolean> {
   return invoke<boolean>('track_is_cached', { urn });
 }
 
 export function getCacheFilePath(urn: string): Promise<string | null> {
   return invoke<string | null>('track_get_cache_path', { urn });
+}
+
+export function getCacheInfo(urn: string): Promise<TrackCacheInfo | null> {
+  return invoke<TrackCacheInfo | null>('track_get_cache_info', { urn });
+}
+
+export async function ensureTrackCached(
+  urn: string,
+  highQualityStreaming = useSettingsStore.getState().highQualityStreaming,
+): Promise<TrackCacheInfo> {
+  const cached = await getCacheInfo(urn);
+  if (cached) {
+    return cached;
+  }
+
+  const { streamUrl, getSessionId } = await import('./api');
+  const sessionId = getSessionId();
+
+  try {
+    return await invoke<TrackCacheInfo>('track_ensure_cached', {
+      urn,
+      url: streamUrl(urn, highQualityStreaming),
+      sessionId,
+    });
+  } catch (error) {
+    if (!highQualityStreaming) throw error;
+    console.warn('[Cache] HQ download failed, retrying without hq:', error);
+    return invoke<TrackCacheInfo>('track_ensure_cached', {
+      urn,
+      url: streamUrl(urn, false),
+      sessionId,
+    });
+  }
 }
 
 export function getCacheSize(): Promise<number> {
@@ -218,30 +258,7 @@ export async function downloadTrack(urn: string, artist: string, title: string):
   });
   if (!dest) throw new Error('cancelled');
 
-  // Ensure cached via Rust
-  let cachedPath = await getCacheFilePath(urn);
-  if (!cachedPath) {
-    // Force download via stream URL
-    const { streamUrl, getSessionId } = await import('./api');
-    const sessionId = getSessionId();
-    const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
-    try {
-      await invoke('track_ensure_cached', {
-        urn,
-        url: streamUrl(urn, highQualityStreaming),
-        sessionId,
-      });
-    } catch (error) {
-      if (!highQualityStreaming) throw error;
-      console.warn('[Cache] HQ download failed, retrying without hq:', error);
-      await invoke('track_ensure_cached', {
-        urn,
-        url: streamUrl(urn, false),
-        sessionId,
-      });
-    }
-    cachedPath = await getCacheFilePath(urn);
-  }
+  const cachedPath = (await ensureTrackCached(urn)).path;
   if (!cachedPath) throw new Error('Failed to cache track');
 
   return invoke<string>('save_track_to_path', { cachePath: cachedPath, destPath: dest });

@@ -7,7 +7,9 @@ use crate::app::diagnostics;
 use crate::audio::engine;
 use crate::audio::state::AudioState;
 use crate::audio::timing;
-use crate::audio::types::{AudioThreadCmd, STALL_COOLDOWN_MS, STALL_THRESHOLD_MS, TICK_INTERVAL_MS};
+use crate::audio::types::{
+    AudioThreadCmd, STALL_COOLDOWN_MS, STALL_THRESHOLD_MS, TICK_INTERVAL_MS,
+};
 
 pub fn start_tick_emitter(app: &AppHandle) {
     let handle = app.clone();
@@ -41,9 +43,8 @@ pub fn start_tick_emitter(app: &AppHandle) {
                 let player_guard = state.player.lock().unwrap();
                 if let Some(ref player) = *player_guard {
                     if player.empty() {
-                        let suppress_ended =
-                            super::engine::now_ms()
-                                < state.suppress_ended_until_ms.load(Ordering::Relaxed);
+                        let suppress_ended = super::engine::now_ms()
+                            < state.suppress_ended_until_ms.load(Ordering::Relaxed);
                         if !state.device_error.load(Ordering::Relaxed)
                             && !suppress_ended
                             && !state.ended_notified.swap(true, Ordering::Relaxed)

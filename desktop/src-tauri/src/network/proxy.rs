@@ -31,7 +31,8 @@ fn cache_meta_path(cache_path: &std::path::Path) -> PathBuf {
 
 async fn read_cached_asset(cache_path: &std::path::Path) -> Option<(String, Vec<u8>)> {
     let meta_path = cache_meta_path(cache_path);
-    let (content_type_raw, data) = tokio::join!(fs::read_to_string(&meta_path), fs::read(cache_path));
+    let (content_type_raw, data) =
+        tokio::join!(fs::read_to_string(&meta_path), fs::read(cache_path));
 
     let content_type = content_type_raw.ok()?.trim().to_string();
     let data = data.ok()?;
@@ -56,7 +57,10 @@ async fn write_cached_asset(cache_path: PathBuf, content_type: String, data: Vec
         return;
     }
 
-    if fs::write(&tmp_meta_path, content_type.as_bytes()).await.is_err() {
+    if fs::write(&tmp_meta_path, content_type.as_bytes())
+        .await
+        .is_err()
+    {
         let _ = fs::remove_file(&tmp_cache_path).await;
         let _ = fs::remove_file(&tmp_meta_path).await;
         return;

@@ -116,7 +116,8 @@ fn read_fd_snapshot() -> Result<FdSnapshot, String> {
         ..FdSnapshot::default()
     };
 
-    let entries = fs::read_dir("/proc/self/fd").map_err(|e| format!("read_dir(/proc/self/fd): {e}"))?;
+    let entries =
+        fs::read_dir("/proc/self/fd").map_err(|e| format!("read_dir(/proc/self/fd): {e}"))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("fd entry read failed: {e}"))?;
         snapshot.open += 1;
@@ -167,12 +168,14 @@ pub fn start_linux_fd_monitor(app: &AppHandle) {
                 Ok(Ok(snapshot)) => snapshot,
                 Ok(Err(err)) => {
                     log_native(&handle, "WARN", format!("[FD] Snapshot failed: {err}"));
-                    tokio::time::sleep(std::time::Duration::from_secs(FD_MONITOR_INTERVAL_SECS)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(FD_MONITOR_INTERVAL_SECS))
+                        .await;
                     continue;
                 }
                 Err(err) => {
                     log_native(&handle, "WARN", format!("[FD] Snapshot task failed: {err}"));
-                    tokio::time::sleep(std::time::Duration::from_secs(FD_MONITOR_INTERVAL_SECS)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(FD_MONITOR_INTERVAL_SECS))
+                        .await;
                     continue;
                 }
             };
@@ -185,7 +188,11 @@ pub fn start_linux_fd_monitor(app: &AppHandle) {
 
             if high_water == 0 {
                 high_water = snapshot.open;
-                log_native(&handle, "INFO", format!("[FD] Monitor started {}", format_fd_snapshot(&snapshot)));
+                log_native(
+                    &handle,
+                    "INFO",
+                    format!("[FD] Monitor started {}", format_fd_snapshot(&snapshot)),
+                );
             } else if snapshot.open > high_water {
                 high_water = snapshot.open;
                 if snapshot.open >= FD_HIGH_WATER_LOG_MIN {
@@ -204,7 +211,10 @@ pub fn start_linux_fd_monitor(app: &AppHandle) {
                     log_native(
                         &handle,
                         "ERROR",
-                        format!("[FD] Critical descriptor pressure {}", format_fd_snapshot(&snapshot)),
+                        format!(
+                            "[FD] Critical descriptor pressure {}",
+                            format_fd_snapshot(&snapshot)
+                        ),
                     );
                 }
             } else if usage_pct >= FD_WARN_PCT {
@@ -214,7 +224,10 @@ pub fn start_linux_fd_monitor(app: &AppHandle) {
                     log_native(
                         &handle,
                         "WARN",
-                        format!("[FD] High descriptor pressure {}", format_fd_snapshot(&snapshot)),
+                        format!(
+                            "[FD] High descriptor pressure {}",
+                            format_fd_snapshot(&snapshot)
+                        ),
                     );
                 }
             }

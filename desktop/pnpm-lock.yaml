@@ -33,19 +33,19 @@ importers:
         specifier: ^3.13.23
         version: 3.13.23(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@tauri-apps/api':
-        specifier: ^2
+        specifier: 2.10.1
         version: 2.10.1
       '@tauri-apps/plugin-dialog':
-        specifier: ^2.6.0
+        specifier: 2.6.0
         version: 2.6.0
       '@tauri-apps/plugin-fs':
-        specifier: ^2
+        specifier: 2.4.5
         version: 2.4.5
       '@tauri-apps/plugin-http':
-        specifier: ^2.5.7
+        specifier: 2.5.7
         version: 2.5.7
       '@tauri-apps/plugin-opener':
-        specifier: ^2
+        specifier: 2.5.3
         version: 2.5.3
       i18next:
         specifier: ^25.8.13
@@ -88,7 +88,7 @@ importers:
         specifier: ^2.4.5
         version: 2.4.5
       '@tauri-apps/cli':
-        specifier: ^2
+        specifier: 2.10.0
         version: 2.10.0
       '@types/react':
         specifier: ^19.1.8

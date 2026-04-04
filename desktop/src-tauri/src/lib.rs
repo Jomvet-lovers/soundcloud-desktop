@@ -137,6 +137,7 @@ pub fn run() {
             track_cache::track_ensure_cached,
             track_cache::track_is_cached,
             track_cache::track_get_cache_path,
+            track_cache::track_get_cache_info,
             track_cache::track_preload,
             track_cache::track_cache_size,
             track_cache::track_clear_cache,

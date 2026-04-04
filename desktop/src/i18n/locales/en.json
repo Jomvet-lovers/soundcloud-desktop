@@ -23,7 +23,10 @@
     "clearQueue": "Clear Queue",
     "addToQueue": "Add to Queue",
     "shuffle": "Shuffle",
-    "repeat": "Repeat"
+    "repeat": "Repeat",
+    "qualityHQ": "HQ",
+    "qualitySQ": "SQ",
+    "qualityCDN": "CDN"
   },
   "auth": {
     "signIn": "Sign in with SoundCloud",
