@@ -56,12 +56,15 @@ pub async fn upload(
             "file" => {
                 // Stream to /tmp — don't buffer entire file in RAM
                 let id = uuid::Uuid::new_v4();
-                let tmp_path = std::path::PathBuf::from(&state.config.tmp_path)
-                    .join(format!("{id}.input"));
+                let tmp_path =
+                    std::path::PathBuf::from(&state.config.tmp_path).join(format!("{id}.input"));
 
-                let mut file = tokio::fs::File::create(&tmp_path)
-                    .await
-                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("create tmp: {e}")))?;
+                let mut file = tokio::fs::File::create(&tmp_path).await.map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("create tmp: {e}"),
+                    )
+                })?;
 
                 // Stream chunks to disk
                 let mut stream = field;
@@ -82,9 +85,9 @@ pub async fn upload(
                     }
                 }
 
-                file.flush().await.map_err(|e| {
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("flush: {e}"))
-                })?;
+                file.flush()
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("flush: {e}")))?;
                 drop(file);
 
                 if total == 0 {
@@ -103,7 +106,9 @@ pub async fn upload(
     let filename = filename
         .or_else(|| {
             // Fallback: derive from tmp path
-            tmp_path.file_stem().map(|s| s.to_string_lossy().to_string())
+            tmp_path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
         })
         .ok_or((StatusCode::BAD_REQUEST, "missing filename".into()))?;
 
@@ -116,16 +121,25 @@ pub async fn upload(
 
     // Acquire transcode semaphore — limits concurrent CPU load
     let _permit = state.transcode_sem.acquire().await.map_err(|_| {
-        (StatusCode::SERVICE_UNAVAILABLE, "transcode unavailable".into())
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "transcode unavailable".into(),
+        )
     })?;
 
     // Transcode
-    let result = crate::transcode::transcode(&tmp_path, &filename, &state.config.storage_path)
-        .await
-        .map_err(|e| {
-            warn!("[upload] transcode failed for {filename}: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("transcode: {e}"))
-        });
+    let result = crate::transcode::transcode(
+        &tmp_path,
+        &filename,
+        &state.config.storage_path,
+        &state.config.ffmpeg_bin,
+        &state.config.ffprobe_bin,
+    )
+    .await
+    .map_err(|e| {
+        warn!("[upload] transcode failed for {filename}: {e}");
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("transcode: {e}"))
+    });
 
     // Always cleanup tmp
     let _ = tokio::fs::remove_file(&tmp_path).await;

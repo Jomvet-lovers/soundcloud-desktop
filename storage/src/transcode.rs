@@ -13,6 +13,8 @@ pub async fn transcode(
     input: &Path,
     filename: &str,
     storage_path: &str,
+    ffmpeg_bin: &str,
+    ffprobe_bin: &str,
 ) -> Result<TranscodeResult, TranscodeError> {
     let hq_dir = PathBuf::from(storage_path).join("hq");
     let sq_dir = PathBuf::from(storage_path).join("sq");
@@ -24,43 +26,66 @@ pub async fn transcode(
     let sq_path = sq_dir.join(&ogg_name);
 
     // Probe duration first
-    let duration_secs = probe_duration(input).await.unwrap_or(0.0);
+    let duration_secs = probe_duration(input, ffprobe_bin).await.unwrap_or(0.0);
 
     // Single ffmpeg call: two outputs from one input
-    let status = Command::new("ffmpeg")
+    let output = Command::new(ffmpeg_bin)
         .args([
+            "-v",
+            "error",
+            "-hide_banner",
+            "-nostats",
             "-y",
             "-i",
             input.to_str().unwrap_or_default(),
             // HQ: Opus 256kbps
-            "-map", "0:a:0",
-            "-c:a", "libopus",
-            "-b:a", "256k",
-            "-vbr", "on",
-            "-compression_level", "10",
-            "-application", "audio",
+            "-map",
+            "0:a:0",
+            "-c:a",
+            "libopus",
+            "-b:a",
+            "256k",
+            "-vbr",
+            "on",
+            "-compression_level",
+            "10",
+            "-application",
+            "audio",
             hq_path.to_str().unwrap_or_default(),
             // SQ: Opus 128kbps
-            "-map", "0:a:0",
-            "-c:a", "libopus",
-            "-b:a", "128k",
-            "-vbr", "on",
-            "-compression_level", "10",
-            "-application", "audio",
+            "-map",
+            "0:a:0",
+            "-c:a",
+            "libopus",
+            "-b:a",
+            "128k",
+            "-vbr",
+            "on",
+            "-compression_level",
+            "10",
+            "-application",
+            "audio",
             sq_path.to_str().unwrap_or_default(),
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
-        .spawn()?
-        .wait()
+        .output()
         .await?;
 
-    if !status.success() {
+    if !output.status.success() {
         // Cleanup partial files
         let _ = tokio::fs::remove_file(&hq_path).await;
         let _ = tokio::fs::remove_file(&sq_path).await;
-        return Err(TranscodeError::FfmpegFailed(status.code().unwrap_or(-1)));
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(TranscodeError::FfmpegFailed {
+            code: output.status.code().unwrap_or(-1),
+            stderr: if stderr.is_empty() {
+                "unknown ffmpeg error".into()
+            } else {
+                stderr
+            },
+        });
     }
 
     info!(
@@ -98,12 +123,15 @@ pub async fn delete_files(filename: &str, storage_path: &str) -> Result<(), Tran
     Ok(())
 }
 
-async fn probe_duration(path: &Path) -> Option<f64> {
-    let output = Command::new("ffprobe")
+async fn probe_duration(path: &Path, ffprobe_bin: &str) -> Option<f64> {
+    let output = Command::new(ffprobe_bin)
         .args([
-            "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "csv=p=0",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
             path.to_str()?,
         ])
         .output()
@@ -125,12 +153,55 @@ async fn file_size_mb(path: &Path) -> f64 {
 pub enum TranscodeError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
-    #[error("ffmpeg exited with code {0}")]
-    FfmpegFailed(i32),
+    #[error("ffmpeg exited with code {code}: {stderr}")]
+    FfmpegFailed { code: i32, stderr: String },
+    #[error("{name} binary '{path}' is unavailable: {source}")]
+    BinaryUnavailable {
+        name: &'static str,
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{name} binary '{path}' exited with code {code}")]
+    BinaryCheckFailed {
+        name: &'static str,
+        path: String,
+        code: i32,
+    },
 }
 
 impl From<TranscodeError> for axum::http::StatusCode {
     fn from(_: TranscodeError) -> Self {
         axum::http::StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
+pub async fn validate_binaries(ffmpeg_bin: &str, ffprobe_bin: &str) -> Result<(), TranscodeError> {
+    validate_binary("ffmpeg", ffmpeg_bin).await?;
+    validate_binary("ffprobe", ffprobe_bin).await?;
+    Ok(())
+}
+
+async fn validate_binary(name: &'static str, path: &str) -> Result<(), TranscodeError> {
+    let status = Command::new(path)
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .map_err(|source| TranscodeError::BinaryUnavailable {
+            name,
+            path: path.to_string(),
+            source,
+        })?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(TranscodeError::BinaryCheckFailed {
+            name,
+            path: path.to_string(),
+            code: status.code().unwrap_or(-1),
+        })
     }
 }

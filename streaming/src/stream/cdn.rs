@@ -54,16 +54,16 @@ impl CdnClient {
     }
 
     /// Try to serve from CDN. Returns redirect URL if found.
-    pub async fn try_serve(
-        &self,
-        track_urn: &str,
-        prefer_hq: bool,
-    ) -> Option<String> {
+    pub async fn try_serve(&self, track_urn: &str, prefer_hq: bool) -> Option<String> {
         if !self.enabled() || self.is_temporarily_unavailable() {
             return None;
         }
 
-        let cached = self.pg.find_cached_track(track_urn, prefer_hq).await.ok()??;
+        let cached = self
+            .pg
+            .find_cached_track(track_urn, prefer_hq)
+            .await
+            .ok()??;
         let cdn_url = self.cdn_url(track_urn, &cached.quality);
 
         match self.verify_url(&cdn_url).await {
@@ -83,12 +83,7 @@ impl CdnClient {
     /// Upload audio to storage service (single-phase: multipart + Bearer token).
     /// Storage service transcodes to Opus HQ+SQ automatically.
     /// Runs in background, doesn't block stream.
-    pub fn upload_in_background(
-        &self,
-        track_urn: String,
-        _quality: String,
-        data: Bytes,
-    ) {
+    pub fn upload_in_background(&self, track_urn: String, data: Bytes) {
         if !self.enabled() || self.is_temporarily_unavailable() {
             return;
         }
@@ -104,14 +99,20 @@ impl CdnClient {
             let hq_path = Self::track_path(&track_urn, "hq");
             let sq_path = Self::track_path(&track_urn, "sq");
 
-            let hq_id = match pg.insert_cdn_track(&track_urn, "hq", &hq_path, "pending").await {
+            let hq_id = match pg
+                .insert_cdn_track(&track_urn, "hq", &hq_path, "pending")
+                .await
+            {
                 Ok(id) => id,
                 Err(e) => {
                     warn!("[cdn] insert pending hq failed: {e}");
                     return;
                 }
             };
-            let sq_id = match pg.insert_cdn_track(&track_urn, "sq", &sq_path, "pending").await {
+            let sq_id = match pg
+                .insert_cdn_track(&track_urn, "sq", &sq_path, "pending")
+                .await
+            {
                 Ok(id) => id,
                 Err(e) => {
                     warn!("[cdn] insert pending sq failed: {e}");
@@ -156,7 +157,13 @@ impl CdnClient {
             return VerifyResult::Unavailable;
         }
 
-        match self.client.head(url).timeout(std::time::Duration::from_secs(3)).send().await {
+        match self
+            .client
+            .head(url)
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await
+        {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 if (200..300).contains(&status) {

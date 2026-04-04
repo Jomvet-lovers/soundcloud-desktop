@@ -49,14 +49,14 @@ pub async fn stream_normal(
     .await
     {
         info!("[stream] {track_urn} → oauth");
-        return respond_with_data(&state, &track_urn, "sq", result.data, result.content_type);
+        return respond_with_data(&state, &track_urn, result.data, result.content_type);
     }
 
     // 3. Anon stream
     match state.anon.get_stream(&track_urn).await {
         Ok(Some(result)) => {
             info!("[stream] {track_urn} → anon");
-            return respond_with_data(&state, &track_urn, "sq", result.data, result.content_type);
+            return respond_with_data(&state, &track_urn, result.data, result.content_type);
         }
         Ok(None) => {}
         Err(e) => warn!("[stream] anon failed for {track_urn}: {e}"),
@@ -116,13 +116,7 @@ pub async fn stream_premium(
             match cookies_client.get_stream(&track_urn).await {
                 Ok(Some(result)) => {
                     info!("[stream/premium] {track_urn} → cookies {}", result.quality);
-                    return respond_with_data(
-                        &state,
-                        &track_urn,
-                        result.quality,
-                        result.data,
-                        result.content_type,
-                    );
+                    return respond_with_data(&state, &track_urn, result.data, result.content_type);
                 }
                 Ok(None) => {}
                 Err(e) => warn!("[stream/premium] cookies failed: {e}"),
@@ -139,19 +133,13 @@ pub async fn stream_premium(
         .await
         {
             info!("[stream/premium] {track_urn} → oauth");
-            return respond_with_data(&state, &track_urn, "sq", result.data, result.content_type);
+            return respond_with_data(&state, &track_urn, result.data, result.content_type);
         }
 
         match state.anon.get_stream(&track_urn).await {
             Ok(Some(result)) => {
                 info!("[stream/premium] {track_urn} �� anon");
-                return respond_with_data(
-                    &state,
-                    &track_urn,
-                    "sq",
-                    result.data,
-                    result.content_type,
-                );
+                return respond_with_data(&state, &track_urn, result.data, result.content_type);
             }
             Ok(None) => {}
             Err(e) => warn!("[stream/premium] anon failed: {e}"),
@@ -168,19 +156,13 @@ pub async fn stream_premium(
         .await
         {
             info!("[stream/premium] {track_urn} → oauth");
-            return respond_with_data(&state, &track_urn, "sq", result.data, result.content_type);
+            return respond_with_data(&state, &track_urn, result.data, result.content_type);
         }
 
         match state.anon.get_stream(&track_urn).await {
             Ok(Some(result)) => {
                 info!("[stream/premium] {track_urn} → anon");
-                return respond_with_data(
-                    &state,
-                    &track_urn,
-                    "sq",
-                    result.data,
-                    result.content_type,
-                );
+                return respond_with_data(&state, &track_urn, result.data, result.content_type);
             }
             Ok(None) => {}
             Err(e) => warn!("[stream/premium] anon failed: {e}"),
@@ -190,13 +172,7 @@ pub async fn stream_premium(
             match cookies_client.get_stream(&track_urn).await {
                 Ok(Some(result)) => {
                     info!("[stream/premium] {track_urn} → cookies {}", result.quality);
-                    return respond_with_data(
-                        &state,
-                        &track_urn,
-                        result.quality,
-                        result.data,
-                        result.content_type,
-                    );
+                    return respond_with_data(&state, &track_urn, result.data, result.content_type);
                 }
                 Ok(None) => {}
                 Err(e) => warn!("[stream/premium] cookies failed: {e}"),
@@ -215,16 +191,12 @@ fn extract_session_id(headers: &HeaderMap, query: &StreamQuery) -> Result<String
             .map(|s| s.to_string())
             .map_err(|_| AppError::Unauthorized);
     }
-    query
-        .session_id
-        .clone()
-        .ok_or(AppError::Unauthorized)
+    query.session_id.clone().ok_or(AppError::Unauthorized)
 }
 
 fn respond_with_data(
     state: &AppState,
     track_urn: &str,
-    quality: &str,
     data: Bytes,
     content_type: &'static str,
 ) -> Result<Response, AppError> {
@@ -232,7 +204,7 @@ fn respond_with_data(
     if data.len() > 8192 {
         state
             .cdn
-            .upload_in_background(track_urn.to_string(), quality.to_string(), data.clone());
+            .upload_in_background(track_urn.to_string(), data.clone());
     }
 
     Ok(Response::builder()

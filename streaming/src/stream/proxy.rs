@@ -113,25 +113,3 @@ pub async fn proxy_get_json<T: serde::de::DeserializeOwned>(
     let val = serde_json::from_slice(&bytes)?;
     Ok(val)
 }
-
-/// GET streaming response through proxy.
-#[allow(dead_code)]
-pub async fn proxy_get_stream(
-    client: &Client,
-    proxy_url: &str,
-    target_url: &str,
-    extra: HashMap<String, String>,
-) -> Result<(reqwest::Response, HashMap<String, String>), reqwest::Error> {
-    let (url, headers) = proxy_target(proxy_url, target_url, extra);
-    let mut req = client.get(&url);
-    for (k, v) in &headers {
-        req = req.header(k.as_str(), v.as_str());
-    }
-    let resp = req.send().await?.error_for_status()?;
-    let resp_headers: HashMap<String, String> = resp
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-    Ok((resp, resp_headers))
-}

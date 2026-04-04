@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use tracing::warn;
 
 use super::hls::download_hls_full;
-use super::proxy::{proxy_get_bytes, proxy_get_json, proxy_target};
+use super::proxy::{proxy_get_bytes, proxy_get_json};
 
 const API_BASE: &str = "https://api.soundcloud.com";
 
@@ -13,8 +13,6 @@ pub struct ScStreams {
     pub hls_aac_160_url: Option<String>,
     pub http_mp3_128_url: Option<String>,
     pub hls_mp3_128_url: Option<String>,
-    #[allow(dead_code)]
-    pub hls_opus_64_url: Option<String>,
 }
 
 /// Stream result: full audio data + content_type + quality tag
@@ -40,16 +38,8 @@ pub async fn try_oauth_stream(
             "hls",
             "audio/mp4; codecs=\"mp4a.40.2\"",
         ),
-        (
-            streams.http_mp3_128_url.as_deref(),
-            "http",
-            "audio/mpeg",
-        ),
-        (
-            streams.hls_mp3_128_url.as_deref(),
-            "hls",
-            "audio/mpeg",
-        ),
+        (streams.http_mp3_128_url.as_deref(), "http", "audio/mpeg"),
+        (streams.hls_mp3_128_url.as_deref(), "hls", "audio/mpeg"),
     ]
     .into_iter()
     .filter_map(|(url, proto, mime)| url.map(|u| (u, proto, mime)))

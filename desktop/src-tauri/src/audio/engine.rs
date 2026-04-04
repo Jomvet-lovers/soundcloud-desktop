@@ -1,5 +1,5 @@
-use std::sync::atomic::Ordering;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tauri::{Emitter, State};
@@ -69,13 +69,8 @@ async fn build_player_from_bytes(
         } else {
             1.0
         };
-        let (player, duration_secs) = create_player_from_bytes(
-            &bytes,
-            &mixer,
-            volume,
-            normalization_gain,
-            eq_params,
-        )?;
+        let (player, duration_secs) =
+            create_player_from_bytes(&bytes, &mixer, volume, normalization_gain, eq_params)?;
         Ok((bytes, player, duration_secs, normalization_gain))
     })
     .await
@@ -105,7 +100,11 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
         &bytes,
         &mixer,
         vol,
-        if normalization_enabled { normalization_gain } else { 1.0 },
+        if normalization_enabled {
+            normalization_gain
+        } else {
+            1.0
+        },
         state.eq_params.clone(),
     )?;
 
@@ -210,7 +209,9 @@ pub async fn load_url(
         if attempt < retry_delays.len() {
             tokio::time::sleep(std::time::Duration::from_millis(retry_delays[attempt])).await;
             if state.load_gen.load(Ordering::Relaxed) != generation {
-                return Ok(AudioLoadResult { duration_secs: None });
+                return Ok(AudioLoadResult {
+                    duration_secs: None,
+                });
             }
         }
     }
@@ -331,7 +332,11 @@ pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
         &bytes,
         &mixer,
         vol,
-        if normalization_enabled { normalization_gain } else { 1.0 },
+        if normalization_enabled {
+            normalization_gain
+        } else {
+            1.0
+        },
         state.eq_params.clone(),
     )?;
 
@@ -436,7 +441,6 @@ pub fn set_media_position(position: f64, state: State<'_, AudioState>) {
 pub async fn load_streaming(
     url: String,
     cache_path: Option<String>,
-    _normalization_cache_dir: Option<PathBuf>,
     normalization_cache_key: Option<String>,
     state: State<'_, AudioState>,
     app: tauri::AppHandle,
@@ -487,13 +491,16 @@ pub async fn load_streaming(
 
                     // Emit progress event
                     if total > 0 {
-                        let _ = app_clone.emit("track:download-progress", serde_json::json!({
-                            "urn": urn_for_events,
-                            "downloaded": downloaded,
-                            "total": total,
-                            "progress": downloaded as f64 / total as f64,
-                            "source": "storage",
-                        }));
+                        let _ = app_clone.emit(
+                            "track:download-progress",
+                            serde_json::json!({
+                                "urn": urn_for_events,
+                                "downloaded": downloaded,
+                                "total": total,
+                                "progress": downloaded as f64 / total as f64,
+                                "source": "storage",
+                            }),
+                        );
                     }
                 }
                 Err(e) => {
@@ -531,7 +538,9 @@ pub async fn load_streaming(
         }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         if state.load_gen.load(Ordering::Relaxed) != generation {
-            return Ok(AudioLoadResult { duration_secs: None });
+            return Ok(AudioLoadResult {
+                duration_secs: None,
+            });
         }
     }
 
@@ -542,7 +551,9 @@ pub async fn load_streaming(
     stop_current_player(&state);
 
     if state.load_gen.load(Ordering::Relaxed) != generation {
-        return Ok(AudioLoadResult { duration_secs: None });
+        return Ok(AudioLoadResult {
+            duration_secs: None,
+        });
     }
 
     let reader = buffer.reader();
@@ -573,7 +584,9 @@ pub async fn load_streaming(
     state.ended_notified.store(false, Ordering::Relaxed);
     state.device_error.store(false, Ordering::Relaxed);
 
-    Ok(AudioLoadResult { duration_secs: None })
+    Ok(AudioLoadResult {
+        duration_secs: None,
+    })
 }
 
 pub async fn save_track_to_path(cache_path: String, dest_path: String) -> Result<String, String> {

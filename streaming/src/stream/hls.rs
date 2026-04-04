@@ -1,8 +1,6 @@
 use bytes::{Bytes, BytesMut};
-use futures::stream::{self, Stream};
 use reqwest::Client;
 use std::collections::HashMap;
-use std::pin::Pin;
 use tracing::warn;
 use url::Url;
 
@@ -136,24 +134,4 @@ pub async fn download_hls_full(
 
     let content_type = mime_to_content_type(mime_type);
     Ok((buf.freeze(), content_type))
-}
-
-/// Stream HLS segments as a bytes stream (for direct client response).
-/// Returns (stream, content_type).
-pub async fn stream_hls(
-    client: &Client,
-    proxy_url: &str,
-    m3u8_url: &str,
-    mime_type: &str,
-) -> Result<
-    (
-        Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>,
-        &'static str,
-    ),
-    Box<dyn std::error::Error + Send + Sync>,
-> {
-    let (data, content_type) = download_hls_full(client, proxy_url, m3u8_url, mime_type).await?;
-
-    let stream = stream::once(async move { Ok(data) });
-    Ok((Box::pin(stream), content_type))
 }

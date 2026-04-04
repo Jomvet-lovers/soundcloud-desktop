@@ -6,6 +6,8 @@ pub struct Config {
     pub admin_token: String,
     pub storage_path: String,
     pub tmp_path: String,
+    pub ffmpeg_bin: String,
+    pub ffprobe_bin: String,
     /// Max concurrent ffmpeg transcodes
     pub max_transcodes: usize,
 }
@@ -20,6 +22,8 @@ impl Config {
             admin_token: env::var("ADMIN_TOKEN").expect("ADMIN_TOKEN is required"),
             storage_path: env::var("STORAGE_PATH").unwrap_or_else(|_| "/data/storage".into()),
             tmp_path: env::var("TMP_PATH").unwrap_or_else(|_| "/tmp/transcode".into()),
+            ffmpeg_bin: env::var("FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".into()),
+            ffprobe_bin: env::var("FFPROBE_BIN").unwrap_or_else(|_| "ffprobe".into()),
             max_transcodes: env::var("MAX_TRANSCODES")
                 .ok()
                 .and_then(|v| v.parse().ok())

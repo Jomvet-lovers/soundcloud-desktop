@@ -28,6 +28,9 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
+    transcode::validate_binaries(&config.ffmpeg_bin, &config.ffprobe_bin)
+        .await
+        .expect("ffmpeg/ffprobe validation failed");
 
     // Ensure dirs exist
     tokio::fs::create_dir_all(&config.storage_path)
@@ -39,8 +42,8 @@ async fn main() {
 
     let max_transcodes = config.max_transcodes;
     info!(
-        "starting storage service on port {}, max_transcodes={}",
-        config.port, max_transcodes
+        "starting storage service on port {}, max_transcodes={}, ffmpeg_bin={}, ffprobe_bin={}",
+        config.port, max_transcodes, config.ffmpeg_bin, config.ffprobe_bin
     );
 
     let state = Arc::new(AppState {

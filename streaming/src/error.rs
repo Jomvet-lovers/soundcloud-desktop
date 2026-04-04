@@ -11,8 +11,6 @@ pub enum AppError {
     Forbidden,
     #[error("no stream available")]
     NoStream,
-    #[error("bad request: {0}")]
-    BadRequest(String),
     #[error("internal: {0}")]
     Internal(String),
 }
@@ -24,7 +22,6 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::NoStream => (StatusCode::NOT_FOUND, self.to_string()),
-            AppError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.clone()),
             AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.clone()),
         };
         (status, serde_json::json!({"error": msg}).to_string()).into_response()

@@ -185,11 +185,6 @@ fn build_storage_url(urn: &str, prefer_hq: bool) -> String {
     )
 }
 
-fn build_api_url(_urn: &str, original_url: &str) -> String {
-    // The frontend already passes the full streaming service URL
-    original_url.to_string()
-}
-
 fn temp_file_path(audio_dir: &Path, urn: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -273,13 +268,16 @@ async fn write_response_to_cache(
         // Emit download progress
         if let Some(app) = app_handle {
             if content_length > 0 {
-                let _ = app.emit("track:download-progress", serde_json::json!({
-                    "urn": urn,
-                    "downloaded": total_size,
-                    "total": content_length,
-                    "progress": total_size as f64 / content_length as f64,
-                    "source": "api",
-                }));
+                let _ = app.emit(
+                    "track:download-progress",
+                    serde_json::json!({
+                        "urn": urn,
+                        "downloaded": total_size,
+                        "total": content_length,
+                        "progress": total_size as f64 / content_length as f64,
+                        "source": "api",
+                    }),
+                );
             }
         }
     }
@@ -343,17 +341,21 @@ async fn fetch_target_to_cache(
         }
     }
 
-    let response = req
-        .send()
-        .await
-        .map_err(|err| DownloadError::Retryable(format!("{} request: {err}", target.source.label())))?;
+    let response = req.send().await.map_err(|err| {
+        DownloadError::Retryable(format!("{} request: {err}", target.source.label()))
+    })?;
     let status = response.status();
 
     if status.is_success() {
         return write_response_to_cache(audio_dir, urn, response, app_handle).await;
     }
 
-    let message = format!("{} HTTP {} from {}", target.source.label(), status, target.url);
+    let message = format!(
+        "{} HTTP {} from {}",
+        target.source.label(),
+        status,
+        target.url
+    );
     if status.as_u16() == 429 || status.as_u16() >= 500 {
         Err(DownloadError::Retryable(message))
     } else {
@@ -383,7 +385,7 @@ pub async fn download_track_to_cache(
         let prefer_hq = prefer_hq_from_url(fallback_url);
         let preferred_storage_url = build_storage_url(urn, prefer_hq);
         let alternate_storage_url = build_storage_url(urn, !prefer_hq);
-        let api_url = build_api_url(urn, fallback_url);
+        let api_url = fallback_url.to_string();
 
         let mut targets = Vec::with_capacity(2);
         match probe_storage_head(storage_head_client, urn, &preferred_storage_url).await {
@@ -436,9 +438,13 @@ pub async fn download_track_to_cache(
                 DownloadSource::Api => api_client,
             };
 
-            match fetch_target_to_cache(client, audio_dir, urn, &target, session_id, app_handle).await {
+            match fetch_target_to_cache(client, audio_dir, urn, &target, session_id, app_handle)
+                .await
+            {
                 Ok(path) => {
-                    let kb = std::fs::metadata(&path).map(|meta| meta.len() / 1024).unwrap_or(0);
+                    let kb = std::fs::metadata(&path)
+                        .map(|meta| meta.len() / 1024)
+                        .unwrap_or(0);
                     let ms = start.elapsed().as_millis();
                     println!(
                         "[TrackCache] downloaded {urn} via {} — {kb} KB in {ms}ms",
@@ -659,6 +665,9 @@ impl TrackCacheState {
                 removed += 1;
             }
         }
-        println!("[TrackCache] evicted {removed} files, freed {} MB", (before - total) / (1024 * 1024));
+        println!(
+            "[TrackCache] evicted {removed} files, freed {} MB",
+            (before - total) / (1024 * 1024)
+        );
     }
 }

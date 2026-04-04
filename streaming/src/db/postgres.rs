@@ -1,6 +1,7 @@
 use deadpool_postgres::{Config as PgConfig, Pool, Runtime};
 use tokio_postgres::NoTls;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::config::Config;
 
@@ -84,6 +85,9 @@ impl PgPool {
 
     /// Get session by x-session-id → access_token + soundcloud_user_id
     pub async fn get_session(&self, session_id: &str) -> Result<Option<SessionInfo>, PgError> {
+        let Ok(session_id) = Uuid::parse_str(session_id) else {
+            return Ok(None);
+        };
         let client = self.pool.get().await?;
         let row = client
             .query_opt(
@@ -140,7 +144,7 @@ impl PgPool {
         let client = self.pool.get().await?;
         client
             .execute(
-                r#"UPDATE cdn_tracks SET "lastAccessedAt" = NOW() WHERE id = $1"#,
+                r#"UPDATE cdn_tracks SET "lastAccessedAt" = NOW() WHERE id = $1::text::uuid"#,
                 &[&id],
             )
             .await?;
@@ -155,12 +159,12 @@ impl PgPool {
         cdn_path: &str,
         status: &str,
     ) -> Result<String, PgError> {
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = Uuid::now_v7().to_string();
         let client = self.pool.get().await?;
         client
             .execute(
                 r#"INSERT INTO cdn_tracks (id, "trackUrn", quality, "cdnPath", status, "createdAt", "updatedAt", "lastAccessedAt")
-                   VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
+                   VALUES ($1::text::uuid, $2, $3, $4, $5, NOW(), NOW(), NOW())
                    ON CONFLICT ("trackUrn", quality) DO UPDATE SET status = $5, "cdnPath" = $4, "updatedAt" = NOW()"#,
                 &[&id, &track_urn, &quality, &cdn_path, &status],
             )
@@ -173,7 +177,7 @@ impl PgPool {
         let client = self.pool.get().await?;
         client
             .execute(
-                r#"UPDATE cdn_tracks SET status = $2, "updatedAt" = NOW() WHERE id = $1"#,
+                r#"UPDATE cdn_tracks SET status = $2, "updatedAt" = NOW() WHERE id = $1::text::uuid"#,
                 &[&id, &status],
             )
             .await?;
@@ -225,7 +229,7 @@ impl PgPool {
     pub async fn delete_cdn_track(&self, id: &str) -> Result<(), PgError> {
         let client = self.pool.get().await?;
         client
-            .execute("DELETE FROM cdn_tracks WHERE id = $1", &[&id])
+            .execute("DELETE FROM cdn_tracks WHERE id = $1::text::uuid", &[&id])
             .await?;
         Ok(())
     }
@@ -233,7 +237,7 @@ impl PgPool {
 
 fn row_to_cdn_track(row: &tokio_postgres::Row) -> CdnTrackRecord {
     CdnTrackRecord {
-        id: row.get(0),
+        id: row.get::<_, Uuid>(0).to_string(),
         track_urn: row.get(1),
         quality: row.get(2),
         cdn_path: row.get(3),

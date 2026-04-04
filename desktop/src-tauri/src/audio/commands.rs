@@ -54,20 +54,7 @@ pub async fn audio_load_streaming(
     app: AppHandle,
     state: State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
-    let normalization_cache_dir = app
-        .path()
-        .app_cache_dir()
-        .ok()
-        .map(|dir| dir.join("audio-normalization"));
-    engine::load_streaming(
-        url,
-        cache_path,
-        normalization_cache_dir,
-        cache_key,
-        state,
-        app,
-    )
-    .await
+    engine::load_streaming(url, cache_path, cache_key, state, app).await
 }
 
 #[tauri::command]

@@ -2,7 +2,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::error::AppError;
 use crate::AppState;
@@ -47,10 +47,7 @@ pub async fn upsert_subscription(
     state
         .sqlite
         .upsert_subscription(&body.user_urn, body.exp_date)?;
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({"message": "ok"})),
-    ))
+    Ok((StatusCode::OK, Json(serde_json::json!({"message": "ok"}))))
 }
 
 /// DELETE /admin/subscriptions/:user_urn
