@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::track_cache::state::{download_track_to_cache, TrackCacheState};
+use crate::track_cache::state::TrackCacheState;
 
 #[derive(serde::Deserialize)]
 pub struct PreloadEntry {
@@ -41,28 +41,23 @@ pub async fn track_preload(
         if state.is_cached(&entry.urn) {
             continue;
         }
+
+        let Some(permit) = state.try_acquire_preload_slot() else {
+            continue;
+        };
+
         queued += 1;
-        let audio_dir = state.audio_dir.clone();
-        let api_client = state.api_client.clone();
-        let storage_head_client = state.storage_head_client.clone();
-        let storage_get_client = state.storage_get_client.clone();
+        let state = state.inner().clone();
         let urn = entry.urn;
         let url = entry.url;
         let session_id = entry.session_id;
 
         tokio::spawn(async move {
+            let _permit = permit;
             println!("[TrackCache] preloading {urn} from {url}");
-            if let Err(err) = download_track_to_cache(
-                &audio_dir,
-                &api_client,
-                &storage_head_client,
-                &storage_get_client,
-                &urn,
-                &url,
-                session_id.as_deref(),
-                None, // no progress events for preloads
-            )
-            .await
+            if let Err(err) = state
+                .ensure_cached(&urn, &url, session_id.as_deref())
+                .await
             {
                 eprintln!("[TrackCache] preload {urn}: {err}");
             }

@@ -9,7 +9,7 @@ use reqwest::{Client, Url};
 use tauri::Emitter;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::shared::constants::STORAGE_BASE_URL;
 const MIN_AUDIO_SIZE: u64 = 8192;
@@ -20,6 +20,7 @@ const STORAGE_HEAD_TIMEOUT_MS: u64 = 1200;
 const DOWNLOAD_CONNECT_TIMEOUT_MS: u64 = 1500;
 const DOWNLOAD_READ_TIMEOUT_SECS: u64 = 20;
 const RETRY_DELAYS_MS: [u64; 3] = [200, 600, 1500];
+const MAX_PARALLEL_PRELOADS: usize = 20;
 
 /// Magic-byte validation for audio files
 fn is_valid_audio(prefix: &[u8], total_size: u64) -> bool {
@@ -119,13 +120,15 @@ enum StorageProbeResult {
     Unavailable,
 }
 
+#[derive(Clone)]
 pub struct TrackCacheState {
     pub audio_dir: PathBuf,
     pub api_client: Client,
     pub storage_head_client: Client,
     pub storage_get_client: Client,
     pub app_handle: Option<tauri::AppHandle>,
-    active: Mutex<HashMap<String, ActiveDownload>>,
+    active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
+    preload_limiter: Arc<Semaphore>,
 }
 
 pub fn init(audio_dir: PathBuf) -> TrackCacheState {
@@ -160,7 +163,8 @@ pub fn init(audio_dir: PathBuf) -> TrackCacheState {
         storage_head_client,
         storage_get_client,
         app_handle: None,
-        active: Mutex::new(HashMap::new()),
+        active: Arc::new(Mutex::new(HashMap::new())),
+        preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
     }
 }
 
@@ -483,6 +487,10 @@ pub async fn download_track_to_cache(
 }
 
 impl TrackCacheState {
+    pub fn try_acquire_preload_slot(&self) -> Option<OwnedSemaphorePermit> {
+        self.preload_limiter.clone().try_acquire_owned().ok()
+    }
+
     fn file_path(&self, urn: &str) -> PathBuf {
         self.audio_dir.join(urn_to_filename(urn))
     }

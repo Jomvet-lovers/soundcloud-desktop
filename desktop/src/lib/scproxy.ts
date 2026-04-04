@@ -1,3 +1,5 @@
+import { getProxyPort } from './constants';
+
 const WHITELIST = [
   'localhost',
   '127.0.0.1',
@@ -7,8 +9,8 @@ const WHITELIST = [
   'api.soundcloud.su',
   'unpkg.com',
 ];
-const IS_WINDOWS = navigator.userAgent.includes('Windows');
 const RETRY_BYPASS_CACHE_PARAM = '__scproxy_bust';
+const LOCAL_PROXY_SHARDS = 20;
 
 type PatchedImage = HTMLImageElement & {
   __origSrc?: string;
@@ -36,10 +38,26 @@ function withCacheBust(url: string): string {
   }
 }
 
+function hashShard(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 33 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash % LOCAL_PROXY_SHARDS;
+}
+
 function scproxyUrl(url: string, { bypassCache = false } = {}): string {
   const target = bypassCache ? withCacheBust(url) : url;
   const encoded = btoa(target);
-  return IS_WINDOWS ? `http://scproxy.localhost/${encoded}` : `scproxy://localhost/${encoded}`;
+  const proxyPort = getProxyPort();
+  const encodedPath = encodeURIComponent(encoded);
+
+  if (proxyPort) {
+    const shard = hashShard(target);
+    return `http://scproxy-${shard}.localhost:${proxyPort}/p/${encodedPath}`;
+  }
+
+  return `scproxy://localhost/${encodedPath}`;
 }
 
 // Hook <img>.src — store original URL to enable retry on error

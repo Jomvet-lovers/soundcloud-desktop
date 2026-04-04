@@ -42,9 +42,52 @@ fn apply_linux_gpu_workarounds() {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn raise_linux_nofile_limit() {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+
+    // Most Arch sessions still start GUI apps with a low soft NOFILE limit.
+    // Raise it to the process hard limit so WebKitGTK doesn't choke on socket bursts.
+    unsafe {
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+            eprintln!("[FD] getrlimit(RLIMIT_NOFILE) failed");
+            return;
+        }
+    }
+
+    if limit.rlim_cur >= limit.rlim_max {
+        return;
+    }
+
+    let next = libc::rlimit {
+        rlim_cur: limit.rlim_max,
+        rlim_max: limit.rlim_max,
+    };
+
+    unsafe {
+        if libc::setrlimit(libc::RLIMIT_NOFILE, &next) == 0 {
+            println!(
+                "[FD] Raised RLIMIT_NOFILE soft limit: {} -> {}",
+                limit.rlim_cur, next.rlim_cur
+            );
+        } else {
+            eprintln!(
+                "[FD] Failed to raise RLIMIT_NOFILE soft limit: {} -> {}",
+                limit.rlim_cur, next.rlim_cur
+            );
+        }
+    }
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
-    apply_linux_gpu_workarounds();
+    {
+        apply_linux_gpu_workarounds();
+        raise_linux_nofile_limit();
+    }
 
     soundcloud_desktop_lib::run()
 }
