@@ -1,14 +1,13 @@
 import { listen } from '@tauri-apps/api/event';
+import { toast } from 'sonner';
+import i18n from '../i18n';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { api, getSessionId, streamUrl } from './api';
 import { enforceAudioCacheLimit } from './cache';
-import { STORAGE_BASE } from './constants';
 import { trackedInvoke as invoke } from './diagnostics';
 import { art } from './formatters';
-
-const STORAGE_BASE_URL = STORAGE_BASE || 'https://storage.soundcloud.su';
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
@@ -80,10 +79,40 @@ export async function reloadCurrentTrack() {
   if (!wasPlaying) invoke('audio_pause').catch(console.error);
 }
 
-function storageUrl(urn: string, hq: boolean): string {
-  const quality = hq ? 'hq' : 'sq';
-  const safeUrn = urn.replace(/:/g, '_');
-  return `${STORAGE_BASE_URL}/${quality}/${safeUrn}.ogg`;
+function getLoadErrorText(error: unknown): string | null {
+  let message: string | null = null;
+
+  if (typeof error === 'string') {
+    message = error;
+  } else if (error instanceof Error) {
+    message = error.message;
+  } else if (typeof error === 'object' && error) {
+    if ('message' in error && typeof error.message === 'string') {
+      message = error.message;
+    } else if ('error' in error && typeof error.error === 'string') {
+      message = error.error;
+    }
+  }
+
+  if (!message) {
+    const fallback = String(error).trim();
+    if (fallback && fallback !== '[object Object]') {
+      message = fallback;
+    }
+  }
+
+  if (!message) return null;
+
+  const normalized = message
+    .trim()
+    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    .replace(/^Command [^:]+ failed:\s*/i, '');
+
+  if (normalized.startsWith('"') && normalized.endsWith('"')) {
+    return normalized.slice(1, -1).trim() || null;
+  }
+
+  return normalized || null;
 }
 
 async function loadTrack(track: Track) {
@@ -109,6 +138,7 @@ async function loadTrack(track: Track) {
   invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
 
   try {
+    const sessionId = getSessionId();
     const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
 
     // Strategy 1: Cache hit — instant
@@ -122,31 +152,9 @@ async function loadTrack(track: Track) {
       return;
     }
 
-    // Strategy 2: Storage streaming — play immediately while caching
-    const stUrl = storageUrl(urn, highQualityStreaming);
-    try {
-      usePlayerStore.setState({ downloadProgress: 0, downloadSource: 'storage' });
-      const cachePath = await invoke<string | null>('track_get_cache_path', { urn })
-        || getCacheFilePath(urn);
-      await invoke('audio_load_streaming', {
-        url: stUrl,
-        cachePath,
-        cacheKey: urn,
-      });
-      if (gen !== loadGen) return;
-      usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
-      console.log('[Audio] Streaming from storage:', urn);
-      afterLoad(track, gen);
-      return;
-    } catch (e) {
-      console.warn('[Audio] Storage stream failed, falling back to API:', e);
-    }
-
-    // Strategy 3: API download with progress — play when done
-    if (gen !== loadGen) return;
+    // Strategy 2: Download full track to cache — Rust picks storage/API internally
     usePlayerStore.setState({ downloadProgress: 0, downloadSource: 'api' });
 
-    const sessionId = getSessionId();
     let downloadedPath: string;
     try {
       downloadedPath = await invoke<string>('track_ensure_cached', {
@@ -156,7 +164,7 @@ async function loadTrack(track: Track) {
       });
     } catch (error) {
       if (!highQualityStreaming) throw error;
-      console.warn('[Audio] HQ API load failed, retrying without hq:', error);
+      console.warn('[Audio] HQ load failed, retrying without hq:', error);
       downloadedPath = await invoke<string>('track_ensure_cached', {
         urn,
         url: streamUrl(urn, false),
@@ -167,6 +175,7 @@ async function loadTrack(track: Track) {
     if (gen !== loadGen) return;
     usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
 
+    console.log('[Audio] Playing downloaded track:', urn);
     await invoke('audio_load_file', { path: downloadedPath, cacheKey: urn });
     void enforceAudioCacheLimit().catch(console.error);
 
@@ -176,13 +185,12 @@ async function loadTrack(track: Track) {
     console.error('[Audio] Load failed:', e);
     usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
     if (gen !== loadGen) return;
+    const errorText = getLoadErrorText(e);
+    toast.error(i18n.t('track.loadError'), {
+      description: errorText ? `${track.title}: ${errorText}` : track.title,
+    });
     usePlayerStore.getState().pause();
   }
-}
-
-function getCacheFilePath(urn: string): string {
-  // Build expected cache path — matches Rust's urn_to_filename
-  return `${urn.replace(/:/g, '_')}.audio`;
 }
 
 function afterLoad(track: Track, gen: number) {

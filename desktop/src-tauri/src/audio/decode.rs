@@ -336,25 +336,3 @@ pub fn create_player_from_bytes(
 
     Ok((player, duration))
 }
-
-/// Create a player from a streaming buffer (Opus only).
-/// Used for progressive playback from storage.
-pub fn create_player_from_stream(
-    reader: crate::audio::streaming::StreamingReader,
-    mixer: &Mixer,
-    volume: f32,
-    normalization_gain: f32,
-    eq_params: Arc<RwLock<EqParams>>,
-) -> Result<Player, String> {
-    let source = OpusSource::from_reader(reader)
-        .map_err(|e| format!("Failed to decode stream: {}", e))?;
-
-    let player = Player::connect_new(mixer);
-    player.set_volume(volume);
-    player.append(EqSource::new(
-        GainSource::new(source, normalization_gain),
-        eq_params,
-    ));
-
-    Ok(player)
-}

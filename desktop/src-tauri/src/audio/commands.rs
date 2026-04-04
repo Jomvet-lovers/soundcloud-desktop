@@ -47,17 +47,6 @@ pub async fn audio_load_url(
 }
 
 #[tauri::command]
-pub async fn audio_load_streaming(
-    url: String,
-    cache_path: Option<String>,
-    cache_key: Option<String>,
-    app: AppHandle,
-    state: State<'_, AudioState>,
-) -> Result<AudioLoadResult, String> {
-    engine::load_streaming(url, cache_path, cache_key, state, app).await
-}
-
-#[tauri::command]
 pub fn audio_play(state: State<'_, AudioState>) {
     engine::play(state);
 }

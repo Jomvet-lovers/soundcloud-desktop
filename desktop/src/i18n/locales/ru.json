@@ -64,7 +64,8 @@
     "hidePanel": "Скрыть панель",
     "showPanel": "Показать панель",
     "download": "Скачать",
-    "downloaded": "Скачано"
+    "downloaded": "Скачано",
+    "loadError": "Не удалось загрузить трек"
   },
   "playlist": {
     "playAll": "Воспроизвести",

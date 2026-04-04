@@ -64,7 +64,8 @@
     "hidePanel": "Hide panel",
     "showPanel": "Show panel",
     "download": "Download",
-    "downloaded": "Saved"
+    "downloaded": "Saved",
+    "loadError": "Failed to load track"
   },
   "playlist": {
     "playAll": "Play All",

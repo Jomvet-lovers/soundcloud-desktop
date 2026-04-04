@@ -61,7 +61,8 @@
     "hidePanel": "Paneli gizle",
     "showPanel": "Paneli goster",
     "download": "Indir",
-    "downloaded": "Kaydedildi"
+    "downloaded": "Kaydedildi",
+    "loadError": "Parca yuklenemedi"
   },
   "playlist": {
     "playAll": "Hepsini Cal",

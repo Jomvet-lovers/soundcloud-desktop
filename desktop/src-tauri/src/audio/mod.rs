@@ -5,7 +5,6 @@ mod engine;
 mod eq;
 mod media_controls;
 mod state;
-pub mod streaming;
 mod tick;
 mod timing;
 mod types;

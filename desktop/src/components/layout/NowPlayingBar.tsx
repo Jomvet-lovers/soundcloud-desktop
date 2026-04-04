@@ -29,32 +29,71 @@ import { type Track, usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
 import { EqualizerPanel } from '../music/EqualizerPanel';
 
-/* ── Download Progress Bar ──────────────────────────────────── */
+/* ── Download Progress Panel ────────────────────────────────── */
 
-const DownloadProgressBar = React.memo(() => {
-  const { downloadProgress, downloadSource } = usePlayerStore(
-    useShallow((s) => ({
-      downloadProgress: s.downloadProgress,
-      downloadSource: s.downloadSource,
-    })),
-  );
+const DownloadProgressPanel = React.memo(() => {
+  const downloadProgress = usePlayerStore((s) => s.downloadProgress);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastProgressRef = useRef<number | null>(null);
+  const [visibleProgress, setVisibleProgress] = useState<number | null>(null);
 
-  if (downloadProgress === null || downloadSource !== 'api') return null;
+  useEffect(() => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+
+    if (downloadProgress === null) {
+      if (lastProgressRef.current !== null && lastProgressRef.current >= 1) {
+        hideTimerRef.current = setTimeout(() => {
+          setVisibleProgress(null);
+          hideTimerRef.current = null;
+        }, 260);
+      } else {
+        setVisibleProgress(null);
+      }
+      return;
+    }
+
+    lastProgressRef.current = downloadProgress;
+    setVisibleProgress(downloadProgress);
+
+    return () => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
+    };
+  }, [downloadProgress]);
+
+  if (visibleProgress === null) return null;
+
+  const normalizedProgress = Math.max(0, Math.min(1, visibleProgress));
+  const progressPercent =
+    normalizedProgress >= 1 ? 100 : Math.max(1, Math.min(99, Math.round(normalizedProgress * 100)));
 
   return (
-    <div className="absolute top-0 left-0 right-0 h-1 z-20">
-      {/* Glass background */}
-      <div className="absolute inset-0 bg-white/5 backdrop-blur-sm" />
-      {/* Progress fill */}
+    <div className="pointer-events-none absolute left-1/2 top-0 z-30 -translate-x-1/2 -translate-y-[calc(100%+8px)]">
       <div
-        className="absolute top-0 left-0 h-full bg-white/20 transition-[width] duration-150 ease-out"
-        style={{ width: `${Math.round(downloadProgress * 100)}%` }}
-      />
-      {/* Glow edge */}
-      <div
-        className="absolute top-0 h-full w-1 bg-white/50 blur-sm transition-[left] duration-150 ease-out"
-        style={{ left: `${Math.round(downloadProgress * 100)}%` }}
-      />
+        className="flex min-w-[148px] items-center gap-2.5 rounded-full border border-white/[0.08] bg-white/[0.045] px-3 py-2 shadow-[0_10px_34px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-[22px]"
+        style={{ contain: 'strict', transform: 'translateZ(0)' }}
+      >
+        <div className="relative h-1.5 w-20 overflow-hidden rounded-full bg-white/[0.09]">
+          <div className="absolute inset-0 rounded-full bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]" />
+          <div
+            className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-150 ease-out"
+            style={{
+              width: `${progressPercent}%`,
+              background:
+                'linear-gradient(90deg, var(--color-accent) 0%, var(--color-accent-hover) 100%)',
+              boxShadow: '0 0 12px var(--color-accent-glow)',
+            }}
+          />
+        </div>
+        <div className="min-w-[34px] text-right text-[11px] font-semibold tabular-nums text-white/72">
+          {progressPercent}%
+        </div>
+      </div>
     </div>
   );
 });
@@ -487,7 +526,7 @@ export const NowPlayingBar = React.memo(
         <BackgroundGlow />
         {/* Isolated layer — repaints here won't cascade to blur background */}
         <div className="relative" style={{ isolation: 'isolate' }}>
-          <DownloadProgressBar />
+          <DownloadProgressPanel />
           <ProgressSlider />
 
           <div className="h-[76px] flex items-center px-5 gap-3 relative">

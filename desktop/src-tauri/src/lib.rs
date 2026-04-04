@@ -111,7 +111,6 @@ pub fn run() {
             discord::discord_clear_activity,
             audio::audio_load_file,
             audio::audio_load_url,
-            audio::audio_load_streaming,
             audio::audio_play,
             audio::audio_pause,
             audio::audio_stop,

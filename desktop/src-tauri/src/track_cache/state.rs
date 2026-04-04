@@ -232,6 +232,7 @@ async fn write_response_to_cache(
     audio_dir: &Path,
     urn: &str,
     response: reqwest::Response,
+    source: DownloadSource,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<PathBuf, DownloadError> {
     let final_path = audio_dir.join(urn_to_filename(urn));
@@ -275,7 +276,7 @@ async fn write_response_to_cache(
                         "downloaded": total_size,
                         "total": content_length,
                         "progress": total_size as f64 / content_length as f64,
-                        "source": "api",
+                        "source": source.label(),
                     }),
                 );
             }
@@ -347,7 +348,7 @@ async fn fetch_target_to_cache(
     let status = response.status();
 
     if status.is_success() {
-        return write_response_to_cache(audio_dir, urn, response, app_handle).await;
+        return write_response_to_cache(audio_dir, urn, response, target.source, app_handle).await;
     }
 
     let message = format!(
