@@ -49,6 +49,10 @@ interface PlayerState {
   volumeBeforeMute: number;
   shuffle: boolean;
   repeat: RepeatMode;
+  /** Download progress 0-1 when loading from API, null when not downloading */
+  downloadProgress: number | null;
+  /** Download source: 'storage' | 'api' | null */
+  downloadSource: string | null;
 
   play: (track: Track, queue?: Track[]) => void;
   playFromQueue: (index: number) => void;
@@ -82,6 +86,8 @@ export const usePlayerStore = create<PlayerState>()(
       volumeBeforeMute: 50,
       shuffle: false,
       repeat: 'off',
+      downloadProgress: null,
+      downloadSource: null,
 
       play: (track, queue) => {
         if (queue) {

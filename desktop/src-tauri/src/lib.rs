@@ -82,7 +82,8 @@ pub fn run() {
                 client: Mutex::new(None),
             }));
 
-            let track_cache_state = track_cache::init(audio_dir);
+            let mut track_cache_state = track_cache::init(audio_dir);
+            track_cache_state.app_handle = Some(app.handle().clone());
             app.manage(track_cache_state);
 
             let audio_state = audio::init();
@@ -110,6 +111,7 @@ pub fn run() {
             discord::discord_clear_activity,
             audio::audio_load_file,
             audio::audio_load_url,
+            audio::audio_load_streaming,
             audio::audio_play,
             audio::audio_pause,
             audio::audio_stop,

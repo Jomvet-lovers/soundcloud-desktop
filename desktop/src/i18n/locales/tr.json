@@ -275,6 +275,11 @@
   "news": {
     "dismissOnce": "Kapat",
     "dismissForever": "Bir daha gosterme",
+    "discord": {
+      "title": "Discord sunucumuz var!",
+      "description": "Toplulugumuza katilin — tartisma, oneriler, hata bildirimi",
+      "body": "SoundCloud Desktop icin resmi Discord sunucumuzu actik!\n\nDiger kullanicilarla sohbet etmek, yeni ozellikler onermek, hata bildirmek ve en son haberleri takip etmek icin katilin.\n\nhttps://discord.gg/xQcGBP8fGG"
+    },
     "artistPro": {
       "title": "Artist PRO aboneleri",
       "description": "Uygulamanin yasaklanmasini zorlastirmak icin Discord'dan ulasin",

@@ -29,6 +29,36 @@ import { type Track, usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
 import { EqualizerPanel } from '../music/EqualizerPanel';
 
+/* ── Download Progress Bar ──────────────────────────────────── */
+
+const DownloadProgressBar = React.memo(() => {
+  const { downloadProgress, downloadSource } = usePlayerStore(
+    useShallow((s) => ({
+      downloadProgress: s.downloadProgress,
+      downloadSource: s.downloadSource,
+    })),
+  );
+
+  if (downloadProgress === null || downloadSource !== 'api') return null;
+
+  return (
+    <div className="absolute top-0 left-0 right-0 h-1 z-20">
+      {/* Glass background */}
+      <div className="absolute inset-0 bg-white/5 backdrop-blur-sm" />
+      {/* Progress fill */}
+      <div
+        className="absolute top-0 left-0 h-full bg-white/20 transition-[width] duration-150 ease-out"
+        style={{ width: `${Math.round(downloadProgress * 100)}%` }}
+      />
+      {/* Glow edge */}
+      <div
+        className="absolute top-0 h-full w-1 bg-white/50 blur-sm transition-[left] duration-150 ease-out"
+        style={{ left: `${Math.round(downloadProgress * 100)}%` }}
+      />
+    </div>
+  );
+});
+
 /* ── Progress Slider ─────────────────────────────────────────── */
 
 export const ProgressSlider = React.memo(() => {
@@ -457,6 +487,7 @@ export const NowPlayingBar = React.memo(
         <BackgroundGlow />
         {/* Isolated layer — repaints here won't cascade to blur background */}
         <div className="relative" style={{ isolation: 'isolate' }}>
+          <DownloadProgressBar />
           <ProgressSlider />
 
           <div className="h-[76px] flex items-center px-5 gap-3 relative">

@@ -3,13 +3,11 @@ import {
   Controller,
   Delete,
   Get,
-  HttpStatus,
   Param,
   Post,
   Put,
   Query,
   Res,
-  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -20,6 +18,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
@@ -40,7 +39,15 @@ import { TracksService } from './tracks.service.js';
 @UseGuards(AuthGuard)
 @Controller('tracks')
 export class TracksController {
-  constructor(private readonly tracksService: TracksService) {}
+  private readonly streamingServiceUrl: string;
+
+  constructor(
+    private readonly tracksService: TracksService,
+    configService: ConfigService,
+  ) {
+    this.streamingServiceUrl =
+      configService.get<string>('streaming.serviceUrl') ?? 'http://localhost:8080';
+  }
 
   @Get()
   @Cached({ ttl: 60 })
@@ -128,49 +135,24 @@ export class TracksController {
 
   @Get(':trackUrn/stream')
   @ApiOperation({
-    summary: 'Get audio stream',
-    description:
-      'Returns full audio stream for a track. Backend picks the best available format. With hq=true, prioritizes HQ cookie-based stream.',
+    summary: 'Redirect to streaming service',
+    description: 'Redirects to the dedicated streaming service.',
   })
   @ApiQuery({ name: 'secret_token', required: false })
-  @ApiQuery({
-    name: 'hq',
-    required: false,
-    description: 'If true, prioritize HQ stream (cookie-based)',
-    example: 'true',
-  })
-  async proxyStream(
-    @AccessToken() token: string,
-    @Res({ passthrough: true }) res: any,
+  @ApiQuery({ name: 'hq', required: false })
+  proxyStream(
+    @Res() res: any,
+    @SessionId() sessionId: string,
     @Param('trackUrn') trackUrn: string,
     @Query('secret_token') secretToken?: string,
     @Query('hq') hq?: string,
   ) {
-    const params: Record<string, unknown> = {};
-    if (secretToken) params.secret_token = secretToken;
-
-    const result = await this.tracksService.getStream(token, trackUrn, params, hq === 'true');
-
-    if (!result) {
-      return {
-        statusCode: HttpStatus.NOT_FOUND,
-        error: 'Track not available for streaming',
-      };
-    }
-
-    if (result.type === 'redirect') {
-      res.status(302);
-      res.header('Location', result.url);
-      res.header('Cache-Control', 'public, max-age=86400');
-      return;
-    }
-
-    const { stream, headers } = result;
-
-    return new StreamableFile(stream, {
-      type: headers['content-type'],
-      length: headers['content-length'] ? Number(headers['content-length']) : undefined,
-    });
+    const params = new URLSearchParams();
+    params.set('session_id', sessionId);
+    if (secretToken) params.set('secret_token', secretToken);
+    if (hq) params.set('hq', hq);
+    const url = `${this.streamingServiceUrl}/stream/${encodeURIComponent(trackUrn)}?${params.toString()}`;
+    res.redirect(301, url);
   }
 
   @Get(':trackUrn/comments')

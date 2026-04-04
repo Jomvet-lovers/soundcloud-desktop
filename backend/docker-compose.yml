@@ -35,12 +35,37 @@ services:
       SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET}
       SOUNDCLOUD_REDIRECT_URI: ${SOUNDCLOUD_REDIRECT_URI:-http://localhost:3000/auth/callback}
       SC_PROXY_URL: ${SC_PROXY_URL:-}
-      SC_STREAM_PROXY_URL: ${SC_STREAM_PROXY_URL:-}
+      STREAMING_SERVICE_URL: http://streaming:8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  streaming:
+    build: ../streaming
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_USERNAME: soundcloud
+      DATABASE_PASSWORD: soundcloud
+      DATABASE_NAME: soundcloud_desktop
+      SQLITE_PATH: /data/subscriptions.db
+      SC_PROXY_URL: ${SC_PROXY_URL:-}
+      SC_COOKIES: ${SC_COOKIES:-}
       CDN_BASE_URL: ${CDN_BASE_URL:-}
       CDN_AUTH_TOKEN: ${CDN_AUTH_TOKEN:-}
+      CDN_CLEANUP_DAYS: ${CDN_CLEANUP_DAYS:-7}
+      CDN_MAX_SIZE_BYTES: ${CDN_MAX_SIZE_BYTES:-0}
+      CDN_CLEANUP_INTERVAL_SECS: ${CDN_CLEANUP_INTERVAL_SECS:-3600}
+      ADMIN_TOKEN: ${STREAMING_ADMIN_TOKEN:-}
+    volumes:
+      - streaming-data:/data
     depends_on:
       db:
         condition: service_healthy
@@ -63,12 +88,10 @@ services:
       SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET}
       SOUNDCLOUD_REDIRECT_URI: ${SOUNDCLOUD_REDIRECT_URI:-http://localhost:3000/auth/callback}
       SC_PROXY_URL: ${SC_PROXY_URL:-}
-      SC_STREAM_PROXY_URL: ${SC_STREAM_PROXY_URL:-}
+      STREAMING_SERVICE_URL: http://streaming:8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
-      CDN_BASE_URL: ${CDN_BASE_URL:-}
-      CDN_AUTH_TOKEN: ${CDN_AUTH_TOKEN:-}
     volumes:
       - ./src:/app/src
       - ./tsconfig.json:/app/tsconfig.json
@@ -81,3 +104,4 @@ services:
 
 volumes:
   pgdata:
+  streaming-data:

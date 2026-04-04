@@ -1,0 +1,30 @@
+[package]
+name = "streaming"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["stream", "rustls-tls", "multipart", "json"], default-features = false }
+deadpool-postgres = { version = "0.14" }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v7"] }
+url = "2"
+futures = "0.3"
+bytes = "1"
+tokio-util = { version = "0.7", features = ["io"] }
+thiserror = "2"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

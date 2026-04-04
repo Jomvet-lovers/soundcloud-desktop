@@ -6,12 +6,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
 use reqwest::{Client, Url};
+use tauri::Emitter;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify};
 
-const STORAGE_BASE_URL: &str = "https://storage.soundcloud.su";
-const API_BASE_URL: &str = "https://api.soundcloud.su";
+use crate::shared::constants::STORAGE_BASE_URL;
 const MIN_AUDIO_SIZE: u64 = 8192;
 const AUDIO_SNIFF_LEN: usize = 16;
 const STREAM_WRITE_BUFFER_SIZE: usize = 256 * 1024;
@@ -124,6 +124,7 @@ pub struct TrackCacheState {
     pub api_client: Client,
     pub storage_head_client: Client,
     pub storage_get_client: Client,
+    pub app_handle: Option<tauri::AppHandle>,
     active: Mutex<HashMap<String, ActiveDownload>>,
 }
 
@@ -158,6 +159,7 @@ pub fn init(audio_dir: PathBuf) -> TrackCacheState {
         api_client,
         storage_head_client,
         storage_get_client,
+        app_handle: None,
         active: Mutex::new(HashMap::new()),
     }
 }
@@ -176,26 +178,16 @@ fn prefer_hq_from_url(url: &str) -> bool {
 fn build_storage_url(urn: &str, prefer_hq: bool) -> String {
     let quality = if prefer_hq { "hq" } else { "sq" };
     format!(
-        "{}/{}/{}.mp3",
+        "{}/{}/{}.ogg",
         STORAGE_BASE_URL,
         quality,
         urn.replace(':', "_")
     )
 }
 
-fn build_api_url(urn: &str, original_url: &str) -> String {
-    if let Ok(original) = Url::parse(original_url) {
-        let mut target = Url::parse(API_BASE_URL).expect("invalid API base URL");
-        target.set_path(original.path());
-        target.set_query(original.query());
-        return target.to_string();
-    }
-
-    format!(
-        "{}/tracks/{}/stream",
-        API_BASE_URL,
-        urlencoding::encode(urn)
-    )
+fn build_api_url(_urn: &str, original_url: &str) -> String {
+    // The frontend already passes the full streaming service URL
+    original_url.to_string()
 }
 
 fn temp_file_path(audio_dir: &Path, urn: &str) -> PathBuf {
@@ -245,6 +237,7 @@ async fn write_response_to_cache(
     audio_dir: &Path,
     urn: &str,
     response: reqwest::Response,
+    app_handle: Option<&tauri::AppHandle>,
 ) -> Result<PathBuf, DownloadError> {
     let final_path = audio_dir.join(urn_to_filename(urn));
     let temp_path = temp_file_path(audio_dir, urn);
@@ -252,6 +245,7 @@ async fn write_response_to_cache(
         .await
         .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
     let mut writer = BufWriter::with_capacity(STREAM_WRITE_BUFFER_SIZE, file);
+    let content_length = response.content_length().unwrap_or(0);
     let mut stream = response.bytes_stream();
     let mut total_size = 0u64;
     let mut sniff = Vec::with_capacity(AUDIO_SNIFF_LEN);
@@ -274,6 +268,19 @@ async fn write_response_to_cache(
         if let Err(err) = writer.write_all(&chunk).await {
             cleanup_temp_file(&temp_path).await;
             return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
+        }
+
+        // Emit download progress
+        if let Some(app) = app_handle {
+            if content_length > 0 {
+                let _ = app.emit("track:download-progress", serde_json::json!({
+                    "urn": urn,
+                    "downloaded": total_size,
+                    "total": content_length,
+                    "progress": total_size as f64 / content_length as f64,
+                    "source": "api",
+                }));
+            }
         }
     }
 
@@ -327,6 +334,7 @@ async fn fetch_target_to_cache(
     urn: &str,
     target: &DownloadTarget,
     session_id: Option<&str>,
+    app_handle: Option<&tauri::AppHandle>,
 ) -> Result<PathBuf, DownloadError> {
     let mut req = client.get(&target.url);
     if matches!(target.source, DownloadSource::Api) {
@@ -342,7 +350,7 @@ async fn fetch_target_to_cache(
     let status = response.status();
 
     if status.is_success() {
-        return write_response_to_cache(audio_dir, urn, response).await;
+        return write_response_to_cache(audio_dir, urn, response, app_handle).await;
     }
 
     let message = format!("{} HTTP {} from {}", target.source.label(), status, target.url);
@@ -361,6 +369,7 @@ pub async fn download_track_to_cache(
     urn: &str,
     fallback_url: &str,
     session_id: Option<&str>,
+    app_handle: Option<&tauri::AppHandle>,
 ) -> Result<PathBuf, String> {
     println!("[TrackCache] resolving source for {urn}");
     let start = std::time::Instant::now();
@@ -427,7 +436,7 @@ pub async fn download_track_to_cache(
                 DownloadSource::Api => api_client,
             };
 
-            match fetch_target_to_cache(client, audio_dir, urn, &target, session_id).await {
+            match fetch_target_to_cache(client, audio_dir, urn, &target, session_id, app_handle).await {
                 Ok(path) => {
                     let kb = std::fs::metadata(&path).map(|meta| meta.len() / 1024).unwrap_or(0);
                     let ms = start.elapsed().as_millis();
@@ -558,6 +567,7 @@ impl TrackCacheState {
             urn,
             url,
             session_id,
+            self.app_handle.as_ref(),
         )
         .await
     }

@@ -278,6 +278,11 @@
   "news": {
     "dismissOnce": "Close",
     "dismissForever": "Don't show again",
+    "discord": {
+      "title": "We have a Discord server!",
+      "description": "Join our community — discuss, suggest features, report bugs",
+      "body": "We've launched an official Discord server for SoundCloud Desktop!\n\nJoin to chat with other users, suggest new features, report bugs, and stay up to date with the latest news.\n\nhttps://discord.gg/xQcGBP8fGG"
+    },
     "artistPro": {
       "title": "Artist PRO subscribers",
       "description": "Help make the app harder to ban — reach out on Discord",

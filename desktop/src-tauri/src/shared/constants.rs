@@ -5,12 +5,20 @@ pub const PROXY_URL: &str = if let Some(url) = option_env!("PROXY_URL") {
 } else {
     "https://images.soundcloud.su"
 };
+pub const STORAGE_BASE_URL: &str = if let Some(url) = option_env!("STORAGE_BASE_URL") {
+    url
+} else {
+    "https://storage.soundcloud.su"
+};
+
 pub const DOMAIN_WHITELIST: &[&str] = &[
     "localhost",
     "127.0.0.1",
     "tauri.localhost",
     "api.soundcloud.su",
     "images.soundcloud.su",
+    "storage.soundcloud.su",
+    "stream.soundcloud.su",
 ];
 
 pub fn is_domain_whitelisted(host: &str) -> bool {

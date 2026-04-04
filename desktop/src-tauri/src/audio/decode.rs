@@ -18,12 +18,12 @@ use crate::audio::types::{
 
 const NORMALIZATION_CACHE_VERSION: u8 = 2;
 
-fn is_ogg_opus(bytes: &[u8]) -> bool {
+pub fn is_ogg_opus(bytes: &[u8]) -> bool {
     bytes.len() >= 36 && &bytes[0..4] == b"OggS" && bytes.windows(8).take(8).any(|w| w == b"OpusHead")
 }
 
-struct OpusSource {
-    reader: ogg::reading::PacketReader<Cursor<Vec<u8>>>,
+struct OpusSource<R: std::io::Read + std::io::Seek> {
+    reader: ogg::reading::PacketReader<R>,
     decoder: audiopus::coder::Decoder,
     channels: ChannelCount,
     buffer: Vec<f32>,
@@ -33,9 +33,15 @@ struct OpusSource {
     samples_skipped: usize,
 }
 
-impl OpusSource {
+impl OpusSource<Cursor<Vec<u8>>> {
     fn new(data: Vec<u8>) -> Result<Self, String> {
-        let mut reader = ogg::reading::PacketReader::new(Cursor::new(data));
+        Self::from_reader(Cursor::new(data))
+    }
+}
+
+impl<R: std::io::Read + std::io::Seek> OpusSource<R> {
+    fn from_reader(reader: R) -> Result<Self, String> {
+        let mut reader = ogg::reading::PacketReader::new(reader);
 
         let head_pkt = reader
             .read_packet()
@@ -113,7 +119,7 @@ impl OpusSource {
     }
 }
 
-impl Iterator for OpusSource {
+impl<R: std::io::Read + std::io::Seek> Iterator for OpusSource<R> {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
@@ -126,7 +132,7 @@ impl Iterator for OpusSource {
     }
 }
 
-impl Source for OpusSource {
+impl<R: std::io::Read + std::io::Seek> Source for OpusSource<R> {
     fn current_span_len(&self) -> Option<usize> {
         None
     }
@@ -329,4 +335,26 @@ pub fn create_player_from_bytes(
     }
 
     Ok((player, duration))
+}
+
+/// Create a player from a streaming buffer (Opus only).
+/// Used for progressive playback from storage.
+pub fn create_player_from_stream(
+    reader: crate::audio::streaming::StreamingReader,
+    mixer: &Mixer,
+    volume: f32,
+    normalization_gain: f32,
+    eq_params: Arc<RwLock<EqParams>>,
+) -> Result<Player, String> {
+    let source = OpusSource::from_reader(reader)
+        .map_err(|e| format!("Failed to decode stream: {}", e))?;
+
+    let player = Player::connect_new(mixer);
+    player.set_volume(volume);
+    player.append(EqSource::new(
+        GainSource::new(source, normalization_gain),
+        eq_params,
+    ));
+
+    Ok(player)
 }

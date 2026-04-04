@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminStatsController } from './admin/admin-stats.controller.js';
 import { AuthModule } from './auth/auth.module.js';
 import { Session } from './auth/entities/session.entity.js';
 import { ApiCacheModule } from './cache/cache.module.js';
 import { ApiCache } from './cache/entities/api-cache.entity.js';
-import { CdnModule } from './cdn/cdn.module.js';
-import { CdnTrack } from './cdn/entities/cdn-track.entity.js';
 import configuration from './config/configuration.js';
 import { FeaturedItem } from './featured/entities/featured-item.entity.js';
 import { FeaturedModule } from './featured/featured.module.js';
@@ -50,12 +49,12 @@ import { UsersModule } from './users/users.module.js';
           OAuthApp,
           PendingAction,
           FeaturedItem,
-          CdnTrack,
           ApiCache,
         ],
         synchronize: true,
       }),
     }),
+    TypeOrmModule.forFeature([Session]),
     ApiCacheModule,
     OAuthAppsModule,
     AuthModule,
@@ -72,6 +71,6 @@ import { UsersModule } from './users/users.module.js';
     LocalLikesModule,
     PendingActionsModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, AdminStatsController],
 })
 export class AppModule {}

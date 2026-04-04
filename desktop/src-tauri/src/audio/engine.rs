@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use tauri::State;
+use tauri::{Emitter, State};
 use tokio::task;
 
 use crate::audio::decode::{create_player_from_bytes, resolve_normalization_gain};
@@ -429,6 +429,151 @@ pub fn set_media_position(position: f64, state: State<'_, AudioState>) {
     if let Some(tx) = state.media_tx.lock().unwrap().as_ref() {
         tx.send(MediaCmd::SetPosition(position)).ok();
     }
+}
+
+/// Stream Opus audio from a URL (storage). Plays as soon as enough data is buffered.
+/// Downloads entire file in background and saves to cache when complete.
+pub async fn load_streaming(
+    url: String,
+    cache_path: Option<String>,
+    _normalization_cache_dir: Option<PathBuf>,
+    normalization_cache_key: Option<String>,
+    state: State<'_, AudioState>,
+    app: tauri::AppHandle,
+) -> Result<AudioLoadResult, String> {
+    use crate::audio::streaming::StreamingBuffer;
+    use futures_util::StreamExt;
+
+    let generation = state.load_gen.load(Ordering::Relaxed);
+    let buffer = StreamingBuffer::new();
+    let buffer_clone = buffer.clone();
+
+    // Start download task
+    let url_clone = url.clone();
+    let app_clone = app.clone();
+    let urn = normalization_cache_key.clone().unwrap_or_default();
+    let urn_for_events = urn.clone();
+
+    tokio::spawn(async move {
+        let client = reqwest::Client::builder()
+            .tcp_nodelay(true)
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
+
+        let resp = match client.get(&url_clone).send().await {
+            Ok(r) if r.status().is_success() => r,
+            Ok(r) => {
+                eprintln!("[streaming] HTTP {} from {url_clone}", r.status());
+                buffer_clone.mark_error();
+                return;
+            }
+            Err(e) => {
+                eprintln!("[streaming] request failed: {e}");
+                buffer_clone.mark_error();
+                return;
+            }
+        };
+
+        let total = resp.content_length().unwrap_or(0);
+        let mut stream = resp.bytes_stream();
+        let mut downloaded: u64 = 0;
+
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    downloaded += bytes.len() as u64;
+                    buffer_clone.push(&bytes);
+
+                    // Emit progress event
+                    if total > 0 {
+                        let _ = app_clone.emit("track:download-progress", serde_json::json!({
+                            "urn": urn_for_events,
+                            "downloaded": downloaded,
+                            "total": total,
+                            "progress": downloaded as f64 / total as f64,
+                            "source": "storage",
+                        }));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[streaming] chunk error: {e}");
+                    buffer_clone.mark_error();
+                    return;
+                }
+            }
+        }
+
+        buffer_clone.mark_complete();
+        println!(
+            "[streaming] download complete: {:.1} MB",
+            downloaded as f64 / 1024.0 / 1024.0
+        );
+
+        // Save to cache
+        if let Some(path) = cache_path {
+            let data = buffer_clone.snapshot();
+            if let Err(e) = tokio::fs::write(&path, &data).await {
+                eprintln!("[streaming] cache write failed: {e}");
+            }
+        }
+    });
+
+    // Wait for minimum buffer (64KB) before starting playback
+    const MIN_BUFFER: usize = 64 * 1024;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if buffer.len() >= MIN_BUFFER || buffer.is_complete() {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            return Err("Timed out waiting for stream buffer".into());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        if state.load_gen.load(Ordering::Relaxed) != generation {
+            return Ok(AudioLoadResult { duration_secs: None });
+        }
+    }
+
+    if buffer.len() < 1024 {
+        return Err("Stream buffer too small — download may have failed".into());
+    }
+
+    stop_current_player(&state);
+
+    if state.load_gen.load(Ordering::Relaxed) != generation {
+        return Ok(AudioLoadResult { duration_secs: None });
+    }
+
+    let reader = buffer.reader();
+    let mixer = state.mixer.lock().unwrap().clone();
+    let vol = *state.volume.lock().unwrap();
+    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
+    let normalization_gain = if normalization_enabled { 1.0 } else { 1.0 };
+    // Note: normalization analysis requires full file — skip for streaming.
+    // Will be applied on next play from cache.
+
+    let eq_params = state.eq_params.clone();
+
+    let new_player = task::spawn_blocking(move || {
+        crate::audio::decode::create_player_from_stream(
+            reader,
+            &mixer,
+            vol,
+            normalization_gain,
+            eq_params,
+        )
+    })
+    .await
+    .map_err(|e| format!("stream decode task failed: {e}"))??;
+
+    *state.player.lock().unwrap() = Some(new_player);
+    // Don't store source_bytes — streaming buffer owns the data
+    state.has_track.store(true, Ordering::Relaxed);
+    state.ended_notified.store(false, Ordering::Relaxed);
+    state.device_error.store(false, Ordering::Relaxed);
+
+    Ok(AudioLoadResult { duration_secs: None })
 }
 
 pub async fn save_track_to_path(cache_path: String, dest_path: String) -> Result<String, String> {

@@ -11,6 +11,11 @@ Thumbs.db
 
 # Tauri build output
 src-tauri/target/
+streaming/target
+storage/target
+
+storage/data
+streaming/data
 
 # IDE
 .idea/

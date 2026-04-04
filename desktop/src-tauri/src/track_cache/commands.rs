@@ -60,6 +60,7 @@ pub async fn track_preload(
                 &urn,
                 &url,
                 session_id.as_deref(),
+                None, // no progress events for preloads
             )
             .await
             {

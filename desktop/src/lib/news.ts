@@ -18,6 +18,13 @@ export interface NewsItem {
  */
 export const NEWS: NewsItem[] = [
   {
+    id: 'discord-server-2025-04',
+    titleKey: 'news.discord.title',
+    descriptionKey: 'news.discord.description',
+    bodyKey: 'news.discord.body',
+    accent: 'sky',
+  },
+  {
     id: 'artist-pro-oauth-2025-03',
     titleKey: 'news.artistPro.title',
     descriptionKey: 'news.artistPro.description',

@@ -4,8 +4,11 @@ import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { api, getSessionId, streamUrl } from './api';
 import { enforceAudioCacheLimit } from './cache';
+import { STORAGE_BASE } from './constants';
 import { trackedInvoke as invoke } from './diagnostics';
 import { art } from './formatters';
+
+const STORAGE_BASE_URL = STORAGE_BASE || 'https://storage.soundcloud.su';
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
@@ -77,6 +80,12 @@ export async function reloadCurrentTrack() {
   if (!wasPlaying) invoke('audio_pause').catch(console.error);
 }
 
+function storageUrl(urn: string, hq: boolean): string {
+  const quality = hq ? 'hq' : 'sq';
+  const safeUrn = urn.replace(/:/g, '_');
+  return `${STORAGE_BASE_URL}/${quality}/${safeUrn}.ogg`;
+}
+
 async function loadTrack(track: Track) {
   const gen = ++loadGen;
   stopTrack();
@@ -88,6 +97,7 @@ async function loadTrack(track: Track) {
   fallbackDuration = track.duration / 1000;
   cachedDuration = fallbackDuration;
   cachedTime = 0;
+  usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
   notify();
 
   // Sync EQ state to Rust
@@ -99,21 +109,55 @@ async function loadTrack(track: Track) {
   invoke('audio_set_volume', { volume: usePlayerStore.getState().volume }).catch(console.error);
 
   try {
-    const sessionId = getSessionId();
     const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
-    let cachedPath: string;
 
+    // Strategy 1: Cache hit — instant
+    const cachedPath = await invoke<string | null>('track_get_cache_path', { urn });
+    if (cachedPath) {
+      if (gen !== loadGen) return;
+      console.log('[Audio] Playing from cache:', urn);
+      await invoke('audio_load_file', { path: cachedPath, cacheKey: urn });
+      if (gen !== loadGen) return;
+      afterLoad(track, gen);
+      return;
+    }
+
+    // Strategy 2: Storage streaming — play immediately while caching
+    const stUrl = storageUrl(urn, highQualityStreaming);
     try {
-      // Download full track via Rust (handles redirects, retries, caching)
-      cachedPath = await invoke<string>('track_ensure_cached', {
+      usePlayerStore.setState({ downloadProgress: 0, downloadSource: 'storage' });
+      const cachePath = await invoke<string | null>('track_get_cache_path', { urn })
+        || getCacheFilePath(urn);
+      await invoke('audio_load_streaming', {
+        url: stUrl,
+        cachePath,
+        cacheKey: urn,
+      });
+      if (gen !== loadGen) return;
+      usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
+      console.log('[Audio] Streaming from storage:', urn);
+      afterLoad(track, gen);
+      return;
+    } catch (e) {
+      console.warn('[Audio] Storage stream failed, falling back to API:', e);
+    }
+
+    // Strategy 3: API download with progress — play when done
+    if (gen !== loadGen) return;
+    usePlayerStore.setState({ downloadProgress: 0, downloadSource: 'api' });
+
+    const sessionId = getSessionId();
+    let downloadedPath: string;
+    try {
+      downloadedPath = await invoke<string>('track_ensure_cached', {
         urn,
         url: streamUrl(urn, highQualityStreaming),
         sessionId,
       });
     } catch (error) {
       if (!highQualityStreaming) throw error;
-      console.warn('[Audio] HQ load failed, retrying without hq:', error);
-      cachedPath = await invoke<string>('track_ensure_cached', {
+      console.warn('[Audio] HQ API load failed, retrying without hq:', error);
+      downloadedPath = await invoke<string>('track_ensure_cached', {
         urn,
         url: streamUrl(urn, false),
         sessionId,
@@ -121,22 +165,27 @@ async function loadTrack(track: Track) {
     }
 
     if (gen !== loadGen) return;
+    usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
 
-    // Load from cached file
-    await invoke<{ duration_secs: number | null }>('audio_load_file', {
-      path: cachedPath,
-      cacheKey: urn,
-    });
-
+    await invoke('audio_load_file', { path: downloadedPath, cacheKey: urn });
     void enforceAudioCacheLimit().catch(console.error);
+
+    if (gen !== loadGen) return;
+    afterLoad(track, gen);
   } catch (e) {
     console.error('[Audio] Load failed:', e);
+    usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
     if (gen !== loadGen) return;
     usePlayerStore.getState().pause();
-    return;
   }
+}
 
-  // Stale check — another loadTrack started while we were loading
+function getCacheFilePath(urn: string): string {
+  // Build expected cache path — matches Rust's urn_to_filename
+  return `${urn.replace(/:/g, '_')}.audio`;
+}
+
+function afterLoad(track: Track, gen: number) {
   if (gen !== loadGen) {
     invoke('audio_stop').catch(console.error);
     return;
@@ -208,6 +257,13 @@ listen<number>('audio:tick', (event) => {
   cachedTime = event.payload;
   if (cachedDuration <= 0) cachedDuration = fallbackDuration;
   notify();
+});
+
+listen<{ urn: string; progress: number; source: string }>('track:download-progress', (event) => {
+  const { urn, progress, source } = event.payload;
+  if (urn === currentUrn) {
+    usePlayerStore.setState({ downloadProgress: progress, downloadSource: source });
+  }
 });
 
 listen('audio:ended', () => {

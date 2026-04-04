@@ -96,7 +96,7 @@ jobs:
         id: repo
         run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
-      - name: Build & push
+      - name: Build & push backend
         uses: docker/build-push-action@v6
         with:
           context: backend
@@ -104,8 +104,19 @@ jobs:
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}/backend:${{ needs.version.outputs.version }}
             ghcr.io/${{ steps.repo.outputs.name }}/backend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build & push streaming
+        uses: docker/build-push-action@v6
+        with:
+          context: streaming
+          push: true
+          tags: |
+            ghcr.io/${{ steps.repo.outputs.name }}/streaming:${{ needs.version.outputs.version }}
+            ghcr.io/${{ steps.repo.outputs.name }}/streaming:latest
+          cache-from: type=gha,scope=streaming
+          cache-to: type=gha,mode=max,scope=streaming
 
   build:
     needs: version
@@ -193,6 +204,15 @@ jobs:
           projectPath: desktop
           args: ${{ matrix.args }}
 
+      - name: Create portable exe (windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path "desktop/src-tauri/target/release/soundcloud-desktop.exe" -ErrorAction Stop
+          $dest = "desktop/src-tauri/target/release/bundle/portable"
+          New-Item -ItemType Directory -Force -Path $dest
+          Copy-Item $exe.FullName "$dest/soundcloud-desktop-portable.exe"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -203,6 +223,7 @@ jobs:
             desktop/src-tauri/target/**/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/**/release/bundle/nsis/*.exe
             desktop/src-tauri/target/**/release/bundle/msi/*.msi
+            desktop/src-tauri/target/**/release/bundle/portable/*.exe
             desktop/src-tauri/target/**/release/bundle/dmg/*.dmg
             desktop/src-tauri/target/**/release/bundle/macos/*.tar.gz
           retention-days: 2
