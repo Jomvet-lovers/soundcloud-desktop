@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { Session } from './auth/entities/session.entity.js';
 import { ApiCacheModule } from './cache/cache.module.js';
 import { ApiCache } from './cache/entities/api-cache.entity.js';
+import { CdnTrack } from './cdn/entities/cdn-track.entity.js';
 import configuration from './config/configuration.js';
 import { FeaturedItem } from './featured/entities/featured-item.entity.js';
 import { FeaturedModule } from './featured/featured.module.js';
@@ -50,6 +51,7 @@ import { UsersModule } from './users/users.module.js';
           PendingAction,
           FeaturedItem,
           ApiCache,
+          CdnTrack,
         ],
         synchronize: true,
       }),
