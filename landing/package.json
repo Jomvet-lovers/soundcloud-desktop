@@ -13,20 +13,20 @@
     "deploy": "pnpm build 2>&1 && firebase deploy --only hosting 2>&1"
   },
   "dependencies": {
-    "lucide-react": "^0.577.0",
+    "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "simple-icons": "^16.11.0"
+    "simple-icons": "^16.15.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.5",
-    "@tailwindcss/vite": "^4.2.1",
+    "@biomejs/biome": "^2.4.10",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.4",
-    "tailwindcss": "^4.2.1",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.1"
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
