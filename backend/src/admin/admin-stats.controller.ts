@@ -42,6 +42,11 @@ export class AdminStatsController {
       this.sessionRepo.count(),
     ]);
 
-    return { active_24h: active24h, active_7d: active7d, active_30d: active30d, total_sessions: total };
+    return {
+      active_24h: active24h,
+      active_7d: active7d,
+      active_30d: active30d,
+      total_sessions: total,
+    };
   }
 }

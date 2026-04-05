@@ -7,12 +7,7 @@ import { TracksController } from './tracks.controller.js';
 import { TracksService } from './tracks.service.js';
 
 @Module({
-  imports: [
-    SoundcloudModule,
-    AuthModule,
-    LocalLikesModule,
-    PendingActionsModule,
-  ],
+  imports: [SoundcloudModule, AuthModule, LocalLikesModule, PendingActionsModule],
   controllers: [TracksController],
   providers: [TracksService],
 })
