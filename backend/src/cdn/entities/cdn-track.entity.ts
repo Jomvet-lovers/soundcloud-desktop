@@ -32,7 +32,7 @@ export class CdnTrack {
   @Column()
   quality: CdnTrackQuality;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true })
   cdnPath: string | null;
 
   @Index()
