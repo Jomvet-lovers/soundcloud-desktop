@@ -113,11 +113,25 @@ function getLoadErrorText(error: unknown): string | null {
     .replace(/^Error invoking remote method '[^']+':\s*/i, '')
     .replace(/^Command [^:]+ failed:\s*/i, '');
 
-  if (normalized.startsWith('"') && normalized.endsWith('"')) {
-    return normalized.slice(1, -1).trim() || null;
-  }
+  const unquoted =
+    normalized.startsWith('"') && normalized.endsWith('"')
+      ? normalized.slice(1, -1).trim()
+      : normalized;
 
-  return normalized || null;
+  const sanitized = unquoted
+    .replace(/\bhttps?:\/\/[^\s"')\]]+/gi, '')
+    .replace(/\bscproxy:\/\/[^\s"')\]]+/gi, '')
+    .replace(/\b(Bearer)\s+[A-Za-z0-9._~-]+/gi, '$1 [redacted]')
+    .replace(
+      /\b(oauth_token|token|sig|signature|client_id|x-session-id)=([^&\s]+)/gi,
+      '$1=[redacted]',
+    )
+    .replace(/\s+\bfrom\b\s*(?=$|[):;,.])/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([):;,.])/g, '$1')
+    .trim();
+
+  return sanitized || null;
 }
 
 async function loadTrack(track: Track) {

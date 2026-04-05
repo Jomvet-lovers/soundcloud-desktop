@@ -96,6 +96,61 @@ fn remove_cache_metadata(path: &Path) {
     std::fs::remove_file(cache_metadata_path(path)).ok();
 }
 
+fn truncate_error_text(text: &str, max_chars: usize) -> String {
+    let truncated: String = text.chars().take(max_chars).collect();
+    if text.chars().count() > max_chars {
+        format!("{}...", truncated.trim_end())
+    } else {
+        truncated
+    }
+}
+
+fn extract_json_error(value: &serde_json::Value) -> Option<String> {
+    if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
+        return Some(message.to_string());
+    }
+    if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
+        return Some(error.to_string());
+    }
+    if let Some(errors) = value.get("errors").and_then(|v| v.as_array()) {
+        let parts = errors
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .get("error_message")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| entry.get("message").and_then(|v| v.as_str()))
+                    .or_else(|| entry.get("error").and_then(|v| v.as_str()))
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>();
+        if !parts.is_empty() {
+            return Some(parts.join("; "));
+        }
+    }
+    None
+}
+
+fn normalize_error_body(body: &str) -> Option<String> {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let compact = if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        extract_json_error(&value).unwrap_or_else(|| value.to_string())
+    } else {
+        trimmed.to_string()
+    };
+
+    let single_line = compact.split_whitespace().collect::<Vec<_>>().join(" ");
+    if single_line.is_empty() {
+        None
+    } else {
+        Some(truncate_error_text(&single_line, 220))
+    }
+}
+
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PlaybackQuality {
@@ -445,7 +500,11 @@ async fn fetch_target_to_cache(
     }
 
     let response = req.send().await.map_err(|err| {
-        DownloadError::Retryable(format!("{} request: {err}", target.source.label()))
+        DownloadError::Retryable(format!(
+            "{} request: {}",
+            target.source.label(),
+            err.without_url()
+        ))
     })?;
     let status = response.status();
 
@@ -461,12 +520,16 @@ async fn fetch_target_to_cache(
         .await;
     }
 
-    let message = format!(
-        "{} HTTP {} from {}",
-        target.source.label(),
-        status,
-        target.url
-    );
+    let body = response
+        .text()
+        .await
+        .ok()
+        .and_then(|body| normalize_error_body(&body));
+    let message = if let Some(body) = body {
+        format!("{} HTTP {}: {}", target.source.label(), status, body)
+    } else {
+        format!("{} HTTP {}", target.source.label(), status)
+    };
     if status.as_u16() == 429 || status.as_u16() >= 500 {
         Err(DownloadError::Retryable(message))
     } else {
