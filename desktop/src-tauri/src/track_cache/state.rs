@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -149,6 +150,46 @@ fn normalize_error_body(body: &str) -> Option<String> {
     } else {
         Some(truncate_error_text(&single_line, 220))
     }
+}
+
+fn format_reqwest_error(err: reqwest::Error) -> String {
+    let mut details = Vec::new();
+    if err.is_timeout() {
+        details.push("timeout".to_string());
+    } else if err.is_connect() {
+        details.push("connect".to_string());
+    } else if err.is_redirect() {
+        details.push("redirect".to_string());
+    } else if err.is_body() {
+        details.push("body".to_string());
+    } else if err.is_decode() {
+        details.push("decode".to_string());
+    } else if err.is_request() {
+        details.push("request".to_string());
+    }
+
+    if let Some(status) = err.status() {
+        details.push(format!("HTTP {status}"));
+    }
+
+    let mut causes = Vec::new();
+    let mut source = err.source();
+    while let Some(next) = source {
+        let text = next.to_string();
+        if !text.is_empty() && !causes.iter().any(|existing| existing == &text) {
+            causes.push(text);
+        }
+        source = next.source();
+    }
+
+    let mut message = err.without_url().to_string();
+    if !details.is_empty() {
+        message.push_str(&format!(" [{}]", details.join(", ")));
+    }
+    if !causes.is_empty() {
+        message.push_str(&format!(": {}", causes.join(": ")));
+    }
+    message
 }
 
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -503,7 +544,7 @@ async fn fetch_target_to_cache(
         DownloadError::Retryable(format!(
             "{} request: {}",
             target.source.label(),
-            err.without_url()
+            format_reqwest_error(err)
         ))
     })?;
     let status = response.status();
@@ -520,11 +561,13 @@ async fn fetch_target_to_cache(
         .await;
     }
 
-    let body = response
-        .text()
-        .await
-        .ok()
-        .and_then(|body| normalize_error_body(&body));
+    let body = match response.text().await {
+        Ok(body) => normalize_error_body(&body),
+        Err(err) => Some(format!(
+            "failed to read response body: {}",
+            format_reqwest_error(err)
+        )),
+    };
     let message = if let Some(body) = body {
         format!("{} HTTP {}: {}", target.source.label(), status, body)
     } else {
