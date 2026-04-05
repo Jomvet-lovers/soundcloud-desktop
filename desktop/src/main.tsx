@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -6,6 +6,7 @@ import { changeAppLanguage } from './i18n';
 import { setupCacheMaintenance } from './lib/cache';
 import { setServerPorts } from './lib/constants';
 import { setupUiWatchdog, trackedInvoke as invoke } from './lib/diagnostics';
+import { queryClient } from './lib/query-client';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
 
@@ -22,17 +23,6 @@ if (import.meta.env.DEV) {
   script.crossOrigin = 'anonymous';
   document.head.appendChild(script);
 }
-
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      gcTime: 1000 * 60 * 3,
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
 
 function scheduleAfterFirstPaint(task: () => void) {
   requestAnimationFrame(() => {

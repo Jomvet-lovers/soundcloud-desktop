@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/api';
 import { API_BASE } from '../lib/constants';
-import { queryClient } from '../main';
+import { queryClient } from '../lib/query-client';
 import { useAuthStore } from '../stores/auth';
 
 interface LoginResponse {

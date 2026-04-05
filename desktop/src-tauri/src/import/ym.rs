@@ -14,6 +14,11 @@ pub struct YmImportProgress {
     pub current_track: String,
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct YmImportMatch {
+    pub urn: String,
+}
+
 #[derive(serde::Deserialize)]
 struct YmLikesResponse {
     result: YmLikesResult,
@@ -60,13 +65,34 @@ struct ScTrackResult {
     urn: Option<String>,
 }
 
+fn emit_progress(
+    app: &AppHandle,
+    total: usize,
+    current: usize,
+    found: usize,
+    not_found: usize,
+    current_track: String,
+) {
+    app.emit(
+        "ym_import:progress",
+        YmImportProgress {
+            total,
+            current,
+            found,
+            not_found,
+            current_track,
+        },
+    )
+    .ok();
+}
+
 #[tauri::command]
 pub async fn ym_import_start(
     ym_token: String,
     backend_url: String,
     session_id: String,
     app: AppHandle,
-) -> Result<Vec<String>, String> {
+) -> Result<(), String> {
     CANCEL_FLAG.store(false, Ordering::Relaxed);
 
     let client = reqwest::Client::new();
@@ -113,9 +139,9 @@ pub async fn ym_import_start(
     let total = track_ids.len();
     let mut found = 0usize;
     let mut not_found = 0usize;
-    let mut found_urns: Vec<String> = Vec::new();
+    let mut processed = 0usize;
 
-    for (batch_idx, chunk) in track_ids.chunks(50).enumerate() {
+    'batches: for chunk in track_ids.chunks(50) {
         if CANCEL_FLAG.load(Ordering::Relaxed) {
             break;
         }
@@ -133,16 +159,35 @@ pub async fn ym_import_start(
         let tracks: Vec<YmTrack> = match info_resp {
             Ok(r) => match r.json::<YmTrackInfo>().await {
                 Ok(info) => info.result,
-                Err(_) => continue,
+                Err(_) => {
+                    let remaining = total.saturating_sub(processed);
+                    let missed = chunk.len().min(remaining);
+                    for _ in 0..missed {
+                        processed += 1;
+                        not_found += 1;
+                        emit_progress(&app, total, processed, found, not_found, String::new());
+                    }
+                    continue;
+                }
             },
-            Err(_) => continue,
+            Err(_) => {
+                let remaining = total.saturating_sub(processed);
+                let missed = chunk.len().min(remaining);
+                for _ in 0..missed {
+                    processed += 1;
+                    not_found += 1;
+                    emit_progress(&app, total, processed, found, not_found, String::new());
+                }
+                continue;
+            }
         };
 
-        for (i, track) in tracks.iter().enumerate() {
+        for track in tracks.iter() {
             if CANCEL_FLAG.load(Ordering::Relaxed) {
-                break;
+                break 'batches;
             }
 
+            processed += 1;
             let title = track.title.as_deref().unwrap_or("");
             let artist = track
                 .artists
@@ -153,23 +198,11 @@ pub async fn ym_import_start(
 
             if title.is_empty() && artist.is_empty() {
                 not_found += 1;
+                emit_progress(&app, total, processed, found, not_found, String::new());
                 continue;
             }
 
-            let current = batch_idx * 50 + i + 1;
             let current_track = format!("{} - {}", artist, title);
-
-            app.emit(
-                "ym_import:progress",
-                YmImportProgress {
-                    total,
-                    current,
-                    found,
-                    not_found,
-                    current_track: current_track.clone(),
-                },
-            )
-            .ok();
 
             let query = format!("{} {}", artist, title);
             let search_url = format!(
@@ -187,8 +220,14 @@ pub async fn ym_import_start(
             if let Ok(resp) = search_resp {
                 if let Ok(results) = resp.json::<ScSearchResult>().await {
                     if let Some(urn) = results.collection.first().and_then(|t| t.urn.as_deref()) {
-                        found_urns.push(urn.to_string());
                         found += 1;
+                        app.emit(
+                            "ym_import:match",
+                            YmImportMatch {
+                                urn: urn.to_string(),
+                            },
+                        )
+                        .ok();
                     } else {
                         not_found += 1;
                     }
@@ -199,23 +238,32 @@ pub async fn ym_import_start(
                 not_found += 1;
             }
 
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            emit_progress(
+                &app,
+                total,
+                processed,
+                found,
+                not_found,
+                current_track.clone(),
+            );
+
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        }
+
+        if tracks.len() < chunk.len() {
+            let missed = chunk.len() - tracks.len();
+            let remaining = total.saturating_sub(processed);
+            for _ in 0..missed.min(remaining) {
+                processed += 1;
+                not_found += 1;
+                emit_progress(&app, total, processed, found, not_found, String::new());
+            }
         }
     }
 
-    app.emit(
-        "ym_import:progress",
-        YmImportProgress {
-            total,
-            current: total,
-            found,
-            not_found,
-            current_track: String::new(),
-        },
-    )
-    .ok();
+    emit_progress(&app, total, processed, found, not_found, String::new());
 
-    Ok(found_urns)
+    Ok(())
 }
 
 #[tauri::command]

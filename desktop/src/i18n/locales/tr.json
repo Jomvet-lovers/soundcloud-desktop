@@ -256,10 +256,12 @@
     "tokenPlaceholder": "Yandex Music tokeninizi yapistirin...",
     "start": "Ice aktarmayi baslat",
     "stop": "Durdur",
+    "hide": "Gizle",
     "found": "Bulundu",
     "notFound": "Bulunamadi",
     "done": "Ice aktarma tamamlandi!",
-    "savingPlaylist": "Calma listesi kaydediliyor..."
+    "savingPlaylist": "Calma listesi kaydediliyor...",
+    "backgroundHint": "Ice aktarma arka planda surer, bu pencereyi kapatabilirsiniz"
   },
   "update": {
     "available": "Guncelleme mevcut",

@@ -267,10 +267,12 @@
     "tokenPlaceholder": "Вставьте токен Yandex Music...",
     "start": "Начать импорт",
     "stop": "Остановить",
+    "hide": "Свернуть",
     "found": "Найдено",
     "notFound": "Не найдено",
     "done": "Импорт завершён!",
-    "savingPlaylist": "Сохраняем плейлист..."
+    "savingPlaylist": "Сохраняем плейлист...",
+    "backgroundHint": "Импорт идет в фоне, окно можно закрыть"
   },
   "update": {
     "available": "Доступно обновление",

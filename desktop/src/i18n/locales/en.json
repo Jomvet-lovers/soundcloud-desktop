@@ -262,10 +262,12 @@
     "tokenPlaceholder": "Paste your Yandex Music token...",
     "start": "Start import",
     "stop": "Stop",
+    "hide": "Hide",
     "found": "Found",
     "notFound": "Not found",
     "done": "Import complete!",
-    "savingPlaylist": "Saving playlist..."
+    "savingPlaylist": "Saving playlist...",
+    "backgroundHint": "Import continues in the background. You can close this window"
   },
   "update": {
     "available": "Update available",

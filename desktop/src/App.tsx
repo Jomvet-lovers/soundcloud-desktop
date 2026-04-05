@@ -2,9 +2,11 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
+import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
 import { isSoundCloudAppBan } from './lib/soundcloud-ban-toast';
+import { useYmImportStore } from './stores/ym-import';
 import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
 import { getAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
@@ -70,6 +72,10 @@ export default function App() {
         ? 'offline'
         : 'online',
   );
+
+  useEffect(() => {
+    useYmImportStore.getState().initBridge();
+  }, []);
 
   useEffect(() => {
     const syncOnline = () => {
@@ -171,6 +177,7 @@ export default function App() {
           },
         }}
       />
+      <YMImportFloatingStatus />
       <BrowserRouter>
         {checking && !showOfflineShell ? (
           <AppLoadingScreen />
