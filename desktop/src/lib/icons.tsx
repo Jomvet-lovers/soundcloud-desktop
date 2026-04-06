@@ -20,6 +20,7 @@ import {
   Disc3 as _Disc3,
   Download as _Download,
   ExternalLink as _ExternalLink,
+  Fullscreen as _Fullscreen,
   Globe as _Globe,
   GripVertical as _GripVertical,
   Hash as _Hash,
@@ -33,20 +34,20 @@ import {
   ListPlus as _ListPlus,
   Loader2 as _Loader2,
   Lock as _Lock,
-  PanelLeftClose as _PanelLeftClose,
-  PanelLeftOpen as _PanelLeftOpen,
   MapPin as _MapPin,
   MessageCircle as _MessageCircle,
   MicVocal as _MicVocal,
   Minus as _Minus,
   Music as _Music,
+  PanelLeftClose as _PanelLeftClose,
+  PanelLeftOpen as _PanelLeftOpen,
   Pause as _Pause,
   Play as _Play,
   Plus as _Plus,
   Power as _Power,
+  RefreshCw as _RefreshCw,
   Repeat as _Repeat,
   Repeat1 as _Repeat1,
-  RefreshCw as _RefreshCw,
   Repeat2 as _Repeat2,
   RotateCcw as _RotateCcw,
   Search as _Search,
@@ -100,6 +101,7 @@ export const Clock = memo(_Clock);
 export const Compass = memo(_Compass);
 export const Disc3 = memo(_Disc3);
 export const ExternalLink = memo(_ExternalLink);
+export const Fullscreen = memo(_Fullscreen);
 export const Globe = memo(_Globe);
 export const GripVertical = memo(_GripVertical);
 export const Hash = memo(_Hash);

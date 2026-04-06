@@ -1,11 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
+import { toggleWindowFullscreen } from '../../lib/window';
 import { useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
@@ -45,6 +46,7 @@ const keybindings: Keybinding[] = [
   { key: 'q', label: 'kb.queue', group: 'panels', display: 'Q' },
   { key: 'l', label: 'kb.lyrics', group: 'panels', display: 'L' },
   { key: '[', label: 'kb.sidebar', group: 'panels', display: '[' },
+  { key: 'F11', label: 'kb.fullscreen', group: 'panels', display: 'F11' },
   { key: 'Escape', label: 'kb.close', group: 'panels', display: 'Esc' },
   { key: 'Ctrl+/', label: 'kb.showBindings', group: 'panels', display: isMac() ? '⌘ /' : 'Ctrl /' },
 ];
@@ -249,6 +251,13 @@ export const AppShell = React.memo(() => {
       if (code === 'KeyK' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         navigate('/search');
+        return;
+      }
+
+      // F11 — toggle fullscreen (always)
+      if (code === 'F11' && !e.repeat) {
+        e.preventDefault();
+        void toggleWindowFullscreen();
         return;
       }
 

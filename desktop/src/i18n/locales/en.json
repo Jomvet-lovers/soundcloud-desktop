@@ -251,6 +251,7 @@
     "queue": "Toggle queue",
     "lyrics": "Toggle lyrics",
     "sidebar": "Toggle sidebar",
+    "fullscreen": "Toggle fullscreen",
     "close": "Close",
     "showBindings": "Show shortcuts"
   },
