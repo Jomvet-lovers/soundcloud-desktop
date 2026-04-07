@@ -57,6 +57,7 @@ async fn build_player_from_bytes(
     normalization_enabled: bool,
     normalization_cache_dir: Option<PathBuf>,
     normalization_cache_key: Option<String>,
+    start_paused: bool,
     eq_params: std::sync::Arc<std::sync::RwLock<crate::audio::types::EqParams>>,
 ) -> Result<(Vec<u8>, rodio::Player, Option<f64>, f32), String> {
     task::spawn_blocking(move || {
@@ -69,8 +70,14 @@ async fn build_player_from_bytes(
         } else {
             1.0
         };
-        let (player, duration_secs) =
-            create_player_from_bytes(&bytes, &mixer, volume, normalization_gain, eq_params)?;
+        let (player, duration_secs) = create_player_from_bytes(
+            &bytes,
+            &mixer,
+            volume,
+            normalization_gain,
+            start_paused,
+            eq_params,
+        )?;
         Ok((bytes, player, duration_secs, normalization_gain))
     })
     .await
@@ -105,12 +112,9 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
         } else {
             1.0
         },
+        was_paused,
         state.eq_params.clone(),
     )?;
-
-    if was_paused {
-        new_player.pause();
-    }
     if position.as_secs_f64() > 0.0 {
         new_player.try_seek(position).ok();
     }
@@ -131,6 +135,7 @@ pub async fn load_file(
     path: String,
     normalization_cache_dir: Option<PathBuf>,
     normalization_cache_key: Option<String>,
+    start_paused: bool,
     state: State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
     let bytes = task::spawn_blocking({
@@ -152,6 +157,7 @@ pub async fn load_file(
         normalization_enabled,
         normalization_cache_dir,
         normalization_cache_key,
+        start_paused,
         state.eq_params.clone(),
     )
     .await?;
@@ -167,6 +173,7 @@ pub async fn load_url(
     cache_path: Option<String>,
     normalization_cache_dir: Option<PathBuf>,
     normalization_cache_key: Option<String>,
+    start_paused: bool,
     state: State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
     let generation = state.load_gen.load(Ordering::Relaxed);
@@ -250,6 +257,7 @@ pub async fn load_url(
         normalization_enabled,
         normalization_cache_dir,
         normalization_cache_key,
+        start_paused,
         state.eq_params.clone(),
     )
     .await?;
@@ -337,12 +345,9 @@ pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
         } else {
             1.0
         },
+        was_paused,
         state.eq_params.clone(),
     )?;
-
-    if was_paused {
-        new_player.pause();
-    }
     if position > 0.0 {
         new_player.try_seek(target).ok();
     }
@@ -353,12 +358,6 @@ pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
     }
     *player = Some(new_player);
     state.ended_notified.store(false, Ordering::Relaxed);
-
-    if was_paused {
-        if let Some(ref player) = *player {
-            player.pause();
-        }
-    }
 
     Ok(())
 }

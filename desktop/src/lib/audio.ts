@@ -166,7 +166,11 @@ async function loadTrack(track: Track) {
       if (gen !== loadGen) return;
       usePlayerStore.getState().setPlaybackTransport(cached.quality, cached.source);
       console.log('[Audio] Playing from cache:', urn);
-      await invoke('audio_load_file', { path: cached.path, cacheKey: urn });
+      await invoke('audio_load_file', {
+        path: cached.path,
+        cacheKey: urn,
+        startPaused: !usePlayerStore.getState().isPlaying,
+      });
       if (gen !== loadGen) return;
       afterLoad(track, gen);
       return;
@@ -189,7 +193,11 @@ async function loadTrack(track: Track) {
     usePlayerStore.getState().setPlaybackTransport(cachedInfo.quality, cachedInfo.source);
 
     console.log('[Audio] Playing downloaded track:', urn);
-    await invoke('audio_load_file', { path: cachedInfo.path, cacheKey: urn });
+    await invoke('audio_load_file', {
+      path: cachedInfo.path,
+      cacheKey: urn,
+      startPaused: !usePlayerStore.getState().isPlaying,
+    });
     void enforceAudioCacheLimit().catch(console.error);
 
     if (gen !== loadGen) return;
@@ -229,11 +237,9 @@ function afterLoad(track: Track, gen: number) {
     }).catch(() => {});
   }
 
-  if (!usePlayerStore.getState().isPlaying) {
-    invoke('audio_pause').catch(console.error);
-  }
-
-  updatePlaybackState(usePlayerStore.getState().isPlaying);
+  const isPlaying = usePlayerStore.getState().isPlaying;
+  invoke(isPlaying ? 'audio_play' : 'audio_pause').catch(console.error);
+  updatePlaybackState(isPlaying);
   updateMediaPosition();
   preloadQueue();
 }

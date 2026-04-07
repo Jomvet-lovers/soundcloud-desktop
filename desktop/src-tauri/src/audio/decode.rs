@@ -307,10 +307,14 @@ pub fn create_player_from_bytes(
     mixer: &Mixer,
     volume: f32,
     normalization_gain: f32,
+    start_paused: bool,
     eq_params: Arc<RwLock<EqParams>>,
 ) -> Result<(Player, Option<f64>), String> {
     let player = Player::connect_new(mixer);
     player.set_volume(volume);
+    if start_paused {
+        player.pause();
+    }
 
     let duration;
     if is_ogg_opus(bytes) {

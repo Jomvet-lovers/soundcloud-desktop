@@ -10,6 +10,7 @@ use crate::audio::types::{AudioLoadResult, AudioSink};
 pub async fn audio_load_file(
     path: String,
     cache_key: Option<String>,
+    start_paused: bool,
     app: AppHandle,
     state: State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
@@ -18,7 +19,14 @@ pub async fn audio_load_file(
         .app_cache_dir()
         .ok()
         .map(|dir| dir.join("audio-normalization"));
-    engine::load_file(path, normalization_cache_dir, cache_key, state).await
+    engine::load_file(
+        path,
+        normalization_cache_dir,
+        cache_key,
+        start_paused,
+        state,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -27,6 +35,7 @@ pub async fn audio_load_url(
     session_id: Option<String>,
     cache_path: Option<String>,
     cache_key: Option<String>,
+    start_paused: bool,
     app: AppHandle,
     state: State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
@@ -41,6 +50,7 @@ pub async fn audio_load_url(
         cache_path,
         normalization_cache_dir,
         cache_key,
+        start_paused,
         state,
     )
     .await
