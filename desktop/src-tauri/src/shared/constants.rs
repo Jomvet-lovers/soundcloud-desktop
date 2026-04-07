@@ -3,12 +3,12 @@ pub const DISCORD_CLIENT_ID: &str = "1431978756687265872";
 pub const PROXY_URL: &str = if let Some(url) = option_env!("PROXY_URL") {
     url
 } else {
-    "https://images.soundcloud.su"
+    "https://images.scdinternal.site"
 };
 pub const STORAGE_BASE_URL: &str = if let Some(url) = option_env!("STORAGE_BASE_URL") {
     url
 } else {
-    "https://storage.soundcloud.su"
+    "https://storage.scdinternal.site"
 };
 
 pub const DOMAIN_WHITELIST: &[&str] = &[
@@ -19,6 +19,10 @@ pub const DOMAIN_WHITELIST: &[&str] = &[
     "images.soundcloud.su",
     "storage.soundcloud.su",
     "stream.soundcloud.su",
+    "api.scdinternal.site",
+    "images.scdinternal.site",
+    "storage.scdinternal.site",
+    "stream.scdinternal.site",
 ];
 
 pub fn is_domain_whitelisted(host: &str) -> bool {

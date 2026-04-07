@@ -5,8 +5,10 @@ const WHITELIST = [
   '127.0.0.1',
   'tauri.localhost',
   'scproxy.localhost',
-  'proxy.soundcloud.su',
+  'images.soundcloud.su',
   'api.soundcloud.su',
+  'images.scdinternal.site',
+  'api.scdinternal.site',
   'unpkg.com',
 ];
 const RETRY_BYPASS_CACHE_PARAM = '__scproxy_bust';
