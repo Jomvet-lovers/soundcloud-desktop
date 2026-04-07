@@ -120,6 +120,9 @@ pub async fn upload(
         return Err((StatusCode::BAD_REQUEST, "invalid filename".into()));
     }
 
+    let file_lock = state.file_lock(&filename);
+    let _file_guard = file_lock.lock().await;
+
     // Acquire transcode semaphore — limits concurrent CPU load
     let _permit = state.transcode_sem.acquire().await.map_err(|_| {
         (

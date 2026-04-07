@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Weak};
 
 use axum::http::Method;
 use axum::routing::{delete, get, post};
@@ -16,6 +17,22 @@ use config::Config;
 pub struct AppState {
     pub config: Config,
     pub transcode_sem: Semaphore,
+    file_locks: Mutex<HashMap<String, Weak<tokio::sync::Mutex<()>>>>,
+}
+
+impl AppState {
+    pub fn file_lock(&self, filename: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.file_locks.lock().unwrap();
+        if let Some(lock) = locks.get(filename).and_then(Weak::upgrade) {
+            return lock;
+        }
+
+        locks.retain(|_, lock| lock.upgrade().is_some());
+
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(filename.to_string(), Arc::downgrade(&lock));
+        lock
+    }
 }
 
 #[tokio::main]
@@ -49,6 +66,7 @@ async fn main() {
     let state = Arc::new(AppState {
         config: config.clone(),
         transcode_sem: Semaphore::new(max_transcodes),
+        file_locks: Mutex::new(HashMap::new()),
     });
 
     let cors = CorsLayer::new()

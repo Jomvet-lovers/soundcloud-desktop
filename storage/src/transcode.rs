@@ -5,6 +5,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 const MIN_UPLOAD_DURATION_SECS: f64 = 30.0;
+const DURATION_EPSILON_SECS: f64 = 2.0;
 
 pub struct TranscodeResult {
     pub duration_secs: f64,
@@ -102,13 +103,13 @@ pub async fn transcode(
         });
     }
 
-    if let Err(err) = commit_output(&hq_tmp_path, &hq_path, filename, "hq").await {
+    if let Err(err) = commit_output(&hq_tmp_path, &hq_path, filename, "hq", ffprobe_bin).await {
         cleanup_file(&hq_tmp_path).await;
         cleanup_file(&sq_tmp_path).await;
         return Err(err);
     }
 
-    if let Err(err) = commit_output(&sq_tmp_path, &sq_path, filename, "sq").await {
+    if let Err(err) = commit_output(&sq_tmp_path, &sq_path, filename, "sq", ffprobe_bin).await {
         cleanup_file(&sq_tmp_path).await;
         return Err(err);
     }
@@ -136,7 +137,13 @@ async fn commit_output(
     dst: &Path,
     filename: &str,
     quality: &str,
+    ffprobe_bin: &str,
 ) -> Result<(), TranscodeError> {
+    if should_keep_existing(dst, src_tmp, quality, ffprobe_bin).await? {
+        cleanup_file(src_tmp).await;
+        return Ok(());
+    }
+
     let dst_dir = dst.parent().ok_or_else(|| {
         TranscodeError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -156,6 +163,34 @@ async fn commit_output(
     }
 
     Ok(())
+}
+
+async fn should_keep_existing(
+    dst: &Path,
+    src_tmp: &Path,
+    quality: &str,
+    ffprobe_bin: &str,
+) -> Result<bool, TranscodeError> {
+    if tokio::fs::metadata(dst).await.is_err() {
+        return Ok(false);
+    }
+
+    let Some(existing_duration) = probe_duration(dst, ffprobe_bin).await else {
+        return Ok(false);
+    };
+    let Some(candidate_duration) = probe_duration(src_tmp, ffprobe_bin).await else {
+        return Ok(false);
+    };
+
+    if existing_duration + DURATION_EPSILON_SECS >= candidate_duration {
+        info!(
+            "[transcode] keeping existing {} file {:.3}s >= new {:.3}s",
+            quality, existing_duration, candidate_duration
+        );
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 async fn move_or_copy_file(src: &Path, dst: &Path) -> Result<(), TranscodeError> {
