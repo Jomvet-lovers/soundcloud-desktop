@@ -1,8 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type NewsItem, NEWS } from '../lib/news';
+import { proxiedAssetUrl } from '../lib/asset-url';
 import { X } from '../lib/icons';
+import { NEWS, type NewsItem } from '../lib/news';
 import { useNewsStore } from '../stores/news';
 
 // ─── Toast Card (bottom-left) ──────────────────────────────
@@ -92,7 +93,7 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
 
             {item.image && (
               <img
-                src={item.image}
+                src={proxiedAssetUrl(item.image) ?? item.image}
                 alt=""
                 className="size-11 shrink-0 rounded-xl object-cover ring-1 ring-white/[0.06]"
                 decoding="async"
@@ -134,7 +135,7 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
           {item.image && (
             <div className="px-5 pb-3">
               <img
-                src={item.image}
+                src={proxiedAssetUrl(item.image) ?? item.image}
                 alt=""
                 className="w-full rounded-xl object-cover ring-1 ring-white/[0.06]"
                 decoding="async"

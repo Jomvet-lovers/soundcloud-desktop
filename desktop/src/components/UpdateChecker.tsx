@@ -1,9 +1,10 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { AlertCircle, ExternalLink, Sparkles, X } from '../lib/icons';
 import { useMemo, useState } from 'react';
-import { APP_VERSION } from '../lib/constants';
-import type { GithubRelease } from '../lib/update-check';
 import { useTranslation } from 'react-i18next';
+import { proxiedAssetUrl } from '../lib/asset-url';
+import { APP_VERSION } from '../lib/constants';
+import { AlertCircle, ExternalLink, Sparkles, X } from '../lib/icons';
+import type { GithubRelease } from '../lib/update-check';
 
 function stripLeadingV(version: string) {
   return version.replace(/^v/, '');
@@ -26,7 +27,7 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
       parts.push(
         <img
           key={`${keyPrefix}-img-${matchIndex}`}
-          src={imageUrl}
+          src={proxiedAssetUrl(imageUrl) ?? imageUrl}
           alt={imageAlt || ''}
           loading="lazy"
           decoding="async"

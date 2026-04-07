@@ -682,7 +682,7 @@ const HistoryTab = React.memo(function HistoryTab() {
                 >
                   {row.entry.artworkUrl ? (
                     <img
-                      src={row.entry.artworkUrl.replace('large', 't200x200')}
+                      src={art(row.entry.artworkUrl, 't200x200') ?? ''}
                       alt=""
                       className="w-full h-full object-cover"
                       decoding="async"

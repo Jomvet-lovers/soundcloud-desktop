@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { useShallow } from 'zustand/shallow';
+import { proxiedAssetUrl } from '../../lib/asset-url';
 import { X } from '../../lib/icons';
 import { isYmImportBusy, useYmImportStore } from '../../stores/ym-import';
 
@@ -97,7 +98,7 @@ function YMImportDialog({
                   <div className="w-16 h-16 rounded-xl bg-white/[0.06] border border-white/[0.06] flex items-center justify-center shrink-0 overflow-hidden">
                     {playlist.artwork_url ? (
                       <img
-                        src={playlist.artwork_url}
+                        src={proxiedAssetUrl(playlist.artwork_url) ?? ''}
                         alt=""
                         className="w-full h-full object-cover"
                       />
