@@ -1,8 +1,6 @@
 use bytes::Bytes;
 use reqwest::Client;
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 use crate::config::Config;
@@ -18,7 +16,6 @@ pub struct CdnClient {
     pg: PgPool,
     consecutive_unavailable: AtomicU32,
     unavailable_until: AtomicU64,
-    inflight_uploads: Arc<Mutex<HashSet<String>>>,
 }
 
 impl CdnClient {
@@ -30,7 +27,6 @@ impl CdnClient {
             pg,
             consecutive_unavailable: AtomicU32::new(0),
             unavailable_until: AtomicU64::new(0),
-            inflight_uploads: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -92,76 +88,54 @@ impl CdnClient {
             return;
         }
 
-        {
-            let mut inflight = self
-                .inflight_uploads
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if !inflight.insert(track_urn.clone()) {
-                return;
-            }
-        }
-
         let client = self.client.clone();
         let base_url = self.base_url.clone();
         let auth_token = self.auth_token.clone();
         let pg = self.pg.clone();
         let filename = Self::track_filename(&track_urn);
-        let inflight_uploads = self.inflight_uploads.clone();
 
         tokio::spawn(async move {
-            let upload_result: Result<(), ()> = async {
-                // Insert pending records for both qualities (storage transcodes both)
-                let hq_path = Self::track_path(&track_urn, "hq");
-                let sq_path = Self::track_path(&track_urn, "sq");
+            // Insert pending records for both qualities (storage transcodes both)
+            let hq_path = Self::track_path(&track_urn, "hq");
+            let sq_path = Self::track_path(&track_urn, "sq");
 
-                let hq_id = match pg
-                    .insert_cdn_track(&track_urn, "hq", &hq_path, "pending")
-                    .await
-                {
-                    Ok(id) => id,
-                    Err(e) => {
-                        warn!("[cdn] insert pending hq failed: {e}");
-                        return Err(());
-                    }
-                };
-                let sq_id = match pg
-                    .insert_cdn_track(&track_urn, "sq", &sq_path, "pending")
-                    .await
-                {
-                    Ok(id) => id,
-                    Err(e) => {
-                        warn!("[cdn] insert pending sq failed: {e}");
-                        return Err(());
-                    }
-                };
-
-                match upload_to_storage(&client, &base_url, &auth_token, &filename, &data).await {
-                    Ok(()) => {
-                        let _ = pg.update_cdn_track_status(&hq_id, "ok").await;
-                        let _ = pg.update_cdn_track_status(&sq_id, "ok").await;
-                        info!(
-                            "[cdn] uploaded {} ({:.1} MB) → storage transcodes to Opus HQ+SQ",
-                            filename,
-                            data.len() as f64 / 1024.0 / 1024.0
-                        );
-                    }
-                    Err(e) => {
-                        warn!("[cdn] upload failed for {filename}: {e}");
-                        let _ = pg.update_cdn_track_status(&hq_id, "error").await;
-                        let _ = pg.update_cdn_track_status(&sq_id, "error").await;
-                    }
+            let hq_id = match pg
+                .insert_cdn_track(&track_urn, "hq", &hq_path, "pending")
+                .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    warn!("[cdn] insert pending hq failed: {e}");
+                    return;
                 }
-                Ok(())
+            };
+            let sq_id = match pg
+                .insert_cdn_track(&track_urn, "sq", &sq_path, "pending")
+                .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    warn!("[cdn] insert pending sq failed: {e}");
+                    return;
+                }
+            };
+
+            match upload_to_storage(&client, &base_url, &auth_token, &filename, &data).await {
+                Ok(()) => {
+                    let _ = pg.update_cdn_track_status(&hq_id, "ok").await;
+                    let _ = pg.update_cdn_track_status(&sq_id, "ok").await;
+                    info!(
+                        "[cdn] uploaded {} ({:.1} MB) → storage transcodes to Opus HQ+SQ",
+                        filename,
+                        data.len() as f64 / 1024.0 / 1024.0
+                    );
+                }
+                Err(e) => {
+                    warn!("[cdn] upload failed for {filename}: {e}");
+                    let _ = pg.update_cdn_track_status(&hq_id, "error").await;
+                    let _ = pg.update_cdn_track_status(&sq_id, "error").await;
+                }
             }
-            .await;
-
-            let mut inflight = inflight_uploads
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            inflight.remove(&track_urn);
-
-            let _ = upload_result;
         });
     }
 

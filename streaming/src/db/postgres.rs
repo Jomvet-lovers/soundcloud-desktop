@@ -159,21 +159,17 @@ impl PgPool {
         cdn_path: &str,
         status: &str,
     ) -> Result<String, PgError> {
-        let id = Uuid::now_v7();
+        let id = Uuid::now_v7().to_string();
         let client = self.pool.get().await?;
-        let row = client
-            .query_one(
+        client
+            .execute(
                 r#"INSERT INTO cdn_tracks (id, "trackUrn", quality, "cdnPath", status, "createdAt", "updatedAt", "lastAccessedAt")
                    VALUES ($1::text::uuid, $2, $3, $4, $5, NOW(), NOW(), NOW())
-                   ON CONFLICT ("trackUrn", quality) DO UPDATE
-                   SET status = EXCLUDED.status,
-                       "cdnPath" = EXCLUDED."cdnPath",
-                       "updatedAt" = NOW()
-                   RETURNING id"#,
+                   ON CONFLICT ("trackUrn", quality) DO UPDATE SET status = $5, "cdnPath" = $4, "updatedAt" = NOW()"#,
                 &[&id, &track_urn, &quality, &cdn_path, &status],
             )
             .await?;
-        Ok(row.get::<_, Uuid>(0).to_string())
+        Ok(id)
     }
 
     /// Update CDN track status
