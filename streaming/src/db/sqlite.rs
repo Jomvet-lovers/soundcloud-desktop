@@ -51,7 +51,8 @@ impl SqliteDb {
     /// List all subscriptions
     pub fn list_subscriptions(&self) -> Result<Vec<Subscription>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT user_urn, exp_date FROM subscriptions ORDER BY exp_date DESC")?;
+        let mut stmt =
+            conn.prepare("SELECT user_urn, exp_date FROM subscriptions ORDER BY exp_date DESC")?;
         let rows = stmt.query_map([], |row| {
             Ok(Subscription {
                 user_urn: row.get(0)?,

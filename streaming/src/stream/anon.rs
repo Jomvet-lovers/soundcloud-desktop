@@ -81,8 +81,13 @@ impl AnonClient {
         let client_id = self.get_client_id().await?;
         let target = format!("{SC_API_V2}/tracks/{track_id}?client_id={client_id}");
 
-        match proxy_get_json::<ResolvedTrack>(&self.client, &self.proxy_url, &target, HashMap::new())
-            .await
+        match proxy_get_json::<ResolvedTrack>(
+            &self.client,
+            &self.proxy_url,
+            &target,
+            HashMap::new(),
+        )
+        .await
         {
             Ok(t) => Ok(t),
             Err(_) => {
@@ -121,13 +126,9 @@ impl AnonClient {
             Err(_) if explicit_client_id.is_none() => {
                 let new_id = self.invalidate_and_refresh().await?;
                 let retry_target = format!("{transcoding_url}{sep}client_id={new_id}");
-                let r: TranscodingResolveResponse = proxy_get_json(
-                    &self.client,
-                    &self.proxy_url,
-                    &retry_target,
-                    HashMap::new(),
-                )
-                .await?;
+                let r: TranscodingResolveResponse =
+                    proxy_get_json(&self.client, &self.proxy_url, &retry_target, HashMap::new())
+                        .await?;
                 Ok(r.url)
             }
             Err(e) => Err(e),
@@ -149,10 +150,7 @@ impl AnonClient {
             }
         };
 
-        let transcodings = track
-            .media
-            .as_ref()
-            .and_then(|m| m.transcodings.as_ref());
+        let transcodings = track.media.as_ref().and_then(|m| m.transcodings.as_ref());
 
         let transcodings = match transcodings {
             Some(t) if !t.is_empty() => t,
@@ -180,17 +178,14 @@ impl AnonClient {
         Ok(Some(AnonStreamResult { data, content_type }))
     }
 
-    async fn refresh_client_id(
-        &self,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn refresh_client_id(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut headers = HashMap::new();
         headers.insert(
             "User-Agent".into(),
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36".into(),
         );
 
-        let (html, _) =
-            proxy_get_text(&self.client, &self.proxy_url, SC_BASE_URL, headers).await?;
+        let (html, _) = proxy_get_text(&self.client, &self.proxy_url, SC_BASE_URL, headers).await?;
 
         let client_id = extract_client_id_from_hydration(&html)
             .ok_or("Failed to extract SoundCloud client_id from page")?;

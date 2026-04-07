@@ -48,9 +48,7 @@ async fn main() {
         .expect("Failed to connect to PostgreSQL");
 
     // SQLite
-    let sqlite = Arc::new(
-        SqliteDb::open(&config.sqlite_path).expect("Failed to open SQLite"),
-    );
+    let sqlite = Arc::new(SqliteDb::open(&config.sqlite_path).expect("Failed to open SQLite"));
 
     // HTTP client
     let http_client = reqwest::Client::builder()
@@ -94,11 +92,7 @@ async fn main() {
     let config = Arc::new(config);
 
     // Spawn cleanup task
-    cleanup::task::spawn_cleanup_task(
-        (*config).clone(),
-        pg.clone(),
-        cdn.clone(),
-    );
+    cleanup::task::spawn_cleanup_task((*config).clone(), pg.clone(), cdn.clone());
 
     let state = AppState {
         config: config.clone(),
@@ -124,7 +118,10 @@ async fn main() {
             get(stream::handler::stream_premium),
         )
         // Admin endpoints
-        .route("/admin/subscriptions", get(admin::handler::list_subscriptions))
+        .route(
+            "/admin/subscriptions",
+            get(admin::handler::list_subscriptions),
+        )
         .route(
             "/admin/subscriptions",
             post(admin::handler::upsert_subscription),

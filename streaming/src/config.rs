@@ -40,8 +40,10 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(5432),
-            database_username: env::var("DATABASE_USERNAME").unwrap_or_else(|_| "soundcloud".into()),
-            database_password: env::var("DATABASE_PASSWORD").unwrap_or_else(|_| "soundcloud".into()),
+            database_username: env::var("DATABASE_USERNAME")
+                .unwrap_or_else(|_| "soundcloud".into()),
+            database_password: env::var("DATABASE_PASSWORD")
+                .unwrap_or_else(|_| "soundcloud".into()),
             database_name: env::var("DATABASE_NAME")
                 .unwrap_or_else(|_| "soundcloud_desktop".into()),
             sqlite_path: env::var("SQLITE_PATH")
@@ -97,8 +99,7 @@ fn urlencoding_decode(s: &str) -> String {
         if b == b'%' {
             let hi = chars.next().unwrap_or(b'0');
             let lo = chars.next().unwrap_or(b'0');
-            let val =
-                hex_digit(hi).unwrap_or(0) * 16 + hex_digit(lo).unwrap_or(0);
+            let val = hex_digit(hi).unwrap_or(0) * 16 + hex_digit(lo).unwrap_or(0);
             result.push(val as char);
         } else {
             result.push(b as char);

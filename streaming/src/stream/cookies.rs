@@ -91,9 +91,7 @@ impl CookiesClient {
         // Filter non-snippet, non-preview
         let full: Vec<&Transcoding> = transcodings
             .iter()
-            .filter(|t| {
-                !t.snipped.unwrap_or(false) && !t.url.contains("/preview")
-            })
+            .filter(|t| !t.snipped.unwrap_or(false) && !t.url.contains("/preview"))
             .collect();
 
         if full.is_empty() {
@@ -112,13 +110,25 @@ impl CookiesClient {
 
         let mut ordered: Vec<&Transcoding> = Vec::with_capacity(full.len());
         // HQ non-encrypted
-        ordered.extend(full.iter().filter(|t| t.quality.as_deref() == Some("hq") && !is_encrypted(t)));
+        ordered.extend(
+            full.iter()
+                .filter(|t| t.quality.as_deref() == Some("hq") && !is_encrypted(t)),
+        );
         // HQ encrypted
-        ordered.extend(full.iter().filter(|t| t.quality.as_deref() == Some("hq") && is_encrypted(t)));
+        ordered.extend(
+            full.iter()
+                .filter(|t| t.quality.as_deref() == Some("hq") && is_encrypted(t)),
+        );
         // SQ non-encrypted
-        ordered.extend(full.iter().filter(|t| t.quality.as_deref() != Some("hq") && !is_encrypted(t)));
+        ordered.extend(
+            full.iter()
+                .filter(|t| t.quality.as_deref() != Some("hq") && !is_encrypted(t)),
+        );
         // SQ encrypted
-        ordered.extend(full.iter().filter(|t| t.quality.as_deref() != Some("hq") && is_encrypted(t)));
+        ordered.extend(
+            full.iter()
+                .filter(|t| t.quality.as_deref() != Some("hq") && is_encrypted(t)),
+        );
 
         for transcoding in ordered {
             let quality = if transcoding.quality.as_deref() == Some("hq") {
@@ -169,9 +179,8 @@ impl CookiesClient {
         } else {
             "?"
         };
-        let target = format!(
-            "{transcoding_url}{sep}client_id={client_id}&track_authorization={track_auth}"
-        );
+        let target =
+            format!("{transcoding_url}{sep}client_id={client_id}&track_authorization={track_auth}");
 
         let mut headers = HashMap::new();
         headers.insert("Accept".into(), "*/*".into());
@@ -196,10 +205,7 @@ impl CookiesClient {
         download_hls_full(&self.client, &self.proxy_url, &resp.url, mime).await
     }
 
-    async fn fetch_hydration(
-        &self,
-        permalink_url: &str,
-    ) -> Option<(CookieHydrationSound, String)> {
+    async fn fetch_hydration(&self, permalink_url: &str) -> Option<(CookieHydrationSound, String)> {
         let mut headers = HashMap::new();
         headers.insert(
             "User-Agent".into(),

@@ -2,6 +2,9 @@ use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
 use tracing::{info, warn};
+use uuid::Uuid;
+
+const MIN_UPLOAD_DURATION_SECS: f64 = 30.0;
 
 pub struct TranscodeResult {
     pub duration_secs: f64,
@@ -24,9 +27,17 @@ pub async fn transcode(
     let ogg_name = format!("{filename}.ogg");
     let hq_path = hq_dir.join(&ogg_name);
     let sq_path = sq_dir.join(&ogg_name);
+    let hq_tmp_path = temp_output_path(&hq_dir, filename, "hq");
+    let sq_tmp_path = temp_output_path(&sq_dir, filename, "sq");
 
     // Probe duration first
     let duration_secs = probe_duration(input, ffprobe_bin).await.unwrap_or(0.0);
+    if duration_secs > 0.0 && duration_secs <= MIN_UPLOAD_DURATION_SECS {
+        return Err(TranscodeError::TrackTooShort {
+            duration_secs,
+            min_duration_secs: MIN_UPLOAD_DURATION_SECS,
+        });
+    }
 
     // Single ffmpeg call: two outputs from one input
     let output = Command::new(ffmpeg_bin)
@@ -51,7 +62,7 @@ pub async fn transcode(
             "10",
             "-application",
             "audio",
-            hq_path.to_str().unwrap_or_default(),
+            hq_tmp_path.to_str().unwrap_or_default(),
             // SQ: Opus 128kbps
             "-map",
             "0:a:0",
@@ -65,7 +76,7 @@ pub async fn transcode(
             "10",
             "-application",
             "audio",
-            sq_path.to_str().unwrap_or_default(),
+            sq_tmp_path.to_str().unwrap_or_default(),
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -75,8 +86,8 @@ pub async fn transcode(
 
     if !output.status.success() {
         // Cleanup partial files
-        let _ = tokio::fs::remove_file(&hq_path).await;
-        let _ = tokio::fs::remove_file(&sq_path).await;
+        cleanup_file(&hq_tmp_path).await;
+        cleanup_file(&sq_tmp_path).await;
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(TranscodeError::FfmpegFailed {
             code: output.status.code().unwrap_or(-1),
@@ -88,6 +99,17 @@ pub async fn transcode(
         });
     }
 
+    if let Err(err) = replace_file(&hq_tmp_path, &hq_path).await {
+        cleanup_file(&hq_tmp_path).await;
+        cleanup_file(&sq_tmp_path).await;
+        return Err(err);
+    }
+
+    if let Err(err) = replace_file(&sq_tmp_path, &sq_path).await {
+        cleanup_file(&sq_tmp_path).await;
+        return Err(err);
+    }
+
     info!(
         "[transcode] {filename} → HQ {:.1}MB, SQ {:.1}MB, {:.1}s",
         file_size_mb(&hq_path).await,
@@ -96,6 +118,29 @@ pub async fn transcode(
     );
 
     Ok(TranscodeResult { duration_secs })
+}
+
+fn temp_output_path(dir: &Path, filename: &str, quality: &str) -> PathBuf {
+    dir.join(format!(".{filename}.{}.{}.tmp", quality, Uuid::new_v4()))
+}
+
+async fn cleanup_file(path: &Path) {
+    let _ = tokio::fs::remove_file(path).await;
+}
+
+async fn replace_file(src: &Path, dst: &Path) -> Result<(), TranscodeError> {
+    match tokio::fs::rename(src, dst).await {
+        Ok(()) => Ok(()),
+        Err(first_err) => {
+            if tokio::fs::metadata(dst).await.is_ok() {
+                tokio::fs::remove_file(dst).await?;
+                tokio::fs::rename(src, dst).await?;
+                Ok(())
+            } else {
+                Err(TranscodeError::Io(first_err))
+            }
+        }
+    }
 }
 
 /// Delete both HQ and SQ files for a given filename.
@@ -153,6 +198,11 @@ async fn file_size_mb(path: &Path) -> f64 {
 pub enum TranscodeError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("track too short: {duration_secs:.3}s <= {min_duration_secs:.3}s")]
+    TrackTooShort {
+        duration_secs: f64,
+        min_duration_secs: f64,
+    },
     #[error("ffmpeg exited with code {code}: {stderr}")]
     FfmpegFailed { code: i32, stderr: String },
     #[error("{name} binary '{path}' is unavailable: {source}")]

@@ -7,6 +7,7 @@ use axum::Json;
 use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
+use crate::transcode::TranscodeError;
 use crate::AppState;
 
 #[derive(serde::Serialize)]
@@ -128,7 +129,7 @@ pub async fn upload(
     })?;
 
     // Transcode
-    let result = crate::transcode::transcode(
+    let result = match crate::transcode::transcode(
         &tmp_path,
         &filename,
         &state.config.storage_path,
@@ -136,10 +137,20 @@ pub async fn upload(
         &state.config.ffprobe_bin,
     )
     .await
-    .map_err(|e| {
-        warn!("[upload] transcode failed for {filename}: {e}");
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("transcode: {e}"))
-    });
+    {
+        Ok(result) => Ok(result),
+        Err(TranscodeError::TrackTooShort { duration_secs, .. }) => {
+            info!("[upload] skipped short track {filename}: {duration_secs:.3}s");
+            Err((
+                StatusCode::CONFLICT,
+                format!("transcode skipped: short track ({duration_secs:.3}s)"),
+            ))
+        }
+        Err(e) => {
+            warn!("[upload] transcode failed for {filename}: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("transcode: {e}")))
+        }
+    };
 
     // Always cleanup tmp
     let _ = tokio::fs::remove_file(&tmp_path).await;
