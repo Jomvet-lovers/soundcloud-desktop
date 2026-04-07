@@ -1,20 +1,19 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
+import { AppShell } from './components/layout/AppShell';
 import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
 import { isSoundCloudAppBan } from './lib/soundcloud-ban-toast';
-import { useYmImportStore } from './stores/ym-import';
 import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
 import { getAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
 import { type StartupPage, useSettingsStore } from './stores/settings';
+import { useYmImportStore } from './stores/ym-import';
 
-const AppShell = lazy(() =>
-  import('./components/layout/AppShell').then((module) => ({ default: module.AppShell })),
-);
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
 const Library = lazy(() =>
   import('./pages/Library').then((module) => ({ default: module.Library })),
@@ -63,7 +62,6 @@ export default function App() {
       fetchUser: s.fetchUser,
     })),
   );
-  const [checking, setChecking] = useState(true);
   const [availableRelease, setAvailableRelease] = useState<GithubRelease | null>(null);
   const appMode = useAppStatusStore((s) =>
     s.soundcloudBlocked
@@ -72,6 +70,9 @@ export default function App() {
         ? 'offline'
         : 'online',
   );
+  const hasLocalSession = Boolean(sessionId);
+  const canUseMainShell = isAuthenticated || hasLocalSession;
+  const showOfflineOnlyShell = !canUseMainShell && appMode !== 'online';
 
   useEffect(() => {
     useYmImportStore.getState().initBridge();
@@ -97,35 +98,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (appMode !== 'online') {
-      setChecking(false);
+    if (!sessionId || appMode !== 'online') {
       return;
     }
 
-    if (sessionId) {
-      setChecking(true);
-      fetchUser()
-        .catch((error) => {
-          if (error instanceof ApiError && error.status === 401) {
-            useAuthStore.getState().logout();
-            return;
-          }
+    let cancelled = false;
 
-          if (error instanceof ApiError && isSoundCloudAppBan(error.status, error.body)) {
-            return;
-          }
+    fetchUser().catch((error) => {
+      if (cancelled) return;
 
-          if (getAppMode() !== 'online') {
-            return;
-          }
+      if (error instanceof ApiError && error.status === 401) {
+        useAuthStore.getState().logout();
+        return;
+      }
 
-          console.warn('[Auth] Keeping local session after /me bootstrap failure:', error);
-          useAuthStore.setState({ isAuthenticated: true });
-        })
-        .finally(() => setChecking(false));
-    } else {
-      setChecking(false);
-    }
+      if (error instanceof ApiError && isSoundCloudAppBan(error.status, error.body)) {
+        return;
+      }
+
+      if (getAppMode() !== 'online') {
+        return;
+      }
+
+      console.warn('[Auth] Keeping local session after /me bootstrap failure:', error);
+      useAuthStore.setState({ isAuthenticated: true });
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [appMode, fetchUser, sessionId]);
 
   useEffect(() => {
@@ -160,8 +161,6 @@ export default function App() {
     };
   }, [appMode, isAuthenticated]);
 
-  const showOfflineShell = appMode !== 'online';
-
   return (
     <ThemeProvider>
       <Toaster
@@ -179,21 +178,31 @@ export default function App() {
       />
       <YMImportFloatingStatus />
       <BrowserRouter>
-        {checking && !showOfflineShell ? (
-          <AppLoadingScreen />
-        ) : showOfflineShell ? (
-          <Suspense fallback={<AppLoadingScreen />}>
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route index element={<Navigate to="/offline" replace />} />
-                <Route path="offline" element={<OfflinePage />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="*" element={<Navigate to="/offline" replace />} />
-              </Route>
-            </Routes>
-          </Suspense>
-        ) : !isAuthenticated ? (
-          <Suspense fallback={<AppLoadingScreen />}>
+        {showOfflineOnlyShell ? (
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route index element={<Navigate to="/offline" replace />} />
+              <Route
+                path="offline"
+                element={
+                  <RouteLoader>
+                    <OfflinePage />
+                  </RouteLoader>
+                }
+              />
+              <Route
+                path="settings"
+                element={
+                  <RouteLoader>
+                    <Settings />
+                  </RouteLoader>
+                }
+              />
+              <Route path="*" element={<Navigate to="/offline" replace />} />
+            </Route>
+          </Routes>
+        ) : !canUseMainShell ? (
+          <Suspense fallback={<AppLoadingScreen fullscreen />}>
             <Login />
           </Suspense>
         ) : (
@@ -206,21 +215,75 @@ export default function App() {
             <Suspense fallback={null}>
               <NewsToast />
             </Suspense>
-            <Suspense fallback={<AppLoadingScreen />}>
-              <Routes>
-                <Route element={<AppShell />}>
-                  <Route index element={<StartPageRedirect />} />
-                  <Route path="home" element={<Home />} />
-                  <Route path="search" element={<Search />} />
-                  <Route path="library" element={<Library />} />
-                  <Route path="offline" element={<OfflinePage />} />
-                  <Route path="track/:urn" element={<TrackPage />} />
-                  <Route path="playlist/:urn" element={<PlaylistPage />} />
-                  <Route path="user/:urn" element={<UserPage />} />
-                  <Route path="settings" element={<Settings />} />
-                </Route>
-              </Routes>
-            </Suspense>
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route index element={<StartPageRedirect />} />
+                <Route
+                  path="home"
+                  element={
+                    <RouteLoader>
+                      <Home />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="search"
+                  element={
+                    <RouteLoader>
+                      <Search />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="library"
+                  element={
+                    <RouteLoader>
+                      <Library />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="offline"
+                  element={
+                    <RouteLoader>
+                      <OfflinePage />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="track/:urn"
+                  element={
+                    <RouteLoader>
+                      <TrackPage />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="playlist/:urn"
+                  element={
+                    <RouteLoader>
+                      <PlaylistPage />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="user/:urn"
+                  element={
+                    <RouteLoader>
+                      <UserPage />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="settings"
+                  element={
+                    <RouteLoader>
+                      <Settings />
+                    </RouteLoader>
+                  }
+                />
+              </Route>
+            </Routes>
           </>
         )}
       </BrowserRouter>
@@ -228,10 +291,28 @@ export default function App() {
   );
 }
 
-function AppLoadingScreen() {
+function RouteLoader({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<AppLoadingScreen />}>{children}</Suspense>;
+}
+
+function AppLoadingScreen({ fullscreen = false }: { fullscreen?: boolean }) {
+  const { t } = useTranslation();
+
   return (
-    <div className="h-screen flex items-center justify-center">
-      <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+    <div
+      className={`flex items-center justify-center px-6 py-8 ${fullscreen ? 'h-screen' : 'min-h-[42vh]'}`}
+    >
+      <div className="flex items-center gap-3 rounded-[24px] border border-white/8 bg-white/[0.035] px-4 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.24)] backdrop-blur-[28px]">
+        <div className="flex size-10 items-center justify-center rounded-[16px] border border-accent/18 bg-accent/[0.10]">
+          <div className="size-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/28">
+            SoundCloud
+          </div>
+          <div className="mt-0.5 text-[13px] font-medium text-white/62">{t('common.loading')}</div>
+        </div>
+      </div>
     </div>
   );
 }

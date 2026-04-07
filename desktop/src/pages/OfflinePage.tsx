@@ -454,21 +454,42 @@ export const OfflinePage = React.memo(() => {
     let cancelled = false;
 
     const loadOffline = async () => {
-      const [likedTracks, cachedUrns] = await Promise.all([
-        getOfflineLikedTracks(),
-        listCachedUrns(),
-      ]);
-      const cachedSet = new Set(cachedUrns);
-      const cachedTracks = await getOfflineTracksByUrns(cachedUrns);
-      if (cancelled) return;
+      try {
+        const [likedTracks, cachedUrns] = await Promise.all([
+          getOfflineLikedTracks(),
+          listCachedUrns(),
+        ]);
+        const cachedSet = new Set(cachedUrns);
+        const cachedTracks = await getOfflineTracksByUrns(cachedUrns);
+        if (cancelled) return;
 
-      setState({ likedTracks, cachedTracks, cachedUrns: cachedSet });
-      setLoading(false);
+        setState({ likedTracks, cachedTracks, cachedUrns: cachedSet });
+      } catch (error) {
+        console.warn('[Offline] Failed to load local cache:', error);
+        if (cancelled) return;
+        setState(EMPTY_STATE);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
     };
 
-    const syncAllLikes = async () => {
-      if (bgFetchDone.current) return;
+    void loadOffline();
 
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (appMode !== 'online' || bgFetchDone.current) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncAllLikes = async () => {
       try {
         const allLikes = await fetchAllLikedTracks();
         bgFetchDone.current = true;
@@ -485,26 +506,39 @@ export const OfflinePage = React.memo(() => {
       }
     };
 
-    void loadOffline().then(() => {
-      if (!cancelled) void syncAllLikes();
-    });
+    void syncAllLikes();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [appMode]);
 
   useEffect(() => {
+    if (appMode !== 'online') {
+      setSyncing(false);
+      setPendingStats(EMPTY_STATS);
+      return;
+    }
+
+    let cancelled = false;
+
     const loadStats = () => {
       api<PendingStats>('/pending-actions/stats')
-        .then(setPendingStats)
+        .then((stats) => {
+          if (!cancelled) {
+            setPendingStats(stats);
+          }
+        })
         .catch(() => {});
     };
 
     loadStats();
     const interval = setInterval(loadStats, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [appMode]);
 
   useEffect(() => {
     if (
@@ -525,6 +559,8 @@ export const OfflinePage = React.memo(() => {
   }, [activeSection, state.cachedTracks.length, state.likedTracks.length]);
 
   const handleSync = useCallback(() => {
+    if (appMode !== 'online') return;
+
     setSyncing(true);
     api<{ synced: number; failed: number }>('/pending-actions/sync', { method: 'POST' })
       .then(() => {
@@ -534,7 +570,7 @@ export const OfflinePage = React.memo(() => {
       })
       .catch(() => {})
       .finally(() => setSyncing(false));
-  }, []);
+  }, [appMode]);
 
   const cachedLikesCount = useMemo(
     () => state.likedTracks.filter((track) => state.cachedUrns.has(track.urn)).length,
