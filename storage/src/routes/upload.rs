@@ -133,6 +133,7 @@ pub async fn upload(
         &tmp_path,
         &filename,
         &state.config.storage_path,
+        &state.config.tmp_path,
         &state.config.ffmpeg_bin,
         &state.config.ffprobe_bin,
     )

@@ -16,19 +16,22 @@ pub async fn transcode(
     input: &Path,
     filename: &str,
     storage_path: &str,
+    tmp_path: &str,
     ffmpeg_bin: &str,
     ffprobe_bin: &str,
 ) -> Result<TranscodeResult, TranscodeError> {
     let hq_dir = PathBuf::from(storage_path).join("hq");
     let sq_dir = PathBuf::from(storage_path).join("sq");
+    let tmp_dir = PathBuf::from(tmp_path);
     tokio::fs::create_dir_all(&hq_dir).await?;
     tokio::fs::create_dir_all(&sq_dir).await?;
+    tokio::fs::create_dir_all(&tmp_dir).await?;
 
     let ogg_name = format!("{filename}.ogg");
     let hq_path = hq_dir.join(&ogg_name);
     let sq_path = sq_dir.join(&ogg_name);
-    let hq_tmp_path = temp_output_path(&hq_dir, filename, "hq");
-    let sq_tmp_path = temp_output_path(&sq_dir, filename, "sq");
+    let hq_tmp_path = temp_output_path(&tmp_dir, filename, "hq");
+    let sq_tmp_path = temp_output_path(&tmp_dir, filename, "sq");
 
     // Probe duration first
     let duration_secs = probe_duration(input, ffprobe_bin).await.unwrap_or(0.0);
@@ -99,13 +102,13 @@ pub async fn transcode(
         });
     }
 
-    if let Err(err) = replace_file(&hq_tmp_path, &hq_path).await {
+    if let Err(err) = commit_output(&hq_tmp_path, &hq_path, filename, "hq").await {
         cleanup_file(&hq_tmp_path).await;
         cleanup_file(&sq_tmp_path).await;
         return Err(err);
     }
 
-    if let Err(err) = replace_file(&sq_tmp_path, &sq_path).await {
+    if let Err(err) = commit_output(&sq_tmp_path, &sq_path, filename, "sq").await {
         cleanup_file(&sq_tmp_path).await;
         return Err(err);
     }
@@ -128,6 +131,45 @@ async fn cleanup_file(path: &Path) {
     let _ = tokio::fs::remove_file(path).await;
 }
 
+async fn commit_output(
+    src_tmp: &Path,
+    dst: &Path,
+    filename: &str,
+    quality: &str,
+) -> Result<(), TranscodeError> {
+    let dst_dir = dst.parent().ok_or_else(|| {
+        TranscodeError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("destination has no parent: {}", dst.display()),
+        ))
+    })?;
+    let stage_path = temp_output_path(dst_dir, filename, quality);
+
+    if let Err(err) = move_or_copy_file(src_tmp, &stage_path).await {
+        cleanup_file(&stage_path).await;
+        return Err(err);
+    }
+
+    if let Err(err) = replace_file(&stage_path, dst).await {
+        cleanup_file(&stage_path).await;
+        return Err(err);
+    }
+
+    Ok(())
+}
+
+async fn move_or_copy_file(src: &Path, dst: &Path) -> Result<(), TranscodeError> {
+    match tokio::fs::rename(src, dst).await {
+        Ok(()) => Ok(()),
+        Err(err) if is_cross_device_error(&err) => {
+            tokio::fs::copy(src, dst).await?;
+            tokio::fs::remove_file(src).await?;
+            Ok(())
+        }
+        Err(err) => Err(TranscodeError::Io(err)),
+    }
+}
+
 async fn replace_file(src: &Path, dst: &Path) -> Result<(), TranscodeError> {
     match tokio::fs::rename(src, dst).await {
         Ok(()) => Ok(()),
@@ -141,6 +183,10 @@ async fn replace_file(src: &Path, dst: &Path) -> Result<(), TranscodeError> {
             }
         }
     }
+}
+
+fn is_cross_device_error(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(18)
 }
 
 /// Delete both HQ and SQ files for a given filename.
