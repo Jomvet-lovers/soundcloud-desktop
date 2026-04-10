@@ -4,7 +4,7 @@ import i18n from '../i18n';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
-import { api, getSessionId, streamUrl } from './api';
+import { api, getSessionId, streamFallbackUrls } from './api';
 import {
   enforceAudioCacheLimit,
   ensureTrackCached,
@@ -440,14 +440,14 @@ export function preloadTrack(urn: string) {
   preloadTimer = setTimeout(() => {
     const sessionId = getSessionId();
     invoke('track_preload', {
-      entries: [{ urn, url: streamUrl(urn), sessionId }],
+      entries: [{ urn, urls: streamFallbackUrls(urn), sessionId }],
     }).catch(console.error);
   }, 500);
 }
 
 export function preloadQueue() {
   const { queue, queueIndex } = usePlayerStore.getState();
-  const entries: Array<{ urn: string; url: string; sessionId: string | null }> = [];
+  const entries: Array<{ urn: string; urls: string[]; sessionId: string | null }> = [];
   const sessionId = getSessionId();
 
   for (let i = 1; i <= 3; i++) {
@@ -455,7 +455,7 @@ export function preloadQueue() {
     if (idx < queue.length) {
       entries.push({
         urn: queue[idx].urn,
-        url: streamUrl(queue[idx].urn),
+        urls: streamFallbackUrls(queue[idx].urn),
         sessionId,
       });
     }

@@ -2,9 +2,10 @@ import { fetch } from '@tauri-apps/plugin-http';
 import { toast } from 'sonner';
 import { useAppStatusStore } from '../stores/app-status';
 import { useSettingsStore } from '../stores/settings';
-import { API_BASE, STREAMING_BASE } from './constants';
+import { API_BASE, STREAMING_BASE, STREAMING_PREMIUM_BASE } from './constants';
 import { trackAsync } from './diagnostics';
 import { isSoundCloudAppBan, showSoundCloudAppBanToast } from './soundcloud-ban-toast';
+import { getIsPremium } from './subscription';
 
 let sessionId: string | null = null;
 
@@ -81,13 +82,44 @@ export class ApiError extends Error {
   }
 }
 
-export function streamUrl(trackUrn: string, hq = useSettingsStore.getState().highQualityStreaming) {
+function buildStreamUrl(base: string, trackUrn: string, premium: boolean, hq: boolean) {
   const params = new URLSearchParams();
-  if (hq) {
-    params.set('hq', 'true');
+  if (hq) params.set('hq', 'true');
+  if (sessionId) params.set('session_id', sessionId);
+  const path = premium ? '/premium' : '';
+  return `${base}/stream/${encodeURIComponent(trackUrn)}${path}?${params.toString()}`;
+}
+
+export function streamUrl(trackUrn: string, hq = useSettingsStore.getState().highQualityStreaming) {
+  const isPremium = getIsPremium();
+  if (isPremium) {
+    // Premium users get premium host + premium endpoint as primary
+    return buildStreamUrl(STREAMING_PREMIUM_BASE, trackUrn, true, hq);
   }
-  if (sessionId) {
-    params.set('session_id', sessionId);
+  return buildStreamUrl(STREAMING_BASE, trackUrn, false, hq);
+}
+
+/**
+ * Premium fallback chain:
+ * 1. premium host + /premium endpoint
+ * 2. premium host + standard endpoint
+ * 3. standard host + /premium endpoint
+ * 4. standard host + standard endpoint
+ *
+ * Non-premium: just standard host + standard endpoint.
+ */
+export function streamFallbackUrls(
+  trackUrn: string,
+  hq = useSettingsStore.getState().highQualityStreaming,
+): string[] {
+  const isPremium = getIsPremium();
+  if (isPremium) {
+    return [
+      buildStreamUrl(STREAMING_PREMIUM_BASE, trackUrn, true, hq),
+      buildStreamUrl(STREAMING_PREMIUM_BASE, trackUrn, false, hq),
+      buildStreamUrl(STREAMING_BASE, trackUrn, true, hq),
+      buildStreamUrl(STREAMING_BASE, trackUrn, false, hq),
+    ];
   }
-  return `${STREAMING_BASE}/stream/${encodeURIComponent(trackUrn)}?${params.toString()}`;
+  return [buildStreamUrl(STREAMING_BASE, trackUrn, false, hq)];
 }

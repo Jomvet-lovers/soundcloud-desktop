@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { changeAppLanguage } from '../i18n';
 import { toast } from 'sonner';
 import { Skeleton } from '../components/ui/Skeleton.tsx';
+import { changeAppLanguage } from '../i18n';
 import { switchAudioDevice } from '../lib/audio';
 import {
   clearAssetsCache,
@@ -16,13 +16,14 @@ import {
   saveWallpaperFromBuffer,
 } from '../lib/cache';
 import { trackedInvoke } from '../lib/diagnostics';
-import { Globe, Link, Loader2, Trash2, X } from '../lib/icons';
+import { Globe, Link, Loader2, Star, Trash2, X } from '../lib/icons';
+import { useSubscription } from '../lib/subscription';
 import { useAuthStore } from '../stores/auth';
 import {
-  THEME_PRESETS,
-  useSettingsStore,
   type DiscordRpcMode,
   type StartupPage,
+  THEME_PRESETS,
+  useSettingsStore,
 } from '../stores/settings';
 
 function formatBytes(bytes: number): string {
@@ -725,6 +726,8 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const setNormalizeVolume = useSettingsStore((s) => s.setNormalizeVolume);
   const highQualityStreaming = useSettingsStore((s) => s.highQualityStreaming);
   const setHighQualityStreaming = useSettingsStore((s) => s.setHighQualityStreaming);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const { data: isPremium } = useSubscription(isAuthenticated);
   const discordRpcEnabled = useSettingsStore((s) => s.discordRpcEnabled);
   const setDiscordRpcEnabled = useSettingsStore((s) => s.setDiscordRpcEnabled);
   const discordRpcMode = useSettingsStore((s) => s.discordRpcMode);
@@ -785,18 +788,36 @@ const PlaybackSection = React.memo(function PlaybackSection() {
             {t('settings.highQualityStreamingDesc')}
           </p>
         </div>
-        <button
-          onClick={() => setHighQualityStreaming(!highQualityStreaming)}
-          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
-            highQualityStreaming ? 'bg-accent' : 'bg-white/10'
-          }`}
-        >
-          <div
-            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
-              highQualityStreaming ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+        {isPremium ? (
+          <button
+            onClick={() => setHighQualityStreaming(!highQualityStreaming)}
+            className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+              highQualityStreaming ? 'bg-accent' : 'bg-white/10'
             }`}
-          />
-        </button>
+          >
+            <div
+              className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+                highQualityStreaming ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+              }`}
+            />
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-purple-300/80"
+              style={{
+                background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.12))',
+                border: '0.5px solid rgba(168,85,247,0.25)',
+              }}
+            >
+              <Star size={10} fill="currentColor" className="text-amber-400" />
+              Star
+            </span>
+            <div className="w-11 h-6 rounded-full bg-white/10 relative opacity-40 cursor-not-allowed">
+              <div className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full shadow-md bg-white" />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-white/[0.04]" />

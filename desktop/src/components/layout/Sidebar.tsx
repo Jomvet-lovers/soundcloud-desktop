@@ -21,6 +21,7 @@ import { useAppStatusStore } from '../../stores/app-status';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
 import { Avatar } from '../ui/Avatar';
+import { StarBadge, StarCard, StarModal, useStarSubscription } from './StarSubscription';
 
 const languages = [
   { code: 'en', label: 'English' },
@@ -52,6 +53,7 @@ export const Sidebar = React.memo(() => {
       toggleSidebar: s.toggleSidebar,
     })),
   );
+  const { isPremium, modalOpen, setModalOpen, openModal } = useStarSubscription();
 
   const toggleLanguage = () => {
     const next = i18n.language === 'ru' ? 'en' : 'ru';
@@ -152,6 +154,9 @@ export const Sidebar = React.memo(() => {
       <div className="flex-1" />
 
       <div className="px-2 pb-1 flex flex-col gap-0.5">
+        <div className="mb-1">
+          <StarCard collapsed={collapsed} isPremium={isPremium} onOpenModal={openModal} />
+        </div>
         {/* Toggle sidebar */}
         <button
           type="button"
@@ -210,13 +215,18 @@ export const Sidebar = React.memo(() => {
           >
             <Avatar src={user.avatar_url} alt={user.username} size={26} />
             {!collapsed && (
-              <span className="text-[12px] text-white/40 truncate font-medium">
-                {user.username}
-              </span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[12px] text-white/40 truncate font-medium">
+                  {user.username}
+                </span>
+                {isPremium && <StarBadge />}
+              </div>
             )}
           </NavLink>
         </div>
       )}
+
+      <StarModal open={modalOpen} onOpenChange={setModalOpen} />
     </aside>
   );
 });

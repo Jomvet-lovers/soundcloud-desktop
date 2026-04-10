@@ -58,6 +58,7 @@ import {
   SkipForward as _SkipForward,
   SlidersHorizontal as _SlidersHorizontal,
   Sparkles as _Sparkles,
+  Star as _Star,
   Square as _Square,
   Trash2 as _Trash2,
   User as _User,
@@ -138,6 +139,7 @@ export const Shuffle = memo(_Shuffle);
 export const SkipBack = memo(_SkipBack);
 export const SkipForward = memo(_SkipForward);
 export const Sparkles = memo(_Sparkles);
+export const Star = memo(_Star);
 export const Square = memo(_Square);
 export const Trash2 = memo(_Trash2);
 export const Twitter = memo(({ size, className }: { size?: number; className?: string }) => (

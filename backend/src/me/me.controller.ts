@@ -1,5 +1,6 @@
 import { Controller, Delete, Get, Param, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { AuthService } from '../auth/auth.service.js';
 import { CacheClear } from '../cache/cache-clear.decorator.js';
 import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
@@ -13,6 +14,7 @@ import {
   PaginatedUserResponse,
   ScMe,
 } from '../soundcloud/soundcloud.types.js';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service.js';
 import { MeService } from './me.service.js';
 
 @ApiTags('me')
@@ -20,7 +22,11 @@ import { MeService } from './me.service.js';
 @UseGuards(AuthGuard)
 @Controller('me')
 export class MeController {
-  constructor(private readonly meService: MeService) {}
+  constructor(
+    private readonly meService: MeService,
+    private readonly subscriptionsService: SubscriptionsService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get()
   @Cached({ ttl: 30, scope: 'user' })
@@ -28,6 +34,15 @@ export class MeController {
   @ApiOkResponse({ type: ScMe })
   getProfile(@AccessToken() token: string) {
     return this.meService.getProfile(token);
+  }
+
+  @Get('subscription')
+  @ApiOperation({ summary: 'Check if current user has an active subscription' })
+  async getSubscription(@SessionId() sessionId: string) {
+    const session = await this.authService.getSession(sessionId);
+    const userUrn = session?.soundcloudUserId;
+    const premium = userUrn ? await this.subscriptionsService.isPremium(userUrn) : false;
+    return { premium };
   }
 
   @Get('feed')

@@ -44,24 +44,15 @@ export async function ensureTrackCached(
     return cached;
   }
 
-  const { streamUrl, getSessionId } = await import('./api');
+  const { streamFallbackUrls, getSessionId } = await import('./api');
   const sessionId = getSessionId();
+  const urls = streamFallbackUrls(urn, highQualityStreaming);
 
-  try {
-    return await invoke<TrackCacheInfo>('track_ensure_cached', {
-      urn,
-      url: streamUrl(urn, highQualityStreaming),
-      sessionId,
-    });
-  } catch (error) {
-    if (!highQualityStreaming) throw error;
-    console.warn('[Cache] HQ download failed, retrying without hq:', error);
-    return invoke<TrackCacheInfo>('track_ensure_cached', {
-      urn,
-      url: streamUrl(urn, false),
-      sessionId,
-    });
-  }
+  return invoke<TrackCacheInfo>('track_ensure_cached', {
+    urn,
+    urls,
+    sessionId,
+  });
 }
 
 export function getCacheSize(): Promise<number> {

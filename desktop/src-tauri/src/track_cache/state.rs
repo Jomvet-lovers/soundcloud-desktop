@@ -756,10 +756,11 @@ impl TrackCacheState {
 
     /// Download track fully, save to cache, return path.
     /// Coalesces concurrent requests for the same URN.
+    /// Tries each URL in `urls` in order, falling back to the next on failure.
     pub async fn ensure_cached(
         &self,
         urn: &str,
-        url: &str,
+        urls: &[String],
         session_id: Option<&str>,
     ) -> Result<TrackCacheEntry, String> {
         // Already cached?
@@ -799,7 +800,7 @@ impl TrackCacheState {
         );
         drop(active);
 
-        let download_result = self.download(urn, url, session_id).await;
+        let download_result = self.download_with_fallback(urn, urls, session_id).await;
 
         // Store result and notify waiters
         {
@@ -815,23 +816,39 @@ impl TrackCacheState {
             .map(|path| TrackCacheEntry::from_path_and_meta(&path, read_cache_metadata(&path)))
     }
 
-    async fn download(
+    async fn download_with_fallback(
         &self,
         urn: &str,
-        url: &str,
+        urls: &[String],
         session_id: Option<&str>,
     ) -> Result<PathBuf, String> {
-        download_track_to_cache(
-            &self.audio_dir,
-            &self.api_client,
-            &self.storage_head_client,
-            &self.storage_get_client,
-            urn,
-            url,
-            session_id,
-            self.app_handle.as_ref(),
-        )
-        .await
+        let mut last_err = String::from("no stream URLs provided");
+        for (i, url) in urls.iter().enumerate() {
+            match download_track_to_cache(
+                &self.audio_dir,
+                &self.api_client,
+                &self.storage_head_client,
+                &self.storage_get_client,
+                urn,
+                url,
+                session_id,
+                self.app_handle.as_ref(),
+            )
+            .await
+            {
+                Ok(path) => return Ok(path),
+                Err(err) => {
+                    if i + 1 < urls.len() {
+                        eprintln!(
+                            "[TrackCache] {urn} URL #{} failed, trying next: {err}",
+                            i + 1
+                        );
+                    }
+                    last_err = err;
+                }
+            }
+        }
+        Err(last_err)
     }
 
     pub fn cache_size(&self) -> u64 {

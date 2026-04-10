@@ -287,6 +287,25 @@
     "seeAll": "Показать все",
     "cancel": "Отмена"
   },
+  "star": {
+    "title": "Подписка Star",
+    "active": "Активна",
+    "getIt": "Узнать больше",
+    "modalTitle": "Star",
+    "modalSub": "Поддержи проект — получи бонусы",
+    "perkGoPlus": "Доступ к GO+ трекам",
+    "perkServer": "Выделенный сервер стриминга",
+    "perkHQ": "Больше HQ треков",
+    "perkSupport": "Ну и просто поддержать проект монеткой.\nКоличество бонусов будет увеличиваться!",
+    "howTo": "Как получить",
+    "step1": "Перейдите на Boosty",
+    "step2": "Привяжите Discord к своему Boosty",
+    "step3": "Зайдите на наш Discord-сервер",
+    "step4": "Купите подписку на Boosty",
+    "step5": "В нашем Discord-сервере привяжите SoundCloud командой /sc-link",
+    "goBoosty": "Boosty",
+    "goDiscord": "Discord"
+  },
   "news": {
     "dismissOnce": "Закрыть",
     "dismissForever": "Больше не показывать",

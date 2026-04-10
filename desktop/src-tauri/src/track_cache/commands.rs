@@ -5,18 +5,27 @@ use crate::track_cache::state::{TrackCacheEntry, TrackCacheState};
 #[derive(serde::Deserialize)]
 pub struct PreloadEntry {
     pub urn: String,
-    pub url: String,
+    pub url: Option<String>,
+    pub urls: Option<Vec<String>>,
     pub session_id: Option<String>,
 }
 
 #[tauri::command]
 pub async fn track_ensure_cached(
     urn: String,
-    url: String,
+    url: Option<String>,
+    urls: Option<Vec<String>>,
     session_id: Option<String>,
     state: State<'_, TrackCacheState>,
 ) -> Result<TrackCacheEntry, String> {
-    state.ensure_cached(&urn, &url, session_id.as_deref()).await
+    let fallback_urls: Vec<String> = match (urls, url) {
+        (Some(u), _) if !u.is_empty() => u,
+        (_, Some(u)) => vec![u],
+        _ => return Err("no stream URL provided".into()),
+    };
+    state
+        .ensure_cached(&urn, &fallback_urls, session_id.as_deref())
+        .await
 }
 
 #[tauri::command]
@@ -55,13 +64,20 @@ pub async fn track_preload(
         queued += 1;
         let state = state.inner().clone();
         let urn = entry.urn;
-        let url = entry.url;
+        let fallback_urls: Vec<String> = match (entry.urls, entry.url) {
+            (Some(u), _) if !u.is_empty() => u,
+            (_, Some(u)) => vec![u],
+            _ => continue,
+        };
         let session_id = entry.session_id;
 
         tokio::spawn(async move {
             let _permit = permit;
-            println!("[TrackCache] preloading {urn} from {url}");
-            if let Err(err) = state.ensure_cached(&urn, &url, session_id.as_deref()).await {
+            println!("[TrackCache] preloading {urn}");
+            if let Err(err) = state
+                .ensure_cached(&urn, &fallback_urls, session_id.as_deref())
+                .await
+            {
                 eprintln!("[TrackCache] preload {urn}: {err}");
             }
         });
