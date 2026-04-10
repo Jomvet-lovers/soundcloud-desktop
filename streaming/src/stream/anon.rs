@@ -244,57 +244,8 @@ fn pick_transcoding(transcodings: &[Transcoding]) -> Option<&Transcoding> {
 
 /// Extract client_id from window.__sc_hydration on SC homepage
 fn extract_client_id_from_hydration(html: &str) -> Option<String> {
-    let marker = "window.__sc_hydration =";
-    let idx = html.find(marker)?;
-    let rest = &html[idx + marker.len()..];
-
-    // Find start of array
-    let arr_start = rest.find('[')?;
-    let json_start = &rest[arr_start..];
-
-    // Find matching end bracket
-    let mut depth: i32 = 0;
-    let mut in_str = false;
-    let mut esc = false;
-    let mut end_idx = 0;
-
-    for (i, ch) in json_start.chars().enumerate() {
-        if !in_str {
-            match ch {
-                '"' if !esc => in_str = true,
-                '[' => depth += 1,
-                ']' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end_idx = i + 1;
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        } else if ch == '"' && !esc {
-            in_str = false;
-        }
-        esc = !esc && ch == '\\';
-    }
-
-    if end_idx == 0 {
-        return None;
-    }
-
-    let json_str = &json_start[..end_idx];
-    let entries: Vec<serde_json::Value> = serde_json::from_str(json_str).ok()?;
-
-    // Find apiClient entry (search from end)
-    for entry in entries.iter().rev() {
-        if entry.get("hydratable").and_then(|h| h.as_str()) == Some("apiClient") {
-            return entry
-                .get("data")
-                .and_then(|d| d.get("id"))
-                .and_then(|id| id.as_str())
-                .map(|s| s.to_string());
-        }
-    }
-
-    None
+    let pattern = r#""hydratable"\s*:\s*"apiClient"\s*,\s*"data"\s*:\s*\{\s*"id"\s*:\s*"([^"]+)""#;
+    let re = regex::Regex::new(pattern).ok()?;
+    let caps = re.captures(html)?;
+    caps.get(1).map(|m| m.as_str().to_string())
 }
