@@ -54,6 +54,7 @@ export class MeController {
   }
 
   @Get('likes/tracks')
+  @Cached({ ttl: 30, scope: 'user', key: 'me-liked-tracks' })
   @ApiOperation({ summary: 'Get liked tracks' })
   @ApiQuery({
     name: 'access',
@@ -73,6 +74,7 @@ export class MeController {
   }
 
   @Get('likes/playlists')
+  @Cached({ ttl: 30, scope: 'user', key: 'me-liked-playlists' })
   @ApiOperation({ summary: 'Get liked playlists' })
   @ApiOkResponse({ type: PaginatedPlaylistResponse })
   getLikedPlaylists(@AccessToken() token: string, @Query() query: PaginationQuery) {

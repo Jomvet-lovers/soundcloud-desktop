@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CacheClear } from '../cache/cache-clear.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
@@ -13,6 +14,7 @@ export class LikesController {
   constructor(private readonly likesService: LikesService) {}
 
   @Post('tracks/:trackUrn')
+  @CacheClear('me-liked-tracks')
   @HttpCode(200)
   @ApiOperation({ summary: 'Like a track' })
   likeTrack(
@@ -25,6 +27,7 @@ export class LikesController {
   }
 
   @Delete('tracks/:trackUrn')
+  @CacheClear('me-liked-tracks')
   @ApiOperation({ summary: 'Unlike a track' })
   unlikeTrack(
     @AccessToken() token: string,
@@ -35,6 +38,7 @@ export class LikesController {
   }
 
   @Post('playlists/:playlistUrn')
+  @CacheClear('me-liked-playlists')
   @HttpCode(200)
   @ApiOperation({ summary: 'Like a playlist' })
   likePlaylist(
@@ -46,6 +50,7 @@ export class LikesController {
   }
 
   @Delete('playlists/:playlistUrn')
+  @CacheClear('me-liked-playlists')
   @ApiOperation({ summary: 'Unlike a playlist' })
   unlikePlaylist(
     @AccessToken() token: string,

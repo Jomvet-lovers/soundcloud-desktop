@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { In, LessThan, Repository } from 'typeorm';
 import { ApiCache } from './entities/api-cache.entity.js';
+
+type CacheScope = 'shared' | 'user';
 
 @Injectable()
 export class CacheService implements OnModuleInit, OnModuleDestroy {
@@ -44,11 +46,53 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     return entry.response;
   }
 
-  async set(key: string, response: unknown, ttlSeconds: number): Promise<void> {
+  async set(
+    key: string,
+    response: unknown,
+    ttlSeconds: number,
+    options?: {
+      cacheKey?: string;
+      scope?: CacheScope;
+      sessionId?: string;
+    },
+  ): Promise<void> {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-    await this.repo.upsert({ key, response: response as Record<string, unknown>, expiresAt }, [
-      'key',
-    ]);
+    const scope = options?.scope ?? null;
+    await this.repo.upsert(
+      {
+        key,
+        response: response as Record<string, unknown>,
+        expiresAt,
+        cacheKey: options?.cacheKey ?? null,
+        scope,
+        sessionId: scope === 'user' ? (options?.sessionId ?? null) : null,
+      },
+      ['key'],
+    );
+  }
+
+  async clearByCacheKeys(cacheKeys: string[], sessionId?: string): Promise<void> {
+    const normalizedKeys = [...new Set(cacheKeys.map((key) => key.trim()).filter(Boolean))];
+    if (normalizedKeys.length === 0) {
+      return;
+    }
+
+    const where: Array<{
+      cacheKey: ReturnType<typeof In>;
+      scope: CacheScope;
+      sessionId?: string;
+    }> = [{ cacheKey: In(normalizedKeys), scope: 'shared' }];
+
+    if (sessionId) {
+      where.push({ cacheKey: In(normalizedKeys), scope: 'user', sessionId });
+    }
+
+    const { affected } = await this.repo.delete(where);
+    if (affected && affected > 0) {
+      this.logger.debug(
+        `Cache clear: removed ${affected} entries for ${normalizedKeys.join(', ')}`,
+      );
+    }
   }
 
   private async cleanup(): Promise<void> {
@@ -57,8 +101,9 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
       if (affected && affected > 0) {
         this.logger.debug(`Cache cleanup: removed ${affected} expired entries`);
       }
-    } catch (err: any) {
-      this.logger.warn(`Cache cleanup error: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Cache cleanup error: ${message}`);
     }
   }
 }

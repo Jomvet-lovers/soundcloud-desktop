@@ -5,6 +5,8 @@ export interface CachedOptions {
   ttl: number;
   /** 'shared' — один кэш для всех юзеров, 'user' — per-session */
   scope?: 'shared' | 'user';
+  /** Логический ключ для точечной инвалидции через @CacheClear */
+  key?: string;
 }
 
 export const CACHE_OPTIONS_KEY = 'cache:options';
@@ -18,6 +20,9 @@ export const CACHE_OPTIONS_KEY = 'cache:options';
  *
  * // Кэшировать профиль /me на 60 секунд per-user
  * @Cached({ ttl: 60, scope: 'user' })
+ *
+ * // Кэшировать лайки юзера с ключом для инвалидции
+ * @Cached({ ttl: 30, scope: 'user', key: 'me-liked-tracks' })
  */
 export const Cached = (options: CachedOptions) =>
   SetMetadata(CACHE_OPTIONS_KEY, { scope: 'shared', ...options });
