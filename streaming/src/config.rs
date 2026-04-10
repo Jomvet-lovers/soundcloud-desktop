@@ -14,6 +14,8 @@ pub struct Config {
     pub sc_proxy_fallback: bool,
     pub sc_cookies: String,
     pub sc_oauth_token: Option<String>,
+    // Mode
+    pub premium_only: bool,
     // CDN
     pub cdn_base_url: String,
     pub cdn_auth_token: String,
@@ -49,6 +51,9 @@ impl Config {
                 .unwrap_or(false),
             sc_cookies: cookies,
             sc_oauth_token: oauth_token,
+            premium_only: env::var("PREMIUM_ONLY")
+                .map(|v| v == "true")
+                .unwrap_or(false),
             cdn_base_url: env::var("CDN_BASE_URL").unwrap_or_default(),
             cdn_auth_token: env::var("CDN_AUTH_TOKEN").unwrap_or_default(),
             cdn_cleanup_days: env::var("CDN_CLEANUP_DAYS")

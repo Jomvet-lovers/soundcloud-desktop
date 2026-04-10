@@ -103,17 +103,24 @@ async fn main() {
         .allow_headers(Any)
         .max_age(std::time::Duration::from_secs(3600));
 
-    let app = Router::new()
-        // Stream endpoints
-        .route("/stream/{track_urn}", get(stream::handler::stream_normal))
+    let mut app = Router::new();
+
+    if !config.premium_only {
+        app = app.route("/stream/{track_urn}", get(stream::handler::stream_normal));
+    }
+
+    let app = app
         .route(
             "/stream/{track_urn}/premium",
             get(stream::handler::stream_premium),
         )
-        // Health
         .route("/health", get(|| async { "ok" }))
         .layer(cors)
         .with_state(state);
+
+    if config.premium_only {
+        info!("Premium-only mode: standard endpoint disabled");
+    }
 
     let addr = format!("0.0.0.0:{}", config.port);
     info!("Streaming service starting on {addr}");
