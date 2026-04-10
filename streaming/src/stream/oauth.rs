@@ -51,7 +51,7 @@ pub async fn try_oauth_stream(
     }
 
     for (url, proto, mime) in candidates {
-        match try_format(client, proxy_url, access_token, url, proto, mime).await {
+        match try_format(client, proxy_url, proxy_fallback, access_token, url, proto, mime).await {
             Ok(result) => return Some(result),
             Err(e) => {
                 warn!("[oauth] format {proto} failed: {e}");
@@ -99,6 +99,28 @@ async fn get_streams(
 }
 
 async fn try_format(
+    client: &Client,
+    proxy_url: &str,
+    proxy_fallback: bool,
+    access_token: &str,
+    url: &str,
+    proto: &str,
+    mime: &str,
+) -> Result<OAuthStreamResult, Box<dyn std::error::Error + Send + Sync>> {
+    // If proxy_fallback: try direct first, then via proxy
+    if proxy_fallback && !proxy_url.is_empty() {
+        match try_format_inner(client, "", access_token, url, proto, mime).await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                warn!("[oauth] direct format {proto} failed, falling back to proxy: {e}");
+            }
+        }
+    }
+
+    try_format_inner(client, proxy_url, access_token, url, proto, mime).await
+}
+
+async fn try_format_inner(
     client: &Client,
     proxy_url: &str,
     access_token: &str,
