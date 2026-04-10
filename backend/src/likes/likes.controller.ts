@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CacheClear } from '../cache/cache-clear.decorator.js';
+import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
@@ -38,7 +39,7 @@ export class LikesController {
   }
 
   @Post('playlists/:playlistUrn')
-  @CacheClear('me-liked-playlists')
+  @CacheClear('me-liked-playlists', 'playlist-liked-check')
   @HttpCode(200)
   @ApiOperation({ summary: 'Like a playlist' })
   likePlaylist(
@@ -50,7 +51,7 @@ export class LikesController {
   }
 
   @Delete('playlists/:playlistUrn')
-  @CacheClear('me-liked-playlists')
+  @CacheClear('me-liked-playlists', 'playlist-liked-check')
   @ApiOperation({ summary: 'Unlike a playlist' })
   unlikePlaylist(
     @AccessToken() token: string,
@@ -61,6 +62,7 @@ export class LikesController {
   }
 
   @Get('playlists/:playlistUrn')
+  @Cached({ ttl: 300, scope: 'user', key: 'playlist-liked-check' })
   @ApiOperation({ summary: 'Check if playlist is liked' })
   isPlaylistLiked(@AccessToken() token: string, @Param('playlistUrn') playlistUrn: string) {
     return this.likesService.isPlaylistLiked(token, playlistUrn);

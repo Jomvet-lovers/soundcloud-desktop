@@ -40,7 +40,7 @@ export class UsersController {
   }
 
   @Get(':userUrn')
-  @Cached({ ttl: 600 })
+  @Cached({ ttl: 3600 })
   @ApiOperation({ summary: 'Get user by URN' })
   @ApiOkResponse({ type: ScUser })
   getById(@AccessToken() token: string, @Param('userUrn') userUrn: string) {
@@ -72,6 +72,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/followings/:followingUrn')
+  @Cached({ ttl: 30 })
   @ApiOperation({ summary: 'Get user A is following to user B' })
   @ApiOkResponse({ type: Boolean, description: 'Returns true if following, otherwise false' })
   getIsFollowing(
@@ -125,7 +126,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/likes/tracks')
-  @Cached({ ttl: 60 })
+  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user liked tracks' })
   @ApiQuery({
     name: 'access',
@@ -146,7 +147,7 @@ export class UsersController {
   }
 
   @Get(':userUrn/likes/playlists')
-  @Cached({ ttl: 60 })
+  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user liked playlists' })
   @ApiOkResponse({ type: PaginatedPlaylistResponse })
   getLikedPlaylists(

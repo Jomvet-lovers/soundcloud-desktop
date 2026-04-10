@@ -7,6 +7,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { CacheClear } from '../cache/cache-clear.decorator.js';
 import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
@@ -53,6 +54,7 @@ export class PlaylistsController {
   }
 
   @Post()
+  @CacheClear('me-playlists')
   @ApiOperation({ summary: 'Create a playlist' })
   @ApiBody({
     schema: {
@@ -84,7 +86,7 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn')
-  @Cached({ ttl: 10 })
+  @Cached({ ttl: 300, key: 'playlist-detail' })
   @ApiOperation({ summary: 'Get playlist by URN' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiQuery({
@@ -109,6 +111,7 @@ export class PlaylistsController {
   }
 
   @Put(':playlistUrn')
+  @CacheClear('me-playlists', 'playlist-detail', 'playlist-tracks')
   @ApiOperation({ summary: 'Update a playlist' })
   @ApiOkResponse({ type: ScPlaylist })
   update(
@@ -121,6 +124,7 @@ export class PlaylistsController {
   }
 
   @Delete(':playlistUrn')
+  @CacheClear('me-playlists', 'me-liked-playlists', 'playlist-detail', 'playlist-tracks')
   @ApiOperation({ summary: 'Delete a playlist' })
   delete(
     @AccessToken() token: string,
@@ -131,7 +135,7 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn/tracks')
-  @Cached({ ttl: 5 })
+  @Cached({ ttl: 120, key: 'playlist-tracks' })
   @ApiOperation({ summary: 'Get playlist tracks' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiQuery({

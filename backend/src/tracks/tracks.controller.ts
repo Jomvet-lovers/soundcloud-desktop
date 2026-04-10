@@ -19,6 +19,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { CacheClear } from '../cache/cache-clear.decorator.js';
 import { Cached } from '../cache/cached.decorator.js';
 import { AccessToken } from '../common/decorators/access-token.decorator.js';
 import { SessionId } from '../common/decorators/session-id.decorator.js';
@@ -156,7 +157,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn/comments')
-  @Cached({ ttl: 10 })
+  @Cached({ ttl: 120, key: 'track-comments' })
   @ApiOperation({ summary: 'Get track comments' })
   @ApiOkResponse({ type: PaginatedCommentResponse })
   getComments(
@@ -168,6 +169,7 @@ export class TracksController {
   }
 
   @Post(':trackUrn/comments')
+  @CacheClear('track-comments')
   @ApiOperation({ summary: 'Post a comment on a track' })
   @ApiBody({
     schema: {
