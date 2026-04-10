@@ -233,6 +233,19 @@ impl PgPool {
             .await?;
         Ok(())
     }
+
+    /// Check if user has an active subscription
+    pub async fn is_premium(&self, user_urn: &str) -> Result<bool, PgError> {
+        let client = self.pool.get().await?;
+        let now = chrono::Utc::now().timestamp();
+        let row = client
+            .query_opt(
+                r#"SELECT 1 FROM subscriptions WHERE "userUrn" = $1 AND "expDate" > $2"#,
+                &[&user_urn, &now],
+            )
+            .await?;
+        Ok(row.is_some())
+    }
 }
 
 fn row_to_cdn_track(row: &tokio_postgres::Row) -> CdnTrackRecord {

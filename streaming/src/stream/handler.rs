@@ -96,10 +96,7 @@ pub async fn stream_premium(
         format!("soundcloud:users:{user_urn}")
     };
 
-    let is_premium = state
-        .sqlite
-        .is_premium(&user_urn_full)
-        .map_err(|e| AppError::Internal(format!("sqlite: {e}")))?;
+    let is_premium = state.pg.is_premium(&user_urn_full).await?;
 
     if !is_premium {
         return Err(AppError::Forbidden);

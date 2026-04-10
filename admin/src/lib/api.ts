@@ -9,7 +9,7 @@ async function request<T>(
   if (!auth) throw new Error("Not authenticated");
 
   const url = base === "nest" ? auth.nestUrl : auth.streamingUrl;
-  const token = base === "nest" ? auth.nestToken : auth.streamingToken;
+  const token = auth.nestToken;
 
   const res = await fetch(`${url.replace(/\/$/, "")}${path}`, {
     ...options,
@@ -59,10 +59,6 @@ export const nestDelete = (path: string) =>
 
 // Streaming
 export const streamGet = <T>(path: string) => request<T>("streaming", path);
-export const streamPost = <T>(path: string, body: unknown) =>
-  request<T>("streaming", path, { method: "POST", body: JSON.stringify(body) });
-export const streamDelete = (path: string) =>
-  request<void>("streaming", path, { method: "DELETE" });
 
 // Health checks (no auth redirect)
 export async function checkNestHealth(url: string, token: string): Promise<boolean> {
@@ -76,11 +72,9 @@ export async function checkNestHealth(url: string, token: string): Promise<boole
   }
 }
 
-export async function checkStreamingHealth(url: string, token: string): Promise<boolean> {
+export async function checkStreamingHealth(url: string): Promise<boolean> {
   try {
-    const res = await fetch(`${url.replace(/\/$/, "")}/health`, {
-      headers: { "x-admin-token": token },
-    });
+    const res = await fetch(`${url.replace(/\/$/, "")}/health`);
     return res.ok;
   } catch {
     return false;

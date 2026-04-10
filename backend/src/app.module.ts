@@ -25,6 +25,8 @@ import { PlaylistsModule } from './playlists/playlists.module.js';
 import { RepostsModule } from './reposts/reposts.module.js';
 import { ResolveModule } from './resolve/resolve.module.js';
 import { SoundcloudModule } from './soundcloud/soundcloud.module.js';
+import { Subscription } from './subscriptions/entities/subscription.entity.js';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module.js';
 import { TracksModule } from './tracks/tracks.module.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -52,6 +54,7 @@ import { UsersModule } from './users/users.module.js';
           FeaturedItem,
           ApiCache,
           CdnTrack,
+          Subscription,
         ],
         synchronize: true,
       }),
@@ -72,6 +75,7 @@ import { UsersModule } from './users/users.module.js';
     HistoryModule,
     LocalLikesModule,
     PendingActionsModule,
+    SubscriptionsModule,
   ],
   controllers: [HealthController, AdminStatsController],
 })

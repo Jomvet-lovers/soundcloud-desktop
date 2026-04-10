@@ -9,8 +9,6 @@ pub struct Config {
     pub database_username: String,
     pub database_password: String,
     pub database_name: String,
-    // SQLite
-    pub sqlite_path: String,
     // SoundCloud
     pub sc_proxy_url: String,
     pub sc_proxy_fallback: bool,
@@ -22,8 +20,6 @@ pub struct Config {
     pub cdn_cleanup_days: u64,
     pub cdn_max_size_bytes: u64,
     pub cdn_cleanup_interval_secs: u64,
-    // Admin
-    pub admin_token: String,
 }
 
 impl Config {
@@ -47,8 +43,6 @@ impl Config {
                 .unwrap_or_else(|_| "soundcloud".into()),
             database_name: env::var("DATABASE_NAME")
                 .unwrap_or_else(|_| "soundcloud_desktop".into()),
-            sqlite_path: env::var("SQLITE_PATH")
-                .unwrap_or_else(|_| "/data/subscriptions.db".into()),
             sc_proxy_url: env::var("SC_PROXY_URL").unwrap_or_default(),
             sc_proxy_fallback: env::var("SC_PROXY_FALLBACK")
                 .map(|v| v == "true")
@@ -69,7 +63,6 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(3600),
-            admin_token: env::var("ADMIN_TOKEN").unwrap_or_default(),
         }
     }
 

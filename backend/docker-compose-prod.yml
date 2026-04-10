@@ -38,6 +38,9 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      SUBSCRIPTIONS_SNAPSHOT_DIR: /snapshots
+    volumes:
+      - ./data/subscriptions:/snapshots
     depends_on:
       db:
         condition: service_healthy
@@ -54,7 +57,6 @@ services:
       DATABASE_USERNAME: soundcloud
       DATABASE_PASSWORD: soundcloud
       DATABASE_NAME: soundcloud_desktop
-      SQLITE_PATH: /data/subscriptions.db
       SC_PROXY_URL: ${SC_PROXY_URL:-}
       SC_COOKIES: ${SC_COOKIES:-}
       CDN_BASE_URL: ${CDN_BASE_URL:-http://storage:3000}
@@ -62,9 +64,6 @@ services:
       CDN_CLEANUP_DAYS: ${CDN_CLEANUP_DAYS:-7}
       CDN_MAX_SIZE_BYTES: ${CDN_MAX_SIZE_BYTES:-0}
       CDN_CLEANUP_INTERVAL_SECS: ${CDN_CLEANUP_INTERVAL_SECS:-3600}
-      ADMIN_TOKEN: ${STREAMING_ADMIN_TOKEN:-}
-    volumes:
-      - streaming-data:/data
     depends_on:
       db:
         condition: service_healthy
@@ -90,5 +89,4 @@ services:
 
 volumes:
   pgdata:
-  streaming-data:
   storage-data:

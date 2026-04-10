@@ -17,6 +17,9 @@ export default () => ({
   streaming: {
     serviceUrl: process.env.STREAMING_SERVICE_URL || 'http://localhost:8080',
   },
+  subscriptions: {
+    snapshotDir: process.env.SUBSCRIPTIONS_SNAPSHOT_DIR || '/snapshots',
+  },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
     chatId: process.env.TELEGRAM_CHAT_ID || '',

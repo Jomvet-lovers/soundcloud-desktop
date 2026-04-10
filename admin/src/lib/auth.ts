@@ -2,7 +2,6 @@ export interface AuthConfig {
   nestUrl: string;
   nestToken: string;
   streamingUrl: string;
-  streamingToken: string;
 }
 
 const STORAGE_KEY = "admin_auth";

@@ -9,7 +9,6 @@ export default function Login() {
   const [nestUrl, setNestUrl] = useState("");
   const [nestToken, setNestToken] = useState("");
   const [streamingUrl, setStreamingUrl] = useState("");
-  const [streamingToken, setStreamingToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -21,7 +20,7 @@ export default function Login() {
     try {
       const [nestOk, streamOk] = await Promise.all([
         checkNestHealth(nestUrl, nestToken),
-        checkStreamingHealth(streamingUrl, streamingToken),
+        checkStreamingHealth(streamingUrl),
       ]);
 
       if (!nestOk && !streamOk) {
@@ -37,7 +36,7 @@ export default function Login() {
         return;
       }
 
-      setAuth({ nestUrl, nestToken, streamingUrl, streamingToken });
+      setAuth({ nestUrl, nestToken, streamingUrl });
       navigate("/", { replace: true });
     } catch {
       setError("Connection failed");
@@ -91,14 +90,6 @@ export default function Login() {
             placeholder="URL (e.g. https://stream.example.com)"
             value={streamingUrl}
             onChange={(e) => setStreamingUrl(e.target.value)}
-            required
-          />
-          <input
-            className={inputClass}
-            placeholder="Admin Token"
-            type="password"
-            value={streamingToken}
-            onChange={(e) => setStreamingToken(e.target.value)}
             required
           />
         </div>

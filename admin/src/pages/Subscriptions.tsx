@@ -1,30 +1,30 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { streamGet, streamPost, streamDelete } from "../lib/api";
+import { nestGet, nestPost, nestDelete } from "../lib/api";
 import DataTable, { type Column } from "../components/DataTable";
 import Modal from "../components/Modal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Plus } from "lucide-react";
 
 interface Subscription {
-  user_urn: string;
-  exp_date: number;
+  userUrn: string;
+  expDate: number;
 }
 
 export default function Subscriptions() {
   const qc = useQueryClient();
   const [modal, setModal] = useState<{ mode: "create" | "edit"; item?: Subscription } | null>(null);
   const [deleteItem, setDeleteItem] = useState<Subscription | null>(null);
-  const [form, setForm] = useState({ user_urn: "", exp_date: "" });
+  const [form, setForm] = useState({ userUrn: "", expDate: "" });
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["subscriptions"],
-    queryFn: () => streamGet<Subscription[]>("/admin/subscriptions"),
+    queryFn: () => nestGet<Subscription[]>("/admin/subscriptions"),
   });
 
   const upsert = useMutation({
     mutationFn: (body: { user_urn: string; exp_date: number }) =>
-      streamPost("/admin/subscriptions", body),
+      nestPost("/admin/subscriptions", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["subscriptions"] });
       setModal(null);
@@ -32,7 +32,7 @@ export default function Subscriptions() {
   });
 
   const remove = useMutation({
-    mutationFn: (urn: string) => streamDelete(`/admin/subscriptions/${urn}`),
+    mutationFn: (urn: string) => nestDelete(`/admin/subscriptions/${urn}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["subscriptions"] });
       setDeleteItem(null);
@@ -40,20 +40,20 @@ export default function Subscriptions() {
   });
 
   function openCreate() {
-    setForm({ user_urn: "", exp_date: "" });
+    setForm({ userUrn: "", expDate: "" });
     setModal({ mode: "create" });
   }
 
   function openEdit(item: Subscription) {
-    setForm({ user_urn: item.user_urn, exp_date: formatDateInput(item.exp_date) });
+    setForm({ userUrn: item.userUrn, expDate: formatDateInput(item.expDate) });
     setModal({ mode: "edit", item });
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     upsert.mutate({
-      user_urn: form.user_urn.trim(),
-      exp_date: toUnixTimestamp(form.exp_date),
+      user_urn: form.userUrn.trim(),
+      exp_date: toUnixTimestamp(form.expDate),
     });
   }
 
@@ -73,17 +73,17 @@ export default function Subscriptions() {
   }
 
   const columns: Column<Subscription>[] = [
-    { key: "user_urn", label: "User URN" },
+    { key: "userUrn", label: "User URN" },
     {
-      key: "exp_date",
+      key: "expDate",
       label: "Expiry Date",
-      render: (s) => new Date(s.exp_date * 1000).toLocaleDateString(),
+      render: (s) => new Date(s.expDate * 1000).toLocaleDateString(),
     },
     {
       key: "status",
       label: "Status",
       render: (s) =>
-        isExpired(s.exp_date) ? (
+        isExpired(s.expDate) ? (
           <span className="px-2 py-1 rounded-lg text-xs bg-red-500/20 text-red-300">
             Expired
           </span>
@@ -121,7 +121,7 @@ export default function Subscriptions() {
         <DataTable
           columns={columns}
           data={data}
-          keyExtractor={(s) => s.user_urn}
+          keyExtractor={(s) => s.userUrn}
           onEdit={openEdit}
           onDelete={setDeleteItem}
         />
@@ -137,16 +137,16 @@ export default function Subscriptions() {
           <input
             className={inputClass}
             placeholder="User URN (e.g. soundcloud:user:123)"
-            value={form.user_urn}
-            onChange={(e) => setForm({ ...form, user_urn: e.target.value })}
+            value={form.userUrn}
+            onChange={(e) => setForm({ ...form, userUrn: e.target.value })}
             disabled={modal?.mode === "edit"}
             required
           />
           <input
             className={inputClass}
             type="date"
-            value={form.exp_date}
-            onChange={(e) => setForm({ ...form, exp_date: e.target.value })}
+            value={form.expDate}
+            onChange={(e) => setForm({ ...form, expDate: e.target.value })}
             required
           />
           <div className="flex gap-3 justify-end pt-2">
@@ -172,9 +172,9 @@ export default function Subscriptions() {
       <ConfirmDialog
         open={!!deleteItem}
         onClose={() => setDeleteItem(null)}
-        onConfirm={() => deleteItem && remove.mutate(deleteItem.user_urn)}
+        onConfirm={() => deleteItem && remove.mutate(deleteItem.userUrn)}
         title="Delete Subscription"
-        message={`Remove subscription for ${deleteItem?.user_urn}?`}
+        message={`Remove subscription for ${deleteItem?.userUrn}?`}
         loading={remove.isPending}
       />
     </div>

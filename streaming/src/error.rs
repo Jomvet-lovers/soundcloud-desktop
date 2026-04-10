@@ -34,12 +34,6 @@ impl From<crate::db::postgres::PgError> for AppError {
     }
 }
 
-impl From<rusqlite::Error> for AppError {
-    fn from(e: rusqlite::Error) -> Self {
-        AppError::Internal(format!("sqlite: {e}"))
-    }
-}
-
 impl From<reqwest::Error> for AppError {
     fn from(e: reqwest::Error) -> Self {
         AppError::Internal(format!("http: {e}"))
