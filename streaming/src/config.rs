@@ -13,6 +13,7 @@ pub struct Config {
     pub sqlite_path: String,
     // SoundCloud
     pub sc_proxy_url: String,
+    pub sc_proxy_fallback: bool,
     pub sc_cookies: String,
     pub sc_oauth_token: Option<String>,
     // CDN
@@ -49,6 +50,9 @@ impl Config {
             sqlite_path: env::var("SQLITE_PATH")
                 .unwrap_or_else(|_| "/data/subscriptions.db".into()),
             sc_proxy_url: env::var("SC_PROXY_URL").unwrap_or_default(),
+            sc_proxy_fallback: env::var("SC_PROXY_FALLBACK")
+                .map(|v| v == "true")
+                .unwrap_or(false),
             sc_cookies: cookies,
             sc_oauth_token: oauth_token,
             cdn_base_url: env::var("CDN_BASE_URL").unwrap_or_default(),

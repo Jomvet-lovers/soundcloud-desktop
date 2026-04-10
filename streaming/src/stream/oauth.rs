@@ -25,11 +25,12 @@ pub struct OAuthStreamResult {
 pub async fn try_oauth_stream(
     client: &Client,
     proxy_url: &str,
+    proxy_fallback: bool,
     access_token: &str,
     track_urn: &str,
     secret_token: Option<&str>,
 ) -> Option<OAuthStreamResult> {
-    let streams = get_streams(client, proxy_url, access_token, track_urn, secret_token).await?;
+    let streams = get_streams(client, proxy_url, proxy_fallback, access_token, track_urn, secret_token).await?;
 
     // Format priority: HLS AAC 160 → HTTP MP3 128 → HLS MP3 128
     let candidates: Vec<(&str, &str, &str)> = [
@@ -64,6 +65,7 @@ pub async fn try_oauth_stream(
 async fn get_streams(
     client: &Client,
     proxy_url: &str,
+    proxy_fallback: bool,
     access_token: &str,
     track_urn: &str,
     secret_token: Option<&str>,
@@ -76,6 +78,16 @@ async fn get_streams(
     let mut headers = HashMap::new();
     headers.insert("Authorization".into(), format!("OAuth {access_token}"));
     headers.insert("Accept".into(), "application/json; charset=utf-8".into());
+
+    // If proxy_fallback: try direct first, then via proxy on error
+    if proxy_fallback && !proxy_url.is_empty() {
+        match proxy_get_json::<ScStreams>(client, "", &target, headers.clone()).await {
+            Ok(s) => return Some(s),
+            Err(e) => {
+                warn!("[oauth] direct get streams failed, falling back to proxy: {e}");
+            }
+        }
+    }
 
     match proxy_get_json::<ScStreams>(client, proxy_url, &target, headers).await {
         Ok(s) => Some(s),

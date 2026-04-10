@@ -5,6 +5,7 @@ export default () => ({
     clientSecret: process.env.SOUNDCLOUD_CLIENT_SECRET || '',
     redirectUri: process.env.SOUNDCLOUD_REDIRECT_URI || 'http://localhost:3000/auth/callback',
     proxyUrl: process.env.SC_PROXY_URL || '',
+    proxyFallback: process.env.SC_PROXY_FALLBACK === 'true',
   },
   database: {
     host: process.env.DATABASE_HOST || 'localhost',

@@ -42,6 +42,7 @@ pub async fn stream_normal(
     if let Some(result) = super::oauth::try_oauth_stream(
         &state.http_client,
         &state.config.sc_proxy_url,
+        state.config.sc_proxy_fallback,
         &session.access_token,
         &track_urn,
         secret_token,
@@ -126,6 +127,7 @@ pub async fn stream_premium(
         if let Some(result) = super::oauth::try_oauth_stream(
             &state.http_client,
             &state.config.sc_proxy_url,
+            state.config.sc_proxy_fallback,
             &session.access_token,
             &track_urn,
             secret_token,
@@ -138,7 +140,7 @@ pub async fn stream_premium(
 
         match state.anon.get_stream(&track_urn).await {
             Ok(Some(result)) => {
-                info!("[stream/premium] {track_urn} �� anon");
+                info!("[stream/premium] {track_urn} → anon");
                 return respond_with_data(&state, &track_urn, result.data, result.content_type);
             }
             Ok(None) => {}
@@ -149,6 +151,7 @@ pub async fn stream_premium(
         if let Some(result) = super::oauth::try_oauth_stream(
             &state.http_client,
             &state.config.sc_proxy_url,
+            state.config.sc_proxy_fallback,
             &session.access_token,
             &track_urn,
             secret_token,

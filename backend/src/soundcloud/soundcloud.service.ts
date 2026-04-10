@@ -20,6 +20,7 @@ export class SoundcloudService {
   private readonly defaultClientId: string;
   private readonly defaultRedirectUri: string;
   private readonly apiProxyUrl: string;
+  private readonly proxyFallback: boolean;
 
   constructor(
     private readonly httpService: HttpService,
@@ -28,6 +29,7 @@ export class SoundcloudService {
     this.defaultClientId = this.configService.get<string>('soundcloud.clientId')!;
     this.defaultRedirectUri = this.configService.get<string>('soundcloud.redirectUri')!;
     this.apiProxyUrl = this.configService.get<string>('soundcloud.proxyUrl') ?? '';
+    this.proxyFallback = this.configService.get<boolean>('soundcloud.proxyFallback') ?? false;
   }
 
   get scAuthBaseUrl() {
@@ -132,6 +134,25 @@ export class SoundcloudService {
     ).catch(() => {});
   }
 
+  // ─── Fallback helper ────────────────────────────────────────
+
+  private async withFallback<T>(
+    targetUrl: string,
+    extraHeaders: Record<string, string>,
+    fn: (url: string, headers: Record<string, string>) => Promise<T>,
+  ): Promise<T> {
+    if (this.proxyFallback && this.apiProxyUrl) {
+      try {
+        return await fn(targetUrl, extraHeaders);
+      } catch {
+        const { url, headers } = this.proxyWith(this.apiProxyUrl, targetUrl, extraHeaders);
+        return fn(url, headers);
+      }
+    }
+    const { url, headers } = this.proxyWith(this.apiProxyUrl, targetUrl, extraHeaders);
+    return fn(url, headers);
+  }
+
   // ─── API ───────────────────────────────────────────────────
 
   async apiGet<T>(path: string, accessToken: string, params?: Record<string, unknown>): Promise<T> {
@@ -139,7 +160,6 @@ export class SoundcloudService {
       ? Object.fromEntries(Object.entries(params).filter(([, v]) => v != null))
       : undefined;
 
-    // Build full URL with query params so proxy gets the complete URL
     const target = new URL(`${API_BASE}${path}`);
     if (cleanParams) {
       for (const [k, v] of Object.entries(cleanParams)) {
@@ -147,13 +167,15 @@ export class SoundcloudService {
       }
     }
 
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, target.toString(), {
+    const extraHeaders = {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
-    });
+    };
 
-    const { data } = await firstValueFrom(this.httpService.get<T>(url, { headers }));
-    return data;
+    return this.withFallback(target.toString(), extraHeaders, async (url, headers) => {
+      const { data } = await firstValueFrom(this.httpService.get<T>(url, { headers }));
+      return data;
+    });
   }
 
   async apiPost<T>(
@@ -162,15 +184,18 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${API_BASE}${path}`, {
+    const targetUrl = `${API_BASE}${path}`;
+    const extraHeaders = {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
       'Content-Type': 'application/json; charset=utf-8',
       ...(config?.headers as Record<string, string>),
-    });
+    };
 
-    const { data } = await firstValueFrom(this.httpService.post<T>(url, body, { headers }));
-    return data;
+    return this.withFallback(targetUrl, extraHeaders, async (url, headers) => {
+      const { data } = await firstValueFrom(this.httpService.post<T>(url, body, { headers }));
+      return data;
+    });
   }
 
   async apiPut<T>(
@@ -179,30 +204,36 @@ export class SoundcloudService {
     body?: unknown,
     config?: AxiosRequestConfig,
   ): Promise<T> {
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${API_BASE}${path}`, {
+    const targetUrl = `${API_BASE}${path}`;
+    const extraHeaders = {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
       'Content-Type': 'application/json; charset=utf-8',
       ...(config?.headers as Record<string, string>),
-    });
+    };
 
-    const { data } = await firstValueFrom(this.httpService.put<T>(url, body, { headers }));
-    return data;
+    return this.withFallback(targetUrl, extraHeaders, async (url, headers) => {
+      const { data } = await firstValueFrom(this.httpService.put<T>(url, body, { headers }));
+      return data;
+    });
   }
 
   async apiDelete<T>(path: string, accessToken: string): Promise<T> {
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${API_BASE}${path}`, {
+    const targetUrl = `${API_BASE}${path}`;
+    const extraHeaders = {
       Authorization: `OAuth ${accessToken}`,
       Accept: 'application/json; charset=utf-8',
-    });
+    };
 
-    const { data, status } = await firstValueFrom(
-      this.httpService.delete<T>(url, {
-        headers,
-        validateStatus: (s) => s >= 200 && s < 300,
-      }),
-    );
-    return status === 204 || data == null || data === '' ? (null as T) : data;
+    return this.withFallback(targetUrl, extraHeaders, async (url, headers) => {
+      const { data, status } = await firstValueFrom(
+        this.httpService.delete<T>(url, {
+          headers,
+          validateStatus: (s) => s >= 200 && s < 300,
+        }),
+      );
+      return status === 204 || data == null || data === '' ? (null as T) : data;
+    });
   }
 
   // ─── Stream ────────────────────────────────────────────────
@@ -215,16 +246,15 @@ export class SoundcloudService {
     const extra: Record<string, string> = { Authorization: `OAuth ${accessToken}` };
     if (range) extra.Range = range;
 
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, streamUrl, extra);
-    const { data, headers: resHeaders } = await firstValueFrom(
-      this.httpService.get(url, { headers, responseType: 'stream', maxRedirects: 5 }),
-    );
-
-    const responseHeaders: Record<string, string> = {};
-    for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-      if (resHeaders[key]) responseHeaders[key] = String(resHeaders[key]);
-    }
-
-    return { stream: data as Readable, headers: responseHeaders };
+    return this.withFallback(streamUrl, extra, async (url, headers) => {
+      const { data, headers: resHeaders } = await firstValueFrom(
+        this.httpService.get(url, { headers, responseType: 'stream', maxRedirects: 5 }),
+      );
+      const responseHeaders: Record<string, string> = {};
+      for (const key of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+        if (resHeaders[key]) responseHeaders[key] = String(resHeaders[key]);
+      }
+      return { stream: data as Readable, headers: responseHeaders };
+    });
   }
 }
