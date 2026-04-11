@@ -23,6 +23,11 @@ pub const DOMAIN_WHITELIST: &[&str] = &[
     "images.scdinternal.site",
     "storage.scdinternal.site",
     "stream.scdinternal.site",
+    "white.api.scdinternal.site",
+    "white.images.scdinternal.site",
+    "white.storage.scdinternal.site",
+    "white.stream.scdinternal.site",
+    "white.stream-premium.scdinternal.site",
 ];
 
 pub fn is_domain_whitelisted(host: &str) -> bool {

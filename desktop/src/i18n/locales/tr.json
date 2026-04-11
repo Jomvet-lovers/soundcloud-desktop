@@ -214,6 +214,8 @@
     "normalizeVolumeDesc": "Sessiz ve yuksek parcarlari daha esit bir seviyeye getirir",
     "highQualityStreaming": "Yuksek kalite akis",
     "highQualityStreamingDesc": "Oynatma sirasinda mevcut en yuksek kaliteyi tercih et",
+    "bypassWhitelist": "Beyaz listeleri atla",
+    "bypassWhitelistDesc": "Ag kisitlamalari ve kesintilerde alternatif yonlendirme (Russia)",
     "import": "Ice aktar",
     "importYandex": "Yandex Music'ten ice aktar"
   },
@@ -285,6 +287,7 @@
     "perkGoPlus": "GO+ parcalarina erisim",
     "perkServer": "Ozel streaming sunucusu",
     "perkHQ": "Daha fazla HQ parca",
+    "bypassWhitelist": "Beyaz listeleri atla (in Russia)",
     "perkSupport": "Ya da sadece projeyi kucuk bir bagisla destekle.\nDaha fazla bonus yakinda!",
     "howTo": "Nasil alinir",
     "step1": "Boosty'ye gidin",

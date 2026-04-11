@@ -120,7 +120,7 @@ export const StarCard = React.memo(({ collapsed, isPremium, onOpenModal }: StarC
 
 /* ── Star Modal ─────────────────────────────────────────────────── */
 
-const PERKS = ['star.perkGoPlus', 'star.perkServer', 'star.perkHQ', 'star.perkSupport'] as const;
+const PERKS = ['star.perkGoPlus', 'star.perkServer', 'star.perkHQ', 'star.bypassWhitelist', 'star.perkSupport'] as const;
 
 const STEPS = [
   { key: 'star.step1', link: 'https://boosty.to/lolinamide' },

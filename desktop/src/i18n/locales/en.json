@@ -220,6 +220,8 @@
     "normalizeVolumeDesc": "Balances quiet and loud tracks to a more even level",
     "highQualityStreaming": "High quality streaming",
     "highQualityStreamingDesc": "Prefer the highest available quality during playback",
+    "bypassWhitelist": "Bypass whitelists",
+    "bypassWhitelistDesc": "Alternative routing for network restrictions and outages (Russia)",
     "import": "Import",
     "importYandex": "Import from Yandex Music"
   },
@@ -291,7 +293,8 @@
     "perkGoPlus": "Access to GO+ tracks",
     "perkServer": "Dedicated streaming server",
     "perkHQ": "More HQ tracks",
-    "perkSupport": "Or just support the project with a small donation.\nMore perks coming soon!",
+    "bypassWhitelist": "Bypass whitelists (in Russia)",
+    "perkSupport": "And just support the project with a small donation.\nMore perks coming soon!",
     "howTo": "How to get",
     "step1": "Go to Boosty",
     "step2": "Link Discord to your Boosty account",

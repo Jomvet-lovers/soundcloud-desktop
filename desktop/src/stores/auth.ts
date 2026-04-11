@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import { api, setSessionId } from '../lib/api';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { fetchWithAuthFallback, setSessionId } from '../lib/api';
 import { tauriStorage } from '../lib/tauri-storage';
 
 interface User {
@@ -41,7 +41,7 @@ export const useAuthStore = create<AuthState>()(
         const { sessionId } = get();
         if (!sessionId) return;
         setSessionId(sessionId);
-        const user = await api<User>('/me');
+        const user = await fetchWithAuthFallback<User>('/me');
         set({ user, isAuthenticated: true });
       },
 

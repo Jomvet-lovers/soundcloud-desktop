@@ -9,6 +9,11 @@ const WHITELIST = [
   'api.soundcloud.su',
   'images.scdinternal.site',
   'api.scdinternal.site',
+  'white.api.scdinternal.site',
+  'white.images.scdinternal.site',
+  'white.storage.scdinternal.site',
+  'white.stream.scdinternal.site',
+  'white.stream-premium.scdinternal.site',
   'unpkg.com',
 ];
 const RETRY_BYPASS_CACHE_PARAM = '__scproxy_bust';

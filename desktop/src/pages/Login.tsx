@@ -1,10 +1,10 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '../lib/api';
-import { API_BASE } from '../lib/constants';
+import { fetchWithAuthFallback } from '../lib/api';
+import { API_BASE, BYPASS_API_BASE } from '../lib/constants';
+import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
 import { queryClient } from '../lib/query-client';
 import { useAuthStore } from '../stores/auth';
 
@@ -36,17 +36,35 @@ export function Login() {
     if (pollRef.current) clearTimeout(pollRef.current);
     setLoading(true);
     try {
-      const { url, sessionId } = await api<LoginResponse>('/auth/login');
+      const { url, sessionId } = await fetchWithAuthFallback<LoginResponse>('/auth/login');
       setAuthUrl(url);
       await openUrl(url);
 
       const pollSession = async () => {
+        const tryPoll = async (base: string) => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10_000);
+          try {
+            const res = await fetch(`${base}/auth/session`, {
+              headers: { 'x-session-id': sessionId },
+              signal: controller.signal,
+            });
+            return (await res.json()) as SessionResponse;
+          } finally {
+            clearTimeout(timer);
+          }
+        };
+
         try {
-          const res = await fetch(`${API_BASE}/auth/session`, {
-            headers: { 'x-session-id': sessionId },
-          });
-          const data: SessionResponse = await res.json();
-          if (data.authenticated) {
+          let data: SessionResponse | null = null;
+          try {
+            data = await tryPoll(API_BASE);
+          } catch {
+            try {
+              data = await tryPoll(BYPASS_API_BASE);
+            } catch {}
+          }
+          if (data?.authenticated) {
             if (pollRef.current) clearTimeout(pollRef.current);
             pollRef.current = null;
             setSession(sessionId);
