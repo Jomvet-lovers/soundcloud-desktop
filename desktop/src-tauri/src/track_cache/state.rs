@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error as _;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -13,11 +14,13 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::shared::constants::STORAGE_BASE_URL;
+
 const MIN_AUDIO_SIZE: u64 = 8192;
 const AUDIO_SNIFF_LEN: usize = 16;
 const STREAM_WRITE_BUFFER_SIZE: usize = 256 * 1024;
 const STORAGE_CONNECT_TIMEOUT_MS: u64 = 800;
-const STORAGE_HEAD_TIMEOUT_MS: u64 = 1200;
+const STORAGE_TIMEOUT_MS: u64 = 1200;
+const STORAGE_COOLDOWN_SECS: u64 = 60;
 const DOWNLOAD_CONNECT_TIMEOUT_MS: u64 = 1500;
 const DOWNLOAD_READ_TIMEOUT_SECS: u64 = 20;
 const RETRY_DELAYS_MS: [u64; 3] = [200, 600, 1500];
@@ -233,7 +236,8 @@ impl DownloadSource {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct TrackCacheMetadata {
     quality: PlaybackQuality,
-    source: DownloadSource,
+    #[serde(default)]
+    source: Option<DownloadSource>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -245,26 +249,12 @@ pub struct TrackCacheEntry {
 
 impl TrackCacheEntry {
     fn from_path_and_meta(path: &Path, meta: Option<TrackCacheMetadata>) -> Self {
-        let (quality, source) = match meta {
-            Some(meta) => (
-                Some(meta.quality.label().to_string()),
-                Some(meta.source.label().to_string()),
-            ),
-            None => (None, None),
-        };
-
         Self {
             path: path.to_string_lossy().into_owned(),
-            quality,
-            source,
+            quality: meta.as_ref().map(|m| m.quality.label().to_string()),
+            source: meta.and_then(|m| m.source.map(|s| s.label().to_string())),
         }
     }
-}
-
-struct DownloadTarget {
-    source: DownloadSource,
-    quality: PlaybackQuality,
-    url: String,
 }
 
 enum DownloadError {
@@ -272,73 +262,36 @@ enum DownloadError {
     Retryable(String),
 }
 
-enum StorageProbeResult {
-    Hit,
-    Missing,
-    Unavailable,
-}
-
 struct DownloadResult {
     path: PathBuf,
 }
 
-#[derive(Clone)]
-pub struct TrackCacheState {
-    pub audio_dir: PathBuf,
-    pub api_client: Client,
-    pub storage_head_client: Client,
-    pub storage_get_client: Client,
-    pub app_handle: Option<tauri::AppHandle>,
-    active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
-    preload_limiter: Arc<Semaphore>,
-}
+/// Circuit breaker: skip storage for STORAGE_COOLDOWN_SECS after a failure.
+/// Stores epoch secs of last failure; 0 = never failed.
+static STORAGE_FAILED_AT: AtomicU64 = AtomicU64::new(0);
 
-pub fn init(audio_dir: PathBuf) -> TrackCacheState {
-    let api_client = Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .tcp_nodelay(true)
-        .pool_max_idle_per_host(16)
-        .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
-        .read_timeout(Duration::from_secs(DOWNLOAD_READ_TIMEOUT_SECS))
-        .build()
-        .expect("failed to build reqwest client");
-    let storage_head_client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .tcp_nodelay(true)
-        .pool_max_idle_per_host(16)
-        .connect_timeout(Duration::from_millis(STORAGE_CONNECT_TIMEOUT_MS))
-        .timeout(Duration::from_millis(STORAGE_HEAD_TIMEOUT_MS))
-        .build()
-        .expect("failed to build storage HEAD client");
-    let storage_get_client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .tcp_nodelay(true)
-        .pool_max_idle_per_host(16)
-        .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
-        .read_timeout(Duration::from_secs(DOWNLOAD_READ_TIMEOUT_SECS))
-        .build()
-        .expect("failed to build storage GET client");
-
-    TrackCacheState {
-        audio_dir,
-        api_client,
-        storage_head_client,
-        storage_get_client,
-        app_handle: None,
-        active: Arc::new(Mutex::new(HashMap::new())),
-        preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
+fn storage_available() -> bool {
+    let failed_at = STORAGE_FAILED_AT.load(Ordering::Relaxed);
+    if failed_at == 0 {
+        return true;
     }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    now.saturating_sub(failed_at) >= STORAGE_COOLDOWN_SECS
 }
 
-fn prefer_hq_from_url(url: &str) -> bool {
-    Url::parse(url)
-        .ok()
-        .map(|parsed| {
-            parsed
-                .query_pairs()
-                .any(|(key, value)| key == "hq" && value == "true")
-        })
-        .unwrap_or(false)
+fn mark_storage_failed() {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    STORAGE_FAILED_AT.store(now, Ordering::Relaxed);
+}
+
+fn mark_storage_ok() {
+    STORAGE_FAILED_AT.store(0, Ordering::Relaxed);
 }
 
 fn build_storage_url(urn: &str, prefer_hq: bool) -> String {
@@ -349,6 +302,58 @@ fn build_storage_url(urn: &str, prefer_hq: bool) -> String {
         quality,
         urn.replace(':', "_")
     )
+}
+
+#[derive(Clone)]
+pub struct TrackCacheState {
+    pub audio_dir: PathBuf,
+    pub client: Client,
+    pub storage_client: Client,
+    pub app_handle: Option<tauri::AppHandle>,
+    active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
+    preload_limiter: Arc<Semaphore>,
+}
+
+pub fn init(audio_dir: PathBuf) -> TrackCacheState {
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(16)
+        .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
+        .read_timeout(Duration::from_secs(DOWNLOAD_READ_TIMEOUT_SECS))
+        .build()
+        .expect("failed to build reqwest client");
+
+    let storage_client = Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(4)
+        .connect_timeout(Duration::from_millis(STORAGE_CONNECT_TIMEOUT_MS))
+        .timeout(Duration::from_millis(STORAGE_TIMEOUT_MS))
+        .build()
+        .expect("failed to build storage client");
+
+    TrackCacheState {
+        audio_dir,
+        client,
+        storage_client,
+        app_handle: None,
+        active: Arc::new(Mutex::new(HashMap::new())),
+        preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
+    }
+}
+
+fn quality_from_url(url: &str) -> PlaybackQuality {
+    Url::parse(url)
+        .ok()
+        .map(|parsed| {
+            parsed
+                .query_pairs()
+                .any(|(key, value)| key == "hq" && value == "true")
+        })
+        .unwrap_or(false)
+        .then_some(PlaybackQuality::Hq)
+        .unwrap_or(PlaybackQuality::Sq)
 }
 
 fn temp_file_path(audio_dir: &Path, urn: &str) -> PathBuf {
@@ -386,43 +391,12 @@ async fn write_cache_metadata(path: &Path, meta: &TrackCacheMetadata) {
     }
 }
 
-async fn probe_storage_head(
-    storage_head_client: &Client,
-    urn: &str,
-    storage_url: &str,
-) -> StorageProbeResult {
-    match storage_head_client.head(storage_url).send().await {
-        Ok(resp) if resp.status().as_u16() == 200 => {
-            println!("[TrackCache] storage HEAD hit for {urn}: {storage_url}");
-            StorageProbeResult::Hit
-        }
-        Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 410 => {
-            eprintln!(
-                "[TrackCache] storage HEAD miss for {urn}: HTTP {} from {storage_url}",
-                resp.status()
-            );
-            StorageProbeResult::Missing
-        }
-        Ok(resp) => {
-            eprintln!(
-                "[TrackCache] storage HEAD unavailable for {urn}: HTTP {} from {storage_url}",
-                resp.status()
-            );
-            StorageProbeResult::Unavailable
-        }
-        Err(err) => {
-            eprintln!("[TrackCache] storage HEAD failed for {urn}: {err}");
-            StorageProbeResult::Unavailable
-        }
-    }
-}
-
 async fn write_response_to_cache(
     audio_dir: &Path,
     urn: &str,
     response: reqwest::Response,
-    source: DownloadSource,
     quality: PlaybackQuality,
+    source: DownloadSource,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<DownloadResult, DownloadError> {
     let final_path = audio_dir.join(urn_to_filename(urn));
@@ -456,7 +430,6 @@ async fn write_response_to_cache(
             return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
         }
 
-        // Emit download progress
         if let Some(app) = app_handle {
             if content_length > 0 {
                 let _ = app.emit(
@@ -484,7 +457,7 @@ async fn write_response_to_cache(
         return Err(DownloadError::Fatal("Invalid audio data".into()));
     }
 
-    let cache_meta = TrackCacheMetadata { quality, source };
+    let cache_meta = TrackCacheMetadata { quality, source: Some(source) };
 
     if let Ok(meta) = tokio::fs::metadata(&final_path).await {
         if meta.len() >= MIN_AUDIO_SIZE {
@@ -525,38 +498,29 @@ async fn write_response_to_cache(
     }
 }
 
-async fn fetch_target_to_cache(
+/// Download a track from an API URL to cache.
+async fn download_api(
     client: &Client,
     audio_dir: &Path,
     urn: &str,
-    target: &DownloadTarget,
+    url: &str,
     session_id: Option<&str>,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<DownloadResult, DownloadError> {
-    let mut req = client.get(&target.url);
-    if matches!(target.source, DownloadSource::Api) {
-        if let Some(sid) = session_id {
-            req = req.header("x-session-id", sid);
-        }
+    let mut req = client.get(url);
+    if let Some(sid) = session_id {
+        req = req.header("x-session-id", sid);
     }
 
     let response = req.send().await.map_err(|err| {
-        DownloadError::Retryable(format!(
-            "{} request: {}",
-            target.source.label(),
-            format_reqwest_error(err)
-        ))
+        DownloadError::Retryable(format!("request: {}", format_reqwest_error(err)))
     })?;
     let status = response.status();
 
     if status.is_success() {
+        let quality = quality_from_url(url);
         return write_response_to_cache(
-            audio_dir,
-            urn,
-            response,
-            target.source,
-            target.quality,
-            app_handle,
+            audio_dir, urn, response, quality, DownloadSource::Api, app_handle,
         )
         .await;
     }
@@ -569,153 +533,11 @@ async fn fetch_target_to_cache(
         )),
     };
     let message = if let Some(body) = body {
-        format!("{} HTTP {}: {}", target.source.label(), status, body)
+        format!("HTTP {}: {}", status, body)
     } else {
-        format!("{} HTTP {}", target.source.label(), status)
+        format!("HTTP {}", status)
     };
-    if status.as_u16() == 429 || status.as_u16() >= 500 {
-        Err(DownloadError::Retryable(message))
-    } else {
-        Err(DownloadError::Fatal(message))
-    }
-}
-
-pub async fn download_track_to_cache(
-    audio_dir: &Path,
-    api_client: &Client,
-    storage_head_client: &Client,
-    storage_get_client: &Client,
-    urn: &str,
-    fallback_url: &str,
-    session_id: Option<&str>,
-    app_handle: Option<&tauri::AppHandle>,
-) -> Result<PathBuf, String> {
-    println!("[TrackCache] resolving source for {urn}");
-    let start = std::time::Instant::now();
-    let mut last_err = String::new();
-
-    for attempt in 0..=RETRY_DELAYS_MS.len() {
-        if attempt > 0 {
-            eprintln!("[TrackCache] retry #{attempt} for {urn}: {last_err}");
-        }
-
-        let prefer_hq = prefer_hq_from_url(fallback_url);
-        let preferred_storage_url = build_storage_url(urn, prefer_hq);
-        let alternate_storage_url = build_storage_url(urn, !prefer_hq);
-        let api_url = fallback_url.to_string();
-
-        let mut targets = Vec::with_capacity(2);
-        match probe_storage_head(storage_head_client, urn, &preferred_storage_url).await {
-            StorageProbeResult::Hit => {
-                targets.push(DownloadTarget {
-                    source: DownloadSource::Storage,
-                    quality: if prefer_hq {
-                        PlaybackQuality::Hq
-                    } else {
-                        PlaybackQuality::Sq
-                    },
-                    url: preferred_storage_url,
-                });
-            }
-            StorageProbeResult::Missing => {
-                match probe_storage_head(storage_head_client, urn, &alternate_storage_url).await {
-                    StorageProbeResult::Hit => {
-                        println!(
-                            "[TrackCache] {urn} → storage quality fallback {}",
-                            if prefer_hq { "sq" } else { "hq" }
-                        );
-                        targets.push(DownloadTarget {
-                            source: DownloadSource::Storage,
-                            quality: if prefer_hq {
-                                PlaybackQuality::Sq
-                            } else {
-                                PlaybackQuality::Hq
-                            },
-                            url: alternate_storage_url,
-                        });
-                    }
-                    StorageProbeResult::Missing => {
-                        println!("[TrackCache] {urn} → API fallback");
-                    }
-                    StorageProbeResult::Unavailable => {
-                        println!("[TrackCache] {urn} → API fallback after storage HEAD error");
-                    }
-                }
-            }
-            StorageProbeResult::Unavailable => {
-                println!("[TrackCache] {urn} → API fallback after storage HEAD error");
-            }
-        }
-
-        if targets.is_empty() {
-            targets.push(DownloadTarget {
-                source: DownloadSource::Api,
-                quality: if prefer_hq {
-                    PlaybackQuality::Hq
-                } else {
-                    PlaybackQuality::Sq
-                },
-                url: api_url,
-            });
-        } else {
-            targets.push(DownloadTarget {
-                source: DownloadSource::Api,
-                quality: if prefer_hq {
-                    PlaybackQuality::Hq
-                } else {
-                    PlaybackQuality::Sq
-                },
-                url: api_url,
-            });
-        }
-
-        for target in targets {
-            let client = match target.source {
-                DownloadSource::Storage => storage_get_client,
-                DownloadSource::Api => api_client,
-            };
-
-            match fetch_target_to_cache(client, audio_dir, urn, &target, session_id, app_handle)
-                .await
-            {
-                Ok(result) => {
-                    let kb = std::fs::metadata(&result.path)
-                        .map(|meta| meta.len() / 1024)
-                        .unwrap_or(0);
-                    let ms = start.elapsed().as_millis();
-                    println!(
-                        "[TrackCache] downloaded {urn} via {} — {kb} KB in {ms}ms",
-                        target.source.label()
-                    );
-                    return Ok(result.path);
-                }
-                Err(DownloadError::Fatal(err)) => {
-                    if matches!(target.source, DownloadSource::Api) {
-                        eprintln!("[TrackCache] failed {urn}: {err}");
-                        return Err(err);
-                    }
-                    eprintln!("[TrackCache] storage failed for {urn}, falling back to API: {err}");
-                    last_err = err;
-                }
-                Err(DownloadError::Retryable(err)) => {
-                    if matches!(target.source, DownloadSource::Storage) {
-                        eprintln!("[TrackCache] storage retry failed for {urn}, falling back to API: {err}");
-                    }
-                    last_err = err;
-                }
-            }
-        }
-
-        if attempt < RETRY_DELAYS_MS.len() {
-            tokio::time::sleep(Duration::from_millis(RETRY_DELAYS_MS[attempt])).await;
-        }
-    }
-
-    eprintln!(
-        "[TrackCache] gave up on {urn} after {} retries: {last_err}",
-        RETRY_DELAYS_MS.len()
-    );
-    Err(last_err)
+    Err(DownloadError::Retryable(message))
 }
 
 impl TrackCacheState {
@@ -754,22 +576,20 @@ impl TrackCacheState {
         ))
     }
 
-    /// Download track fully, save to cache, return path.
-    /// Coalesces concurrent requests for the same URN.
-    /// Tries each URL in `urls` in order, falling back to the next on failure.
+    /// Download track, save to cache. Coalesces concurrent requests for the same URN.
+    /// Tries each URL in order with retries, falling back to the next on failure.
     pub async fn ensure_cached(
         &self,
         urn: &str,
         urls: &[String],
         session_id: Option<&str>,
     ) -> Result<TrackCacheEntry, String> {
-        // Already cached?
         if let Some(entry) = self.get_cache_entry(urn) {
             println!("[TrackCache] hit: {urn}");
             return Ok(entry);
         }
 
-        // Check if another task is already downloading this URN
+        // Coalesce concurrent requests for the same URN
         let mut active = self.active.lock().await;
         if let Some(existing) = active.get(urn) {
             println!("[TrackCache] coalescing request for {urn}");
@@ -788,7 +608,6 @@ impl TrackCacheState {
             };
         }
 
-        // Register this download
         let notify = Arc::new(Notify::new());
         let result_slot: Arc<Mutex<Option<Result<PathBuf, String>>>> = Arc::new(Mutex::new(None));
         active.insert(
@@ -802,33 +621,126 @@ impl TrackCacheState {
 
         let download_result = self.download_with_fallback(urn, urls, session_id).await;
 
-        // Store result and notify waiters
         {
             let mut slot = result_slot.lock().await;
             *slot = Some(download_result.clone());
         }
         notify.notify_waiters();
-
-        // Remove from active
         self.active.lock().await.remove(urn);
 
         download_result
             .map(|path| TrackCacheEntry::from_path_and_meta(&path, read_cache_metadata(&path)))
     }
 
+    /// Try storage once, then each API URL in order with retries.
     async fn download_with_fallback(
         &self,
         urn: &str,
         urls: &[String],
         session_id: Option<&str>,
     ) -> Result<PathBuf, String> {
+        let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
+
+        // 1. Try storage once (quality from first URL)
+        if storage_available() {
+            let prefer_hq = urls
+                .first()
+                .map(|u| matches!(quality_from_url(u), PlaybackQuality::Hq))
+                .unwrap_or(false);
+            let storage_url = build_storage_url(urn, prefer_hq);
+
+            match self.storage_client.get(&storage_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    mark_storage_ok();
+                    let quality = if prefer_hq {
+                        PlaybackQuality::Hq
+                    } else {
+                        PlaybackQuality::Sq
+                    };
+                    println!("[TrackCache] {urn} → storage");
+                    match write_response_to_cache(
+                        &self.audio_dir,
+                        urn,
+                        resp,
+                        quality,
+                        DownloadSource::Storage,
+                        self.app_handle.as_ref(),
+                    )
+                    .await
+                    {
+                        Ok(result) => {
+                            let kb = std::fs::metadata(&result.path)
+                                .map(|m| m.len() / 1024)
+                                .unwrap_or(0);
+                            let ms = start.elapsed().as_millis();
+                            println!("[TrackCache] downloaded {urn} via storage — {kb} KB in {ms}ms");
+                            return Ok(result.path);
+                        }
+                        Err(DownloadError::Fatal(e)) => {
+                            eprintln!("[TrackCache] storage write failed for {urn}: {e}");
+                        }
+                        Err(DownloadError::Retryable(e)) => {
+                            eprintln!("[TrackCache] storage download failed for {urn}: {e}");
+                        }
+                    }
+                }
+                Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 410 => {}
+                Ok(resp) => {
+                    eprintln!("[TrackCache] storage HTTP {} for {urn}", resp.status());
+                    mark_storage_failed();
+                }
+                Err(err) => {
+                    eprintln!("[TrackCache] storage failed for {urn}: {err}");
+                    mark_storage_failed();
+                }
+            }
+        }
+
+        // 2. Try each API URL in order
         for (i, url) in urls.iter().enumerate() {
-            match download_track_to_cache(
+            println!("[TrackCache] trying URL #{} for {urn}", i + 1);
+
+            match self.download_api_with_retries(urn, url, session_id).await {
+                Ok(path) => {
+                    let kb = std::fs::metadata(&path)
+                        .map(|meta| meta.len() / 1024)
+                        .unwrap_or(0);
+                    let ms = start.elapsed().as_millis();
+                    println!("[TrackCache] downloaded {urn} via api — {kb} KB in {ms}ms");
+                    return Ok(path);
+                }
+                Err(err) => {
+                    if i + 1 < urls.len() {
+                        eprintln!("[TrackCache] {urn} URL #{} failed, trying next: {err}", i + 1);
+                    }
+                    last_err = err;
+                }
+            }
+        }
+
+        eprintln!("[TrackCache] gave up on {urn}: {last_err}");
+        Err(last_err)
+    }
+
+    /// Download from a single URL with retries for retryable errors.
+    async fn download_api_with_retries(
+        &self,
+        urn: &str,
+        url: &str,
+        session_id: Option<&str>,
+    ) -> Result<PathBuf, String> {
+        let mut last_err = String::new();
+
+        for attempt in 0..=RETRY_DELAYS_MS.len() {
+            if attempt > 0 {
+                eprintln!("[TrackCache] retry #{attempt} for {urn}: {last_err}");
+                tokio::time::sleep(Duration::from_millis(RETRY_DELAYS_MS[attempt - 1])).await;
+            }
+
+            match download_api(
+                &self.client,
                 &self.audio_dir,
-                &self.api_client,
-                &self.storage_head_client,
-                &self.storage_get_client,
                 urn,
                 url,
                 session_id,
@@ -836,18 +748,14 @@ impl TrackCacheState {
             )
             .await
             {
-                Ok(path) => return Ok(path),
-                Err(err) => {
-                    if i + 1 < urls.len() {
-                        eprintln!(
-                            "[TrackCache] {urn} URL #{} failed, trying next: {err}",
-                            i + 1
-                        );
-                    }
+                Ok(result) => return Ok(result.path),
+                Err(DownloadError::Fatal(err)) => return Err(err),
+                Err(DownloadError::Retryable(err)) => {
                     last_err = err;
                 }
             }
         }
+
         Err(last_err)
     }
 
@@ -890,7 +798,6 @@ impl TrackCacheState {
                     if meta.map(|m| m.len() >= MIN_AUDIO_SIZE).unwrap_or(false) {
                         urns.push(urn);
                     } else {
-                        // Remove invalid/small files
                         let path = entry.path();
                         std::fs::remove_file(&path).ok();
                         remove_cache_metadata(&path);
@@ -935,7 +842,6 @@ impl TrackCacheState {
         }
 
         let before = total;
-        // Sort oldest first
         files.sort_by(|a, b| a.2.cmp(&b.2));
 
         let mut removed = 0u32;

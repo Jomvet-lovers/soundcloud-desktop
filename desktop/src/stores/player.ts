@@ -53,8 +53,6 @@ interface PlayerState {
   repeat: RepeatMode;
   /** Download progress 0-1 when loading from API, null when not downloading */
   downloadProgress: number | null;
-  /** Download source: 'storage' | 'api' | null */
-  downloadSource: string | null;
   playbackQuality: PlaybackQuality | null;
   playbackSource: PlaybackSource | null;
 
@@ -76,10 +74,7 @@ interface PlayerState {
   toggleRepeat: () => void;
   setCurrentTrackAccess: (access: Track['access']) => void;
   replaceTrackMetadata: (track: Track) => void;
-  setPlaybackTransport: (
-    quality: PlaybackQuality | null,
-    source: PlaybackSource | null,
-  ) => void;
+  setPlaybackTransport: (quality: PlaybackQuality | null, source: PlaybackSource | null) => void;
 }
 
 export const usePlayerStore = create<PlayerState>()(
@@ -95,7 +90,6 @@ export const usePlayerStore = create<PlayerState>()(
       shuffle: false,
       repeat: 'off',
       downloadProgress: null,
-      downloadSource: null,
       playbackQuality: null,
       playbackSource: null,
 
@@ -334,10 +328,7 @@ export const usePlayerStore = create<PlayerState>()(
         set((state) =>
           state.playbackQuality === quality && state.playbackSource === source
             ? state
-            : {
-                playbackQuality: quality,
-                playbackSource: source,
-              },
+            : { playbackQuality: quality, playbackSource: source },
         ),
     }),
     {

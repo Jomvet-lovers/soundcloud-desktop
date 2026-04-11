@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useAuthStore } from '../stores/auth';
 import { api } from './api';
 
 interface SubscriptionResponse {
@@ -13,17 +14,31 @@ export function getIsPremium(): boolean {
   return cachedPremium;
 }
 
+async function fetchSubscription(): Promise<SubscriptionResponse> {
+  const res = await api<SubscriptionResponse>('/me/subscription');
+  cachedPremium = res.premium;
+  return res;
+}
+
 export function useSubscription(enabled: boolean) {
   return useQuery({
     queryKey: QUERY_KEY,
-    queryFn: async () => {
-      const res = await api<SubscriptionResponse>('/me/subscription');
-      cachedPremium = res.premium;
-      return res;
-    },
+    queryFn: fetchSubscription,
     enabled,
     staleTime: 30_000,
     refetchInterval: 30_000,
     select: (d) => d.premium,
   });
+}
+
+// Eagerly fetch subscription on auth so getIsPremium() is ready before first track play
+useAuthStore.subscribe((state, prev) => {
+  if (state.isAuthenticated && !prev.isAuthenticated) {
+    fetchSubscription().catch(() => {});
+  }
+});
+
+// Fetch on startup if already authenticated (rehydrated session)
+if (useAuthStore.getState().isAuthenticated) {
+  fetchSubscription().catch(() => {});
 }

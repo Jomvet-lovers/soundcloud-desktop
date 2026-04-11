@@ -106,14 +106,6 @@ function buildStreamUrl(base: string, trackUrn: string, premium: boolean, hq: bo
   return `${base}/stream/${encodeURIComponent(trackUrn)}${path}?${params.toString()}`;
 }
 
-export function streamUrl(trackUrn: string, hq = useSettingsStore.getState().highQualityStreaming) {
-  const isPremium = getIsPremium();
-  if (isPremium) {
-    return buildStreamUrl(getStreamingPremiumBase(), trackUrn, true, hq);
-  }
-  return buildStreamUrl(getStreamingBase(), trackUrn, false, hq);
-}
-
 /**
  * Premium fallback chain:
  * 1. premium host + /premium endpoint

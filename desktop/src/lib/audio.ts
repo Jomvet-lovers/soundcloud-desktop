@@ -145,7 +145,7 @@ async function loadTrack(track: Track) {
   fallbackDuration = track.duration / 1000;
   cachedDuration = fallbackDuration;
   cachedTime = 0;
-  usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
+  usePlayerStore.setState({ downloadProgress: null });
   usePlayerStore.getState().setPlaybackTransport(null, null);
   notify();
 
@@ -177,7 +177,7 @@ async function loadTrack(track: Track) {
     }
 
     // Strategy 2: Download full track to cache — Rust picks storage/API internally
-    usePlayerStore.setState({ downloadProgress: 0, downloadSource: 'api' });
+    usePlayerStore.setState({ downloadProgress: 0 });
 
     let cachedInfo: TrackCacheInfo;
     try {
@@ -189,7 +189,7 @@ async function loadTrack(track: Track) {
     }
 
     if (gen !== loadGen) return;
-    usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
+    usePlayerStore.setState({ downloadProgress: null });
     usePlayerStore.getState().setPlaybackTransport(cachedInfo.quality, cachedInfo.source);
 
     console.log('[Audio] Playing downloaded track:', urn);
@@ -204,7 +204,7 @@ async function loadTrack(track: Track) {
     afterLoad(track, gen);
   } catch (e) {
     console.error('[Audio] Load failed:', e);
-    usePlayerStore.setState({ downloadProgress: null, downloadSource: null });
+    usePlayerStore.setState({ downloadProgress: null });
     usePlayerStore.getState().setPlaybackTransport(null, null);
     if (gen !== loadGen) return;
     const errorText = getLoadErrorText(e);
@@ -287,10 +287,10 @@ listen<number>('audio:tick', (event) => {
   notify();
 });
 
-listen<{ urn: string; progress: number; source: string }>('track:download-progress', (event) => {
-  const { urn, progress, source } = event.payload;
+listen<{ urn: string; progress: number }>('track:download-progress', (event) => {
+  const { urn, progress } = event.payload;
   if (urn === currentUrn) {
-    usePlayerStore.setState({ downloadProgress: progress, downloadSource: source });
+    usePlayerStore.setState({ downloadProgress: progress });
   }
 });
 
