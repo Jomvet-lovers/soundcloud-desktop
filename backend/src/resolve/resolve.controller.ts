@@ -1,22 +1,29 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Headers, Query } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { AuthService } from '../auth/auth.service.js';
 import { Cached } from '../cache/cached.decorator.js';
-import { AccessToken } from '../common/decorators/access-token.decorator.js';
-import { AuthGuard } from '../common/guards/auth.guard.js';
 import { ResolveService } from './resolve.service.js';
 
 @ApiTags('resolve')
-@ApiHeader({ name: 'x-session-id', required: true })
-@UseGuards(AuthGuard)
 @Controller('resolve')
 export class ResolveController {
-  constructor(private readonly resolveService: ResolveService) {}
+  constructor(
+    private readonly resolveService: ResolveService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get()
   @Cached({ ttl: 86400 })
   @ApiOperation({ summary: 'Resolve a SoundCloud URL to a resource' })
+  @ApiHeader({ name: 'x-session-id', required: false })
   @ApiQuery({ name: 'url', required: true, description: 'SoundCloud URL to resolve' })
-  resolve(@AccessToken() token: string, @Query('url') url: string) {
-    return this.resolveService.resolve(token, url);
+  async resolve(@Headers('x-session-id') sessionId: string | undefined, @Query('url') url: string) {
+    if (sessionId) {
+      try {
+        const token = await this.authService.getValidAccessToken(sessionId);
+        return await this.resolveService.resolve(token, url);
+      } catch {}
+    }
+    return this.resolveService.resolveWithRandomToken(url);
   }
 }
