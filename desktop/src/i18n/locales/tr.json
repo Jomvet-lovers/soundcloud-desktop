@@ -142,10 +142,8 @@
     "startLikingDesc": "Ne kadar çok beğeni, o kadar iyi öneriler ve daha zengin ana sayfa"
   },
   "offline": {
-    "blockedBadge": "Yerel mod",
     "offlineBadge": "Ag yok",
     "readyBadge": "Yerel kutuphane",
-    "blockedTitle": "Yerel kutuphane",
     "offlineTitle": "Offline",
     "readyTitle": "Yerel kutuphane",
     "tryOnline": "Tekrar dene",

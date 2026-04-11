@@ -148,10 +148,8 @@
     "startLikingDesc": "The more likes, the better recommendations and richer home page"
   },
   "offline": {
-    "blockedBadge": "Local mode",
     "offlineBadge": "No network",
     "readyBadge": "Local library",
-    "blockedTitle": "Local library",
     "offlineTitle": "Offline",
     "readyTitle": "Local library",
     "tryOnline": "Try online again",

@@ -11,7 +11,6 @@ import {
   STREAMING_PREMIUM_BASE,
 } from './constants';
 import { trackAsync } from './diagnostics';
-import { isSoundCloudAppBan, showSoundCloudAppBanToast } from './soundcloud-ban-toast';
 import { getIsPremium } from './subscription';
 
 export function getApiBase() {
@@ -66,10 +65,7 @@ export async function api<T = unknown>(path: string, options: RequestInit = {}):
   if (!res.ok) {
     const body = await res.text();
     const err = new ApiError(res.status, body);
-    if (isSoundCloudAppBan(res.status, body)) {
-      showSoundCloudAppBanToast();
-      useAppStatusStore.getState().setSoundcloudBlocked(true);
-    } else if (res.status >= 500) {
+    if (res.status >= 500) {
       toast.error(`Server error (${res.status})`);
     } else if (res.status === 401) {
       toast.error('Session expired');
@@ -86,7 +82,6 @@ export async function api<T = unknown>(path: string, options: RequestInit = {}):
   }
 
   const contentType = res.headers.get('content-type');
-  useAppStatusStore.getState().setSoundcloudBlocked(false);
   if (contentType?.includes('application/json')) {
     return res.json();
   }

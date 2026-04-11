@@ -7,7 +7,6 @@ import { AppShell } from './components/layout/AppShell';
 import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
-import { isSoundCloudAppBan } from './lib/soundcloud-ban-toast';
 import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
 import { getAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
@@ -64,11 +63,7 @@ export default function App() {
   );
   const [availableRelease, setAvailableRelease] = useState<GithubRelease | null>(null);
   const appMode = useAppStatusStore((s) =>
-    s.soundcloudBlocked
-      ? 'blocked'
-      : !s.navigatorOnline || !s.backendReachable
-        ? 'offline'
-        : 'online',
+    !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
   const hasLocalSession = Boolean(sessionId);
   const canUseMainShell = isAuthenticated || hasLocalSession;
@@ -109,10 +104,6 @@ export default function App() {
 
       if (error instanceof ApiError && error.status === 401) {
         useAuthStore.getState().logout();
-        return;
-      }
-
-      if (error instanceof ApiError && isSoundCloudAppBan(error.status, error.body)) {
         return;
       }
 

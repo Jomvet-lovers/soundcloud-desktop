@@ -7,7 +7,6 @@ import { listCachedUrns } from '../lib/cache';
 import { art, dur } from '../lib/formatters';
 import { fetchAllLikedTracks } from '../lib/hooks';
 import {
-  AlertCircle,
   Clock,
   Download,
   Globe,
@@ -50,22 +49,10 @@ function buildPlayableQueue(tracks: Track[], cachedUrns: Set<string>) {
 const StatusBadge = React.memo(function StatusBadge() {
   const { t } = useTranslation();
   const mode = useAppStatusStore((s) =>
-    s.soundcloudBlocked
-      ? 'blocked'
-      : !s.navigatorOnline || !s.backendReachable
-        ? 'offline'
-        : 'online',
+    !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
 
   const config = {
-    blocked: {
-      border: 'border-amber-400/20',
-      bg: 'bg-amber-400/10',
-      text: 'text-amber-200/90',
-      glow: 'shadow-[0_0_20px_rgba(251,191,36,0.08)]',
-      icon: <AlertCircle size={12} />,
-      label: t('offline.blockedBadge'),
-    },
     offline: {
       border: 'border-sky-400/20',
       bg: 'bg-sky-400/10',
@@ -437,11 +424,7 @@ export const OfflinePage = React.memo(() => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const appMode = useAppStatusStore((s) =>
-    s.soundcloudBlocked
-      ? 'blocked'
-      : !s.navigatorOnline || !s.backendReachable
-        ? 'offline'
-        : 'online',
+    !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
   const [state, setState] = useState<OfflineLibraryState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
@@ -502,7 +485,7 @@ export const OfflinePage = React.memo(() => {
 
         setState({ likedTracks: allLikes, cachedTracks, cachedUrns: cachedSet });
       } catch {
-        // Offline or blocked mode can continue from local index only.
+        // Offline mode can continue from local index only.
       }
     };
 
@@ -578,7 +561,6 @@ export const OfflinePage = React.memo(() => {
   );
 
   const statusTitle = useMemo(() => {
-    if (appMode === 'blocked') return t('offline.blockedTitle');
     if (appMode === 'offline') return t('offline.offlineTitle');
     return t('offline.readyTitle');
   }, [appMode, t]);
@@ -591,9 +573,6 @@ export const OfflinePage = React.memo(() => {
       >
         <div className="absolute left-[-10%] top-[-8%] h-[480px] w-[480px] rounded-full bg-accent/[0.07] blur-[140px]" />
         <div className="absolute bottom-[-14%] right-[-10%] h-[520px] w-[520px] rounded-full bg-sky-400/[0.05] blur-[160px]" />
-        {appMode === 'blocked' && (
-          <div className="absolute left-[40%] top-[20%] h-[300px] w-[300px] rounded-full bg-amber-500/[0.04] blur-[120px]" />
-        )}
       </div>
 
       <div
