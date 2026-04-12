@@ -54,13 +54,15 @@ pub fn mime_to_content_type(mime: &str) -> &'static str {
 
 /// Download all HLS segments into a single Bytes buffer (for tee to CDN).
 /// Returns (audio_bytes, content_type).
+/// `m3u8_headers` — extra headers for the initial M3U8 fetch (e.g. Authorization for SC API redirect URLs).
 pub async fn download_hls_full(
     client: &Client,
     proxy_url: &str,
     m3u8_url: &str,
     mime_type: &str,
+    m3u8_headers: HashMap<String, String>,
 ) -> Result<(Bytes, &'static str), Box<dyn std::error::Error + Send + Sync>> {
-    let (m3u8_text, _) = proxy_get_bytes(client, proxy_url, m3u8_url, HashMap::new()).await?;
+    let (m3u8_text, _) = proxy_get_bytes(client, proxy_url, m3u8_url, m3u8_headers).await?;
     let m3u8_content = String::from_utf8_lossy(&m3u8_text);
     let (init_url, segment_urls) = parse_m3u8(&m3u8_content, m3u8_url);
 

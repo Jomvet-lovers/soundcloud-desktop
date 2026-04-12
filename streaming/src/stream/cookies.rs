@@ -54,10 +54,13 @@ impl CookiesClient {
         }
     }
 
-    /// Get HQ stream via cookies. Returns None if cookies not available or all transcodings fail.
+    /// Get stream via cookies.
+    /// `hq_only=true`  → only HQ transcodings
+    /// `hq_only=false` → all transcodings (HQ → SQ)
     pub async fn get_stream(
         &self,
         track_urn: &str,
+        hq_only: bool,
     ) -> Result<Option<CookieStreamResult>, Box<dyn std::error::Error + Send + Sync>> {
         let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
 
@@ -108,27 +111,17 @@ impl CookiesClient {
                 .contains("encrypted")
         };
 
+        let is_hq = |t: &&Transcoding| t.quality.as_deref() == Some("hq");
+
+        // hq_only=true:  HQ non-enc → HQ enc
+        // hq_only=false: HQ non-enc → HQ enc → SQ non-enc → SQ enc
         let mut ordered: Vec<&Transcoding> = Vec::with_capacity(full.len());
-        // HQ non-encrypted
-        ordered.extend(
-            full.iter()
-                .filter(|t| t.quality.as_deref() == Some("hq") && !is_encrypted(t)),
-        );
-        // HQ encrypted
-        ordered.extend(
-            full.iter()
-                .filter(|t| t.quality.as_deref() == Some("hq") && is_encrypted(t)),
-        );
-        // SQ non-encrypted
-        ordered.extend(
-            full.iter()
-                .filter(|t| t.quality.as_deref() != Some("hq") && !is_encrypted(t)),
-        );
-        // SQ encrypted
-        ordered.extend(
-            full.iter()
-                .filter(|t| t.quality.as_deref() != Some("hq") && is_encrypted(t)),
-        );
+        ordered.extend(full.iter().filter(|t| is_hq(t) && !is_encrypted(t)));
+        ordered.extend(full.iter().filter(|t| is_hq(t) && is_encrypted(t)));
+        if !hq_only {
+            ordered.extend(full.iter().filter(|t| !is_hq(t) && !is_encrypted(t)));
+            ordered.extend(full.iter().filter(|t| !is_hq(t) && is_encrypted(t)));
+        }
 
         for transcoding in ordered {
             let quality = if transcoding.quality.as_deref() == Some("hq") {
@@ -202,7 +195,7 @@ impl CookiesClient {
 
         let resp: ResolveResp =
             proxy_get_json(&self.client, &self.proxy_url, &target, headers).await?;
-        download_hls_full(&self.client, &self.proxy_url, &resp.url, mime).await
+        download_hls_full(&self.client, &self.proxy_url, &resp.url, mime, HashMap::new()).await
     }
 
     async fn fetch_hydration(&self, permalink_url: &str) -> Option<(CookieHydrationSound, String)> {

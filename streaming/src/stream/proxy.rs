@@ -27,7 +27,7 @@ pub fn proxy_target(
 }
 
 fn is_retryable_status(status: u16) -> bool {
-    status == 429 || (500..=599).contains(&status)
+    status == 421 || status == 429 || (500..=599).contains(&status)
 }
 
 /// GET with retry through proxy. Returns (body_bytes, response_headers).

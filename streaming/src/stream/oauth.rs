@@ -22,6 +22,8 @@ pub struct OAuthStreamResult {
 }
 
 /// Try OAuth API stream: /tracks/{urn}/streams → pick best format → download.
+/// `hq_only=true`  → only hls_aac_160 (HQ AAC 160k HLS)
+/// `hq_only=false` → all formats: hls_aac_160 → http_mp3_128 → hls_mp3_128
 pub async fn try_oauth_stream(
     client: &Client,
     proxy_url: &str,
@@ -29,21 +31,27 @@ pub async fn try_oauth_stream(
     access_token: &str,
     track_urn: &str,
     secret_token: Option<&str>,
+    hq_only: bool,
 ) -> Option<OAuthStreamResult> {
     let streams = get_streams(client, proxy_url, proxy_fallback, access_token, track_urn, secret_token).await?;
 
-    // Format priority: HLS AAC 160 → HTTP MP3 128 → HLS MP3 128
-    let candidates: Vec<(&str, &str, &str)> = [
-        (
+    // hq_only: only HLS AAC 160; otherwise: all formats by priority
+    let candidates: Vec<(&str, &str, &str)> = if hq_only {
+        vec![(
             streams.hls_aac_160_url.as_deref(),
             "hls",
             "audio/mp4; codecs=\"mp4a.40.2\"",
-        ),
-        (streams.http_mp3_128_url.as_deref(), "http", "audio/mpeg"),
-        (streams.hls_mp3_128_url.as_deref(), "hls", "audio/mpeg"),
-    ]
+        )]
+    } else {
+        vec![
+            (streams.hls_aac_160_url.as_deref(), "hls", "audio/mp4; codecs=\"mp4a.40.2\""),
+            (streams.http_mp3_128_url.as_deref(), "http", "audio/mpeg"),
+            (streams.hls_mp3_128_url.as_deref(), "hls", "audio/mpeg"),
+        ]
+    }
     .into_iter()
     .filter_map(|(url, proto, mime)| url.map(|u| (u, proto, mime)))
+    .filter(|(url, _, _)| !url.contains("preview"))
     .collect();
 
     if candidates.is_empty() {
@@ -129,7 +137,9 @@ async fn try_format_inner(
     mime: &str,
 ) -> Result<OAuthStreamResult, Box<dyn std::error::Error + Send + Sync>> {
     if proto == "hls" {
-        let (data, content_type) = download_hls_full(client, proxy_url, url, mime).await?;
+        let mut m3u8_headers = HashMap::new();
+        m3u8_headers.insert("Authorization".into(), format!("OAuth {access_token}"));
+        let (data, content_type) = download_hls_full(client, proxy_url, url, mime, m3u8_headers).await?;
         Ok(OAuthStreamResult { data, content_type })
     } else {
         // HTTP direct download
