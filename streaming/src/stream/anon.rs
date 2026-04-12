@@ -98,6 +98,30 @@ impl AnonClient {
         }
     }
 
+    pub async fn resolve_url(
+        &self,
+        url: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let client_id = self.get_client_id().await?;
+        let target = build_resolve_target(url, &client_id);
+
+        match proxy_get_json::<serde_json::Value>(
+            &self.client,
+            &self.proxy_url,
+            &target,
+            HashMap::new(),
+        )
+        .await
+        {
+            Ok(track) => Ok(track),
+            Err(_) => {
+                let new_id = self.invalidate_and_refresh().await?;
+                let retry_target = build_resolve_target(url, &new_id);
+                proxy_get_json(&self.client, &self.proxy_url, &retry_target, HashMap::new()).await
+            }
+        }
+    }
+
     pub async fn resolve_transcoding_url(
         &self,
         transcoding_url: &str,
@@ -165,7 +189,11 @@ impl AnonClient {
                         return Ok(None);
                     }
                 };
-                match retry_track.media.as_ref().and_then(|m| m.transcodings.as_ref()) {
+                match retry_track
+                    .media
+                    .as_ref()
+                    .and_then(|m| m.transcodings.as_ref())
+                {
                     Some(t) if !t.is_empty() => {
                         // Return immediately from the retry path
                         return self.stream_from_transcodings(t).await;
@@ -192,7 +220,11 @@ impl AnonClient {
                         return Ok(None);
                     }
                 };
-                match retry_track.media.as_ref().and_then(|m| m.transcodings.as_ref()) {
+                match retry_track
+                    .media
+                    .as_ref()
+                    .and_then(|m| m.transcodings.as_ref())
+                {
                     Some(t) if !t.is_empty() => self.stream_from_transcodings(t).await,
                     _ => Ok(None),
                 }
@@ -220,18 +252,32 @@ impl AnonClient {
             let m3u8_url = match self.resolve_transcoding_url(&t.url, None).await {
                 Ok(u) => u,
                 Err(e) => {
-                    warn!("[anon] resolve {} failed: {e}", t.preset.as_deref().unwrap_or("?"));
+                    warn!(
+                        "[anon] resolve {} failed: {e}",
+                        t.preset.as_deref().unwrap_or("?")
+                    );
                     last_err = Some(e);
                     continue;
                 }
             };
 
-            match download_hls_full(&self.client, &self.proxy_url, &m3u8_url, mime, HashMap::new())
-                .await
+            match download_hls_full(
+                &self.client,
+                &self.proxy_url,
+                &m3u8_url,
+                mime,
+                HashMap::new(),
+            )
+            .await
             {
-                Ok((data, content_type)) => return Ok(Some(AnonStreamResult { data, content_type })),
+                Ok((data, content_type)) => {
+                    return Ok(Some(AnonStreamResult { data, content_type }))
+                }
                 Err(e) => {
-                    warn!("[anon] transcoding {} failed: {e}", t.preset.as_deref().unwrap_or("?"));
+                    warn!(
+                        "[anon] transcoding {} failed: {e}",
+                        t.preset.as_deref().unwrap_or("?")
+                    );
                     last_err = Some(e);
                 }
             }
@@ -293,7 +339,10 @@ fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
 
     let mut ordered: Vec<&Transcoding> = Vec::with_capacity(candidates.len());
     for preset in PRESET_ORDER {
-        if let Some(t) = candidates.iter().find(|t| t.preset.as_deref() == Some(preset)) {
+        if let Some(t) = candidates
+            .iter()
+            .find(|t| t.preset.as_deref() == Some(preset))
+        {
             ordered.push(t);
         }
     }
@@ -312,4 +361,12 @@ fn extract_client_id_from_hydration(html: &str) -> Option<String> {
     let re = regex::Regex::new(pattern).ok()?;
     let caps = re.captures(html)?;
     caps.get(1).map(|m| m.as_str().to_string())
+}
+
+fn build_resolve_target(url: &str, client_id: &str) -> String {
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("url", url)
+        .append_pair("client_id", client_id)
+        .finish();
+    format!("{SC_API_V2}/resolve?{query}")
 }

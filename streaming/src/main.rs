@@ -110,6 +110,7 @@ async fn main() {
     }
 
     let app = app
+        .route("/resolve", get(stream::handler::resolve_track))
         .route(
             "/stream/{track_urn}/premium",
             get(stream::handler::stream_premium),

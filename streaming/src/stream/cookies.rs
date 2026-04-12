@@ -195,7 +195,14 @@ impl CookiesClient {
 
         let resp: ResolveResp =
             proxy_get_json(&self.client, &self.proxy_url, &target, headers).await?;
-        download_hls_full(&self.client, &self.proxy_url, &resp.url, mime, HashMap::new()).await
+        download_hls_full(
+            &self.client,
+            &self.proxy_url,
+            &resp.url,
+            mime,
+            HashMap::new(),
+        )
+        .await
     }
 
     async fn fetch_hydration(&self, permalink_url: &str) -> Option<(CookieHydrationSound, String)> {
@@ -262,13 +269,10 @@ fn extract_balanced_json(s: &str) -> Option<&str> {
 
 /// Extract sound + clientId from cookie hydration data
 fn extract_cookie_hydration_data(html: &str) -> Option<(CookieHydrationSound, String)> {
-    let client_id_pattern = r#""hydratable"\s*:\s*"apiClient"\s*,\s*"data"\s*:\s*\{\s*"id"\s*:\s*"([^"]+)""#;
+    let client_id_pattern =
+        r#""hydratable"\s*:\s*"apiClient"\s*,\s*"data"\s*:\s*\{\s*"id"\s*:\s*"([^"]+)""#;
     let client_id_re = regex::Regex::new(client_id_pattern).ok()?;
-    let client_id = client_id_re
-        .captures(html)?
-        .get(1)?
-        .as_str()
-        .to_string();
+    let client_id = client_id_re.captures(html)?.get(1)?.as_str().to_string();
 
     let sound_pattern = r#""hydratable"\s*:\s*"sound"\s*,\s*"data"\s*:\s*\{"#;
     let sound_re = regex::Regex::new(sound_pattern).ok()?;

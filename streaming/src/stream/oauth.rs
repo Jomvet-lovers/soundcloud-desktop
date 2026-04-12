@@ -33,7 +33,15 @@ pub async fn try_oauth_stream(
     secret_token: Option<&str>,
     hq_only: bool,
 ) -> Option<OAuthStreamResult> {
-    let streams = get_streams(client, proxy_url, proxy_fallback, access_token, track_urn, secret_token).await?;
+    let streams = get_streams(
+        client,
+        proxy_url,
+        proxy_fallback,
+        access_token,
+        track_urn,
+        secret_token,
+    )
+    .await?;
 
     // hq_only: only HLS AAC 160; otherwise: all formats by priority
     let candidates: Vec<(&str, &str, &str)> = if hq_only {
@@ -44,7 +52,11 @@ pub async fn try_oauth_stream(
         )]
     } else {
         vec![
-            (streams.hls_aac_160_url.as_deref(), "hls", "audio/mp4; codecs=\"mp4a.40.2\""),
+            (
+                streams.hls_aac_160_url.as_deref(),
+                "hls",
+                "audio/mp4; codecs=\"mp4a.40.2\"",
+            ),
             (streams.http_mp3_128_url.as_deref(), "http", "audio/mpeg"),
             (streams.hls_mp3_128_url.as_deref(), "hls", "audio/mpeg"),
         ]
@@ -59,7 +71,17 @@ pub async fn try_oauth_stream(
     }
 
     for (url, proto, mime) in candidates {
-        match try_format(client, proxy_url, proxy_fallback, access_token, url, proto, mime).await {
+        match try_format(
+            client,
+            proxy_url,
+            proxy_fallback,
+            access_token,
+            url,
+            proto,
+            mime,
+        )
+        .await
+        {
             Ok(result) => return Some(result),
             Err(e) => {
                 warn!("[oauth] format {proto} failed: {e}");
@@ -139,7 +161,8 @@ async fn try_format_inner(
     if proto == "hls" {
         let mut m3u8_headers = HashMap::new();
         m3u8_headers.insert("Authorization".into(), format!("OAuth {access_token}"));
-        let (data, content_type) = download_hls_full(client, proxy_url, url, mime, m3u8_headers).await?;
+        let (data, content_type) =
+            download_hls_full(client, proxy_url, url, mime, m3u8_headers).await?;
         Ok(OAuthStreamResult { data, content_type })
     } else {
         // HTTP direct download
