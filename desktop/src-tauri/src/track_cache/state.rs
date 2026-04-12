@@ -699,7 +699,7 @@ impl TrackCacheState {
 
         // 2. Try each API URL in order
         for (i, url) in urls.iter().enumerate() {
-            println!("[TrackCache] trying URL #{} for {urn}", i + 1);
+            println!("[TrackCache] trying URL #{} for {urn} - {url}", i + 1);
 
             match self.download_api_with_retries(urn, url, session_id).await {
                 Ok(path) => {

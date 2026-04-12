@@ -1,6 +1,7 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { toast } from 'sonner';
 import { useAppStatusStore } from '../stores/app-status';
+import type { Track } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import {
   API_BASE,
@@ -98,6 +99,44 @@ export class ApiError extends Error {
   }
 }
 
+export type ResolvedStreamingTrack = Partial<Track> & {
+  full_duration?: number;
+};
+
+function getStreamingBases() {
+  return [...new Set([getStreamingBase(), getStreamingPremiumBase()])];
+}
+
+async function streamingJson<T = unknown>(path: string): Promise<T> {
+  let lastError: unknown = null;
+
+  for (const base of getStreamingBases()) {
+    try {
+      const res = await trackAsync(`streaming:GET ${path}`, fetch(`${base}${path}`));
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new ApiError(res.status, body);
+      }
+
+      const contentType = res.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error(`Unexpected content-type: ${contentType ?? 'unknown'}`);
+      }
+
+      return res.json();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error('Streaming request failed');
+}
+
+export function resolveTrackFromStreaming(url: string) {
+  return streamingJson<ResolvedStreamingTrack>(`/resolve?url=${encodeURIComponent(url)}`);
+}
+
 function buildStreamUrl(base: string, trackUrn: string, premium: boolean, hq: boolean) {
   const params = new URLSearchParams();
   if (hq) params.set('hq', 'true');
@@ -113,7 +152,9 @@ function buildStreamUrl(base: string, trackUrn: string, premium: boolean, hq: bo
  * 3. standard host + /premium endpoint
  * 4. standard host + standard endpoint
  *
- * Non-premium: just standard host + standard endpoint.
+ * Non-premium (or subscription not yet loaded):
+ * 1. standard host + /premium endpoint (backend checks subscription)
+ * 2. standard host + standard endpoint
  */
 export function streamFallbackUrls(
   trackUrn: string,
@@ -130,7 +171,7 @@ export function streamFallbackUrls(
       buildStreamUrl(sBase, trackUrn, false, hq),
     ];
   }
-  return [buildStreamUrl(sBase, trackUrn, false, hq)];
+  return [buildStreamUrl(sBase, trackUrn, true, hq), buildStreamUrl(sBase, trackUrn, false, hq)];
 }
 
 /**

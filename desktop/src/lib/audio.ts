@@ -4,7 +4,7 @@ import i18n from '../i18n';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
-import { api, getSessionId, streamFallbackUrls } from './api';
+import { api, getSessionId, resolveTrackFromStreaming, streamFallbackUrls } from './api';
 import {
   enforceAudioCacheLimit,
   ensureTrackCached,
@@ -13,6 +13,7 @@ import {
 } from './cache';
 import { trackedInvoke as invoke } from './diagnostics';
 import { art } from './formatters';
+import { rememberTracks } from './offline-index';
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
@@ -23,6 +24,7 @@ let cachedTime = 0;
 let cachedDuration = 0;
 let loadGen = 0;
 const listeners = new Set<() => void>();
+const API_PREVIEW_DURATION_MS = 30_000;
 
 function notify() {
   for (const l of listeners) l();
@@ -134,13 +136,100 @@ function getLoadErrorText(error: unknown): string | null {
   return sanitized || null;
 }
 
+type TrackMetadataPatch = Partial<Track> & {
+  full_duration?: number;
+};
+
+function getResolvedDurationMs(track: {
+  duration?: number;
+  full_duration?: number;
+}): number | null {
+  if (typeof track.full_duration === 'number' && track.full_duration > 0) {
+    return track.full_duration;
+  }
+  if (typeof track.duration === 'number' && track.duration > 0) {
+    return track.duration;
+  }
+  return null;
+}
+
+function getPreviewResolveUrl(track: Pick<Track, 'duration' | 'permalink_url'>): string | null {
+  if (track.duration !== API_PREVIEW_DURATION_MS || !track.permalink_url) {
+    return null;
+  }
+
+  try {
+    const url = new URL(track.permalink_url);
+    return url.hostname.endsWith('soundcloud.com') ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function mergeTrackMetadata(base: Track, patch: TrackMetadataPatch): Track {
+  const resolvedDuration = getResolvedDurationMs(patch);
+
+  return {
+    ...base,
+    ...patch,
+    duration:
+      resolvedDuration == null ||
+      (resolvedDuration === API_PREVIEW_DURATION_MS && base.duration > API_PREVIEW_DURATION_MS)
+        ? base.duration
+        : resolvedDuration,
+    permalink_url: patch.permalink_url ?? base.permalink_url,
+    user: patch.user ? { ...base.user, ...patch.user } : base.user,
+  };
+}
+
+function commitTrackMetadata(track: Track) {
+  usePlayerStore.getState().replaceTrackMetadata(track);
+  void rememberTracks([track]);
+
+  if (currentUrn !== track.urn) return;
+
+  if (track.duration <= 0) {
+    updateMetadata(track);
+    return;
+  }
+
+  const durationSecs = track.duration / 1000;
+  fallbackDuration = durationSecs;
+  cachedDuration = durationSecs;
+  updateMetadata(track, durationSecs);
+  notify();
+}
+
+async function fetchFreshTrackMetadata(track: Track): Promise<Track> {
+  try {
+    const freshTrack = await api<Track>(`/tracks/${encodeURIComponent(track.urn)}`);
+    return mergeTrackMetadata(track, freshTrack);
+  } catch (error) {
+    console.warn('[Audio] Failed to hydrate track metadata:', error);
+    return track;
+  }
+}
+
+async function resolveTrackMetadata(track: Track): Promise<Track> {
+  const resolveUrl = getPreviewResolveUrl(track);
+  if (!resolveUrl) return track;
+
+  try {
+    const resolvedTrack = await resolveTrackFromStreaming(resolveUrl);
+    return mergeTrackMetadata(track, resolvedTrack);
+  } catch (error) {
+    console.warn('[Audio] Failed to resolve preview duration:', error);
+    return track;
+  }
+}
+
 async function loadTrack(track: Track) {
   const gen = ++loadGen;
   stopTrack();
   currentUrn = track.urn;
   const urn = track.urn;
 
-  void hydrateTrackMetadata(urn, gen);
+  void hydrateTrackMetadata(track, gen);
 
   fallbackDuration = track.duration / 1000;
   cachedDuration = fallbackDuration;
@@ -166,12 +255,18 @@ async function loadTrack(track: Track) {
       if (gen !== loadGen) return;
       usePlayerStore.getState().setPlaybackTransport(cached.quality, cached.source);
       console.log('[Audio] Playing from cache:', urn);
-      await invoke('audio_load_file', {
+      const loadResult = await invoke<{ duration_secs: number | null }>('audio_load_file', {
         path: cached.path,
         cacheKey: urn,
         startPaused: !usePlayerStore.getState().isPlaying,
       });
       if (gen !== loadGen) return;
+      if (loadResult?.duration_secs) {
+        fallbackDuration = loadResult.duration_secs;
+        cachedDuration = loadResult.duration_secs;
+        updateMetadata(track, loadResult.duration_secs);
+        notify();
+      }
       afterLoad(track, gen);
       return;
     }
@@ -193,11 +288,17 @@ async function loadTrack(track: Track) {
     usePlayerStore.getState().setPlaybackTransport(cachedInfo.quality, cachedInfo.source);
 
     console.log('[Audio] Playing downloaded track:', urn);
-    await invoke('audio_load_file', {
+    const loadResult = await invoke<{ duration_secs: number | null }>('audio_load_file', {
       path: cachedInfo.path,
       cacheKey: urn,
       startPaused: !usePlayerStore.getState().isPlaying,
     });
+    if (loadResult?.duration_secs) {
+      fallbackDuration = loadResult.duration_secs;
+      cachedDuration = loadResult.duration_secs;
+      updateMetadata(track, loadResult.duration_secs);
+      notify();
+    }
     void enforceAudioCacheLimit().catch(console.error);
 
     if (gen !== loadGen) return;
@@ -222,17 +323,22 @@ function afterLoad(track: Track, gen: number) {
   }
   hasTrack = true;
 
+  const historyTrack =
+    usePlayerStore.getState().currentTrack?.urn === track.urn
+      ? usePlayerStore.getState().currentTrack
+      : track;
+
   // Record to listening history (fire-and-forget), skip on repeat-one (same track looping)
-  if (track.urn && track.title && usePlayerStore.getState().repeat !== 'one') {
+  if (historyTrack?.urn && historyTrack.title && usePlayerStore.getState().repeat !== 'one') {
     api('/history', {
       method: 'POST',
       body: JSON.stringify({
-        scTrackId: track.urn,
-        title: track.title,
-        artistName: track.user?.username || '',
-        artistUrn: track.user?.urn || null,
-        artworkUrl: track.artwork_url || null,
-        duration: track.duration || 0,
+        scTrackId: historyTrack.urn,
+        title: historyTrack.title,
+        artistName: historyTrack.user?.username || '',
+        artistUrn: historyTrack.user?.urn || null,
+        artworkUrl: historyTrack.artwork_url || null,
+        duration: historyTrack.duration || 0,
       }),
     }).catch(() => {});
   }
@@ -244,21 +350,13 @@ function afterLoad(track: Track, gen: number) {
   preloadQueue();
 }
 
-async function hydrateTrackMetadata(urn: string, gen: number) {
-  try {
-    const freshTrack = await api<Track>(`/tracks/${encodeURIComponent(urn)}`);
-    if (gen !== loadGen || currentUrn !== urn) return;
+async function hydrateTrackMetadata(track: Track, gen: number) {
+  let nextTrack = await fetchFreshTrackMetadata(track);
+  if (gen !== loadGen || currentUrn !== track.urn) return;
 
-    usePlayerStore.getState().replaceTrackMetadata(freshTrack);
-
-    if (typeof freshTrack.duration === 'number' && freshTrack.duration > 0) {
-      fallbackDuration = freshTrack.duration / 1000;
-      cachedDuration = fallbackDuration;
-      notify();
-    }
-  } catch (error) {
-    console.warn('[Audio] Failed to hydrate track metadata:', error);
-  }
+  nextTrack = await resolveTrackMetadata(nextTrack);
+  if (gen !== loadGen || currentUrn !== track.urn) return;
+  commitTrackMetadata(nextTrack);
 }
 
 function handleTrackEnd() {
@@ -364,13 +462,13 @@ useSettingsStore.subscribe((state, prev) => {
 
 /* ── Native Media Controls (souvlaki: MPRIS/SMTC) ───────────── */
 
-function updateMetadata(track: Track) {
+function updateMetadata(track: Track, durationSecs?: number) {
   const coverUrl = art(track.artwork_url, 't500x500') || undefined;
   invoke('audio_set_metadata', {
     title: track.title,
     artist: track.user.username,
     coverUrl: coverUrl || null,
-    durationSecs: track.duration / 1000,
+    durationSecs: durationSecs ?? track.duration / 1000,
   }).catch(console.error);
 }
 
