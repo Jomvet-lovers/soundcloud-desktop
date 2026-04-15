@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use reqwest::Client;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::config::Config;
@@ -14,8 +15,8 @@ pub struct CdnClient {
     base_url: String,
     auth_token: String,
     pg: PgPool,
-    consecutive_unavailable: AtomicU32,
-    unavailable_until: AtomicU64,
+    consecutive_unavailable: Arc<AtomicU32>,
+    unavailable_until: Arc<AtomicU64>,
 }
 
 impl CdnClient {
@@ -25,8 +26,8 @@ impl CdnClient {
             base_url: config.cdn_base_url.trim_end_matches('/').to_string(),
             auth_token: config.cdn_auth_token.clone(),
             pg,
-            consecutive_unavailable: AtomicU32::new(0),
-            unavailable_until: AtomicU64::new(0),
+            consecutive_unavailable: Arc::new(AtomicU32::new(0)),
+            unavailable_until: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -93,6 +94,8 @@ impl CdnClient {
         let auth_token = self.auth_token.clone();
         let pg = self.pg.clone();
         let filename = Self::track_filename(&track_urn);
+        let consec = self.consecutive_unavailable.clone();
+        let until = self.unavailable_until.clone();
 
         tokio::spawn(async move {
             // Insert pending records for both qualities (storage transcodes both)
@@ -122,6 +125,8 @@ impl CdnClient {
 
             match upload_to_storage(&client, &base_url, &auth_token, &filename, &data).await {
                 Ok(()) => {
+                    consec.store(0, Ordering::Relaxed);
+                    until.store(0, Ordering::Relaxed);
                     let _ = pg.update_cdn_track_status(&hq_id, "ok").await;
                     let _ = pg.update_cdn_track_status(&sq_id, "ok").await;
                     info!(
@@ -131,6 +136,12 @@ impl CdnClient {
                     );
                 }
                 Err(e) => {
+                    let prev = consec.fetch_add(1, Ordering::Relaxed);
+                    let cur_until = until.load(Ordering::Relaxed);
+                    if prev + 1 >= UNAVAILABLE_THRESHOLD && now_ms() >= cur_until {
+                        until.store(now_ms() + UNAVAILABLE_COOLDOWN_MS, Ordering::Relaxed);
+                        warn!("[cdn] breaker opened after {} upload failures", prev + 1);
+                    }
                     warn!("[cdn] upload failed for {filename}: {e}");
                     let _ = pg.update_cdn_track_status(&hq_id, "error").await;
                     let _ = pg.update_cdn_track_status(&sq_id, "error").await;
