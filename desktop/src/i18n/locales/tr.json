@@ -32,6 +32,15 @@
     "copyLink": "Baglantiyi kopyala",
     "copied": "Kopyalandi!"
   },
+  "reauth": {
+    "title": "Oturum Suresi Doldu",
+    "description": "Oturumunuz sona erdi. Devam etmek icin giris yapin.",
+    "signIn": "Giris Yap",
+    "signingIn": "Giris yapiliyor...",
+    "copyLink": "Baglantiyi kopyala",
+    "copied": "Kopyalandi!",
+    "logout": "Cikis Yap"
+  },
   "search": {
     "placeholder": "Parca, calma listesi, kullanici ara...",
     "tracks": "Parcalar",

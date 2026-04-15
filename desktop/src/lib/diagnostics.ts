@@ -56,6 +56,27 @@ export function setupUiWatchdog() {
   });
 }
 
+function truncate(value: string, max = 500) {
+  return value.length > max ? `${value.slice(0, max)}...[+${value.length - max}]` : value;
+}
+
+export function logHttpError(
+  label: string,
+  status: number,
+  url: string,
+  body?: string,
+  error?: unknown,
+) {
+  const parts = [`[Perf] HTTP ${status} ${label} ${url}`];
+  if (body) parts.push(`body=${truncate(body)}`);
+  if (error !== undefined) parts.push(`error=${String(error)}`);
+  logError(parts.join(' | '));
+}
+
+export function logHttpFailure(label: string, url: string, error: unknown) {
+  logError(`[Perf] HTTP FAIL ${label} ${url} | error=${String(error)}`);
+}
+
 export async function trackAsync<T>(
   label: string,
   promise: Promise<T>,

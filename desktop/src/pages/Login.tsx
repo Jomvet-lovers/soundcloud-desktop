@@ -1,98 +1,38 @@
-import { fetch } from '@tauri-apps/plugin-http';
-import { openUrl } from '@tauri-apps/plugin-opener';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fetchWithAuthFallback } from '../lib/api';
-import { API_BASE, BYPASS_API_BASE } from '../lib/constants';
 import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
 import { queryClient } from '../lib/query-client';
+import { useOAuthFlow } from '../lib/use-oauth-flow';
 import { useAuthStore } from '../stores/auth';
-
-interface LoginResponse {
-  url: string;
-  sessionId: string;
-}
-
-interface SessionResponse {
-  authenticated: boolean;
-}
 
 export function Login() {
   const { t } = useTranslation();
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
-  const [loading, setLoading] = useState(false);
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearTimeout(pollRef.current);
-    };
-  }, []);
+  const { startLogin, authUrl, isPolling } = useOAuthFlow(async (sessionId) => {
+    setSession(sessionId);
+    await fetchUser();
+    queryClient.invalidateQueries();
+  });
 
   const handleLogin = async () => {
-    if (pollRef.current) clearTimeout(pollRef.current);
-    setLoading(true);
     try {
-      const { url, sessionId } = await fetchWithAuthFallback<LoginResponse>('/auth/login');
-      setAuthUrl(url);
-      await openUrl(url);
-
-      const pollSession = async () => {
-        const tryPoll = async (base: string) => {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 10_000);
-          try {
-            const res = await fetch(`${base}/auth/session`, {
-              headers: { 'x-session-id': sessionId },
-              signal: controller.signal,
-            });
-            return (await res.json()) as SessionResponse;
-          } finally {
-            clearTimeout(timer);
-          }
-        };
-
-        try {
-          let data: SessionResponse | null = null;
-          try {
-            data = await tryPoll(API_BASE);
-          } catch {
-            try {
-              data = await tryPoll(BYPASS_API_BASE);
-            } catch {}
-          }
-          if (data?.authenticated) {
-            if (pollRef.current) clearTimeout(pollRef.current);
-            pollRef.current = null;
-            setSession(sessionId);
-            await fetchUser();
-            queryClient.invalidateQueries();
-            return;
-          }
-        } catch {}
-        pollRef.current = setTimeout(pollSession, 2000);
-      };
-
-      pollRef.current = setTimeout(pollSession, 2000);
+      await startLogin();
     } catch (e) {
       console.error('Login failed:', e);
-      setLoading(false);
     }
   };
 
   return (
     <div className="h-screen flex items-center justify-center relative overflow-hidden">
-      {/* Background ambient glow */}
       <div className="absolute inset-0">
         <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] rounded-full bg-accent/[0.04] blur-[120px]" />
         <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] rounded-full bg-purple-500/[0.03] blur-[120px]" />
       </div>
 
       <div className="relative flex flex-col items-center gap-8 max-w-sm w-full mx-4">
-        {/* Logo */}
         <div className="relative">
           <div className="absolute inset-0 bg-accent/20 blur-2xl rounded-full scale-150" />
           <div className="relative w-20 h-20 rounded-[22px] bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] flex items-center justify-center shadow-[0_0_40px_rgba(255,85,0,0.1)]">
@@ -103,11 +43,11 @@ export function Login() {
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-tight">SoundCloud Desktop</h1>
           <p className="text-[13px] text-white/30 mt-2">
-            {loading ? t('auth.signingIn') : 'Your music, your way'}
+            {isPolling ? t('auth.signingIn') : 'Your music, your way'}
           </p>
         </div>
 
-        {loading ? (
+        {isPolling ? (
           <div className="flex flex-col items-center gap-4">
             <div className="w-10 h-10 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
             <p className="text-[12px] text-white/25">{t('auth.signingIn')}</p>

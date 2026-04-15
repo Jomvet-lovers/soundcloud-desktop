@@ -5,11 +5,13 @@ import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { AppShell } from './components/layout/AppShell';
 import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
+import { ReAuthOverlay } from './components/ReAuthOverlay';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
 import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
 import { getAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
+import { useSessionExpiryStore } from './stores/session-expiry';
 import { type StartupPage, useSettingsStore } from './stores/settings';
 import { useYmImportStore } from './stores/ym-import';
 
@@ -103,7 +105,7 @@ export default function App() {
       if (cancelled) return;
 
       if (error instanceof ApiError && error.status === 401) {
-        useAuthStore.getState().logout();
+        useSessionExpiryStore.getState().setSessionExpired(true);
         return;
       }
 
@@ -167,6 +169,7 @@ export default function App() {
           },
         }}
       />
+      <ReAuthOverlay />
       <YMImportFloatingStatus />
       <BrowserRouter>
         {showOfflineOnlyShell ? (

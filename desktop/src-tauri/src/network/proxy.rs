@@ -5,7 +5,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use sha2::{Digest, Sha256};
 use tokio::fs;
 
-use crate::shared::constants::{is_domain_whitelisted, PROXY_URL};
+use crate::shared::constants::is_domain_whitelisted;
 
 pub struct State {
     pub assets_dir: PathBuf,
@@ -91,17 +91,8 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     };
 
     let decoded = urlencoding::decode(encoded).unwrap_or_default();
-    let target_url = match BASE64.decode(decoded.as_bytes()) {
-        Ok(bytes) => match String::from_utf8(bytes) {
-            Ok(s) => s,
-            Err(_) => {
-                return ProxyResult {
-                    status: 400,
-                    content_type: "text/plain".into(),
-                    data: b"invalid utf8".to_vec(),
-                }
-            }
-        },
+    let payload_bytes = match BASE64.decode(decoded.as_bytes()) {
+        Ok(bytes) => bytes,
         Err(_) => {
             return ProxyResult {
                 status: 400,
@@ -110,6 +101,36 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
             }
         }
     };
+
+    let payload: Vec<String> = match serde_json::from_slice(&payload_bytes) {
+        Ok(v) => v,
+        Err(_) => {
+            return ProxyResult {
+                status: 400,
+                content_type: "text/plain".into(),
+                data: b"invalid payload".to_vec(),
+            }
+        }
+    };
+
+    let target_url = match payload.first() {
+        Some(s) if !s.is_empty() => s.clone(),
+        _ => {
+            return ProxyResult {
+                status: 400,
+                content_type: "text/plain".into(),
+                data: b"missing target".to_vec(),
+            }
+        }
+    };
+    let upstreams = &payload[1..];
+    if upstreams.is_empty() {
+        return ProxyResult {
+            status: 400,
+            content_type: "text/plain".into(),
+            data: b"missing upstream".to_vec(),
+        };
+    }
 
     let host = target_url
         .split("://")
@@ -148,14 +169,10 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     let mut content_type = String::new();
     let mut data: Vec<u8> = Vec::new();
 
-    for attempt in 0..3u8 {
-        if attempt > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
-        }
-
+    for upstream in upstreams {
         let resp = match state
             .http_client
-            .get(PROXY_URL)
+            .get(upstream)
             .header("X-Target", &encoded_for_header)
             .send()
             .await

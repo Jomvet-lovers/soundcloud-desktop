@@ -35,6 +35,15 @@
     "copyLink": "Copy link",
     "copied": "Copied!"
   },
+  "reauth": {
+    "title": "Session Expired",
+    "description": "Your session has expired. Sign in to continue.",
+    "signIn": "Sign In",
+    "signingIn": "Signing in...",
+    "copyLink": "Copy link",
+    "copied": "Copied!",
+    "logout": "Log out"
+  },
   "search": {
     "placeholder": "Search tracks, playlists, users...",
     "tracks": "Tracks",

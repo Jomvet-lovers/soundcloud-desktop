@@ -1,4 +1,6 @@
-import { getProxyPort } from './constants';
+import { useSettingsStore } from '../stores/settings';
+import { BYPASS_IMAGES_BASE, getProxyPort, IMAGES_BASE } from './constants';
+import { getIsPremium } from './premium-cache';
 
 const WHITELIST = [
   'localhost',
@@ -49,9 +51,12 @@ export function isWhitelistedAssetUrl(url: string): boolean {
 
 export function toScproxyUrl(url: string, { bypassCache = false } = {}): string {
   const target = bypassCache ? withCacheBust(url) : url;
-  const encodedPath = encodeURIComponent(btoa(target));
-  const proxyPort = getProxyPort();
+  const bypass = useSettingsStore.getState().bypassWhitelist;
+  const upstreams =
+    bypass && getIsPremium() ? [BYPASS_IMAGES_BASE, IMAGES_BASE] : [IMAGES_BASE];
+  const encodedPath = encodeURIComponent(btoa(JSON.stringify([target, ...upstreams])));
 
+  const proxyPort = getProxyPort();
   if (proxyPort) {
     const shard = hashShard(target);
     return `http://scproxy-${shard}.localhost:${proxyPort}/p/${encodedPath}`;

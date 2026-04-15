@@ -17,6 +17,8 @@ storage/target
 storage/data
 streaming/data
 
+backend/snapshots
+
 # IDE
 .idea/
 
