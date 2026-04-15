@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
+import { BulkDownloadButton } from '../components/music/BulkDownloadButton';
 import { LikeButton } from '../components/music/LikeButton';
 import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { VirtualList } from '../components/ui/VirtualList';
@@ -639,6 +640,7 @@ export const PlaylistPage = React.memo(() => {
                 {isPinned ? t('sidebar.unpinPlaylist') : t('sidebar.pinPlaylist')}
               </button>
               <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
+              <BulkDownloadButton cacheKey={`playlist:${playlist.urn}`} getTracks={() => tracks} />
               <CopyLinkButton url={playlist.permalink_url} />
               {isOwner && (
                 <button
