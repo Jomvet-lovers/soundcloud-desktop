@@ -1,11 +1,5 @@
 pub const DISCORD_CLIENT_ID: &str = "1431978756687265872";
 
-pub const STORAGE_BASE_URL: &str = if let Some(url) = option_env!("STORAGE_BASE_URL") {
-    url
-} else {
-    "https://storage.scdinternal.site"
-};
-
 pub const DOMAIN_WHITELIST: &[&str] = &[
     "localhost",
     "127.0.0.1",
@@ -16,6 +10,7 @@ pub const DOMAIN_WHITELIST: &[&str] = &[
     "api.scdinternal.site",
     "images.scdinternal.site",
     "storage.scdinternal.site",
+    "white.storage.scdinternal.site",
     "stream.scdinternal.site",
     "stream-premium.scdinternal.site",
     "white.api.scdinternal.site",

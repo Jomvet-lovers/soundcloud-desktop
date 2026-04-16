@@ -3,8 +3,10 @@ import type { Track } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { ApiError, getSessionId } from './api-client';
 import {
+  BYPASS_STORAGE_BASE,
   BYPASS_STREAMING_BASE,
   BYPASS_STREAMING_PREMIUM_BASE,
+  STORAGE_BASE,
   STREAMING_BASE,
   STREAMING_PREMIUM_BASE,
 } from './constants';
@@ -98,6 +100,16 @@ function buildStreamUrl(base: string, trackUrn: string, premium: boolean, hq: bo
   if (sid) params.set('session_id', sid);
   const path = premium ? '/premium' : '';
   return `${base}/stream/${encodeURIComponent(trackUrn)}${path}?${params.toString()}`;
+}
+
+export function buildStorageUrls(
+  trackUrn: string,
+  hq = useSettingsStore.getState().highQualityStreaming,
+): string[] {
+  const path = `${hq ? 'hq' : 'sq'}/${trackUrn.replace(/:/g, '_')}.ogg`;
+  const bypass = useSettingsStore.getState().bypassWhitelist;
+  const bases = bypass && getIsPremium() ? [BYPASS_STORAGE_BASE, STORAGE_BASE] : [STORAGE_BASE];
+  return [...new Set(bases)].map((base) => `${base}/${path}`);
 }
 
 export function streamFallbackUrls(

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::error::Error as _;
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
@@ -12,8 +12,6 @@ use tauri::Emitter;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore};
-
-use crate::shared::constants::STORAGE_BASE_URL;
 
 const MIN_AUDIO_SIZE: u64 = 8192;
 const AUDIO_SNIFF_LEN: usize = 16;
@@ -266,42 +264,15 @@ struct DownloadResult {
     path: PathBuf,
 }
 
-/// Circuit breaker: skip storage for STORAGE_COOLDOWN_SECS after a failure.
-/// Stores epoch secs of last failure; 0 = never failed.
-static STORAGE_FAILED_AT: AtomicU64 = AtomicU64::new(0);
-
-fn storage_available() -> bool {
-    let failed_at = STORAGE_FAILED_AT.load(Ordering::Relaxed);
-    if failed_at == 0 {
-        return true;
-    }
-    let now = SystemTime::now()
+fn now_secs() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
-    now.saturating_sub(failed_at) >= STORAGE_COOLDOWN_SECS
+        .as_secs()
 }
 
-fn mark_storage_failed() {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    STORAGE_FAILED_AT.store(now, Ordering::Relaxed);
-}
-
-fn mark_storage_ok() {
-    STORAGE_FAILED_AT.store(0, Ordering::Relaxed);
-}
-
-fn build_storage_url(urn: &str, prefer_hq: bool) -> String {
-    let quality = if prefer_hq { "hq" } else { "sq" };
-    format!(
-        "{}/{}/{}.ogg",
-        STORAGE_BASE_URL,
-        quality,
-        urn.replace(':', "_")
-    )
+fn host_of(url: &str) -> Option<String> {
+    Url::parse(url).ok()?.host_str().map(str::to_string)
 }
 
 #[derive(Clone)]
@@ -312,6 +283,8 @@ pub struct TrackCacheState {
     pub app_handle: Option<tauri::AppHandle>,
     active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
     preload_limiter: Arc<Semaphore>,
+    /// Per-host storage circuit breaker: host -> epoch secs of last failure.
+    storage_cooldowns: Arc<StdMutex<HashMap<String, u64>>>,
 }
 
 pub fn init(audio_dir: PathBuf) -> TrackCacheState {
@@ -340,6 +313,7 @@ pub fn init(audio_dir: PathBuf) -> TrackCacheState {
         app_handle: None,
         active: Arc::new(Mutex::new(HashMap::new())),
         preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
+        storage_cooldowns: Arc::new(StdMutex::new(HashMap::new())),
     }
 }
 
@@ -578,10 +552,33 @@ impl TrackCacheState {
 
     /// Download track, save to cache. Coalesces concurrent requests for the same URN.
     /// Tries each URL in order with retries, falling back to the next on failure.
+    fn storage_host_available(&self, host: &str) -> bool {
+        let Ok(map) = self.storage_cooldowns.lock() else {
+            return true;
+        };
+        match map.get(host) {
+            None => true,
+            Some(failed_at) => now_secs().saturating_sub(*failed_at) >= STORAGE_COOLDOWN_SECS,
+        }
+    }
+
+    fn mark_storage_host_failed(&self, host: &str) {
+        if let Ok(mut map) = self.storage_cooldowns.lock() {
+            map.insert(host.to_string(), now_secs());
+        }
+    }
+
+    fn mark_storage_host_ok(&self, host: &str) {
+        if let Ok(mut map) = self.storage_cooldowns.lock() {
+            map.remove(host);
+        }
+    }
+
     pub async fn ensure_cached(
         &self,
         urn: &str,
         urls: &[String],
+        storage_urls: &[String],
         session_id: Option<&str>,
     ) -> Result<TrackCacheEntry, String> {
         if let Some(entry) = self.get_cache_entry(urn) {
@@ -619,7 +616,9 @@ impl TrackCacheState {
         );
         drop(active);
 
-        let download_result = self.download_with_fallback(urn, urls, session_id).await;
+        let download_result = self
+            .download_with_fallback(urn, urls, storage_urls, session_id)
+            .await;
 
         {
             let mut slot = result_slot.lock().await;
@@ -632,33 +631,44 @@ impl TrackCacheState {
             .map(|path| TrackCacheEntry::from_path_and_meta(&path, read_cache_metadata(&path)))
     }
 
-    /// Try storage once, then each API URL in order with retries.
+    /// Try each storage URL once (healthy hosts first), then API URLs with retries.
     async fn download_with_fallback(
         &self,
         urn: &str,
         urls: &[String],
+        storage_urls: &[String],
         session_id: Option<&str>,
     ) -> Result<PathBuf, String> {
         let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
 
-        // 1. Try storage once (quality from first URL)
-        if storage_available() {
-            let prefer_hq = urls
-                .first()
-                .map(|u| matches!(quality_from_url(u), PlaybackQuality::Hq))
-                .unwrap_or(false);
-            let storage_url = build_storage_url(urn, prefer_hq);
+        // 1. Try each storage URL once, sorted: healthy hosts first.
+        let mut sorted: Vec<&String> = storage_urls.iter().collect();
+        sorted.sort_by_key(|url| {
+            let healthy = host_of(url)
+                .map(|h| self.storage_host_available(&h))
+                .unwrap_or(true);
+            if healthy { 0 } else { 1 }
+        });
 
-            match self.storage_client.get(&storage_url).send().await {
+        for storage_url in sorted {
+            let Some(host) = host_of(storage_url) else {
+                continue;
+            };
+            if !self.storage_host_available(&host) {
+                continue;
+            }
+            let prefer_hq = storage_url.contains("/hq/");
+
+            match self.storage_client.get(storage_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    mark_storage_ok();
+                    self.mark_storage_host_ok(&host);
                     let quality = if prefer_hq {
                         PlaybackQuality::Hq
                     } else {
                         PlaybackQuality::Sq
                     };
-                    println!("[TrackCache] {urn} → storage");
+                    println!("[TrackCache] {urn} → storage ({host})");
                     match write_response_to_cache(
                         &self.audio_dir,
                         urn,
@@ -687,12 +697,12 @@ impl TrackCacheState {
                 }
                 Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 410 => {}
                 Ok(resp) => {
-                    eprintln!("[TrackCache] storage HTTP {} for {urn}", resp.status());
-                    mark_storage_failed();
+                    eprintln!("[TrackCache] storage HTTP {} for {urn} ({host})", resp.status());
+                    self.mark_storage_host_failed(&host);
                 }
                 Err(err) => {
-                    eprintln!("[TrackCache] storage failed for {urn}: {err}");
-                    mark_storage_failed();
+                    eprintln!("[TrackCache] storage failed for {urn} ({host}): {err}");
+                    self.mark_storage_host_failed(&host);
                 }
             }
         }

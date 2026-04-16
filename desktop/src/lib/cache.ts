@@ -44,13 +44,15 @@ export async function ensureTrackCached(
     return cached;
   }
 
-  const { streamFallbackUrls, getSessionId } = await import('./api');
+  const { buildStorageUrls, streamFallbackUrls, getSessionId } = await import('./api');
   const sessionId = getSessionId();
   const urls = streamFallbackUrls(urn, highQualityStreaming);
+  const storageUrls = buildStorageUrls(urn, highQualityStreaming);
 
   return invoke<TrackCacheInfo>('track_ensure_cached', {
     urn,
     urls,
+    storageUrls,
     sessionId,
   });
 }

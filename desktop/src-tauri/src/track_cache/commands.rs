@@ -7,6 +7,7 @@ pub struct PreloadEntry {
     pub urn: String,
     pub url: Option<String>,
     pub urls: Option<Vec<String>>,
+    pub storage_urls: Option<Vec<String>>,
     pub session_id: Option<String>,
 }
 
@@ -15,6 +16,7 @@ pub async fn track_ensure_cached(
     urn: String,
     url: Option<String>,
     urls: Option<Vec<String>>,
+    storage_urls: Option<Vec<String>>,
     session_id: Option<String>,
     state: State<'_, TrackCacheState>,
 ) -> Result<TrackCacheEntry, String> {
@@ -23,8 +25,14 @@ pub async fn track_ensure_cached(
         (_, Some(u)) => vec![u],
         _ => return Err("no stream URL provided".into()),
     };
+    let storage_urls = storage_urls.unwrap_or_default();
     state
-        .ensure_cached(&urn, &fallback_urls, session_id.as_deref())
+        .ensure_cached(
+            &urn,
+            &fallback_urls,
+            &storage_urls,
+            session_id.as_deref(),
+        )
         .await
 }
 
@@ -69,13 +77,19 @@ pub async fn track_preload(
             (_, Some(u)) => vec![u],
             _ => continue,
         };
+        let storage_urls = entry.storage_urls.unwrap_or_default();
         let session_id = entry.session_id;
 
         tokio::spawn(async move {
             let _permit = permit;
             println!("[TrackCache] preloading {urn}");
             if let Err(err) = state
-                .ensure_cached(&urn, &fallback_urls, session_id.as_deref())
+                .ensure_cached(
+                    &urn,
+                    &fallback_urls,
+                    &storage_urls,
+                    session_id.as_deref(),
+                )
                 .await
             {
                 eprintln!("[TrackCache] preload {urn}: {err}");

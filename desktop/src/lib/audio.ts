@@ -4,7 +4,13 @@ import i18n from '../i18n';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
-import { api, getSessionId, resolveTrackFromStreaming, streamFallbackUrls } from './api';
+import {
+  api,
+  buildStorageUrls,
+  getSessionId,
+  resolveTrackFromStreaming,
+  streamFallbackUrls,
+} from './api';
 import {
   enforceAudioCacheLimit,
   ensureTrackCached,
@@ -538,14 +544,21 @@ export function preloadTrack(urn: string) {
   preloadTimer = setTimeout(() => {
     const sessionId = getSessionId();
     invoke('track_preload', {
-      entries: [{ urn, urls: streamFallbackUrls(urn), sessionId }],
+      entries: [
+        { urn, urls: streamFallbackUrls(urn), storageUrls: buildStorageUrls(urn), sessionId },
+      ],
     }).catch(console.error);
   }, 500);
 }
 
 export function preloadQueue() {
   const { queue, queueIndex } = usePlayerStore.getState();
-  const entries: Array<{ urn: string; urls: string[]; sessionId: string | null }> = [];
+  const entries: Array<{
+    urn: string;
+    urls: string[];
+    storageUrls: string[];
+    sessionId: string | null;
+  }> = [];
   const sessionId = getSessionId();
 
   for (let i = 1; i <= 3; i++) {
@@ -554,6 +567,7 @@ export function preloadQueue() {
       entries.push({
         urn: queue[idx].urn,
         urls: streamFallbackUrls(queue[idx].urn),
+        storageUrls: buildStorageUrls(queue[idx].urn),
         sessionId,
       });
     }
