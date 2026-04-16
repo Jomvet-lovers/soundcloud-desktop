@@ -1,10 +1,14 @@
 services:
-  storage:
+  # Local filesystem backend — default.
+  # Run: docker compose --profile local up -d
+  storage-local:
     build: .
+    profiles: ["local"]
     restart: always
     ports:
       - "3002:3000"
     environment:
+      STORAGE_BACKEND: local
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       STORAGE_PATH: /data/storage
       TMP_PATH: /tmp/transcode
@@ -12,13 +16,42 @@ services:
       RUST_LOG: storage=info
     volumes:
       - storage_data:/data/storage
-    tmpfs:
-      - /tmp/transcode:size=2G,mode=1777
+      - ./tmp:/tmp
     deploy:
       resources:
         limits:
           cpus: "${CPU_LIMIT:-2.0}"
-          memory: 2G
+          memory: 1G
+
+  # S3 backend — uploads and reads go through S3.
+  # GET /hq|/sq proxies bytes from S3 (never redirects) so the client
+  # never hits the S3 host directly (useful when it's blocked by RKN).
+  # Run: docker compose --profile s3 up -d
+  storage-s3:
+    build: .
+    profiles: ["s3"]
+    restart: always
+    ports:
+      - "3002:3000"
+    environment:
+      STORAGE_BACKEND: s3
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      TMP_PATH: /tmp/transcode
+      MAX_TRANSCODES: ${MAX_TRANSCODES:-2}
+      RUST_LOG: storage=info
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+    volumes:
+      - ./tmp:/tmp
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT:-2.0}"
+          memory: 1G
 
 volumes:
   storage_data:

@@ -18,9 +18,12 @@ COPY --from=builder /build/target/release/storage /usr/local/bin/storage
 
 ENV PORT=3000 \
     ADMIN_TOKEN="" \
+    STORAGE_BACKEND=local \
     STORAGE_PATH=/data/storage \
     TMP_PATH=/tmp/transcode \
-    MAX_TRANSCODES=2
+    MAX_TRANSCODES=2 \
+    S3_REGION=us-east-1 \
+    S3_FORCE_PATH_STYLE=true
 
 RUN mkdir -p /data/storage/hq /data/storage/sq
 

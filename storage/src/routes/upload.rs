@@ -135,7 +135,7 @@ pub async fn upload(
     let result = match crate::transcode::transcode(
         &tmp_path,
         &filename,
-        &state.config.storage_path,
+        &state.backend,
         &state.config.tmp_path,
         &state.config.ffmpeg_bin,
         &state.config.ffprobe_bin,
