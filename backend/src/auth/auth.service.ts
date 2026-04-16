@@ -12,11 +12,14 @@ import { Repository } from 'typeorm';
 import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
 import { type OAuthCredentials, SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import { ScMe } from '../soundcloud/soundcloud.types.js';
+import { REFRESH_BUFFER_MS } from './auth.constants.js';
 import { Session } from './entities/session.entity.js';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  /** Дедупликация параллельных refresh'ей для одной сессии */
+  private readonly refreshInFlight = new Map<string, Promise<Session>>();
 
   constructor(
     @InjectRepository(Session)
@@ -128,6 +131,17 @@ export class AuthService {
   }
 
   async refreshSession(sessionId: string): Promise<Session> {
+    const existing = this.refreshInFlight.get(sessionId);
+    if (existing) return existing;
+
+    const promise = this.doRefresh(sessionId).finally(() => {
+      this.refreshInFlight.delete(sessionId);
+    });
+    this.refreshInFlight.set(sessionId, promise);
+    return promise;
+  }
+
+  private async doRefresh(sessionId: string): Promise<Session> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new UnauthorizedException('Session not found');
@@ -146,12 +160,19 @@ export class AuthService {
       );
 
       session.accessToken = tokenResponse.access_token;
-      session.refreshToken = tokenResponse.refresh_token;
+      if (tokenResponse.refresh_token) {
+        session.refreshToken = tokenResponse.refresh_token;
+      }
       session.expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
+      if (tokenResponse.scope) session.scope = tokenResponse.scope;
 
       await this.sessionRepo.save(session);
+      this.logger.log(`Session ${sessionId} refreshed, expires at ${session.expiresAt.toISOString()}`);
       return session;
-    } catch {
+    } catch (error: any) {
+      this.logger.warn(
+        `Refresh failed for session ${sessionId}: ${error?.response?.data?.error_description || error?.message}`,
+      );
       await this.sessionRepo.remove(session);
       throw new UnauthorizedException('Refresh token expired or invalid. Please re-authenticate.');
     }
@@ -178,7 +199,7 @@ export class AuthService {
       throw new UnauthorizedException('Session not found');
     }
 
-    if (session.expiresAt <= new Date()) {
+    if (session.expiresAt.getTime() - Date.now() <= REFRESH_BUFFER_MS) {
       session = await this.refreshSession(sessionId);
     }
 
