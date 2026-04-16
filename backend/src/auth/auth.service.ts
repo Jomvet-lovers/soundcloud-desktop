@@ -199,7 +199,8 @@ export class AuthService {
       throw new UnauthorizedException('Session not found');
     }
 
-    if (session.expiresAt.getTime() - Date.now() <= REFRESH_BUFFER_MS) {
+    const expiresAtMs = new Date(session.expiresAt).getTime();
+    if (expiresAtMs - Date.now() <= REFRESH_BUFFER_MS) {
       session = await this.refreshSession(sessionId);
     }
 
