@@ -11,15 +11,17 @@ export const ReAuthOverlay = React.memo(() => {
   const { t } = useTranslation();
   const sessionExpired = useSessionExpiryStore((s) => s.sessionExpired);
   const setSessionExpired = useSessionExpiryStore((s) => s.setSessionExpired);
+  const markReAuthed = useSessionExpiryStore((s) => s.markReAuthed);
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
   const logout = useAuthStore((s) => s.logout);
   const [copied, setCopied] = useState(false);
 
-  const { startLogin, authUrl, isPolling } = useOAuthFlow(async (sessionId) => {
+  const { startLogin, authUrl, isPolling } = useOAuthFlow((sessionId) => {
+    markReAuthed();
     setSession(sessionId);
-    await fetchUser();
     setSessionExpired(false);
+    fetchUser().catch(() => {});
     queryClient.invalidateQueries();
   });
 
