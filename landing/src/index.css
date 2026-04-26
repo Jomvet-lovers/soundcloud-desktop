@@ -365,3 +365,13 @@ body::before {
     padding: 80px 16px;
   }
 }
+
+/* ── Star float animation ── */
+@keyframes star-float {
+  0% {
+    transform: translateY(0) translateX(0);
+  }
+  100% {
+    transform: translateY(-10px) translateX(5px);
+  }
+}
