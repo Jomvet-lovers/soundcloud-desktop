@@ -57,7 +57,7 @@ export function toScproxyUrl(url: string, { bypassCache = false } = {}): string 
   const encodedPath = encodeURIComponent(btoa(JSON.stringify([target, ...upstreams])));
 
   const proxyPort = getProxyPort();
-  if (proxyPort) {
+  if (proxyPort && !isMac()) {
     const shard = hashShard(target);
     return `http://scproxy-${shard}.localhost:${proxyPort}/p/${encodedPath}`;
   }
