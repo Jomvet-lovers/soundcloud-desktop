@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { AuthService } from '../auth/auth.service.js';
+import { EventsService } from '../events/events.service.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import {
@@ -12,9 +14,13 @@ import {
 
 @Injectable()
 export class MeService {
+  private readonly logger = new Logger(MeService.name);
+
   constructor(
     private readonly sc: SoundcloudService,
     private readonly localLikes: LocalLikesService,
+    private readonly auth: AuthService,
+    private readonly events: EventsService,
   ) {}
 
   getProfile(token: string): Promise<ScMe> {
@@ -115,7 +121,20 @@ export class MeService {
       }
     }
 
+    this.seedLikesTaste(sessionId, scResult.collection).catch((e) => {
+      this.logger.debug(`seedLikesTaste failed: ${(e as Error).message}`);
+    });
+
     return scResult;
+  }
+
+  private async seedLikesTaste(sessionId: string, tracks: ScTrack[]): Promise<void> {
+    if (tracks.length === 0) return;
+    const session = await this.auth.getSession(sessionId);
+    const scUserId = session?.soundcloudUserId;
+    if (!scUserId) return;
+    const trackIds = tracks.map((t) => t.urn).filter(Boolean);
+    await this.events.ensureLikesRecorded(scUserId, trackIds);
   }
 
   getLikedPlaylists(

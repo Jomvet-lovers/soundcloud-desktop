@@ -1,32 +1,30 @@
 import { createHash } from 'node:crypto';
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, Repository } from 'typeorm';
-import { ApiCache } from './entities/api-cache.entity.js';
+import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import type { Redis } from 'ioredis';
+import { REDIS_CLIENT } from './cache.constants.js';
 
 type CacheScope = 'shared' | 'user';
 
-@Injectable()
-export class CacheService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(CacheService.name);
-  private cleanupTimer: NodeJS.Timeout | null = null;
-  private static readonly CLEANUP_INTERVAL_MS = 60_000;
+const DATA_PREFIX = 'api:';
+const INDEX_PREFIX = 'idx:';
+const DEL_CHUNK = 500;
 
+@Injectable()
+export class CacheService implements OnModuleDestroy {
   constructor(
-    @InjectRepository(ApiCache)
-    private readonly repo: Repository<ApiCache>,
+    @Inject(REDIS_CLIENT)
+    private readonly redis: Redis,
   ) {}
 
-  onModuleInit() {
-    this.cleanupTimer = setInterval(() => this.cleanup(), CacheService.CLEANUP_INTERVAL_MS);
+  async onModuleDestroy() {
+    try {
+      await this.redis.quit();
+    } catch {
+      // ignore
+    }
   }
 
-  onModuleDestroy() {
-    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
-  }
-
-  /** Строит cache key: SHA-256(scope:METHOD:path?sorted_query[:sessionId]) */
-  buildKey(method: string, url: string, scope: 'shared' | 'user', sessionId?: string): string {
+  buildKey(method: string, url: string, scope: CacheScope, sessionId?: string): string {
     const [path, queryString] = url.split('?');
     const sortedQuery = queryString ? queryString.split('&').sort().join('&') : '';
     const raw =
@@ -36,14 +34,19 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     return createHash('sha256').update(raw).digest('hex');
   }
 
+  async getRaw(key: string): Promise<string | null> {
+    return this.redis.get(DATA_PREFIX + key);
+  }
+
   async get(key: string): Promise<unknown | null> {
-    const entry = await this.repo.findOne({ where: { key } });
-    if (!entry) return null;
-    if (entry.expiresAt <= new Date()) {
-      await this.repo.delete(key);
+    const raw = await this.redis.get(DATA_PREFIX + key);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      this.redis.del(DATA_PREFIX + key).catch(() => {});
       return null;
     }
-    return entry.response;
   }
 
   async set(
@@ -56,54 +59,58 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
       sessionId?: string;
     },
   ): Promise<void> {
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-    const scope = options?.scope ?? null;
-    await this.repo.upsert(
-      {
-        key,
-        response: response as Record<string, unknown>,
-        expiresAt,
-        cacheKey: options?.cacheKey ?? null,
-        scope,
-        sessionId: scope === 'user' ? (options?.sessionId ?? null) : null,
-      },
-      ['key'],
-    );
+    const dataKey = DATA_PREFIX + key;
+    const payload = typeof response === 'string' ? response : JSON.stringify(response);
+    const pipeline = this.redis.pipeline();
+    pipeline.set(dataKey, payload, 'EX', ttlSeconds);
+
+    if (options?.cacheKey) {
+      const indexKey = this.buildIndexKey(
+        options.cacheKey,
+        options.scope ?? 'shared',
+        options.sessionId,
+      );
+      const expireAt = Date.now() + ttlSeconds * 1000;
+      pipeline.zadd(indexKey, expireAt, key);
+      pipeline.zremrangebyscore(indexKey, 0, Date.now());
+      pipeline.pexpireat(indexKey, expireAt);
+    }
+
+    await pipeline.exec();
   }
 
   async clearByCacheKeys(cacheKeys: string[], sessionId?: string): Promise<void> {
-    const normalizedKeys = [...new Set(cacheKeys.map((key) => key.trim()).filter(Boolean))];
-    if (normalizedKeys.length === 0) {
+    const normalized = [...new Set(cacheKeys.map((k) => k.trim()).filter(Boolean))];
+    if (normalized.length === 0) return;
+
+    const indexKeys: string[] = [];
+    for (const ck of normalized) {
+      indexKeys.push(this.buildIndexKey(ck, 'shared'));
+      if (sessionId) indexKeys.push(this.buildIndexKey(ck, 'user', sessionId));
+    }
+
+    await Promise.all(indexKeys.map((k) => this.clearIndex(k)));
+  }
+
+  private async clearIndex(indexKey: string): Promise<void> {
+    const members = await this.redis.zrange(indexKey, 0, -1);
+    if (members.length === 0) {
+      await this.redis.del(indexKey);
       return;
     }
 
-    const where: Array<{
-      cacheKey: ReturnType<typeof In>;
-      scope: CacheScope;
-      sessionId?: string;
-    }> = [{ cacheKey: In(normalizedKeys), scope: 'shared' }];
-
-    if (sessionId) {
-      where.push({ cacheKey: In(normalizedKeys), scope: 'user', sessionId });
+    const pipeline = this.redis.pipeline();
+    for (let i = 0; i < members.length; i += DEL_CHUNK) {
+      const chunk = members.slice(i, i + DEL_CHUNK).map((m) => DATA_PREFIX + m);
+      pipeline.del(...chunk);
     }
-
-    const { affected } = await this.repo.delete(where);
-    if (affected && affected > 0) {
-      this.logger.debug(
-        `Cache clear: removed ${affected} entries for ${normalizedKeys.join(', ')}`,
-      );
-    }
+    pipeline.del(indexKey);
+    await pipeline.exec();
   }
 
-  private async cleanup(): Promise<void> {
-    try {
-      const { affected } = await this.repo.delete({ expiresAt: LessThan(new Date()) });
-      if (affected && affected > 0) {
-        this.logger.debug(`Cache cleanup: removed ${affected} expired entries`);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.warn(`Cache cleanup error: ${message}`);
-    }
+  private buildIndexKey(cacheKey: string, scope: CacheScope, sessionId?: string): string {
+    return scope === 'user'
+      ? `${INDEX_PREFIX}user:${sessionId ?? ''}:${cacheKey}`
+      : `${INDEX_PREFIX}shared:${cacheKey}`;
   }
 }

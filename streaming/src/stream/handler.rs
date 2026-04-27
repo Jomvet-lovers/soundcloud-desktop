@@ -52,7 +52,7 @@ pub async fn stream_normal(
     let secret_token = query.secret_token.as_deref();
 
     // 1. Try CDN
-    if let Some(cdn_url) = state.cdn.try_serve(&track_urn, hq).await {
+    if let Some(cdn_url) = state.storage.try_serve(&track_urn, hq).await {
         info!("[stream] {track_urn} → CDN redirect");
         return Ok(Redirect::temporary(&cdn_url).into_response());
     }
@@ -116,7 +116,7 @@ pub async fn stream_premium(
     }
 
     // 1. Try CDN
-    if let Some(cdn_url) = state.cdn.try_serve(&track_urn, hq).await {
+    if let Some(cdn_url) = state.storage.try_serve(&track_urn, hq).await {
         info!("[stream/premium] {track_urn} → CDN redirect");
         return Ok(Redirect::temporary(&cdn_url).into_response());
     }
@@ -271,7 +271,7 @@ fn respond_with_data(
 ) -> Result<Response, AppError> {
     if data.len() > 8192 {
         state
-            .cdn
+            .storage
             .upload_in_background(track_urn.to_string(), data.clone());
     }
 

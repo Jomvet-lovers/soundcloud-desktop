@@ -20,6 +20,8 @@ aws-config = { version = "1", default-features = false, features = ["behavior-ve
 aws-sdk-s3 = { version = "1", default-features = false, features = ["behavior-version-latest", "rt-tokio", "rustls"] }
 aws-credential-types = "1"
 aws-smithy-types = { version = "1", features = ["rt-tokio"] }
+async-nats = "0.46"
+tls-common = { path = "../tls-common" }
 
 [profile.release]
 lto = true

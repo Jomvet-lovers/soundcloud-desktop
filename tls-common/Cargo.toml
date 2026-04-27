@@ -1,0 +1,20 @@
+[package]
+name = "tls-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "sync", "signal"] }
+tracing = "0.1"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-acme = { version = "0.14", features = ["axum"] }
+axum-server = "0.7"
+tokio-stream = "0.1"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
+opt-level = "s"

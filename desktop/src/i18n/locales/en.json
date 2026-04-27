@@ -71,13 +71,22 @@
     "commentAt": "at",
     "lyrics": "Lyrics",
     "lyricsNotFound": "Lyrics not found",
-    "lyricsNotFoundHint": "Try searching on Genius.com",
+    "lyricsNotFoundHint": "Try a manual search with a different artist or title.",
     "lyricsLoading": "Searching lyrics...",
     "hidePanel": "Hide panel",
     "showPanel": "Show panel",
+    "manualSearch": "Manual Search",
+    "search": "Search",
+    "resizeLayout": "Resize layout",
+    "viewArtwork": "View",
+    "selfGenerated": "AI Transcribed",
     "download": "Download",
     "downloaded": "Saved",
-    "loadError": "Failed to load track"
+    "loadError": "Failed to load track",
+    "dislike": "Don't recommend",
+    "removeDislike": "Remove dislike",
+    "play": "Play",
+    "pause": "Pause"
   },
   "playlist": {
     "playAll": "Play All",
@@ -155,6 +164,41 @@
     "startListening": "Start Listening",
     "startLikingTitle": "Like tracks — more music will appear here",
     "startLikingDesc": "The more likes, the better recommendations and richer home page"
+  },
+  "soundwave": {
+    "tagline": "Your personal radio — picked just for you",
+    "playAll": "Play all",
+    "refresh": "Refresh",
+    "languages": "Languages",
+    "allLanguages": "All languages",
+    "langShort": "langs",
+    "clear": "Clear",
+    "idleTitle": "Press play to ride the wave",
+    "idleSub": "Up next — a track we think you'll love",
+    "coldTitle": "Your wave is still warming up",
+    "coldDesc": "Like a few tracks and we'll tune this radio to your taste",
+    "forYou": "For you",
+    "searchPlaceholder": "Describe a vibe — e.g. \"sad piano in the rain\"",
+    "searchAction": "Search",
+    "searchClear": "Clear",
+    "searchReset": "Back to wave",
+    "searchResultsFor": "Results for \"{{q}}\"",
+    "searchResultsCount_one": "{{count}} track",
+    "searchResultsCount_other": "{{count}} tracks",
+    "searchEmptyTitle": "Nothing matched that vibe",
+    "searchEmptyDesc": "Try different words — moods, instruments or a scene",
+    "modeTitle": "Similar vs. diverse",
+    "modeSimilar": "Similar",
+    "modeDiverse": "Diverse",
+    "similarity": "Similar",
+    "diverse": "Diverse",
+    "similar": "More like this",
+    "similarDesc": "Picks tuned to this track's sound and mood",
+    "similarEmpty": "Not enough data yet to find similar tracks",
+    "similarCold": "Once this track is indexed by AI, you'll see personal picks here",
+    "hideLikedLabel": "Hide liked",
+    "hideLikedOn": "Liked tracks are excluded from the wave",
+    "hideLikedOff": "Turn on to exclude tracks you've already liked"
   },
   "offline": {
     "offlineBadge": "No network",
@@ -289,7 +333,8 @@
     "error": "Something went wrong",
     "retry": "Retry",
     "seeAll": "See All",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "back": "Back"
   },
   "cache": {
     "bulkCache": "Cache all",
@@ -320,6 +365,17 @@
     "goBoosty": "Boosty",
     "goDiscord": "Discord"
   },
+  "soundwaveLock": {
+    "wordmark": "SOUND WAVE",
+    "badge": "Star Exclusive",
+    "title": "Available only with subscription",
+    "subtitle": "SoundWave unlocks for free in",
+    "cta": "Get subscription",
+    "days": "d",
+    "hours": "h",
+    "minutes": "m",
+    "seconds": "s"
+  },
   "news": {
     "dismissOnce": "Close",
     "dismissForever": "Don't show again",
@@ -327,11 +383,6 @@
       "title": "We have a Discord server!",
       "description": "Join our community — discuss, suggest features, report bugs",
       "body": "We've launched an official Discord server for SoundCloud Desktop!\n\nJoin to chat with other users, suggest new features, report bugs, and stay up to date with the latest news.\n\nhttps://discord.gg/xQcGBP8fGG"
-    },
-    "artistPro": {
-      "title": "Artist PRO subscribers",
-      "description": "Help make the app harder to ban — reach out on Discord",
-      "body": "If you have an Artist PRO subscription on SoundCloud, you can help the project become more resilient to bans.\n\nWrite to @nonameex666 on Discord — I'll create an OAuth app linked to your account. The more apps in the rotation pool, the harder it is for SoundCloud to block us all at once.\n\nYour account won't be affected in any way — the app is only used for API authentication."
     }
   }
 }

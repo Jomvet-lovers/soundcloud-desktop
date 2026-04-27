@@ -55,10 +55,7 @@ export class SubscriptionsController {
   @Delete(':userUrn')
   @ApiOperation({ summary: 'Delete subscription' })
   @ApiHeader({ name: 'x-admin-token', required: true })
-  async remove(
-    @Headers('x-admin-token') adminToken: string,
-    @Param('userUrn') userUrn: string,
-  ) {
+  async remove(@Headers('x-admin-token') adminToken: string, @Param('userUrn') userUrn: string) {
     this.checkAdmin(adminToken);
     const deleted = await this.service.remove(userUrn);
     return { deleted };

@@ -155,7 +155,12 @@ export class SoundcloudService {
 
   // ─── API ───────────────────────────────────────────────────
 
-  async apiGet<T>(path: string, accessToken: string, params?: Record<string, unknown>): Promise<T> {
+  async apiGet<T>(
+    path: string,
+    accessToken: string,
+    params?: Record<string, unknown>,
+    options?: { skipTrackDiscovery?: boolean },
+  ): Promise<T> {
     const cleanParams = params
       ? Object.fromEntries(Object.entries(params).filter(([, v]) => v != null))
       : undefined;
@@ -172,8 +177,16 @@ export class SoundcloudService {
       Accept: 'application/json; charset=utf-8',
     };
 
+    const extraConfig: AxiosRequestConfig = {};
+    if (options?.skipTrackDiscovery) {
+      (extraConfig as AxiosRequestConfig & { skipTrackDiscovery?: boolean }).skipTrackDiscovery =
+        true;
+    }
+
     return this.withFallback(target.toString(), extraHeaders, async (url, headers) => {
-      const { data } = await firstValueFrom(this.httpService.get<T>(url, { headers }));
+      const { data } = await firstValueFrom(
+        this.httpService.get<T>(url, { headers, ...extraConfig }),
+      );
       return data;
     });
   }

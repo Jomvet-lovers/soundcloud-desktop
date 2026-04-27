@@ -39,12 +39,12 @@ export class PlaylistsService {
     }
   }
 
-  getById(
+  async getById(
     token: string,
     playlistUrn: string,
     params?: Record<string, unknown>,
   ): Promise<ScPlaylist> {
-    return this.sc.apiGet(`/playlists/${playlistUrn}`, token, params);
+    return this.sc.apiGet<ScPlaylist>(`/playlists/${playlistUrn}`, token, params);
   }
 
   async update(
@@ -81,12 +81,16 @@ export class PlaylistsService {
     }
   }
 
-  getTracks(
+  async getTracks(
     token: string,
     playlistUrn: string,
     params?: Record<string, unknown>,
   ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet(`/playlists/${playlistUrn}/tracks`, token, params);
+    return this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
+      `/playlists/${playlistUrn}/tracks`,
+      token,
+      params,
+    );
   }
 
   getReposters(

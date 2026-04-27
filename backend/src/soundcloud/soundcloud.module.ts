@@ -5,6 +5,6 @@ import { SoundcloudService } from './soundcloud.service.js';
 @Module({
   imports: [HttpModule],
   providers: [SoundcloudService],
-  exports: [SoundcloudService],
+  exports: [SoundcloudService, HttpModule],
 })
 export class SoundcloudModule {}

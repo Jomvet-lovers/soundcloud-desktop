@@ -112,11 +112,34 @@ export class AuthService {
       session.codeVerifier = '';
       session.state = '';
 
-      try {
-        const me = await this.soundcloudService.apiGet<ScMe>('/me', session.accessToken);
-        session.soundcloudUserId = me.urn;
-        session.username = me.username;
-      } catch {}
+      let me: ScMe | null = null;
+      let lastErr: any;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          me = await this.soundcloudService.apiGet<ScMe>('/me', session.accessToken);
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          }
+        }
+      }
+
+      if (!me?.urn) {
+        this.logger.error(
+          `Failed to fetch /me after retries for session ${session.id}: status=${lastErr?.response?.status} body=${JSON.stringify(lastErr?.response?.data)} message=${lastErr?.message}`,
+        );
+        await this.sessionRepo.remove(session);
+        return {
+          session,
+          success: false,
+          error: 'Failed to fetch SoundCloud user info. Please try again.',
+        };
+      }
+
+      session.soundcloudUserId = me.urn;
+      session.username = me.username;
 
       await this.sessionRepo.save(session);
       return { session, success: true };
@@ -167,7 +190,9 @@ export class AuthService {
       if (tokenResponse.scope) session.scope = tokenResponse.scope;
 
       await this.sessionRepo.save(session);
-      this.logger.log(`Session ${sessionId} refreshed, expires at ${session.expiresAt.toISOString()}`);
+      this.logger.log(
+        `Session ${sessionId} refreshed, expires at ${session.expiresAt.toISOString()}`,
+      );
       return session;
     } catch (error: any) {
       this.logger.warn(

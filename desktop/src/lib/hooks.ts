@@ -760,6 +760,17 @@ export function useUserWebProfiles(userUrn: string | undefined) {
   });
 }
 
+export function useUserSubscription(userUrn: string | undefined) {
+  return useQuery({
+    queryKey: ['user', userUrn, 'subscription'],
+    queryFn: () => api<{ premium: boolean }>(`/users/${encodeURIComponent(userUrn!)}/subscription`),
+    enabled: !!userUrn,
+    staleTime: MEDIUM_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
+    select: (d) => d.premium,
+  });
+}
+
 /* ── My Library ────────────────────────────────────────────────── */
 
 export function useMyFollowings(limit = 30) {

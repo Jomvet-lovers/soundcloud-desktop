@@ -1,0 +1,76 @@
+use async_nats::jetstream::{self, Context};
+use serde::Serialize;
+use tracing::{debug, info, warn};
+
+#[derive(Clone)]
+pub struct BusClient {
+    js: Option<Context>,
+}
+
+impl BusClient {
+    pub async fn connect(url: &str) -> Self {
+        if url.is_empty() {
+            return Self { js: None };
+        }
+        match async_nats::connect(url).await {
+            Ok(client) => {
+                info!("NATS connected → {url}");
+                Self {
+                    js: Some(jetstream::new(client)),
+                }
+            }
+            Err(e) => {
+                warn!("NATS connect {url} failed: {e}");
+                Self { js: None }
+            }
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.js.is_some()
+    }
+
+    /// Fire-and-forget publish to `storage.track_uploaded` jetstream subject.
+    /// No await on the ack — backend has its own dedup; payload loss is recoverable
+    /// via the periodic reaper in `IndexingService.reap`.
+    pub fn publish_track_uploaded(&self, sc_track_id: String, storage_url: String) {
+        let Some(js) = self.js.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            #[derive(Serialize)]
+            struct Payload {
+                sc_track_id: String,
+                storage_url: String,
+            }
+            let body = match serde_json::to_vec(&Payload {
+                sc_track_id,
+                storage_url,
+            }) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!("[bus] encode storage.track_uploaded: {e}");
+                    return;
+                }
+            };
+            match js.publish("storage.track_uploaded", body.into()).await {
+                Ok(ack) => match ack.await {
+                    Ok(_) => debug!("[bus] storage.track_uploaded published"),
+                    Err(e) => warn!("[bus] storage.track_uploaded ack failed: {e}"),
+                },
+                Err(e) => warn!("[bus] storage.track_uploaded publish failed: {e}"),
+            }
+        });
+    }
+}
+
+/// `soundcloud_tracks_{id}` → `Some("{id}")`. Returns None for non-numeric tails
+/// (we only emit events for canonical SC track URNs).
+pub fn sc_track_id_from_filename(filename: &str) -> Option<String> {
+    let last = filename.rsplit('_').next().unwrap_or(filename);
+    if !last.is_empty() && last.bytes().all(|b| b.is_ascii_digit()) {
+        Some(last.to_string())
+    } else {
+        None
+    }
+}

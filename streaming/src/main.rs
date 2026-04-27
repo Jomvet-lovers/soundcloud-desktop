@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::http::Method;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
@@ -15,8 +15,8 @@ mod stream;
 use config::Config;
 use db::postgres::PgPool;
 use stream::anon::AnonClient;
-use stream::cdn::CdnClient;
 use stream::cookies::CookiesClient;
+use stream::storage::StorageClient;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,7 +25,7 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub anon: Arc<AnonClient>,
     pub cookies: Option<Arc<CookiesClient>>,
-    pub cdn: Arc<CdnClient>,
+    pub storage: Arc<StorageClient>,
 }
 
 #[tokio::main]
@@ -74,19 +74,28 @@ async fn main() {
         None
     };
 
-    // CDN client
-    let cdn = Arc::new(CdnClient::new(http_client.clone(), &config, pg.clone()));
+    let storage = Arc::new(StorageClient::new(
+        http_client.clone(),
+        &config,
+        pg.clone(),
+    ));
 
-    if cdn.enabled() {
-        info!("CDN enabled: {}", config.cdn_base_url);
+    if storage.enabled() {
+        if config.storage_public_url != config.storage_url {
+            info!(
+                "Storage enabled: {} (public: {})",
+                config.storage_url, config.storage_public_url
+            );
+        } else {
+            info!("Storage enabled: {}", config.storage_url);
+        }
     } else {
-        info!("CDN disabled");
+        info!("Storage disabled");
     }
 
     let config = Arc::new(config);
 
-    // Spawn cleanup task
-    cleanup::task::spawn_cleanup_task((*config).clone(), pg.clone(), cdn.clone());
+    cleanup::task::spawn_cleanup_task((*config).clone(), pg.clone(), storage.clone());
 
     let state = AppState {
         config: config.clone(),
@@ -94,7 +103,7 @@ async fn main() {
         http_client,
         anon,
         cookies,
-        cdn,
+        storage,
     };
 
     let cors = CorsLayer::new()
@@ -115,6 +124,10 @@ async fn main() {
             "/stream/{track_urn}/premium",
             get(stream::handler::stream_premium),
         )
+        .route(
+            "/internal/transcode-upload/{track_urn}",
+            post(stream::internal::transcode_upload),
+        )
         .route("/health", get(|| async { "ok" }))
         .layer(cors)
         .with_state(state);
@@ -123,12 +136,20 @@ async fn main() {
         info!("Premium-only mode: standard endpoint disabled");
     }
 
-    let addr = format!("0.0.0.0:{}", config.port);
-    info!("Streaming service starting on {addr}");
+    if let Some(tls_cfg) = tls_common::TlsConfig::from_env() {
+        info!("Streaming service starting with TLS");
+        tls_common::serve(tls_cfg, app).await;
+    } else {
+        let addr = format!("0.0.0.0:{}", config.port);
+        info!("Streaming service starting on {addr}");
 
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("Failed to bind");
+        let listener = tokio::net::TcpListener::bind(&addr)
+            .await
+            .expect("Failed to bind");
 
-    axum::serve(listener, app).await.expect("Server error");
+        axum::serve(listener, app)
+            .with_graceful_shutdown(tls_common::shutdown_signal())
+            .await
+            .expect("Server error");
+    }
 }

@@ -1,5 +1,6 @@
-const LYRICS_API = 'https://lrclib.net/api';
-const TIMEOUT_MS = 10000;
+import { api } from './api';
+
+export type LyricsSource = 'lrclib' | 'musixmatch' | 'genius' | 'self_gen' | 'none';
 
 export interface LyricLine {
   time: number;
@@ -9,10 +10,21 @@ export interface LyricLine {
 export interface LyricsResult {
   plain: string | null;
   synced: LyricLine[] | null;
+  source: LyricsSource;
+  language: string | null;
+}
+
+interface BackendLyricsResponse {
+  scTrackId: string;
+  syncedLrc: string | null;
+  plainText: string | null;
+  source: LyricsSource;
+  language: string | null;
+  languageConfidence: number | null;
 }
 
 /** Parse LRC format: [mm:ss.xx] text */
-function parseLRC(lrc: string): LyricLine[] {
+export function parseLRC(lrc: string): LyricLine[] {
   const lines: LyricLine[] = [];
   for (const raw of lrc.split('\n')) {
     const m = raw.match(/^\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.*)/);
@@ -24,38 +36,8 @@ function parseLRC(lrc: string): LyricLine[] {
   return lines;
 }
 
-function toResult(entry: { plainLyrics?: string; syncedLyrics?: string }): LyricsResult | null {
-  const plain = entry.plainLyrics || null;
-  const synced = entry.syncedLyrics ? parseLRC(entry.syncedLyrics) : null;
-  if (!plain && !synced) return null;
-  return { plain, synced };
-}
-
-/** Remove feat/remix/brackets/special chars */
-function clean(s: string): string {
-  return s
-    .replace(/\(feat\.?[^)]*\)/gi, '')
-    .replace(/\(ft\.?[^)]*\)/gi, '')
-    .replace(/\[.*?\]/g, '')
-    .replace(
-      /\(.*?(remix|edit|version|mix|cover|live|acoustic|instrumental|original|prod).*?\)/gi,
-      '',
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** Strip everything non-alphanumeric (keep unicode letters) */
-function alphaOnly(s: string): string {
-  return s
-    .replace(/[^\p{L}\p{N}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 /** Parse "Artist - Title" from a combined string */
-function splitArtistTitle(raw: string): [string, string] | null {
-  // Try various dash separators
+export function splitArtistTitle(raw: string): [string, string] | null {
   for (const sep of [' - ', ' – ', ' — ', ' // ']) {
     const idx = raw.indexOf(sep);
     if (idx > 0) {
@@ -67,80 +49,41 @@ function splitArtistTitle(raw: string): [string, string] | null {
   return null;
 }
 
-async function apiFetch(
-  params: Record<string, string>,
-  signal: AbortSignal,
-): Promise<LyricsResult | null> {
-  try {
-    const url = `${LYRICS_API}/search?${new URLSearchParams(params)}`;
-    const res = await fetch(url, { signal });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data?.length) return null;
-    return toResult(data[0]);
-  } catch {
-    return null;
-  }
+function toResult(data: BackendLyricsResponse | null): LyricsResult | null {
+  if (!data) return null;
+  const synced = data.syncedLrc ? parseLRC(data.syncedLrc) : null;
+  return {
+    plain: data.plainText,
+    synced: synced && synced.length > 0 ? synced : null,
+    source: data.source,
+    language: data.language,
+  };
 }
 
-export async function searchLyrics(
-  scUsername: string,
-  scTitle: string,
+/** Load lyrics by track URN/id. Backend resolves artist/title itself and writes to cache. */
+export async function getLyricsByTrack(scTrackId: string): Promise<LyricsResult | null> {
+  const data = await api<BackendLyricsResponse>(
+    `/lyrics/${encodeURIComponent(scTrackId)}`,
+    undefined,
+    180_000,
+  ).catch(() => null);
+  return toResult(data);
+}
+
+/** Manual search — preview only. Backend does NOT read or write cache. */
+export async function searchLyricsManual(
+  artist: string,
+  title: string,
+  durationMs?: number,
 ): Promise<LyricsResult | null> {
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  const sig = controller.signal;
-
-  try {
-    // 1. Parse "Artist - Title" from SC title (most reliable for reposts/random uploaders)
-    const parsed = splitArtistTitle(scTitle);
-    if (parsed) {
-      const [parsedArtist, parsedTitle] = parsed;
-      // 1a. Exact parsed
-      let r = await apiFetch({ artist_name: parsedArtist, track_name: parsedTitle }, sig);
-      if (r) return r;
-
-      // 1b. Cleaned parsed
-      const ca = clean(parsedArtist);
-      const ct = clean(parsedTitle);
-      r = await apiFetch({ artist_name: ca, track_name: ct }, sig);
-      if (r) return r;
-
-      // 1c. Alpha-only parsed
-      const aa = alphaOnly(ca);
-      const at = alphaOnly(ct);
-      if (aa !== ca || at !== ct) {
-        r = await apiFetch({ artist_name: aa, track_name: at }, sig);
-        if (r) return r;
-      }
-    }
-
-    // 2. Try SC username + title (works when uploader IS the artist)
-    const cleanedTitle = clean(scTitle);
-    let r = await apiFetch({ artist_name: scUsername, track_name: cleanedTitle }, sig);
-    if (r) return r;
-
-    // 2b. SC username + alpha-only title
-    const alphaTitle = alphaOnly(cleanedTitle);
-    if (alphaTitle !== cleanedTitle) {
-      r = await apiFetch({ artist_name: scUsername, track_name: alphaTitle }, sig);
-      if (r) return r;
-    }
-
-    // 3. Free-text search (q=) — last resort, catches everything
-    //    Combine parsed artist+title or just the full SC title
-    const query = parsed ? `${parsed[0]} ${parsed[1]}` : `${scUsername} ${cleanedTitle}`;
-    r = await apiFetch({ q: alphaOnly(query) }, sig);
-    if (r) return r;
-
-    // 4. If title had "Artist - Title", try q= with just the title part
-    if (parsed) {
-      r = await apiFetch({ q: alphaOnly(parsed[1]) }, sig);
-      if (r) return r;
-    }
-
-    return null;
-  } finally {
-    clearTimeout(tid);
+  const params = new URLSearchParams({ artist, title });
+  if (durationMs && Number.isFinite(durationMs) && durationMs > 0) {
+    params.set('duration', String(Math.round(durationMs)));
   }
+  const data = await api<BackendLyricsResponse>(
+    `/lyrics/search?${params}`,
+    undefined,
+    180_000,
+  ).catch(() => null);
+  return toResult(data);
 }

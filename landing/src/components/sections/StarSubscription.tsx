@@ -121,8 +121,11 @@ export function StarSubscription() {
                     <Star size={28} fill="currentColor" className="text-amber-400" />
                     <span className="gradient-text">Подписка Star</span>
                   </h2>
-                  <p className="text-purple-300/60 text-lg">
+                  <p className="text-purple-300/60 text-lg mb-2">
                     Поддержи проект — получи эксклюзивные бонусы
+                  </p>
+                  <p className="text-2xl font-bold text-amber-400">
+                    300 ₽
                   </p>
                 </div>
 
@@ -158,7 +161,7 @@ export function StarSubscription() {
                     }}
                   >
                     <Star size={19} fill="currentColor" className="text-amber-400" />
-                    Получить Star
+                    Купить за 300 ₽
                     <ArrowRight size={16} className="opacity-50" />
                   </a>
                   <a

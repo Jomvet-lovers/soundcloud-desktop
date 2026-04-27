@@ -3,8 +3,8 @@ use reqwest::Client;
 use std::collections::HashMap;
 use tracing::warn;
 
-use super::hls::download_hls_full;
-use super::proxy::{proxy_get_bytes, proxy_get_json};
+use super::hls::{download_hls_full, download_progressive};
+use super::proxy::proxy_get_json;
 
 const API_BASE: &str = "https://api.soundcloud.com";
 
@@ -43,7 +43,8 @@ pub async fn try_oauth_stream(
     )
     .await?;
 
-    // hq_only: only HLS AAC 160; otherwise: all formats by priority
+    // hq_only: only HLS AAC 160; otherwise hls_aac_160 first (API v1 path — stable),
+    // then progressive mp3, then HLS mp3 fallback
     let candidates: Vec<(&str, &str, &str)> = if hq_only {
         vec![(
             streams.hls_aac_160_url.as_deref(),
@@ -158,20 +159,13 @@ async fn try_format_inner(
     proto: &str,
     mime: &str,
 ) -> Result<OAuthStreamResult, Box<dyn std::error::Error + Send + Sync>> {
-    if proto == "hls" {
-        let mut m3u8_headers = HashMap::new();
-        m3u8_headers.insert("Authorization".into(), format!("OAuth {access_token}"));
-        let (data, content_type) =
-            download_hls_full(client, proxy_url, url, mime, m3u8_headers).await?;
-        Ok(OAuthStreamResult { data, content_type })
+    let mut headers = HashMap::new();
+    headers.insert("Authorization".into(), format!("OAuth {access_token}"));
+
+    let (data, content_type) = if proto == "hls" {
+        download_hls_full(client, proxy_url, url, mime, headers).await?
     } else {
-        // HTTP direct download
-        let mut headers = HashMap::new();
-        headers.insert("Authorization".into(), format!("OAuth {access_token}"));
-        let (data, _) = proxy_get_bytes(client, proxy_url, url, headers).await?;
-        Ok(OAuthStreamResult {
-            data,
-            content_type: "audio/mpeg",
-        })
-    }
+        download_progressive(client, proxy_url, url, mime, headers).await?
+    };
+    Ok(OAuthStreamResult { data, content_type })
 }

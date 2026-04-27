@@ -1,0 +1,14 @@
+nats-py==2.9.0
+qdrant-client==1.12.0
+transformers>=4.58.0
+accelerate>=0.30.0
+torch>=2.6.0
+torchaudio>=2.6.0
+librosa==0.10.2
+aiohttp==3.10.10
+numpy==1.26.4
+sentence-transformers>=3.3.0
+huggingface-hub>=0.30.0
+faster-whisper==1.0.3
+muq==0.1.0
+demucs==4.0.1

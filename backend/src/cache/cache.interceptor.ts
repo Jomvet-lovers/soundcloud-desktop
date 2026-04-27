@@ -5,7 +5,7 @@ import {
   type NestInterceptor,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { type Observable, of, tap } from 'rxjs';
+import { EMPTY, type Observable, tap } from 'rxjs';
 import { CacheService } from './cache.service.js';
 import { CACHE_CLEAR_OPTIONS_KEY, type CacheClearOptions } from './cache-clear.decorator.js';
 import { CACHE_OPTIONS_KEY, type CachedOptions } from './cached.decorator.js';
@@ -39,16 +39,23 @@ export class ApiCacheInterceptor implements NestInterceptor {
     if (cacheOptions) {
       key = this.cacheService.buildKey(method, url, cacheOptions.scope ?? 'shared', sessionId);
 
-      const cached = await this.cacheService.get(key);
-      if (cached !== null) return of(cached);
+      const raw = await this.cacheService.getRaw(key);
+      if (raw !== null) {
+        if (typeof response.header === 'function') {
+          response.header('content-type', 'application/json; charset=utf-8');
+          response.send(raw);
+        } else {
+          response.setHeader?.('content-type', 'application/json; charset=utf-8');
+          response.end?.(raw);
+        }
+        return EMPTY;
+      }
     }
 
     return next.handle().pipe(
       tap((payload) => {
         const statusCode = response?.statusCode ?? response?.raw?.statusCode ?? 200;
-        if (statusCode >= 400) {
-          return;
-        }
+        if (statusCode >= 400) return;
 
         if (clearOptions?.keys.length) {
           this.cacheService.clearByCacheKeys(clearOptions.keys, sessionId).catch(() => {});

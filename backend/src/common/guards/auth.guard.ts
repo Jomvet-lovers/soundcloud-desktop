@@ -21,6 +21,13 @@ export class AuthGuard implements CanActivate {
     request.accessToken = await this.authService.getValidAccessToken(sessionId);
     request.sessionId = sessionId;
 
+    const session = await this.authService.getSession(sessionId);
+    if (!session?.soundcloudUserId) {
+      throw new UnauthorizedException(
+        'Session missing SoundCloud user info, please re-authenticate',
+      );
+    }
+
     return true;
   }
 }

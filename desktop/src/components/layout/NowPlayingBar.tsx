@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { api } from '../../lib/api';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
+import { toggleDislike, useDislikeStatus } from '../../lib/dislikes';
 import { art, formatTime } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
@@ -20,6 +21,7 @@ import {
   shuffleIcon16,
   skipBack20,
   skipForward20,
+  ThumbsDown,
   volume1Icon16,
   volume2Icon16,
   volumeXIcon16,
@@ -328,17 +330,23 @@ const PlaybackQualityBadge = React.memo(() => {
   );
 });
 
-/* ── Like button ─────────────────────────────────────────────── */
+/* ── Like / Dislike buttons ──────────────────────────────────── */
 
-function LikeButton({ trackUrn }: { trackUrn: string }) {
-  const qc = useQueryClient();
-
+function useTrackReactions(trackUrn: string) {
   const { data: trackData } = useQuery({
     queryKey: ['track', trackUrn],
     queryFn: () => api<Track>(`/tracks/${encodeURIComponent(trackUrn)}`),
     enabled: !!trackUrn,
     staleTime: 30_000,
   });
+  return trackData;
+}
+
+function LikeButton({ trackUrn }: { trackUrn: string }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const trackData = useTrackReactions(trackUrn);
+  const disliked = useDislikeStatus(trackUrn);
 
   const [liked, setLiked] = useState<boolean | null>(null);
   const prevUrn = useRef(trackUrn);
@@ -356,6 +364,11 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
     setLiked(next);
     if (trackData) optimisticToggleLike(qc, trackData, next);
     invalidateAllLikesCache();
+
+    if (next && disliked && trackData) {
+      toggleDislike(qc, trackData, false);
+    }
+
     try {
       await api(`/likes/tracks/${encodeURIComponent(trackUrn)}`, {
         method: next ? 'POST' : 'DELETE',
@@ -371,11 +384,50 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
     <button
       type="button"
       onClick={toggle}
+      title={t('track.likes')}
       className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
         isLiked ? 'text-accent' : 'text-white/30 hover:text-white/60'
       }`}
     >
       <Heart size={16} fill={isLiked ? 'currentColor' : 'none'} />
+    </button>
+  );
+}
+
+function DislikeButton({ trackUrn }: { trackUrn: string }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const trackData = useTrackReactions(trackUrn);
+  const disliked = useDislikeStatus(trackUrn);
+
+  const toggle = async () => {
+    if (!trackData) return;
+    const next = !disliked;
+
+    if (next && trackData.user_favorite) {
+      optimisticToggleLike(qc, trackData, false);
+      invalidateAllLikesCache();
+      api(`/likes/tracks/${encodeURIComponent(trackUrn)}`, { method: 'DELETE' }).catch(() => {});
+    }
+
+    if (next) {
+      const { currentTrack, next: skip } = usePlayerStore.getState();
+      if (currentTrack?.urn === trackUrn) skip();
+    }
+
+    await toggleDislike(qc, trackData, next);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      title={disliked ? t('track.removeDislike') : t('track.dislike')}
+      className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 cursor-pointer hover:bg-white/[0.04] ${
+        disliked ? 'text-rose-400' : 'text-white/30 hover:text-white/60'
+      }`}
+    >
+      <ThumbsDown size={16} fill={disliked ? 'currentColor' : 'none'} />
     </button>
   );
 }
@@ -527,6 +579,7 @@ const TrackInfo = React.memo(() => {
         </p>
       </div>
       <LikeButton trackUrn={currentTrack.urn} />
+      <DislikeButton trackUrn={currentTrack.urn} />
       <PlaybackQualityBadge />
     </div>
   );

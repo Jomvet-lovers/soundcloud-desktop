@@ -233,34 +233,276 @@ body,
 /* ── Synced lyrics lines ─────────────────────────────────── */
 .lyric-line {
   cursor: pointer;
-  padding: 6px 0;
-  line-height: 1.4;
-  font-size: 20px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.3);
+  padding: 10px 0;
+  line-height: 1.32;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: rgba(255, 255, 255, 0.26);
+  opacity: 0.4;
   transform-origin: left center;
-  transform: scale(1);
-  will-change: transform, color;
-  /* Only composite-friendly props — no font-size/opacity reflows */
+  transform: scale(0.972) translate3d(0, 0, 0);
+  will-change: transform, opacity, color;
   transition:
-    color 0.5s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    color 0.45s var(--ease-apple),
+    opacity 0.45s var(--ease-apple),
+    transform 0.45s var(--ease-apple),
+    filter 0.45s var(--ease-apple);
+  -webkit-font-smoothing: antialiased;
+  filter: drop-shadow(0 0 0 transparent);
 }
 
 .lyric-line[data-state="active"] {
   color: #fff;
-  font-weight: 700;
-  transform: scale(1.2);
+  opacity: 1;
+  transform: scale(1.02) translate3d(0, 0, 0);
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.38));
+}
+
+.lyric-line[data-state="past-near"] {
+  color: rgba(255, 255, 255, 0.78);
+  opacity: 0.78;
+  transform: scale(0.992) translate3d(-4px, 0, 0);
 }
 
 .lyric-line[data-state="past"] {
-  color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.42);
+  opacity: 0.48;
+  transform: scale(0.98) translate3d(-8px, 0, 0);
+}
+
+.lyric-line[data-state="next-near"] {
+  color: rgba(255, 255, 255, 0.55);
+  opacity: 0.66;
+  transform: scale(0.988) translate3d(6px, 0, 0);
+}
+
+.lyric-line[data-state="next"] {
+  color: rgba(255, 255, 255, 0.32);
+  opacity: 0.28;
+  transform: scale(0.968) translate3d(12px, 0, 0);
+}
+
+/* ── Lyrics pause marker (♪♪♪) ─────────────────────────── */
+.lyric-pause {
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.lyric-pause-track {
+  margin-top: 10px;
+  height: 3px;
+  width: 96px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.lyric-pause-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.7);
+  transition: none;
+}
+
+.lyric-pause-bar[data-state="active"] {
+  width: 100%;
+  transition: width var(--pause-duration, 2s) linear;
+}
+
+.lyric-pause-bar[data-state="past"] {
+  width: 100%;
+}
+
+@keyframes noteGradientFlow {
+  0% {
+    background-position: 0 50%;
+  }
+  100% {
+    background-position: 144px 50%;
+  }
+}
+
+.note-gradient-text {
+  display: inline-block;
+  color: rgba(255, 255, 255, 0.32);
+  background-image: none;
+  background-size: 144px 100%;
+  background-repeat: repeat-x;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  transition:
+    color 0.3s var(--ease-apple),
+    filter 0.3s var(--ease-apple);
+  will-change: background-position, color;
+}
+
+.lyric-line[data-state="active"] .note-gradient-text {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 0px,
+    rgba(255, 255, 255, 0.06) 16px,
+    rgba(255, 255, 255, 0.18) 32px,
+    rgba(255, 255, 255, 0.45) 50px,
+    rgba(255, 255, 255, 0.95) 72px,
+    rgba(255, 255, 255, 0.45) 94px,
+    rgba(255, 255, 255, 0.18) 112px,
+    rgba(255, 255, 255, 0.06) 128px,
+    rgba(255, 255, 255, 0.06) 144px
+  );
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.38));
+  animation: noteGradientFlow 3.2s linear infinite both;
+}
+
+.lyric-line[data-state="past"] .note-gradient-text,
+.lyric-line[data-state="past-near"] .note-gradient-text {
+  color: rgba(255, 255, 255, 0.92);
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.08));
+}
+
+/* ── Active-line karaoke fill (layered clip-path reveal) ───── */
+.lyric-fill {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  white-space: pre-wrap;
+  vertical-align: top;
+}
+
+.lyric-fill .layer-dim {
+  display: inline-block;
+  color: rgba(255, 255, 255, 0.32);
+  -webkit-clip-path: inset(0 0 0 0%);
+  clip-path: inset(0 0 0 0%);
+  transition: color 0.4s var(--ease-apple);
+}
+
+.lyric-fill .layer-bright {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  color: #fff;
+  white-space: pre-wrap;
+  -webkit-clip-path: inset(0 100% 0 0);
+  clip-path: inset(0 100% 0 0);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, 0.96) 32%,
+    rgba(255, 255, 255, 0.86) 70%,
+    rgba(255, 255, 255, 0.74) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.36))
+    drop-shadow(0 0 36px rgba(255, 255, 255, 0.16));
+}
+
+/* Active: animate both layers in sync */
+.lyric-line[data-state="active"] .layer-dim {
+  animation-name: karaokeDim;
+  animation-duration: var(--lyric-fill-duration, 3s);
+  animation-timing-function: linear;
+  animation-delay: var(--lyric-fill-delay, 0s);
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+.lyric-line[data-state="active"] .layer-bright {
+  animation-name: karaokeBright;
+  animation-duration: var(--lyric-fill-duration, 3s);
+  animation-timing-function: linear;
+  animation-delay: var(--lyric-fill-delay, 0s);
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+/* Past states: bright fully revealed, dim hidden */
+.lyric-line[data-state="past"] .layer-dim,
+.lyric-line[data-state="past-near"] .layer-dim {
+  -webkit-clip-path: inset(0 0 0 100%);
+  clip-path: inset(0 0 0 100%);
+}
+
+.lyric-line[data-state="past"] .layer-bright,
+.lyric-line[data-state="past-near"] .layer-bright {
+  -webkit-clip-path: inset(0 0% 0 0);
+  clip-path: inset(0 0% 0 0);
+}
+
+/* Pause sync */
+.lyrics-paused .lyric-line[data-state="active"] .layer-dim,
+.lyrics-paused .lyric-line[data-state="active"] .layer-bright {
+  animation-play-state: paused;
+}
+
+@keyframes karaokeDim {
+  from {
+    -webkit-clip-path: inset(0 0 0 0%);
+    clip-path: inset(0 0 0 0%);
+  }
+  to {
+    -webkit-clip-path: inset(0 0 0 100%);
+    clip-path: inset(0 0 0 100%);
+  }
+}
+
+@keyframes karaokeBright {
+  from {
+    -webkit-clip-path: inset(0 100% 0 0);
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    -webkit-clip-path: inset(0 0% 0 0);
+    clip-path: inset(0 0% 0 0);
+  }
+}
+
+/* ── Artwork zoom-in modal ─────────────────────────────────── */
+@keyframes zoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-zoom-in {
+  animation: zoomIn 0.4s var(--ease-apple) both;
 }
 
 /* ── Star modal scroll ──────────────────────────────────────── */
 .star-scroll {
-  mask-image: linear-gradient(to bottom, transparent 0%, black 16px, black calc(100% - 16px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 16px, black calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 16px,
+    black calc(100% - 16px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 16px,
+    black calc(100% - 16px),
+    transparent 100%
+  );
 }
 
 .star-scroll::-webkit-scrollbar {
@@ -286,4 +528,114 @@ body,
     transform: translateY(-6px) scale(1.3);
     opacity: 0.7;
   }
+}
+
+/* ── SoundWave hero block ──────────────────────────────────── */
+@keyframes sw-bar {
+  0%,
+  100% {
+    transform: scaleY(0.22);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Particle drift — translate+opacity only (no scale). Scale on ~20 elements
+   forces relayout of their composite rect every frame; pure translate stays
+   on the GPU compositor. */
+@keyframes sw-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate3d(0, -22px, 0);
+    opacity: 0;
+  }
+}
+
+/* Aurora orbs carry a heavy `filter: blur()`; rotate/scale would force the
+   blur kernel to recompute every frame (huge GPU cost). Stick to translate —
+   that's a cheap composite transform, blur result stays cached. */
+@keyframes sw-aurora {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(3%, -1.5%, 0);
+  }
+}
+
+@keyframes sw-shine {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+@keyframes sw-pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+.soundwave-bar {
+  transform-origin: center;
+  animation: sw-bar 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Progress-based waveform: two stacked bar layers, the accent one clipped
+   by --sw-progress (0%–100%). Only the clip-path changes at runtime — GPU
+   composite-only, zero layout, zero React re-renders during playback. */
+.sw-bars {
+  --sw-progress: 0%;
+}
+
+.sw-bar {
+  min-height: 3px;
+  border-radius: 1.5px;
+}
+
+.sw-layer-muted .sw-bar {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.sw-layer-accent {
+  clip-path: inset(0 calc(100% - var(--sw-progress)) 0 0);
+  -webkit-clip-path: inset(0 calc(100% - var(--sw-progress)) 0 0);
+  transition:
+    clip-path 0.12s linear,
+    -webkit-clip-path 0.12s linear;
+  will-change: clip-path;
+}
+
+.sw-layer-accent .sw-bar {
+  background: var(--color-accent);
+  box-shadow: 0 0 6px var(--color-accent-glow);
+}
+
+.soundwave-title {
+  background-image: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(255, 255, 255, 0.72) 40%,
+    var(--color-accent) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
 }

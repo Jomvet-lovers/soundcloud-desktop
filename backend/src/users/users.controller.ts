@@ -12,6 +12,7 @@ import {
   ScUser,
   ScWebProfile,
 } from '../soundcloud/soundcloud.types.js';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service.js';
 import { UsersService } from './users.service.js';
 
 @ApiTags('users')
@@ -19,7 +20,10 @@ import { UsersService } from './users.service.js';
 @UseGuards(AuthGuard)
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly subscriptionsService: SubscriptionsService,
+  ) {}
 
   @Get()
   @Cached({ ttl: 60 })
@@ -156,6 +160,15 @@ export class UsersController {
     @Query() query: PaginationQuery,
   ) {
     return this.usersService.getLikedPlaylists(token, userUrn, query as Record<string, unknown>);
+  }
+
+  @Get(':userUrn/subscription')
+  @Cached({ ttl: 300 })
+  @ApiOperation({ summary: 'Check if a user has an active Star subscription' })
+  @ApiOkResponse({ schema: { type: 'object', properties: { premium: { type: 'boolean' } } } })
+  async getSubscription(@Param('userUrn') userUrn: string) {
+    const premium = await this.subscriptionsService.isPremium(userUrn);
+    return { premium };
   }
 
   @Get(':userUrn/web-profiles')

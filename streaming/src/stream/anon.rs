@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use super::hls::download_hls_full;
+use super::hls::{download_hls_full, download_progressive};
 use super::proxy::{proxy_get_json, proxy_get_text};
 
 const SC_BASE_URL: &str = "https://soundcloud.com";
@@ -248,8 +248,13 @@ impl AnonClient {
                 .as_ref()
                 .and_then(|f| f.mime_type.as_deref())
                 .unwrap_or("audio/mpeg");
+            let is_progressive = t
+                .format
+                .as_ref()
+                .and_then(|f| f.protocol.as_deref())
+                == Some("progressive");
 
-            let m3u8_url = match self.resolve_transcoding_url(&t.url, None).await {
+            let media_url = match self.resolve_transcoding_url(&t.url, None).await {
                 Ok(u) => u,
                 Err(e) => {
                     warn!(
@@ -261,22 +266,35 @@ impl AnonClient {
                 }
             };
 
-            match download_hls_full(
-                &self.client,
-                &self.proxy_url,
-                &m3u8_url,
-                mime,
-                HashMap::new(),
-            )
-            .await
-            {
+            let result = if is_progressive {
+                download_progressive(
+                    &self.client,
+                    &self.proxy_url,
+                    &media_url,
+                    mime,
+                    HashMap::new(),
+                )
+                .await
+            } else {
+                download_hls_full(
+                    &self.client,
+                    &self.proxy_url,
+                    &media_url,
+                    mime,
+                    HashMap::new(),
+                )
+                .await
+            };
+
+            match result {
                 Ok((data, content_type)) => {
                     return Ok(Some(AnonStreamResult { data, content_type }))
                 }
                 Err(e) => {
                     warn!(
-                        "[anon] transcoding {} failed: {e}",
-                        t.preset.as_deref().unwrap_or("?")
+                        "[anon] transcoding {} ({}) failed: {e}",
+                        t.preset.as_deref().unwrap_or("?"),
+                        if is_progressive { "progressive" } else { "hls" },
                     );
                     last_err = Some(e);
                 }
@@ -316,7 +334,8 @@ impl AnonClient {
     }
 }
 
-/// Return all valid transcodings ranked by preset preference.
+/// Return all valid transcodings ranked: progressive first (safest — single
+/// GET, no chunk-level failures), then HLS by preset preference.
 fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
     let candidates: Vec<&Transcoding> = transcodings
         .iter()
@@ -335,18 +354,42 @@ fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
         return Vec::new();
     }
 
+    let is_progressive = |t: &&Transcoding| {
+        t.format
+            .as_ref()
+            .and_then(|f| f.protocol.as_deref())
+            == Some("progressive")
+    };
+
     const PRESET_ORDER: &[&str] = &["mp3_1_0", "aac_160k", "opus_0_0", "abr_sq"];
 
     let mut ordered: Vec<&Transcoding> = Vec::with_capacity(candidates.len());
+
+    // 1. Progressive first (ranked by same preset order)
     for preset in PRESET_ORDER {
         if let Some(t) = candidates
             .iter()
-            .find(|t| t.preset.as_deref() == Some(preset))
+            .find(|t| is_progressive(t) && t.preset.as_deref() == Some(preset))
         {
             ordered.push(t);
         }
     }
-    // Append any not matched by preset (by pointer identity)
+    for t in &candidates {
+        if is_progressive(t) && !ordered.iter().any(|o| std::ptr::eq(*o, *t)) {
+            ordered.push(t);
+        }
+    }
+
+    // 2. HLS by preset preference
+    for preset in PRESET_ORDER {
+        if let Some(t) = candidates
+            .iter()
+            .find(|t| !is_progressive(t) && t.preset.as_deref() == Some(preset))
+        {
+            ordered.push(t);
+        }
+    }
+    // 3. Any remainder
     for t in &candidates {
         if !ordered.iter().any(|o| std::ptr::eq(*o, *t)) {
             ordered.push(t);

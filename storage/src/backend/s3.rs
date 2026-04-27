@@ -1,7 +1,9 @@
 use std::path::Path;
+use std::time::Duration;
 
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::Region;
+use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream as AwsByteStream;
 use aws_sdk_s3::Client;
 use tokio_util::io::ReaderStream;
@@ -140,5 +142,19 @@ impl S3Backend {
         let stream = ReaderStream::new(reader);
 
         Ok((ObjectInfo { size, content_type }, Box::pin(stream)))
+    }
+
+    pub async fn presign_get(&self, key: &str, expires: Duration) -> Result<String, BackendError> {
+        let cfg = PresigningConfig::expires_in(expires)
+            .map_err(|e| BackendError::Other(format!("presign config: {e}")))?;
+        let req = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .presigned(cfg)
+            .await
+            .map_err(|e| BackendError::Other(format!("presign get_object {key}: {e}")))?;
+        Ok(req.uri().to_string())
     }
 }

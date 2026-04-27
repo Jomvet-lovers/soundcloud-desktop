@@ -24,11 +24,4 @@ export const NEWS: NewsItem[] = [
     bodyKey: 'news.discord.body',
     accent: 'sky',
   },
-  {
-    id: 'artist-pro-oauth-2025-03',
-    titleKey: 'news.artistPro.title',
-    descriptionKey: 'news.artistPro.description',
-    bodyKey: 'news.artistPro.body',
-    accent: 'violet',
-  },
 ];

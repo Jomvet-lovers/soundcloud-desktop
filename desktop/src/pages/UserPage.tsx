@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
+import { StarBadge, StarHeroBackground } from '../components/layout/StarSubscription';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
@@ -20,6 +21,7 @@ import {
   useUserLikedTracks,
   useUserPlaylists,
   useUserPopularTracks,
+  useUserSubscription,
   useUserTracks,
   useUserWebProfiles,
 } from '../lib/hooks';
@@ -479,6 +481,7 @@ export function UserPage() {
 
   const { data: user, isLoading: userLoading } = useUser(urn);
   const { data: webProfiles } = useUserWebProfiles(urn);
+  const { data: hasStar } = useUserSubscription(urn);
 
   if (userLoading || !user) {
     return (
@@ -510,7 +513,13 @@ export function UserPage() {
       )}
 
       {/* Hero Section */}
-      <section className="relative rounded-[32px] overflow-hidden bg-white/[0.02] border border-white/[0.05] shadow-2xl">
+      <section
+        className={`relative rounded-[32px] overflow-hidden bg-white/[0.02] shadow-2xl ${
+          hasStar
+            ? 'border border-purple-400/30 shadow-[0_0_60px_rgba(139,92,246,0.18)]'
+            : 'border border-white/[0.05]'
+        }`}
+      >
         {avatar && (
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
             <img
@@ -521,8 +530,12 @@ export function UserPage() {
             <div className="absolute inset-0 bg-gradient-to-b from-[rgb(8,8,10)]/50 via-[rgb(8,8,10)]/40 to-[rgb(8,8,10)]/90" />
           </div>
         )}
+        {hasStar && <StarHeroBackground />}
 
-        <div className="relative flex flex-col md:flex-row items-center md:items-end gap-8 p-8 md:p-10">
+        <div
+          className="relative flex flex-col md:flex-row items-center md:items-end gap-8 p-8 md:p-10"
+          style={{ isolation: 'isolate' }}
+        >
           <div className="w-[180px] h-[180px] md:w-[200px] md:h-[200px] rounded-full overflow-hidden shrink-0 shadow-[0_0_60px_rgba(0,0,0,0.6)] ring-2 ring-white/[0.15] bg-black/40 relative group">
             {avatar ? (
               <img
@@ -538,10 +551,15 @@ export function UserPage() {
           </div>
 
           <div className="flex-1 min-w-0 flex flex-col items-center md:items-start text-center md:text-left">
-            {user.plan && user.plan !== 'Free' && (
-              <span className="inline-block text-[10px] font-extrabold px-3 py-1 rounded-full bg-accent text-accent-contrast ring-1 ring-black/10 shadow-[0_0_20px_var(--color-accent-glow)] mb-4 uppercase tracking-widest">
-                {user.plan}
-              </span>
+            {((user.plan && user.plan !== 'Free') || hasStar) && (
+              <div className="flex items-center flex-wrap justify-center md:justify-start gap-2 mb-4">
+                {user.plan && user.plan !== 'Free' && (
+                  <span className="inline-block text-[10px] font-extrabold px-3 py-1 rounded-full bg-accent text-accent-contrast ring-1 ring-black/10 shadow-[0_0_20px_var(--color-accent-glow)] uppercase tracking-widest">
+                    {user.plan}
+                  </span>
+                )}
+                {hasStar && <StarBadge size="lg" />}
+              </div>
             )}
 
             <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight leading-tight mb-2 drop-shadow-xl">

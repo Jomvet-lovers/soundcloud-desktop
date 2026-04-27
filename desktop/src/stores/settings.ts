@@ -75,6 +75,9 @@ export interface SettingsState {
   discordRpcEnabled: boolean;
   discordRpcMode: DiscordRpcMode;
   discordRpcShowButton: boolean;
+  soundwaveLanguages: string[];
+  soundwaveMode: 'similar' | 'diverse';
+  soundwaveHideLiked: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -99,6 +102,9 @@ export interface SettingsState {
   setDiscordRpcEnabled: (enabled: boolean) => void;
   setDiscordRpcMode: (mode: DiscordRpcMode) => void;
   setDiscordRpcShowButton: (show: boolean) => void;
+  setSoundwaveLanguages: (langs: string[]) => void;
+  setSoundwaveMode: (mode: 'similar' | 'diverse') => void;
+  setSoundwaveHideLiked: (v: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -127,6 +133,9 @@ const DEFAULTS = {
   discordRpcEnabled: true,
   discordRpcMode: 'track' as DiscordRpcMode,
   discordRpcShowButton: true,
+  soundwaveLanguages: [] as string[],
+  soundwaveMode: 'similar' as 'similar' | 'diverse',
+  soundwaveHideLiked: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -178,6 +187,9 @@ export const useSettingsStore = create<SettingsState>()(
       setDiscordRpcEnabled: (discordRpcEnabled) => set({ discordRpcEnabled }),
       setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
+      setSoundwaveLanguages: (soundwaveLanguages) => set({ soundwaveLanguages }),
+      setSoundwaveMode: (soundwaveMode) => set({ soundwaveMode }),
+      setSoundwaveHideLiked: (soundwaveHideLiked) => set({ soundwaveHideLiked }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -192,12 +204,23 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 10,
-      migrate: (persistedState) =>
-        ({
+      version: 14,
+      migrate: (persistedState) => {
+        const prev = (persistedState ?? {}) as Partial<SettingsState> & {
+          soundwaveDiversity?: number;
+        };
+        // v13 → v14: diversity-slider (0..1) → toggle ('similar' | 'diverse').
+        // > 0.5 трактуем как 'diverse', иначе 'similar'.
+        const inferredMode: 'similar' | 'diverse' =
+          typeof prev.soundwaveDiversity === 'number' && prev.soundwaveDiversity > 0.5
+            ? 'diverse'
+            : 'similar';
+        return {
           ...DEFAULTS,
-          ...(persistedState as Partial<SettingsState>),
-        }) as SettingsState,
+          ...prev,
+          soundwaveMode: prev.soundwaveMode ?? inferredMode,
+        } as SettingsState;
+      },
       partialize: (s) => ({
         accentColor: s.accentColor,
         bgPrimary: s.bgPrimary,
@@ -221,6 +244,9 @@ export const useSettingsStore = create<SettingsState>()(
         discordRpcEnabled: s.discordRpcEnabled,
         discordRpcMode: s.discordRpcMode,
         discordRpcShowButton: s.discordRpcShowButton,
+        soundwaveLanguages: s.soundwaveLanguages,
+        soundwaveMode: s.soundwaveMode,
+        soundwaveHideLiked: s.soundwaveHideLiked,
       }),
     },
   ),

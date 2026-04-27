@@ -103,8 +103,7 @@ impl LocalBackend {
             size: meta.len(),
             content_type: Some(super::content_type_for(key).to_string()),
         };
-        let stream = ReaderStream::new(file)
-            .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
+        let stream = ReaderStream::new(file).map(|r| r.map_err(std::io::Error::other));
         Ok((info, Box::pin(stream)))
     }
 }

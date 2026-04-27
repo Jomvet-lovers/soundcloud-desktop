@@ -1,13 +1,16 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use tracing::{info, warn};
 
-use crate::backend::BackendError;
+use crate::backend::{Backend, BackendError};
 use crate::AppState;
+
+const REDIRECT_PRESIGN_EXPIRES: Duration = Duration::from_secs(15 * 60);
 
 fn validate_path(path: &str) -> Result<(), StatusCode> {
     if path.contains("..") || path.starts_with('/') {
@@ -47,6 +50,27 @@ pub async fn serve(
     }
 
     Ok(builder.body(Body::from_stream(stream)).unwrap())
+}
+
+/// GET /redirect/{path} — stable URL for AI pipeline workers.
+/// S3 backend: 307 → freshly-signed presigned URL (worker follows to S3 directly).
+/// Local backend: stream bytes from storage itself.
+pub async fn redirect(
+    State(state): State<Arc<AppState>>,
+    Path(path): Path<String>,
+) -> Result<Response, StatusCode> {
+    validate_path(&path)?;
+
+    match &*state.backend {
+        Backend::S3(s3) => match s3.presign_get(&path, REDIRECT_PRESIGN_EXPIRES).await {
+            Ok(url) => Ok(Redirect::temporary(&url).into_response()),
+            Err(e) => {
+                warn!("[files] redirect presign {path} failed: {e}");
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        },
+        Backend::Local(_) => serve(State(state), Path(path)).await,
+    }
 }
 
 /// HEAD /{path} — existence + size check only (no body download from S3).

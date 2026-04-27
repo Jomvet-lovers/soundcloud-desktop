@@ -22,6 +22,7 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new SoundcloudExceptionFilter());
+  app.enableShutdownHooks();
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('SoundCloud Desktop API')

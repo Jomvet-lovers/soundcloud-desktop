@@ -1,4 +1,6 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Multipart, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -7,8 +9,10 @@ use axum::Json;
 use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
-use crate::transcode::TranscodeError;
+use crate::pipeline::PipelineError;
 use crate::AppState;
+
+const TMP_RESCAN_COOLDOWN: Duration = Duration::from_secs(5);
 
 #[derive(serde::Serialize)]
 pub struct UploadResponse {
@@ -18,12 +22,90 @@ pub struct UploadResponse {
     pub duration_secs: f64,
 }
 
+/// RAII guard — any reserved tmp bytes get released on drop, even on panic / early return.
+struct TmpReservation<'a> {
+    state: &'a AppState,
+    bytes: u64,
+}
+
+impl<'a> TmpReservation<'a> {
+    fn new(state: &'a AppState) -> Self {
+        Self { state, bytes: 0 }
+    }
+
+    /// Try to reserve `n` more bytes. Returns false if reservation would exceed the limit;
+    /// in that case the counter is rolled back and nothing is charged.
+    fn try_add(&mut self, n: u64) -> bool {
+        let Some(limit) = self.state.config.tmp_max_bytes else {
+            self.bytes = self.bytes.saturating_add(n);
+            return true;
+        };
+        let prev = self.state.tmp_used_bytes.fetch_add(n, Ordering::AcqRel);
+        if prev.saturating_add(n) > limit {
+            self.state.tmp_used_bytes.fetch_sub(n, Ordering::AcqRel);
+            return false;
+        }
+        self.bytes = self.bytes.saturating_add(n);
+        true
+    }
+}
+
+impl Drop for TmpReservation<'_> {
+    fn drop(&mut self) {
+        if self.bytes > 0 && self.state.config.tmp_max_bytes.is_some() {
+            self.state
+                .tmp_used_bytes
+                .fetch_sub(self.bytes, Ordering::AcqRel);
+        }
+    }
+}
+
+/// Reconcile the in-memory counter with the real filesystem state.
+/// Needed to recover from external cleanup (manual `rm`, cron janitor) —
+/// otherwise the counter stays artificially high forever.
+async fn rescan_tmp_usage(state: &AppState) {
+    let Ok(mut guard) = state.tmp_rescan_lock.try_lock() else {
+        return;
+    };
+    if guard.elapsed() < TMP_RESCAN_COOLDOWN {
+        return;
+    }
+    let pre = state.tmp_used_bytes.load(Ordering::Acquire);
+    let disk = match dir_size_bytes(&state.config.source_path()).await {
+        Ok(n) => n,
+        Err(e) => {
+            warn!("[tmp-rescan] walk failed: {e}");
+            *guard = Instant::now();
+            return;
+        }
+    };
+    if pre > disk {
+        let recovered = pre - disk;
+        state
+            .tmp_used_bytes
+            .fetch_sub(recovered, Ordering::AcqRel);
+        info!(
+            "[tmp-rescan] recovered {:.2} MiB (counter {} → ~{} bytes)",
+            recovered as f64 / (1024.0 * 1024.0),
+            pre,
+            pre - recovered,
+        );
+    }
+    *guard = Instant::now();
+}
+
 pub async fn upload(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Auth
+    if state.config.disable_upload {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "upload disabled on this host".into(),
+        ));
+    }
+
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -34,9 +116,10 @@ pub async fn upload(
         return Err((StatusCode::FORBIDDEN, "invalid token".into()));
     }
 
-    // Parse multipart: expect "file" field and optional "filename" field
     let mut filename: Option<String> = None;
     let mut tmp_file_path: Option<std::path::PathBuf> = None;
+    let mut reservation = TmpReservation::new(&state);
+    let source_dir = state.config.source_path();
 
     while let Some(field) = multipart
         .next_field()
@@ -55,10 +138,9 @@ pub async fn upload(
                 );
             }
             "file" => {
-                // Stream to /tmp — don't buffer entire file in RAM
                 let id = uuid::Uuid::new_v4();
                 let tmp_path =
-                    std::path::PathBuf::from(&state.config.tmp_path).join(format!("{id}.input"));
+                    std::path::PathBuf::from(&source_dir).join(format!("{id}.input"));
 
                 let mut file = tokio::fs::File::create(&tmp_path).await.map_err(|e| {
                     (
@@ -67,13 +149,24 @@ pub async fn upload(
                     )
                 })?;
 
-                // Stream chunks to disk
                 let mut stream = field;
                 let mut total: u64 = 0;
                 loop {
                     match stream.chunk().await {
                         Ok(Some(chunk)) => {
-                            total += chunk.len() as u64;
+                            let n = chunk.len() as u64;
+                            if !reservation.try_add(n) {
+                                rescan_tmp_usage(&state).await;
+                                if !reservation.try_add(n) {
+                                    drop(file);
+                                    let _ = tokio::fs::remove_file(&tmp_path).await;
+                                    return Err((
+                                        StatusCode::INSUFFICIENT_STORAGE,
+                                        "tmp quota exceeded".into(),
+                                    ));
+                                }
+                            }
+                            total += n;
                             file.write_all(&chunk).await.map_err(|e| {
                                 (StatusCode::INTERNAL_SERVER_ERROR, format!("write tmp: {e}"))
                             })?;
@@ -106,14 +199,12 @@ pub async fn upload(
     let tmp_path = tmp_file_path.ok_or((StatusCode::BAD_REQUEST, "missing file field".into()))?;
     let filename = filename
         .or_else(|| {
-            // Fallback: derive from tmp path
             tmp_path
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
         })
         .ok_or((StatusCode::BAD_REQUEST, "missing filename".into()))?;
 
-    // Sanitize filename
     let filename = sanitize_filename(&filename);
     if filename.is_empty() {
         let _ = tokio::fs::remove_file(&tmp_path).await;
@@ -123,49 +214,37 @@ pub async fn upload(
     let file_lock = state.file_lock(&filename);
     let _file_guard = file_lock.lock().await;
 
-    // Acquire transcode semaphore — limits concurrent CPU load
-    let _permit = state.transcode_sem.acquire().await.map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "transcode unavailable".into(),
-        )
-    })?;
+    let result = state.pipeline.submit(tmp_path, filename.clone()).await;
+    drop(reservation);
 
-    // Transcode
-    let result = match crate::transcode::transcode(
-        &tmp_path,
-        &filename,
-        &state.backend,
-        &state.config.tmp_path,
-        &state.config.ffmpeg_bin,
-        &state.config.ffprobe_bin,
-    )
-    .await
-    {
-        Ok(result) => Ok(result),
-        Err(TranscodeError::TrackTooShort { duration_secs, .. }) => {
+    let output = match result {
+        Ok(out) => out,
+        Err(PipelineError::TrackTooShort { duration_secs, .. }) => {
             info!("[upload] skipped short track {filename}: {duration_secs:.3}s");
-            Err((
+            return Err((
                 StatusCode::CONFLICT,
                 format!("transcode skipped: short track ({duration_secs:.3}s)"),
-            ))
+            ));
         }
-        Err(e) => {
-            warn!("[upload] transcode failed for {filename}: {e}");
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("transcode: {e}")))
+        Err(PipelineError::Ffmpeg(msg)) => {
+            warn!("[upload] ffmpeg failed for {filename}: {msg}");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("transcode: {msg}")));
+        }
+        Err(PipelineError::Backend(msg)) => {
+            warn!("[upload] backend failed for {filename}: {msg}");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("backend: {msg}")));
+        }
+        Err(PipelineError::Internal(msg)) => {
+            warn!("[upload] internal failure for {filename}: {msg}");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("internal: {msg}")));
         }
     };
-
-    // Always cleanup tmp
-    let _ = tokio::fs::remove_file(&tmp_path).await;
-
-    let result = result?;
 
     Ok(Json(UploadResponse {
         filename: filename.clone(),
         hq_path: format!("hq/{filename}.ogg"),
         sq_path: format!("sq/{filename}.ogg"),
-        duration_secs: result.duration_secs,
+        duration_secs: output.duration_secs,
     }))
 }
 
@@ -175,4 +254,28 @@ fn sanitize_filename(s: &str) -> String {
         .collect::<String>()
         .trim_matches('.')
         .to_string()
+}
+
+/// Recursive walk — intended for one-shot startup seeding only. NEVER call on the hot path.
+pub async fn dir_size_bytes(path: &str) -> std::io::Result<u64> {
+    let mut total: u64 = 0;
+    let mut stack: Vec<std::path::PathBuf> = vec![std::path::PathBuf::from(path)];
+    while let Some(dir) = stack.pop() {
+        let mut rd = match tokio::fs::read_dir(&dir).await {
+            Ok(rd) => rd,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
+        while let Some(entry) = rd.next_entry().await? {
+            let ft = entry.file_type().await?;
+            if ft.is_dir() {
+                stack.push(entry.path());
+            } else if ft.is_file() {
+                if let Ok(meta) = entry.metadata().await {
+                    total = total.saturating_add(meta.len());
+                }
+            }
+        }
+    }
+    Ok(total)
 }

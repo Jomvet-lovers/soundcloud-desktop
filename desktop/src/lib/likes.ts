@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
+import { recordEvent } from './events';
 
 interface TrackListResponse {
   collection: Track[];
@@ -60,6 +61,9 @@ export function useLiked(urn: string): boolean {
 export function optimisticToggleLike(qc: QueryClient, track: Track, nowLiked: boolean) {
   // Update global liked URNs
   setLikedUrn(track.urn, nowLiked);
+
+  // Record like event for SoundWave taste model (only on positive transition)
+  if (nowLiked) recordEvent('like', track.urn);
 
   // Update favorites count in auth store
   const { user } = useAuthStore.getState();

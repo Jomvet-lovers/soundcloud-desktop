@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
-import { CopyLinkButton } from '../components/ui/CopyLinkButton';
+import { SoundWaveSimilarBlock } from '../components/music/soundwave';
 import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
 import { downloadTrack } from '../lib/cache';
@@ -20,6 +20,7 @@ import {
 } from '../lib/hooks';
 import {
   Calendar,
+  Check,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -27,6 +28,7 @@ import {
   Hash,
   Headphones,
   Heart,
+  LinkIcon,
   ListPlus,
   Loader2,
   MessageCircle,
@@ -57,9 +59,49 @@ function parseTags(tagList?: string): string[] {
   return tags;
 }
 
-/* ── Like Button ─────────────────────────────────────────── */
+/* ── Engagement chip (Like / Repost) — compact icon+count ──── */
+
+const EngagementChip = React.memo(function EngagementChip({
+  active,
+  activeTone,
+  icon,
+  count,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  /** 'accent' → accent color, 'emerald' → repost-green */
+  activeTone: 'accent' | 'emerald';
+  icon: React.ReactNode;
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  const tone = activeTone === 'accent' ? 'text-accent' : 'text-emerald-400';
+  const toneBg =
+    activeTone === 'accent'
+      ? 'bg-accent/15 border-accent/25 shadow-[0_0_16px_rgba(255,85,0,0.18)]'
+      : 'bg-emerald-500/15 border-emerald-500/25';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      className={`inline-flex items-center gap-1.5 px-3 h-10 rounded-xl text-[12.5px] font-semibold tabular-nums transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer border ${
+        active
+          ? `${toneBg} ${tone}`
+          : 'bg-white/[0.04] border-white/[0.06] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.1]'
+      }`}
+    >
+      {icon}
+      <span>{fc(count)}</span>
+    </button>
+  );
+});
 
 const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: number }) => {
+  const { t } = useTranslation();
   const liked = useLiked(trackUrn);
   const [localCount, setLocalCount] = useState(count ?? 0);
   const qc = useQueryClient();
@@ -88,24 +130,21 @@ const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: num
   };
 
   return (
-    <button
-      type="button"
+    <EngagementChip
+      active={liked}
+      activeTone="accent"
+      icon={<Heart size={14} fill={liked ? 'currentColor' : 'none'} />}
+      count={localCount}
+      label={t('track.likes')}
       onClick={toggle}
-      className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
-        liked
-          ? 'bg-accent/15 text-accent border border-accent/20 shadow-[0_0_20px_rgba(255,85,0,0.1)]'
-          : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
-      }`}
-    >
-      <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
-      <span className="tabular-nums">{fc(localCount)}</span>
-    </button>
+    />
   );
 });
 
 /* ── Repost Button ───────────────────────────────────────── */
 
 const RepostBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: number }) => {
+  const { t } = useTranslation();
   const [reposted, setReposted] = useState(false);
   const [localCount, setLocalCount] = useState(count ?? 0);
 
@@ -124,17 +163,89 @@ const RepostBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: n
   };
 
   return (
+    <EngagementChip
+      active={reposted}
+      activeTone="emerald"
+      icon={<Repeat2 size={14} />}
+      count={localCount}
+      label={t('track.reposts')}
+      onClick={toggle}
+    />
+  );
+});
+
+/* ── Icon-only action button (for the utility rail) ───────── */
+
+const IconAction = React.memo(function IconAction({
+  icon,
+  label,
+  onClick,
+  danger,
+  active,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  danger?: boolean;
+  active?: boolean;
+}) {
+  const base =
+    'inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer';
+  const tone = danger
+    ? 'text-white/55 hover:text-red-400 hover:bg-red-500/10'
+    : active
+      ? 'text-accent bg-accent/15'
+      : 'text-white/60 hover:text-white/95 hover:bg-white/[0.07]';
+  return (
     <button
       type="button"
-      onClick={toggle}
-      className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
-        reposted
-          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-          : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`${base} ${tone}`}
+    >
+      {icon}
+    </button>
+  );
+});
+
+/* ── Copy-link icon button (inline, so it fits the rail) ── */
+
+const CopyIconAction = React.memo(function CopyIconAction({ url }: { url: string | undefined }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!url) return;
+    try {
+      const u = new URL(url);
+      u.searchParams.delete('utm_medium');
+      u.searchParams.delete('utm_campaign');
+      u.searchParams.delete('utm_source');
+      const clean = u.toString().replace(/\?$/, '');
+      navigator.clipboard.writeText(clean);
+    } catch {
+      navigator.clipboard.writeText(url);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  if (!url) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? t('auth.copied') : t('auth.copyLink')}
+      aria-label={copied ? t('auth.copied') : t('auth.copyLink')}
+      className={`inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+        copied
+          ? 'text-emerald-400 bg-emerald-500/12'
+          : 'text-white/60 hover:text-white/95 hover:bg-white/[0.07]'
       }`}
     >
-      <Repeat2 size={16} />
-      <span className="tabular-nums">{fc(localCount)}</span>
+      {copied ? <Check size={16} /> : <LinkIcon size={16} />}
     </button>
   );
 });
@@ -291,7 +402,7 @@ const RelatedRow = React.memo(
   (prev, next) => prev.track.urn === next.track.urn,
 );
 
-/* ── Download Button ─────────────────────────────────────── */
+/* ── Download — icon-only in the rail ───────────────────── */
 
 const DownloadButton = React.memo(({ track }: { track: Track }) => {
   const { t } = useTranslation();
@@ -317,10 +428,11 @@ const DownloadButton = React.memo(({ track }: { track: Track }) => {
       type="button"
       onClick={handleDownload}
       disabled={loading}
-      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer disabled:opacity-50"
+      title={t('track.download')}
+      aria-label={t('track.download')}
+      className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer disabled:opacity-50"
     >
       {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-      {t('track.download')}
     </button>
   );
 });
@@ -473,43 +585,62 @@ export const TrackPage = React.memo(() => {
               </span>
             </div>
 
-            {/* Action buttons */}
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {/* Main play button */}
+            {/* ── Action bar: primary + engagement chips + icon rail ── */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Primary Play */}
               <button
                 type="button"
                 onClick={handlePlay}
-                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_20px_var(--color-accent-glow)] ${
+                className={`inline-flex items-center gap-2 pl-4 pr-5 h-11 rounded-2xl text-[14px] font-semibold transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-[0.97] ${
                   isThisPlaying
-                    ? 'bg-white text-black hover:bg-white/90'
-                    : 'bg-accent text-accent-contrast hover:bg-accent-hover active:scale-[0.97]'
+                    ? 'bg-white text-black hover:bg-white/95'
+                    : 'bg-accent text-accent-contrast hover:bg-accent-hover'
                 }`}
+                style={{
+                  boxShadow:
+                    '0 8px 28px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.22)',
+                }}
               >
                 {isThisPlaying ? pauseCurrent16 : playCurrent16}
-                {isThisPlaying ? 'Pause' : 'Play'}
+                {isThisPlaying ? t('track.pause') : t('track.play')}
               </button>
 
-              <LikeBtn trackUrn={track.urn} count={track.favoritings_count ?? track.likes_count} />
-              <RepostBtn trackUrn={track.urn} count={track.reposts_count} />
-              <button
-                type="button"
-                onClick={() => openLyrics('lyrics')}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer"
+              {/* Engagement chips */}
+              <div className="flex items-center gap-1.5">
+                <LikeBtn
+                  trackUrn={track.urn}
+                  count={track.favoritings_count ?? track.likes_count}
+                />
+                <RepostBtn trackUrn={track.urn} count={track.reposts_count} />
+              </div>
+
+              {/* Utility rail: glass container with icon-only actions */}
+              <div
+                className="flex items-center gap-0.5 h-11 px-1.5 rounded-2xl"
+                style={{
+                  background: 'rgba(255,255,255,0.035)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                }}
               >
-                <Music size={16} />
-                {t('track.lyrics')}
-              </button>
-              <AddToPlaylistDialog trackUrns={[track.urn]}>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 cursor-pointer"
-                >
-                  <ListPlus size={16} />
-                  {t('playlist.addToPlaylist')}
-                </button>
-              </AddToPlaylistDialog>
-              <CopyLinkButton url={track.permalink_url} />
-              <DownloadButton track={track} />
+                <IconAction
+                  icon={<Music size={16} />}
+                  label={t('track.lyrics')}
+                  onClick={() => openLyrics('lyrics')}
+                />
+                <span className="w-px h-5 bg-white/[0.08] mx-0.5" aria-hidden />
+                <AddToPlaylistDialog trackUrns={[track.urn]}>
+                  <button
+                    type="button"
+                    title={t('playlist.addToPlaylist')}
+                    aria-label={t('playlist.addToPlaylist')}
+                    className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer"
+                  >
+                    <ListPlus size={16} />
+                  </button>
+                </AddToPlaylistDialog>
+                <CopyIconAction url={track.permalink_url} />
+                <DownloadButton track={track} />
+              </div>
             </div>
           </div>
         </div>
@@ -544,6 +675,9 @@ export const TrackPage = React.memo(() => {
           <span className="tabular-nums">{durLong(track.duration)}</span>
         </div>
       </section>
+
+      {/* ── SoundWave similar block ──────────────────── */}
+      <SoundWaveSimilarBlock trackUrn={track.urn} />
 
       {/* ── Two-column layout ────────────────────────── */}
       <div className="grid grid-cols-[1fr_320px] gap-6">

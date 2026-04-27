@@ -13,6 +13,7 @@ Thumbs.db
 src-tauri/target/
 streaming/target
 storage/target
+tls-common/target
 
 storage/data
 streaming/data

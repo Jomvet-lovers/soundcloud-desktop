@@ -1,0 +1,32 @@
+# GPU-вариант воркера. Использовать так:
+#   в docker-compose-dev.yml → worker.build.dockerfile: Dockerfile.gpu
+#   на хосте должен быть nvidia-container-toolkit + GPU runtime.
+# На CPU-only хосте использовать обычный Dockerfile.
+FROM docker.io/nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3.11-distutils \
+    ffmpeg libsndfile1 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3.11
+
+COPY requirements.txt .
+# torch/torchaudio — pre-built CUDA-колёса с pytorch.org.
+RUN python -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu121 \
+    torch==2.6.0 torchaudio==2.6.0 \
+ && python -m pip install --no-cache-dir -r requirements.txt \
+ && python -m pip install --no-cache-dir "bitsandbytes>=0.43.0" \
+ && python -c "import sys; print('python:', sys.executable, sys.version)" \
+ && python -c "import nats, torch, bitsandbytes; print('imports OK')"
+
+COPY src ./src
+
+ENV HF_HOME=/models
+ENV PYTHONUNBUFFERED=1
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.8,max_split_size_mb:512
+VOLUME ["/models"]
+
+CMD ["python", "-m", "src.main"]

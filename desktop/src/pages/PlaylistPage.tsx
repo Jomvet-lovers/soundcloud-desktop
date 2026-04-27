@@ -18,7 +18,6 @@ import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { BulkDownloadButton } from '../components/music/BulkDownloadButton';
 import { LikeButton } from '../components/music/LikeButton';
-import { CopyLinkButton } from '../components/ui/CopyLinkButton';
 import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
@@ -33,11 +32,13 @@ import {
 import {
   AlertCircle,
   Calendar,
+  Check,
   Clock,
   GripVertical,
   Heart,
   headphones9,
   heart9,
+  LinkIcon,
   ListMusic,
   Loader2,
   MapPin,
@@ -57,10 +58,11 @@ import { useAuthStore } from '../stores/auth';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 
-/* ── Playlist Like Button ─────────────────────────────────── */
+/* ── Playlist Like chip (compact icon+count) ─────────────── */
 
 const PlaylistLikeBtn = React.memo(
   ({ playlistUrn, count }: { playlistUrn: string; count?: number }) => {
+    const { t } = useTranslation();
     const { data: likeStatus } = useQuery({
       queryKey: ['likes', 'playlist', playlistUrn],
       queryFn: () => api<{ liked: boolean }>(`/likes/playlists/${encodeURIComponent(playlistUrn)}`),
@@ -100,18 +102,60 @@ const PlaylistLikeBtn = React.memo(
       <button
         type="button"
         onClick={toggle}
-        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+        title={t('track.likes')}
+        className={`inline-flex items-center gap-1.5 px-3 h-10 rounded-xl text-[12.5px] font-semibold tabular-nums transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer border ${
           liked
-            ? 'bg-accent/15 text-accent border border-accent/20 shadow-[0_0_20px_rgba(255,85,0,0.1)]'
-            : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
+            ? 'bg-accent/15 text-accent border-accent/25 shadow-[0_0_16px_rgba(255,85,0,0.18)]'
+            : 'bg-white/[0.04] border-white/[0.06] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.1]'
         }`}
       >
-        <Heart size={16} fill={liked ? 'currentColor' : 'none'} />
-        <span className="tabular-nums">{fc(localCount)}</span>
+        <Heart size={14} fill={liked ? 'currentColor' : 'none'} />
+        <span>{fc(localCount)}</span>
       </button>
     );
   },
 );
+
+/* ── Copy-link icon button (inline for the rail) ────────── */
+
+const CopyIconAction = React.memo(function CopyIconAction({ url }: { url: string | undefined }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!url) return;
+    try {
+      const u = new URL(url);
+      u.searchParams.delete('utm_medium');
+      u.searchParams.delete('utm_campaign');
+      u.searchParams.delete('utm_source');
+      const clean = u.toString().replace(/\?$/, '');
+      navigator.clipboard.writeText(clean);
+    } catch {
+      navigator.clipboard.writeText(url);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  };
+
+  if (!url) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? t('auth.copied') : t('auth.copyLink')}
+      aria-label={copied ? t('auth.copied') : t('auth.copyLink')}
+      className={`inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+        copied
+          ? 'text-emerald-400 bg-emerald-500/12'
+          : 'text-white/60 hover:text-white/95 hover:bg-white/[0.07]'
+      }`}
+    >
+      {copied ? <Check size={16} /> : <LinkIcon size={16} />}
+    </button>
+  );
+});
 
 /* ── Sortable Track Row ───────────────────────────────────── */
 
@@ -604,54 +648,81 @@ export const PlaylistPage = React.memo(() => {
               </span>
             </div>
 
-            {/* Action buttons */}
-            <div className="flex items-center gap-2.5 flex-wrap">
+            {/* ── Action bar: primary + secondary chips + icon rail ── */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Primary Play All */}
               <button
                 type="button"
                 onClick={handlePlayAll}
-                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_20px_var(--color-accent-glow)] ${
+                className={`inline-flex items-center gap-2 pl-4 pr-5 h-11 rounded-2xl text-[14px] font-semibold transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-[0.97] ${
                   isPlayingFromThis
-                    ? 'bg-white text-black hover:bg-white/90'
-                    : 'bg-accent text-accent-contrast hover:bg-accent-hover active:scale-[0.97]'
+                    ? 'bg-white text-black hover:bg-white/95'
+                    : 'bg-accent text-accent-contrast hover:bg-accent-hover'
                 }`}
+                style={{
+                  boxShadow:
+                    '0 8px 28px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.22)',
+                }}
               >
                 {isPlayingFromThis ? pauseCurrent16 : playCurrent16}
                 {t('playlist.playAll')}
               </button>
 
-              <button
-                type="button"
-                onClick={handleShuffle}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-white/[0.05] text-white/60 hover:text-white/80 transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer"
-              >
-                <Shuffle size={16} />
-                {t('playlist.shuffle')}
-              </button>
-              <button
-                type="button"
-                onClick={handleTogglePin}
-                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
-                  isPinned
-                    ? 'bg-white/[0.08] text-white/85 border border-white/[0.12]'
-                    : 'glass hover:bg-white/[0.05] text-white/60 hover:text-white/80'
-                }`}
-              >
-                <MapPin size={16} />
-                {isPinned ? t('sidebar.unpinPlaylist') : t('sidebar.pinPlaylist')}
-              </button>
-              <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
-              <BulkDownloadButton cacheKey={`playlist:${playlist.urn}`} getTracks={() => tracks} />
-              <CopyLinkButton url={playlist.permalink_url} />
-              {isOwner && (
+              {/* Secondary chips: Shuffle, Pin, Like(count) */}
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium glass hover:bg-red-500/10 text-white/40 hover:text-red-400 transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer"
+                  onClick={handleShuffle}
+                  title={t('playlist.shuffle')}
+                  className="inline-flex items-center gap-1.5 px-3 h-10 rounded-xl text-[12.5px] font-semibold transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer border bg-white/[0.04] border-white/[0.06] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.1]"
                 >
-                  <Trash2 size={16} />
-                  {t('playlist.delete')}
+                  <Shuffle size={14} />
+                  <span>{t('playlist.shuffle')}</span>
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={handleTogglePin}
+                  title={isPinned ? t('sidebar.unpinPlaylist') : t('sidebar.pinPlaylist')}
+                  className={`inline-flex items-center justify-center w-10 h-10 rounded-xl border transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+                    isPinned
+                      ? 'bg-accent/15 border-accent/25 text-accent shadow-[0_0_16px_rgba(255,85,0,0.18)]'
+                      : 'bg-white/[0.04] border-white/[0.06] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.1]'
+                  }`}
+                >
+                  <MapPin size={15} />
+                </button>
+                <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
+              </div>
+
+              {/* Utility rail */}
+              <div
+                className="flex items-center gap-0.5 h-11 px-1.5 rounded-2xl"
+                style={{
+                  background: 'rgba(255,255,255,0.035)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                }}
+              >
+                <BulkDownloadButton
+                  cacheKey={`playlist:${playlist.urn}`}
+                  getTracks={() => tracks}
+                  variant="icon"
+                />
+                <CopyIconAction url={playlist.permalink_url} />
+                {isOwner && (
+                  <>
+                    <span className="w-px h-5 bg-white/[0.08] mx-0.5" aria-hidden />
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      title={t('playlist.delete')}
+                      aria-label={t('playlist.delete')}
+                      className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/55 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 cursor-pointer"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

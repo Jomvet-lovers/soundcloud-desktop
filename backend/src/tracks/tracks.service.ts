@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
@@ -12,8 +12,6 @@ import type {
 
 @Injectable()
 export class TracksService {
-  private readonly logger = new Logger(TracksService.name);
-
   constructor(
     private readonly sc: SoundcloudService,
     private readonly localLikes: LocalLikesService,

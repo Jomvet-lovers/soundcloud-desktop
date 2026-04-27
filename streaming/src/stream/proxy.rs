@@ -2,7 +2,7 @@ use base64::Engine;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::warn;
+use tracing::debug;
 
 const MAX_RETRIES: usize = 3;
 const RETRY_DELAYS: [u64; 3] = [300, 800, 2000];
@@ -56,11 +56,24 @@ pub async fn proxy_get_bytes(
                         .iter()
                         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                         .collect();
-                    let body = resp.bytes().await?;
-                    return Ok((body, resp_headers));
+                    match resp.bytes().await {
+                        Ok(body) => return Ok((body, resp_headers)),
+                        Err(e) => {
+                            debug!("proxy GET {target_url} body read failed: {e}, attempt {attempt}");
+                            last_err = Some(e);
+                            if attempt < MAX_RETRIES {
+                                tokio::time::sleep(Duration::from_millis(
+                                    RETRY_DELAYS.get(attempt).copied().unwrap_or(2000),
+                                ))
+                                .await;
+                                continue;
+                            }
+                            break;
+                        }
+                    }
                 }
                 if is_retryable_status(status) {
-                    warn!("proxy GET {target_url} → {status}, attempt {attempt}");
+                    debug!("proxy GET {target_url} → {status}, attempt {attempt}");
                     if attempt < MAX_RETRIES {
                         tokio::time::sleep(Duration::from_millis(
                             RETRY_DELAYS.get(attempt).copied().unwrap_or(2000),

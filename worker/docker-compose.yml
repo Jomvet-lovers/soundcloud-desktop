@@ -1,0 +1,61 @@
+name: soundcloud-worker
+
+# Два профиля: CPU и GPU. Запуск:
+#   podman compose --profile cpu up -d      # CPU-only хост
+#   podman compose --profile gpu up -d      # GPU-хост (nvidia-container-toolkit)
+#
+# Разные builds (Dockerfile vs Dockerfile.gpu) — чтобы torch с CUDA ставился
+# только там, где это нужно.
+#
+# Env WORKER_DEVICE при желании можно форсировать (cpu|cuda), иначе автодетект.
+
+x-worker-common: &worker-common
+  restart: always
+  environment: &worker-env
+    NATS_URL: ${NATS_URL}
+    QDRANT_URL: ${QDRANT_URL}
+    QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+    TASK_HARD_TIMEOUT_SEC: ${TASK_HARD_TIMEOUT_SEC:-120}
+    TASK_HEARTBEAT_SEC: ${TASK_HEARTBEAT_SEC:-10}
+    MINI_MODEL: ${MINI_MODEL:-google/gemma-4-E2B-it}
+    WHISPER_MODEL: ${WHISPER_MODEL:-medium}
+    DEMUCS_MODEL: ${DEMUCS_MODEL:-htdemucs}
+  volumes:
+    - models:/models
+  command: python -m src.main
+
+services:
+  worker-cpu:
+    <<: *worker-common
+    profiles: ["cpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      <<: *worker-env
+      WORKER_DEVICE: cpu
+      WHISPER_COMPUTE: ${WHISPER_COMPUTE:-int8}
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+
+  worker-gpu:
+    <<: *worker-common
+    profiles: ["gpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    environment:
+      <<: *worker-env
+      WORKER_DEVICE: cuda
+      WHISPER_COMPUTE: ${WHISPER_COMPUTE:-float16}
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  models:

@@ -159,6 +159,7 @@ export default function App() {
       <Toaster
         theme="dark"
         position="top-right"
+        offset={48}
         toastOptions={{
           style: {
             background: 'rgba(30, 30, 34, 0.9)',

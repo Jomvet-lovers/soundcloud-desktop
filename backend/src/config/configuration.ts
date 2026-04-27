@@ -27,4 +27,20 @@ export default () => ({
   admin: {
     token: process.env.ADMIN_TOKEN || '',
   },
+  qdrant: {
+    url: process.env.QDRANT_URL || 'http://localhost:6333',
+    apiKey: process.env.QDRANT_API_KEY || '',
+  },
+  nats: {
+    url: process.env.NATS_URL || 'nats://localhost:4222',
+  },
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+  },
+  storage: {
+    url: process.env.STORAGE_URL || 'http://localhost:3002',
+  },
+  internal: {
+    token: process.env.INTERNAL_TOKEN || '',
+  },
 });

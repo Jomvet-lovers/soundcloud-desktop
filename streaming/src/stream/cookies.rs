@@ -2,10 +2,10 @@ use bytes::Bytes;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::anon::{AnonClient, Transcoding};
-use super::hls::download_hls_full;
+use super::hls::{download_hls_full, download_progressive};
 use super::proxy::{proxy_get_json, proxy_get_text};
 
 const FAILURE_THRESHOLD: u32 = 3;
@@ -69,7 +69,7 @@ impl CookiesClient {
         let permalink = match track.permalink_url {
             Some(ref p) => p.clone(),
             None => {
-                warn!("[cookies] no permalink for {track_id}");
+                debug!("[cookies] no permalink for {track_id}");
                 return Ok(None);
             }
         };
@@ -83,7 +83,7 @@ impl CookiesClient {
         let transcodings = match sound.media.and_then(|m| m.transcodings) {
             Some(t) if !t.is_empty() => t,
             _ => {
-                warn!("[cookies] no transcodings for {track_id}");
+                debug!("[cookies] no transcodings for {track_id}");
                 self.record_failure();
                 return Ok(None);
             }
@@ -98,11 +98,11 @@ impl CookiesClient {
             .collect();
 
         if full.is_empty() {
-            warn!("[cookies] no full transcodings for {track_id}");
+            debug!("[cookies] no full transcodings for {track_id}");
             return Ok(None);
         }
 
-        // Sort: HQ non-encrypted → HQ encrypted → SQ non-encrypted → SQ encrypted
+        // Sort: progressive before HLS within each tier, non-encrypted before encrypted
         let is_encrypted = |t: &&Transcoding| {
             t.format
                 .as_ref()
@@ -110,16 +110,28 @@ impl CookiesClient {
                 .unwrap_or("")
                 .contains("encrypted")
         };
-
+        let is_progressive = |t: &&Transcoding| {
+            t.format
+                .as_ref()
+                .and_then(|f| f.protocol.as_deref())
+                == Some("progressive")
+        };
         let is_hq = |t: &&Transcoding| t.quality.as_deref() == Some("hq");
 
-        // hq_only=true:  HQ non-enc → HQ enc
-        // hq_only=false: HQ non-enc → HQ enc → SQ non-enc → SQ enc
+        // Tiers (safest first): HQ progressive → HQ hls → HQ enc → SQ progressive → SQ hls → SQ enc
         let mut ordered: Vec<&Transcoding> = Vec::with_capacity(full.len());
-        ordered.extend(full.iter().filter(|t| is_hq(t) && !is_encrypted(t)));
+        ordered.extend(full.iter().filter(|t| is_hq(t) && is_progressive(t)));
+        ordered.extend(
+            full.iter()
+                .filter(|t| is_hq(t) && !is_progressive(t) && !is_encrypted(t)),
+        );
         ordered.extend(full.iter().filter(|t| is_hq(t) && is_encrypted(t)));
         if !hq_only {
-            ordered.extend(full.iter().filter(|t| !is_hq(t) && !is_encrypted(t)));
+            ordered.extend(full.iter().filter(|t| !is_hq(t) && is_progressive(t)));
+            ordered.extend(
+                full.iter()
+                    .filter(|t| !is_hq(t) && !is_progressive(t) && !is_encrypted(t)),
+            );
             ordered.extend(full.iter().filter(|t| !is_hq(t) && is_encrypted(t)));
         }
 
@@ -129,14 +141,9 @@ impl CookiesClient {
             } else {
                 "sq"
             };
-            let mime = transcoding
-                .format
-                .as_ref()
-                .and_then(|f| f.mime_type.as_deref())
-                .unwrap_or("audio/mpeg");
 
             match self
-                .try_transcoding(&transcoding.url, &track_auth, &client_id, mime)
+                .try_transcoding(transcoding, &track_auth, &client_id)
                 .await
             {
                 Ok((data, content_type)) => {
@@ -148,7 +155,7 @@ impl CookiesClient {
                     }));
                 }
                 Err(e) => {
-                    warn!(
+                    debug!(
                         "[cookies] transcoding {} failed: {e}",
                         transcoding.preset.as_deref().unwrap_or("?")
                     );
@@ -162,11 +169,11 @@ impl CookiesClient {
 
     async fn try_transcoding(
         &self,
-        transcoding_url: &str,
+        transcoding: &Transcoding,
         track_auth: &str,
         client_id: &str,
-        mime: &str,
     ) -> Result<(Bytes, &'static str), Box<dyn std::error::Error + Send + Sync>> {
+        let transcoding_url = &transcoding.url;
         let sep = if transcoding_url.contains('?') {
             "&"
         } else {
@@ -195,14 +202,37 @@ impl CookiesClient {
 
         let resp: ResolveResp =
             proxy_get_json(&self.client, &self.proxy_url, &target, headers).await?;
-        download_hls_full(
-            &self.client,
-            &self.proxy_url,
-            &resp.url,
-            mime,
-            HashMap::new(),
-        )
-        .await
+
+        let mime = transcoding
+            .format
+            .as_ref()
+            .and_then(|f| f.mime_type.as_deref())
+            .unwrap_or("audio/mpeg");
+        let is_progressive = transcoding
+            .format
+            .as_ref()
+            .and_then(|f| f.protocol.as_deref())
+            == Some("progressive");
+
+        if is_progressive {
+            download_progressive(
+                &self.client,
+                &self.proxy_url,
+                &resp.url,
+                mime,
+                HashMap::new(),
+            )
+            .await
+        } else {
+            download_hls_full(
+                &self.client,
+                &self.proxy_url,
+                &resp.url,
+                mime,
+                HashMap::new(),
+            )
+            .await
+        }
     }
 
     async fn fetch_hydration(&self, permalink_url: &str) -> Option<(CookieHydrationSound, String)> {
@@ -222,8 +252,12 @@ impl CookiesClient {
 
     fn record_failure(&self) {
         let prev = self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-        if prev + 1 >= FAILURE_THRESHOLD {
-            warn!("[cookies] consecutive failures: {}", prev + 1);
+        let n = prev + 1;
+        // Log at threshold, then every 25 failures to indicate sustained degradation.
+        if n == FAILURE_THRESHOLD || (n > FAILURE_THRESHOLD && n % 25 == 0) {
+            warn!("[cookies] consecutive failures: {n}");
+        } else {
+            debug!("[cookies] consecutive failures: {n}");
         }
     }
 

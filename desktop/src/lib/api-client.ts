@@ -63,7 +63,7 @@ function resolveApiBases(path: string): string[] {
 function fetchWithTimeout(
   url: string,
   options: RequestInit,
-  timeoutMs = 10_000,
+  timeoutMs: number = 10_000,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -87,7 +87,11 @@ function handleApiError(err: ApiError): void {
 
 // ─── Main API client ────────────────────────────────────────
 
-export async function apiRequest<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+export async function apiRequest<T = unknown>(
+  path: string,
+  options: RequestInit = {},
+  timeoutMs?: number,
+): Promise<T> {
   const headers = new Headers(options.headers);
   if (sessionId) headers.set('x-session-id', sessionId);
   if (!headers.has('Content-Type') && options.body) headers.set('Content-Type', 'application/json');
@@ -102,7 +106,10 @@ export async function apiRequest<T = unknown>(path: string, options: RequestInit
     const base = bases[i];
     const url = `${base}${path}`;
     try {
-      const res = await trackAsync(`http:${label}`, fetchWithTimeout(url, { ...options, headers }));
+      const res = await trackAsync(
+        `http:${label}`,
+        fetchWithTimeout(url, { ...options, headers }, timeoutMs),
+      );
 
       markHealthy(base);
       useAppStatusStore.getState().setBackendReachable(true);

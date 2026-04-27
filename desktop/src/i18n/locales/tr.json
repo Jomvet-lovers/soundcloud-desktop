@@ -65,13 +65,22 @@
     "commentAt": "su zamanda",
     "lyrics": "Sarki sozleri",
     "lyricsNotFound": "Sarki sozleri bulunamadi",
-    "lyricsNotFoundHint": "Genius.com uzerinde aramayi deneyin",
+    "lyricsNotFoundHint": "Farkli bir sanatci veya baslik ile aramayi deneyin.",
     "lyricsLoading": "Sarki sozleri aranıyor...",
     "hidePanel": "Paneli gizle",
     "showPanel": "Paneli goster",
+    "manualSearch": "Manuel Arama",
+    "search": "Ara",
+    "resizeLayout": "Yerlesimi yeniden boyutlandir",
+    "viewArtwork": "Goster",
+    "selfGenerated": "AI Transkripsiyon",
     "download": "Indir",
     "downloaded": "Kaydedildi",
-    "loadError": "Parca yuklenemedi"
+    "loadError": "Parca yuklenemedi",
+    "dislike": "Onerme",
+    "removeDislike": "Begenmemeyi kaldir",
+    "play": "Calistir",
+    "pause": "Duraklat"
   },
   "playlist": {
     "playAll": "Hepsini Cal",
@@ -149,6 +158,41 @@
     "startListening": "Dinlemeye Basla",
     "startLikingTitle": "Parçaları beğenin — burada daha fazla müzik görünecek",
     "startLikingDesc": "Ne kadar çok beğeni, o kadar iyi öneriler ve daha zengin ana sayfa"
+  },
+  "soundwave": {
+    "tagline": "Kişisel radyon — tam sana göre",
+    "playAll": "Tümünü çal",
+    "refresh": "Yenile",
+    "languages": "Diller",
+    "allLanguages": "Tüm diller",
+    "langShort": "dil",
+    "clear": "Temizle",
+    "idleTitle": "Başlat ve dalgaya bin",
+    "idleSub": "Sıradaki parça — seveceğini düşündüğümüz",
+    "coldTitle": "Dalga hâlâ ısınıyor",
+    "coldDesc": "Birkaç parçayı beğen — radyoyu zevkine göre ayarlayalım",
+    "forYou": "Sana özel",
+    "searchPlaceholder": "Bir havayı anlat — örn. \"yağmurda hüzünlü piyano\"",
+    "searchAction": "Ara",
+    "searchClear": "Temizle",
+    "searchReset": "Dalgaya dön",
+    "searchResultsFor": "\"{{q}}\" için sonuçlar",
+    "searchResultsCount_one": "{{count}} parça",
+    "searchResultsCount_other": "{{count}} parça",
+    "searchEmptyTitle": "Bu havaya uyan bir şey yok",
+    "searchEmptyDesc": "Farklı kelimeler dene — ruh hâli, enstrüman veya bir sahne",
+    "modeTitle": "Benzer mi çeşitli mi",
+    "modeSimilar": "Benzer",
+    "modeDiverse": "Çeşitli",
+    "similarity": "Benzerlik",
+    "diverse": "Çeşitlilik",
+    "similar": "Aynı tarzda",
+    "similarDesc": "Bu parçanın ses ve hissine yakın seçimler",
+    "similarEmpty": "Henüz benzer parça bulmak için veri yetersiz",
+    "similarCold": "AI parçayı indeksledikçe burada öneriler görünür",
+    "hideLikedLabel": "Begenileri gizle",
+    "hideLikedOn": "Begenilen parcalar dalgaya dahil edilmez",
+    "hideLikedOff": "Begenilen parcalari dalgadan cikarmak icin ac"
   },
   "offline": {
     "offlineBadge": "Ag yok",
@@ -283,7 +327,8 @@
     "error": "Bir seyler ters gitti",
     "retry": "Tekrar dene",
     "seeAll": "Tumunu Gor",
-    "cancel": "Iptal"
+    "cancel": "Iptal",
+    "back": "Geri"
   },
   "cache": {
     "bulkCache": "Onbellege al",
@@ -314,6 +359,17 @@
     "goBoosty": "Boosty",
     "goDiscord": "Discord"
   },
+  "soundwaveLock": {
+    "wordmark": "SES DALGASI",
+    "badge": "Star Ozel",
+    "title": "Yalnizca abonelikle kullanilabilir",
+    "subtitle": "SoundWave ucretsiz olarak sunulacak:",
+    "cta": "Abonelik al",
+    "days": "g",
+    "hours": "s",
+    "minutes": "dk",
+    "seconds": "sn"
+  },
   "news": {
     "dismissOnce": "Kapat",
     "dismissForever": "Bir daha gosterme",
@@ -321,11 +377,6 @@
       "title": "Discord sunucumuz var!",
       "description": "Toplulugumuza katilin — tartisma, oneriler, hata bildirimi",
       "body": "SoundCloud Desktop icin resmi Discord sunucumuzu actik!\n\nDiger kullanicilarla sohbet etmek, yeni ozellikler onermek, hata bildirmek ve en son haberleri takip etmek icin katilin.\n\nhttps://discord.gg/xQcGBP8fGG"
-    },
-    "artistPro": {
-      "title": "Artist PRO aboneleri",
-      "description": "Uygulamanin yasaklanmasini zorlastirmak icin Discord'dan ulasin",
-      "body": "SoundCloud'da Artist PRO aboneliginiz varsa, projenin yasaklamalara karsi daha dayanikli olmasina yardimci olabilirsiniz.\n\nDiscord'da @nonameex666 adresine yazin — hesabiniza bagli bir OAuth uygulamasi olusturacagim. Rotasyon havuzunda ne kadar cok uygulama olursa, SoundCloud'un hepsini bir anda engellemesi o kadar zor olur.\n\nHesabiniz hicbir sekilde etkilenmeyecek — uygulama yalnizca API kimlik dogrulamasi icin kullanilir."
     }
   }
 }

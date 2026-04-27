@@ -111,6 +111,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: streaming
+          build-contexts: |
+            tls-common=tls-common
           push: true
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}/streaming:${{ needs.version.outputs.version }}
@@ -122,12 +124,40 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: storage
+          build-contexts: |
+            tls-common=tls-common
           push: true
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}/storage:${{ needs.version.outputs.version }}
             ghcr.io/${{ steps.repo.outputs.name }}/storage:latest
           cache-from: type=gha,scope=storage
           cache-to: type=gha,mode=max,scope=storage
+
+      - name: Build & push worker (CPU)
+        uses: docker/build-push-action@v6
+        with:
+          context: worker
+          file: worker/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}
+            ghcr.io/${{ steps.repo.outputs.name }}/worker:latest
+            ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}-cpu
+            ghcr.io/${{ steps.repo.outputs.name }}/worker:cpu
+          cache-from: type=gha,scope=worker-cpu
+          cache-to: type=gha,mode=max,scope=worker-cpu
+
+      - name: Build & push worker (GPU / CUDA)
+        uses: docker/build-push-action@v6
+        with:
+          context: worker
+          file: worker/Dockerfile.gpu
+          push: true
+          tags: |
+            ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}-gpu
+            ghcr.io/${{ steps.repo.outputs.name }}/worker:gpu
+          cache-from: type=gha,scope=worker-gpu
+          cache-to: type=gha,mode=max,scope=worker-gpu
 
   build:
     needs: version

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { LikeButton } from '../components/music/LikeButton';
+import { SoundWaveBlock, SoundWaveLockOverlay } from '../components/music/soundwave';
 import { TrackCard } from '../components/music/TrackCard';
 import { HorizontalScroll } from '../components/ui/HorizontalScroll';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -1156,6 +1157,12 @@ export function Home() {
         </h1>
         <div className="mt-3 h-px bg-gradient-to-r from-white/[0.06] via-white/[0.03] to-transparent" />
       </section>
+
+      {/* SoundWave — AI-powered recommendations, at the very top */}
+      <div className="relative">
+        <SoundWaveBlock />
+        <SoundWaveLockOverlay />
+      </div>
 
       {/* Each section is isolated — own hooks, own re-render boundary */}
       <FeaturedHero

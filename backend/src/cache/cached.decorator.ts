@@ -12,7 +12,7 @@ export interface CachedOptions {
 export const CACHE_OPTIONS_KEY = 'cache:options';
 
 /**
- * Декоратор для кэширования ответа эндпоинта в PostgreSQL.
+ * Декоратор для кэширования ответа эндпоинта в Redis.
  *
  * @example
  * // Кэшировать related tracks на сутки для всех юзеров

@@ -71,13 +71,22 @@
     "commentAt": "на",
     "lyrics": "Текст песни",
     "lyricsNotFound": "Текст не найден",
-    "lyricsNotFoundHint": "Попробуйте поискать на Genius.com",
+    "lyricsNotFoundHint": "Попробуйте поиск с другим артистом или названием.",
     "lyricsLoading": "Ищем текст...",
     "hidePanel": "Скрыть панель",
     "showPanel": "Показать панель",
+    "manualSearch": "Ручной поиск",
+    "search": "Найти",
+    "resizeLayout": "Изменить размер",
+    "viewArtwork": "Открыть",
+    "selfGenerated": "ИИ транскрипция",
     "download": "Скачать",
     "downloaded": "Скачано",
-    "loadError": "Не удалось загрузить трек"
+    "loadError": "Не удалось загрузить трек",
+    "dislike": "Не рекомендовать",
+    "removeDislike": "Убрать дизлайк",
+    "play": "Слушать",
+    "pause": "Пауза"
   },
   "playlist": {
     "playAll": "Воспроизвести",
@@ -156,6 +165,42 @@
     "startListening": "Начните слушать",
     "startLikingTitle": "Лайкайте треки — здесь появится больше музыки",
     "startLikingDesc": "Чем больше лайков, тем точнее рекомендации и насыщеннее главная страница"
+  },
+  "soundwave": {
+    "tagline": "Твоя личная волна — подобрали под тебя",
+    "playAll": "Слушать всё",
+    "refresh": "Обновить",
+    "languages": "Языки",
+    "allLanguages": "Все языки",
+    "langShort": "яз",
+    "clear": "Сбросить",
+    "idleTitle": "Жми play — поймай волну",
+    "idleSub": "Следующий трек — думаем, тебе зайдёт",
+    "coldTitle": "Волна ещё настраивается",
+    "coldDesc": "Лайкни пару треков — настроим волну под твой вкус",
+    "forYou": "Для тебя",
+    "searchPlaceholder": "Опиши вайб — например «грустное пиано под дождём»",
+    "searchAction": "Найти",
+    "searchClear": "Очистить",
+    "searchReset": "К волне",
+    "searchResultsFor": "Результаты по «{{q}}»",
+    "searchResultsCount_one": "{{count}} трек",
+    "searchResultsCount_few": "{{count}} трека",
+    "searchResultsCount_many": "{{count}} треков",
+    "searchEmptyTitle": "Под этот вайб ничего не нашлось",
+    "searchEmptyDesc": "Попробуй другие слова — настроение, инструменты или сцену",
+    "modeTitle": "Похожее или разнообразное",
+    "modeSimilar": "Похожее",
+    "modeDiverse": "Разное",
+    "similarity": "Похожесть",
+    "diverse": "Разнообразие",
+    "similar": "В том же вайбе",
+    "similarDesc": "Треки, созвучные этому — по звуку и настроению",
+    "similarEmpty": "Пока данных мало — не нашли похожих",
+    "similarCold": "Как только трек проиндексируется ИИ, здесь появятся подборки",
+    "hideLikedLabel": "Скрыть лайки",
+    "hideLikedOn": "Лайкнутые треки не попадают в волну",
+    "hideLikedOff": "В волне водятся лайки"
   },
   "offline": {
     "offlineBadge": "Нет сети",
@@ -294,7 +339,8 @@
     "error": "Что-то пошло не так",
     "retry": "Повторить",
     "seeAll": "Показать все",
-    "cancel": "Отмена"
+    "cancel": "Отмена",
+    "back": "Назад"
   },
   "cache": {
     "bulkCache": "Закэшировать",
@@ -327,6 +373,17 @@
     "goBoosty": "Boosty",
     "goDiscord": "Discord"
   },
+  "soundwaveLock": {
+    "wordmark": "САУНД ВОЛНА",
+    "badge": "Эксклюзив Star",
+    "title": "Доступно только по подписке",
+    "subtitle": "SoundWave будет доступна бесплатно через",
+    "cta": "Купить подписку",
+    "days": "дн",
+    "hours": "ч",
+    "minutes": "мин",
+    "seconds": "сек"
+  },
   "news": {
     "dismissOnce": "Закрыть",
     "dismissForever": "Больше не показывать",
@@ -334,11 +391,6 @@
       "title": "У нас появился Discord!",
       "description": "Присоединяйся — обсуждения, предложения, баг-репорты",
       "body": "Мы запустили официальный Discord-сервер SoundCloud Desktop!\n\nЗаходи, чтобы общаться с другими пользователями, предлагать фичи, сообщать о багах и быть в курсе последних новостей.\n\nhttps://discord.gg/xQcGBP8fGG"
-    },
-    "artistPro": {
-      "title": "Подписчики Artist PRO",
-      "description": "Помоги сделать приложение устойчивее к банам — напиши в Discord",
-      "body": "Если у тебя есть подписка Artist PRO на SoundCloud, ты можешь помочь проекту стать устойчивее к банам.\n\nНапиши @nonameex666 в Discord — я создам OAuth-приложение, привязанное к твоему аккаунту. Чем больше аппов в пуле ротации, тем сложнее SoundCloud заблокировать всех сразу.\n\nНа твой аккаунт это никак не повлияет — приложение используется только для авторизации через API."
     }
   }
 }

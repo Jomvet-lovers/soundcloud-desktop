@@ -8,7 +8,7 @@ interface Props {
   cacheKey: string;
   getTracks: () => Promise<Track[]> | Track[];
   className?: string;
-  variant?: 'pill' | 'compact';
+  variant?: 'pill' | 'compact' | 'icon';
 }
 
 export const BulkDownloadButton = React.memo(function BulkDownloadButton({
@@ -52,6 +52,45 @@ export const BulkDownloadButton = React.memo(function BulkDownloadButton({
     ) : (
       <span>{t('cache.bulkCache')}</span>
     );
+
+  if (variant === 'icon') {
+    const iconSize = 16;
+    const iconEl = preparing ? (
+      <Loader2 size={iconSize} className="animate-spin" />
+    ) : active ? (
+      <X size={iconSize} />
+    ) : (
+      <Download size={iconSize} />
+    );
+    const pct =
+      active && !preparing && progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        title={active ? t('cache.cancel') : t('cache.bulkCache')}
+        aria-label={active ? t('cache.cancel') : t('cache.bulkCache')}
+        className={`relative inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+          active
+            ? 'text-accent bg-accent/12'
+            : 'text-white/60 hover:text-white/95 hover:bg-white/[0.07]'
+        } ${className ?? ''}`}
+      >
+        {iconEl}
+        {active && !preparing && progress.total > 0 && (
+          <span
+            className="absolute bottom-1 left-1.5 right-1.5 h-[2px] rounded-full bg-white/10 overflow-hidden"
+            aria-hidden
+          >
+            <span
+              className="absolute inset-y-0 left-0 bg-accent transition-[width] duration-300"
+              style={{ width: `${pct}%` }}
+            />
+          </span>
+        )}
+      </button>
+    );
+  }
 
   if (variant === 'compact') {
     return (

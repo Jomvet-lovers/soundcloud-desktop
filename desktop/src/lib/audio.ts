@@ -18,8 +18,11 @@ import {
   type TrackCacheInfo,
 } from './cache';
 import { trackedInvoke as invoke } from './diagnostics';
+import { recordEvent } from './events';
 import { art } from './formatters';
 import { rememberTracks } from './offline-index';
+
+const SKIP_THRESHOLD_SEC = 30;
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
@@ -29,6 +32,7 @@ let fallbackDuration = 0;
 let cachedTime = 0;
 let cachedDuration = 0;
 let loadGen = 0;
+let lastEndedUrn: string | null = null;
 const listeners = new Set<() => void>();
 const API_PREVIEW_DURATION_MS = 30_000;
 
@@ -399,6 +403,10 @@ listen<{ urn: string; progress: number }>('track:download-progress', (event) => 
 });
 
 listen('audio:ended', () => {
+  if (currentUrn) {
+    recordEvent('full_play', currentUrn);
+    lastEndedUrn = currentUrn;
+  }
   hasTrack = false;
   handleTrackEnd();
 });
@@ -419,6 +427,20 @@ usePlayerStore.subscribe((state, prev) => {
   const playToggled = state.isPlaying !== prev.isPlaying;
 
   if (trackChanged) {
+    const previousUrn = currentUrn;
+    const previousTime = cachedTime;
+    const previousHadTrack = hasTrack;
+
+    if (
+      previousUrn &&
+      previousHadTrack &&
+      previousTime < SKIP_THRESHOLD_SEC &&
+      previousUrn !== lastEndedUrn
+    ) {
+      recordEvent('skip', previousUrn);
+    }
+    lastEndedUrn = null;
+
     if (state.currentTrack) {
       updateMetadata(state.currentTrack);
       void loadTrack(state.currentTrack);

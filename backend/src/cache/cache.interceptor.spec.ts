@@ -9,7 +9,7 @@ import { CACHE_OPTIONS_KEY } from './cached.decorator';
 describe('ApiCacheInterceptor', () => {
   const handler = () => undefined;
 
-  function createContext(statusCode = 200): ExecutionContext {
+  function createContext(statusCode = 200, reply?: any): ExecutionContext {
     return {
       getHandler: () => handler,
       switchToHttp: () => ({
@@ -18,7 +18,7 @@ describe('ApiCacheInterceptor', () => {
           url: '/tracks/123',
           sessionId: 'session-1',
         }),
-        getResponse: () => ({ statusCode }),
+        getResponse: () => reply ?? { statusCode },
       }),
     } as ExecutionContext;
   }
@@ -40,7 +40,7 @@ describe('ApiCacheInterceptor', () => {
     } as unknown as Reflector;
     const cacheService = {
       buildKey: jest.fn().mockReturnValue('cache-key'),
-      get: jest.fn().mockResolvedValue(null),
+      getRaw: jest.fn().mockResolvedValue(null),
       set: jest.fn().mockResolvedValue(undefined),
       clearByCacheKeys: jest.fn().mockResolvedValue(undefined),
     } as unknown as CacheService;
@@ -70,7 +70,7 @@ describe('ApiCacheInterceptor', () => {
     } as unknown as Reflector;
     const cacheService = {
       buildKey: jest.fn().mockReturnValue('cache-key'),
-      get: jest.fn().mockResolvedValue(null),
+      getRaw: jest.fn().mockResolvedValue(null),
       set: jest.fn().mockResolvedValue(undefined),
       clearByCacheKeys: jest.fn().mockResolvedValue(undefined),
     } as unknown as CacheService;
@@ -81,7 +81,7 @@ describe('ApiCacheInterceptor', () => {
     expect(cacheService.set).not.toHaveBeenCalled();
   });
 
-  it('returns cached payload without calling handler', async () => {
+  it('sends raw cached payload and skips handler', async () => {
     const reflector = {
       get: jest.fn((metadataKey: string) => {
         if (metadataKey === CACHE_OPTIONS_KEY) {
@@ -92,7 +92,7 @@ describe('ApiCacheInterceptor', () => {
     } as unknown as Reflector;
     const cacheService = {
       buildKey: jest.fn().mockReturnValue('cache-key'),
-      get: jest.fn().mockResolvedValue({ cached: true }),
+      getRaw: jest.fn().mockResolvedValue('{"cached":true}'),
       set: jest.fn(),
       clearByCacheKeys: jest.fn().mockResolvedValue(undefined),
     } as unknown as CacheService;
@@ -100,12 +100,18 @@ describe('ApiCacheInterceptor', () => {
     const next = {
       handle: jest.fn().mockReturnValue(of({ fresh: true })),
     } as unknown as CallHandler;
+    const reply = {
+      statusCode: 200,
+      header: jest.fn(),
+      send: jest.fn(),
+    };
 
-    const result = await lastValueFrom(await interceptor.intercept(createContext(), next));
+    const observable = await interceptor.intercept(createContext(200, reply), next);
+    await observable.toPromise?.();
 
-    expect(result).toEqual({ cached: true });
     expect(next.handle).not.toHaveBeenCalled();
-    expect(reflector.get).toHaveBeenCalledWith(CACHE_OPTIONS_KEY, handler);
+    expect(reply.header).toHaveBeenCalledWith('content-type', 'application/json; charset=utf-8');
+    expect(reply.send).toHaveBeenCalledWith('{"cached":true}');
   });
 
   it('clears named caches after successful mutation', async () => {
@@ -119,7 +125,7 @@ describe('ApiCacheInterceptor', () => {
     } as unknown as Reflector;
     const cacheService = {
       buildKey: jest.fn(),
-      get: jest.fn(),
+      getRaw: jest.fn(),
       set: jest.fn(),
       clearByCacheKeys: jest.fn().mockResolvedValue(undefined),
     } as unknown as CacheService;
@@ -145,7 +151,7 @@ describe('ApiCacheInterceptor', () => {
     } as unknown as Reflector;
     const cacheService = {
       buildKey: jest.fn(),
-      get: jest.fn(),
+      getRaw: jest.fn(),
       set: jest.fn(),
       clearByCacheKeys: jest.fn().mockResolvedValue(undefined),
     } as unknown as CacheService;

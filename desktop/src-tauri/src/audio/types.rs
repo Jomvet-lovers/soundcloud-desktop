@@ -68,6 +68,7 @@ pub const STALL_THRESHOLD_MS: u64 = 2_000;
 pub const STALL_COOLDOWN_MS: u64 = 10_000;
 
 #[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LyricsTimingLine {
     pub time_secs: f64,
 }

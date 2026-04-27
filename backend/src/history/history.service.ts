@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThan, Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service.js';
@@ -15,7 +15,7 @@ export class HistoryService {
   private async getScUserId(sessionId: string): Promise<string> {
     const session = await this.authService.getSession(sessionId);
     if (!session?.soundcloudUserId) {
-      throw new Error('User not found in session');
+      throw new UnauthorizedException('User not found in session');
     }
     return session.soundcloudUserId;
   }

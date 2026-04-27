@@ -3,31 +3,40 @@ use std::env;
 #[derive(Clone)]
 pub struct Config {
     pub port: u16,
-    // PostgreSQL
     pub database_host: String,
     pub database_port: u16,
     pub database_username: String,
     pub database_password: String,
     pub database_name: String,
-    // SoundCloud
     pub sc_proxy_url: String,
     pub sc_proxy_fallback: bool,
     pub sc_cookies: String,
     pub sc_oauth_token: Option<String>,
-    // Mode
     pub premium_only: bool,
-    // CDN
-    pub cdn_base_url: String,
-    pub cdn_auth_token: String,
-    pub cdn_cleanup_days: u64,
-    pub cdn_max_size_bytes: u64,
-    pub cdn_cleanup_interval_secs: u64,
+    pub storage_url: String,
+    pub storage_public_url: String,
+    pub storage_upload_url: String,
+    pub storage_token: String,
+    pub storage_cleanup_days: u64,
+    pub storage_max_size_bytes: u64,
+    pub storage_cleanup_interval_secs: u64,
+    pub internal_token: String,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         let cookies = env::var("SC_COOKIES").unwrap_or_default();
         let oauth_token = parse_cookie_value(&cookies, "oauth_token");
+
+        let storage_url = env::var("STORAGE_URL").unwrap_or_default();
+        let storage_public_url = env::var("STORAGE_PUBLIC_URL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| storage_url.clone());
+        let storage_upload_url = env::var("STORAGE_UPLOAD_URL")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| storage_url.clone());
 
         Self {
             port: env::var("PORT")
@@ -54,25 +63,28 @@ impl Config {
             premium_only: env::var("PREMIUM_ONLY")
                 .map(|v| v == "true")
                 .unwrap_or(false),
-            cdn_base_url: env::var("CDN_BASE_URL").unwrap_or_default(),
-            cdn_auth_token: env::var("CDN_AUTH_TOKEN").unwrap_or_default(),
-            cdn_cleanup_days: env::var("CDN_CLEANUP_DAYS")
+            storage_url,
+            storage_public_url,
+            storage_upload_url,
+            storage_token: env::var("STORAGE_TOKEN").unwrap_or_default(),
+            storage_cleanup_days: env::var("STORAGE_CLEANUP_DAYS")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(7),
-            cdn_max_size_bytes: env::var("CDN_MAX_SIZE_BYTES")
+            storage_max_size_bytes: env::var("STORAGE_MAX_SIZE_BYTES")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0),
-            cdn_cleanup_interval_secs: env::var("CDN_CLEANUP_INTERVAL_SECS")
+            storage_cleanup_interval_secs: env::var("STORAGE_CLEANUP_INTERVAL_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(3600),
+            internal_token: env::var("INTERNAL_TOKEN").unwrap_or_default(),
         }
     }
 
-    pub fn cdn_enabled(&self) -> bool {
-        !self.cdn_base_url.is_empty() && !self.cdn_auth_token.is_empty()
+    pub fn storage_enabled(&self) -> bool {
+        !self.storage_url.is_empty() && !self.storage_token.is_empty()
     }
 
     pub fn cookies_enabled(&self) -> bool {

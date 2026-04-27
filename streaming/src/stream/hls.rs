@@ -1,7 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use reqwest::Client;
 use std::collections::HashMap;
-use tracing::warn;
+use tracing::debug;
 use url::Url;
 
 use super::proxy::proxy_get_bytes;
@@ -50,6 +50,22 @@ pub fn mime_to_content_type(mime: &str) -> &'static str {
         m if m.contains("opus") => "audio/ogg",
         _ => "application/octet-stream",
     }
+}
+
+/// Download a progressive (single-file) stream. Safer than HLS: one GET with
+/// built-in retries in proxy_get_bytes, no chunk-level failure modes.
+pub async fn download_progressive(
+    client: &Client,
+    proxy_url: &str,
+    url: &str,
+    mime_type: &str,
+    extra_headers: HashMap<String, String>,
+) -> Result<(Bytes, &'static str), Box<dyn std::error::Error + Send + Sync>> {
+    let (data, _) = proxy_get_bytes(client, proxy_url, url, extra_headers).await?;
+    if data.is_empty() {
+        return Err("progressive download returned empty body".into());
+    }
+    Ok((data, mime_to_content_type(mime_type)))
 }
 
 /// Download all HLS segments into a single Bytes buffer (for tee to CDN).
@@ -117,11 +133,11 @@ pub async fn download_hls_full(
         match handle.await {
             Ok(Ok(chunk)) => buf.extend_from_slice(&chunk),
             Ok(Err(e)) => {
-                warn!("HLS segment download error: {e}");
+                debug!("HLS segment download error: {e}");
                 return Err(e.into());
             }
             Err(e) => {
-                warn!("HLS segment task panic: {e}");
+                debug!("HLS segment task panic: {e}");
                 return Err(e.into());
             }
         }

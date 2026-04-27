@@ -14,7 +14,7 @@ export class ResolveService {
     private readonly sessionRepo: Repository<Session>,
   ) {}
 
-  resolve(token: string, url: string): Promise<unknown> {
+  async resolve(token: string, url: string): Promise<unknown> {
     return this.sc.apiGet('/resolve', token, { url });
   }
 
@@ -29,7 +29,7 @@ export class ResolveService {
       if (!session.accessToken) continue;
       try {
         return await this.sc.apiGet('/resolve', session.accessToken, { url });
-      } catch (err) {
+      } catch (_err) {
         this.logger.debug(`Token failed for resolve, trying next...`);
       }
     }
