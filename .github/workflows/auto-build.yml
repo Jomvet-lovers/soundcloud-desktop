@@ -83,6 +83,19 @@ jobs:
         with:
           ref: main
 
+      # GPU-образ воркера съедает ~20 GB (CUDA base + torch CUDA wheels + bitsandbytes).
+      # Стандартный runner даёт ~14 GB free — без этого шага падает на ENOSPC.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: false
+          docker-images: false
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Login to GHCR
