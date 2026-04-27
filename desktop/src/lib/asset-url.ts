@@ -2,6 +2,10 @@ import { useSettingsStore } from '../stores/settings';
 import { BYPASS_IMAGES_BASE, getProxyPort, IMAGES_BASE } from './constants';
 import { getIsPremium } from './premium-cache';
 
+function isMac(): boolean {
+  return !!(navigator.platform?.startsWith('Mac') || navigator.userAgent.includes('Mac'));
+}
+
 const WHITELIST = [
   'localhost',
   '127.0.0.1',
