@@ -20,15 +20,20 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly config: ConfigService) {}
 
   async onModuleInit(): Promise<void> {
-    const url = this.config.getOrThrow<string>('nats.url');
+    const rawUrl = this.config.getOrThrow<string>('nats.url');
+    // user:pass в URL парсер ломает (читает как IPv6) — вытаскиваем отдельно
+    const parsed = new URL(rawUrl);
+    const cleanUrl = `${parsed.protocol}//${parsed.host}`;
     this.nc = await connect({
-      servers: url,
+      servers: cleanUrl,
       name: 'backend',
       reconnect: true,
       maxReconnectAttempts: -1,
       waitOnFirstConnect: true,
+      ...(parsed.username ? { user: decodeURIComponent(parsed.username) } : {}),
+      ...(parsed.password ? { pass: decodeURIComponent(parsed.password) } : {}),
     });
-    this.logger.log(`NATS connected → ${url}`);
+    this.logger.log(`NATS connected → ${cleanUrl}`);
 
     this.jsm = await jetstreamManager(this.nc);
     this.js = jetstream(this.nc);
