@@ -12,15 +12,21 @@ impl BusClient {
         if url.is_empty() {
             return Self { js: None };
         }
-        match async_nats::connect(url).await {
+        // user:pass из URL async-nats игнорирует — вытаскиваем и кладём в опции
+        let (host_url, user, pass) = split_creds(url);
+        let mut opts = async_nats::ConnectOptions::new();
+        if let (Some(u), Some(p)) = (user, pass) {
+            opts = opts.user_and_password(u, p);
+        }
+        match opts.connect(&host_url).await {
             Ok(client) => {
-                info!("NATS connected → {url}");
+                info!("NATS connected → {host_url}");
                 Self {
                     js: Some(jetstream::new(client)),
                 }
             }
             Err(e) => {
-                warn!("NATS connect {url} failed: {e}");
+                warn!("NATS connect {host_url} failed: {e}");
                 Self { js: None }
             }
         }
@@ -61,6 +67,18 @@ impl BusClient {
                 Err(e) => warn!("[bus] storage.track_uploaded publish failed: {e}"),
             }
         });
+    }
+}
+
+fn split_creds(url: &str) -> (String, Option<String>, Option<String>) {
+    let (scheme, rest) = url.split_once("://").unwrap_or(("nats", url));
+    let Some((creds, host)) = rest.rsplit_once('@') else {
+        return (url.to_string(), None, None);
+    };
+    let host_url = format!("{scheme}://{host}");
+    match creds.split_once(':') {
+        Some((u, p)) => (host_url, Some(u.to_string()), Some(p.to_string())),
+        None => (host_url, Some(creds.to_string()), None),
     }
 }
 
