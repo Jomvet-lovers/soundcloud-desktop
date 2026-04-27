@@ -146,6 +146,9 @@ jobs:
           cache-from: type=gha,scope=storage
           cache-to: type=gha,mode=max,scope=storage
 
+      # Оба воркера держат кэш в GHCR registry (вне лимита 10 GB GHA cache):
+      # CPU тянет torch+transformers+huggingface_hub (~1.5 GB), GPU — ещё CUDA wheels (~5 GB).
+      # Кэш живёт как отдельные теги worker:cache-cpu / worker:cache-gpu.
       - name: Build & push worker (CPU)
         uses: docker/build-push-action@v6
         with:
@@ -157,8 +160,8 @@ jobs:
             ghcr.io/${{ steps.repo.outputs.name }}/worker:latest
             ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}-cpu
             ghcr.io/${{ steps.repo.outputs.name }}/worker:cpu
-          cache-from: type=gha,scope=worker-cpu
-          cache-to: type=gha,mode=max,scope=worker-cpu
+          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-cpu
+          cache-to: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-cpu,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Build & push worker (GPU / CUDA)
         uses: docker/build-push-action@v6
@@ -169,8 +172,8 @@ jobs:
           tags: |
             ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}-gpu
             ghcr.io/${{ steps.repo.outputs.name }}/worker:gpu
-          cache-from: type=gha,scope=worker-gpu
-          cache-to: type=gha,mode=max,scope=worker-gpu
+          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-gpu
+          cache-to: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-gpu,mode=max,image-manifest=true,oci-mediatypes=true
 
   build:
     needs: version

@@ -42,6 +42,8 @@ jobs:
         working-directory: backend
         run: pnpm build
 
+  # CI читает кэш с main, но НЕ пишет — иначе PR-билды затирают рабочий кэш.
+  # cache-to остаётся только в auto-build.yml (release pipeline).
   storage:
     name: Storage
     runs-on: ubuntu-latest
@@ -60,7 +62,6 @@ jobs:
           load: true
           tags: soundcloud-desktop-storage:ci
           cache-from: type=gha,scope=storage
-          cache-to: type=gha,mode=max,scope=storage
 
   streaming:
     name: Streaming
@@ -80,11 +81,13 @@ jobs:
           load: true
           tags: soundcloud-desktop-streaming:ci
           cache-from: type=gha,scope=streaming
-          cache-to: type=gha,mode=max,scope=streaming
 
   worker:
     name: Worker
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -94,9 +97,26 @@ jobs:
 
       - name: Syntax check
         working-directory: worker
-        run: python -m compileall -q main.py api.py
+        run: python -m compileall -q src
 
       - uses: docker/setup-buildx-action@v3
+
+      # Кэш CPU-воркера лежит в GHCR registry (см. auto-build.yml).
+      # Логин нужен для pull cache-образа; для PR из форков шаг тихо упадёт —
+      # билд продолжится без кэша (allow-failure через continue-on-error).
+      - name: Login to GHCR
+        if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase image name
+        id: repo
+        run: echo "name=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        env:
+          REPO: ${{ github.repository }}
 
       - name: Build image
         uses: docker/build-push-action@v6
@@ -105,8 +125,7 @@ jobs:
           push: false
           load: true
           tags: soundcloud-desktop-worker:ci
-          cache-from: type=gha,scope=worker
-          cache-to: type=gha,mode=max,scope=worker
+          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-cpu
 
   desktop:
     if: "!contains(github.event.head_commit.message, '!release')"
