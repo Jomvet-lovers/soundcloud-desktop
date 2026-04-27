@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
+import { isMac } from '../../lib/platform';
 import { toggleWindowFullscreen } from '../../lib/window';
 import { useLyricsStore } from '../../stores/lyrics';
 import { usePlayerStore } from '../../stores/player';
@@ -50,10 +51,6 @@ const keybindings: Keybinding[] = [
   { key: 'Escape', label: 'kb.close', group: 'panels', display: 'Esc' },
   { key: 'Ctrl+/', label: 'kb.showBindings', group: 'panels', display: isMac() ? '⌘ /' : 'Ctrl /' },
 ];
-
-function isMac() {
-  return navigator.platform?.startsWith('Mac') || navigator.userAgent.includes('Mac');
-}
 
 const groupLabels = {
   playback: 'kb.groupPlayback',
