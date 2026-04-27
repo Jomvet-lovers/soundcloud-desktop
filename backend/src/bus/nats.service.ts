@@ -159,21 +159,30 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
     } catch {
       await this.jsm.consumers.add(stream, addCfg);
     }
-    const consumer = await this.js.consumers.get(stream, durable);
 
-    const messages = await consumer.consume();
+    // Outer loop: после disconnect consumer.consume() может бросить heartbeat-error —
+    // пересоздаём подписку, чтобы цикл переживал перезапуск NATS-сервера.
     (async () => {
-      for await (const m of messages) {
-        const info = m.info;
+      while (true) {
         try {
-          const data = JSON.parse(decoder.decode(m.data));
-          await handler(data, { streamSeq: info.streamSequence, deliveries: info.deliveryCount });
-          m.ack();
+          const consumer = await this.js.consumers.get(stream, durable);
+          const messages = await consumer.consume();
+          for await (const m of messages) {
+            const info = m.info;
+            try {
+              const data = JSON.parse(decoder.decode(m.data));
+              await handler(data, { streamSeq: info.streamSequence, deliveries: info.deliveryCount });
+              m.ack();
+            } catch (e) {
+              this.logger.error(`consume ${stream}/${durable}: ${(e as Error).message}`);
+              m.nak(5_000);
+            }
+          }
         } catch (e) {
-          this.logger.error(`consume ${stream}/${durable}: ${(e as Error).message}`);
-          m.nak(5_000);
+          this.logger.warn(`consume loop ${stream}/${durable} broke: ${(e as Error).message} — retry in 2s`);
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
-    })().catch((e) => this.logger.error(`consume loop ${stream}: ${(e as Error).message}`));
+    })();
   }
 }

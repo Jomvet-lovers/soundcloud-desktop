@@ -38,15 +38,21 @@ async def _js_pull_loop(
     is_rpc: bool,
     nc=None,
 ) -> None:
-    """Пока inference_sem занят — не вызываем fetch, сообщения достаются другим воркерам."""
+    """Пока inference_sem занят — не вызываем fetch, сообщения достаются другим воркерам.
+
+    После N подряд ошибок fetch (обычно — обрыв NATS) пересоздаём подписку,
+    иначе зомби-psub будет вечно отдавать ошибки даже после реконнекта коннекта.
+    """
     psub = await js.pull_subscribe(subject, durable=durable)
     log.info(f"JS pull-consumer started: {stream}/{durable} → {subject}")
+    err_streak = 0
 
     while not stop.is_set():
         await sem.acquire()
         try:
             try:
                 msgs = await psub.fetch(batch=1, timeout=1)
+                err_streak = 0
             except asyncio.TimeoutError:
                 sem.release()
                 continue
@@ -57,8 +63,21 @@ async def _js_pull_loop(
                 if stop.is_set():
                     sem.release()
                     return
-                log.error(f"{tag} fetch failed: {e}")
+                err_streak += 1
+                log.error(f"{tag} fetch failed ({err_streak}): {e}")
                 sem.release()
+                if err_streak >= 5:
+                    log.warning(f"{tag} resubscribing after {err_streak} fetch errors")
+                    try:
+                        await psub.unsubscribe()
+                    except Exception:
+                        pass
+                    try:
+                        psub = await js.pull_subscribe(subject, durable=durable)
+                        err_streak = 0
+                        log.info(f"{tag} resubscribed")
+                    except Exception as e2:
+                        log.error(f"{tag} resubscribe failed: {e2}")
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=1)
                     return

@@ -14,7 +14,7 @@ impl BusClient {
         }
         // user:pass из URL async-nats игнорирует — вытаскиваем и кладём в опции
         let (host_url, user, pass) = split_creds(url);
-        let mut opts = async_nats::ConnectOptions::new();
+        let mut opts = async_nats::ConnectOptions::new().retry_on_initial_connect();
         if let (Some(u), Some(p)) = (user, pass) {
             opts = opts.user_and_password(u, p);
         }
