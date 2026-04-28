@@ -1,9 +1,18 @@
-import { X509Certificate } from 'node:crypto';
+import { webcrypto, X509Certificate } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as http from 'node:http';
 import * as path from 'node:path';
 import * as tls from 'node:tls';
+import * as x509 from '@peculiar/x509';
 import * as acme from 'acme-client';
+
+x509.cryptoProvider.set(webcrypto as unknown as Crypto);
+
+const ACME_TLS_ALPN = 'acme-tls/1';
+// RFC 8737: id-pe-acmeIdentifier
+const ACME_IDENTIFIER_OID = '1.3.6.1.5.5.7.1.31';
+const RENEW_BEFORE_DAYS = 30;
+const RENEWAL_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export interface TlsConfig {
   domains: string[];
@@ -34,12 +43,9 @@ export function tlsConfigFromEnv(): TlsConfig | null {
   };
 }
 
-const RENEW_BEFORE_DAYS = 30;
-const RENEWAL_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
 export class AcmeManager {
   private context: tls.SecureContext | null = null;
-  private readonly challenges = new Map<string, string>();
+  private readonly challengeContexts = new Map<string, tls.SecureContext>();
   private renewalTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly cfg: TlsConfig) {}
@@ -63,30 +69,39 @@ export class AcmeManager {
     }
   }
 
+  // SNI: при активном challenge для запрошенного servername — отдаём
+  // self-signed cert с acmeIdentifier extension (поверх него LE будет valid'ить
+  // по TLS-ALPN-01). Иначе — обычный production cert.
   readonly sniCallback = (
-    _servername: string,
+    servername: string,
     cb: (err: Error | null, ctx?: tls.SecureContext) => void,
   ): void => {
-    if (this.context) cb(null, this.context);
-    else cb(new Error('TLS context not ready'));
+    const challenge = this.challengeContexts.get(servername);
+    if (challenge) {
+      cb(null, challenge);
+      return;
+    }
+    if (this.context) {
+      cb(null, this.context);
+      return;
+    }
+    cb(new Error('TLS context not ready'));
   };
 
-  handleChallenge(req: http.IncomingMessage, res: http.ServerResponse): boolean {
-    const url = req.url ?? '';
-    const prefix = '/.well-known/acme-challenge/';
-    if (!url.startsWith(prefix)) return false;
-
-    const token = url.slice(prefix.length);
-    const keyAuth = this.challenges.get(token);
-    if (keyAuth) {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end(keyAuth);
-    } else {
-      res.writeHead(404);
-      res.end();
+  // Без ALPNCallback во время challenge клиент с обычным http/1.1 ALPN получил
+  // бы challenge cert (т.к. SNICallback его уже отдал) и сломался по cert-mismatch.
+  // С ALPNCallback таких клиентов мы reject'им на уровне ALPN — они увидят
+  // чистый ALPN-error и сделают retry; через ~10–30s challenge закроется.
+  readonly alpnCallback = (
+    info: { servername: string; protocols: string[] },
+  ): string | undefined => {
+    if (this.challengeContexts.has(info.servername)) {
+      return info.protocols.includes(ACME_TLS_ALPN) ? ACME_TLS_ALPN : undefined;
     }
-    return true;
-  }
+    if (info.protocols.includes('http/1.1')) return 'http/1.1';
+    if (info.protocols.length === 0) return 'http/1.1';
+    return undefined;
+  };
 
   private async ensureCert(): Promise<void> {
     const certPath = path.join(this.cfg.cacheDir, 'cert.pem');
@@ -102,7 +117,7 @@ export class AcmeManager {
     }
 
     console.log(
-      `[tls] requesting new cert for ${this.cfg.domains.join(',')} (staging=${this.cfg.staging})`,
+      `[tls] requesting new cert for ${this.cfg.domains.join(',')} via tls-alpn-01 (staging=${this.cfg.staging})`,
     );
 
     const accountKey = await this.loadOrCreateAccountKey();
@@ -122,14 +137,19 @@ export class AcmeManager {
       csr,
       email: this.cfg.email,
       termsOfServiceAgreed: true,
-      challengePriority: ['http-01'],
-      challengeCreateFn: async (_authz, challenge, keyAuthorization) => {
-        if (challenge.type !== 'http-01') return;
-        this.challenges.set(challenge.token, keyAuthorization);
+      challengePriority: ['tls-alpn-01'],
+      challengeCreateFn: async (authz, challenge, keyAuthorization) => {
+        if ((challenge.type as string) !== 'tls-alpn-01') return;
+        const domain = authz.identifier.value;
+        const ctx = await buildAlpnChallengeContext(domain, keyAuthorization);
+        this.challengeContexts.set(domain, ctx);
+        console.log(`[tls] challenge SET ${domain}`);
       },
-      challengeRemoveFn: async (_authz, challenge) => {
-        if (challenge.type !== 'http-01') return;
-        this.challenges.delete(challenge.token);
+      challengeRemoveFn: async (authz, challenge) => {
+        if ((challenge.type as string) !== 'tls-alpn-01') return;
+        const domain = authz.identifier.value;
+        this.challengeContexts.delete(domain);
+        console.log(`[tls] challenge CLR ${domain}`);
       },
     });
 
@@ -151,24 +171,47 @@ export class AcmeManager {
   }
 }
 
-export function buildAcmeHttpHandler(
-  acmeManager: AcmeManager,
-  httpRedirect: boolean,
-  httpsPort: number,
-): http.RequestListener {
-  const redirect = redirectHandler(httpsPort);
-  return (req, res) => {
-    if (acmeManager.handleChallenge(req, res)) return;
-    if (httpRedirect) {
-      redirect(req, res);
-    } else {
-      res.writeHead(404);
-      res.end();
-    }
-  };
+async function buildAlpnChallengeContext(
+  domain: string,
+  keyAuthorization: string,
+): Promise<tls.SecureContext> {
+  const keys = await webcrypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    true,
+    ['sign', 'verify'],
+  );
+
+  const digest = new Uint8Array(
+    await webcrypto.subtle.digest('SHA-256', new TextEncoder().encode(keyAuthorization)),
+  );
+
+  // RFC 8737: extension value — DER-encoded OCTET STRING (32 bytes).
+  const extValue = new Uint8Array(34);
+  extValue[0] = 0x04;
+  extValue[1] = 0x20;
+  extValue.set(digest, 2);
+
+  const cert = await x509.X509CertificateGenerator.createSelfSigned({
+    serialNumber: '01',
+    name: `CN=${domain}`,
+    notBefore: new Date(Date.now() - 60_000),
+    notAfter: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    signingAlgorithm: { name: 'ECDSA', hash: 'SHA-256' },
+    keys: keys as unknown as CryptoKeyPair,
+    extensions: [
+      new x509.SubjectAlternativeNameExtension([{ type: 'dns', value: domain }]),
+      new x509.Extension(ACME_IDENTIFIER_OID, true, extValue),
+    ],
+  });
+
+  const pkcs8 = await webcrypto.subtle.exportKey('pkcs8', keys.privateKey);
+  return tls.createSecureContext({
+    cert: cert.toString('pem'),
+    key: pkcs8ToPem(new Uint8Array(pkcs8)),
+  });
 }
 
-function redirectHandler(httpsPort: number): http.RequestListener {
+export function buildHttpRedirectHandler(httpsPort: number): http.RequestListener {
   return (req, res) => {
     const rawHost = req.headers.host ?? '';
     const host = rawHost.split(':')[0];
@@ -178,10 +221,15 @@ function redirectHandler(httpsPort: number): http.RequestListener {
       return;
     }
     const authority = httpsPort === 443 ? host : `${host}:${httpsPort}`;
-    const target = `https://${authority}${req.url ?? '/'}`;
-    res.writeHead(301, { Location: target });
+    res.writeHead(301, { Location: `https://${authority}${req.url ?? '/'}` });
     res.end();
   };
+}
+
+function pkcs8ToPem(der: Uint8Array): string {
+  const b64 = Buffer.from(der).toString('base64');
+  const lines = b64.match(/.{1,64}/g)?.join('\n') ?? b64;
+  return `-----BEGIN PRIVATE KEY-----\n${lines}\n-----END PRIVATE KEY-----\n`;
 }
 
 async function tryLoad(
@@ -198,8 +246,8 @@ async function tryLoad(
 
 function isValidFor(cert: Buffer, daysLeft: number): boolean {
   try {
-    const x509 = new X509Certificate(cert);
-    const validTo = new Date(x509.validTo).getTime();
+    const x = new X509Certificate(cert);
+    const validTo = new Date(x.validTo).getTime();
     return validTo - Date.now() > daysLeft * 24 * 60 * 60 * 1000;
   } catch {
     return false;

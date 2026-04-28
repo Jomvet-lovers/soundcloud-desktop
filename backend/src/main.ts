@@ -6,7 +6,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import { SoundcloudExceptionFilter } from './common/filters/soundcloud-exception.filter.js';
-import { AcmeManager, buildAcmeHttpHandler, tlsConfigFromEnv } from './tls/tls.js';
+import { AcmeManager, buildHttpRedirectHandler, tlsConfigFromEnv } from './tls/tls.js';
 
 async function bootstrap() {
   const tlsCfg = tlsConfigFromEnv();
@@ -16,30 +16,20 @@ async function bootstrap() {
 
   if (tlsCfg) {
     acmeManager = new AcmeManager(tlsCfg);
-
-    // HTTP сервер на :80 поднимаем ПЕРВЫМ — он нужен для HTTP-01 challenge
-    // во время выпуска сертификата.
-    httpServer = http.createServer(
-      buildAcmeHttpHandler(acmeManager, tlsCfg.httpRedirect, tlsCfg.httpsPort),
-    );
-    await new Promise<void>((resolve, reject) => {
-      httpServer!.once('error', reject);
-      httpServer!.listen(tlsCfg.httpPort, '0.0.0.0', () => {
-        httpServer!.off('error', reject);
-        resolve();
-      });
-    });
-    console.log(
-      `[tls] HTTP listener on :${tlsCfg.httpPort} (ACME challenges${tlsCfg.httpRedirect ? ' + 301 redirect' : ''})`,
-    );
-
+    // ACME выполняется через TLS-ALPN-01 на :443 — порт 80 в критпуте не нужен.
     await acmeManager.start();
 
     // Fastify типизирует serverFactory под http.Server; https.Server совместим
     // по runtime, но типы расходятся — поэтому опции через any.
     const fastifyOpts: any = {
       serverFactory: (handler: http.RequestListener) =>
-        https.createServer({ SNICallback: acmeManager!.sniCallback }, handler),
+        https.createServer(
+          {
+            SNICallback: acmeManager!.sniCallback,
+            ALPNCallback: acmeManager!.alpnCallback,
+          },
+          handler,
+        ),
     };
     adapter = new FastifyAdapter(fastifyOpts);
   } else {
@@ -64,19 +54,6 @@ async function bootstrap() {
   app.useGlobalFilters(new SoundcloudExceptionFilter());
   app.enableShutdownHooks();
 
-  if (acmeManager && httpServer) {
-    const httpListener = httpServer;
-    const acme = acmeManager;
-    const shutdown = async () => {
-      acme.stop();
-      await new Promise<void>((resolve) => httpListener.close(() => resolve()));
-      await app.close();
-      process.exit(0);
-    };
-    process.once('SIGTERM', shutdown);
-    process.once('SIGINT', shutdown);
-  }
-
   const swaggerConfig = new DocumentBuilder()
     .setTitle('SoundCloud Desktop API')
     .setDescription(
@@ -97,12 +74,47 @@ async function bootstrap() {
     console.log(`[tls] HTTPS listener on :${tlsCfg.httpsPort} for ${tlsCfg.domains.join(', ')}`);
     console.log(`OpenAPI spec: https://${tlsCfg.domains[0]}/openapi.json`);
     console.log(`Swagger UI:   https://${tlsCfg.domains[0]}/api`);
+
+    // :80 всегда поднимается. http_redirect=true → 301 на https.
+    // http_redirect=false → отдаём тот же handler без TLS (mixed-mode для
+    // клиентов, которые не могут в TLS).
+    const fastifyInstance = app.getHttpAdapter().getInstance();
+    await fastifyInstance.ready();
+    const httpHandler: http.RequestListener = tlsCfg.httpRedirect
+      ? buildHttpRedirectHandler(tlsCfg.httpsPort)
+      : (fastifyInstance.routing.bind(fastifyInstance) as http.RequestListener);
+    httpServer = http.createServer(httpHandler);
+    await new Promise<void>((resolve, reject) => {
+      httpServer!.once('error', reject);
+      httpServer!.listen(tlsCfg.httpPort, '0.0.0.0', () => {
+        httpServer!.off('error', reject);
+        resolve();
+      });
+    });
+    console.log(
+      `[tls] HTTP listener on :${tlsCfg.httpPort} (${tlsCfg.httpRedirect ? '301 redirect' : 'mixed-mode passthrough'})`,
+    );
   } else {
     const port = process.env.PORT ?? 3000;
     await app.listen(port, '0.0.0.0');
     console.log(`Server running on http://localhost:${port}`);
     console.log(`OpenAPI spec: http://localhost:${port}/openapi.json`);
     console.log(`Swagger UI: http://localhost:${port}/api`);
+  }
+
+  if (acmeManager) {
+    const acme = acmeManager;
+    const httpListener = httpServer;
+    const shutdown = async () => {
+      acme.stop();
+      if (httpListener) {
+        await new Promise<void>((resolve) => httpListener.close(() => resolve()));
+      }
+      await app.close();
+      process.exit(0);
+    };
+    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
   }
 }
 
