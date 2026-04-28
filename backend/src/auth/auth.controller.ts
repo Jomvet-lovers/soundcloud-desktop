@@ -1,4 +1,13 @@
-import { Controller, Get, Header, Headers, HttpCode, Post, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Header,
+  Headers,
+  HttpCode,
+  Logger,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
 import { renderCallbackPage } from './callback-page.js';
@@ -12,13 +21,16 @@ import {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Get('login')
   @ApiOperation({ summary: 'Initiate OAuth 2.1 login flow with PKCE' })
+  @ApiHeader({ name: 'x-session-id', required: false })
   @ApiOkResponse({ type: LoginResponseDto })
-  async login() {
-    return this.authService.initiateLogin();
+  async login(@Headers('x-session-id') existingSessionId?: string) {
+    return this.authService.initiateLogin(existingSessionId);
   }
 
   @Get('callback')
@@ -28,14 +40,25 @@ export class AuthController {
   @ApiOkResponse({ description: 'HTML callback page' })
   @Header('Content-Type', 'text/html; charset=utf-8')
   async callback(@Query('code') code: string, @Query('state') state: string) {
-    const result = await this.authService.handleCallback(code, state);
+    try {
+      const result = await this.authService.handleCallback(code, state);
 
-    return renderCallbackPage({
-      success: result.success,
-      sessionId: result.session.id,
-      username: result.session.username,
-      error: result.error,
-    });
+      return renderCallbackPage({
+        success: result.success,
+        sessionId: result.session?.id,
+        username: result.session?.username,
+        error: result.error,
+      });
+    } catch (err: any) {
+      this.logger.error(
+        `Unhandled error in /auth/callback: ${err?.message}`,
+        err?.stack,
+      );
+      return renderCallbackPage({
+        success: false,
+        error: 'Authentication failed due to a server error. Please try again.',
+      });
+    }
   }
 
   @Get('session')

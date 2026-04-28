@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -29,7 +28,7 @@ export class AuthService {
     private readonly configService: ConfigService,
   ) {}
 
-  async initiateLogin(): Promise<{ url: string; sessionId: string }> {
+  async initiateLogin(existingSessionId?: string): Promise<{ url: string; sessionId: string }> {
     const codeVerifier = randomBytes(32).toString('base64url');
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
     const state = randomBytes(16).toString('hex');
@@ -55,15 +54,27 @@ export class AuthService {
       this.logger.warn('No active OAuth apps available, using env OAuth fallback');
     }
 
-    const session = this.sessionRepo.create({
-      codeVerifier,
-      state,
-      accessToken: '',
-      refreshToken: '',
-      expiresAt: new Date(),
-      scope: '',
-      oauthAppId,
-    });
+    let session: Session | null = null;
+    if (existingSessionId) {
+      session = await this.sessionRepo.findOne({ where: { id: existingSessionId } });
+    }
+
+    if (session) {
+      session.codeVerifier = codeVerifier;
+      session.state = state;
+      session.oauthAppId = oauthAppId;
+      this.logger.log(`Reusing existing session ${session.id} for re-auth`);
+    } else {
+      session = this.sessionRepo.create({
+        codeVerifier,
+        state,
+        accessToken: '',
+        refreshToken: '',
+        expiresAt: new Date(),
+        scope: '',
+        oauthAppId,
+      });
+    }
     await this.sessionRepo.save(session);
 
     const authBaseUrl = this.soundcloudService.scAuthBaseUrl;
@@ -86,14 +97,24 @@ export class AuthService {
   async handleCallback(
     code: string,
     state: string,
-  ): Promise<{ session: Session; success: boolean; error?: string }> {
+  ): Promise<{ session: Session | null; success: boolean; error?: string }> {
     const session = await this.sessionRepo.findOne({ where: { state } });
     if (!session) {
-      throw new BadRequestException('Invalid state parameter');
+      this.logger.warn(`Callback received with unknown state: ${state}`);
+      return {
+        session: null,
+        success: false,
+        error: 'Session expired or not found. Please try logging in again.',
+      };
     }
 
     if (!session.codeVerifier) {
-      throw new BadRequestException('No code verifier found for this session');
+      this.logger.warn(`Callback for session ${session.id} has no code verifier`);
+      return {
+        session,
+        success: false,
+        error: 'Login session is invalid. Please try logging in again.',
+      };
     }
 
     const creds = await this.getSessionCredentials(session);
