@@ -93,7 +93,10 @@ export async function apiRequest<T = unknown>(
   timeoutMs?: number,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (sessionId) headers.set('x-session-id', sessionId);
+  // Защита от попадания строки "undefined"/"null" в header при апгрейдах формата API.
+  if (sessionId && sessionId !== 'undefined' && sessionId !== 'null') {
+    headers.set('x-session-id', sessionId);
+  }
   if (!headers.has('Content-Type') && options.body) headers.set('Content-Type', 'application/json');
 
   const bases = resolveApiBases(path);

@@ -10,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
+import { isValidUuid } from '../common/uuid.js';
 import { type OAuthCredentials, SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import { ScMe } from '../soundcloud/soundcloud.types.js';
 import { REFRESH_BUFFER_MS } from './auth.constants.js';
@@ -298,6 +299,9 @@ export class AuthService implements OnModuleInit {
   }
 
   async refreshSession(sessionId: string): Promise<Session> {
+    if (!isValidUuid(sessionId)) {
+      throw new UnauthorizedException('Malformed session id');
+    }
     const existing = this.refreshInFlight.get(sessionId);
     if (existing) return existing;
 
@@ -349,6 +353,7 @@ export class AuthService implements OnModuleInit {
   }
 
   async logout(sessionId: string): Promise<void> {
+    if (!isValidUuid(sessionId)) return;
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) return;
 
@@ -364,10 +369,14 @@ export class AuthService implements OnModuleInit {
   }
 
   async getSession(sessionId: string): Promise<Session | null> {
+    if (!isValidUuid(sessionId)) return null;
     return this.sessionRepo.findOne({ where: { id: sessionId } });
   }
 
   async getValidAccessToken(sessionId: string): Promise<string> {
+    if (!isValidUuid(sessionId)) {
+      throw new UnauthorizedException('Malformed session id');
+    }
     let session = await this.sessionRepo.findOne({ where: { id: sessionId } });
     if (!session) {
       throw new UnauthorizedException('Session not found');
