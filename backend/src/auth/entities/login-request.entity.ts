@@ -1,7 +1,7 @@
 import { BeforeInsert, Column, CreateDateColumn, Entity, Index, PrimaryColumn } from 'typeorm';
 import { v7 as uuidv7 } from 'uuid';
 
-export type LoginRequestStatus = 'pending' | 'completed' | 'failed';
+export type LoginRequestStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 /**
  * Pending OAuth-флоу. Живёт от /auth/login до /auth/callback (или TTL).

@@ -56,14 +56,16 @@ export class AuthController {
     try {
       const result = await this.authService.handleCallback(code, state);
       return renderCallbackPage({
-        success: result.success,
+        loginRequestId: result.loginRequestId,
+        initialStatus: result.initialStatus,
         username: result.username,
         error: result.error,
       });
     } catch (err: any) {
       this.logger.error(`Unhandled error in /auth/callback: ${err?.message}`, err?.stack);
       return renderCallbackPage({
-        success: false,
+        loginRequestId: null,
+        initialStatus: 'failed',
         error: 'Authentication failed due to a server error. Please try again.',
       });
     }

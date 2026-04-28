@@ -110,121 +110,169 @@ export class AuthService implements OnModuleInit {
     };
   }
 
+  /**
+   * Принимает callback от SoundCloud и **сразу** возвращает информацию для рендера
+   * страницы. Реальный обмен кода + /me + сохранение происходит в фоне — страница
+   * polling'ует /auth/login/status и видит прогресс. Это убирает зависание HTML
+   * на 2-5 секунд и даёт защиту от дубликат-вызовов callback'а (preview, retry).
+   */
   async handleCallback(
     code: string,
     state: string,
-  ): Promise<{ success: boolean; sessionId?: string; username?: string; error?: string }> {
+  ): Promise<{
+    /** Если null — state не найден, рендерим error-страницу. */
+    loginRequestId: string | null;
+    /** Известный финальный исход (если уже completed/failed). Для свежезахваченных — pending. */
+    initialStatus: 'pending' | 'completed' | 'failed';
+    error?: string;
+    sessionId?: string;
+    username?: string;
+  }> {
     this.logger.log(
-      `Callback received: state=${state?.slice(0, 8)}… (length=${state?.length ?? 0}) code=${code?.slice(0, 8)}…`,
+      `Callback received: state=${state?.slice(0, 8)}… code=${code?.slice(0, 8)}…`,
     );
-    const loginRequest = await this.loginRequestRepo.findOne({ where: { state } });
 
-    if (!loginRequest) {
-      const total = await this.loginRequestRepo.count();
-      const recent = await this.loginRequestRepo.find({
-        order: { createdAt: 'DESC' },
-        take: 3,
-      });
-      this.logger.warn(
-        `Callback state not found. Received state=${state?.slice(0, 16)}… total_in_db=${total} recent=[${recent
-          .map((r) => `${r.id.slice(0, 8)}:state=${r.state.slice(0, 8)}…/status=${r.status}`)
-          .join(', ')}]`,
-      );
+    // Атомарно захватываем pending → processing. Только один параллельный callback пройдёт.
+    const claim = await this.loginRequestRepo
+      .createQueryBuilder()
+      .update(LoginRequest)
+      .set({ status: 'processing' })
+      .where('state = :state AND status = :status', { state, status: 'pending' })
+      .execute();
+
+    if (claim.affected) {
+      // Захвачено нами — запускаем фоновую обработку, страница увидит результат через polling.
+      const captured = await this.loginRequestRepo.findOne({ where: { state } });
+      if (!captured) {
+        this.logger.error(`Login request disappeared after claim, state=${state?.slice(0, 8)}…`);
+        return {
+          loginRequestId: null,
+          initialStatus: 'failed',
+          error: 'Internal error. Please try again.',
+        };
+      }
+      void this.runCallbackBackground(captured.id, code);
+      return { loginRequestId: captured.id, initialStatus: 'pending' };
+    }
+
+    // Не захватили — либо state не существует, либо уже processed/processing.
+    const existing = await this.loginRequestRepo.findOne({ where: { state } });
+    if (!existing) {
+      this.logger.warn(`Callback state not found: ${state?.slice(0, 8)}…`);
       return {
-        success: false,
+        loginRequestId: null,
+        initialStatus: 'failed',
         error: 'This login link is invalid or already used. Please try logging in again.',
       };
     }
-
-    if (loginRequest.status !== 'pending') {
-      this.logger.warn(
-        `Callback for login request ${loginRequest.id} in non-pending status: ${loginRequest.status}`,
-      );
+    if (existing.status === 'completed') {
       return {
-        success: loginRequest.status === 'completed',
-        error:
-          loginRequest.status === 'completed'
-            ? undefined
-            : loginRequest.error || 'This login link was already used.',
+        loginRequestId: existing.id,
+        initialStatus: 'completed',
+        sessionId: existing.resultSessionId ?? undefined,
       };
     }
-
-    if (loginRequest.expiresAt.getTime() < Date.now()) {
-      loginRequest.status = 'failed';
-      loginRequest.error = 'Login request expired';
-      await this.loginRequestRepo.save(loginRequest);
-      return {
-        success: false,
-        error: 'Login link expired. Please try logging in again.',
-      };
+    if (existing.status === 'processing') {
+      // Двойной callback на ещё не завершённый запрос: пусть тоже polling'ует.
+      return { loginRequestId: existing.id, initialStatus: 'pending' };
     }
+    return {
+      loginRequestId: existing.id,
+      initialStatus: 'failed',
+      error: existing.error || 'This login link was already used.',
+    };
+  }
 
-    const creds = await this.getCredentialsForApp(loginRequest.oauthAppId);
-
-    let tokenResponse: Awaited<ReturnType<typeof this.soundcloudService.exchangeCodeForToken>>;
+  /**
+   * Фоновая обработка захваченного LoginRequest. НЕ throw'ит — все ошибки
+   * сохраняются в БД (status=failed + error). Страница увидит их через polling.
+   */
+  private async runCallbackBackground(loginRequestId: string, code: string): Promise<void> {
     try {
-      tokenResponse = await this.soundcloudService.exchangeCodeForToken(
-        code,
-        loginRequest.codeVerifier,
-        creds,
+      const lr = await this.loginRequestRepo.findOne({ where: { id: loginRequestId } });
+      if (!lr) {
+        this.logger.error(`Background: loginRequest ${loginRequestId} disappeared`);
+        return;
+      }
+
+      if (lr.expiresAt.getTime() < Date.now()) {
+        await this.markRequestFailed(loginRequestId, 'Login request expired');
+        return;
+      }
+
+      const creds = await this.getCredentialsForApp(lr.oauthAppId);
+
+      let tokenResponse: Awaited<ReturnType<typeof this.soundcloudService.exchangeCodeForToken>>;
+      try {
+        tokenResponse = await this.soundcloudService.exchangeCodeForToken(
+          code,
+          lr.codeVerifier,
+          creds,
+        );
+      } catch (err: any) {
+        const msg =
+          err?.response?.data?.error_description || err?.message || 'Token exchange failed';
+        this.logger.error(
+          `Token exchange failed for ${loginRequestId}: status=${err?.response?.status} ${msg}`,
+        );
+        await this.markRequestFailed(loginRequestId, msg);
+        return;
+      }
+
+      const me = await this.fetchScMeWithRetries(tokenResponse.access_token);
+      if (!me?.urn) {
+        await this.markRequestFailed(loginRequestId, 'Failed to fetch SoundCloud user info');
+        return;
+      }
+
+      let session: Session | null = null;
+      if (lr.targetSessionId) {
+        session = await this.sessionRepo.findOne({ where: { id: lr.targetSessionId } });
+      }
+
+      if (!session) {
+        session = this.sessionRepo.create({
+          accessToken: tokenResponse.access_token,
+          refreshToken: tokenResponse.refresh_token,
+          expiresAt: new Date(Date.now() + tokenResponse.expires_in * 1000),
+          scope: tokenResponse.scope || '',
+          soundcloudUserId: me.urn,
+          username: me.username,
+          oauthAppId: lr.oauthAppId,
+        });
+      } else {
+        session.accessToken = tokenResponse.access_token;
+        session.refreshToken = tokenResponse.refresh_token;
+        session.expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
+        session.scope = tokenResponse.scope || '';
+        session.soundcloudUserId = me.urn;
+        session.username = me.username;
+        if (lr.oauthAppId) session.oauthAppId = lr.oauthAppId;
+      }
+      await this.sessionRepo.save(session);
+
+      lr.status = 'completed';
+      lr.resultSessionId = session.id;
+      await this.loginRequestRepo.save(lr);
+
+      this.logger.log(
+        `Login completed: request=${loginRequestId} session=${session.id} user=${me.username}`,
       );
     } catch (err: any) {
       this.logger.error(
-        `Token exchange failed for login request ${loginRequest.id}: status=${err?.response?.status} message=${err?.message}`,
+        `Unexpected error in callback background for ${loginRequestId}: ${err?.message}`,
+        err?.stack,
       );
-      loginRequest.status = 'failed';
-      loginRequest.error =
-        err?.response?.data?.error_description || err?.message || 'Token exchange failed';
-      await this.loginRequestRepo.save(loginRequest);
-      return { success: false, error: loginRequest.error || 'Token exchange failed' };
+      await this.markRequestFailed(loginRequestId, 'Internal error during authentication');
     }
+  }
 
-    const me = await this.fetchScMeWithRetries(tokenResponse.access_token);
-    if (!me?.urn) {
-      loginRequest.status = 'failed';
-      loginRequest.error = 'Failed to fetch SoundCloud user info';
-      await this.loginRequestRepo.save(loginRequest);
-      return {
-        success: false,
-        error: 'Failed to fetch SoundCloud user info. Please try again.',
-      };
+  private async markRequestFailed(id: string, error: string): Promise<void> {
+    try {
+      await this.loginRequestRepo.update({ id }, { status: 'failed', error });
+    } catch (err: any) {
+      this.logger.error(`Failed to mark login request ${id} as failed: ${err?.message}`);
     }
-
-    let session: Session | null = null;
-    if (loginRequest.targetSessionId) {
-      session = await this.sessionRepo.findOne({ where: { id: loginRequest.targetSessionId } });
-    }
-
-    if (!session) {
-      session = this.sessionRepo.create({
-        accessToken: tokenResponse.access_token,
-        refreshToken: tokenResponse.refresh_token,
-        expiresAt: new Date(Date.now() + tokenResponse.expires_in * 1000),
-        scope: tokenResponse.scope || '',
-        soundcloudUserId: me.urn,
-        username: me.username,
-        oauthAppId: loginRequest.oauthAppId,
-      });
-    } else {
-      session.accessToken = tokenResponse.access_token;
-      session.refreshToken = tokenResponse.refresh_token;
-      session.expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
-      session.scope = tokenResponse.scope || '';
-      session.soundcloudUserId = me.urn;
-      session.username = me.username;
-      if (loginRequest.oauthAppId) session.oauthAppId = loginRequest.oauthAppId;
-    }
-    await this.sessionRepo.save(session);
-
-    loginRequest.status = 'completed';
-    loginRequest.resultSessionId = session.id;
-    await this.loginRequestRepo.save(loginRequest);
-
-    this.logger.log(
-      `Login completed: request=${loginRequest.id} session=${session.id} user=${me.username}`,
-    );
-
-    return { success: true, sessionId: session.id, username: me.username };
   }
 
   async getLoginRequestStatus(loginRequestId: string): Promise<{
@@ -234,11 +282,16 @@ export class AuthService implements OnModuleInit {
   }> {
     const lr = await this.loginRequestRepo.findOne({ where: { id: loginRequestId } });
     if (!lr) return { status: 'expired', error: 'Unknown login request' };
-    if (lr.status === 'pending' && lr.expiresAt.getTime() < Date.now()) {
+    if (
+      (lr.status === 'pending' || lr.status === 'processing') &&
+      lr.expiresAt.getTime() < Date.now()
+    ) {
       return { status: 'expired', error: 'Login request expired' };
     }
+    // 'processing' для клиента эквивалентен 'pending' — пусть продолжает polling.
+    const status = lr.status === 'processing' ? 'pending' : lr.status;
     return {
-      status: lr.status,
+      status,
       sessionId: lr.resultSessionId ?? undefined,
       error: lr.error ?? undefined,
     };
