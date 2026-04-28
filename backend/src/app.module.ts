@@ -3,6 +3,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminStatsController } from './admin/admin-stats.controller.js';
 import { AuthModule } from './auth/auth.module.js';
+import { LinkRequest } from './auth/entities/link-request.entity.js';
+import { LoginRequest } from './auth/entities/login-request.entity.js';
 import { Session } from './auth/entities/session.entity.js';
 import { NatsModule } from './bus/nats.module.js';
 import { ApiCacheModule } from './cache/cache.module.js';
@@ -59,6 +61,8 @@ import { UsersModule } from './users/users.module.js';
         database: config.get<string>('database.name'),
         entities: [
           Session,
+          LoginRequest,
+          LinkRequest,
           ListeningHistory,
           LocalLike,
           OAuthApp,
