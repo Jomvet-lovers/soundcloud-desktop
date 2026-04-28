@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, ClipboardCopy, Disc3 } from '../lib/icons';
+import { QrLinkSheet } from '../components/auth/QrLinkSheet';
+import { Check, ClipboardCopy, Disc3, Smartphone } from '../lib/icons';
 import { queryClient } from '../lib/query-client';
 import { useOAuthFlow } from '../lib/use-oauth-flow';
 import { useAuthStore } from '../stores/auth';
@@ -10,12 +11,15 @@ export function Login() {
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
   const [copied, setCopied] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
-  const { startLogin, authUrl, isPolling } = useOAuthFlow(async (sessionId) => {
+  const onLoginSuccess = async (sessionId: string) => {
     setSession(sessionId);
     await fetchUser();
     queryClient.invalidateQueries();
-  });
+  };
+
+  const { startLogin, authUrl, isPolling } = useOAuthFlow(onLoginSuccess);
 
   const handleLogin = async () => {
     try {
@@ -76,15 +80,26 @@ export function Login() {
             )}
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={handleLogin}
-            className="w-full py-3.5 rounded-2xl bg-accent text-accent-contrast font-semibold text-sm hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)] hover:shadow-[0_0_60px_var(--color-accent-glow),0_4px_16px_rgba(0,0,0,0.4)]"
-          >
-            {t('auth.signIn')}
-          </button>
+          <div className="flex flex-col items-stretch gap-2.5 w-full">
+            <button
+              type="button"
+              onClick={handleLogin}
+              className="w-full py-3.5 rounded-2xl bg-accent text-accent-contrast font-semibold text-sm hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)] hover:shadow-[0_0_60px_var(--color-accent-glow),0_4px_16px_rgba(0,0,0,0.4)]"
+            >
+              {t('auth.signIn')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setQrOpen(true)}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] text-white/40 hover:text-white/70 hover:bg-white/[0.04] transition-all cursor-pointer"
+            >
+              <Smartphone size={13} />
+              {t('qrLink.scanQr')}
+            </button>
+          </div>
         )}
       </div>
+      <QrLinkSheet open={qrOpen} onOpenChange={setQrOpen} mode="pull" onSuccess={onLoginSuccess} />
     </div>
   );
 }

@@ -1,12 +1,11 @@
 interface CallbackPageParams {
   success: boolean;
-  sessionId?: string;
   username?: string | null;
   error?: string;
 }
 
 export function renderCallbackPage(params: CallbackPageParams): string {
-  const { success, sessionId, username, error } = params;
+  const { success, username, error } = params;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -150,7 +149,6 @@ export function renderCallbackPage(params: CallbackPageParams): string {
         ${username ? `Signed in as <span class="username">${escapeHtml(username)}</span>` : 'Successfully authenticated with SoundCloud'}
       </p>
       <p class="hint">You can return to the app now</p>
-      <span class="session-id" data-session-id="${sessionId || ''}"></span>
     `
         : `
       <div class="icon error">&#10007;</div>

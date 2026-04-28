@@ -1,37 +1,40 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
 import { type OAuthCredentials, SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import { ScMe } from '../soundcloud/soundcloud.types.js';
 import { REFRESH_BUFFER_MS } from './auth.constants.js';
+import { LoginRequest } from './entities/login-request.entity.js';
 import { Session } from './entities/session.entity.js';
+
+const LOGIN_REQUEST_TTL_MS = 15 * 60_000;
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  /** Дедупликация параллельных refresh'ей для одной сессии */
   private readonly refreshInFlight = new Map<string, Promise<Session>>();
 
   constructor(
     @InjectRepository(Session)
     private readonly sessionRepo: Repository<Session>,
+    @InjectRepository(LoginRequest)
+    private readonly loginRequestRepo: Repository<LoginRequest>,
     private readonly soundcloudService: SoundcloudService,
     private readonly oauthAppsService: OAuthAppsService,
     private readonly configService: ConfigService,
   ) {}
 
-  async initiateLogin(existingSessionId?: string): Promise<{ url: string; sessionId: string }> {
+  async initiateLogin(
+    existingSessionId?: string,
+  ): Promise<{ url: string; loginRequestId: string }> {
+    void this.cleanupExpiredLoginRequests();
+
     const codeVerifier = randomBytes(32).toString('base64url');
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
-    const state = randomBytes(16).toString('hex');
+    const state = randomBytes(32).toString('hex');
 
     let oauthAppId: string | undefined;
     let creds: OAuthCredentials;
@@ -54,30 +57,28 @@ export class AuthService {
       this.logger.warn('No active OAuth apps available, using env OAuth fallback');
     }
 
-    let session: Session | null = null;
+    let targetSessionId: string | null = null;
     if (existingSessionId) {
-      session = await this.sessionRepo.findOne({ where: { id: existingSessionId } });
+      const existing = await this.sessionRepo.findOne({ where: { id: existingSessionId } });
+      if (existing) {
+        targetSessionId = existing.id;
+        this.logger.log(`Re-auth flow for existing session ${existing.id}`);
+      } else {
+        this.logger.warn(
+          `Re-auth requested for unknown session ${existingSessionId}, will create new`,
+        );
+      }
     }
 
-    if (session) {
-      session.codeVerifier = codeVerifier;
-      session.state = state;
-      session.oauthAppId = oauthAppId;
-      this.logger.log(`Reusing existing session ${session.id} for re-auth`);
-    } else {
-      session = this.sessionRepo.create({
-        codeVerifier,
-        state,
-        accessToken: '',
-        refreshToken: '',
-        expiresAt: new Date(),
-        scope: '',
-        oauthAppId,
-      });
-    }
-    await this.sessionRepo.save(session);
-
-    const authBaseUrl = this.soundcloudService.scAuthBaseUrl;
+    const loginRequest = this.loginRequestRepo.create({
+      state,
+      codeVerifier,
+      oauthAppId,
+      targetSessionId,
+      status: 'pending',
+      expiresAt: new Date(Date.now() + LOGIN_REQUEST_TTL_MS),
+    });
+    await this.loginRequestRepo.save(loginRequest);
 
     const params = new URLSearchParams({
       client_id: creds.clientId,
@@ -89,89 +90,131 @@ export class AuthService {
     });
 
     return {
-      url: `${authBaseUrl}/authorize?${params.toString()}`,
-      sessionId: session.id,
+      url: `${this.soundcloudService.scAuthBaseUrl}/authorize?${params.toString()}`,
+      loginRequestId: loginRequest.id,
     };
   }
 
   async handleCallback(
     code: string,
     state: string,
-  ): Promise<{ session: Session | null; success: boolean; error?: string }> {
-    const session = await this.sessionRepo.findOne({ where: { state } });
-    if (!session) {
-      this.logger.warn(`Callback received with unknown state: ${state}`);
+  ): Promise<{ success: boolean; sessionId?: string; username?: string; error?: string }> {
+    const loginRequest = await this.loginRequestRepo.findOne({ where: { state } });
+
+    if (!loginRequest) {
+      this.logger.warn(`Callback received with unknown state: ${state.slice(0, 12)}…`);
       return {
-        session: null,
         success: false,
-        error: 'Session expired or not found. Please try logging in again.',
+        error: 'This login link is invalid or already used. Please try logging in again.',
       };
     }
 
-    if (!session.codeVerifier) {
-      this.logger.warn(`Callback for session ${session.id} has no code verifier`);
+    if (loginRequest.status !== 'pending') {
+      this.logger.warn(
+        `Callback for login request ${loginRequest.id} in non-pending status: ${loginRequest.status}`,
+      );
       return {
-        session,
-        success: false,
-        error: 'Login session is invalid. Please try logging in again.',
+        success: loginRequest.status === 'completed',
+        error:
+          loginRequest.status === 'completed'
+            ? undefined
+            : loginRequest.error || 'This login link was already used.',
       };
     }
 
-    const creds = await this.getSessionCredentials(session);
+    if (loginRequest.expiresAt.getTime() < Date.now()) {
+      loginRequest.status = 'failed';
+      loginRequest.error = 'Login request expired';
+      await this.loginRequestRepo.save(loginRequest);
+      return {
+        success: false,
+        error: 'Login link expired. Please try logging in again.',
+      };
+    }
 
+    const creds = await this.getCredentialsForApp(loginRequest.oauthAppId);
+
+    let tokenResponse: Awaited<ReturnType<typeof this.soundcloudService.exchangeCodeForToken>>;
     try {
-      const tokenResponse = await this.soundcloudService.exchangeCodeForToken(
+      tokenResponse = await this.soundcloudService.exchangeCodeForToken(
         code,
-        session.codeVerifier,
+        loginRequest.codeVerifier,
         creds,
       );
+    } catch (err: any) {
+      this.logger.error(
+        `Token exchange failed for login request ${loginRequest.id}: status=${err?.response?.status} message=${err?.message}`,
+      );
+      loginRequest.status = 'failed';
+      loginRequest.error =
+        err?.response?.data?.error_description || err?.message || 'Token exchange failed';
+      await this.loginRequestRepo.save(loginRequest);
+      return { success: false, error: loginRequest.error || 'Token exchange failed' };
+    }
 
+    const me = await this.fetchScMeWithRetries(tokenResponse.access_token);
+    if (!me?.urn) {
+      loginRequest.status = 'failed';
+      loginRequest.error = 'Failed to fetch SoundCloud user info';
+      await this.loginRequestRepo.save(loginRequest);
+      return {
+        success: false,
+        error: 'Failed to fetch SoundCloud user info. Please try again.',
+      };
+    }
+
+    let session: Session | null = null;
+    if (loginRequest.targetSessionId) {
+      session = await this.sessionRepo.findOne({ where: { id: loginRequest.targetSessionId } });
+    }
+
+    if (!session) {
+      session = this.sessionRepo.create({
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+        expiresAt: new Date(Date.now() + tokenResponse.expires_in * 1000),
+        scope: tokenResponse.scope || '',
+        soundcloudUserId: me.urn,
+        username: me.username,
+        oauthAppId: loginRequest.oauthAppId,
+      });
+    } else {
       session.accessToken = tokenResponse.access_token;
       session.refreshToken = tokenResponse.refresh_token;
       session.expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
       session.scope = tokenResponse.scope || '';
-      session.codeVerifier = '';
-      session.state = '';
-
-      let me: ScMe | null = null;
-      let lastErr: any;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          me = await this.soundcloudService.apiGet<ScMe>('/me', session.accessToken);
-          break;
-        } catch (err) {
-          lastErr = err;
-          if (attempt < 2) {
-            await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-          }
-        }
-      }
-
-      if (!me?.urn) {
-        this.logger.error(
-          `Failed to fetch /me after retries for session ${session.id}: status=${lastErr?.response?.status} body=${JSON.stringify(lastErr?.response?.data)} message=${lastErr?.message}`,
-        );
-        await this.sessionRepo.remove(session);
-        return {
-          session,
-          success: false,
-          error: 'Failed to fetch SoundCloud user info. Please try again.',
-        };
-      }
-
       session.soundcloudUserId = me.urn;
       session.username = me.username;
-
-      await this.sessionRepo.save(session);
-      return { session, success: true };
-    } catch (error: any) {
-      return {
-        session,
-        success: false,
-        error:
-          error?.response?.data?.error_description || error?.message || 'Token exchange failed',
-      };
+      if (loginRequest.oauthAppId) session.oauthAppId = loginRequest.oauthAppId;
     }
+    await this.sessionRepo.save(session);
+
+    loginRequest.status = 'completed';
+    loginRequest.resultSessionId = session.id;
+    await this.loginRequestRepo.save(loginRequest);
+
+    this.logger.log(
+      `Login completed: request=${loginRequest.id} session=${session.id} user=${me.username}`,
+    );
+
+    return { success: true, sessionId: session.id, username: me.username };
+  }
+
+  async getLoginRequestStatus(loginRequestId: string): Promise<{
+    status: 'pending' | 'completed' | 'failed' | 'expired';
+    sessionId?: string;
+    error?: string;
+  }> {
+    const lr = await this.loginRequestRepo.findOne({ where: { id: loginRequestId } });
+    if (!lr) return { status: 'expired', error: 'Unknown login request' };
+    if (lr.status === 'pending' && lr.expiresAt.getTime() < Date.now()) {
+      return { status: 'expired', error: 'Login request expired' };
+    }
+    return {
+      status: lr.status,
+      sessionId: lr.resultSessionId ?? undefined,
+      error: lr.error ?? undefined,
+    };
   }
 
   async refreshSession(sessionId: string): Promise<Session> {
@@ -219,7 +262,8 @@ export class AuthService {
       this.logger.warn(
         `Refresh failed for session ${sessionId}: ${error?.response?.data?.error_description || error?.message}`,
       );
-      await this.sessionRepo.remove(session);
+      // НЕ удаляем сессию: refresh может временно отказать (network/5xx).
+      // Пусть остаётся, у юзера откроется ReAuthOverlay → re-auth попадёт в ту же запись.
       throw new UnauthorizedException('Refresh token expired or invalid. Please re-authenticate.');
     }
   }
@@ -229,7 +273,11 @@ export class AuthService {
     if (!session) return;
 
     if (session.accessToken) {
-      await this.soundcloudService.signOut(session.accessToken);
+      try {
+        await this.soundcloudService.signOut(session.accessToken);
+      } catch (err: any) {
+        this.logger.warn(`signOut failed for session ${sessionId}: ${err?.message}`);
+      }
     }
 
     await this.sessionRepo.remove(session);
@@ -253,10 +301,9 @@ export class AuthService {
     return session.accessToken;
   }
 
-  /** Получить OAuth credentials для сессии (из привязанной аппки или fallback из env) */
-  private async getSessionCredentials(session: Session): Promise<OAuthCredentials> {
-    if (session.oauthAppId) {
-      const app = await this.oauthAppsService.getById(session.oauthAppId);
+  async getCredentialsForApp(oauthAppId?: string | null): Promise<OAuthCredentials> {
+    if (oauthAppId) {
+      const app = await this.oauthAppsService.getById(oauthAppId);
       if (app) {
         return {
           clientId: app.clientId,
@@ -265,8 +312,11 @@ export class AuthService {
         };
       }
     }
-
     return this.getEnvCredentials();
+  }
+
+  private async getSessionCredentials(session: Session): Promise<OAuthCredentials> {
+    return this.getCredentialsForApp(session.oauthAppId);
   }
 
   private getEnvCredentials(): OAuthCredentials {
@@ -275,5 +325,31 @@ export class AuthService {
       clientSecret: this.configService.get<string>('soundcloud.clientSecret') || '',
       redirectUri: this.configService.get<string>('soundcloud.redirectUri') || '',
     };
+  }
+
+  private async fetchScMeWithRetries(accessToken: string): Promise<ScMe | null> {
+    let lastErr: any;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.soundcloudService.apiGet<ScMe>('/me', accessToken);
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
+      }
+    }
+    this.logger.error(
+      `Failed to fetch /me after retries: status=${lastErr?.response?.status} body=${JSON.stringify(lastErr?.response?.data)} message=${lastErr?.message}`,
+    );
+    return null;
+  }
+
+  private async cleanupExpiredLoginRequests(): Promise<void> {
+    try {
+      await this.loginRequestRepo.delete({ expiresAt: LessThan(new Date()) });
+    } catch (err: any) {
+      this.logger.warn(`Failed to cleanup expired login requests: ${err?.message}`);
+    }
   }
 }

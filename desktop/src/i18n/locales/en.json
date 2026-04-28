@@ -44,6 +44,20 @@
     "copied": "Copied!",
     "logout": "Log out"
   },
+  "qrLink": {
+    "pullTitle": "Sign in with another device",
+    "pullSubtitle": "Open SoundCloud Desktop on your phone or another device that's already signed in, then scan this code.",
+    "pushTitle": "Add another device",
+    "pushSubtitle": "Open SoundCloud Desktop on your phone (or another device) and scan this code to sign in there.",
+    "preparing": "Generating secure code…",
+    "expiresIn": "Expires in {{seconds}}s",
+    "pullSuccess": "You're signed in.",
+    "pushSuccess": "The other device is signed in.",
+    "failed": "QR link failed.",
+    "retry": "Generate new code",
+    "scanQr": "Sign in with QR",
+    "transferSession": "Transfer session to another device"
+  },
   "search": {
     "placeholder": "Search tracks, playlists, users...",
     "tracks": "Tracks",

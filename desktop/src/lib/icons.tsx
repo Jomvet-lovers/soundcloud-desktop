@@ -55,6 +55,7 @@ import {
   Send as _Send,
   Settings as _Settings,
   Shuffle as _Shuffle,
+  Smartphone as _Smartphone,
   SkipBack as _SkipBack,
   SkipForward as _SkipForward,
   SlidersHorizontal as _SlidersHorizontal,
@@ -139,6 +140,7 @@ export const Search = memo(_Search);
 export const Send = memo(_Send);
 export const Settings = memo(_Settings);
 export const Shuffle = memo(_Shuffle);
+export const Smartphone = memo(_Smartphone);
 export const SkipBack = memo(_SkipBack);
 export const SkipForward = memo(_SkipForward);
 export const Sparkles = memo(_Sparkles);

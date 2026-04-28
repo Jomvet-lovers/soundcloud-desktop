@@ -2,8 +2,18 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class LoginResponseDto {
   @ApiProperty({ description: 'SoundCloud OAuth authorization URL' }) url: string;
-  @ApiProperty({ description: 'Session ID to use for subsequent requests', format: 'uuid' })
-  sessionId: string;
+  @ApiProperty({ description: 'Login request id, used for polling status', format: 'uuid' })
+  loginRequestId: string;
+}
+
+export class LoginStatusResponseDto {
+  @ApiProperty({ enum: ['pending', 'completed', 'failed', 'expired'] })
+  status: 'pending' | 'completed' | 'failed' | 'expired';
+
+  @ApiPropertyOptional({ format: 'uuid', description: 'Available when status=completed' })
+  sessionId?: string;
+
+  @ApiPropertyOptional() error?: string;
 }
 
 export class SessionResponseDto {

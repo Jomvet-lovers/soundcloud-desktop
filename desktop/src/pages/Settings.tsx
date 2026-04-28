@@ -967,21 +967,41 @@ const YMImportDialogLazy = React.lazy(() => import('../components/music/YMImport
 
 /* ── Account Section ────────────────────────────────────── */
 
+const QrLinkSheetLazy = React.lazy(() =>
+  import('../components/auth/QrLinkSheet').then((m) => ({ default: m.QrLinkSheet })),
+);
+
 const AccountSection = React.memo(function AccountSection() {
   const { t } = useTranslation();
   const logout = useAuthStore((s) => s.logout);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   return (
     <section className="bg-white/[0.02] border border-white/[0.05] backdrop-blur-[60px] rounded-3xl p-6 shadow-xl">
       <h3 className="text-[15px] font-bold text-white/80 tracking-tight mb-5">
         {t('settings.account')}
       </h3>
-      <button
-        onClick={logout}
-        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 transition-all duration-300 cursor-pointer"
-      >
-        {t('auth.signOut')}
-      </button>
+      <div className="flex flex-col gap-2.5">
+        <button
+          type="button"
+          onClick={() => setTransferOpen(true)}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-white/[0.04] text-white/75 hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-300 cursor-pointer w-fit"
+        >
+          {t('qrLink.transferSession')}
+        </button>
+        <button
+          type="button"
+          onClick={logout}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[13px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 transition-all duration-300 cursor-pointer w-fit"
+        >
+          {t('auth.signOut')}
+        </button>
+      </div>
+      {transferOpen && (
+        <React.Suspense fallback={null}>
+          <QrLinkSheetLazy open={transferOpen} onOpenChange={setTransferOpen} mode="push" />
+        </React.Suspense>
+      )}
     </section>
   );
 });
