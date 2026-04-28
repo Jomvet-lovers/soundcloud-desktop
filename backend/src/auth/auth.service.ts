@@ -1,5 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  type OnModuleInit,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
@@ -13,9 +19,16 @@ import { Session } from './entities/session.entity.js';
 const LOGIN_REQUEST_TTL_MS = 15 * 60_000;
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
   private readonly refreshInFlight = new Map<string, Promise<Session>>();
+  private cleanupTimer?: ReturnType<typeof setInterval>;
+
+  onModuleInit() {
+    this.cleanupTimer = setInterval(() => {
+      void this.cleanupExpiredLoginRequests();
+    }, 60_000);
+  }
 
   constructor(
     @InjectRepository(Session)
@@ -30,11 +43,9 @@ export class AuthService {
   async initiateLogin(
     existingSessionId?: string,
   ): Promise<{ url: string; loginRequestId: string }> {
-    void this.cleanupExpiredLoginRequests();
-
     const codeVerifier = randomBytes(32).toString('base64url');
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
-    const state = randomBytes(32).toString('hex');
+    const state = randomBytes(16).toString('hex');
 
     let oauthAppId: string | undefined;
     let creds: OAuthCredentials;
@@ -80,6 +91,10 @@ export class AuthService {
     });
     await this.loginRequestRepo.save(loginRequest);
 
+    this.logger.log(
+      `LoginRequest created id=${loginRequest.id} state=${state.slice(0, 8)}… target=${targetSessionId ?? 'new'} expiresAt=${loginRequest.expiresAt.toISOString()}`,
+    );
+
     const params = new URLSearchParams({
       client_id: creds.clientId,
       redirect_uri: creds.redirectUri,
@@ -99,10 +114,22 @@ export class AuthService {
     code: string,
     state: string,
   ): Promise<{ success: boolean; sessionId?: string; username?: string; error?: string }> {
+    this.logger.log(
+      `Callback received: state=${state?.slice(0, 8)}… (length=${state?.length ?? 0}) code=${code?.slice(0, 8)}…`,
+    );
     const loginRequest = await this.loginRequestRepo.findOne({ where: { state } });
 
     if (!loginRequest) {
-      this.logger.warn(`Callback received with unknown state: ${state.slice(0, 12)}…`);
+      const total = await this.loginRequestRepo.count();
+      const recent = await this.loginRequestRepo.find({
+        order: { createdAt: 'DESC' },
+        take: 3,
+      });
+      this.logger.warn(
+        `Callback state not found. Received state=${state?.slice(0, 16)}… total_in_db=${total} recent=[${recent
+          .map((r) => `${r.id.slice(0, 8)}:state=${r.state.slice(0, 8)}…/status=${r.status}`)
+          .join(', ')}]`,
+      );
       return {
         success: false,
         error: 'This login link is invalid or already used. Please try logging in again.',
