@@ -1,4 +1,4 @@
-import { ChevronDown, Download, Star } from 'lucide-react';
+import { ChevronDown, Download, Sparkles, Star } from 'lucide-react';
 import { siApple, siGithub, siLinux } from 'simple-icons';
 import { GITHUB, LOGO, RELEASES, siWindows } from '../../constants';
 import { Si } from '../ui/Si';
@@ -68,8 +68,9 @@ export function Hero() {
               GitHub
             </a>
           </div>
-          <a
-            href="#star"
+          <div className="flex flex-col sm:flex-row gap-3">
+            <a
+              href="#star"
             className="relative overflow-hidden px-6 py-3 rounded-2xl text-[17px] font-medium transition-all hover:scale-105 flex items-center gap-2"
             style={{
               background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(168,85,247,0.2))',
@@ -95,6 +96,47 @@ export function Hero() {
             <Star size={18} fill="currentColor" className="text-amber-400 relative z-10" />
             <span className="relative z-10 gradient-text">Подписка Star</span>
           </a>
+          <a
+            href="#news"
+            className="relative overflow-hidden px-6 py-3 rounded-2xl text-[17px] font-medium transition-all hover:scale-105 flex items-center gap-2"
+            style={{
+              background:
+                'linear-gradient(135deg, rgba(55,196,255,0.18), rgba(168,85,247,0.18), rgba(255,61,122,0.14))',
+              border: '1px solid rgba(196,181,253,0.4)',
+              boxShadow:
+                '0 0 30px rgba(168,85,247,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
+            }}
+          >
+            <div className="absolute inset-0 opacity-25">
+              {[...Array(6)].map((_, i) => (
+                <Sparkles
+                  key={i}
+                  size={10 + (i % 3) * 3}
+                  className="absolute text-[#c4b5fd]"
+                  style={{
+                    left: `${(i * 31) % 85}%`,
+                    top: `${(i * 41) % 75}%`,
+                    animation: `star-float ${3 + (i % 3)}s ease-in-out ${i * 0.4}s infinite alternate`,
+                  }}
+                />
+              ))}
+            </div>
+            <Sparkles size={18} className="text-[#c4b5fd] relative z-10" />
+            <span
+              className="relative z-10"
+              style={{
+                background:
+                  'linear-gradient(135deg, #c4b5fd, #ffffff, #fbbf24)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                fontWeight: 600,
+              }}
+            >
+              Хроники
+            </span>
+          </a>
+          </div>
         </div>
 
         {/* Platform pills */}

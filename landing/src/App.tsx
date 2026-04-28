@@ -3,6 +3,7 @@ import { FAQ } from './components/sections/FAQ';
 import { Features } from './components/sections/Features';
 import { Footer } from './components/sections/Footer';
 import { Hero } from './components/sections/Hero';
+import { NewsSection } from './components/sections/NewsSection';
 import { Platforms } from './components/sections/Platforms';
 import { Soundwave } from './components/sections/Soundwave';
 import { StarSubscription } from './components/sections/StarSubscription';
@@ -15,6 +16,7 @@ export function App() {
       <Stats />
       <Features />
       <Soundwave />
+      <NewsSection />
       <StarSubscription />
       <Platforms />
       <FAQ />
