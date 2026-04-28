@@ -35,10 +35,13 @@ async function bootstrap() {
 
     await acmeManager.start();
 
-    adapter = new FastifyAdapter({
-      serverFactory: (handler) =>
+    // Fastify типизирует serverFactory под http.Server; https.Server совместим
+    // по runtime, но типы расходятся — поэтому опции через any.
+    const fastifyOpts: any = {
+      serverFactory: (handler: http.RequestListener) =>
         https.createServer({ SNICallback: acmeManager!.sniCallback }, handler),
-    });
+    };
+    adapter = new FastifyAdapter(fastifyOpts);
   } else {
     adapter = new FastifyAdapter();
   }
@@ -64,10 +67,14 @@ async function bootstrap() {
   if (acmeManager && httpServer) {
     const httpListener = httpServer;
     const acme = acmeManager;
-    app.beforeApplicationShutdown(async () => {
+    const shutdown = async () => {
       acme.stop();
       await new Promise<void>((resolve) => httpListener.close(() => resolve()));
-    });
+      await app.close();
+      process.exit(0);
+    };
+    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
   }
 
   const swaggerConfig = new DocumentBuilder()
@@ -87,9 +94,7 @@ async function bootstrap() {
 
   if (tlsCfg) {
     await app.listen(tlsCfg.httpsPort, '0.0.0.0');
-    console.log(
-      `[tls] HTTPS listener on :${tlsCfg.httpsPort} for ${tlsCfg.domains.join(', ')}`,
-    );
+    console.log(`[tls] HTTPS listener on :${tlsCfg.httpsPort} for ${tlsCfg.domains.join(', ')}`);
     console.log(`OpenAPI spec: https://${tlsCfg.domains[0]}/openapi.json`);
     console.log(`Swagger UI:   https://${tlsCfg.domains[0]}/api`);
   } else {

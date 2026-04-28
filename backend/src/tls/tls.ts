@@ -1,8 +1,8 @@
+import { X509Certificate } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as http from 'node:http';
 import * as path from 'node:path';
 import * as tls from 'node:tls';
-import { X509Certificate } from 'node:crypto';
 import * as acme from 'acme-client';
 
 export interface TlsConfig {
@@ -20,9 +20,7 @@ export function tlsConfigFromEnv(): TlsConfig | null {
 
   const domains = parseCsv(process.env.DOMAINS ?? '');
   if (domains.length === 0) {
-    throw new Error(
-      'TLS_ENABLED=true but DOMAINS is empty (expected comma-separated domain list)',
-    );
+    throw new Error('TLS_ENABLED=true but DOMAINS is empty (expected comma-separated domain list)');
   }
 
   return {
