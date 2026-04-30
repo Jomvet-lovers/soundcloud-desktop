@@ -3,11 +3,11 @@ FROM rust:1-bookworm AS cert-builder
 WORKDIR /build/cert-runner
 
 # Кэш зависимостей.
-COPY cert-runner/Cargo.toml ./
-RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release && rm -rf src
+COPY cert-runner/Cargo.toml cert-runner/Cargo.lock ./
+RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release --locked && rm -rf src
 
 COPY cert-runner/src ./src
-RUN touch src/main.rs && cargo build --release
+RUN touch src/main.rs && cargo build --release --locked
 
 # ---- Node builder ----
 FROM node:22-bookworm-slim AS base
