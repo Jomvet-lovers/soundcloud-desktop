@@ -25,56 +25,39 @@ fn cache_key(url: &str) -> String {
     hex::encode(Sha256::digest(url.as_bytes()))
 }
 
-fn cache_meta_path(cache_path: &std::path::Path) -> PathBuf {
-    PathBuf::from(format!("{}.meta", cache_path.display()))
-}
-
-async fn read_cached_asset(cache_path: &std::path::Path) -> Option<(String, Vec<u8>)> {
-    let meta_path = cache_meta_path(cache_path);
-    let (content_type_raw, data) =
-        tokio::join!(fs::read_to_string(&meta_path), fs::read(cache_path));
-
-    let content_type = content_type_raw.ok()?.trim().to_string();
-    let data = data.ok()?;
-
-    if content_type.is_empty() || data.is_empty() {
-        let _ = fs::remove_file(cache_path).await;
-        let _ = fs::remove_file(meta_path).await;
-        return None;
-    }
-
-    Some((content_type, data))
-}
-
-async fn write_cached_asset(cache_path: PathBuf, content_type: String, data: Vec<u8>) {
-    let tmp_suffix = format!(".tmp-{}", std::process::id());
-    let tmp_cache_path = PathBuf::from(format!("{}{}", cache_path.display(), tmp_suffix));
-    let meta_path = cache_meta_path(&cache_path);
-    let tmp_meta_path = PathBuf::from(format!("{}{}", meta_path.display(), tmp_suffix));
-
-    if fs::write(&tmp_cache_path, &data).await.is_err() {
-        let _ = fs::remove_file(&tmp_cache_path).await;
-        return;
-    }
-
-    if fs::write(&tmp_meta_path, content_type.as_bytes())
-        .await
-        .is_err()
+/// Sniff the content type from the leading bytes. Single source of truth so we
+/// don't need a sidecar .meta file on disk.
+fn sniff_content_type(data: &[u8]) -> &'static str {
+    if data.len() >= 3 && data[..3] == [0xFF, 0xD8, 0xFF] {
+        "image/jpeg"
+    } else if data.len() >= 8 && data[..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+        "image/png"
+    } else if data.len() >= 12 && &data[..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        "image/webp"
+    } else if data.len() >= 6 && (&data[..6] == b"GIF87a" || &data[..6] == b"GIF89a") {
+        "image/gif"
+    } else if data.len() >= 12
+        && &data[4..8] == b"ftyp"
+        && (&data[8..12] == b"avif" || &data[8..12] == b"avis")
     {
-        let _ = fs::remove_file(&tmp_cache_path).await;
-        let _ = fs::remove_file(&tmp_meta_path).await;
+        "image/avif"
+    } else if data.len() >= 4 && data[..4] == [0x00, 0x00, 0x01, 0x00] {
+        "image/x-icon"
+    } else if data.len() >= 5 && (&data[..5] == b"<?xml" || &data[..4] == b"<svg") {
+        "image/svg+xml"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+async fn write_cached_asset(cache_path: PathBuf, data: Vec<u8>) {
+    let tmp = PathBuf::from(format!("{}.tmp-{}", cache_path.display(), std::process::id()));
+    if fs::write(&tmp, &data).await.is_err() {
+        let _ = fs::remove_file(&tmp).await;
         return;
     }
-
-    if fs::rename(&tmp_cache_path, &cache_path).await.is_err() {
-        let _ = fs::remove_file(&tmp_cache_path).await;
-        let _ = fs::remove_file(&tmp_meta_path).await;
-        return;
-    }
-
-    if fs::rename(&tmp_meta_path, &meta_path).await.is_err() {
-        let _ = fs::remove_file(&cache_path).await;
-        let _ = fs::remove_file(&tmp_meta_path).await;
+    if fs::rename(&tmp, &cache_path).await.is_err() {
+        let _ = fs::remove_file(&tmp).await;
     }
 }
 
@@ -147,18 +130,20 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         };
     }
 
-    let key = cache_key(&target_url);
-    let cache_path = state.assets_dir.join(&key);
-    if cache_path.exists() {
-        if let Some((content_type, data)) = read_cached_asset(&cache_path).await {
+    let cache_path = state.assets_dir.join(cache_key(&target_url));
+
+    if let Ok(data) = fs::read(&cache_path).await {
+        if !data.is_empty() {
             #[cfg(debug_assertions)]
             println!("[Proxy] cache HIT {}", target_url);
+            let content_type = sniff_content_type(&data).to_string();
             return ProxyResult {
                 status: 200,
                 content_type,
                 data,
             };
         }
+        let _ = fs::remove_file(&cache_path).await;
     }
 
     #[cfg(debug_assertions)]
@@ -166,7 +151,6 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
 
     let encoded_for_header = BASE64.encode(target_url.as_bytes());
     let mut status = 502u16;
-    let mut content_type = String::new();
     let mut data: Vec<u8> = Vec::new();
 
     for upstream in upstreams {
@@ -182,13 +166,6 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         };
 
         status = resp.status().as_u16();
-        content_type = resp
-            .headers()
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-
         match resp.bytes().await {
             Ok(b) => data = b.to_vec(),
             Err(_) => continue,
@@ -199,16 +176,20 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         }
     }
 
+    let content_type = if status == 200 && !data.is_empty() {
+        sniff_content_type(&data).to_string()
+    } else {
+        String::new()
+    };
+
     let is_cacheable = status == 200
-        && !content_type.starts_with("text/html")
-        && !content_type.starts_with("text/plain")
-        && !content_type.is_empty();
+        && !data.is_empty()
+        && content_type.starts_with("image/");
     if is_cacheable {
         let data_clone = data.clone();
         let path = cache_path.clone();
-        let content_type_clone = content_type.clone();
         tokio::spawn(async move {
-            write_cached_asset(path, content_type_clone, data_clone).await;
+            write_cached_asset(path, data_clone).await;
         });
     }
 
@@ -219,12 +200,25 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     }
 }
 
+/// Long browser cache for successful image responses. Image URLs are
+/// content-addressable (sndcdn artwork-XXX), so effectively immutable. Without
+/// this the WebView re-hits the proxy on every render and the disk cache only
+/// saves a network roundtrip — not the disk read.
+pub fn cache_control_for(status: u16) -> &'static str {
+    if status == 200 {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-store"
+    }
+}
+
 pub async fn handle_uri(request: http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
     let encoded = request.uri().path().trim_start_matches('/');
     let result = proxy_request(encoded).await;
     http::Response::builder()
         .status(result.status)
         .header("content-type", &result.content_type)
+        .header("cache-control", cache_control_for(result.status))
         .header("access-control-allow-origin", "*")
         .body(result.data)
         .unwrap()

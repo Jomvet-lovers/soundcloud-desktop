@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use warp::hyper::Body;
 use warp::Filter;
 
-use crate::network::proxy::proxy_request;
+use crate::network::proxy::{cache_control_for, proxy_request};
 use crate::network::server::cors;
 
 pub async fn start() -> u16 {
@@ -16,6 +16,7 @@ pub async fn start() -> u16 {
                 warp::http::Response::builder()
                     .status(result.status)
                     .header("Content-Type", &result.content_type)
+                    .header("Cache-Control", cache_control_for(result.status))
                     .header("Access-Control-Allow-Origin", "*")
                     .body(Body::from(result.data))
                     .unwrap(),

@@ -1,5 +1,5 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { proxiedAssetUrl } from '../lib/asset-url';
 import { APP_VERSION } from '../lib/constants';
@@ -151,12 +151,17 @@ function renderReleaseBody(body: string) {
   return nodes;
 }
 
-export function UpdateChecker({ release }: { release: GithubRelease }) {
+export function UpdateChecker({
+  release,
+  onDismiss,
+}: {
+  release: GithubRelease;
+  onDismiss: () => void;
+}) {
   const { t } = useTranslation();
-  const [dismissed, setDismissed] = useState(false);
   const renderedNotes = useMemo(() => renderReleaseBody(release.body), [release.body]);
 
-  if (!release || dismissed) return null;
+  if (!release) return null;
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -176,7 +181,7 @@ export function UpdateChecker({ release }: { release: GithubRelease }) {
           </div>
           <button
             type="button"
-            onClick={() => setDismissed(true)}
+            onClick={onDismiss}
             className="w-7 h-7 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center transition-colors cursor-pointer"
           >
             <X size={14} className="text-white/40" />
@@ -201,7 +206,7 @@ export function UpdateChecker({ release }: { release: GithubRelease }) {
         <div className="flex gap-2 px-5 pb-5">
           <button
             type="button"
-            onClick={() => setDismissed(true)}
+            onClick={onDismiss}
             className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
           >
             {t('update.later')}

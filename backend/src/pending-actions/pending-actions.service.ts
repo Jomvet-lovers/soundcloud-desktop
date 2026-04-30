@@ -108,9 +108,7 @@ export class PendingActionsService {
   /** Синхронизировать все pending actions */
   async syncAll(): Promise<{ synced: number; failed: number }> {
     // Проверяем, есть ли вообще активные аппки
-    try {
-      this.oauthAppsService.pickRandomApp();
-    } catch {
+    if (!(await this.oauthAppsService.hasActiveApp())) {
       // Нет активных аппок — пропускаем sync
       return { synced: 0, failed: 0 };
     }

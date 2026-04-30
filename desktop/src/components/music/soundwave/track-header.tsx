@@ -49,7 +49,7 @@ export const WaveTrackHeader = React.memo(
   function WaveTrackHeader({ track, queue, isCurrent }: Props) {
     const navigate = useNavigate();
     const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-    const cover = art(track.artwork_url, 't120x120');
+    const cover = art(track.artwork_url, 't200x200');
 
     return (
       <div className="flex items-center gap-3 min-w-0">

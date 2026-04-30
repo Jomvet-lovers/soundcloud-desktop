@@ -36,6 +36,10 @@ export class OAuthApp {
   @Column({ default: true })
   active: boolean;
 
+  /** Когда аппка последний раз использовалась для логина. null — ещё не использовалась. */
+  @Column({ type: 'timestamptz', nullable: true })
+  lastUsedAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

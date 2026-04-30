@@ -1,4 +1,4 @@
-import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react';
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
@@ -64,6 +64,13 @@ export default function App() {
     })),
   );
   const [availableRelease, setAvailableRelease] = useState<GithubRelease | null>(null);
+  const dismissedReleaseTagRef = useRef<string | null>(null);
+  const handleUpdateDismiss = useCallback(() => {
+    setAvailableRelease((prev) => {
+      if (prev) dismissedReleaseTagRef.current = prev.tag_name;
+      return null;
+    });
+  }, []);
   const appMode = useAppStatusStore((s) =>
     !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
@@ -132,9 +139,9 @@ export default function App() {
     const checkUpdates = () => {
       checkForAppUpdate()
         .then((release) => {
-          if (!cancelled) {
-            setAvailableRelease(release);
-          }
+          if (cancelled) return;
+          if (release && release.tag_name === dismissedReleaseTagRef.current) return;
+          setAvailableRelease(release);
         })
         .catch(() => {});
     };
@@ -204,7 +211,7 @@ export default function App() {
           <>
             {availableRelease && (
               <Suspense fallback={null}>
-                <UpdateChecker release={availableRelease} />
+                <UpdateChecker release={availableRelease} onDismiss={handleUpdateDismiss} />
               </Suspense>
             )}
             <Suspense fallback={null}>

@@ -46,5 +46,6 @@ export class OAuthAppResponseDto {
   clientId: string;
   redirectUri: string;
   active: boolean;
+  lastUsedAt: Date | null;
   createdAt: Date;
 }

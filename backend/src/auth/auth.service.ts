@@ -9,8 +9,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
-import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
 import { isValidUuid } from '../common/uuid.js';
+import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
 import { type OAuthCredentials, SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import { ScMe } from '../soundcloud/soundcloud.types.js';
 import { REFRESH_BUFFER_MS } from './auth.constants.js';
@@ -51,7 +51,7 @@ export class AuthService implements OnModuleInit {
     let oauthAppId: string | undefined;
     let creds: OAuthCredentials;
     try {
-      const app = this.oauthAppsService.pickRandomApp();
+      const app = await this.oauthAppsService.pickLeastRecentlyUsedApp();
       oauthAppId = app.id;
       creds = {
         clientId: app.clientId,
@@ -129,9 +129,7 @@ export class AuthService implements OnModuleInit {
     sessionId?: string;
     username?: string;
   }> {
-    this.logger.log(
-      `Callback received: state=${state?.slice(0, 8)}… code=${code?.slice(0, 8)}…`,
-    );
+    this.logger.log(`Callback received: state=${state?.slice(0, 8)}… code=${code?.slice(0, 8)}…`);
 
     // Атомарно захватываем pending → processing. Только один параллельный callback пройдёт.
     const claim = await this.loginRequestRepo

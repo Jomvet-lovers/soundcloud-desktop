@@ -12,9 +12,6 @@ export class OAuthAppsService implements OnModuleInit {
   private readonly telegramBotToken: string;
   private readonly telegramChatId: string;
 
-  /** In-memory кэш активных аппок, обновляется при любых мутациях */
-  private activeApps: OAuthApp[] = [];
-
   constructor(
     @InjectRepository(OAuthApp)
     private readonly repo: Repository<OAuthApp>,
@@ -26,8 +23,9 @@ export class OAuthAppsService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    await this.reloadActiveApps();
     await this.migrateEnvApp();
+    const total = await this.repo.count({ where: { active: true } });
+    this.logger.log(`Active OAuth apps: ${total}`);
   }
 
   /**
@@ -51,25 +49,42 @@ export class OAuthAppsService implements OnModuleInit {
       });
       await this.repo.save(app);
       this.logger.log('Migrated env OAuth credentials to oauth_apps table');
-      await this.reloadActiveApps();
     }
   }
 
-  private async reloadActiveApps() {
-    this.activeApps = await this.repo.find({
-      where: { active: true },
-      order: { createdAt: 'ASC' },
+  /** Есть ли хотя бы одна активная аппка (без побочных эффектов). */
+  async hasActiveApp(): Promise<boolean> {
+    const count = await this.repo.count({ where: { active: true } });
+    return count > 0;
+  }
+
+  /**
+   * Атомарно выбирает активную аппку, у которой `lastUsedAt` самый старый
+   * (NULL — наивысший приоритет, такие никогда не использовались), и сразу
+   * проставляет её `lastUsedAt = now()`. Это размазывает логины по аппкам
+   * и помогает обходить per-app rate limit'ы SoundCloud.
+   *
+   * `FOR UPDATE SKIP LOCKED` гарантирует, что параллельные логины возьмут
+   * разные строки, а не одну и ту же.
+   */
+  async pickLeastRecentlyUsedApp(): Promise<OAuthApp> {
+    return this.repo.manager.transaction(async (em) => {
+      const app = await em
+        .createQueryBuilder(OAuthApp, 'app')
+        .where('app.active = :active', { active: true })
+        .orderBy('app.lastUsedAt', 'ASC', 'NULLS FIRST')
+        .addOrderBy('app.createdAt', 'ASC')
+        .setLock('pessimistic_write')
+        .setOnLocked('skip_locked')
+        .getOne();
+      if (!app) {
+        throw new NotFoundException('No active OAuth apps available');
+      }
+      app.lastUsedAt = new Date();
+      await em.save(app);
+      this.logger.log(`Picked OAuth app "${app.name}" (${app.id}) — lastUsedAt updated`);
+      return app;
     });
-    this.logger.log(`Active OAuth apps: ${this.activeApps.length}`);
-  }
-
-  /** Рандомно выбирает активную аппку для нового логина */
-  pickRandomApp(): OAuthApp {
-    if (this.activeApps.length === 0) {
-      throw new NotFoundException('No active OAuth apps available');
-    }
-    const index = Math.floor(Math.random() * this.activeApps.length);
-    return this.activeApps[index];
   }
 
   /** Получить аппку по ID (для token exchange/refresh) */
@@ -91,9 +106,7 @@ export class OAuthAppsService implements OnModuleInit {
     active?: boolean;
   }): Promise<OAuthApp> {
     const app = this.repo.create({ ...data, active: data.active !== false });
-    const saved = await this.repo.save(app);
-    await this.reloadActiveApps();
-    return saved;
+    return this.repo.save(app);
   }
 
   /** Обновить аппку */
@@ -104,15 +117,12 @@ export class OAuthAppsService implements OnModuleInit {
     const app = await this.repo.findOne({ where: { id } });
     if (!app) throw new NotFoundException('OAuth app not found');
     Object.assign(app, data);
-    const saved = await this.repo.save(app);
-    await this.reloadActiveApps();
-    return saved;
+    return this.repo.save(app);
   }
 
   /** Удалить аппку */
   async remove(id: string): Promise<void> {
     await this.repo.delete(id);
-    await this.reloadActiveApps();
   }
 
   // ─── Telegram ────────────────────────────────────────────

@@ -45,6 +45,7 @@ export class OAuthAppsController {
       clientId: app.clientId,
       redirectUri: app.redirectUri,
       active: app.active,
+      lastUsedAt: app.lastUsedAt,
       createdAt: app.createdAt,
     }));
   }
