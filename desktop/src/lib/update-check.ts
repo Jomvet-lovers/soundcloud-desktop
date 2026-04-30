@@ -1,6 +1,7 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import i18n from '../i18n';
 import { APP_VERSION, GITHUB_OWNER, GITHUB_REPO, GITHUB_REPO_EN } from './constants';
+import { isNewerVersion } from './semver';
 
 export interface GithubRelease {
   tag_name: string;
@@ -26,7 +27,7 @@ export async function checkForAppUpdate(): Promise<GithubRelease | null> {
 
   const latest = stripLeadingV(primaryRelease.tag_name);
   const current = stripLeadingV(APP_VERSION);
-  if (latest === current) return null;
+  if (!isNewerVersion(latest, current)) return null;
 
   const prefersEnglishRelease = !i18n.language?.startsWith('ru');
   if (prefersEnglishRelease) {
