@@ -78,6 +78,48 @@ jobs:
   docker:
     needs: version
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: backend
+            file: ""
+            extra_tags: ""
+            cache_type: gha
+            free_disk: false
+          - name: streaming
+            context: streaming
+            file: ""
+            extra_tags: ""
+            cache_type: gha
+            free_disk: false
+            build_contexts: "tls-common=tls-common"
+          - name: storage
+            context: storage
+            file: ""
+            extra_tags: ""
+            cache_type: gha
+            free_disk: false
+            build_contexts: "tls-common=tls-common"
+          - name: worker
+            context: worker
+            file: worker/Dockerfile
+            extra_tags: |
+              ghcr.io/__REPO__/worker:__VERSION__-cpu
+              ghcr.io/__REPO__/worker:cpu
+            cache_type: registry-cpu
+            free_disk: false
+          - name: worker-gpu
+            image_name: worker
+            context: worker
+            file: worker/Dockerfile.gpu
+            tag_suffix: "-gpu"
+            extra_tags: |
+              ghcr.io/__REPO__/worker:gpu
+            cache_type: registry-gpu
+            free_disk: true
+            no_default_tags: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,6 +128,7 @@ jobs:
       # GPU-образ воркера съедает ~20 GB (CUDA base + torch CUDA wheels + bitsandbytes).
       # Стандартный runner даёт ~14 GB free — без этого шага падает на ENOSPC.
       - name: Free disk space
+        if: matrix.free_disk
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
@@ -109,71 +152,54 @@ jobs:
         id: repo
         run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
-      - name: Build & push backend
-        uses: docker/build-push-action@v6
-        with:
-          context: backend
-          push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}/backend:${{ needs.version.outputs.version }}
-            ghcr.io/${{ steps.repo.outputs.name }}/backend:latest
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+      - name: Compute tags & cache
+        id: meta
+        env:
+          REPO: ${{ steps.repo.outputs.name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          IMG: ${{ matrix.image_name || matrix.name }}
+          SUFFIX: ${{ matrix.tag_suffix }}
+          EXTRA: ${{ matrix.extra_tags }}
+          CACHE: ${{ matrix.cache_type }}
+          NO_DEFAULT: ${{ matrix.no_default_tags }}
+        run: |
+          {
+            echo "tags<<EOF"
+            echo "ghcr.io/$REPO/$IMG:$VERSION$SUFFIX"
+            if [ "$NO_DEFAULT" != "true" ]; then
+              echo "ghcr.io/$REPO/$IMG:latest"
+            fi
+            if [ -n "$EXTRA" ]; then
+              echo "$EXTRA" | sed -e "s/__REPO__/$REPO/g" -e "s/__VERSION__/$VERSION/g"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Build & push streaming
-        uses: docker/build-push-action@v6
-        with:
-          context: streaming
-          build-contexts: |
-            tls-common=tls-common
-          push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}/streaming:${{ needs.version.outputs.version }}
-            ghcr.io/${{ steps.repo.outputs.name }}/streaming:latest
-          cache-from: type=gha,scope=streaming
-          cache-to: type=gha,mode=max,scope=streaming
+          case "$CACHE" in
+            gha)
+              echo "cache_from=type=gha,scope=${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=gha,mode=max,scope=${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+              ;;
+            registry-cpu)
+              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker:cache-cpu" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker:cache-cpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              ;;
+            registry-gpu)
+              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker:cache-gpu" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker:cache-gpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
-      - name: Build & push storage
+      - name: Build & push ${{ matrix.name }}
         uses: docker/build-push-action@v6
         with:
-          context: storage
-          build-contexts: |
-            tls-common=tls-common
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file || '' }}
+          build-contexts: ${{ matrix.build_contexts || '' }}
           push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}/storage:${{ needs.version.outputs.version }}
-            ghcr.io/${{ steps.repo.outputs.name }}/storage:latest
-          cache-from: type=gha,scope=storage
-          cache-to: type=gha,mode=max,scope=storage
-
-      # Оба воркера держат кэш в GHCR registry (вне лимита 10 GB GHA cache):
-      # CPU тянет torch+transformers+huggingface_hub (~1.5 GB), GPU — ещё CUDA wheels (~5 GB).
-      # Кэш живёт как отдельные теги worker:cache-cpu / worker:cache-gpu.
-      - name: Build & push worker (CPU)
-        uses: docker/build-push-action@v6
-        with:
-          context: worker
-          file: worker/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}
-            ghcr.io/${{ steps.repo.outputs.name }}/worker:latest
-            ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}-cpu
-            ghcr.io/${{ steps.repo.outputs.name }}/worker:cpu
-          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-cpu
-          cache-to: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-cpu,mode=max,image-manifest=true,oci-mediatypes=true
-
-      - name: Build & push worker (GPU / CUDA)
-        uses: docker/build-push-action@v6
-        with:
-          context: worker
-          file: worker/Dockerfile.gpu
-          push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}/worker:${{ needs.version.outputs.version }}-gpu
-            ghcr.io/${{ steps.repo.outputs.name }}/worker:gpu
-          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-gpu
-          cache-to: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-gpu,mode=max,image-manifest=true,oci-mediatypes=true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: ${{ steps.meta.outputs.cache_from }}
+          cache-to: ${{ steps.meta.outputs.cache_to }}
 
   build:
     needs: version
