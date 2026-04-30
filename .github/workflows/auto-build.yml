@@ -170,7 +170,7 @@ jobs:
               echo "ghcr.io/$REPO/$IMG:latest"
             fi
             if [ -n "$EXTRA" ]; then
-              echo "$EXTRA" | sed -e "s/__REPO__/$REPO/g" -e "s/__VERSION__/$VERSION/g"
+              echo "$EXTRA" | sed -e "s|__REPO__|$REPO|g" -e "s|__VERSION__|$VERSION|g"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
