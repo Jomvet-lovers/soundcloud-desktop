@@ -148,7 +148,15 @@ export async function apiRequest<T = unknown>(
       }
 
       const ct = res.headers.get('content-type');
-      return ct?.includes('application/json') ? res.json() : (res.text() as T);
+      const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
+
+      if (typeof reply === 'string') {
+        try {
+          return JSON.parse(reply) as T;
+        } catch {}
+      }
+
+      return reply;
     } catch (error) {
       // Already handled ApiError — rethrow
       if (error instanceof ApiError) throw error;

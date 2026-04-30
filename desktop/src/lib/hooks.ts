@@ -163,6 +163,7 @@ function flattenCollectionPages<T>(pages: Array<{ collection: T[] }> | undefined
   if (!pages) return [];
   const items: T[] = [];
   for (const page of pages) {
+    if (!page || !page?.collection) continue;
     items.push(...page.collection);
   }
   return items;
