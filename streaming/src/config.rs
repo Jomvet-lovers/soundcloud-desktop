@@ -10,6 +10,7 @@ pub struct Config {
     pub database_name: String,
     pub sc_proxy_url: String,
     pub sc_proxy_fallback: bool,
+    pub sc_oauth_fallback_sessions: usize,
     pub sc_cookies: String,
     pub sc_oauth_token: Option<String>,
     pub premium_only: bool,
@@ -58,6 +59,10 @@ impl Config {
             sc_proxy_fallback: env::var("SC_PROXY_FALLBACK")
                 .map(|v| v == "true")
                 .unwrap_or(false),
+            sc_oauth_fallback_sessions: env::var("SC_OAUTH_FALLBACK_SESSIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10),
             sc_cookies: cookies,
             sc_oauth_token: oauth_token,
             premium_only: env::var("PREMIUM_ONLY")

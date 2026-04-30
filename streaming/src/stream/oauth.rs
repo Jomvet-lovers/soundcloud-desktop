@@ -1,12 +1,15 @@
 use bytes::Bytes;
 use reqwest::Client;
 use std::collections::HashMap;
-use tracing::warn;
+use std::time::Duration;
+use tracing::{info, warn};
 
 use super::hls::{download_hls_full, download_progressive};
 use super::proxy::proxy_get_json;
+use crate::db::postgres::PgPool;
 
 const API_BASE: &str = "https://api.soundcloud.com";
+const FALLBACK_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ScStreams {
@@ -26,8 +29,10 @@ pub struct OAuthStreamResult {
 /// `hq_only=false` → all formats: hls_aac_160 → http_mp3_128 → hls_mp3_128
 pub async fn try_oauth_stream(
     client: &Client,
+    pg: &PgPool,
     proxy_url: &str,
     proxy_fallback: bool,
+    fallback_session_count: usize,
     access_token: &str,
     track_urn: &str,
     secret_token: Option<&str>,
@@ -35,8 +40,10 @@ pub async fn try_oauth_stream(
 ) -> Option<OAuthStreamResult> {
     let streams = get_streams(
         client,
+        pg,
         proxy_url,
         proxy_fallback,
+        fallback_session_count,
         access_token,
         track_urn,
         secret_token,
@@ -93,10 +100,54 @@ pub async fn try_oauth_stream(
     None
 }
 
+enum FetchOutcome {
+    Ok(ScStreams),
+    Retryable(String), // 429 / 5xx / 421 / network — try next token / fall back
+    Unauthorized,      // 401 / 403 — bad token, skip
+    NotFound,          // 404 — track doesn't exist
+}
+
+async fn fetch_streams_direct_once(
+    client: &Client,
+    target: &str,
+    access_token: &str,
+) -> FetchOutcome {
+    let req = client
+        .get(target)
+        .header("Authorization", format!("OAuth {access_token}"))
+        .header("Accept", "application/json; charset=utf-8")
+        .send();
+
+    let resp = match tokio::time::timeout(FALLBACK_ATTEMPT_TIMEOUT, req).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => return FetchOutcome::Retryable(format!("send: {e}")),
+        Err(_) => return FetchOutcome::Retryable("timeout".into()),
+    };
+
+    let status = resp.status().as_u16();
+    if (200..300).contains(&status) {
+        match resp.bytes().await {
+            Ok(b) => match serde_json::from_slice::<ScStreams>(&b) {
+                Ok(s) => return FetchOutcome::Ok(s),
+                Err(e) => return FetchOutcome::Retryable(format!("parse: {e}")),
+            },
+            Err(e) => return FetchOutcome::Retryable(format!("body: {e}")),
+        }
+    }
+
+    match status {
+        401 | 403 => FetchOutcome::Unauthorized,
+        404 => FetchOutcome::NotFound,
+        _ => FetchOutcome::Retryable(format!("status {status}")),
+    }
+}
+
 async fn get_streams(
     client: &Client,
+    pg: &PgPool,
     proxy_url: &str,
     proxy_fallback: bool,
+    fallback_session_count: usize,
     access_token: &str,
     track_urn: &str,
     secret_token: Option<&str>,
@@ -106,19 +157,63 @@ async fn get_streams(
         target.push_str(&format!("?secret_token={st}"));
     }
 
-    let mut headers = HashMap::new();
-    headers.insert("Authorization".into(), format!("OAuth {access_token}"));
-    headers.insert("Accept".into(), "application/json; charset=utf-8".into());
-
-    // If proxy_fallback: try direct first, then via proxy on error
+    // 1) direct with original token (only when proxy_fallback enabled & proxy is set)
     if proxy_fallback && !proxy_url.is_empty() {
-        match proxy_get_json::<ScStreams>(client, "", &target, headers.clone()).await {
-            Ok(s) => return Some(s),
-            Err(e) => {
-                warn!("[oauth] direct get streams failed, falling back to proxy: {e}");
+        match fetch_streams_direct_once(client, &target, access_token).await {
+            FetchOutcome::Ok(s) => return Some(s),
+            FetchOutcome::NotFound => {
+                warn!("[oauth] streams 404 for {track_urn}");
+                return None;
+            }
+            FetchOutcome::Unauthorized => {
+                warn!("[oauth] direct unauthorized for {track_urn}, falling back to proxy");
+            }
+            FetchOutcome::Retryable(reason) => {
+                warn!("[oauth] direct streams failed ({reason}) for {track_urn}, trying random sessions");
+
+                // 2) try N random valid sessions, direct (no proxy)
+                if fallback_session_count > 0 {
+                    match pg
+                        .get_random_valid_sessions(fallback_session_count as i64, access_token)
+                        .await
+                    {
+                        Ok(tokens) if !tokens.is_empty() => {
+                            for token in &tokens {
+                                match fetch_streams_direct_once(client, &target, token).await {
+                                    FetchOutcome::Ok(s) => {
+                                        info!(
+                                            "[oauth] {track_urn} → random session direct (of {})",
+                                            tokens.len()
+                                        );
+                                        return Some(s);
+                                    }
+                                    FetchOutcome::NotFound => {
+                                        warn!("[oauth] streams 404 for {track_urn} (random)");
+                                        return None;
+                                    }
+                                    FetchOutcome::Unauthorized
+                                    | FetchOutcome::Retryable(_) => continue,
+                                }
+                            }
+                            warn!(
+                                "[oauth] all {} random sessions failed for {track_urn}",
+                                tokens.len()
+                            );
+                        }
+                        Ok(_) => {
+                            warn!("[oauth] no valid random sessions available");
+                        }
+                        Err(e) => warn!("[oauth] failed to fetch random sessions: {e}"),
+                    }
+                }
             }
         }
     }
+
+    // 3) original logic: proxy with original token (or direct if no proxy configured)
+    let mut headers = HashMap::new();
+    headers.insert("Authorization".into(), format!("OAuth {access_token}"));
+    headers.insert("Accept".into(), "application/json; charset=utf-8".into());
 
     match proxy_get_json::<ScStreams>(client, proxy_url, &target, headers).await {
         Ok(s) => Some(s),

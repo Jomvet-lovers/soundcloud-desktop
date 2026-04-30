@@ -206,8 +206,10 @@ async fn try_oauth(
 ) -> Option<(Bytes, &'static str)> {
     let result = super::oauth::try_oauth_stream(
         &state.http_client,
+        &state.pg,
         &state.config.sc_proxy_url,
         state.config.sc_proxy_fallback,
+        state.config.sc_oauth_fallback_sessions,
         access_token,
         track_urn,
         secret_token,

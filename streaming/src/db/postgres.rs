@@ -234,6 +234,25 @@ impl PgPool {
         Ok(())
     }
 
+    /// Get random valid (non-expired) access tokens, excluding the given one.
+    pub async fn get_random_valid_sessions(
+        &self,
+        limit: i64,
+        exclude_token: &str,
+    ) -> Result<Vec<String>, PgError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                r#"SELECT "accessToken" FROM sessions
+                   WHERE "expiresAt" > NOW() AND "accessToken" <> $1
+                   ORDER BY RANDOM()
+                   LIMIT $2"#,
+                &[&exclude_token, &limit],
+            )
+            .await?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
     /// Check if user has an active subscription
     pub async fn is_premium(&self, user_urn: &str) -> Result<bool, PgError> {
         let client = self.pool.get().await?;
