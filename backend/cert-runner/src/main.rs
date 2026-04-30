@@ -2,12 +2,13 @@
 //!
 //! Workflow:
 //! 1. read TlsConfig from env (same vars as tls-common)
-//! 2. ensure a valid cert is on disk (issue via rustls-acme TLS-ALPN-01 on :443
-//!    if missing or expiring within `RENEW_BEFORE_DAYS`)
+//! 2. ensure a valid cert is on disk; if missing/expiring, ACME-issue with
+//!    fallback: HTTP-01 on :80 → TLS-ALPN-01 on :443. Both listeners stay up
+//!    during issue so LE multi-perspective probes can reach either path.
 //! 3. spawn the child with `TLS_CERT_FILE` / `TLS_KEY_FILE` env pointing at
 //!    the materialized PEMs
-//! 4. background-watch expiry every `RENEWAL_CHECK_INTERVAL`; when the cert
-//!    is close to expiring, gracefully stop the child, re-issue, restart it
+//! 4. background-watch expiry; near expiry, gracefully stop the child,
+//!    re-issue, restart it
 //! 5. forward SIGTERM/SIGINT to the child and propagate its exit code
 //!
 //! When `TLS_ENABLED` is not set, cert-runner just execs the child and acts
@@ -15,29 +16,27 @@
 
 use std::env;
 use std::ffi::OsString;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use rustls_acme::caches::DirCache;
-use rustls_acme::AcmeConfig;
 use tokio::process::{Child, Command};
 use tokio::signal::unix::{signal, SignalKind};
-use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
+
+mod issuer;
 
 const RENEW_BEFORE_DAYS: i64 = 3;
 const RENEWAL_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 3600);
-const ACME_TIMEOUT: Duration = Duration::from_secs(180);
 
-#[derive(Clone)]
-struct TlsConfig {
-    domains: Vec<String>,
-    email: String,
-    cache_dir: PathBuf,
-    staging: bool,
-    https_port: u16,
+#[derive(Clone, Debug)]
+pub struct TlsConfig {
+    pub domains: Vec<String>,
+    pub email: String,
+    pub cache_dir: PathBuf,
+    pub staging: bool,
+    pub https_port: u16,
+    pub http_port: u16,
 }
 
 impl TlsConfig {
@@ -55,12 +54,14 @@ impl TlsConfig {
         );
         let staging = env_bool("ACME_STAGING", false);
         let https_port = env_u16("TLS_HTTPS_PORT", 443);
+        let http_port = env_u16("TLS_HTTP_PORT", 80);
         Some(Self {
             domains,
             email,
             cache_dir,
             staging,
             https_port,
+            http_port,
         })
     }
 
@@ -103,7 +104,6 @@ async fn run(cfg: Option<TlsConfig>, argv: &[OsString]) -> std::io::Result<u8> {
     let mut sigint = signal(SignalKind::interrupt())?;
 
     let Some(cfg) = cfg else {
-        // No TLS — exec child verbatim, no env injection.
         info!("TLS_ENABLED is not set, running child without ACME");
         let mut child = spawn_child(argv, None)?;
         return wait_with_signals(&mut child, &mut sigterm, &mut sigint).await;
@@ -128,12 +128,10 @@ async fn run(cfg: Option<TlsConfig>, argv: &[OsString]) -> std::io::Result<u8> {
             status = child.wait() => Action::ChildExited(status?.code().unwrap_or(0) as u8),
             _ = sigterm.recv() => Action::Signal,
             _ = sigint.recv() => Action::Signal,
-            res = &mut renew_rx => {
-                match res {
-                    Ok(()) => Action::RenewNeeded,
-                    Err(_) => Action::Signal,
-                }
-            }
+            res = &mut renew_rx => match res {
+                Ok(()) => Action::RenewNeeded,
+                Err(_) => Action::Signal,
+            },
         };
         watcher.abort();
 
@@ -146,10 +144,13 @@ async fn run(cfg: Option<TlsConfig>, argv: &[OsString]) -> std::io::Result<u8> {
                 return Ok(status.code().unwrap_or(0) as u8);
             }
             Action::RenewNeeded => {
-                warn!("cert renewal triggered — stopping child to reclaim :{}", cfg.https_port);
+                warn!(
+                    "cert renewal triggered — stopping child to reclaim :{} / :{}",
+                    cfg.https_port, cfg.http_port,
+                );
                 let _ = child.start_kill();
                 let _ = child.wait().await;
-                // loop → ensure_cert (will renew) → respawn child
+                // loop → ensure_cert (renew) → respawn child
             }
         }
     }
@@ -205,9 +206,7 @@ async fn renewal_watcher(cfg: TlsConfig, tx: tokio::sync::oneshot::Sender<()>) {
                     return;
                 }
             }
-            Err(e) => {
-                warn!("[watcher] cert read failed: {e}");
-            }
+            Err(e) => warn!("[watcher] cert read failed: {e}"),
         }
     }
 }
@@ -223,150 +222,13 @@ async fn ensure_cert(cfg: &TlsConfig) -> std::io::Result<()> {
     } else {
         info!("no cert in cache — issuing fresh");
     }
-    issue(cfg).await?;
-    extract_pem(&cfg.cache_dir, &cfg.domains).await?;
+    issuer::issue(cfg).await.map_err(std::io::Error::other)?;
     let days = remaining_days(&cfg.cert_path()).await.unwrap_or(0);
     info!("cert ready ({days}d remaining)");
     Ok(())
 }
 
-/// Drives rustls-acme through a single TLS-ALPN-01 issue using its DirCache.
-/// Binds :https_port to satisfy the challenge, drains it on success.
-async fn issue(cfg: &TlsConfig) -> std::io::Result<()> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-
-    let mut state = AcmeConfig::new(cfg.domains.clone())
-        .contact_push(format!("mailto:{}", cfg.email))
-        .cache(DirCache::new(cfg.cache_dir.clone()))
-        .directory_lets_encrypt(!cfg.staging)
-        .state();
-
-    let rustls_cfg = state.default_rustls_config();
-    let acceptor = state.axum_acceptor(rustls_cfg);
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], cfg.https_port));
-    let handle = axum_server::Handle::new();
-    let server_handle = handle.clone();
-
-    let server_task = tokio::spawn(async move {
-        let app = axum::Router::<()>::new();
-        if let Err(e) = axum_server::bind(addr)
-            .handle(server_handle)
-            .acceptor(acceptor)
-            .serve(app.into_make_service())
-            .await
-        {
-            error!("acme listener error on :{}: {e}", addr.port());
-        }
-    });
-
-    let pump = async {
-        while let Some(evt) = state.next().await {
-            match evt {
-                Ok(ok) => info!("acme: {:?}", ok),
-                Err(e) => error!("acme err: {:?}", e),
-            }
-        }
-    };
-
-    // Wait for the cert file to materialize in DirCache (rustls-acme writes it
-    // synchronously once the order completes). Filename layout varies across
-    // versions, so we sniff PEM content rather than guessing the hash.
-    let cache_dir = cfg.cache_dir.clone();
-    let waiter = async {
-        loop {
-            if find_dir_cache_cert(&cache_dir).await.is_ok() {
-                return Ok::<(), std::io::Error>(());
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-    };
-
-    let result = tokio::select! {
-        _ = pump => Err(std::io::Error::other("acme stream ended unexpectedly")),
-        r = waiter => r,
-        _ = tokio::time::sleep(ACME_TIMEOUT) => Err(std::io::Error::other("acme issue timed out")),
-    };
-
-    handle.graceful_shutdown(Some(Duration::from_secs(2)));
-    let _ = server_task.await;
-
-    result
-}
-
-/// Convert rustls-acme's combined PEM (private-key + cert-chain) into separate
-/// `cert.pem` / `key.pem` consumable by Node's `https.createServer`.
-async fn extract_pem(cache_dir: &Path, _domains: &[String]) -> std::io::Result<()> {
-    let combined_path = find_dir_cache_cert(cache_dir).await?;
-    let combined = tokio::fs::read_to_string(&combined_path).await?;
-
-    let blocks = pem::parse_many(combined.as_bytes())
-        .map_err(|e| std::io::Error::other(format!("pem parse: {e}")))?;
-
-    let mut key_blocks = Vec::new();
-    let mut cert_blocks = Vec::new();
-    for blk in blocks {
-        match blk.tag().to_uppercase().as_str() {
-            "PRIVATE KEY" | "EC PRIVATE KEY" | "RSA PRIVATE KEY" => key_blocks.push(blk),
-            "CERTIFICATE" => cert_blocks.push(blk),
-            other => warn!("unexpected pem block: {other}"),
-        }
-    }
-
-    if key_blocks.is_empty() {
-        return Err(std::io::Error::other("no PRIVATE KEY block in cached cert"));
-    }
-    if cert_blocks.is_empty() {
-        return Err(std::io::Error::other("no CERTIFICATE block in cached cert"));
-    }
-
-    let key_pem: String = key_blocks.iter().map(pem::encode).collect();
-    let cert_pem: String = cert_blocks.iter().map(pem::encode).collect();
-
-    let cert_path = cache_dir.join("cert.pem");
-    let key_path = cache_dir.join("key.pem");
-    tokio::fs::write(&cert_path, cert_pem).await?;
-    tokio::fs::write(&key_path, key_pem).await?;
-
-    // Tighten key permissions: Node reads cert.pem/key.pem at boot, only the
-    // cert-runner / backend should be able to.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perm = tokio::fs::metadata(&key_path).await?.permissions();
-        perm.set_mode(0o600);
-        tokio::fs::set_permissions(&key_path, perm).await?;
-    }
-
-    Ok(())
-}
-
-async fn find_dir_cache_cert(cache_dir: &Path) -> std::io::Result<PathBuf> {
-    let mut entries = tokio::fs::read_dir(cache_dir).await?;
-    let mut candidate: Option<PathBuf> = None;
-    while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        // Skip our own derived files and anything obviously not a cached cert.
-        if name == "cert.pem" || name == "key.pem" || name.ends_with(".account") {
-            continue;
-        }
-        // rustls-acme writes the cert file with no specific extension;
-        // disambiguate by sniffing PEM content.
-        if let Ok(content) = tokio::fs::read_to_string(&path).await {
-            if content.contains("-----BEGIN CERTIFICATE-----")
-                && content.contains("-----BEGIN ")
-                && content.contains("PRIVATE KEY-----")
-            {
-                candidate = Some(path);
-                break;
-            }
-        }
-    }
-    candidate.ok_or_else(|| std::io::Error::other("no cached cert file found in ACME_CACHE_DIR"))
-}
-
-async fn remaining_days(cert_path: &Path) -> std::io::Result<i64> {
+pub async fn remaining_days(cert_path: &Path) -> std::io::Result<i64> {
     let pem_bytes = tokio::fs::read(cert_path).await?;
     let (_, parsed) = x509_parser::pem::parse_x509_pem(&pem_bytes)
         .map_err(|e| std::io::Error::other(format!("pem: {e}")))?;
