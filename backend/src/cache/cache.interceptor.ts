@@ -58,7 +58,9 @@ export class ApiCacheInterceptor implements NestInterceptor {
         // отдать undefined и Fastify бросит FST_ERR_REP_ALREADY_SENT в логи.
         if (typeof response.hijack === 'function') {
           response.hijack();
-          response.header('content-type', 'application/json; charset=utf-8');
+          // После hijack() Fastify больше не зовёт reply.send(), поэтому заголовки,
+          // выставленные через reply.header(), не применяются — пишем напрямую в raw.
+          response.raw.setHeader('content-type', 'application/json; charset=utf-8');
           response.raw.end(raw);
         } else if (typeof response.header === 'function') {
           response.header('content-type', 'application/json; charset=utf-8');
