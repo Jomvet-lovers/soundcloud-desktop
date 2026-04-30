@@ -1,0 +1,23 @@
+[package]
+name = "cert-runner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "process", "signal", "sync", "time", "io-util"] }
+tokio-stream = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rustls = { version = "0.23", features = ["ring"] }
+rustls-acme = { version = "0.14", features = ["axum"] }
+axum = "0.8"
+axum-server = "0.7"
+x509-parser = "0.16"
+pem = "3"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
+opt-level = "s"

@@ -86,7 +86,7 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn')
-  @Cached({ ttl: 300, key: 'playlist-detail' })
+  @Cached({ ttl: 3600, key: 'playlist-detail:{playlistUrn}' })
   @ApiOperation({ summary: 'Get playlist by URN' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiQuery({
@@ -111,7 +111,7 @@ export class PlaylistsController {
   }
 
   @Put(':playlistUrn')
-  @CacheClear('me-playlists', 'playlist-detail', 'playlist-tracks')
+  @CacheClear('me-playlists', 'playlist-detail:{playlistUrn}', 'playlist-tracks:{playlistUrn}')
   @ApiOperation({ summary: 'Update a playlist' })
   @ApiOkResponse({ type: ScPlaylist })
   update(
@@ -124,7 +124,12 @@ export class PlaylistsController {
   }
 
   @Delete(':playlistUrn')
-  @CacheClear('me-playlists', 'me-liked-playlists', 'playlist-detail', 'playlist-tracks')
+  @CacheClear(
+    'me-playlists',
+    'me-liked-playlists',
+    'playlist-detail:{playlistUrn}',
+    'playlist-tracks:{playlistUrn}',
+  )
   @ApiOperation({ summary: 'Delete a playlist' })
   delete(
     @AccessToken() token: string,
@@ -135,7 +140,7 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn/tracks')
-  @Cached({ ttl: 120, key: 'playlist-tracks' })
+  @Cached({ ttl: 1800, key: 'playlist-tracks:{playlistUrn}' })
   @ApiOperation({ summary: 'Get playlist tracks' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiQuery({

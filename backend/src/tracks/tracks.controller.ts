@@ -157,7 +157,7 @@ export class TracksController {
   }
 
   @Get(':trackUrn/comments')
-  @Cached({ ttl: 120, key: 'track-comments' })
+  @Cached({ ttl: 600, key: 'track-comments:{trackUrn}' })
   @ApiOperation({ summary: 'Get track comments' })
   @ApiOkResponse({ type: PaginatedCommentResponse })
   getComments(
@@ -169,7 +169,7 @@ export class TracksController {
   }
 
   @Post(':trackUrn/comments')
-  @CacheClear('track-comments')
+  @CacheClear('track-comments:{trackUrn}')
   @ApiOperation({ summary: 'Post a comment on a track' })
   @ApiBody({
     schema: {

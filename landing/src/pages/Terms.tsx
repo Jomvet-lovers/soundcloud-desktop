@@ -1,4 +1,4 @@
-import { DISCORD } from '../constants';
+import { DISCORD, SUPPORT_EMAIL } from '../constants';
 
 export function Terms() {
   return (
@@ -129,10 +129,20 @@ export function Terms() {
 
           <section>
             <h2 className="text-2xl font-semibold text-white/90 mb-4">9. Контактная информация</h2>
-            <p>
+            <p className="mb-3">
               9.1. По всем вопросам вы можете обратиться в службу поддержки через{' '}
               <a href={DISCORD} className="text-[#ff5500] hover:text-[#ff7700] transition-colors">
                 Discord
+              </a>
+              .
+            </p>
+            <p>
+              9.2. Прямой контакт технической поддержки — почта:{' '}
+              <a
+                href={`mailto:${SUPPORT_EMAIL}`}
+                className="text-[#ff5500] hover:text-[#ff7700] transition-colors"
+              >
+                {SUPPORT_EMAIL}
               </a>
               .
             </p>

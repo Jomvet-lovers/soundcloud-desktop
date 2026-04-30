@@ -39,7 +39,7 @@ export class LikesController {
   }
 
   @Post('playlists/:playlistUrn')
-  @CacheClear('me-liked-playlists', 'playlist-liked-check')
+  @CacheClear('me-liked-playlists', 'playlist-liked-check:{playlistUrn}')
   @HttpCode(200)
   @ApiOperation({ summary: 'Like a playlist' })
   likePlaylist(
@@ -51,7 +51,7 @@ export class LikesController {
   }
 
   @Delete('playlists/:playlistUrn')
-  @CacheClear('me-liked-playlists', 'playlist-liked-check')
+  @CacheClear('me-liked-playlists', 'playlist-liked-check:{playlistUrn}')
   @ApiOperation({ summary: 'Unlike a playlist' })
   unlikePlaylist(
     @AccessToken() token: string,
@@ -62,7 +62,7 @@ export class LikesController {
   }
 
   @Get('playlists/:playlistUrn')
-  @Cached({ ttl: 300, scope: 'user', key: 'playlist-liked-check' })
+  @Cached({ ttl: 3600, scope: 'user', key: 'playlist-liked-check:{playlistUrn}' })
   @ApiOperation({ summary: 'Check if playlist is liked' })
   isPlaylistLiked(@AccessToken() token: string, @Param('playlistUrn') playlistUrn: string) {
     return this.likesService.isPlaylistLiked(token, playlistUrn);

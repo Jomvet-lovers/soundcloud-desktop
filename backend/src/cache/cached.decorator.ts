@@ -5,7 +5,17 @@ export interface CachedOptions {
   ttl: number;
   /** 'shared' — один кэш для всех юзеров, 'user' — per-session */
   scope?: 'shared' | 'user';
-  /** Логический ключ для точечной инвалидции через @CacheClear */
+  /**
+   * Логический ключ для точечной инвалидции через @CacheClear.
+   *
+   * Поддерживает плейсхолдеры `{name}` — резолвятся из `request.params` (route-параметров).
+   * Так одно и то же декларативное имя ключа разводится в Redis по разным bucket'ам
+   * на разные ресурсы.
+   *
+   * @example
+   * // GET /playlists/:playlistUrn → ключ 'playlist-detail:soundcloud:playlists:42'
+   * @Cached({ ttl: 3600, key: 'playlist-detail:{playlistUrn}' })
+   */
   key?: string;
 }
 

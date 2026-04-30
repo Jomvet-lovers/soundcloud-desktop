@@ -40,6 +40,14 @@ export class IndexedTrack {
   @Column({ name: 'language_confidence', type: 'real', nullable: true })
   languageConfidence: number | null;
 
+  @Index()
+  @Column({ name: 's3_verified_at', type: 'timestamptz', nullable: true })
+  s3VerifiedAt: Date | null;
+
+  @Index()
+  @Column({ name: 's3_missing_at', type: 'timestamptz', nullable: true })
+  s3MissingAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

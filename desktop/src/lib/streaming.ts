@@ -106,10 +106,11 @@ export function buildStorageUrls(
   trackUrn: string,
   hq = useSettingsStore.getState().highQualityStreaming,
 ): string[] {
-  const path = `${hq ? 'hq' : 'sq'}/${trackUrn.replace(/:/g, '_')}.ogg`;
+  const file = `${trackUrn.replace(/:/g, '_')}.ogg`;
+  const qualities = hq ? ['hq', 'sq'] : ['sq', 'hq'];
   const bypass = useSettingsStore.getState().bypassWhitelist;
   const bases = bypass && getIsPremium() ? [BYPASS_STORAGE_BASE, STORAGE_BASE] : [STORAGE_BASE];
-  return [...new Set(bases)].map((base) => `${base}/${path}`);
+  return [...new Set(bases)].flatMap((base) => qualities.map((q) => `${base}/${q}/${file}`));
 }
 
 export function streamFallbackUrls(

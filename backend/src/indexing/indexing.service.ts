@@ -112,14 +112,22 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
           where: { scTrackId },
           select: ['id', 'indexedAt'],
         });
-        if (existing?.indexedAt) return;
+        if (existing?.indexedAt) {
+          await this.repo.update({ scTrackId }, { s3VerifiedAt: () => 'now()', s3MissingAt: null });
+          return;
+        }
 
         if (!existing) {
           const inserted = await this.repo
             .createQueryBuilder()
             .insert()
             .into(IndexedTrack)
-            .values({ scTrackId, indexedAt: null })
+            .values({
+              scTrackId,
+              indexedAt: null,
+              s3VerifiedAt: () => 'now()',
+              s3MissingAt: null,
+            })
             .orIgnore()
             .execute();
           if (!inserted.identifiers.length) {
@@ -127,8 +135,16 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
               where: { scTrackId },
               select: ['indexedAt'],
             });
-            if (post?.indexedAt) return;
+            if (post?.indexedAt) {
+              await this.repo.update(
+                { scTrackId },
+                { s3VerifiedAt: () => 'now()', s3MissingAt: null },
+              );
+              return;
+            }
           }
+        } else {
+          await this.repo.update({ scTrackId }, { s3VerifiedAt: () => 'now()', s3MissingAt: null });
         }
 
         await this.nats.publish(SUBJECTS.indexAudio, {

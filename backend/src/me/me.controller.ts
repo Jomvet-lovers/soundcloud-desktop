@@ -29,7 +29,7 @@ export class MeController {
   ) {}
 
   @Get()
-  @Cached({ ttl: 30, scope: 'user' })
+  @Cached({ ttl: 43200, scope: 'user' })
   @ApiOperation({ summary: 'Get authenticated user profile' })
   @ApiOkResponse({ type: ScMe })
   getProfile(@AccessToken() token: string) {
@@ -70,7 +70,7 @@ export class MeController {
   }
 
   @Get('likes/tracks')
-  @Cached({ ttl: 30, scope: 'user', key: 'me-liked-tracks' })
+  @Cached({ ttl: 1800, scope: 'user', key: 'me-liked-tracks' })
   @ApiOperation({ summary: 'Get liked tracks' })
   @ApiQuery({
     name: 'access',
@@ -90,7 +90,7 @@ export class MeController {
   }
 
   @Get('likes/playlists')
-  @Cached({ ttl: 30, scope: 'user', key: 'me-liked-playlists' })
+  @Cached({ ttl: 1800, scope: 'user', key: 'me-liked-playlists' })
   @ApiOperation({ summary: 'Get liked playlists' })
   @ApiOkResponse({ type: PaginatedPlaylistResponse })
   getLikedPlaylists(@AccessToken() token: string, @Query() query: PaginationQuery) {
@@ -98,7 +98,7 @@ export class MeController {
   }
 
   @Get('followings')
-  @Cached({ ttl: 60, scope: 'user', key: 'me-followings' })
+  @Cached({ ttl: 3600, scope: 'user', key: 'me-followings' })
   @ApiOperation({ summary: 'Get users followed by authenticated user' })
   @ApiOkResponse({ type: PaginatedUserResponse })
   getFollowings(@AccessToken() token: string, @Query() query: PaginationQuery) {
@@ -140,7 +140,7 @@ export class MeController {
   }
 
   @Get('playlists')
-  @Cached({ ttl: 60, scope: 'user', key: 'me-playlists' })
+  @Cached({ ttl: 3600, scope: 'user', key: 'me-playlists' })
   @ApiOperation({ summary: 'Get user playlists' })
   @ApiQuery({ name: 'show_tracks', required: false, type: Boolean })
   @ApiOkResponse({ type: PaginatedPlaylistResponse })

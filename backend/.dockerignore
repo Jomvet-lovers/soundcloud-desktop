@@ -3,3 +3,4 @@ dist
 .env
 *.md
 .git
+cert-runner/target

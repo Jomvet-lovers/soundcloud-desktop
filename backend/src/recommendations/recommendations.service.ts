@@ -5,6 +5,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import { IndexedTrack } from '../indexing/entities/indexed-track.entity.js';
 import { WorkerClient } from '../lyrics/worker.client.js';
+import { S3VerifierService } from './s3-verifier.service.js';
 
 interface QdrantFilter {
   must_not?: Array<{ key: string; match: { value: string } }>;
@@ -67,6 +68,7 @@ export class RecommendationsService {
     @InjectRepository(IndexedTrack)
     private readonly tracksRepo: Repository<IndexedTrack>,
     private readonly worker: WorkerClient,
+    private readonly s3: S3VerifierService,
   ) {}
 
   private get weightMert(): number {
@@ -245,7 +247,7 @@ export class RecommendationsService {
         : enriched;
     const cap = div >= 0.5 ? 1 : this.artistCapN;
     const diverse = this.artistCap(mmred, cap);
-    return diverse.slice(0, input.limit);
+    return this.takeVerified(diverse, input.limit);
   }
 
   /** Текстовый поиск аудио через MuQ-MuLan ("грустный трек с гитарой"). */
@@ -280,7 +282,7 @@ export class RecommendationsService {
 
     const enriched = await this.enrichAndBoost(results);
     const diverse = this.artistCap(enriched, this.artistCapN);
-    return diverse.slice(0, limit);
+    return this.takeVerified(diverse, limit);
   }
 
   /**
@@ -324,7 +326,7 @@ export class RecommendationsService {
       `[${reqId}] waveSimilar() pipeline  scored=${scored.length} enriched=${enriched.length} ` +
         `afterArtistCap=${diverse.length} sliced=${Math.min(diverse.length, limit)}`,
     );
-    return diverse.slice(0, limit);
+    return this.takeVerified(diverse, limit);
   }
 
   /**
@@ -373,7 +375,7 @@ export class RecommendationsService {
         `mmrWorkLimit=${mmrWorkLimit} afterMmr=${mmred.length} afterArtistCap=${diverse.length} ` +
         `sliced=${Math.min(diverse.length, limit)}`,
     );
-    return diverse.slice(0, limit);
+    return this.takeVerified(diverse, limit);
   }
 
   /**
@@ -703,6 +705,21 @@ export class RecommendationsService {
     }
 
     return [...selected, ...noVec, ...items.slice(workLimit)];
+  }
+
+  private async takeVerified(items: RecommendResult[], limit: number): Promise<RecommendResult[]> {
+    const out: RecommendResult[] = [];
+    const batchSize = Math.max(limit, 8);
+    for (let i = 0; i < items.length && out.length < limit; i += batchSize) {
+      const slice = items.slice(i, i + batchSize);
+      const ids = slice.map((s) => String(s.id));
+      const missing = await this.s3.findMissing(ids);
+      for (const item of slice) {
+        if (out.length >= limit) break;
+        if (!missing.has(String(item.id))) out.push(item);
+      }
+    }
+    return out;
   }
 
   private cosine(a: number[], b: number[]): number {

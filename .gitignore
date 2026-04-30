@@ -4,6 +4,7 @@ dist/
 .env.*
 !.env.example
 *.log
+*.tsbuildinfo
 .DS_Store
 Thumbs.db
 .flatpak-builder
@@ -14,6 +15,7 @@ src-tauri/target/
 streaming/target
 storage/target
 tls-common/target
+backend/cert-runner/target
 
 storage/data
 streaming/data

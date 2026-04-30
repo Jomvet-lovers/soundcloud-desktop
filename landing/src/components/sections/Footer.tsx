@@ -1,6 +1,15 @@
-import { Headphones, MessageCircle, MessageSquare, Ticket } from 'lucide-react';
+import { Headphones, Mail, MessageCircle, MessageSquare, Ticket } from 'lucide-react';
 import { siGithub } from 'simple-icons';
-import { DISCORD, DISCUSS_BUG, DISCUSS_FEATURE, GITHUB, LOGO, PRIVACY_URL, TERMS_URL } from '../../constants';
+import {
+  DISCORD,
+  DISCUSS_BUG,
+  DISCUSS_FEATURE,
+  GITHUB,
+  LOGO,
+  PRIVACY_URL,
+  SUPPORT_EMAIL,
+  TERMS_URL,
+} from '../../constants';
 import { Si } from '../ui/Si';
 
 export function Footer() {
@@ -9,6 +18,37 @@ export function Footer() {
       <div className="divider max-w-5xl mx-auto mb-12" />
 
       <div className="max-w-5xl mx-auto">
+        <div className="flex flex-col items-center gap-3 mb-8 text-center">
+          <span className="text-white/40 text-xs uppercase tracking-wider">Тех. поддержка</span>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 justify-center items-center">
+            <a
+              href={`mailto:${SUPPORT_EMAIL}`}
+              className="text-white/70 hover:text-white transition-colors text-sm flex items-center gap-2"
+            >
+              <Mail size={15} />
+              {SUPPORT_EMAIL}
+            </a>
+            <a
+              href={DISCORD}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/70 hover:text-white transition-colors text-sm flex items-center gap-2"
+            >
+              <Ticket size={15} />
+              Создать тикет
+            </a>
+            <a
+              href={DISCUSS_BUG}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/70 hover:text-white transition-colors text-sm flex items-center gap-2"
+            >
+              <Headphones size={15} />
+              Отправить проблему
+            </a>
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-10">
           <a href="#" className="flex items-center gap-3 no-underline text-inherit">
             <img src={LOGO} alt="" width={32} height={32} className="rounded-lg" />
@@ -23,12 +63,6 @@ export function Footer() {
                 href: DISCUSS_FEATURE,
                 icon: <MessageCircle size={15} />,
                 label: 'Предложить идею',
-              },
-              { href: DISCUSS_BUG, icon: <Headphones size={15} />, label: 'Поддержка' },
-              {
-                href: DISCORD,
-                icon: <Ticket size={15} />,
-                label: 'Создать тикет',
               },
             ].map((link) => (
               <a

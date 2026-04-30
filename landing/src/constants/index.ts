@@ -3,8 +3,8 @@ export const GITHUB = 'https://github.com/zxcloli666/SoundCloud-Desktop';
 export const DISCUSS_FEATURE = 'https://github.com/zxcloli666/SoundCloud-Desktop/discussions/121';
 export const DISCUSS_BUG = 'https://github.com/zxcloli666/SoundCloud-Desktop/issues/new';
 export const DISCORD = 'https://discord.gg/xQcGBP8fGG';
-export const LOGO =
-  'https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/legacy/icons/appLogo.png';
+export const SUPPORT_EMAIL = 'support@soundcloud.su';
+export const LOGO = '/favicon.png';
 
 export const TERMS_URL = '/terms';
 export const PRIVACY_URL = '/privacy';
