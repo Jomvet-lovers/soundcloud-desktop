@@ -149,20 +149,24 @@ async fn try_issue(
     }
 
     let deadline = tokio::time::Instant::now() + ORDER_POLL_TIMEOUT;
-    let final_state = loop {
+    let final_status = loop {
         if tokio::time::Instant::now() >= deadline {
             cleanup(ctype.clone(), http_map, alpn_map);
             return Err("order poll timed out".into());
         }
         tokio::time::sleep(ORDER_POLL_INTERVAL).await;
-        let state = order.refresh().await?;
-        debug!("[acme] order: {:?}", state.status);
-        match state.status {
+        let (status, order_error) = {
+            let state = order.refresh().await?;
+            (state.status, state.error.clone())
+        };
+        debug!("[acme] order: {:?}", status);
+        match status {
             OrderStatus::Pending | OrderStatus::Processing => continue,
-            OrderStatus::Ready | OrderStatus::Valid => break state,
+            OrderStatus::Ready | OrderStatus::Valid => break status,
             OrderStatus::Invalid => {
+                let detail = log_invalid_order(&mut order, order_error, ctype.clone()).await;
                 cleanup(ctype.clone(), http_map, alpn_map);
-                return Err("order became invalid".into());
+                return Err(format!("order became invalid: {detail}").into());
             }
         }
     };
@@ -172,7 +176,7 @@ async fn try_issue(
     params.distinguished_name = DistinguishedName::new();
     let csr = params.serialize_request(&key_pair)?;
 
-    if final_state.status == OrderStatus::Ready {
+    if final_status == OrderStatus::Ready {
         order.finalize(csr.der()).await?;
     }
 
@@ -186,6 +190,50 @@ async fn try_issue(
     let key_pem = key_pair.serialize_pem();
     cleanup(ctype, http_map, alpn_map);
     Ok((chain_pem, key_pem))
+}
+
+async fn log_invalid_order(
+    order: &mut instant_acme::Order,
+    order_error: Option<instant_acme::Problem>,
+    ctype: ChallengeType,
+) -> String {
+    let mut details: Vec<String> = Vec::new();
+    if let Some(p) = order_error {
+        details.push(format!(
+            "order.error type={:?} status={:?} detail={:?}",
+            p.r#type, p.status, p.detail
+        ));
+    }
+    match order.authorizations().await {
+        Ok(authzs) => {
+            for authz in &authzs {
+                let domain = match &authz.identifier {
+                    Identifier::Dns(d) => d.clone(),
+                };
+                if let Some(ch) = authz.challenges.iter().find(|c| c.r#type == ctype) {
+                    if let Some(p) = &ch.error {
+                        details.push(format!(
+                            "{domain}: type={:?} status={:?} detail={:?}",
+                            p.r#type, p.status, p.detail
+                        ));
+                    } else {
+                        details.push(format!(
+                            "{domain}: authz_status={:?} challenge_status={:?} (no error body)",
+                            authz.status, ch.status
+                        ));
+                    }
+                }
+            }
+        }
+        Err(e) => details.push(format!("authorizations() failed: {e}")),
+    }
+    let joined = if details.is_empty() {
+        "no details".to_string()
+    } else {
+        details.join(" | ")
+    };
+    error!("[acme] order invalid: {joined}");
+    joined
 }
 
 fn cleanup(ctype: ChallengeType, http_map: &HttpChallengeMap, alpn_map: &AlpnChallengeMap) {
