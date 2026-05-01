@@ -183,7 +183,10 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
             const info = m.info;
             try {
               const data = JSON.parse(decoder.decode(m.data));
-              await handler(data, { streamSeq: info.streamSequence, deliveries: info.deliveryCount });
+              await handler(data, {
+                streamSeq: info.streamSequence,
+                deliveries: info.deliveryCount,
+              });
               m.ack();
             } catch (e) {
               this.logger.error(`consume ${stream}/${durable}: ${(e as Error).message}`);
@@ -191,7 +194,9 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
             }
           }
         } catch (e) {
-          this.logger.warn(`consume loop ${stream}/${durable} broke: ${(e as Error).message} — retry in 2s`);
+          this.logger.warn(
+            `consume loop ${stream}/${durable} broke: ${(e as Error).message} — retry in 2s`,
+          );
           await new Promise((r) => setTimeout(r, 2000));
         }
       }

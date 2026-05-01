@@ -4,9 +4,11 @@ import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
 import { recordEvent } from './events';
 
-interface TrackListResponse {
+interface PagedTracks {
   collection: Track[];
-  next_href: string | null;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 }
 
 /* ── Global liked URNs store ─────────────────────────────── */
@@ -74,7 +76,7 @@ export function optimisticToggleLike(qc: QueryClient, track: Track, nowLiked: bo
   }
 
   // Update all liked tracks infinite queries
-  qc.setQueriesData<{ pages: TrackListResponse[]; pageParams: unknown[] }>(
+  qc.setQueriesData<{ pages: PagedTracks[]; pageParams: unknown[] }>(
     { queryKey: ['me', 'likes', 'tracks'] },
     (old) => {
       if (!old?.pages) return old;

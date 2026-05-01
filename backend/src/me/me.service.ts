@@ -1,16 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service.js';
+import { buildListCacheKey, type ListPageResult } from '../cache/list-cache.service.js';
 import { EventsService } from '../events/events.service.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
-import {
-  ScActivity,
-  ScMe,
-  ScPaginatedResponse,
-  ScPlaylist,
-  ScTrack,
-  ScUser,
-} from '../soundcloud/soundcloud.types.js';
+import { ScActivity, ScMe, ScPlaylist, ScTrack, ScUser } from '../soundcloud/soundcloud.types.js';
+import { SoundcloudListService } from '../soundcloud/soundcloud-list.service.js';
+
+const TTL_FEED = 60;
+const TTL_LIKES_TRACKS = 1800;
+const TTL_LIKES_PLAYLISTS = 1800;
+const TTL_FOLLOWINGS = 3600;
+const TTL_FOLLOWINGS_TRACKS = 60;
+const TTL_FOLLOWERS = 600;
+const TTL_PLAYLISTS = 3600;
+const TTL_TRACKS = 120;
+
+interface PageInput {
+  page: number;
+  limit: number;
+}
 
 @Injectable()
 export class MeService {
@@ -18,6 +27,7 @@ export class MeService {
 
   constructor(
     private readonly sc: SoundcloudService,
+    private readonly scList: SoundcloudListService,
     private readonly localLikes: LocalLikesService,
     private readonly auth: AuthService,
     private readonly events: EventsService,
@@ -64,68 +74,77 @@ export class MeService {
   async getFeed(
     token: string,
     sessionId: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScActivity>> {
-    const response = await this.sc.apiGet<ScPaginatedResponse<ScActivity>>(
-      '/me/feed',
-      token,
-      params,
-    );
-    response.collection = await this.applyLocalLikeFlagsToActivities(
+    input: PageInput,
+  ): Promise<ListPageResult<ScActivity>> {
+    const result = await this.scList.getPage<ScActivity>({
+      cacheKey: 'me-feed',
+      ttl: TTL_FEED,
+      scope: 'user',
       sessionId,
-      response.collection ?? [],
-    );
-    return response;
+      page: input.page,
+      limit: input.limit,
+      path: '/me/feed',
+      token,
+    });
+    result.collection = await this.applyLocalLikeFlagsToActivities(sessionId, result.collection);
+    return result;
   }
 
   async getFeedTracks(
     token: string,
     sessionId: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScActivity>> {
-    const response = await this.sc.apiGet<ScPaginatedResponse<ScActivity>>(
-      '/me/feed/tracks',
-      token,
-      params,
-    );
-    response.collection = await this.applyLocalLikeFlagsToActivities(
+    input: PageInput,
+  ): Promise<ListPageResult<ScActivity>> {
+    const result = await this.scList.getPage<ScActivity>({
+      cacheKey: 'me-feed-tracks',
+      ttl: TTL_FEED,
+      scope: 'user',
       sessionId,
-      response.collection ?? [],
-    );
-    return response;
+      page: input.page,
+      limit: input.limit,
+      path: '/me/feed/tracks',
+      token,
+    });
+    result.collection = await this.applyLocalLikeFlagsToActivities(sessionId, result.collection);
+    return result;
   }
 
   async getLikedTracks(
     token: string,
     sessionId: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScTrack>> {
-    const scResult = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
-      '/me/likes/tracks',
+    input: PageInput,
+    access: string,
+  ): Promise<ListPageResult<ScTrack>> {
+    const result = await this.scList.getPage<ScTrack>({
+      cacheKey: buildListCacheKey('me-liked-tracks', { access }),
+      ttl: TTL_LIKES_TRACKS,
+      scope: 'user',
+      sessionId,
+      page: input.page,
+      limit: input.limit,
+      path: '/me/likes/tracks',
       token,
-      params,
-    );
+      extraParams: { access },
+    });
 
-    // On the first page (no cursor/offset), prepend local likes
-    const hasCursor = params && (params.cursor || params.offset);
-    if (!hasCursor) {
+    if (input.page === 0) {
       const localResult = await this.localLikes.findAll(sessionId, 200);
       if (localResult.collection.length > 0) {
-        const scUrns = new Set(scResult.collection.map((t) => t.urn));
+        const scUrns = new Set(result.collection.map((t) => t.urn));
         const localTracks = localResult.collection
           .map((data) => data as unknown as ScTrack)
           .filter((t) => t.urn && !scUrns.has(t.urn));
         if (localTracks.length > 0) {
-          scResult.collection = [...localTracks, ...scResult.collection];
+          result.collection = [...localTracks, ...result.collection];
         }
       }
     }
 
-    this.seedLikesTaste(sessionId, scResult.collection).catch((e) => {
+    this.seedLikesTaste(sessionId, result.collection).catch((e) => {
       this.logger.debug(`seedLikesTaste failed: ${(e as Error).message}`);
     });
 
-    return scResult;
+    return result;
   }
 
   private async seedLikesTaste(sessionId: string, tracks: ScTrack[]): Promise<void> {
@@ -139,30 +158,55 @@ export class MeService {
 
   getLikedPlaylists(
     token: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScPlaylist>> {
-    return this.sc.apiGet('/me/likes/playlists', token, params);
+    sessionId: string,
+    input: PageInput,
+  ): Promise<ListPageResult<ScPlaylist>> {
+    return this.scList.getPage<ScPlaylist>({
+      cacheKey: 'me-liked-playlists',
+      ttl: TTL_LIKES_PLAYLISTS,
+      scope: 'user',
+      sessionId,
+      page: input.page,
+      limit: input.limit,
+      path: '/me/likes/playlists',
+      token,
+    });
   }
 
   getFollowings(
     token: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScUser>> {
-    return this.sc.apiGet('/me/followings', token, params);
+    sessionId: string,
+    input: PageInput,
+  ): Promise<ListPageResult<ScUser>> {
+    return this.scList.getPage<ScUser>({
+      cacheKey: 'me-followings',
+      ttl: TTL_FOLLOWINGS,
+      scope: 'user',
+      sessionId,
+      page: input.page,
+      limit: input.limit,
+      path: '/me/followings',
+      token,
+    });
   }
 
   async getFollowingsTracks(
     token: string,
     sessionId: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScTrack>> {
-    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
-      '/me/followings/tracks',
+    input: PageInput,
+  ): Promise<ListPageResult<ScTrack>> {
+    const result = await this.scList.getPage<ScTrack>({
+      cacheKey: 'me-followings-tracks',
+      ttl: TTL_FOLLOWINGS_TRACKS,
+      scope: 'user',
+      sessionId,
+      page: input.page,
+      limit: input.limit,
+      path: '/me/followings/tracks',
       token,
-      params,
-    );
-    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
-    return response;
+    });
+    result.collection = await this.applyLocalLikeFlags(sessionId, result.collection);
+    return result;
   }
 
   followUser(token: string, userUrn: string): Promise<unknown> {
@@ -175,29 +219,54 @@ export class MeService {
 
   getFollowers(
     token: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScUser>> {
-    return this.sc.apiGet('/me/followers', token, params);
+    sessionId: string,
+    input: PageInput,
+  ): Promise<ListPageResult<ScUser>> {
+    return this.scList.getPage<ScUser>({
+      cacheKey: 'me-followers',
+      ttl: TTL_FOLLOWERS,
+      scope: 'user',
+      sessionId,
+      page: input.page,
+      limit: input.limit,
+      path: '/me/followers',
+      token,
+    });
   }
 
   getPlaylists(
     token: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScPlaylist>> {
-    return this.sc.apiGet('/me/playlists', token, params);
+    sessionId: string,
+    input: PageInput,
+  ): Promise<ListPageResult<ScPlaylist>> {
+    return this.scList.getPage<ScPlaylist>({
+      cacheKey: 'me-playlists',
+      ttl: TTL_PLAYLISTS,
+      scope: 'user',
+      sessionId,
+      page: input.page,
+      limit: input.limit,
+      path: '/me/playlists',
+      token,
+    });
   }
 
   async getTracks(
     token: string,
     sessionId: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScTrack>> {
-    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
-      '/me/tracks',
+    input: PageInput,
+  ): Promise<ListPageResult<ScTrack>> {
+    const result = await this.scList.getPage<ScTrack>({
+      cacheKey: 'me-tracks',
+      ttl: TTL_TRACKS,
+      scope: 'user',
+      sessionId,
+      page: input.page,
+      limit: input.limit,
+      path: '/me/tracks',
       token,
-      params,
-    );
-    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
-    return response;
+    });
+    result.collection = await this.applyLocalLikeFlags(sessionId, result.collection);
+    return result;
   }
 }

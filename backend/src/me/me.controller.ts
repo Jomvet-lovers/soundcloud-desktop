@@ -8,10 +8,10 @@ import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
-  PaginatedActivityResponse,
-  PaginatedPlaylistResponse,
-  PaginatedTrackResponse,
-  PaginatedUserResponse,
+  PagedActivityResponse,
+  PagedPlaylistResponse,
+  PagedTrackResponse,
+  PagedUserResponse,
   ScMe,
 } from '../soundcloud/soundcloud.types.js';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service.js';
@@ -46,31 +46,34 @@ export class MeController {
   }
 
   @Get('feed')
-  @Cached({ ttl: 60, scope: 'user' })
   @ApiOperation({ summary: 'Get authenticated user feed' })
-  @ApiOkResponse({ type: PaginatedActivityResponse })
+  @ApiOkResponse({ type: PagedActivityResponse })
   getFeed(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.meService.getFeed(token, sessionId, query as Record<string, unknown>);
+    return this.meService.getFeed(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get('feed/tracks')
-  @Cached({ ttl: 60, scope: 'user' })
   @ApiOperation({ summary: 'Get authenticated user track feed' })
-  @ApiOkResponse({ type: PaginatedActivityResponse })
+  @ApiOkResponse({ type: PagedActivityResponse })
   getFeedTracks(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.meService.getFeedTracks(token, sessionId, query as Record<string, unknown>);
+    return this.meService.getFeedTracks(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get('likes/tracks')
-  @Cached({ ttl: 1800, scope: 'user', key: 'me-liked-tracks' })
   @ApiOperation({ summary: 'Get liked tracks' })
   @ApiQuery({
     name: 'access',
@@ -78,43 +81,61 @@ export class MeController {
     enum: ['playable', 'preview', 'blocked'],
     default: ['playable', 'preview', 'blocked'],
   })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   getLikedTracks(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    return this.meService.getLikedTracks(token, sessionId, params);
+    return this.meService.getLikedTracks(
+      token,
+      sessionId,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      access,
+    );
   }
 
   @Get('likes/playlists')
-  @Cached({ ttl: 1800, scope: 'user', key: 'me-liked-playlists' })
   @ApiOperation({ summary: 'Get liked playlists' })
-  @ApiOkResponse({ type: PaginatedPlaylistResponse })
-  getLikedPlaylists(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getLikedPlaylists(token, query as Record<string, unknown>);
+  @ApiOkResponse({ type: PagedPlaylistResponse })
+  getLikedPlaylists(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getLikedPlaylists(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get('followings')
-  @Cached({ ttl: 3600, scope: 'user', key: 'me-followings' })
   @ApiOperation({ summary: 'Get users followed by authenticated user' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
-  getFollowings(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getFollowings(token, query as Record<string, unknown>);
+  @ApiOkResponse({ type: PagedUserResponse })
+  getFollowings(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getFollowings(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get('followings/tracks')
-  @Cached({ ttl: 30, scope: 'user' })
   @ApiOperation({ summary: 'Get tracks from followed users' })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   getFollowingsTracks(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.meService.getFollowingsTracks(token, sessionId, query as Record<string, unknown>);
+    return this.meService.getFollowingsTracks(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Put('followings/:userUrn')
@@ -132,31 +153,44 @@ export class MeController {
   }
 
   @Get('followers')
-  @Cached({ ttl: 120, scope: 'user' })
   @ApiOperation({ summary: 'Get followers of authenticated user' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
-  getFollowers(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getFollowers(token, query as Record<string, unknown>);
+  @ApiOkResponse({ type: PagedUserResponse })
+  getFollowers(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getFollowers(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get('playlists')
-  @Cached({ ttl: 3600, scope: 'user', key: 'me-playlists' })
   @ApiOperation({ summary: 'Get user playlists' })
-  @ApiQuery({ name: 'show_tracks', required: false, type: Boolean })
-  @ApiOkResponse({ type: PaginatedPlaylistResponse })
-  getPlaylists(@AccessToken() token: string, @Query() query: PaginationQuery) {
-    return this.meService.getPlaylists(token, query as Record<string, unknown>);
+  @ApiOkResponse({ type: PagedPlaylistResponse })
+  getPlaylists(
+    @AccessToken() token: string,
+    @SessionId() sessionId: string,
+    @Query() query: PaginationQuery,
+  ) {
+    return this.meService.getPlaylists(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get('tracks')
-  @Cached({ ttl: 30, scope: 'user' })
   @ApiOperation({ summary: 'Get user tracks' })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   getTracks(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.meService.getTracks(token, sessionId, query as Record<string, unknown>);
+    return this.meService.getTracks(token, sessionId, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 }

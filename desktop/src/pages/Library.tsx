@@ -232,16 +232,38 @@ const LibraryHero = React.memo(function LibraryHero({
     e.stopPropagation();
     if (shuffleLoading) return;
 
-    setShuffleLoading(true);
-    try {
-      const all = await fetchAllLikedTracks();
-      if (all.length === 0) return;
+    if (!usePlayerStore.getState().shuffle) {
+      usePlayerStore.setState({ shuffle: true });
+    }
 
-      if (!usePlayerStore.getState().shuffle) {
-        usePlayerStore.setState({ shuffle: true });
-      }
-      const random = all[Math.floor(Math.random() * all.length)];
-      usePlayerStore.getState().play(random, all);
+    const seen = new Set<string>();
+    let started = false;
+
+    // Мгновенный старт с уже загруженных треков (первая страница useLikedTracks)
+    if (likedTracks.length > 0) {
+      for (const t of likedTracks) seen.add(t.urn);
+      const random = likedTracks[Math.floor(Math.random() * likedTracks.length)];
+      usePlayerStore.getState().play(random, likedTracks);
+      started = true;
+    } else {
+      setShuffleLoading(true);
+    }
+
+    try {
+      await fetchAllLikedTracks(200, (page) => {
+        const fresh = page.filter((t) => !seen.has(t.urn));
+        for (const t of fresh) seen.add(t.urn);
+        if (fresh.length === 0) return;
+
+        if (!started) {
+          const random = fresh[Math.floor(Math.random() * fresh.length)];
+          usePlayerStore.getState().play(random, fresh);
+          started = true;
+          setShuffleLoading(false);
+        } else {
+          usePlayerStore.getState().addToQueue(fresh);
+        }
+      });
     } finally {
       setShuffleLoading(false);
     }
@@ -369,9 +391,12 @@ const LikesTab = React.memo(function LikesTab({ filter }: { filter: string }) {
   }, [likedTracks, filter]);
 
   const expandQueue = React.useCallback(() => {
-    fetchAllLikedTracks().then((all) => {
-      usePlayerStore.getState().setQueue(all);
-    });
+    const seen = new Set<string>(usePlayerStore.getState().queue.map((t) => t.urn));
+    fetchAllLikedTracks(200, (page) => {
+      const fresh = page.filter((t) => !seen.has(t.urn));
+      for (const t of fresh) seen.add(t.urn);
+      if (fresh.length > 0) usePlayerStore.getState().addToQueue(fresh);
+    }).catch(() => {});
   }, []);
 
   const getAllLikesForDownload = React.useCallback(() => fetchAllLikedTracks(), []);

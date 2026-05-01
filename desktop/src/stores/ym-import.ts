@@ -128,21 +128,13 @@ function resetRuntimeState() {
 async function findExistingPlaylists(): Promise<ScPlaylist[]> {
   try {
     const all: ScPlaylist[] = [];
-    let cursor: string | undefined;
 
-    for (;;) {
-      const params = new URLSearchParams({ limit: '200', linked_partitioning: 'true' });
-      if (cursor) params.set('cursor', cursor);
-
-      const res = await api<{ collection: ScPlaylist[]; next_href?: string | null }>(
-        `/me/playlists?${params}`,
+    for (let page = 0; ; page++) {
+      const res = await api<{ collection: ScPlaylist[]; has_more: boolean }>(
+        `/me/playlists?limit=200&page=${page}`,
       );
       all.push(...(res.collection ?? []));
-
-      if (!res.next_href) break;
-      const next = new URL(res.next_href).searchParams.get('cursor');
-      if (!next || next === cursor) break;
-      cursor = next;
+      if (!res.has_more) break;
     }
 
     return all

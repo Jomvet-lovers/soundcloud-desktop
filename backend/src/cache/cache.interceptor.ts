@@ -10,6 +10,7 @@ import { EMPTY, type Observable, tap } from 'rxjs';
 import { CacheService } from './cache.service.js';
 import { CACHE_CLEAR_OPTIONS_KEY, type CacheClearOptions } from './cache-clear.decorator.js';
 import { CACHE_OPTIONS_KEY, type CachedOptions } from './cached.decorator.js';
+import { ListCacheService } from './list-cache.service.js';
 
 @Injectable()
 export class ApiCacheInterceptor implements NestInterceptor {
@@ -18,6 +19,7 @@ export class ApiCacheInterceptor implements NestInterceptor {
   constructor(
     private readonly reflector: Reflector,
     private readonly cacheService: CacheService,
+    private readonly listCacheService: ListCacheService,
   ) {}
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
@@ -84,6 +86,11 @@ export class ApiCacheInterceptor implements NestInterceptor {
               `cache clear failed for keys=${resolvedClearKeys.join(',')}: ${(err as Error).message}`,
             );
           });
+          this.listCacheService.invalidateByCacheKeys(resolvedClearKeys, sessionId).catch((err) => {
+            this.logger.warn(
+              `list-cache clear failed for keys=${resolvedClearKeys.join(',')}: ${(err as Error).message}`,
+            );
+          });
         }
 
         if (key && cacheOptions && payload !== undefined && payload !== null) {
@@ -94,9 +101,7 @@ export class ApiCacheInterceptor implements NestInterceptor {
               sessionId,
             })
             .catch((err) => {
-              this.logger.warn(
-                `cache set failed for ${method} ${url}: ${(err as Error).message}`,
-              );
+              this.logger.warn(`cache set failed for ${method} ${url}: ${(err as Error).message}`);
             });
         }
       }),

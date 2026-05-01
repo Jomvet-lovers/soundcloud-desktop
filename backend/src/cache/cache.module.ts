@@ -5,6 +5,7 @@ import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from './cache.constants.js';
 import { ApiCacheInterceptor } from './cache.interceptor.js';
 import { CacheService } from './cache.service.js';
+import { ListCacheService } from './list-cache.service.js';
 
 @Global()
 @Module({
@@ -23,12 +24,13 @@ import { CacheService } from './cache.service.js';
       },
     },
     CacheService,
+    ListCacheService,
     ApiCacheInterceptor,
     {
       provide: APP_INTERCEPTOR,
       useExisting: ApiCacheInterceptor,
     },
   ],
-  exports: [CacheService, REDIS_CLIENT],
+  exports: [CacheService, ListCacheService, REDIS_CLIENT],
 })
 export class ApiCacheModule {}

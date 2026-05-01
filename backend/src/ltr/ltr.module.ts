@@ -6,9 +6,9 @@ import { CollabModule } from '../collab/collab.module.js';
 import { UserEvent } from '../events/entities/user-event.entity.js';
 import { IndexedTrack } from '../indexing/entities/indexed-track.entity.js';
 import { QdrantModule } from '../qdrant/qdrant.module.js';
+import { LtrService } from './ltr.service.js';
 import { LtrAdminController } from './ltr-admin.controller.js';
 import { LtrTrainerService } from './ltr-trainer.service.js';
-import { LtrService } from './ltr.service.js';
 
 @Module({
   imports: [

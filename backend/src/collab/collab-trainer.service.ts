@@ -1,7 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThanOrEqual, Repository } from 'typeorm';
 import { NatsService } from '../bus/nats.service.js';
 import { SUBJECTS } from '../bus/subjects.js';
 import { UserEvent } from '../events/entities/user-event.entity.js';
@@ -27,7 +27,10 @@ const SESSION_GAP_MS = 30 * 60 * 1000;
 const MIN_SESSION_LEN = 2;
 const MAX_SESSION_LEN = 200;
 const HISTORY_WINDOW_DAYS = 90;
-const MIN_TOTAL_SESSIONS = 100;
+/** Минимум сессий для старта тренировки. По умолчанию низкий — на раннем тестовом
+ *  инстансе 100 сессий не набирается, а без tracks_collab wave даже не поднимется
+ *  на collab-ветку. Тюнится через COLLAB_MIN_SESSIONS. */
+const DEFAULT_MIN_SESSIONS = 20;
 
 const SESSION_EVENTS = new Set(['like', 'local_like', 'playlist_add', 'full_play', 'skip']);
 
@@ -56,9 +59,16 @@ export class CollabTrainerService implements OnModuleInit {
   private async bootstrapIfNeeded(): Promise<void> {
     try {
       const dim = await this.collab.getCollabDim();
-      if (dim !== null) return;
+      if (dim !== null) {
+        this.logger.log(`[collab.bootstrap] tracks_collab exists (dim=${dim}), skip initial train`);
+        return;
+      }
       this.logger.log('[collab.bootstrap] tracks_collab missing, triggering initial train');
-      await this.trainNow();
+      const res = await this.trainNow();
+      this.logger.log(
+        `[collab.bootstrap] result: enqueued=${res.enqueued} sessions=${res.sessions}` +
+          (res.reason ? ` reason=${res.reason}` : ''),
+      );
     } catch (e) {
       this.logger.warn(`[collab.bootstrap] failed: ${(e as Error).message}`);
     }
@@ -104,9 +114,14 @@ export class CollabTrainerService implements OnModuleInit {
     this.inProgress = true;
     try {
       const sessions = await this.buildSessions();
-      if (sessions.length < MIN_TOTAL_SESSIONS) {
+      const minSessions = Number.parseInt(
+        process.env.COLLAB_MIN_SESSIONS ?? String(DEFAULT_MIN_SESSIONS),
+        10,
+      );
+      if (sessions.length < minSessions) {
         this.logger.warn(
-          `[collab.train] too few sessions (${sessions.length} < ${MIN_TOTAL_SESSIONS}), skip`,
+          `[collab.train] too few sessions (${sessions.length} < ${minSessions}), skip. ` +
+            `Lower COLLAB_MIN_SESSIONS to train on less data.`,
         );
         return { enqueued: false, sessions: sessions.length, reason: 'too_few_sessions' };
       }
@@ -143,19 +158,11 @@ export class CollabTrainerService implements OnModuleInit {
    */
   private async buildSessions(): Promise<number[][]> {
     const since = new Date(Date.now() - HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    const rows: Array<{ scUserId: string; scTrackId: string; createdAt: Date; eventType: string }> =
-      await this.events
-        .createQueryBuilder('e')
-        .select([
-          'e.scUserId AS "scUserId"',
-          'e.scTrackId AS "scTrackId"',
-          'e.createdAt AS "createdAt"',
-          'e.eventType AS "eventType"',
-        ])
-        .where('e.createdAt >= :since', { since })
-        .orderBy('e.scUserId', 'ASC')
-        .addOrderBy('e.createdAt', 'ASC')
-        .getRawMany();
+    const rows = await this.events.find({
+      where: { createdAt: MoreThanOrEqual(since) },
+      order: { scUserId: 'ASC', createdAt: 'ASC' },
+      select: ['scUserId', 'scTrackId', 'createdAt', 'eventType'],
+    });
 
     const sessions: number[][] = [];
     let currentUser: string | null = null;
@@ -196,7 +203,8 @@ export class CollabTrainerService implements OnModuleInit {
     flush();
 
     this.logger.log(
-      `[collab.train] built ${sessions.length} sessions from ${rows.length} events (${HISTORY_WINDOW_DAYS}d window)`,
+      `[collab.train] built ${sessions.length} sessions from ${rows.length} events ` +
+        `(${HISTORY_WINDOW_DAYS}d window)`,
     );
     return sessions;
   }

@@ -25,7 +25,6 @@ import json
 import logging
 import time
 
-from gensim.models import Word2Vec
 from nats.aio.client import Client as NATSClient
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -63,8 +62,11 @@ def _train(
     window: int,
     epochs: int,
     negative: int,
-) -> Word2Vec:
-    # gensim хочет строки и сессии длины ≥2.
+):
+    # gensim импортируем лениво — чтобы отсутствие либы не крашило весь воркер
+    # при старте через handlers/__init__.py.
+    from gensim.models import Word2Vec
+
     str_sessions = [[str(t) for t in s] for s in sessions if len(s) >= 2]
     return Word2Vec(
         sentences=str_sessions,
@@ -107,9 +109,17 @@ async def handle(
         f"window={window} epochs={epochs} negative={negative}"
     )
     t0 = time.monotonic()
-    model = await asyncio.to_thread(
-        _train, sessions, dim, min_count, window, epochs, negative
-    )
+    try:
+        model = await asyncio.to_thread(
+            _train, sessions, dim, min_count, window, epochs, negative
+        )
+    except ImportError as e:
+        log.error(f"[collab] gensim not installed in worker image: {e}")
+        await nc.publish(
+            subj.SUBJECT_DONE_TRAIN_COLLAB,
+            json.dumps({"trained": False, "reason": "gensim_missing", "error": str(e)}).encode(),
+        )
+        return
     train_sec = time.monotonic() - t0
     vocab = len(model.wv)
     log.info(f"[collab] trained in {train_sec:.2f}s vocab={vocab}")

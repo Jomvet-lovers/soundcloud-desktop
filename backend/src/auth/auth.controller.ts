@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Get,
-  Header,
-  Headers,
-  HttpCode,
-  Logger,
-  Post,
-  Query,
-} from '@nestjs/common';
+import { Controller, Get, Header, Headers, HttpCode, Logger, Post, Query } from '@nestjs/common';
 import { ApiHeader, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service.js';
 import { renderCallbackPage } from './callback-page.js';

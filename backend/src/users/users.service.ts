@@ -1,18 +1,26 @@
 import { Injectable } from '@nestjs/common';
+import { buildListCacheKey, type ListPageResult } from '../cache/list-cache.service.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
-import {
-  ScPaginatedResponse,
-  ScPlaylist,
-  ScTrack,
-  ScUser,
-  ScWebProfile,
-} from '../soundcloud/soundcloud.types.js';
+import { ScPlaylist, ScTrack, ScUser, ScWebProfile } from '../soundcloud/soundcloud.types.js';
+import { SoundcloudListService } from '../soundcloud/soundcloud-list.service.js';
+
+const TTL_SEARCH = 300;
+const TTL_FOLLOWS = 600;
+const TTL_USER_TRACKS = 600;
+const TTL_USER_PLAYLISTS = 600;
+const TTL_USER_LIKES = 600;
+
+interface PageInput {
+  page: number;
+  limit: number;
+}
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly sc: SoundcloudService,
+    private readonly scList: SoundcloudListService,
     private readonly localLikes: LocalLikesService,
   ) {}
 
@@ -28,28 +36,50 @@ export class UsersService {
     );
   }
 
-  search(token: string, params?: Record<string, unknown>): Promise<ScPaginatedResponse<ScUser>> {
-    return this.sc.apiGet('/users', token, params);
+  search(
+    token: string,
+    input: PageInput,
+    q?: string,
+    ids?: string,
+  ): Promise<ListPageResult<ScUser>> {
+    const extra: Record<string, unknown> = {};
+    if (q) extra.q = q;
+    if (ids) extra.ids = ids;
+    return this.scList.getPage<ScUser>({
+      cacheKey: buildListCacheKey('users-search', extra),
+      ttl: TTL_SEARCH,
+      page: input.page,
+      limit: input.limit,
+      path: '/users',
+      token,
+      extraParams: extra,
+    });
   }
 
   getById(token: string, userUrn: string): Promise<ScUser> {
     return this.sc.apiGet(`/users/${userUrn}`, token);
   }
 
-  getFollowers(
-    token: string,
-    userUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScUser>> {
-    return this.sc.apiGet(`/users/${userUrn}/followers`, token, params);
+  getFollowers(token: string, userUrn: string, input: PageInput): Promise<ListPageResult<ScUser>> {
+    return this.scList.getPage<ScUser>({
+      cacheKey: `user-followers:${userUrn}`,
+      ttl: TTL_FOLLOWS,
+      page: input.page,
+      limit: input.limit,
+      path: `/users/${userUrn}/followers`,
+      token,
+    });
   }
 
-  getFollowings(
-    token: string,
-    userUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScUser>> {
-    return this.sc.apiGet(`/users/${userUrn}/followings`, token, params);
+  getFollowings(token: string, userUrn: string, input: PageInput): Promise<ListPageResult<ScUser>> {
+    return this.scList.getPage<ScUser>({
+      cacheKey: `user-followings:${userUrn}`,
+      ttl: TTL_FOLLOWS,
+      page: input.page,
+      limit: input.limit,
+      path: `/users/${userUrn}/followings`,
+      token,
+    });
   }
 
   async getIsFollowing(token: string, userUrn: string, followingUrn: string): Promise<boolean> {
@@ -69,46 +99,75 @@ export class UsersService {
     token: string,
     sessionId: string,
     userUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScTrack>> {
-    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
-      `/users/${userUrn}/tracks`,
+    input: PageInput,
+    access: string,
+  ): Promise<ListPageResult<ScTrack>> {
+    const result = await this.scList.getPage<ScTrack>({
+      cacheKey: buildListCacheKey(`user-tracks:${userUrn}`, { access }),
+      ttl: TTL_USER_TRACKS,
+      page: input.page,
+      limit: input.limit,
+      path: `/users/${userUrn}/tracks`,
       token,
-      params,
-    );
-    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
-    return response;
+      extraParams: { access },
+    });
+    result.collection = await this.applyLocalLikeFlags(sessionId, result.collection);
+    return result;
   }
 
   getPlaylists(
     token: string,
     userUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScPlaylist>> {
-    return this.sc.apiGet(`/users/${userUrn}/playlists`, token, params);
+    input: PageInput,
+    access: string,
+    showTracks?: string,
+  ): Promise<ListPageResult<ScPlaylist>> {
+    const extra: Record<string, unknown> = { access };
+    if (showTracks !== undefined) extra.show_tracks = showTracks;
+    return this.scList.getPage<ScPlaylist>({
+      cacheKey: buildListCacheKey(`user-playlists:${userUrn}`, extra),
+      ttl: TTL_USER_PLAYLISTS,
+      page: input.page,
+      limit: input.limit,
+      path: `/users/${userUrn}/playlists`,
+      token,
+      extraParams: extra,
+    });
   }
 
   async getLikedTracks(
     token: string,
     sessionId: string,
     userUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScTrack>> {
-    const response = await this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
-      `/users/${userUrn}/likes/tracks`,
+    input: PageInput,
+    access: string,
+  ): Promise<ListPageResult<ScTrack>> {
+    const result = await this.scList.getPage<ScTrack>({
+      cacheKey: buildListCacheKey(`user-liked-tracks:${userUrn}`, { access }),
+      ttl: TTL_USER_LIKES,
+      page: input.page,
+      limit: input.limit,
+      path: `/users/${userUrn}/likes/tracks`,
       token,
-      params,
-    );
-    response.collection = await this.applyLocalLikeFlags(sessionId, response.collection ?? []);
-    return response;
+      extraParams: { access },
+    });
+    result.collection = await this.applyLocalLikeFlags(sessionId, result.collection);
+    return result;
   }
 
   getLikedPlaylists(
     token: string,
     userUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScPlaylist>> {
-    return this.sc.apiGet(`/users/${userUrn}/likes/playlists`, token, params);
+    input: PageInput,
+  ): Promise<ListPageResult<ScPlaylist>> {
+    return this.scList.getPage<ScPlaylist>({
+      cacheKey: `user-liked-playlists:${userUrn}`,
+      ttl: TTL_USER_LIKES,
+      page: input.page,
+      limit: input.limit,
+      path: `/users/${userUrn}/likes/playlists`,
+      token,
+    });
   }
 
   getWebProfiles(

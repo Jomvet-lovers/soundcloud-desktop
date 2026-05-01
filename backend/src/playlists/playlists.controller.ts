@@ -14,9 +14,9 @@ import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
-  PaginatedPlaylistResponse,
-  PaginatedTrackResponse,
-  PaginatedUserResponse,
+  PagedPlaylistResponse,
+  PagedTrackResponse,
+  PagedUserResponse,
   ScPlaylist,
 } from '../soundcloud/soundcloud.types.js';
 import { PlaylistsService } from './playlists.service.js';
@@ -29,7 +29,6 @@ export class PlaylistsController {
   constructor(private readonly playlistsService: PlaylistsService) {}
 
   @Get()
-  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Search playlists' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query' })
   @ApiQuery({
@@ -39,7 +38,7 @@ export class PlaylistsController {
     default: ['playable', 'preview', 'blocked'],
   })
   @ApiQuery({ name: 'show_tracks', required: false, type: Boolean })
-  @ApiOkResponse({ type: PaginatedPlaylistResponse })
+  @ApiOkResponse({ type: PagedPlaylistResponse })
   search(
     @AccessToken() token: string,
     @Query() query: PaginationQuery,
@@ -47,10 +46,14 @@ export class PlaylistsController {
     @Query('access') access: string = 'playable,preview,blocked',
     @Query('show_tracks') showTracks?: string,
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    if (q) params.q = q;
-    if (showTracks !== undefined) params.show_tracks = showTracks;
-    return this.playlistsService.search(token, params);
+    const extra: Record<string, unknown> = { access };
+    if (q) extra.q = q;
+    if (showTracks !== undefined) extra.show_tracks = showTracks;
+    return this.playlistsService.search(
+      token,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      extra,
+    );
   }
 
   @Post()
@@ -140,7 +143,6 @@ export class PlaylistsController {
   }
 
   @Get(':playlistUrn/tracks')
-  @Cached({ ttl: 1800, key: 'playlist-tracks:{playlistUrn}' })
   @ApiOperation({ summary: 'Get playlist tracks' })
   @ApiQuery({ name: 'secret_token', required: false })
   @ApiQuery({
@@ -149,7 +151,7 @@ export class PlaylistsController {
     enum: ['playable', 'preview', 'blocked'],
     default: ['playable', 'preview', 'blocked'],
   })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   getTracks(
     @AccessToken() token: string,
     @Param('playlistUrn') playlistUrn: string,
@@ -157,20 +159,27 @@ export class PlaylistsController {
     @Query('secret_token') secretToken?: string,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    if (secretToken) params.secret_token = secretToken;
-    return this.playlistsService.getTracks(token, playlistUrn, params);
+    const extra: Record<string, unknown> = { access };
+    if (secretToken) extra.secret_token = secretToken;
+    return this.playlistsService.getTracks(
+      token,
+      playlistUrn,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      extra,
+    );
   }
 
   @Get(':playlistUrn/reposters')
-  @Cached({ ttl: 360 })
   @ApiOperation({ summary: 'Get playlist reposters' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
+  @ApiOkResponse({ type: PagedUserResponse })
   getReposters(
     @AccessToken() token: string,
     @Param('playlistUrn') playlistUrn: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.playlistsService.getReposters(token, playlistUrn, query as Record<string, unknown>);
+    return this.playlistsService.getReposters(token, playlistUrn, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 }

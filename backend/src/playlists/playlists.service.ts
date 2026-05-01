@@ -1,25 +1,41 @@
 import { Injectable } from '@nestjs/common';
+import { buildListCacheKey, type ListPageResult } from '../cache/list-cache.service.js';
 import { PendingActionsService } from '../pending-actions/pending-actions.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
-import {
-  ScPaginatedResponse,
-  ScPlaylist,
-  ScTrack,
-  ScUser,
-} from '../soundcloud/soundcloud.types.js';
+import { ScPlaylist, ScTrack, ScUser } from '../soundcloud/soundcloud.types.js';
+import { SoundcloudListService } from '../soundcloud/soundcloud-list.service.js';
+
+const TTL_SEARCH = 300;
+const TTL_TRACKS = 1800;
+const TTL_REPOSTERS = 600;
+
+interface PageInput {
+  page: number;
+  limit: number;
+}
 
 @Injectable()
 export class PlaylistsService {
   constructor(
     private readonly sc: SoundcloudService,
+    private readonly scList: SoundcloudListService,
     private readonly pendingActions: PendingActionsService,
   ) {}
 
   search(
     token: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScPlaylist>> {
-    return this.sc.apiGet('/playlists', token, params);
+    input: PageInput,
+    extra: Record<string, unknown>,
+  ): Promise<ListPageResult<ScPlaylist>> {
+    return this.scList.getPage<ScPlaylist>({
+      cacheKey: buildListCacheKey('playlists-search', extra),
+      ttl: TTL_SEARCH,
+      page: input.page,
+      limit: input.limit,
+      path: '/playlists',
+      token,
+      extraParams: extra,
+    });
   }
 
   async create(token: string, sessionId: string, body: unknown): Promise<unknown> {
@@ -81,23 +97,35 @@ export class PlaylistsService {
     }
   }
 
-  async getTracks(
+  getTracks(
     token: string,
     playlistUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScTrack>> {
-    return this.sc.apiGet<ScPaginatedResponse<ScTrack>>(
-      `/playlists/${playlistUrn}/tracks`,
+    input: PageInput,
+    extra: Record<string, unknown>,
+  ): Promise<ListPageResult<ScTrack>> {
+    return this.scList.getPage<ScTrack>({
+      cacheKey: buildListCacheKey(`playlist-tracks:${playlistUrn}`, extra),
+      ttl: TTL_TRACKS,
+      page: input.page,
+      limit: input.limit,
+      path: `/playlists/${playlistUrn}/tracks`,
       token,
-      params,
-    );
+      extraParams: extra,
+    });
   }
 
   getReposters(
     token: string,
     playlistUrn: string,
-    params?: Record<string, unknown>,
-  ): Promise<ScPaginatedResponse<ScUser>> {
-    return this.sc.apiGet(`/playlists/${playlistUrn}/reposters`, token, params);
+    input: PageInput,
+  ): Promise<ListPageResult<ScUser>> {
+    return this.scList.getPage<ScUser>({
+      cacheKey: `playlist-reposters:${playlistUrn}`,
+      ttl: TTL_REPOSTERS,
+      page: input.page,
+      limit: input.limit,
+      path: `/playlists/${playlistUrn}/reposters`,
+      token,
+    });
   }
 }

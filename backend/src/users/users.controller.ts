@@ -6,9 +6,9 @@ import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
-  PaginatedPlaylistResponse,
-  PaginatedTrackResponse,
-  PaginatedUserResponse,
+  PagedPlaylistResponse,
+  PagedTrackResponse,
+  PagedUserResponse,
   ScUser,
   ScWebProfile,
 } from '../soundcloud/soundcloud.types.js';
@@ -26,21 +26,22 @@ export class UsersController {
   ) {}
 
   @Get()
-  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Search users' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query' })
   @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated user IDs' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
+  @ApiOkResponse({ type: PagedUserResponse })
   search(
     @AccessToken() token: string,
     @Query() query: PaginationQuery,
     @Query('q') q?: string,
     @Query('ids') ids?: string,
   ) {
-    const params: Record<string, unknown> = { ...query };
-    if (q) params.q = q;
-    if (ids) params.ids = ids;
-    return this.usersService.search(token, params);
+    return this.usersService.search(
+      token,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      q,
+      ids,
+    );
   }
 
   @Get(':userUrn')
@@ -52,27 +53,31 @@ export class UsersController {
   }
 
   @Get(':userUrn/followers')
-  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get user followers' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
+  @ApiOkResponse({ type: PagedUserResponse })
   getFollowers(
     @AccessToken() token: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.usersService.getFollowers(token, userUrn, query as Record<string, unknown>);
+    return this.usersService.getFollowers(token, userUrn, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get(':userUrn/followings')
-  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get user followings' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
+  @ApiOkResponse({ type: PagedUserResponse })
   getFollowings(
     @AccessToken() token: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.usersService.getFollowings(token, userUrn, query as Record<string, unknown>);
+    return this.usersService.getFollowings(token, userUrn, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get(':userUrn/followings/:followingUrn')
@@ -88,7 +93,6 @@ export class UsersController {
   }
 
   @Get(':userUrn/tracks')
-  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user tracks' })
   @ApiQuery({
     name: 'access',
@@ -96,7 +100,7 @@ export class UsersController {
     enum: ['playable', 'preview', 'blocked'],
     default: ['playable', 'preview', 'blocked'],
   })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   getTracks(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
@@ -104,12 +108,16 @@ export class UsersController {
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    return this.usersService.getTracks(token, sessionId, userUrn, params);
+    return this.usersService.getTracks(
+      token,
+      sessionId,
+      userUrn,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      access,
+    );
   }
 
   @Get(':userUrn/playlists')
-  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user playlists' })
   @ApiQuery({
     name: 'access',
@@ -118,19 +126,24 @@ export class UsersController {
     default: ['playable', 'preview', 'blocked'],
   })
   @ApiQuery({ name: 'show_tracks', required: false, type: Boolean })
-  @ApiOkResponse({ type: PaginatedPlaylistResponse })
+  @ApiOkResponse({ type: PagedPlaylistResponse })
   getPlaylists(
     @AccessToken() token: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
+    @Query('show_tracks') showTracks?: string,
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    return this.usersService.getPlaylists(token, userUrn, params);
+    return this.usersService.getPlaylists(
+      token,
+      userUrn,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      access,
+      showTracks,
+    );
   }
 
   @Get(':userUrn/likes/tracks')
-  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user liked tracks' })
   @ApiQuery({
     name: 'access',
@@ -138,7 +151,7 @@ export class UsersController {
     enum: ['playable', 'preview', 'blocked'],
     default: ['playable', 'preview', 'blocked'],
   })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   getLikedTracks(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
@@ -146,20 +159,27 @@ export class UsersController {
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    return this.usersService.getLikedTracks(token, sessionId, userUrn, params);
+    return this.usersService.getLikedTracks(
+      token,
+      sessionId,
+      userUrn,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      access,
+    );
   }
 
   @Get(':userUrn/likes/playlists')
-  @Cached({ ttl: 300 })
   @ApiOperation({ summary: 'Get user liked playlists' })
-  @ApiOkResponse({ type: PaginatedPlaylistResponse })
+  @ApiOkResponse({ type: PagedPlaylistResponse })
   getLikedPlaylists(
     @AccessToken() token: string,
     @Param('userUrn') userUrn: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.usersService.getLikedPlaylists(token, userUrn, query as Record<string, unknown>);
+    return this.usersService.getLikedPlaylists(token, userUrn, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get(':userUrn/subscription')

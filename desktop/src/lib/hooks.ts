@@ -1,4 +1,13 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type DefaultError,
+  type InfiniteData,
+  type QueryKey,
+  type UseInfiniteQueryResult,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import { api } from './api';
@@ -19,15 +28,14 @@ export interface FeedItem {
   origin: FeedOrigin;
 }
 
-interface FeedResponse {
-  collection: FeedItem[];
-  next_href: string | null;
+export interface PagedResponse<T> {
+  collection: T[];
+  page: number;
+  page_size: number;
+  has_more: boolean;
 }
 
-interface TrackListResponse {
-  collection: Track[];
-  next_href: string | null;
-}
+type TrackPage = PagedResponse<Track>;
 
 export interface Comment {
   id: number;
@@ -43,11 +51,6 @@ export interface Comment {
     avatar_url: string;
     permalink_url: string;
   };
-}
-
-interface CommentListResponse {
-  collection: Comment[];
-  next_href: string | null;
 }
 
 export interface Playlist {
@@ -122,17 +125,6 @@ export interface WebProfile {
   username?: string;
 }
 
-interface UserListResponse {
-  collection: SCUser[];
-  next_href: string | null;
-}
-
-interface PlaylistListResponse {
-  collection: Playlist[];
-  next_href: string | null;
-}
-
-type PageParam = Record<string, string>;
 const SHORT_CACHE_MS = 1000 * 60 * 2;
 const MEDIUM_CACHE_MS = 1000 * 60 * 5;
 const SEARCH_CACHE_MS = 1000 * 60 * 2;
@@ -140,30 +132,11 @@ const INFINITE_GC_MS = 1000 * 60 * 3;
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-/**
- * Extract pagination params (cursor/offset) from SC API next_href.
- * Forwards the exact param name SC uses, so the backend proxies it correctly.
- */
-function extractPagination(href: string | null): PageParam | undefined {
-  if (!href) return undefined;
-  try {
-    const url = new URL(href);
-    const params: PageParam = {};
-    for (const key of ['cursor', 'offset']) {
-      const val = url.searchParams.get(key);
-      if (val) params[key] = val;
-    }
-    return Object.keys(params).length > 0 ? params : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function flattenCollectionPages<T>(pages: Array<{ collection: T[] }> | undefined): T[] {
   if (!pages) return [];
   const items: T[] = [];
   for (const page of pages) {
-    if (!page || !page?.collection) continue;
+    if (!page?.collection) continue;
     items.push(...page.collection);
   }
   return items;
@@ -183,6 +156,70 @@ export function dedupeByKey<T, K>(items: T[], getKey: (item: T) => K): T[] {
 
 export function dedupeByUrn<T extends { urn: string }>(items: T[]): T[] {
   return dedupeByKey(items, (item) => item.urn);
+}
+
+interface PagedQueryOptions<T> {
+  queryKey: QueryKey;
+  /** Builds the URL for a given page index. limit and page are appended automatically. */
+  url: (page: number, limit: number) => string;
+  limit?: number;
+  staleTime?: number;
+  gcTime?: number;
+  enabled?: boolean;
+  maxPages?: number;
+  /** Auto-fetch all pages until exhausted. Use sparingly. */
+  autoFetchAll?: boolean;
+  dedupe?: (item: T) => string;
+}
+
+type PagedQueryResult<T> = UseInfiniteQueryResult<
+  InfiniteData<PagedResponse<T>, number>,
+  DefaultError
+> & { items: T[] };
+
+/**
+ * Унифицированный page-based useInfiniteQuery helper. Бэк отдаёт
+ * { collection, page, page_size, has_more } — этого достаточно для пагинации.
+ */
+function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
+  const limit = opts.limit ?? 30;
+  const query = useInfiniteQuery<
+    PagedResponse<T>,
+    DefaultError,
+    InfiniteData<PagedResponse<T>, number>,
+    QueryKey,
+    number
+  >({
+    queryKey: opts.queryKey,
+    queryFn: ({ pageParam }) => api<PagedResponse<T>>(opts.url(pageParam, limit)),
+    initialPageParam: 0,
+    getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
+    staleTime: opts.staleTime,
+    gcTime: opts.gcTime ?? INFINITE_GC_MS,
+    maxPages: opts.maxPages,
+    enabled: opts.enabled,
+  });
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: opts.autoFetchAll is stable, query is captured
+  useEffect(() => {
+    if (!opts.autoFetchAll) return;
+    if (query.hasNextPage && !query.isFetchingNextPage) {
+      query.fetchNextPage();
+    }
+  }, [opts.autoFetchAll, query.hasNextPage, query.isFetchingNextPage, query.data]);
+
+  const items = useMemo(() => {
+    const flat = flattenCollectionPages(query.data?.pages);
+    return opts.dedupe ? dedupeByKey(flat, opts.dedupe) : flat;
+  }, [query.data, opts.dedupe]);
+
+  return Object.assign(query, { items }) as PagedQueryResult<T>;
+}
+
+function pagedUrl(base: string, page: number, limit: number, extra?: string): string {
+  const sep = base.includes('?') ? '&' : '?';
+  const params = `limit=${limit}&page=${page}${extra ? `&${extra}` : ''}`;
+  return `${base}${sep}${params}`;
 }
 
 /* ── History ───────────────────────────────────────────────────── */
@@ -216,9 +253,7 @@ export function useHistory(limit = 50) {
     staleTime: 0,
   });
 
-  const entries = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
+  const entries = useMemo(() => flattenCollectionPages(query.data?.pages), [query.data]);
 
   return { entries, ...query };
 }
@@ -240,13 +275,18 @@ export function useFeatured() {
 
 /* ── Local Likes ──────────────────────────────────────────────── */
 
+interface LocalLikesPage {
+  collection: Track[];
+  next_href: string | null;
+}
+
 export function useLocalLikes(limit = 50) {
   const query = useInfiniteQuery({
     queryKey: ['local-likes'],
     queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pageParam) params.set('cursor', pageParam as string);
-      return api<TrackListResponse>(`/local-likes?${params}`);
+      return api<LocalLikesPage>(`/local-likes?${params}`);
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => {
@@ -261,9 +301,7 @@ export function useLocalLikes(limit = 50) {
     staleTime: 0,
   });
 
-  const tracks = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
+  const tracks = useMemo(() => flattenCollectionPages(query.data?.pages), [query.data]);
 
   return { tracks, ...query };
 }
@@ -271,40 +309,17 @@ export function useLocalLikes(limit = 50) {
 /* ── Feed ──────────────────────────────────────────────────────── */
 
 export function useFeed() {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<FeedItem>({
     queryKey: ['feed'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '20' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<FeedResponse>(`/me/feed?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 8,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) {
-        return undefined;
-      }
-      return next;
-    },
+    url: (page, limit) => pagedUrl('/me/feed', page, limit),
+    limit: 20,
     staleTime: SHORT_CACHE_MS,
+    maxPages: 8,
+    dedupe: (item) => item.origin?.urn ?? `${item.type}:${item.created_at}`,
   });
 
-  const items = useMemo(() => {
-    return dedupeByKey(
-      flattenCollectionPages(query.data?.pages),
-      (item) => item.origin?.urn ?? `${item.type}:${item.created_at}`,
-    );
-  }, [query.data]);
-
   return {
-    items,
+    items: query.items,
     fetchNextPage: query.fetchNextPage,
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
@@ -315,33 +330,15 @@ export function useFeed() {
 /* ── Liked tracks ──────────────────────────────────────────────── */
 
 export function useLikedTracks(limit = 30) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Track>({
     queryKey: ['me', 'likes', 'tracks', limit],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(limit) });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<TrackListResponse>(`/me/likes/tracks?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
+    url: (page, l) => pagedUrl('/me/likes/tracks', page, l),
+    limit,
     staleTime: SHORT_CACHE_MS,
   });
 
-  const tracks = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
+  const tracks = query.items;
 
-  // Seed global liked URNs store
   useEffect(() => {
     if (tracks.length > 0) initLikedUrns(tracks);
   }, [tracks]);
@@ -355,45 +352,38 @@ export function useLikedTracks(limit = 30) {
 }
 
 /**
- * Fetch ALL liked tracks by paginating through the API.
- * Module-level cache — shared across shuffle & play, no re-renders.
- * Call invalidateAllLikesCache() when likes change.
+ * Fetch ALL liked tracks. Page-based pagination, shared promise.
+ * Optional onPage callback fires per page during the fetch.
  */
 let _allLikesPromise: Promise<Track[]> | null = null;
 
-export function fetchAllLikedTracks(pageSize = 200): Promise<Track[]> {
-  if (_allLikesPromise) return _allLikesPromise;
+export function fetchAllLikedTracks(
+  pageSize = 200,
+  onPage?: (tracks: Track[]) => void,
+): Promise<Track[]> {
+  if (_allLikesPromise && !onPage) return _allLikesPromise;
 
-  _allLikesPromise = (async () => {
+  const promise = (async () => {
     const all: Track[] = [];
-    let cursor: string | undefined;
-
-    for (;;) {
-      const params = new URLSearchParams({ limit: String(pageSize) });
-      if (cursor) params.set('cursor', cursor);
-
-      const page = await api<TrackListResponse>(`/me/likes/tracks?${params}`);
-      for (const t of page.collection) all.push(t);
-
-      // Incrementally remember tracks for offline (no re-render)
-      void rememberTracks(page.collection);
-
-      const next = page.next_href ? extractPagination(page.next_href) : undefined;
-      if (!next?.cursor) break;
-      cursor = next.cursor;
+    for (let page = 0; ; page++) {
+      const data = await api<TrackPage>(pagedUrl('/me/likes/tracks', page, pageSize));
+      for (const t of data.collection) all.push(t);
+      void rememberTracks(data.collection);
+      onPage?.(data.collection);
+      if (!data.has_more) break;
     }
-
-    // Save full liked list to offline index
     void rememberLikedTracks(all);
-
     return all;
   })();
 
-  _allLikesPromise.catch(() => {
-    _allLikesPromise = null;
-  });
+  if (!onPage) {
+    _allLikesPromise = promise;
+    promise.catch(() => {
+      _allLikesPromise = null;
+    });
+  }
 
-  return _allLikesPromise;
+  return promise;
 }
 
 export function invalidateAllLikesCache() {
@@ -405,7 +395,7 @@ export function invalidateAllLikesCache() {
 export function useFollowingTracks(limit = 20) {
   return useQuery({
     queryKey: ['me', 'followings', 'tracks', limit],
-    queryFn: () => api<TrackListResponse>(`/me/followings/tracks?limit=${limit}`),
+    queryFn: () => api<TrackPage>(`/me/followings/tracks?limit=${limit}&page=0`),
     staleTime: SHORT_CACHE_MS,
     gcTime: INFINITE_GC_MS,
   });
@@ -414,37 +404,17 @@ export function useFollowingTracks(limit = 20) {
 /* ── Track Comments (infinite) ─────────────────────────────────── */
 
 export function useTrackComments(trackUrn: string | undefined) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Comment>({
     queryKey: ['track', trackUrn, 'comments'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '20' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<CommentListResponse>(
-        `/tracks/${encodeURIComponent(trackUrn!)}/comments?${params}`,
-      );
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 6,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!trackUrn,
+    url: (page, limit) =>
+      pagedUrl(`/tracks/${encodeURIComponent(trackUrn!)}/comments`, page, limit),
+    limit: 20,
     staleTime: SHORT_CACHE_MS,
+    maxPages: 6,
+    enabled: !!trackUrn,
   });
 
-  const comments = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
-
-  return { comments, ...query };
+  return { comments: query.items, ...query };
 }
 
 /* ── Post Comment ─────────────────────────────────────────────── */
@@ -473,7 +443,7 @@ export function useRelatedTracks(trackUrn: string | undefined, limit = 10) {
   return useQuery({
     queryKey: ['track', trackUrn, 'related', limit],
     queryFn: () =>
-      api<TrackListResponse>(`/tracks/${encodeURIComponent(trackUrn!)}/related?limit=${limit}`),
+      api<TrackPage>(`/tracks/${encodeURIComponent(trackUrn!)}/related?limit=${limit}&page=0`),
     enabled: !!trackUrn,
     staleTime: SHORT_CACHE_MS,
     gcTime: INFINITE_GC_MS,
@@ -486,7 +456,9 @@ export function useTrackFavoriters(trackUrn: string | undefined, limit = 12) {
   return useQuery({
     queryKey: ['track', trackUrn, 'favoriters', limit],
     queryFn: () =>
-      api<UserListResponse>(`/tracks/${encodeURIComponent(trackUrn!)}/favoriters?limit=${limit}`),
+      api<PagedResponse<SCUser>>(
+        `/tracks/${encodeURIComponent(trackUrn!)}/favoriters?limit=${limit}&page=0`,
+      ),
     enabled: !!trackUrn,
     staleTime: SHORT_CACHE_MS,
     gcTime: INFINITE_GC_MS,
@@ -508,42 +480,17 @@ export function usePlaylist(playlistUrn: string | undefined) {
 /* ── Playlist Tracks ──────────────────────────────────────────── */
 
 export function usePlaylistTracks(playlistUrn: string | undefined) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Track>({
     queryKey: ['playlist', playlistUrn, 'tracks'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '200' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<TrackListResponse>(
-        `/playlists/${encodeURIComponent(playlistUrn!)}/tracks?${params}`,
-      );
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!playlistUrn,
+    url: (page, limit) =>
+      pagedUrl(`/playlists/${encodeURIComponent(playlistUrn!)}/tracks`, page, limit),
+    limit: 200,
     staleTime: MEDIUM_CACHE_MS,
-    gcTime: INFINITE_GC_MS,
+    enabled: !!playlistUrn,
+    autoFetchAll: true,
   });
 
-  // Auto-fetch all pages so full playlist loads without scrolling
-  useEffect(() => {
-    if (query.hasNextPage && !query.isFetchingNextPage) {
-      query.fetchNextPage();
-    }
-  }, [query.hasNextPage, query.isFetchingNextPage, query.data]);
-
-  const tracks = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
-  return { tracks, ...query };
+  return { tracks: query.items, ...query };
 }
 
 /* ── User Profile ─────────────────────────────────────────────── */
@@ -559,34 +506,23 @@ export function useUser(userUrn: string | undefined) {
 }
 
 export function useUserTracks(userUrn: string | undefined) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Track>({
     queryKey: ['user', userUrn, 'tracks'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '30', access: 'playable,preview,blocked' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<TrackListResponse>(`/users/${encodeURIComponent(userUrn!)}/tracks?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 8,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!userUrn,
+    url: (page, limit) =>
+      pagedUrl(
+        `/users/${encodeURIComponent(userUrn!)}/tracks`,
+        page,
+        limit,
+        'access=playable,preview,blocked',
+      ),
+    limit: 30,
     staleTime: SHORT_CACHE_MS,
+    maxPages: 8,
+    enabled: !!userUrn,
+    dedupe: (t) => t.urn,
   });
 
-  const tracks = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { tracks, ...query };
+  return { tracks: query.items, ...query };
 }
 
 export function useUserPopularTracks(userUrn: string | undefined) {
@@ -594,26 +530,19 @@ export function useUserPopularTracks(userUrn: string | undefined) {
     queryKey: ['user', userUrn, 'tracks', 'popular'],
     queryFn: async () => {
       const all: Track[] = [];
-      let cursor: string | undefined;
       const pageSize = 50;
-
-      // Paginate through all tracks
-      for (;;) {
-        const params = new URLSearchParams({
-          limit: String(pageSize),
-          access: 'playable,preview,blocked',
-        });
-        if (cursor) params.set('cursor', cursor);
-        const page = await api<TrackListResponse>(
-          `/users/${encodeURIComponent(userUrn!)}/tracks?${params}`,
+      for (let page = 0; ; page++) {
+        const data = await api<TrackPage>(
+          pagedUrl(
+            `/users/${encodeURIComponent(userUrn!)}/tracks`,
+            page,
+            pageSize,
+            'access=playable,preview,blocked',
+          ),
         );
-        for (const t of page.collection) all.push(t);
-
-        const next = page.next_href ? extractPagination(page.next_href) : undefined;
-        if (!next?.cursor || page.collection.length === 0) break;
-        cursor = next.cursor;
+        for (const t of data.collection) all.push(t);
+        if (!data.has_more) break;
       }
-
       all.sort((a, b) => (b.playback_count ?? 0) - (a.playback_count ?? 0));
       return all;
     },
@@ -624,131 +553,66 @@ export function useUserPopularTracks(userUrn: string | undefined) {
 }
 
 export function useUserPlaylists(userUrn: string | undefined) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Playlist>({
     queryKey: ['user', userUrn, 'playlists'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '30' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<PlaylistListResponse>(
-        `/users/${encodeURIComponent(userUrn!)}/playlists?${params}`,
-      );
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 8,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!userUrn,
+    url: (page, limit) => pagedUrl(`/users/${encodeURIComponent(userUrn!)}/playlists`, page, limit),
+    limit: 30,
     staleTime: SHORT_CACHE_MS,
+    maxPages: 8,
+    enabled: !!userUrn,
+    dedupe: (p) => p.urn,
   });
 
-  const playlists = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { playlists, ...query };
+  return { playlists: query.items, ...query };
 }
 
 export function useUserLikedTracks(userUrn: string | undefined) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Track>({
     queryKey: ['user', userUrn, 'likes', 'tracks'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '30', access: 'playable,preview,blocked' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<TrackListResponse>(
-        `/users/${encodeURIComponent(userUrn!)}/likes/tracks?${params}`,
-      );
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 8,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!userUrn,
+    url: (page, limit) =>
+      pagedUrl(
+        `/users/${encodeURIComponent(userUrn!)}/likes/tracks`,
+        page,
+        limit,
+        'access=playable,preview,blocked',
+      ),
+    limit: 30,
     staleTime: SHORT_CACHE_MS,
+    maxPages: 8,
+    enabled: !!userUrn,
+    dedupe: (t) => t.urn,
   });
 
-  const tracks = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { tracks, ...query };
+  return { tracks: query.items, ...query };
 }
 
 export function useUserFollowings(userUrn: string | undefined) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<SCUser>({
     queryKey: ['user', userUrn, 'followings'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '30' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<UserListResponse>(`/users/${encodeURIComponent(userUrn!)}/followings?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 8,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!userUrn,
+    url: (page, limit) =>
+      pagedUrl(`/users/${encodeURIComponent(userUrn!)}/followings`, page, limit),
+    limit: 30,
     staleTime: SHORT_CACHE_MS,
+    maxPages: 8,
+    enabled: !!userUrn,
+    dedupe: (u) => u.urn,
   });
 
-  const users = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { users, ...query };
+  return { users: query.items, ...query };
 }
 
 export function useUserFollowers(userUrn: string | undefined) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<SCUser>({
     queryKey: ['user', userUrn, 'followers'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: '30' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<UserListResponse>(`/users/${encodeURIComponent(userUrn!)}/followers?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 8,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!userUrn,
+    url: (page, limit) => pagedUrl(`/users/${encodeURIComponent(userUrn!)}/followers`, page, limit),
+    limit: 30,
     staleTime: SHORT_CACHE_MS,
+    maxPages: 8,
+    enabled: !!userUrn,
+    dedupe: (u) => u.urn,
   });
 
-  const users = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { users, ...query };
+  return { users: query.items, ...query };
 }
 
 export function useUserWebProfiles(userUrn: string | undefined) {
@@ -775,91 +639,33 @@ export function useUserSubscription(userUrn: string | undefined) {
 /* ── My Library ────────────────────────────────────────────────── */
 
 export function useMyFollowings(limit = 30) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<SCUser>({
     queryKey: ['me', 'followings', limit],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(limit) });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<UserListResponse>(`/me/followings?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
+    url: (page, l) => pagedUrl('/me/followings', page, l),
+    limit,
   });
 
-  const users = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
-  return { users, ...query };
+  return { users: query.items, ...query };
 }
 
 export function useMyLikedPlaylists(limit = 30) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Playlist>({
     queryKey: ['me', 'likes', 'playlists', limit],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(limit) });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<PlaylistListResponse>(`/me/likes/playlists?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
+    url: (page, l) => pagedUrl('/me/likes/playlists', page, l),
+    limit,
   });
 
-  const playlists = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
-  return { playlists, ...query };
+  return { playlists: query.items, ...query };
 }
 
 export function useMyPlaylists(limit = 30) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Playlist>({
     queryKey: ['me', 'playlists', limit],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(limit) });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      const res = await api<PlaylistListResponse | Playlist[]>(`/me/playlists?${params}`);
-      if (Array.isArray(res)) {
-        return { collection: res, next_href: null } as PlaylistListResponse;
-      }
-      return res;
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
+    url: (page, l) => pagedUrl('/me/playlists', page, l),
+    limit,
   });
 
-  const playlists = useMemo(() => {
-    return flattenCollectionPages(query.data?.pages);
-  }, [query.data]);
-  return { playlists, ...query };
+  return { playlists: query.items, ...query };
 }
 
 /* ── Playlist Mutations ────────────────────────────────────────── */
@@ -942,90 +748,45 @@ export function useDeletePlaylist() {
 /* ── Search ────────────────────────────────────────────────────── */
 
 export function useSearchTracks(q: string) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Track>({
     queryKey: ['search', 'tracks', q],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({
-        q,
-        limit: '20',
-        linked_partitioning: 'true',
-      });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<TrackListResponse>(`/tracks?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 5,
-    getNextPageParam: (last, _all, lastPageParam) => {
-      const next = extractPagination(last.next_href);
-      if (!next) return undefined;
-      if (lastPageParam && JSON.stringify(next) === JSON.stringify(lastPageParam)) return undefined;
-      return next;
-    },
-    enabled: !!q.trim(),
+    url: (page, limit) => pagedUrl('/tracks', page, limit, `q=${encodeURIComponent(q)}`),
+    limit: 20,
     staleTime: SEARCH_CACHE_MS,
+    maxPages: 5,
+    enabled: !!q.trim(),
+    dedupe: (t) => t.urn,
   });
 
-  const tracks = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { tracks, ...query };
+  return { tracks: query.items, ...query };
 }
 
 export function useSearchPlaylists(q: string) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<Playlist>({
     queryKey: ['search', 'playlists', q],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ q, limit: '20', linked_partitioning: 'true' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<PlaylistListResponse>(`/playlists?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 5,
-    getNextPageParam: (last, _all, _lastPageParam) => extractPagination(last.next_href),
-    enabled: !!q.trim(),
+    url: (page, limit) => pagedUrl('/playlists', page, limit, `q=${encodeURIComponent(q)}`),
+    limit: 20,
     staleTime: SEARCH_CACHE_MS,
+    maxPages: 5,
+    enabled: !!q.trim(),
+    dedupe: (p) => p.urn,
   });
 
-  const playlists = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { playlists, ...query };
+  return { playlists: query.items, ...query };
 }
 
 export function useSearchUsers(q: string) {
-  const query = useInfiniteQuery({
+  const query = usePagedQuery<SCUser>({
     queryKey: ['search', 'users', q],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ q, limit: '20', linked_partitioning: 'true' });
-      if (pageParam) {
-        for (const [key, val] of Object.entries(pageParam)) {
-          params.set(key, val);
-        }
-      }
-      return api<UserListResponse>(`/users?${params}`);
-    },
-    initialPageParam: undefined as PageParam | undefined,
-    gcTime: INFINITE_GC_MS,
-    maxPages: 5,
-    getNextPageParam: (last, _all, _lastPageParam) => extractPagination(last.next_href),
-    enabled: !!q.trim(),
+    url: (page, limit) => pagedUrl('/users', page, limit, `q=${encodeURIComponent(q)}`),
+    limit: 20,
     staleTime: SEARCH_CACHE_MS,
+    maxPages: 5,
+    enabled: !!q.trim(),
+    dedupe: (u) => u.urn,
   });
 
-  const users = useMemo(() => {
-    return dedupeByUrn(flattenCollectionPages(query.data?.pages));
-  }, [query.data]);
-  return { users, ...query };
+  return { users: query.items, ...query };
 }
 
 /* ── Fallback / Seed Tracks ────────────────────────────────────── */
@@ -1035,8 +796,7 @@ const FALLBACK_TRACK_IDS = '2028682452,2065341288,2028677636,2209249766,20608184
 export function useFallbackTracks() {
   return useQuery({
     queryKey: ['fallback', 'tracks'],
-    queryFn: () =>
-      api<TrackListResponse>(`/tracks?ids=${FALLBACK_TRACK_IDS}&linked_partitioning=true`),
+    queryFn: () => api<TrackPage>(`/tracks?ids=${FALLBACK_TRACK_IDS}&page=0&limit=30`),
     staleTime: 1000 * 60 * 30,
   });
 }
@@ -1080,8 +840,9 @@ export function useRelatedPool(likedTracks: Track[]) {
     queryFn: async () => {
       const results = await Promise.all(
         seedUrns.map((urn) =>
-          api<TrackListResponse>(`/tracks/${encodeURIComponent(urn)}/related?limit=20`).catch(
-            () => ({ collection: [] as Track[] }),
+          api<TrackPage>(`/tracks/${encodeURIComponent(urn)}/related?limit=20&page=0`).catch(
+            () =>
+              ({ collection: [] as Track[], page: 0, page_size: 20, has_more: false }) as TrackPage,
           ),
         ),
       );
@@ -1116,7 +877,6 @@ export function useRecommendedTracks(pool: RelatedPool | undefined, limit = 40) 
 
 /** Related tracks grouped by genre, sorted by frequency — "Discover" */
 export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Track[]) {
-  // Genre ranking from liked tracks
   const genreRanking = useMemo(() => {
     const counts = new Map<string, number>();
     for (const t of likedTracks) {
@@ -1129,7 +889,6 @@ export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Trac
   return useMemo(() => {
     if (!pool) return [];
 
-    // Group pool tracks by their genre, count frequency within genre
     const byGenre = new Map<string, { count: number; track: Track }[]>();
     for (const entry of pool.values()) {
       const g = entry.track.genre?.trim().toLowerCase();
@@ -1139,12 +898,10 @@ export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Trac
       else byGenre.set(g, [entry]);
     }
 
-    // Sort tracks within each genre by frequency
     for (const arr of byGenre.values()) {
       arr.sort((a, b) => b.count - a.count);
     }
 
-    // Walk genre ranking, skip genres with ≤3 tracks
     const result: { genre: string; tracks: Track[] }[] = [];
     for (const genre of genreRanking) {
       const entries = byGenre.get(genre);
@@ -1170,8 +927,6 @@ export function useInfiniteScroll(
     const el = ref.current;
     if (!el || !hasNextPage || isFetchingNextPage) return;
 
-    // Use the scrollable <main> as root so the observer
-    // fires correctly inside the overflow container.
     const root = el.closest('main');
 
     const observer = new IntersectionObserver(

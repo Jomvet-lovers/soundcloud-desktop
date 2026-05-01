@@ -26,9 +26,9 @@ import { SessionId } from '../common/decorators/session-id.decorator.js';
 import { PaginationQuery } from '../common/dto/pagination.dto.js';
 import { AuthGuard } from '../common/guards/auth.guard.js';
 import {
-  PaginatedCommentResponse,
-  PaginatedTrackResponse,
-  PaginatedUserResponse,
+  PagedCommentResponse,
+  PagedTrackResponse,
+  PagedUserResponse,
   ScComment,
   ScStreams,
   ScTrack,
@@ -51,7 +51,6 @@ export class TracksController {
   }
 
   @Get()
-  @Cached({ ttl: 60 })
   @ApiOperation({ summary: 'Search tracks' })
   @ApiQuery({ name: 'q', required: false, description: 'Search query' })
   @ApiQuery({ name: 'ids', required: false, description: 'Comma-separated track IDs' })
@@ -63,7 +62,7 @@ export class TracksController {
     enum: ['playable', 'preview', 'blocked'],
     default: ['playable', 'preview', 'blocked'],
   })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   search(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
@@ -74,12 +73,17 @@ export class TracksController {
     @Query('tags') tags?: string,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    if (q) params.q = q;
-    if (ids) params.ids = ids;
-    if (genres) params.genres = genres;
-    if (tags) params.tags = tags;
-    return this.tracksService.search(token, sessionId, params);
+    const extra: Record<string, unknown> = { access };
+    if (q) extra.q = q;
+    if (ids) extra.ids = ids;
+    if (genres) extra.genres = genres;
+    if (tags) extra.tags = tags;
+    return this.tracksService.search(
+      token,
+      sessionId,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      extra,
+    );
   }
 
   @Get(':trackUrn')
@@ -157,15 +161,17 @@ export class TracksController {
   }
 
   @Get(':trackUrn/comments')
-  @Cached({ ttl: 600, key: 'track-comments:{trackUrn}' })
   @ApiOperation({ summary: 'Get track comments' })
-  @ApiOkResponse({ type: PaginatedCommentResponse })
+  @ApiOkResponse({ type: PagedCommentResponse })
   getComments(
     @AccessToken() token: string,
     @Param('trackUrn') trackUrn: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.tracksService.getComments(token, trackUrn, query as Record<string, unknown>);
+    return this.tracksService.getComments(token, trackUrn, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Post(':trackUrn/comments')
@@ -197,31 +203,34 @@ export class TracksController {
   }
 
   @Get(':trackUrn/favoriters')
-  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get users who favorited a track' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
+  @ApiOkResponse({ type: PagedUserResponse })
   getFavoriters(
     @AccessToken() token: string,
     @Param('trackUrn') trackUrn: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.tracksService.getFavoriters(token, trackUrn, query as Record<string, unknown>);
+    return this.tracksService.getFavoriters(token, trackUrn, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get(':trackUrn/reposters')
-  @Cached({ ttl: 600 })
   @ApiOperation({ summary: 'Get users who reposted a track' })
-  @ApiOkResponse({ type: PaginatedUserResponse })
+  @ApiOkResponse({ type: PagedUserResponse })
   getReposters(
     @AccessToken() token: string,
     @Param('trackUrn') trackUrn: string,
     @Query() query: PaginationQuery,
   ) {
-    return this.tracksService.getReposters(token, trackUrn, query as Record<string, unknown>);
+    return this.tracksService.getReposters(token, trackUrn, {
+      page: query.page ?? 0,
+      limit: query.limit ?? 30,
+    });
   }
 
   @Get(':trackUrn/related')
-  @Cached({ ttl: 86400 })
   @ApiOperation({ summary: 'Get related tracks' })
   @ApiQuery({
     name: 'access',
@@ -229,7 +238,7 @@ export class TracksController {
     enum: ['playable', 'preview', 'blocked'],
     default: ['playable', 'preview', 'blocked'],
   })
-  @ApiOkResponse({ type: PaginatedTrackResponse })
+  @ApiOkResponse({ type: PagedTrackResponse })
   getRelated(
     @AccessToken() token: string,
     @SessionId() sessionId: string,
@@ -237,7 +246,12 @@ export class TracksController {
     @Query() query: PaginationQuery,
     @Query('access') access: string = 'playable,preview,blocked',
   ) {
-    const params: Record<string, unknown> = { ...query, access };
-    return this.tracksService.getRelated(token, sessionId, trackUrn, params);
+    return this.tracksService.getRelated(
+      token,
+      sessionId,
+      trackUrn,
+      { page: query.page ?? 0, limit: query.limit ?? 30 },
+      access,
+    );
   }
 }

@@ -200,28 +200,38 @@ export class ScTokenResponse {
   token_type: string;
 }
 
-// Concrete paginated response classes for Swagger
-export class PaginatedTrackResponse {
+// Page-based paginated response classes for Swagger
+export class PagedTrackResponse {
   @ApiProperty({ type: [ScTrack] }) collection: ScTrack[];
-  @ApiPropertyOptional() next_href?: string;
+  @ApiProperty() page: number;
+  @ApiProperty() page_size: number;
+  @ApiProperty() has_more: boolean;
 }
 
-export class PaginatedPlaylistResponse {
+export class PagedPlaylistResponse {
   @ApiProperty({ type: [ScPlaylist] }) collection: ScPlaylist[];
-  @ApiPropertyOptional() next_href?: string;
+  @ApiProperty() page: number;
+  @ApiProperty() page_size: number;
+  @ApiProperty() has_more: boolean;
 }
 
-export class PaginatedUserResponse {
+export class PagedUserResponse {
   @ApiProperty({ type: [ScUser] }) collection: ScUser[];
-  @ApiPropertyOptional() next_href?: string;
+  @ApiProperty() page: number;
+  @ApiProperty() page_size: number;
+  @ApiProperty() has_more: boolean;
 }
 
-export class PaginatedCommentResponse {
+export class PagedCommentResponse {
   @ApiProperty({ type: [ScComment] }) collection: ScComment[];
-  @ApiPropertyOptional() next_href?: string;
+  @ApiProperty() page: number;
+  @ApiProperty() page_size: number;
+  @ApiProperty() has_more: boolean;
 }
 
-export class PaginatedActivityResponse {
+export class PagedActivityResponse {
   @ApiProperty({ type: [ScActivity] }) collection: ScActivity[];
-  @ApiPropertyOptional() next_href?: string;
+  @ApiProperty() page: number;
+  @ApiProperty() page_size: number;
+  @ApiProperty() has_more: boolean;
 }
