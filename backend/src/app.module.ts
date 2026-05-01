@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminStatsController } from './admin/admin-stats.controller.js';
 import { AuthModule } from './auth/auth.module.js';
+import { CronLeaderModule } from './common/cron-leader/cron-leader.module.js';
 import { LinkRequest } from './auth/entities/link-request.entity.js';
 import { LoginRequest } from './auth/entities/login-request.entity.js';
 import { Session } from './auth/entities/session.entity.js';
@@ -54,6 +55,7 @@ import { UsersModule } from './users/users.module.js';
       load: [configuration],
     }),
     ScheduleModule.forRoot(),
+    CronLeaderModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -80,6 +82,10 @@ import { UsersModule } from './users/users.module.js';
           DislikedTrack,
         ],
         synchronize: true,
+        extra: {
+          max: Number.parseInt(process.env.PG_POOL_MAX ?? '10', 10),
+          idleTimeoutMillis: 30_000,
+        },
       }),
     }),
     TypeOrmModule.forFeature([Session]),

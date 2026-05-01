@@ -1,13 +1,12 @@
-# ---- Rust builder для cert-runner (sidecar для ACME issue/renew) ----
-FROM rust:1-bookworm AS cert-builder
-WORKDIR /build/cert-runner
+# ---- Rust builder для gateway (TLS-terminator + reverse proxy + ACME) ----
+FROM rust:1-bookworm AS gateway-builder
+WORKDIR /build/gateway
 
-# Кэш зависимостей.
-COPY cert-runner/Cargo.toml cert-runner/Cargo.lock ./
-RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release --locked && rm -rf src
+COPY gateway/Cargo.toml gateway/Cargo.lock* ./
+RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release && rm -rf src
 
-COPY cert-runner/src ./src
-RUN touch src/main.rs && cargo build --release --locked
+COPY gateway/src ./src
+RUN touch src/main.rs && cargo build --release
 
 # ---- Node builder ----
 FROM node:22-bookworm-slim AS base
@@ -31,17 +30,14 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /var/cache/acme
+    && mkdir -p /var/cache/acme /run/scd
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
-COPY --from=cert-builder /build/cert-runner/target/release/cert-runner /usr/local/bin/cert-runner
+COPY --from=gateway-builder /build/gateway/target/release/gateway /usr/local/bin/gateway
 
-EXPOSE 3000 80 443
+EXPOSE 80 443
 
-# cert-runner — pid 1: выпустит/обновит cert, прокинет TLS_CERT_FILE/TLS_KEY_FILE
-# в child и будет следить за expiry (renew + restart child автоматически).
-# Если TLS_ENABLED не выставлен — просто прозрачно exec'ает child.
-ENTRYPOINT ["/usr/local/bin/cert-runner"]
+ENTRYPOINT ["/usr/local/bin/gateway"]
 CMD ["node", "dist/main.js"]

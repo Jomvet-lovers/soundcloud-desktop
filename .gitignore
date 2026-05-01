@@ -15,7 +15,7 @@ src-tauri/target/
 streaming/target
 storage/target
 tls-common/target
-backend/cert-runner/target
+backend/gateway/target
 
 storage/data
 streaming/data

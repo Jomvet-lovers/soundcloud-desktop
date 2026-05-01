@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import * as http from 'node:http';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
@@ -8,21 +6,7 @@ import { AppModule } from './app.module.js';
 import { SoundcloudExceptionFilter } from './common/filters/soundcloud-exception.filter.js';
 
 async function bootstrap() {
-  // cert-runner (Rust sidecar pid-1) пишет TLS_CERT_FILE/TLS_KEY_FILE перед
-  // тем как exec'нуть нас. Если их нет — TLS не используется.
-  const certFile = process.env.TLS_CERT_FILE;
-  const keyFile = process.env.TLS_KEY_FILE;
-  const tlsOn = !!(certFile && keyFile);
-
-  const adapter = tlsOn
-    ? new FastifyAdapter({
-        https: {
-          cert: readFileSync(certFile!),
-          key: readFileSync(keyFile!),
-        },
-      })
-    : new FastifyAdapter();
-
+  const adapter = new FastifyAdapter({ trustProxy: true });
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter);
 
   app.enableCors({
@@ -51,61 +35,22 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api', app, document, { jsonDocumentUrl: '/openapi.json' });
 
-  SwaggerModule.setup('api', app, document, {
-    jsonDocumentUrl: '/openapi.json',
-  });
+  await app.init();
+  const fastify = app.getHttpAdapter().getInstance();
 
-  if (tlsOn) {
-    const httpsPort = Number.parseInt(process.env.TLS_HTTPS_PORT ?? '443', 10);
-    await app.listen(httpsPort, '0.0.0.0');
-    console.log(`HTTPS server on https://0.0.0.0:${httpsPort} (cert: ${certFile})`);
-    console.log(`OpenAPI spec: https://0.0.0.0:${httpsPort}/openapi.json`);
-    console.log(`Swagger UI:   https://0.0.0.0:${httpsPort}/api`);
-
-    const httpPort = Number.parseInt(process.env.TLS_HTTP_PORT ?? '80', 10);
-    if (httpPort > 0) {
-      const redirectMode = envBool('TLS_HTTP_REDIRECT', true);
-      let handler: http.RequestListener;
-      if (redirectMode) {
-        handler = (req, res) => {
-          const host = (req.headers.host ?? '').split(':')[0];
-          if (!host) {
-            res.writeHead(400);
-            res.end();
-            return;
-          }
-          const authority = httpsPort === 443 ? host : `${host}:${httpsPort}`;
-          res.writeHead(301, { Location: `https://${authority}${req.url ?? '/'}` });
-          res.end();
-        };
-      } else {
-        // Те же роуты на :80 без TLS. Fastify даёт `routing()` — готовый
-        // request listener, привязанный к зарегистрированным маршрутам.
-        const fastify = app.getHttpAdapter().getInstance();
-        await fastify.ready();
-        handler = fastify.routing.bind(fastify) as http.RequestListener;
-      }
-      const httpServer = http.createServer(handler);
-      httpServer.listen(httpPort, '0.0.0.0', () => {
-        console.log(
-          `HTTP listener on :${httpPort} (${redirectMode ? '301 → https' : 'plain passthrough'})`,
-        );
-      });
-    }
+  const sock = process.env.BACKEND_SOCKET;
+  if (sock) {
+    await (fastify.listen as (opts: { path: string }) => Promise<string>)({ path: sock });
+    console.log(`Listening on UDS ${sock} (worker=${process.env.BACKEND_INDEX ?? '?'})`);
   } else {
-    const port = process.env.PORT ?? 3000;
-    await app.listen(port, '0.0.0.0');
-    console.log(`Server running on http://localhost:${port}`);
-    console.log(`OpenAPI spec: http://localhost:${port}/openapi.json`);
-    console.log(`Swagger UI: http://localhost:${port}/api`);
+    const port = Number.parseInt(String(process.env.PORT ?? '3000'), 10);
+    await fastify.listen({ port, host: '0.0.0.0' });
+    console.log(`Listening on http://0.0.0.0:${port}`);
+    console.log(`OpenAPI: http://0.0.0.0:${port}/openapi.json`);
+    console.log(`Swagger: http://0.0.0.0:${port}/api`);
   }
-}
-
-function envBool(key: string, def: boolean): boolean {
-  const v = process.env[key];
-  if (v == null) return def;
-  return ['1', 'true', 'yes', 'on'].includes(v.toLowerCase());
 }
 
 void bootstrap();

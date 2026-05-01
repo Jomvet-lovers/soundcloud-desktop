@@ -1,5 +1,5 @@
 [package]
-name = "cert-runner"
+name = "gateway"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,12 +9,17 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 instant-acme = "0.7"
 rcgen = "0.13"
-axum = "0.8"
 rustls = { version = "0.23", features = ["ring"] }
 tokio-rustls = "0.26"
 serde_json = "1"
 sha2 = "0.10"
 x509-parser = "0.16"
+arc-swap = "1"
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+rand = "0.8"
 
 [profile.release]
 lto = true
