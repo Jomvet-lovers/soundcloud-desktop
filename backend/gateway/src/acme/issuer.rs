@@ -18,7 +18,6 @@ use rcgen::{CertificateParams, CustomExtension, DistinguishedName, KeyPair};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::{Acceptor, ServerConfig};
 use rustls::sign::CertifiedKey;
-use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_rustls::LazyConfigAcceptor;
@@ -359,11 +358,17 @@ fn build_alpn_challenge_cert(
     domain: &str,
     key_auth_digest: &[u8],
 ) -> Result<CertifiedKey, Box<dyn std::error::Error + Send + Sync>> {
-    let digest = sha256(key_auth_digest);
+    if key_auth_digest.len() != 32 {
+        return Err(format!(
+            "expected 32-byte SHA-256 digest, got {}",
+            key_auth_digest.len()
+        )
+        .into());
+    }
     let mut der_value = Vec::with_capacity(34);
     der_value.push(0x04);
     der_value.push(0x20);
-    der_value.extend_from_slice(&digest);
+    der_value.extend_from_slice(key_auth_digest);
 
     let key_pair = KeyPair::generate()?;
     let mut params = CertificateParams::new(vec![domain.to_string()])?;
@@ -378,10 +383,4 @@ fn build_alpn_challenge_cert(
         PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()));
     let signing_key = rustls::crypto::ring::sign::any_supported_type(&key_der)?;
     Ok(CertifiedKey::new(vec![cert_der], signing_key))
-}
-
-fn sha256(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    hasher.finalize().into()
 }
