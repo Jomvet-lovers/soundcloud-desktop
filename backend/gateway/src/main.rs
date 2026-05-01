@@ -3,11 +3,13 @@ mod config;
 mod health;
 mod lb;
 mod proxy;
+mod status;
 mod supervisor;
 mod tls;
 
 use std::env;
 use std::process::ExitCode;
+use std::time::Instant;
 
 use tokio::signal::unix::{signal, SignalKind};
 use tracing::{error, info};
@@ -57,6 +59,7 @@ async fn main() -> ExitCode {
 }
 
 async fn run(cfg: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let start = Instant::now();
     let pool = BackendPool::new(cfg.backend_count, &cfg.socket_dir);
 
     let tls_state = if cfg.tls.enabled {
@@ -69,9 +72,9 @@ async fn run(cfg: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>
     let supervisor = supervisor::start(cfg.clone(), pool.clone()).await?;
     let _health = health::spawn(cfg.clone(), pool.clone());
 
-    let _http = proxy::serve_http(cfg.clone(), pool.clone(), tls_state.clone()).await?;
+    let _http = proxy::serve_http(cfg.clone(), pool.clone(), tls_state.clone(), start).await?;
     let _https = match &tls_state {
-        Some(ts) => Some(proxy::serve_https(cfg.clone(), pool.clone(), ts.clone()).await?),
+        Some(ts) => Some(proxy::serve_https(cfg.clone(), pool.clone(), ts.clone(), start).await?),
         None => None,
     };
 

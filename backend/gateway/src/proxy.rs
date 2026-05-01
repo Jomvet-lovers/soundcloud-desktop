@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
@@ -19,6 +20,7 @@ use tracing::{debug, error, warn};
 use crate::acme::issuer::handle_http01;
 use crate::config::Config;
 use crate::lb::BackendPool;
+use crate::status;
 use crate::tls::{alpn_resolver, TlsState};
 
 const ACME_TLS_ALPN: &[u8] = b"acme-tls/1";
@@ -29,6 +31,7 @@ pub async fn serve_http(
     cfg: Config,
     pool: BackendPool,
     tls: Option<TlsState>,
+    start: Instant,
 ) -> std::io::Result<JoinHandle<()>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.http_port));
     let listener = TcpListener::bind(addr).await?;
@@ -53,7 +56,7 @@ pub async fn serve_http(
                     let cfg = cfg.clone();
                     let pool = pool.clone();
                     let tls = tls.clone();
-                    async move { Ok::<_, hyper::Error>(handle_http(req, cfg, pool, tls, peer).await) }
+                    async move { Ok::<_, hyper::Error>(handle_http(req, cfg, pool, tls, peer, start).await) }
                 });
                 if let Err(e) = server_http1::Builder::new()
                     .serve_connection(io, svc)
@@ -73,11 +76,15 @@ async fn handle_http(
     pool: BackendPool,
     tls: Option<TlsState>,
     peer: SocketAddr,
+    start: Instant,
 ) -> Response<ResponseBody> {
     if let Some(t) = &tls {
         if req.uri().path().starts_with("/.well-known/acme-challenge/") {
             return handle_http01(req, t.http_challenges.clone()).await;
         }
+    }
+    if req.uri().path() == cfg.health_path {
+        return status::handle(&pool, start).await;
     }
     if cfg.redirect_http && tls.is_some() {
         return redirect_to_https(&req, cfg.https_port);
@@ -120,6 +127,7 @@ pub async fn serve_https(
     cfg: Config,
     pool: BackendPool,
     tls: TlsState,
+    start: Instant,
 ) -> std::io::Result<JoinHandle<()>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.https_port));
     let listener = TcpListener::bind(addr).await?;
@@ -139,7 +147,7 @@ pub async fn serve_https(
             let pool = pool.clone();
             let tls = tls.clone();
             tokio::spawn(async move {
-                handle_https_conn(stream, peer, cfg, pool, tls).await;
+                handle_https_conn(stream, peer, cfg, pool, tls, start).await;
             });
         }
     }))
@@ -148,9 +156,10 @@ pub async fn serve_https(
 async fn handle_https_conn(
     stream: tokio::net::TcpStream,
     peer: SocketAddr,
-    _cfg: Arc<Config>,
+    cfg: Arc<Config>,
     pool: BackendPool,
     tls: TlsState,
+    start: Instant,
 ) {
     let acceptor = LazyConfigAcceptor::new(Acceptor::default(), stream);
     let handshake = match acceptor.await {
@@ -168,11 +177,11 @@ async fn handle_https_conn(
         .unwrap_or(false);
 
     if is_acme {
-        let mut cfg = ServerConfig::builder()
+        let mut cfg_acme = ServerConfig::builder()
             .with_no_client_auth()
             .with_cert_resolver(alpn_resolver(tls.alpn_challenges.clone()));
-        cfg.alpn_protocols = vec![ACME_TLS_ALPN.to_vec()];
-        let _ = handshake.into_stream(Arc::new(cfg)).await;
+        cfg_acme.alpn_protocols = vec![ACME_TLS_ALPN.to_vec()];
+        let _ = handshake.into_stream(Arc::new(cfg_acme)).await;
         return;
     }
 
@@ -187,8 +196,14 @@ async fn handle_https_conn(
 
     let io = TokioIo::new(tls_stream);
     let svc = service_fn(move |req| {
+        let cfg = cfg.clone();
         let pool = pool.clone();
-        async move { Ok::<_, hyper::Error>(proxy_request(req, pool, peer, true).await) }
+        async move {
+            if req.uri().path() == cfg.health_path {
+                return Ok::<_, hyper::Error>(status::handle(&pool, start).await);
+            }
+            Ok::<_, hyper::Error>(proxy_request(req, pool, peer, true).await)
+        }
     });
     if let Err(e) = server_http1::Builder::new()
         .serve_connection(io, svc)

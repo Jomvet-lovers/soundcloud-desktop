@@ -182,9 +182,8 @@ services:
     restart: unless-stopped
     stop_grace_period: 5s
     ports:
-      - "3000:3000"
+      - "3000:80"
     environment:
-      PORT: 3000
       SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID}
       SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET}
       SOUNDCLOUD_REDIRECT_URI: ${SOUNDCLOUD_REDIRECT_URI:-http://localhost:3000/auth/callback}
