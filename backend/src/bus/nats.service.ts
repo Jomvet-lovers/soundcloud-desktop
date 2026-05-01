@@ -41,6 +41,18 @@ export class NatsService implements OnModuleInit, OnModuleDestroy {
     await this.ensureStream(STREAMS.aiRpc.name, [...STREAMS.aiRpc.subjects], true, 120);
     await this.ensureStream(STREAMS.indexAudio.name, [...STREAMS.indexAudio.subjects], true);
     await this.ensureStream(STREAMS.embedLyrics.name, [...STREAMS.embedLyrics.subjects], true);
+    await this.ensureStream(
+      STREAMS.trainCollab.name,
+      [...STREAMS.trainCollab.subjects],
+      true,
+      6 * 60 * 60,
+    );
+    await this.ensureStream(
+      STREAMS.trainLtr.name,
+      [...STREAMS.trainLtr.subjects],
+      true,
+      24 * 60 * 60,
+    );
     await this.ensureStream(STREAMS.done.name, [...STREAMS.done.subjects], false);
     await this.ensureStream(STREAMS.storageEvents.name, [...STREAMS.storageEvents.subjects], false);
   }

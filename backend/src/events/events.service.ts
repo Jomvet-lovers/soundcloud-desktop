@@ -1,12 +1,18 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
+import { CollabTrainerService } from '../collab/collab-trainer.service.js';
+import { CollabVectorService } from '../collab/collab-vector.service.js';
 import { normalizeScTrackId } from '../common/sc-ids.js';
 import { DislikesService } from '../dislikes/dislikes.service.js';
 import { IndexingService } from '../indexing/indexing.service.js';
 import { UserTasteService } from '../user-taste/user-taste.service.js';
 import { UserEvent } from './entities/user-event.entity.js';
 
+/**
+ * Веса используются только для записи в БД (для аналитики и для negative seed
+ * в qdrant.recommend). В EMA user_taste идут только TASTE_EVENTS (см. UserTasteService).
+ */
 const EVENT_WEIGHTS: Record<string, number> = {
   like: 1.0,
   local_like: 1.0,
@@ -16,7 +22,10 @@ const EVENT_WEIGHTS: Record<string, number> = {
   dislike: -1.0,
 };
 
-const POSITIVE_EVENTS = new Set(['like', 'local_like', 'playlist_add', 'full_play']);
+const POSITIVE_EVENTS = new Set(['like', 'local_like', 'playlist_add']);
+const TASTE_EVENTS = POSITIVE_EVENTS;
+/** События которые попадают в item2vec session-corpus (для auto-trigger). */
+const COLLAB_TRIGGER_EVENTS = new Set(['like', 'local_like', 'playlist_add', 'full_play', 'skip']);
 
 @Injectable()
 export class EventsService {
@@ -30,6 +39,8 @@ export class EventsService {
     private readonly indexing: IndexingService,
     @Inject(forwardRef(() => DislikesService))
     private readonly dislikes: DislikesService,
+    private readonly collab: CollabVectorService,
+    private readonly collabTrainer: CollabTrainerService,
   ) {}
 
   private async runSerially(key: string, fn: () => Promise<void>): Promise<void> {
@@ -65,7 +76,9 @@ export class EventsService {
       return true;
     }
 
-    if (event.eventType === 'dislike' && !isCurrentlyDisliked) {
+    // События не влияющие на taste-вектор (skip/full_play/dislike) — просто помечаем applied,
+    // не enqueue-им трек в воркер. Они нужны только в БД для negative seed / exclude / dislike-list.
+    if (!TASTE_EVENTS.has(event.eventType)) {
       await this.repo.update(event.id, { tasteAppliedAt: new Date() });
       return true;
     }
@@ -110,6 +123,10 @@ export class EventsService {
           this.logger.error(`Failed to enqueue ${normalizedId}: ${(e as Error).message}`);
         });
       }
+      // Сбрасываем кеш collab-вектора юзера: следующий wave/similar пересчитает.
+      if (POSITIVE_EVENTS.has(eventType)) this.collab.invalidate(scUserId);
+      // Auto-trigger тренировки collab при достижении порога новых событий.
+      if (COLLAB_TRIGGER_EVENTS.has(eventType)) this.collabTrainer.noteEvent();
     });
   }
 

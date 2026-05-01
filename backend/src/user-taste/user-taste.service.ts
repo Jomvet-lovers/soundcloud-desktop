@@ -1,18 +1,22 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { normalizeScTrackId } from '../common/sc-ids.js';
+import { userIdToQdrantId } from '../common/user-id.js';
 
+/**
+ * Только positive сигналы попадают в EMA. skip/full_play — шум для аудио-эмбеддингов
+ * с высокой baseline correlation (MuQ ~0.78), они расшатывают вектор и уводят его к
+ * центроиду коллекции вместо реального вкуса. dislike фильтруется через must_not при
+ * выдаче — в EMA вычитать его не нужно (вычитание трека из MuQ-пространства разрушает
+ * структуру вектора, а юзер всё равно дизлайкнутое не увидит).
+ */
 const EVENT_WEIGHTS: Record<string, number> = {
   like: 1.0,
   local_like: 1.0,
   playlist_add: 0.9,
-  full_play: 0.3,
-  skip: -0.5,
-  dislike: -1.0,
 };
 
-const EMA_ALPHA = 0.15;
+const EMA_ALPHA = 0.25;
 
 @Injectable()
 export class UserTasteService {
@@ -61,7 +65,7 @@ export class UserTasteService {
       return false;
     }
 
-    const userId = this.userIdToQdrantId(scUserId);
+    const userId = userIdToQdrantId(scUserId);
 
     const profilePoints = await this.qdrant.retrieve(tasteCollection, {
       ids: [userId],
@@ -77,7 +81,7 @@ export class UserTasteService {
       eventCount = ((profilePoints[0].payload?.event_count as number) ?? 0) + 1;
       newVec = currentVec.map((v, i) => (1 - EMA_ALPHA) * v + EMA_ALPHA * weight * trackVec[i]);
     } else {
-      newVec = trackVec.map((v) => v * Math.sign(weight));
+      newVec = trackVec.map((v) => v * weight);
     }
 
     const norm = Math.sqrt(newVec.reduce((s, v) => s + v * v, 0));
@@ -99,10 +103,5 @@ export class UserTasteService {
       ],
     });
     return true;
-  }
-
-  private userIdToQdrantId(userId: string): number {
-    const hash = createHash('sha256').update(userId).digest();
-    return Number(hash.readBigUInt64BE(0) % BigInt(Number.MAX_SAFE_INTEGER));
   }
 }

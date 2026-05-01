@@ -5,7 +5,7 @@ import { useSubscription } from '../../../../lib/subscription';
 import { useAuthStore } from '../../../../stores/auth';
 import { Countdown, isExpired } from './countdown';
 
-const UNLOCK_AT = new Date('2026-05-18T12:00:00+03:00').getTime();
+const UNLOCK_AT = new Date('2025-05-18T12:00:00+03:00').getTime();
 const BOOSTY_URL = 'https://boosty.to/lolinamide/purchase/3886747';
 
 const PARTICLES = Array.from({ length: 22 }, (_, i) => ({

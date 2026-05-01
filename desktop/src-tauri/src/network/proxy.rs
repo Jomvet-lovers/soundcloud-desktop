@@ -213,7 +213,20 @@ pub fn cache_control_for(status: u16) -> &'static str {
 }
 
 pub async fn handle_uri(request: http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
-    let encoded = request.uri().path().trim_start_matches('/');
+    let path = request.uri().path();
+
+    if let Some(encoded) = path.strip_prefix("/img/") {
+        let result = crate::network::image_cache::handle(encoded).await;
+        return http::Response::builder()
+            .status(result.status)
+            .header("content-type", &result.content_type)
+            .header("cache-control", cache_control_for(result.status))
+            .header("access-control-allow-origin", "*")
+            .body(result.data)
+            .unwrap();
+    }
+
+    let encoded = path.trim_start_matches('/');
     let result = proxy_request(encoded).await;
     http::Response::builder()
         .status(result.status)

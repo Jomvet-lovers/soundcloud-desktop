@@ -44,6 +44,12 @@ export class DislikesController {
     return { disliked: await this.dislikes.isDisliked(sessionId, scTrackId) };
   }
 
+  @Get('ids')
+  @ApiOperation({ summary: 'List disliked track IDs only (lightweight)' })
+  async ids(@SessionId() sessionId: string): Promise<{ ids: string[] }> {
+    return { ids: await this.dislikes.listIdsBySession(sessionId, 1000) };
+  }
+
   @Get()
   @ApiOperation({ summary: 'List disliked tracks' })
   list(

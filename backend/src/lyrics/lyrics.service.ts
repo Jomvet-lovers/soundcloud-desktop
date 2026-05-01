@@ -174,7 +174,10 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       },
       SUBJECTS.doneEmbedLyrics,
     );
-    this.reapTimer = setInterval(() => this.reapWhisper().catch(() => {}), REAP_INTERVAL_MS);
+    this.reapTimer = setInterval(() => {
+      this.reapWhisper().catch(() => {});
+      this.reapEmbeds().catch(() => {});
+    }, REAP_INTERVAL_MS);
   }
 
   onModuleDestroy(): void {
@@ -189,7 +192,21 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
   async ensureLyrics(scTrackIdRaw: string): Promise<LyricsResponse> {
     const scTrackId = normalizeScTrackId(scTrackIdRaw) ?? scTrackIdRaw;
     const cached = await this.cache.findOne({ where: { scTrackId } });
-    if (cached) return this.toResponse(cached);
+    if (cached) {
+      // Если лирика есть, но embed НЕ завершился (worker был оффлайн / NATS упал) —
+      // повторно публикуем embed-задачу. Без этого ретрая lyrics-вектор
+      // может не появиться в Qdrant до тех пор, пока юзер не сделает что-то
+      // что снова вызовет ensureLyrics.
+      if (!cached.embeddedAt) {
+        const text = pickLyricsText(cached.plainText, cached.syncedLrc);
+        if (text && text.length > 30) {
+          this.afterFound(cached, text).catch((e) =>
+            this.logger.warn(`re-embed retry ${scTrackId}: ${(e as Error).message}`),
+          );
+        }
+      }
+      return this.toResponse(cached);
+    }
 
     const existing = this.inflight.get(scTrackId);
     if (existing) return existing;
@@ -641,6 +658,34 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     );
     for (const id of ids) {
       this.trigger.trigger(id);
+    }
+  }
+
+  /**
+   * Реtry для зависших embed-задач: лирика в кеше есть, но `embeddedAt` так и
+   * остался NULL (worker лежал, NATS падал, перезапуск — embed-сообщение
+   * потерялось / не доехало). Без этого lyrics-вектор не появится в Qdrant
+   * пока юзер сам не вызовет ensureLyrics на этот трек.
+   */
+  private async reapEmbeds(): Promise<void> {
+    const cutoff = new Date(Date.now() - REAP_MIN_AGE_MS);
+    const stuck = await this.cache
+      .createQueryBuilder('l')
+      .where('l.embeddedAt IS NULL')
+      .andWhere('l.createdAt < :cutoff', { cutoff })
+      .andWhere("(length(coalesce(l.plainText, l.syncedLrc, '')) > 30)")
+      .orderBy('l.createdAt', 'ASC')
+      .limit(REAP_LIMIT_FULL)
+      .getMany();
+    if (!stuck.length) return;
+
+    this.logger.log(`[lyrics-reap] re-publishing embed for ${stuck.length} stuck rows`);
+    for (const entity of stuck) {
+      const text = pickLyricsText(entity.plainText, entity.syncedLrc);
+      if (!text || text.length <= 30) continue;
+      this.afterFound(entity, text).catch((e) =>
+        this.logger.warn(`embed-reap ${entity.scTrackId}: ${(e as Error).message}`),
+      );
     }
   }
 

@@ -1,19 +1,15 @@
 import { appCacheDir, join } from '@tauri-apps/api/path';
-import { mkdir, readDir, remove, stat, writeFile } from '@tauri-apps/plugin-fs';
+import { mkdir, readDir, remove, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import type { PlaybackQuality, PlaybackSource } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { getStaticPort } from './constants';
 import { trackedInvoke as invoke } from './diagnostics';
 
-const ASSETS_DIR = 'assets';
 const WALLPAPERS_DIR = 'wallpapers';
-const IDLE_ASSETS_CLEAR_MS = 20 * 60 * 1000;
 const CACHE_MAINTENANCE_INTERVAL_MS = 60 * 1000;
 
 let cacheMaintenanceStarted = false;
-let lastUserActivityAt = Date.now();
-let assetsClearedDuringIdle = false;
 
 /* ── Track cache (Rust) ─────────────────────────────────── */
 
@@ -76,63 +72,11 @@ export function enforceAudioCacheLimit(
   return invoke('track_enforce_cache_limit', { limitMb });
 }
 
-/* ── Assets cache ────────────────────────────────────────── */
-
-let assetsBasePath: string | null = null;
-
-async function getAssetsDir(): Promise<string> {
-  if (assetsBasePath) return assetsBasePath;
-  const base = await appCacheDir();
-  assetsBasePath = await join(base, ASSETS_DIR);
-  await mkdir(assetsBasePath, { recursive: true });
-  return assetsBasePath;
-}
-
-export async function getAssetsCacheSize(): Promise<number> {
-  try {
-    const dir = await getAssetsDir();
-    const entries = await readDir(dir);
-    let total = 0;
-    for (const entry of entries) {
-      if (entry.name) {
-        const path = await join(dir, entry.name);
-        const info = await stat(path);
-        total += info.size;
-      }
-    }
-    return total;
-  } catch {
-    return 0;
-  }
-}
-
-export async function clearAssetsCache(): Promise<void> {
-  try {
-    const dir = await getAssetsDir();
-    const entries = await readDir(dir);
-    for (const entry of entries) {
-      if (entry.name) {
-        const path = await join(dir, entry.name);
-        await remove(path).catch(() => {});
-      }
-    }
-  } catch (e) {
-    console.error('clearAssetsCache failed:', e);
-  }
-}
+/* ── Cache maintenance ───────────────────────────────────── */
 
 export function setupCacheMaintenance() {
   if (cacheMaintenanceStarted) return;
   cacheMaintenanceStarted = true;
-
-  const markUserActive = () => {
-    lastUserActivityAt = Date.now();
-    assetsClearedDuringIdle = false;
-  };
-
-  for (const eventName of ['mousemove', 'mousedown', 'keydown', 'touchstart', 'focus']) {
-    window.addEventListener(eventName, markUserActive, { passive: true });
-  }
 
   void enforceAudioCacheLimit();
 
@@ -144,13 +88,17 @@ export function setupCacheMaintenance() {
 
   window.setInterval(() => {
     void enforceAudioCacheLimit();
-
-    if (assetsClearedDuringIdle) return;
-    if (Date.now() - lastUserActivityAt < IDLE_ASSETS_CLEAR_MS) return;
-
-    assetsClearedDuringIdle = true;
-    void clearAssetsCache();
   }, CACHE_MAINTENANCE_INTERVAL_MS);
+}
+
+/* ── Image cache (permanent, Rust) ───────────────────────── */
+
+export function getImageCacheSize(): Promise<number> {
+  return invoke<number>('image_cache_size');
+}
+
+export function clearImageCache(): Promise<void> {
+  return invoke('image_cache_clear');
 }
 
 /* ── Wallpapers ──────────────────────────────────────────── */

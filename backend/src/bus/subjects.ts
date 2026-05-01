@@ -5,14 +5,19 @@ export const SUBJECTS = {
   aiRankLyrics: 'ai.rpc.rank_lyrics',
   aiTranscribe: 'ai.rpc.transcribe',
   aiEncodeTextMulan: 'ai.rpc.encode_text_mulan',
+  aiLtrScore: 'ai.rpc.ltr_score',
 
   // JetStream work queues (backend → worker, durable)
   indexAudio: 'index.audio.new',
   embedLyrics: 'embed.lyrics.new',
+  trainCollab: 'train.collab.new',
+  trainLtr: 'train.ltr.new',
 
   // JetStream fan-out (worker → backend notify о завершении)
   doneIndexAudio: 'done.index_audio',
   doneEmbedLyrics: 'done.embed_lyrics',
+  doneTrainCollab: 'done.train_collab',
+  doneTrainLtr: 'done.train_ltr',
 
   // JetStream fan-out (streaming → backend notify об аплоаде в storage)
   storageTrackUploaded: 'storage.track_uploaded',
@@ -32,6 +37,14 @@ export const STREAMS = {
   embedLyrics: {
     name: 'EMBED_LYRICS',
     subjects: ['embed.lyrics.>'],
+  },
+  trainCollab: {
+    name: 'TRAIN_COLLAB',
+    subjects: ['train.collab.>'],
+  },
+  trainLtr: {
+    name: 'TRAIN_LTR',
+    subjects: ['train.ltr.>'],
   },
   // Worker → backend notifications
   done: {

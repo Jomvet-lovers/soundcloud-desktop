@@ -5,11 +5,11 @@ import { Skeleton } from '../components/ui/Skeleton.tsx';
 import { changeAppLanguage } from '../i18n';
 import { switchAudioDevice } from '../lib/audio';
 import {
-  clearAssetsCache,
   clearCache,
+  clearImageCache,
   downloadWallpaper,
-  getAssetsCacheSize,
   getCacheSize,
+  getImageCacheSize,
   getWallpaperUrl,
   listWallpapers,
   removeWallpaper,
@@ -145,13 +145,13 @@ const CacheSection = React.memo(function CacheSection() {
   const audioCacheLimitMB = useSettingsStore((s) => s.audioCacheLimitMB);
   const setAudioCacheLimitMB = useSettingsStore((s) => s.setAudioCacheLimitMB);
   const [audioSize, setAudioSize] = useState<number | null>(null);
-  const [assetsSize, setAssetsSize] = useState<number | null>(null);
+  const [imagesSize, setImagesSize] = useState<number | null>(null);
   const [clearingAudio, setClearingAudio] = useState(false);
-  const [clearingAssets, setClearingAssets] = useState(false);
+  const [clearingImages, setClearingImages] = useState(false);
 
   useEffect(() => {
     getCacheSize().then(setAudioSize);
-    getAssetsCacheSize().then(setAssetsSize);
+    getImageCacheSize().then(setImagesSize);
   }, []);
 
   const handleClearAudio = useCallback(async () => {
@@ -167,20 +167,20 @@ const CacheSection = React.memo(function CacheSection() {
     }
   }, [t]);
 
-  const handleClearAssets = useCallback(async () => {
-    setClearingAssets(true);
+  const handleClearImages = useCallback(async () => {
+    setClearingImages(true);
     try {
-      await clearAssetsCache();
-      setAssetsSize(0);
+      await clearImageCache();
+      setImagesSize(0);
       toast.success(t('settings.cacheCleared'));
     } catch {
       toast.error(t('common.error'));
     } finally {
-      setClearingAssets(false);
+      setClearingImages(false);
     }
   }, [t]);
 
-  const totalSize = (audioSize ?? 0) + (assetsSize ?? 0);
+  const totalSize = (audioSize ?? 0) + (imagesSize ?? 0);
   const limitLabel =
     audioCacheLimitMB <= 0
       ? t('settings.unlimited')
@@ -196,7 +196,7 @@ const CacheSection = React.memo(function CacheSection() {
         </h3>
 
         <div className="min-w-[80px] flex justify-end">
-          {audioSize !== null && assetsSize !== null ? (
+          {audioSize !== null && imagesSize !== null ? (
             <span className="text-[12px] text-white/30 tabular-nums">
               {t('settings.total')}: {formatBytes(totalSize)}
             </span>
@@ -215,9 +215,9 @@ const CacheSection = React.memo(function CacheSection() {
       <div className="border-t border-white/[0.04]" />
       <CacheRow
         label={t('settings.assetsCacheSize')}
-        size={assetsSize}
-        clearing={clearingAssets}
-        onClear={handleClearAssets}
+        size={imagesSize}
+        clearing={clearingImages}
+        onClear={handleClearImages}
         t={t}
       />
       <div className="border-t border-white/[0.04]" />

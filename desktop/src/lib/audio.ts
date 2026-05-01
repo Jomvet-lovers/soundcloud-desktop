@@ -18,11 +18,14 @@ import {
   type TrackCacheInfo,
 } from './cache';
 import { trackedInvoke as invoke } from './diagnostics';
+import { isUrnDisliked } from './dislikes';
 import { recordEvent } from './events';
 import { art } from './formatters';
 import { rememberTracks } from './offline-index';
 
 const SKIP_THRESHOLD_SEC = 30;
+/** Минимум, чтобы засчитать «прослушано полностью» для коротких треков (50% длительности). */
+const FULL_PLAY_RATIO = 0.5;
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
@@ -404,7 +407,15 @@ listen<{ urn: string; progress: number }>('track:download-progress', (event) => 
 
 listen('audio:ended', () => {
   if (currentUrn) {
-    recordEvent('full_play', currentUrn);
+    // Засчитываем full_play только если трек реально игрался: либо ≥30s,
+    // либо проиграно ≥50% длительности (для коротких треков). Иначе это
+    // зависшая загрузка / зеро-длительность баг — не отправляем.
+    const playedEnough =
+      cachedTime >= SKIP_THRESHOLD_SEC ||
+      (cachedDuration > 0 && cachedTime >= cachedDuration * FULL_PLAY_RATIO);
+    if (playedEnough) {
+      recordEvent('full_play', currentUrn);
+    }
     lastEndedUrn = currentUrn;
   }
   hasTrack = false;
@@ -442,6 +453,18 @@ usePlayerStore.subscribe((state, prev) => {
     lastEndedUrn = null;
 
     if (state.currentTrack) {
+      // Автоскип дизлайкнутых треков: пропускаем без загрузки/плэя.
+      if (isUrnDisliked(state.currentTrack.urn)) {
+        currentUrn = null;
+        fallbackDuration = 0;
+        cachedDuration = 0;
+        cachedTime = 0;
+        hasTrack = false;
+        usePlayerStore.getState().setPlaybackTransport(null, null);
+        notify();
+        usePlayerStore.getState().next();
+        return;
+      }
       updateMetadata(state.currentTrack);
       void loadTrack(state.currentTrack);
     } else {

@@ -1,9 +1,12 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import { In, IsNull, Not, Repository } from 'typeorm';
+import { CentroidService } from '../centroids/centroid.service.js';
+import { CollabVectorService } from '../collab/collab-vector.service.js';
+import { userIdToQdrantId } from '../common/user-id.js';
 import { IndexedTrack } from '../indexing/entities/indexed-track.entity.js';
+import { LTR_FEATURE_COUNT, LtrService } from '../ltr/ltr.service.js';
 import { WorkerClient } from '../lyrics/worker.client.js';
 import { S3VerifierService } from './s3-verifier.service.js';
 
@@ -20,35 +23,28 @@ export interface RecommendResult {
   artist?: string | null;
   genre?: string | null;
   playbackCount?: number;
+  /** Внутреннее: фичи для LTR (через enrichAndBoost). */
+  features?: number[];
 }
 
-const RRF_K = 60;
-// λ = 1 - DIVERSE_DIVERSITY. 0.7 → λ=0.3: MMR ещё учитывает релевантность,
-// но разбавляет результат разнообразием. 1.0 (полный спред) уводит в кластер-шум.
+interface SeedVectors {
+  collab: number[] | null;
+  mert: number[] | null;
+  clap: number[] | null;
+  lyrics: number[] | null;
+}
+
+interface ScoredCandidate {
+  id: string | number;
+  score: number;
+  payload?: Record<string, unknown>;
+  /** Сырые компоненты — используются как фичи для LTR. */
+  features?: number[];
+}
+
 const DIVERSE_DIVERSITY = 0.7;
 
-interface Branch {
-  name: string;
-  trackCollection: string;
-  tasteCollection: string;
-  weight: number;
-}
-
-interface PoolEntry {
-  id: string | number;
-  mertScore: number;
-  payload?: Record<string, unknown>;
-}
-
 export type WaveMode = 'similar' | 'diverse';
-
-interface SimilarInput {
-  anchorTrackId: number;
-  exclude: string[];
-  limit: number;
-  languages?: string[];
-  diversity: number;
-}
 
 function parseIdOrNull(raw: string): number | null {
   const s = String(raw).trim();
@@ -69,64 +65,39 @@ export class RecommendationsService {
     private readonly tracksRepo: Repository<IndexedTrack>,
     private readonly worker: WorkerClient,
     private readonly s3: S3VerifierService,
+    private readonly centroids: CentroidService,
+    private readonly collab: CollabVectorService,
+    private readonly ltr: LtrService,
   ) {}
 
-  private get weightMert(): number {
-    return Number.parseFloat(process.env.SOUNDWAVE_AUDIO_WEIGHT ?? '0.30');
-  }
+  /* ── Конфиг через ENV ─────────────────────────────────────── */
 
-  private get weightClap(): number {
-    return Number.parseFloat(process.env.SOUNDWAVE_CLAP_WEIGHT ?? '0.20');
+  /** Collab (item2vec) — primary signal. Высокий вес, потому что behavioral. */
+  private get weightCollab() {
+    return Number.parseFloat(process.env.SOUNDWAVE_COLLAB_WEIGHT ?? '0.55');
   }
-
-  private get weightLyrics(): number {
-    return Number.parseFloat(process.env.SOUNDWAVE_LYRICS_WEIGHT ?? '0.50');
+  private get weightMert() {
+    return Number.parseFloat(process.env.SOUNDWAVE_AUDIO_WEIGHT ?? '0.20');
   }
-
-  private get popularityBoost(): number {
+  private get weightClap() {
+    return Number.parseFloat(process.env.SOUNDWAVE_CLAP_WEIGHT ?? '0.10');
+  }
+  private get weightLyrics() {
+    return Number.parseFloat(process.env.SOUNDWAVE_LYRICS_WEIGHT ?? '0.15');
+  }
+  private get popularityBoost() {
     return Number.parseFloat(process.env.SOUNDWAVE_POPULARITY_BOOST ?? '0');
   }
-
-  private get artistCapN(): number {
+  private get artistCapN() {
     return Number.parseInt(process.env.SOUNDWAVE_ARTIST_CAP ?? '2', 10);
   }
-
-  private get scoreThreshold(): number {
-    return Number.parseFloat(process.env.SOUNDWAVE_SCORE_THRESHOLD ?? '0.3');
+  /** Whitened-cos threshold для отсечения слабых кандидатов. После whitening scale меньше. */
+  private get scoreThreshold() {
+    return Number.parseFloat(process.env.SOUNDWAVE_SCORE_THRESHOLD ?? '0.05');
   }
 
-  private get branches(): Branch[] {
-    return [
-      {
-        name: 'mert',
-        trackCollection: 'tracks_mert',
-        tasteCollection: 'user_taste_mert',
-        weight: this.weightMert,
-      },
-      {
-        name: 'clap',
-        trackCollection: 'tracks_clap',
-        tasteCollection: 'user_taste_clap',
-        weight: this.weightClap,
-      },
-      {
-        name: 'lyrics',
-        trackCollection: 'tracks_lyrics',
-        tasteCollection: 'user_taste_lyrics',
-        weight: this.weightLyrics,
-      },
-    ];
-  }
+  /* ── Public API ───────────────────────────────────────────── */
 
-  /**
-   * Taste-aware SoundWave feed. Оба режима используют 3-base scoring:
-   *   - кандидаты из tracks_mert (recommend по user_taste_mert + опц. anchor),
-   *   - score = w_m·cos(track.mert,user_taste.mert) + w_c·cos(track.clap,user_taste.clap)
-   *           + w_l·cos(track.lyrics,user_taste.lyrics); 0 если вектора нет.
-   * Различия:
-   *   - 'similar': меньший пул, threshold=default, без MMR, sort by score.
-   *   - 'diverse': больший пул, threshold ниже, после сортировки — MMR (λ=0.3).
-   */
   async wave(
     scUserId: string,
     scTrackId: string | null,
@@ -142,52 +113,76 @@ export class RecommendationsService {
     const positiveIds = positive.map(parseIdOrNull).filter((n): n is number => n !== null);
     const negativeIds = negative.map(parseIdOrNull).filter((n): n is number => n !== null);
 
+    const div = mode === 'diverse' ? DIVERSE_DIVERSITY : 0;
+    const fetchLimit = mode === 'diverse' ? Math.max(limit * 20, 500) : Math.max(limit * 12, 300);
+    const threshold = Math.max(0, this.scoreThreshold - div * 0.04);
+
+    const userTasteId = userIdToQdrantId(scUserId);
+    const [taste, userCollab] = await Promise.all([
+      this.loadUserTasteVectors(userTasteId),
+      this.collab.getUserVector(scUserId),
+    ]);
+    const seed: SeedVectors = {
+      collab: userCollab,
+      mert: taste.mert,
+      clap: taste.clap,
+      lyrics: taste.lyrics,
+    };
+
     this.logger.log(
-      `[${reqId}] wave() start  mode=${mode} scTrackIdRaw=${scTrackId ?? 'null'} ` +
-        `anchorTrackId=${anchorTrackId ?? 'null'} positiveIds=${positiveIds.length} ` +
-        `negativeIds=${negativeIds.length} exclude=${exclude.length} ` +
-        `limit=${limit} weights={mert:${this.weightMert},clap:${this.weightClap},lyrics:${this.weightLyrics}}`,
+      `[${reqId}] wave start mode=${mode} anchor=${anchorTrackId ?? 'null'} pos=${positiveIds.length} ` +
+        `neg=${negativeIds.length} excl=${exclude.length} limit=${limit} fetch=${fetchLimit} thr=${threshold.toFixed(3)} ` +
+        `seed: collab=${seed.collab ? 'OK' : 'NULL'} mert=${seed.mert ? 'OK' : 'NULL'} ` +
+        `clap=${seed.clap ? 'OK' : 'NULL'} lyrics=${seed.lyrics ? 'OK' : 'NULL'} ` +
+        `w={col:${this.weightCollab},m:${this.weightMert},c:${this.weightClap},l:${this.weightLyrics}}`,
     );
 
-    const result =
-      mode === 'diverse'
-        ? await this.waveDiverse(
-            scUserId,
-            anchorTrackId,
-            positiveIds,
-            negativeIds,
-            exclude,
-            limit,
-            languages,
-            reqId,
-          )
-        : await this.waveSimilar(
-            scUserId,
-            anchorTrackId,
-            positiveIds,
-            negativeIds,
-            exclude,
-            limit,
-            languages,
-            reqId,
-          );
-
-    if (result.length >= 5) {
-      this.logger.log(
-        `[${reqId}] wave() ok  mode=${mode} returned=${result.length} top5=[${result
-          .slice(0, 5)
-          .map((r) => `${r.id}:${(r.score ?? 0).toFixed(3)}`)
-          .join(',')}]`,
-      );
-      return result;
+    const candidateIds = await this.buildCandidatePool({
+      userCollab,
+      seedHasTaste: !!seed.mert,
+      userTasteId,
+      anchorTrackId,
+      positiveIds,
+      negativeIds,
+      exclude,
+      languages,
+      fetchLimit,
+      reqId,
+    });
+    if (!candidateIds.length) {
+      this.logger.warn(`[${reqId}] wave: empty pool, fallback`);
+      return this.getFallbackTracks(exclude, limit, languages);
     }
-    this.logger.warn(
-      `[${reqId}] wave() FALLBACK  mode=${mode} only=${result.length} tracks — using getFallbackTracks()`,
+
+    const scored = await this.scoreByAllBases(candidateIds, seed, reqId);
+    const filtered = scored.filter((s) => s.score >= threshold);
+    this.logger.log(
+      `[${reqId}] wave scored=${scored.length} afterThr=${filtered.length} ` +
+        `top3=[${filtered
+          .slice(0, 3)
+          .map((s) => `${s.id}:${s.score.toFixed(3)}`)
+          .join(',')}]`,
     );
+
+    const enriched = await this.enrichAndBoost(filtered, languages);
+    const reranked = await this.applyLtrRerank(
+      enriched,
+      Math.min(enriched.length, limit * 4),
+      reqId,
+    );
+    let ranked = reranked;
+    if (div > 0) {
+      ranked = await this.applyMmr(reranked, div, Math.min(reranked.length, limit * 8));
+    }
+    const diverse = this.artistCap(ranked, this.artistCapN);
+    const verified = await this.takeVerified(diverse, limit);
+    if (verified.length >= 5) return verified;
+
+    this.logger.warn(`[${reqId}] wave too few results (${verified.length}), fallback`);
     return this.getFallbackTracks(exclude, limit, languages);
   }
 
-  /** Публичный feed без anchor — обёртка поверх wave(). */
+  /** Wrapper для feed без anchor. */
   recommend(
     scUserId: string,
     positive: string[],
@@ -202,8 +197,9 @@ export class RecommendationsService {
   }
 
   /**
-   * Pure similar — TrackPage. Seed = вектор конкретного трека.
-   * НЕТ taste юзера, НЕТ лайков/дизлайков/скипов (только клиентский exclude).
+   * "Похожие на трек" — то же 3-base scoring что и wave, но seed = вектора самого трека
+   * (без учёта вкуса юзера). Используется на TrackPage и для autoplay queue.
+   * Принимает опциональный excludeDisliked — список треков юзера для фильтра must_not.
    */
   async similar(
     scTrackId: string,
@@ -211,43 +207,75 @@ export class RecommendationsService {
     limit = 10,
     languages?: string[],
     diversity = 0,
-  ) {
+    reqId = '-',
+  ): Promise<RecommendResult[]> {
     const anchorTrackId = parseIdOrNull(scTrackId);
     if (anchorTrackId === null) return [];
-    return this.runSimilar({ anchorTrackId, exclude, limit, languages, diversity });
-  }
 
-  private async runSimilar(input: SimilarInput): Promise<RecommendResult[]> {
-    const div = Math.max(0, Math.min(1, input.diversity));
-    const filter = this.buildFilter(input.exclude, input.languages);
-    const fetchLimit = Math.max(input.limit * (div > 0.5 ? 12 : 4), div > 0.5 ? 160 : 40);
-    const threshold = Math.max(0, this.scoreThreshold - div * 0.25);
+    const div = Math.max(0, Math.min(1, diversity));
+    const fetchLimit = Math.max(limit * (div > 0.5 ? 18 : 8), div > 0.5 ? 240 : 80);
+    const threshold = Math.max(0, this.scoreThreshold - div * 0.04);
 
-    const perBranch = await Promise.all(
-      this.branches.map((b) =>
-        this.recommendSafe(
-          b.trackCollection,
-          [input.anchorTrackId],
-          [],
-          filter,
-          fetchLimit,
-          undefined,
-          threshold,
-        ),
-      ),
+    const seed = await this.loadTrackVectors(anchorTrackId);
+    if (!seed.collab && !seed.mert && !seed.clap && !seed.lyrics) {
+      this.logger.warn(`[${reqId}] similar: anchor ${anchorTrackId} has no vectors`);
+      return [];
+    }
+
+    this.logger.log(
+      `[${reqId}] similar start anchor=${anchorTrackId} div=${div} limit=${limit} fetch=${fetchLimit} ` +
+        `seed collab=${seed.collab ? 'OK' : '-'} mert=${seed.mert ? 'OK' : '-'} ` +
+        `clap=${seed.clap ? 'OK' : '-'} lyrics=${seed.lyrics ? 'OK' : '-'}`,
     );
-    const fused = this.rrfFuseWeighted(
-      perBranch.map((results, i) => ({ results, weight: this.branches[i].weight })),
-      fetchLimit,
+
+    const filter = this.buildFilter(exclude, languages);
+    const pool = new Set<number>();
+
+    // Retrieval armы: collab (если есть в vocab) + audio backup. Объединяем.
+    const tasks: Promise<void>[] = [];
+    if (seed.collab) {
+      tasks.push(
+        this.searchByVector('tracks_collab', seed.collab, filter, fetchLimit).then((res) => {
+          for (const r of res) {
+            const n = Number(r.id);
+            if (Number.isFinite(n) && n !== anchorTrackId) pool.add(n);
+          }
+          this.logger.log(`[${reqId}] similar collab-arm got=${res.length}`);
+        }),
+      );
+    }
+    tasks.push(
+      this.recommendByPositive('tracks_mert', [anchorTrackId], filter, fetchLimit).then((res) => {
+        for (const r of res) {
+          const n = Number(r.id);
+          if (Number.isFinite(n) && n !== anchorTrackId) pool.add(n);
+        }
+        this.logger.log(`[${reqId}] similar audio-arm got=${res.length}`);
+      }),
     );
-    const enriched = await this.enrichAndBoost(fused);
-    const mmred =
-      div > 0
-        ? await this.applyMmr(enriched, div, Math.min(enriched.length, input.limit * 8))
-        : enriched;
+    await Promise.all(tasks);
+    const candidateIds = [...pool];
+    if (!candidateIds.length) {
+      this.logger.warn(`[${reqId}] similar: empty pool`);
+      return [];
+    }
+
+    const scored = await this.scoreByAllBases(candidateIds, seed, reqId);
+    const filtered = scored.filter((s) => s.score >= threshold);
+    const enriched = await this.enrichAndBoost(filtered, languages);
+    const reranked = await this.applyLtrRerank(
+      enriched,
+      Math.min(enriched.length, limit * 4),
+      reqId,
+    );
+
+    let ranked = reranked;
+    if (div > 0) {
+      ranked = await this.applyMmr(reranked, div, Math.min(reranked.length, limit * 8));
+    }
     const cap = div >= 0.5 ? 1 : this.artistCapN;
-    const diverse = this.artistCap(mmred, cap);
-    return this.takeVerified(diverse, input.limit);
+    const diverse = this.artistCap(ranked, cap);
+    return this.takeVerified(diverse, limit);
   }
 
   /** Текстовый поиск аудио через MuQ-MuLan ("грустный трек с гитарой"). */
@@ -265,287 +293,285 @@ export class RecommendationsService {
 
     const filter = this.buildFilter([], languages);
     const fetchLimit = Math.max(limit * 3, 40);
-
-    let results: RecommendResult[];
+    let raw: RecommendResult[];
     try {
-      const raw = await this.qdrant.search('tracks_clap', {
+      raw = (await this.qdrant.search('tracks_clap', {
         vector: vec,
         filter: filter as Record<string, unknown>,
         limit: fetchLimit,
         with_payload: true,
-      });
-      results = raw as unknown as RecommendResult[];
+      })) as unknown as RecommendResult[];
     } catch (e) {
       this.logger.debug(`searchByText: qdrant search failed: ${(e as Error).message}`);
       return [];
     }
 
-    const enriched = await this.enrichAndBoost(results);
+    const enriched = await this.enrichAndBoost(
+      raw.map((r) => ({ id: r.id, score: r.score ?? 0, payload: r.payload })),
+      languages,
+    );
     const diverse = this.artistCap(enriched, this.artistCapN);
     return this.takeVerified(diverse, limit);
   }
 
-  /**
-   * SIMILAR mode — 3 базы вместе. Кандидаты из tracks_mert (taste + anchor seed),
-   * скоринг каждого = w_m·cos(track.mert,user_taste.mert) + w_c·cos(track.clap,user_taste.clap)
-   *                 + w_l·cos(track.lyrics,user_taste.lyrics).
-   * Если у трека/юзера нет clap/lyrics-вектора — компонента = 0.
-   * Без MMR — отсортировано по итоговому score, artistCap = N.
-   */
-  private async waveSimilar(
-    scUserId: string,
-    anchorTrackId: number | null,
-    positiveIds: number[],
-    negativeIds: number[],
-    exclude: string[],
-    limit: number,
-    languages?: string[],
-    reqId = '-',
-  ): Promise<RecommendResult[]> {
-    const fetchLimit = Math.max(limit * 12, 300);
-    this.logger.log(
-      `[${reqId}] waveSimilar() params  anchor=${anchorTrackId ?? 'null'} ` +
-        `fetchLimit=${fetchLimit} threshold=${this.scoreThreshold} mmr=OFF artistCap=${this.artistCapN} ` +
-        `popBoost=${this.popularityBoost} weights={mert:${this.weightMert},clap:${this.weightClap},lyrics:${this.weightLyrics}}`,
-    );
-
-    const scored = await this.candidatesByThreeBases(
-      scUserId,
-      anchorTrackId,
-      positiveIds,
-      negativeIds,
-      exclude,
-      languages,
-      fetchLimit,
-      this.scoreThreshold,
-      reqId,
-    );
-    const enriched = await this.enrichAndBoost(scored);
-    const diverse = this.artistCap(enriched, this.artistCapN);
-    this.logger.log(
-      `[${reqId}] waveSimilar() pipeline  scored=${scored.length} enriched=${enriched.length} ` +
-        `afterArtistCap=${diverse.length} sliced=${Math.min(diverse.length, limit)}`,
-    );
-    return this.takeVerified(diverse, limit);
-  }
+  /* ── Ядро scoring ─────────────────────────────────────────── */
 
   /**
-   * DIVERSE mode — 3 базы вместе + MMR поверх. Та же скоринг-механика что и similar,
-   * но: пул больше, threshold ниже, после сортировки по комбинированному score —
-   * MMR (λ=0.3) разбавляет результат разнообразием в пределах taste-кластера.
+   * Универсальный скоринг кандидатов против seed-векторов всех 4 баз:
+   *   final = w_col·cos(track.collab, seed.collab)             — primary behavioral
+   *         + w_m·whitened_cos(track.mert, seed.mert)
+   *         + w_c·whitened_cos(track.clap, seed.clap)
+   *         + w_l·cos(track.lyrics, seed.lyrics)
+   * Whitening (вычитание центроида) применяется только к mert/clap.
+   * Если у трека или seed нет компоненты — её вклад = 0.
+   *
+   * Если у трека есть collab-вектор — он несёт основной сигнал. Аудио-базы
+   * выступают как tie-break для треков на границе collab-кластера и cold-start
+   * (новые треки которых нет в item2vec vocab).
    */
-  private async waveDiverse(
-    scUserId: string,
-    anchorTrackId: number | null,
-    positiveIds: number[],
-    negativeIds: number[],
-    exclude: string[],
-    limit: number,
-    languages?: string[],
-    reqId = '-',
-  ): Promise<RecommendResult[]> {
-    const div = DIVERSE_DIVERSITY;
-    const fetchLimit = Math.max(limit * 20, 500);
-    const threshold = Math.max(0, this.scoreThreshold - div * 0.4);
-
-    this.logger.log(
-      `[${reqId}] waveDiverse() params  anchor=${anchorTrackId ?? 'null'} diversity=${div} ` +
-        `(λ=${(1 - div).toFixed(2)}) fetchLimit=${fetchLimit} threshold=${threshold.toFixed(3)} ` +
-        `mmr=ON artistCap=${this.artistCapN} popBoost=${this.popularityBoost} ` +
-        `weights={mert:${this.weightMert},clap:${this.weightClap},lyrics:${this.weightLyrics}}`,
-    );
-
-    const scored = await this.candidatesByThreeBases(
-      scUserId,
-      anchorTrackId,
-      positiveIds,
-      negativeIds,
-      exclude,
-      languages,
-      fetchLimit,
-      threshold,
-      reqId,
-    );
-    const enriched = await this.enrichAndBoost(scored);
-    const mmrWorkLimit = Math.min(enriched.length, Math.max(limit * 8, 120));
-    const mmred = await this.applyMmr(enriched, div, mmrWorkLimit);
-    const diverse = this.artistCap(mmred, this.artistCapN);
-    this.logger.log(
-      `[${reqId}] waveDiverse() pipeline  scored=${scored.length} enriched=${enriched.length} ` +
-        `mmrWorkLimit=${mmrWorkLimit} afterMmr=${mmred.length} afterArtistCap=${diverse.length} ` +
-        `sliced=${Math.min(diverse.length, limit)}`,
-    );
-    return this.takeVerified(diverse, limit);
-  }
-
-  /**
-   * Главное ядро 3-base scoring:
-   *   1. Кандидаты — из tracks_mert: recommend по user_taste_mert (через lookup_from)
-   *      + опционально recommend по anchor (если задан); cold-start — recommend по
-   *      positiveIds (последние лайки). Объединяем в пул, по дублям берём max mert score.
-   *   2. Достаём векторы user_taste_clap и user_taste_lyrics.
-   *   3. Batch-retrieve clap/lyrics векторов всех кандидатов (по одному запросу на коллекцию).
-   *   4. final = w_m·mertScore + w_c·cos(track.clap,user_taste.clap) + w_l·cos(...lyrics).
-   *      Если у трека/юзера компонента отсутствует — вклад 0.
-   *   5. Sort desc.
-   */
-  private async candidatesByThreeBases(
-    scUserId: string,
-    anchorTrackId: number | null,
-    positiveIds: number[],
-    negativeIds: number[],
-    exclude: string[],
-    languages: string[] | undefined,
-    fetchLimit: number,
-    threshold: number,
+  private async scoreByAllBases(
+    candidateIds: number[],
+    seed: SeedVectors,
     reqId: string,
-  ): Promise<RecommendResult[]> {
-    const userTasteId = this.userIdToQdrantId(scUserId);
-    const filter = this.buildFilter(exclude, languages);
+  ): Promise<ScoredCandidate[]> {
+    const [collabMap, mertMap, clapMap, lyricsMap, payloadMap] = await Promise.all([
+      seed.collab
+        ? this.collab.getTrackVectors(candidateIds)
+        : Promise.resolve(new Map<string, number[]>()),
+      seed.mert
+        ? this.retrieveVectors('tracks_mert', candidateIds)
+        : Promise.resolve(new Map<string, number[]>()),
+      seed.clap
+        ? this.retrieveVectors('tracks_clap', candidateIds)
+        : Promise.resolve(new Map<string, number[]>()),
+      seed.lyrics
+        ? this.retrieveVectors('tracks_lyrics', candidateIds)
+        : Promise.resolve(new Map<string, number[]>()),
+      this.retrievePayloads('tracks_mert', candidateIds),
+    ]);
 
-    // Step 1: достаём user_taste векторы (по 3 базам), параллельно с пулом
-    const [userMertVec, userClapVec, userLyricsVec] = await Promise.all([
+    const cMert = this.centroids.get('tracks_mert');
+    const cClap = this.centroids.get('tracks_clap');
+    const wCol = this.weightCollab;
+    const wM = this.weightMert;
+    const wC = this.weightClap;
+    const wL = this.weightLyrics;
+
+    let withCollab = 0;
+    const out: ScoredCandidate[] = candidateIds.map((id) => {
+      const key = String(id);
+      const tcol = collabMap.get(key);
+      const tm = mertMap.get(key);
+      const tc = clapMap.get(key);
+      const tl = lyricsMap.get(key);
+      const sCol = seed.collab && tcol ? cosine(tcol, seed.collab) : 0;
+      const sM = seed.mert && tm ? this.centroids.whitenedCosine(tm, seed.mert, cMert) : 0;
+      const sC = seed.clap && tc ? this.centroids.whitenedCosine(tc, seed.clap, cClap) : 0;
+      const sL = seed.lyrics && tl ? cosine(tl, seed.lyrics) : 0;
+      if (tcol) withCollab++;
+      const score = wCol * sCol + wM * sM + wC * sC + wL * sL;
+      // Фичи для LTR (последние 2 будут заполнены в enrichAndBoost из payload).
+      const features = new Array<number>(LTR_FEATURE_COUNT).fill(0);
+      features[0] = sCol;
+      features[1] = sM;
+      features[2] = sC;
+      features[3] = sL;
+      return { id, score, payload: payloadMap.get(key), features };
+    });
+
+    out.sort((a, b) => b.score - a.score);
+    this.logger.log(
+      `[${reqId}] scored ${out.length} candidates (withCollab=${withCollab}): top3=[${out
+        .slice(0, 3)
+        .map((s) => `${s.id}:${s.score.toFixed(3)}`)
+        .join(',')}]`,
+    );
+    return out;
+  }
+
+  /* ── Сбор пула кандидатов ─────────────────────────────────── */
+
+  private async buildCandidatePool(args: {
+    userCollab: number[] | null;
+    seedHasTaste: boolean;
+    userTasteId: number;
+    anchorTrackId: number | null;
+    positiveIds: number[];
+    negativeIds: number[];
+    exclude: string[];
+    languages?: string[];
+    fetchLimit: number;
+    reqId: string;
+  }): Promise<number[]> {
+    const filter = this.buildFilter(args.exclude, args.languages);
+    const pool = new Set<number>();
+    const tasks: Promise<void>[] = [];
+
+    // 1. Primary arm: search в tracks_collab по user_collab вектору. Behavioral сигнал.
+    if (args.userCollab) {
+      tasks.push(
+        this.searchByVector('tracks_collab', args.userCollab, filter, args.fetchLimit).then(
+          (res) => {
+            for (const r of res) {
+              const n = Number(r.id);
+              if (Number.isFinite(n)) pool.add(n);
+            }
+            this.logger.log(`[${args.reqId}] pool collab-arm got=${res.length}`);
+          },
+        ),
+      );
+    }
+
+    // 2. Audio taste arm — для cold-start треков (не в item2vec vocab) и tie-break.
+    if (args.seedHasTaste) {
+      tasks.push(
+        this.recommendByLookup(
+          'tracks_mert',
+          [args.userTasteId],
+          args.negativeIds,
+          'user_taste_mert',
+          filter,
+          args.fetchLimit,
+        ).then((res) => {
+          for (const r of res) {
+            const n = Number(r.id);
+            if (Number.isFinite(n)) pool.add(n);
+          }
+          this.logger.log(`[${args.reqId}] pool taste-arm got=${res.length}`);
+        }),
+      );
+    } else if (args.positiveIds.length && !args.userCollab) {
+      // 3. Cold-start (нет ни collab, ни taste): рекомендации по последним лайкам.
+      tasks.push(
+        this.recommendByPositive(
+          'tracks_mert',
+          args.positiveIds,
+          filter,
+          args.fetchLimit,
+          args.negativeIds,
+        ).then((res) => {
+          for (const r of res) {
+            const n = Number(r.id);
+            if (Number.isFinite(n)) pool.add(n);
+          }
+          this.logger.log(`[${args.reqId}] pool cold-start-arm got=${res.length}`);
+        }),
+      );
+    }
+
+    // 4. Anchor arm (если задан конкретный трек как seed для wave).
+    if (args.anchorTrackId !== null) {
+      tasks.push(
+        this.recommendByPositive(
+          'tracks_mert',
+          [args.anchorTrackId],
+          filter,
+          args.fetchLimit,
+          args.negativeIds,
+        ).then((res) => {
+          for (const r of res) {
+            const n = Number(r.id);
+            if (Number.isFinite(n) && n !== args.anchorTrackId) pool.add(n);
+          }
+          this.logger.log(`[${args.reqId}] pool anchor-arm got=${res.length}`);
+        }),
+      );
+    }
+
+    await Promise.all(tasks);
+    return [...pool];
+  }
+
+  /* ── Qdrant helpers ───────────────────────────────────────── */
+
+  private async loadUserTasteVectors(userTasteId: number): Promise<{
+    mert: number[] | null;
+    clap: number[] | null;
+    lyrics: number[] | null;
+  }> {
+    const [mert, clap, lyrics] = await Promise.all([
       this.retrieveVector('user_taste_mert', userTasteId),
       this.retrieveVector('user_taste_clap', userTasteId),
       this.retrieveVector('user_taste_lyrics', userTasteId),
     ]);
-    this.logger.log(
-      `[${reqId}] 3bases.user-taste  mert=${userMertVec ? 'OK' : 'NULL'} ` +
-        `clap=${userClapVec ? 'OK' : 'NULL'} lyrics=${userLyricsVec ? 'OK' : 'NULL'}`,
-    );
-
-    // Step 2: пул кандидатов из tracks_mert
-    const pool = new Map<string | number, PoolEntry>();
-    const mergeIntoPool = (results: RecommendResult[]) => {
-      for (const r of results) {
-        const score = r.score ?? 0;
-        const prev = pool.get(r.id);
-        if (!prev || score > prev.mertScore) {
-          pool.set(r.id, { id: r.id, mertScore: score, payload: r.payload });
-        }
-      }
-    };
-
-    if (userMertVec) {
-      const res = await this.recommendSafe(
-        'tracks_mert',
-        [userTasteId],
-        negativeIds,
-        filter,
-        fetchLimit,
-        'user_taste_mert',
-        threshold,
-      );
-      this.logger.log(`[${reqId}] 3bases.pool taste-arm got=${res.length}`);
-      mergeIntoPool(res);
-    } else if (positiveIds.length) {
-      const res = await this.recommendSafe(
-        'tracks_mert',
-        positiveIds,
-        negativeIds,
-        filter,
-        fetchLimit,
-        undefined,
-        threshold,
-      );
-      this.logger.log(
-        `[${reqId}] 3bases.pool positive-arm (cold-start)  seedIds=${positiveIds.length} got=${res.length}`,
-      );
-      mergeIntoPool(res);
-    }
-
-    if (anchorTrackId !== null) {
-      const res = await this.recommendSafe(
-        'tracks_mert',
-        [anchorTrackId],
-        negativeIds,
-        filter,
-        fetchLimit,
-        undefined,
-        threshold,
-      );
-      this.logger.log(`[${reqId}] 3bases.pool anchor-arm  seed=${anchorTrackId} got=${res.length}`);
-      mergeIntoPool(res);
-    }
-
-    if (!pool.size) {
-      this.logger.warn(`[${reqId}] 3bases.pool empty`);
-      return [];
-    }
-
-    // Step 3: batch-retrieve clap/lyrics векторов для всех кандидатов
-    const candidates = [...pool.values()];
-    const numericIds = candidates
-      .map((c) => Number(c.id))
-      .filter((n) => Number.isFinite(n)) as number[];
-
-    const [clapVecs, lyricsVecs] = await Promise.all([
-      userClapVec
-        ? this.retrieveVectors('tracks_clap', numericIds)
-        : Promise.resolve(new Map<string, number[]>()),
-      userLyricsVec
-        ? this.retrieveVectors('tracks_lyrics', numericIds)
-        : Promise.resolve(new Map<string, number[]>()),
-    ]);
-    this.logger.log(
-      `[${reqId}] 3bases.vectors  candidates=${candidates.length} ` +
-        `clap=${clapVecs.size}/${candidates.length} lyrics=${lyricsVecs.size}/${candidates.length}`,
-    );
-
-    // Step 4: combined score
-    const wM = this.weightMert;
-    const wC = this.weightClap;
-    const wL = this.weightLyrics;
-    let withClap = 0;
-    let withLyrics = 0;
-
-    const scored: RecommendResult[] = candidates.map((c) => {
-      const id = String(c.id);
-      const clapVec = userClapVec ? clapVecs.get(id) : undefined;
-      const lyricsVec = userLyricsVec ? lyricsVecs.get(id) : undefined;
-      const cs = userClapVec && clapVec ? this.cosine(clapVec, userClapVec) : 0;
-      const ls = userLyricsVec && lyricsVec ? this.cosine(lyricsVec, userLyricsVec) : 0;
-      if (clapVec) withClap++;
-      if (lyricsVec) withLyrics++;
-      const final = wM * c.mertScore + wC * cs + wL * ls;
-      return { id: c.id, score: final, payload: c.payload };
-    });
-
-    scored.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    this.logger.log(
-      `[${reqId}] 3bases.scored  total=${scored.length} withClap=${withClap} withLyrics=${withLyrics} ` +
-        `top3=[${scored
-          .slice(0, 3)
-          .map((s) => `${s.id}:${(s.score ?? 0).toFixed(3)}`)
-          .join(',')}]`,
-    );
-    return scored;
+    return { mert, clap, lyrics };
   }
 
-  private async recommendSafe(
+  private async loadTrackVectors(trackId: number): Promise<SeedVectors> {
+    const [collab, mert, clap, lyrics] = await Promise.all([
+      this.collab.getTrackVector(trackId),
+      this.retrieveVector('tracks_mert', trackId),
+      this.retrieveVector('tracks_clap', trackId),
+      this.retrieveVector('tracks_lyrics', trackId),
+    ]);
+    return { collab, mert, clap, lyrics };
+  }
+
+  /** Прямой Qdrant search по вектору (используется для collab-коллекции). */
+  private async searchByVector(
     collection: string,
-    positive: (string | number)[],
-    negative: number[],
+    vector: number[],
     filter: QdrantFilter | undefined,
     limit: number,
-    lookupFrom?: string,
-    scoreThreshold?: number,
   ): Promise<RecommendResult[]> {
     try {
-      const params: Record<string, unknown> = {
+      const results = await this.qdrant.search(collection, {
+        vector,
+        filter: filter as Record<string, unknown>,
+        limit,
+        with_payload: true,
+      });
+      return results as unknown as RecommendResult[];
+    } catch (e) {
+      this.logger.debug(`searchByVector ${collection} failed: ${(e as Error).message}`);
+      return [];
+    }
+  }
+
+  private async recommendByPositive(
+    collection: string,
+    positive: number[],
+    filter: QdrantFilter | undefined,
+    limit: number,
+    negative: number[] = [],
+  ): Promise<RecommendResult[]> {
+    try {
+      const results = await this.qdrant.recommend(collection, {
         positive,
         negative: negative.length ? negative : undefined,
         strategy: 'best_score',
         filter,
         limit,
         with_payload: true,
-        score_threshold: scoreThreshold ?? this.scoreThreshold,
-      };
-      if (lookupFrom) params.lookup_from = { collection: lookupFrom };
-      const results = await this.qdrant.recommend(collection, params as never);
+      } as never);
       return results as unknown as RecommendResult[];
     } catch (e) {
-      this.logger.debug(`recommend ${collection} failed: ${(e as Error).message}`);
+      this.logger.debug(`recommendByPositive ${collection} failed: ${(e as Error).message}`);
+      return [];
+    }
+  }
+
+  private async recommendByLookup(
+    collection: string,
+    positive: number[],
+    negative: number[],
+    lookupFrom: string,
+    filter: QdrantFilter | undefined,
+    limit: number,
+  ): Promise<RecommendResult[]> {
+    try {
+      const results = await this.qdrant.recommend(collection, {
+        positive,
+        negative: negative.length ? negative : undefined,
+        strategy: 'best_score',
+        filter,
+        limit,
+        with_payload: true,
+        lookup_from: { collection: lookupFrom },
+      } as never);
+      return results as unknown as RecommendResult[];
+    } catch (e) {
+      this.logger.debug(`recommendByLookup ${collection} failed: ${(e as Error).message}`);
       return [];
     }
   }
@@ -582,33 +608,42 @@ export class RecommendationsService {
     return out;
   }
 
-  private rrfFuseWeighted(
-    branches: Array<{ results: RecommendResult[]; weight: number }>,
-    limit: number,
-  ): RecommendResult[] {
-    const acc = new Map<string | number, { score: number; item: RecommendResult }>();
-    for (const { results, weight } of branches) {
-      results.forEach((item, idx) => {
-        const add = weight / (RRF_K + idx + 1);
-        const prev = acc.get(item.id);
-        acc.set(item.id, { score: (prev?.score ?? 0) + add, item: prev?.item ?? item });
-      });
+  private async retrievePayloads(
+    collection: string,
+    ids: number[],
+  ): Promise<Map<string, Record<string, unknown>>> {
+    const out = new Map<string, Record<string, unknown>>();
+    if (!ids.length) return out;
+    try {
+      const pts = (await this.qdrant.retrieve(collection, {
+        ids,
+        with_vector: false,
+        with_payload: true,
+      })) as unknown as Array<{ id: string | number; payload?: Record<string, unknown> | null }>;
+      for (const p of pts) {
+        if (p.payload) out.set(String(p.id), p.payload);
+      }
+    } catch (e) {
+      this.logger.debug(`retrievePayloads ${collection} failed: ${(e as Error).message}`);
     }
-    return [...acc.values()]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map(({ score, item }) => ({ ...item, score }));
+    return out;
   }
 
-  private async enrichAndBoost(items: RecommendResult[]): Promise<RecommendResult[]> {
-    if (!items.length) return items;
+  /* ── Enrichment / re-ranking / verification ───────────────── */
+
+  private async enrichAndBoost(
+    items: ScoredCandidate[],
+    userLanguages?: string[],
+  ): Promise<RecommendResult[]> {
+    if (!items.length) return [];
     const ids = items.map((it) => String(it.id));
     const tracks = await this.tracksRepo.find({
       where: { scTrackId: In(ids) },
-      select: ['scTrackId', 'rawScData'],
+      select: ['scTrackId', 'rawScData', 'language'],
     });
     const byId = new Map(tracks.map((t) => [t.scTrackId, t]));
     const boost = this.popularityBoost;
+    const userLangSet = new Set(userLanguages ?? []);
 
     return items
       .map((it) => {
@@ -622,21 +657,56 @@ export class RecommendationsService {
         const artist = raw.publisher_metadata?.artist || raw.user?.username || null;
         const playbackCount = Number(raw.playback_count ?? 0);
         const bonus = Math.log1p(Math.max(0, playbackCount)) * boost;
+        // Дозаполняем LTR-фичи: log_playback + language_match.
+        const features = it.features
+          ? [...it.features]
+          : new Array<number>(LTR_FEATURE_COUNT).fill(0);
+        features[4] = Math.log1p(Math.max(0, playbackCount));
+        features[5] = t?.language && userLangSet.has(t.language) ? 1.0 : 0.0;
         return {
-          ...it,
-          score: (it.score ?? 0) + bonus,
+          id: it.id,
+          score: it.score + bonus,
+          payload: it.payload,
           artist,
           genre: raw.genre ?? null,
           playbackCount,
+          features,
         };
       })
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
 
   /**
-   * MMR re-rank. `diversity` ∈ (0, 1]: 0 = off, 1 = max variety.
-   * λ = 1 - diversity. score = λ·relevance − (1−λ)·max_sim(to_selected).
+   * LTR rerank: отдаём фичи воркеру (LightGBM ranker), получаем скоры,
+   * заменяем `score` и пересортировываем. Если воркер недоступен / модель
+   * не обучена — оставляем линейный score (он же fallback на воркере).
+   * Применяется только к топу (workLimit), нижний хвост оставляем как есть —
+   * экономим RPC payload и не теряем порядок «слабых» кандидатов.
    */
+  private async applyLtrRerank(
+    items: RecommendResult[],
+    workLimit: number,
+    reqId: string,
+  ): Promise<RecommendResult[]> {
+    if (!this.ltr.enabled || items.length <= 1) return items;
+    const head = items.slice(0, workLimit);
+    const tail = items.slice(workLimit);
+    const features = head.map((it) => it.features ?? new Array<number>(LTR_FEATURE_COUNT).fill(0));
+    const scores = await this.ltr.score(features);
+    if (!scores) return items;
+
+    const reranked = head.map((it, i) => ({ ...it, score: scores[i] }));
+    reranked.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    this.logger.log(
+      `[${reqId}] ltr-rerank applied to ${reranked.length} items, top3=[${reranked
+        .slice(0, 3)
+        .map((r) => `${r.id}:${(r.score ?? 0).toFixed(3)}`)
+        .join(',')}]`,
+    );
+    return [...reranked, ...tail];
+  }
+
+  /** MMR re-rank на whitened mert vectors. λ = 1 - diversity. */
   private async applyMmr(
     items: RecommendResult[],
     diversity: number,
@@ -649,35 +719,15 @@ export class RecommendationsService {
     const numericIds = top.map((it) => Number(it.id)).filter((n) => Number.isFinite(n)) as number[];
     if (!numericIds.length) return items;
 
-    let points: Array<{ id: string | number; vector?: number[] | null }>;
-    try {
-      points = (await this.qdrant.retrieve('tracks_mert', {
-        ids: numericIds,
-        with_vector: true,
-        with_payload: false,
-      })) as unknown as Array<{ id: string | number; vector?: number[] | null }>;
-    } catch (e) {
-      this.logger.debug(`mmr retrieve failed: ${(e as Error).message}`);
-      return items;
-    }
+    const vectors = await this.retrieveVectors('tracks_mert', numericIds);
+    if (vectors.size < 2) return items;
 
-    const vectors = new Map<string, number[]>();
-    for (const p of points) {
-      if (Array.isArray(p.vector)) vectors.set(String(p.id), p.vector);
-    }
-    if (vectors.size < 2) {
-      this.logger.warn(
-        `applyMmr: only ${vectors.size} vectors retrieved out of ${numericIds.length} ids — MMR skipped, returning items as-is`,
-      );
-      return items;
-    }
+    const cMert = this.centroids.get('tracks_mert');
+    const whiten = (v: number[]) => (cMert ? subtract(v, cMert) : v);
 
     const pool = top.filter((it) => vectors.has(String(it.id)));
     const noVec = top.filter((it) => !vectors.has(String(it.id)));
     pool.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    this.logger.log(
-      `applyMmr: λ=${lambda.toFixed(2)} workLimit=${workLimit} pool=${pool.length} noVec=${noVec.length} vectors=${vectors.size}`,
-    );
 
     const selected: RecommendResult[] = [pool.shift()!];
     while (selected.length < workLimit && pool.length) {
@@ -685,13 +735,11 @@ export class RecommendationsService {
       let bestScore = -Infinity;
       for (let i = 0; i < pool.length; i++) {
         const cand = pool[i];
-        const candVec = vectors.get(String(cand.id));
-        if (!candVec) continue;
+        const candVec = whiten(vectors.get(String(cand.id))!);
         let maxSim = 0;
         for (const sel of selected) {
-          const selVec = vectors.get(String(sel.id));
-          if (!selVec) continue;
-          const s = this.cosine(candVec, selVec);
+          const selVec = whiten(vectors.get(String(sel.id))!);
+          const s = cosine(candVec, selVec);
           if (s > maxSim) maxSim = s;
         }
         const rel = cand.score ?? 0;
@@ -703,7 +751,6 @@ export class RecommendationsService {
       }
       selected.push(pool.splice(bestIdx, 1)[0]);
     }
-
     return [...selected, ...noVec, ...items.slice(workLimit)];
   }
 
@@ -720,20 +767,6 @@ export class RecommendationsService {
       }
     }
     return out;
-  }
-
-  private cosine(a: number[], b: number[]): number {
-    const n = Math.min(a.length, b.length);
-    let dot = 0;
-    let na = 0;
-    let nb = 0;
-    for (let i = 0; i < n; i++) {
-      dot += a[i] * b[i];
-      na += a[i] * a[i];
-      nb += b[i] * b[i];
-    }
-    const denom = Math.sqrt(na) * Math.sqrt(nb);
-    return denom > 0 ? dot / denom : 0;
   }
 
   private artistCap(items: RecommendResult[], cap: number): RecommendResult[] {
@@ -764,7 +797,11 @@ export class RecommendationsService {
     return Object.keys(filter).length ? filter : undefined;
   }
 
-  private async getFallbackTracks(exclude: string[], limit: number, languages?: string[]) {
+  private async getFallbackTracks(
+    exclude: string[],
+    limit: number,
+    languages?: string[],
+  ): Promise<RecommendResult[]> {
     const where: Record<string, unknown> = { indexedAt: Not(IsNull()) };
     if (languages?.length) {
       where.language = In(languages);
@@ -780,9 +817,27 @@ export class RecommendationsService {
       .slice(0, limit)
       .map((t) => ({ id: t.scTrackId, payload: { sc_track_id: t.scTrackId } }));
   }
+}
 
-  private userIdToQdrantId(userId: string): number {
-    const hash = createHash('sha256').update(userId).digest();
-    return Number(hash.readBigUInt64BE(0) % BigInt(Number.MAX_SAFE_INTEGER));
+/* ── Pure helpers ─────────────────────────────────────────── */
+
+function cosine(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < n; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
   }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom > 0 ? dot / denom : 0;
+}
+
+function subtract(a: number[], b: number[]): number[] {
+  const n = Math.min(a.length, b.length);
+  const out = new Array<number>(n);
+  for (let i = 0; i < n; i++) out[i] = a[i] - b[i];
+  return out;
 }

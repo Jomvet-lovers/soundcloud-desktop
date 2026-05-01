@@ -6,6 +6,6 @@
  */
 export function normalizeScTrackId(input: string | null | undefined): string | null {
   if (!input) return null;
-  const last = input.includes(':') ? input.split(':').pop() ?? '' : input;
+  const last = input.includes(':') ? (input.split(':').pop() ?? '') : input;
   return /^\d+$/.test(last) ? last : null;
 }

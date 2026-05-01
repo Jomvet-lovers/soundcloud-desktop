@@ -47,6 +47,10 @@ pub fn run() {
                 .path()
                 .app_cache_dir()
                 .expect("failed to resolve app cache dir");
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to resolve app data dir");
 
             let audio_dir = cache_dir.join("audio");
             std::fs::create_dir_all(&audio_dir).ok();
@@ -57,13 +61,24 @@ pub fn run() {
             let wallpapers_dir = cache_dir.join("wallpapers");
             std::fs::create_dir_all(&wallpapers_dir).ok();
 
+            let images_dir = data_dir.join("images");
+            std::fs::create_dir_all(&images_dir).ok();
+
+            let http_client = reqwest::Client::new();
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
             network::proxy::STATE
                 .set(network::proxy::State {
                     assets_dir,
-                    http_client: reqwest::Client::new(),
+                    http_client: http_client.clone(),
                     rt_handle: rt.handle().clone(),
+                })
+                .ok();
+
+            network::image_cache::STATE
+                .set(network::image_cache::ImageCache {
+                    dir: images_dir,
+                    http_client,
                 })
                 .ok();
 
@@ -143,6 +158,8 @@ pub fn run() {
             track_cache::track_clear_cache,
             track_cache::track_list_cached,
             track_cache::track_enforce_cache_limit,
+            network::image_cache::image_cache_size,
+            network::image_cache::image_cache_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

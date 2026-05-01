@@ -15,6 +15,8 @@ import threading
 from . import subjects as subj
 from .bus import connect, ensure_consumer, run_rpc_msg, run_with_lifecycle
 from .handlers import ai, audio, lyrics
+from .handlers import collab as collab_handler
+from .handlers import ltr as ltr_handler
 from .handlers.transcribe import transcribe
 from .models import load_all
 from .storage import ensure_collections, new_client
@@ -114,6 +116,8 @@ def _route_ai(models, subject: str, payload: dict):
         return transcribe(models, payload)
     if subject == subj.AI_ENCODE_TEXT_MULAN:
         return ai.encode_text_mulan(models, payload)
+    if subject == subj.AI_LTR_SCORE:
+        return ltr_handler.score(models, payload)
     raise ValueError(f"unknown AI subject: {subject}")
 
 
@@ -134,6 +138,12 @@ async def main() -> None:
     )
     await ensure_consumer(
         js, subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS, subj.SUBJECT_EMBED_LYRICS_NEW
+    )
+    await ensure_consumer(
+        js, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB, subj.SUBJECT_TRAIN_COLLAB_NEW
+    )
+    await ensure_consumer(
+        js, subj.STREAM_TRAIN_LTR, subj.DURABLE_TRAIN_LTR, subj.SUBJECT_TRAIN_LTR_NEW
     )
 
     stop = asyncio.Event()
@@ -180,6 +190,22 @@ async def main() -> None:
             "[lyrics]", stop, is_rpc=False,
         )
     )
+    collab_task = asyncio.create_task(
+        _js_pull_loop(
+            js, inference_sem, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB,
+            subj.SUBJECT_TRAIN_COLLAB_NEW,
+            lambda p: collab_handler.handle(p, models, qdrant, nc),
+            "[collab]", stop, is_rpc=False,
+        )
+    )
+    ltr_task = asyncio.create_task(
+        _js_pull_loop(
+            js, inference_sem, subj.STREAM_TRAIN_LTR, subj.DURABLE_TRAIN_LTR,
+            subj.SUBJECT_TRAIN_LTR_NEW,
+            lambda p: ltr_handler.handle(p, models, qdrant, nc),
+            "[ltr]", stop, is_rpc=False,
+        )
+    )
 
     log.info("Worker ready.")
     await stop.wait()
@@ -187,7 +213,9 @@ async def main() -> None:
     ai_task.cancel()
     audio_task.cancel()
     lyrics_task.cancel()
-    await asyncio.gather(ai_task, audio_task, lyrics_task, return_exceptions=True)
+    collab_task.cancel()
+    ltr_task.cancel()
+    await asyncio.gather(ai_task, audio_task, lyrics_task, collab_task, ltr_task, return_exceptions=True)
     try:
         await asyncio.wait_for(nc.drain(), timeout=2)
     except (asyncio.TimeoutError, Exception) as e:

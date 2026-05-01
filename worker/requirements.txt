@@ -12,3 +12,5 @@ huggingface-hub>=0.30.0
 faster-whisper==1.0.3
 muq==0.1.0
 demucs==4.0.1
+gensim==4.3.3
+lightgbm==4.5.0

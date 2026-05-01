@@ -1,4 +1,4 @@
-import { isWhitelistedAssetUrl, toScproxyUrl } from './asset-url';
+import { isWhitelistedAssetUrl, toImageCacheUrl, toScproxyUrl } from './asset-url';
 
 type PatchedImage = HTMLImageElement & {
   __origSrc?: string;
@@ -6,7 +6,8 @@ type PatchedImage = HTMLImageElement & {
   __skipProxyOnce?: boolean;
 };
 
-// Hook <img>.src — store original URL to enable retry on error
+// Hook <img>.src — route through permanent image cache, store original URL
+// to enable retry on error.
 const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
 Object.defineProperty(HTMLImageElement.prototype, 'src', {
   set(url: string) {
@@ -20,7 +21,7 @@ Object.defineProperty(HTMLImageElement.prototype, 'src', {
     if (url?.startsWith('http') && !isWhitelistedAssetUrl(url)) {
       img.__origSrc = url;
       img.__proxyRetryStage = 0;
-      url = toScproxyUrl(url);
+      url = toImageCacheUrl(url);
     }
     imgSrcDesc.set!.call(this, url);
   },
@@ -41,7 +42,7 @@ document.addEventListener(
       if (originalUrl && retryStage === 0) {
         img.__proxyRetryStage = 1;
         img.style.removeProperty('display');
-        imgSrcDesc.set!.call(img, toScproxyUrl(originalUrl, { bypassCache: true }));
+        imgSrcDesc.set!.call(img, toImageCacheUrl(originalUrl, { bypassCache: true }));
         return;
       }
 

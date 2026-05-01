@@ -1,7 +1,7 @@
 import { useSettingsStore } from '../stores/settings';
 import { BYPASS_IMAGES_BASE, getProxyPort, IMAGES_BASE } from './constants';
-import { getIsPremium } from './premium-cache';
 import { isMac } from './platform';
+import { getIsPremium } from './premium-cache';
 
 const WHITELIST = [
   'localhost',
@@ -50,20 +50,46 @@ export function isWhitelistedAssetUrl(url: string): boolean {
   }
 }
 
-export function toScproxyUrl(url: string, { bypassCache = false } = {}): string {
+function buildEncodedPayload(
+  url: string,
+  bypassCache: boolean,
+): { encoded: string; target: string } {
   const target = bypassCache ? withCacheBust(url) : url;
   const bypass = useSettingsStore.getState().bypassWhitelist;
-  const upstreams =
-    bypass && getIsPremium() ? [BYPASS_IMAGES_BASE, IMAGES_BASE] : [IMAGES_BASE];
-  const encodedPath = encodeURIComponent(btoa(JSON.stringify([target, ...upstreams])));
+  const upstreams = bypass && getIsPremium() ? [BYPASS_IMAGES_BASE, IMAGES_BASE] : [IMAGES_BASE];
+  return {
+    encoded: encodeURIComponent(btoa(JSON.stringify([target, ...upstreams]))),
+    target,
+  };
+}
+
+export function toScproxyUrl(url: string, { bypassCache = false } = {}): string {
+  const { encoded, target } = buildEncodedPayload(url, bypassCache);
 
   const proxyPort = getProxyPort();
   if (proxyPort && !isMac()) {
     const shard = hashShard(target);
-    return `http://scproxy-${shard}.localhost:${proxyPort}/p/${encodedPath}`;
+    return `http://scproxy-${shard}.localhost:${proxyPort}/p/${encoded}`;
   }
 
-  return `scproxy://localhost/${encodedPath}`;
+  return `scproxy://localhost/${encoded}`;
+}
+
+/**
+ * Permanent on-disk image cache endpoint.
+ * Stored in app_data_dir/images/, never cleared by idle/maintenance —
+ * only by an explicit user action.
+ */
+export function toImageCacheUrl(url: string, { bypassCache = false } = {}): string {
+  const { encoded, target } = buildEncodedPayload(url, bypassCache);
+
+  const proxyPort = getProxyPort();
+  if (proxyPort && !isMac()) {
+    const shard = hashShard(target);
+    return `http://scproxy-${shard}.localhost:${proxyPort}/img/${encoded}`;
+  }
+
+  return `scproxy://localhost/img/${encoded}`;
 }
 
 export function proxiedAssetUrl(
@@ -78,5 +104,5 @@ export function proxiedAssetUrl(
     return url;
   }
 
-  return toScproxyUrl(url, { bypassCache });
+  return toImageCacheUrl(url, { bypassCache });
 }

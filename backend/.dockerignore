@@ -3,4 +3,5 @@ dist
 .env
 *.md
 .git
+*.tsbuildinfo
 cert-runner/target

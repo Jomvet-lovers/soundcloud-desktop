@@ -124,6 +124,10 @@ export default function App() {
       useAuthStore.setState({ isAuthenticated: true });
     });
 
+    void import('./lib/dislikes').then(({ loadAllDislikedIds }) => {
+      if (!cancelled) void loadAllDislikedIds();
+    });
+
     return () => {
       cancelled = true;
     };

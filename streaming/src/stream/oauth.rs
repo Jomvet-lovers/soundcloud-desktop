@@ -102,8 +102,7 @@ pub async fn try_oauth_stream(
 
 enum FetchOutcome {
     Ok(ScStreams),
-    Retryable(String), // 429 / 5xx / 421 / network — try next token / fall back
-    Unauthorized,      // 401 / 403 — bad token, skip
+    Retryable(String), // 401/403/429/5xx/421/network — try next token / fall back
     NotFound,          // 404 — track doesn't exist
 }
 
@@ -136,7 +135,6 @@ async fn fetch_streams_direct_once(
     }
 
     match status {
-        401 | 403 => FetchOutcome::Unauthorized,
         404 => FetchOutcome::NotFound,
         _ => FetchOutcome::Retryable(format!("status {status}")),
     }
@@ -165,9 +163,6 @@ async fn get_streams(
                 warn!("[oauth] streams 404 for {track_urn}");
                 return None;
             }
-            FetchOutcome::Unauthorized => {
-                warn!("[oauth] direct unauthorized for {track_urn}, falling back to proxy");
-            }
             FetchOutcome::Retryable(reason) => {
                 warn!("[oauth] direct streams failed ({reason}) for {track_urn}, trying random sessions");
 
@@ -178,11 +173,12 @@ async fn get_streams(
                         .await
                     {
                         Ok(tokens) if !tokens.is_empty() => {
-                            for token in &tokens {
+                            for (i, token) in tokens.iter().enumerate() {
                                 match fetch_streams_direct_once(client, &target, token).await {
                                     FetchOutcome::Ok(s) => {
                                         info!(
-                                            "[oauth] {track_urn} → random session direct (of {})",
+                                            "[oauth] {track_urn} → random session direct ({}/{})",
+                                            i + 1,
                                             tokens.len()
                                         );
                                         return Some(s);
@@ -191,19 +187,18 @@ async fn get_streams(
                                         warn!("[oauth] streams 404 for {track_urn} (random)");
                                         return None;
                                     }
-                                    FetchOutcome::Unauthorized
-                                    | FetchOutcome::Retryable(_) => continue,
+                                    FetchOutcome::Retryable(_) => continue,
                                 }
                             }
                             warn!(
-                                "[oauth] all {} random sessions failed for {track_urn}",
+                                "[oauth] all {} random sessions failed for {track_urn}, falling back to proxy",
                                 tokens.len()
                             );
                         }
                         Ok(_) => {
-                            warn!("[oauth] no valid random sessions available");
+                            warn!("[oauth] no valid random sessions available, falling back to proxy");
                         }
-                        Err(e) => warn!("[oauth] failed to fetch random sessions: {e}"),
+                        Err(e) => warn!("[oauth] failed to fetch random sessions: {e}, falling back to proxy"),
                     }
                 }
             }

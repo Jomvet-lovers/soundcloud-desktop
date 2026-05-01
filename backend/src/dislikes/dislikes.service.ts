@@ -87,6 +87,11 @@ export class DislikesService {
     return items.map((item) => item.scTrackId);
   }
 
+  async listIdsBySession(sessionId: string, limit = 1000): Promise<string[]> {
+    const scUserId = await this.getScUserId(sessionId);
+    return this.listIdsByUserId(scUserId, limit);
+  }
+
   async findAll(
     sessionId: string,
     limit: number,
