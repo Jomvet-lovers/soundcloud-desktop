@@ -356,17 +356,6 @@
     "cancel": "Отмена",
     "back": "Назад"
   },
-  "cache": {
-    "bulkCache": "Закэшировать",
-    "cancel": "Отменить",
-    "allCached": "Все треки уже в кэше",
-    "bulkSuccess_one": "Закэширован {{count}} трек",
-    "bulkSuccess_few": "Закэшировано {{count}} трека",
-    "bulkSuccess_many": "Закэшировано {{count}} треков",
-    "bulkFailed_one": "Не удалось закэшировать {{count}} трек",
-    "bulkFailed_few": "Не удалось закэшировать {{count}} трека",
-    "bulkFailed_many": "Не удалось закэшировать {{count}} треков"
-  },
   "star": {
     "title": "Подписка Star",
     "active": "Активна",

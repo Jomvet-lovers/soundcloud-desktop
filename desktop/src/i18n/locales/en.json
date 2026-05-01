@@ -350,15 +350,6 @@
     "cancel": "Cancel",
     "back": "Back"
   },
-  "cache": {
-    "bulkCache": "Cache all",
-    "cancel": "Cancel",
-    "allCached": "All tracks are already cached",
-    "bulkSuccess_one": "Cached {{count}} track",
-    "bulkSuccess_other": "Cached {{count}} tracks",
-    "bulkFailed_one": "Failed to cache {{count}} track",
-    "bulkFailed_other": "Failed to cache {{count}} tracks"
-  },
   "star": {
     "title": "Star Subscription",
     "active": "Active",

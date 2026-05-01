@@ -2,7 +2,6 @@ import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } fr
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
-import { BulkDownloadButton } from '../components/music/BulkDownloadButton';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { VirtualGrid } from '../components/ui/VirtualGrid';
@@ -399,19 +398,8 @@ const LikesTab = React.memo(function LikesTab({ filter }: { filter: string }) {
     }).catch(() => {});
   }, []);
 
-  const getAllLikesForDownload = React.useCallback(() => fetchAllLikedTracks(), []);
-
   return (
     <div className="min-h-[400px]">
-      {likedTracks.length > 0 && (
-        <div className="flex justify-end mb-3">
-          <BulkDownloadButton
-            cacheKey="likes"
-            getTracks={getAllLikesForDownload}
-            variant="compact"
-          />
-        </div>
-      )}
       <div className="flex flex-col gap-1">
         {isLoading ? (
           <div className="flex justify-center py-20">

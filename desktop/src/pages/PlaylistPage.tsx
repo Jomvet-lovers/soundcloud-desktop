@@ -16,7 +16,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
-import { BulkDownloadButton } from '../components/music/BulkDownloadButton';
 import { LikeButton } from '../components/music/LikeButton';
 import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
@@ -702,11 +701,6 @@ export const PlaylistPage = React.memo(() => {
                   border: '1px solid rgba(255,255,255,0.06)',
                 }}
               >
-                <BulkDownloadButton
-                  cacheKey={`playlist:${playlist.urn}`}
-                  getTracks={() => tracks}
-                  variant="icon"
-                />
                 <CopyIconAction url={playlist.permalink_url} />
                 {isOwner && (
                   <>

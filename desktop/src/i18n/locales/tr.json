@@ -330,15 +330,6 @@
     "cancel": "Iptal",
     "back": "Geri"
   },
-  "cache": {
-    "bulkCache": "Onbellege al",
-    "cancel": "Iptal",
-    "allCached": "Tum parcalar zaten onbellekte",
-    "bulkSuccess_one": "{{count}} parca onbellege alindi",
-    "bulkSuccess_other": "{{count}} parca onbellege alindi",
-    "bulkFailed_one": "{{count}} parca onbellege alinamadi",
-    "bulkFailed_other": "{{count}} parca onbellege alinamadi"
-  },
   "star": {
     "title": "Star Abonelik",
     "active": "Aktif",
