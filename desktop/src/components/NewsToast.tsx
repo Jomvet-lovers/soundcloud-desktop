@@ -71,13 +71,13 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
     <Dialog.Root open={modalOpen} onOpenChange={setModalOpen}>
       {/* Toast */}
       <div
-        className={`animate-in slide-in-from-left-4 fade-in duration-500 fill-mode-both`}
+        className={`group relative animate-in slide-in-from-left-4 fade-in duration-500 fill-mode-both`}
         style={{ animationDelay: `${index * 120}ms` }}
       >
         <Dialog.Trigger asChild>
           <button
             type="button"
-            className={`group relative flex w-[340px] cursor-pointer items-start gap-3.5 rounded-2xl border bg-[#1a1a1e]/90 px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-[var(--ease-apple)] ${border} ${glow} hover:bg-[#1e1e24]/95 hover:scale-[1.01]`}
+            className={`relative flex w-[340px] cursor-pointer items-start gap-3.5 rounded-2xl border bg-[#1a1a1e]/90 px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-[var(--ease-apple)] ${border} ${glow} hover:bg-[#1e1e24]/95 hover:scale-[1.01]`}
           >
             {/* Accent dot */}
             <div className={`mt-1.5 size-2 shrink-0 rounded-full ${dot} animate-pulse`} />
@@ -99,17 +99,17 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
                 decoding="async"
               />
             )}
-
-            {/* Close (dismiss once) */}
-            <button
-              type="button"
-              onClick={handleDismissOnce}
-              className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-lg bg-white/0 text-white/0 transition-all group-hover:bg-white/[0.06] group-hover:text-white/40 hover:!bg-white/[0.1] hover:!text-white/60"
-            >
-              <X size={12} />
-            </button>
           </button>
         </Dialog.Trigger>
+
+        {/* Close (dismiss once) — вне триггера, чтобы избежать <button> в <button> */}
+        <button
+          type="button"
+          onClick={handleDismissOnce}
+          className="absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded-lg bg-white/0 text-white/0 transition-all group-hover:bg-white/[0.06] group-hover:text-white/40 hover:!bg-white/[0.1] hover:!text-white/60"
+        >
+          <X size={12} />
+        </button>
       </div>
 
       {/* Modal */}
