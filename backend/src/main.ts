@@ -1,13 +1,27 @@
-import { ValidationPipe } from '@nestjs/common';
+import { LogLevel, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import { SoundcloudExceptionFilter } from './common/filters/soundcloud-exception.filter.js';
 
+const ALL_LEVELS: LogLevel[] = ['fatal', 'error', 'warn', 'log', 'debug', 'verbose'];
+
+function resolveLogLevels(): LogLevel[] | false {
+  const raw = process.env.LOG_LEVEL?.trim().toLowerCase();
+  if (!raw) return ['fatal', 'error', 'warn', 'log'];
+  if (raw === 'off' || raw === 'silent' || raw === 'none') return false;
+  if (raw === 'all') return ALL_LEVELS;
+  const want = new Set(raw.split(',').map((s) => s.trim()));
+  return ALL_LEVELS.filter((l) => want.has(l));
+}
+
 async function bootstrap() {
   const adapter = new FastifyAdapter({ trustProxy: true });
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter);
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
+    logger: resolveLogLevels(),
+    bufferLogs: true,
+  });
 
   app.enableCors({
     origin: true,
