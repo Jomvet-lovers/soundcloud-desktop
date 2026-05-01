@@ -1,32 +1,14 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { In, Repository } from 'typeorm';
+import { and, count, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import { CentroidService } from '../centroids/centroid.service.js';
 import { CollabVectorService } from '../collab/collab-vector.service.js';
 import { userIdToQdrantId } from '../common/user-id.js';
-import { UserEvent } from '../events/entities/user-event.entity.js';
-import { IndexedTrack } from '../indexing/entities/indexed-track.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { indexedTracks, userEvents } from '../db/schema.js';
 import { LTR_FEATURE_COUNT, LtrService } from './ltr.service.js';
-
-/**
- * Сборка обучающих примеров для LTR из user_events и публикация в воркер.
- *
- * Логика:
- *   1. Берём юзеров с ≥10 positive событий за последние 30 дней.
- *   2. Для каждого юзера собираем (track, label) пары:
- *        like, local_like, playlist_add → label = 5/5/4
- *        full_play                       → label = 3
- *        skip                             → label = 0  (negative!)
- *      В одной группе должно быть разнообразие лейблов — иначе LambdaRank
- *      не получит сигнала. Если у юзера только positive (нет skip-ов) —
- *      сэмплируем рандомные негативы из коллекции.
- *   3. Считаем фичи: collab_cos, mert/clap whitened cos, lyrics cos,
- *      log1p(playback_count), language_match. user-vectors берутся как
- *      средние last-N likes этого юзера (= snapshot вкуса на момент тренировки).
- *   4. Публикуем в train.ltr.new.
- */
 
 const TRAIN_WINDOW_DAYS = 30;
 const MIN_POSITIVE_PER_USER = 10;
@@ -61,19 +43,14 @@ export class LtrTrainerService implements OnModuleInit {
   private inProgress = false;
 
   constructor(
-    @Inject('QDRANT_CLIENT')
-    private readonly qdrant: QdrantClient,
-    @InjectRepository(UserEvent)
-    private readonly events: Repository<UserEvent>,
-    @InjectRepository(IndexedTrack)
-    private readonly tracksRepo: Repository<IndexedTrack>,
+    @Inject('QDRANT_CLIENT') private readonly qdrant: QdrantClient,
+    @Inject(DB) private readonly db: Database,
     private readonly collab: CollabVectorService,
     private readonly centroids: CentroidService,
     private readonly ltr: LtrService,
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // bootstrap: на первом старте бэка запустим train через 5мин если есть достаточно данных.
     setTimeout(
       () => {
         void this.trainNow().catch((e) =>
@@ -84,7 +61,6 @@ export class LtrTrainerService implements OnModuleInit {
     );
   }
 
-  /** Каждое воскресенье в 4:00 UTC — обучаем заново на свежих 30д данных. */
   @Cron('0 4 * * 0')
   async scheduledTrain(): Promise<void> {
     if (process.env.LTR_AUTO_TRAIN === 'false') return;
@@ -117,17 +93,19 @@ export class LtrTrainerService implements OnModuleInit {
   > {
     const since = new Date(Date.now() - TRAIN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-    // 1. Active users: have ≥ MIN_POSITIVE_PER_USER positive events in window.
-    const userCounts: Array<{ scUserId: string }> = await this.events
-      .createQueryBuilder('e')
-      .select('e.scUserId', 'scUserId')
-      .where('e.eventType IN (:...types)', { types: POSITIVE_TYPES })
-      .andWhere('e.createdAt >= :since', { since })
-      .groupBy('e.scUserId')
-      .having('COUNT(*) >= :n', { n: MIN_POSITIVE_PER_USER })
-      .orderBy('COUNT(*)', 'DESC')
-      .limit(MAX_USERS)
-      .getRawMany();
+    const userCounts = await this.db
+      .select({ scUserId: userEvents.scUserId, n: count() })
+      .from(userEvents)
+      .where(
+        and(
+          inArray(userEvents.eventType, POSITIVE_TYPES),
+          gte(userEvents.createdAt, since),
+        ),
+      )
+      .groupBy(userEvents.scUserId)
+      .having(sql`COUNT(*) >= ${MIN_POSITIVE_PER_USER}`)
+      .orderBy(desc(count()))
+      .limit(MAX_USERS);
 
     if (!userCounts.length) {
       this.logger.warn('[ltr.train] no active users');
@@ -149,17 +127,14 @@ export class LtrTrainerService implements OnModuleInit {
 
   private async buildUserExamples(
     scUserId: string,
-    since: Date,
+    _since: Date,
     group: number,
   ): Promise<Array<{ group: number; label: number; features: number[] }>> {
-    // Берём события юзера за окно, дедуплицируем по треку (берём максимальный label).
-    const events = await this.events.find({
-      where: {
-        scUserId,
-        eventType: In(ALL_TYPES),
-      },
-      select: ['scTrackId', 'eventType'],
-    });
+    const events = await this.db
+      .select({ scTrackId: userEvents.scTrackId, eventType: userEvents.eventType })
+      .from(userEvents)
+      .where(and(eq(userEvents.scUserId, scUserId), inArray(userEvents.eventType, ALL_TYPES)));
+
     const labelByTrack = new Map<string, number>();
     for (const e of events) {
       const lab = LABELS[e.eventType];
@@ -170,22 +145,19 @@ export class LtrTrainerService implements OnModuleInit {
 
     if (labelByTrack.size < 3) return [];
 
-    // Фолбэк негативы: если у юзера нет skip-ов, добавим случайные «холодные» треки.
     const hasNegatives = [...labelByTrack.values()].some((v) => v === 0);
     if (!hasNegatives) {
-      const random = await this.tracksRepo
-        .createQueryBuilder('t')
-        .select('t.scTrackId', 'scTrackId')
-        .where('t.indexedAt IS NOT NULL')
-        .orderBy('RANDOM()')
-        .limit(MIN_NEGATIVES_PER_USER)
-        .getRawMany<{ scTrackId: string }>();
+      const random = await this.db
+        .select({ scTrackId: indexedTracks.scTrackId })
+        .from(indexedTracks)
+        .where(isNotNull(indexedTracks.indexedAt))
+        .orderBy(sql`RANDOM()`)
+        .limit(MIN_NEGATIVES_PER_USER);
       for (const r of random) {
         if (!labelByTrack.has(r.scTrackId)) labelByTrack.set(r.scTrackId, 0);
       }
     }
 
-    // user_collab вектор (mean last N likes) — фиксируется как «вкус юзера на момент train».
     const userCollab = await this.collab.getUserVector(scUserId);
     const userTasteId = userIdToQdrantId(scUserId);
     const [userMert, userClap, userLyrics] = await Promise.all([
@@ -203,7 +175,6 @@ export class LtrTrainerService implements OnModuleInit {
     const trackVecs = await this.loadTrackVectors(numericIds);
     if (!trackVecs.size) return [];
 
-    // Языковые предпочтения юзера = языки лайкнутых треков (mode-pick).
     const userLangs = await this.detectUserLanguages(scUserId);
 
     const cMert = this.centroids.get('tracks_mert');
@@ -227,19 +198,20 @@ export class LtrTrainerService implements OnModuleInit {
   }
 
   private async detectUserLanguages(scUserId: string): Promise<Set<string>> {
-    // Берём top-3 языка по позитивным трекам юзера (последние 50 лайков).
-    const events = await this.events.find({
-      where: { scUserId, eventType: In(POSITIVE_TYPES) },
-      order: { createdAt: 'DESC' },
-      take: 50,
-      select: ['scTrackId'],
-    });
+    const events = await this.db
+      .select({ scTrackId: userEvents.scTrackId })
+      .from(userEvents)
+      .where(
+        and(eq(userEvents.scUserId, scUserId), inArray(userEvents.eventType, POSITIVE_TYPES)),
+      )
+      .orderBy(desc(userEvents.createdAt))
+      .limit(50);
     if (!events.length) return new Set();
     const ids = events.map((e) => e.scTrackId);
-    const tracks = await this.tracksRepo.find({
-      where: { scTrackId: In(ids) },
-      select: ['language'],
-    });
+    const tracks = await this.db
+      .select({ language: indexedTracks.language })
+      .from(indexedTracks)
+      .where(inArray(indexedTracks.scTrackId, ids));
     const counts = new Map<string, number>();
     for (const t of tracks) {
       const l = t.language;
@@ -261,10 +233,14 @@ export class LtrTrainerService implements OnModuleInit {
       this.retrieveBatch('tracks_clap', ids),
       this.retrieveBatch('tracks_lyrics', ids),
       this.collab.getTrackVectors(ids),
-      this.tracksRepo.find({
-        where: { scTrackId: In(ids.map(String)) },
-        select: ['scTrackId', 'rawScData', 'language'],
-      }),
+      this.db
+        .select({
+          scTrackId: indexedTracks.scTrackId,
+          rawScData: indexedTracks.rawScData,
+          language: indexedTracks.language,
+        })
+        .from(indexedTracks)
+        .where(inArray(indexedTracks.scTrackId, ids.map(String))),
     ]);
     const meta = new Map(tracks.map((t) => [t.scTrackId, t]));
     for (const id of ids) {

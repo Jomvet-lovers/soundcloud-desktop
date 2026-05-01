@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Session } from '../auth/entities/session.entity.js';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { desc } from 'drizzle-orm';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { sessions } from '../db/schema.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 
 @Injectable()
@@ -10,8 +11,7 @@ export class ResolveService {
 
   constructor(
     private readonly sc: SoundcloudService,
-    @InjectRepository(Session)
-    private readonly sessionRepo: Repository<Session>,
+    @Inject(DB) private readonly db: Database,
   ) {}
 
   async resolve(token: string, url: string): Promise<unknown> {
@@ -19,13 +19,12 @@ export class ResolveService {
   }
 
   async resolveWithRandomToken(url: string): Promise<unknown> {
-    const sessions = await this.sessionRepo.find({
-      select: ['accessToken'],
-      where: {},
-      order: { createdAt: 'DESC' },
-    });
+    const rows = await this.db
+      .select({ accessToken: sessions.accessToken })
+      .from(sessions)
+      .orderBy(desc(sessions.createdAt));
 
-    for (const session of sessions) {
+    for (const session of rows) {
       if (!session.accessToken) continue;
       try {
         return await this.sc.apiGet('/resolve', session.accessToken, { url });

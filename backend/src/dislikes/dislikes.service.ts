@@ -1,16 +1,16 @@
 import { forwardRef, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, Repository } from 'typeorm';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { AuthService } from '../auth/auth.service.js';
 import { normalizeScTrackId } from '../common/sc-ids.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { dislikedTracks } from '../db/schema.js';
 import { EventsService } from '../events/events.service.js';
-import { DislikedTrack } from './entities/disliked-track.entity.js';
 
 @Injectable()
 export class DislikesService {
   constructor(
-    @InjectRepository(DislikedTrack)
-    private readonly repo: Repository<DislikedTrack>,
+    @Inject(DB) private readonly db: Database,
     private readonly authService: AuthService,
     @Inject(forwardRef(() => EventsService))
     private readonly events: EventsService,
@@ -32,11 +32,14 @@ export class DislikesService {
     const id = normalizeScTrackId(scTrackId);
     if (!id) return { status: 'invalid' };
     const scUserId = await this.getScUserId(sessionId);
-    const existing = await this.repo.findOne({ where: { scUserId, scTrackId: id } });
-    if (!existing) {
-      await this.repo.save(
-        this.repo.create({ scUserId, scTrackId: id, trackData: trackData ?? null }),
-      );
+
+    const inserted = await this.db
+      .insert(dislikedTracks)
+      .values({ scUserId, scTrackId: id, trackData: trackData ?? null })
+      .onConflictDoNothing({ target: [dislikedTracks.scUserId, dislikedTracks.scTrackId] })
+      .returning({ id: dislikedTracks.id });
+
+    if (inserted.length > 0) {
       await this.events.record(scUserId, id, 'dislike');
     }
     return { status: 'ok' };
@@ -46,7 +49,9 @@ export class DislikesService {
     const id = normalizeScTrackId(scTrackId);
     if (!id) return { status: 'invalid' };
     const scUserId = await this.getScUserId(sessionId);
-    await this.repo.delete({ scUserId, scTrackId: id });
+    await this.db
+      .delete(dislikedTracks)
+      .where(and(eq(dislikedTracks.scUserId, scUserId), eq(dislikedTracks.scTrackId, id)));
     return { status: 'removed' };
   }
 
@@ -54,13 +59,17 @@ export class DislikesService {
     const id = normalizeScTrackId(scTrackId);
     if (!id) return false;
     const scUserId = await this.getScUserId(sessionId);
-    return !!(await this.repo.findOne({ where: { scUserId, scTrackId: id } }));
+    return this.isDislikedByUserId(scUserId, id);
   }
 
   async isDislikedByUserId(scUserId: string, scTrackId: string): Promise<boolean> {
     const id = normalizeScTrackId(scTrackId);
     if (!id) return false;
-    return !!(await this.repo.findOne({ where: { scUserId, scTrackId: id } }));
+    const row = await this.db.query.dislikedTracks.findFirst({
+      where: and(eq(dislikedTracks.scUserId, scUserId), eq(dislikedTracks.scTrackId, id)),
+      columns: { id: true },
+    });
+    return !!row;
   }
 
   async getDislikedTrackIds(sessionId: string, scTrackIds: string[]): Promise<Set<string>> {
@@ -70,20 +79,22 @@ export class DislikesService {
       .filter((id): id is string => !!id);
     if (normalized.length === 0) return new Set();
     const scUserId = await this.getScUserId(sessionId);
-    const items = await this.repo.find({
-      select: { scTrackId: true },
-      where: { scUserId, scTrackId: In(normalized) },
-    });
+    const items = await this.db
+      .select({ scTrackId: dislikedTracks.scTrackId })
+      .from(dislikedTracks)
+      .where(
+        and(eq(dislikedTracks.scUserId, scUserId), inArray(dislikedTracks.scTrackId, normalized)),
+      );
     return new Set(items.map((item) => item.scTrackId));
   }
 
   async listIdsByUserId(scUserId: string, limit = 200): Promise<string[]> {
-    const items = await this.repo.find({
-      select: { scTrackId: true },
-      where: { scUserId },
-      order: { createdAt: 'DESC' },
-      take: limit,
-    });
+    const items = await this.db
+      .select({ scTrackId: dislikedTracks.scTrackId })
+      .from(dislikedTracks)
+      .where(eq(dislikedTracks.scUserId, scUserId))
+      .orderBy(desc(dislikedTracks.createdAt))
+      .limit(limit);
     return items.map((item) => item.scTrackId);
   }
 
@@ -98,15 +109,16 @@ export class DislikesService {
     cursor?: string,
   ): Promise<{ collection: Record<string, unknown>[]; next_href: string | null }> {
     const scUserId = await this.getScUserId(sessionId);
-    const where: Record<string, unknown> = { scUserId };
-    if (cursor) {
-      where.createdAt = LessThan(new Date(cursor));
-    }
-    const items = await this.repo.find({
-      where,
-      order: { createdAt: 'DESC' },
-      take: limit + 1,
-    });
+    const conds = [eq(dislikedTracks.scUserId, scUserId)];
+    if (cursor) conds.push(lt(dislikedTracks.createdAt, new Date(cursor)));
+
+    const items = await this.db
+      .select()
+      .from(dislikedTracks)
+      .where(and(...conds))
+      .orderBy(desc(dislikedTracks.createdAt))
+      .limit(limit + 1);
+
     const hasMore = items.length > limit;
     const collection = items.slice(0, limit);
     return {

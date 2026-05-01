@@ -1,10 +1,11 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
+import { asc, count, eq, sql } from 'drizzle-orm';
 import { firstValueFrom } from 'rxjs';
-import { Repository } from 'typeorm';
-import { OAuthApp } from './entities/oauth-app.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { type OAuthApp, oauthApps } from '../db/schema.js';
 
 @Injectable()
 export class OAuthAppsService implements OnModuleInit {
@@ -13,8 +14,7 @@ export class OAuthAppsService implements OnModuleInit {
   private readonly telegramChatId: string;
 
   constructor(
-    @InjectRepository(OAuthApp)
-    private readonly repo: Repository<OAuthApp>,
+    @Inject(DB) private readonly db: Database,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
@@ -24,80 +24,76 @@ export class OAuthAppsService implements OnModuleInit {
 
   async onModuleInit() {
     await this.migrateEnvApp();
-    const total = await this.repo.count({ where: { active: true } });
+    const total = await this.countActive();
     this.logger.log(`Active OAuth apps: ${total}`);
   }
 
-  /**
-   * Если в БД нет ни одной аппки, создаёт одну из env-переменных (обратная совместимость)
-   */
   private async migrateEnvApp() {
-    const count = await this.repo.count();
-    if (count > 0) return;
+    const total = await this.db.select({ n: count() }).from(oauthApps);
+    if ((total[0]?.n ?? 0) > 0) return;
 
     const clientId = this.configService.get<string>('soundcloud.clientId');
     const clientSecret = this.configService.get<string>('soundcloud.clientSecret');
     const redirectUri = this.configService.get<string>('soundcloud.redirectUri');
 
     if (clientId && clientSecret) {
-      const app = this.repo.create({
+      await this.db.insert(oauthApps).values({
         name: 'default',
         clientId,
         clientSecret,
         redirectUri: redirectUri || 'http://localhost:3000/auth/callback',
         active: true,
       });
-      await this.repo.save(app);
       this.logger.log('Migrated env OAuth credentials to oauth_apps table');
     }
   }
 
-  /** Есть ли хотя бы одна активная аппка (без побочных эффектов). */
-  async hasActiveApp(): Promise<boolean> {
-    const count = await this.repo.count({ where: { active: true } });
-    return count > 0;
+  private async countActive(): Promise<number> {
+    const rows = await this.db
+      .select({ n: count() })
+      .from(oauthApps)
+      .where(eq(oauthApps.active, true));
+    return rows[0]?.n ?? 0;
   }
 
-  /**
-   * Атомарно выбирает активную аппку, у которой `lastUsedAt` самый старый
-   * (NULL — наивысший приоритет, такие никогда не использовались), и сразу
-   * проставляет её `lastUsedAt = now()`. Это размазывает логины по аппкам
-   * и помогает обходить per-app rate limit'ы SoundCloud.
-   *
-   * `FOR UPDATE SKIP LOCKED` гарантирует, что параллельные логины возьмут
-   * разные строки, а не одну и ту же.
-   */
+  async hasActiveApp(): Promise<boolean> {
+    return (await this.countActive()) > 0;
+  }
+
   async pickLeastRecentlyUsedApp(): Promise<OAuthApp> {
-    return this.repo.manager.transaction(async (em) => {
-      const app = await em
-        .createQueryBuilder(OAuthApp, 'app')
-        .where('app.active = :active', { active: true })
-        .orderBy('app.lastUsedAt', 'ASC', 'NULLS FIRST')
-        .addOrderBy('app.createdAt', 'ASC')
-        .setLock('pessimistic_write')
-        .setOnLocked('skip_locked')
-        .getOne();
+    return this.db.transaction(async (tx) => {
+      const [app] = await tx
+        .select()
+        .from(oauthApps)
+        .where(eq(oauthApps.active, true))
+        .orderBy(sql`${oauthApps.lastUsedAt} ASC NULLS FIRST`, asc(oauthApps.createdAt))
+        .limit(1)
+        .for('update', { skipLocked: true });
+
       if (!app) {
         throw new NotFoundException('No active OAuth apps available');
       }
-      app.lastUsedAt = new Date();
-      await em.save(app);
-      this.logger.log(`Picked OAuth app "${app.name}" (${app.id}) — lastUsedAt updated`);
-      return app;
+
+      const [updated] = await tx
+        .update(oauthApps)
+        .set({ lastUsedAt: new Date() })
+        .where(eq(oauthApps.id, app.id))
+        .returning();
+
+      this.logger.log(`Picked OAuth app "${updated.name}" (${updated.id}) — lastUsedAt updated`);
+      return updated;
     });
   }
 
-  /** Получить аппку по ID (для token exchange/refresh) */
   async getById(id: string): Promise<OAuthApp | null> {
-    return this.repo.findOne({ where: { id } });
+    const row = await this.db.query.oauthApps.findFirst({ where: eq(oauthApps.id, id) });
+    return row ?? null;
   }
 
-  /** Все аппки */
   async findAll(): Promise<OAuthApp[]> {
-    return this.repo.find({ order: { createdAt: 'ASC' } });
+    return this.db.select().from(oauthApps).orderBy(asc(oauthApps.createdAt));
   }
 
-  /** Создать новую аппку */
   async create(data: {
     name: string;
     clientId: string;
@@ -105,34 +101,35 @@ export class OAuthAppsService implements OnModuleInit {
     redirectUri: string;
     active?: boolean;
   }): Promise<OAuthApp> {
-    const app = this.repo.create({ ...data, active: data.active !== false });
-    return this.repo.save(app);
+    const [row] = await this.db
+      .insert(oauthApps)
+      .values({ ...data, active: data.active !== false })
+      .returning();
+    return row;
   }
 
-  /** Обновить аппку */
   async update(
     id: string,
     data: Partial<Pick<OAuthApp, 'name' | 'clientId' | 'clientSecret' | 'redirectUri' | 'active'>>,
   ): Promise<OAuthApp> {
-    const app = await this.repo.findOne({ where: { id } });
-    if (!app) throw new NotFoundException('OAuth app not found');
-    Object.assign(app, data);
-    return this.repo.save(app);
+    const [row] = await this.db
+      .update(oauthApps)
+      .set(data)
+      .where(eq(oauthApps.id, id))
+      .returning();
+    if (!row) throw new NotFoundException('OAuth app not found');
+    return row;
   }
 
-  /** Удалить аппку */
   async remove(id: string): Promise<void> {
-    await this.repo.delete(id);
+    await this.db.delete(oauthApps).where(eq(oauthApps.id, id));
   }
-
-  // ─── Telegram ────────────────────────────────────────────
 
   private async sendTelegramAlert(text: string): Promise<void> {
     if (!this.telegramBotToken || !this.telegramChatId) {
       this.logger.warn('Telegram not configured, skipping alert');
       return;
     }
-
     try {
       await firstValueFrom(
         this.httpService.post(`https://api.telegram.org/bot${this.telegramBotToken}/sendMessage`, {
@@ -147,7 +144,6 @@ export class OAuthAppsService implements OnModuleInit {
     }
   }
 
-  /** Общий алерт (можно использовать для любых уведомлений) */
   async notify(text: string): Promise<void> {
     await this.sendTelegramAlert(text);
   }

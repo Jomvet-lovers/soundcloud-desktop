@@ -1,35 +1,17 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThanOrEqual, Repository } from 'typeorm';
+import { asc, gte } from 'drizzle-orm';
 import { NatsService } from '../bus/nats.service.js';
 import { SUBJECTS } from '../bus/subjects.js';
-import { UserEvent } from '../events/entities/user-event.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { userEvents } from '../db/schema.js';
 import { CollabVectorService } from './collab-vector.service.js';
 
-/**
- * Сборка сессий прослушивания и отправка в воркер для тренировки item2vec.
- *
- * Триггеры тренировки:
- *   1. Cron каждые COLLAB_CRON_HOURS часов (по умолчанию 6h).
- *   2. Auto-debounce: после N positive-событий с прошлой тренировки
- *      (COLLAB_TRIGGER_EVENTS, default 100) — фоном запускается trainNow.
- *      Это даёт быстрый отклик на «активный день» юзеров без ручных триггеров.
- *   3. Bootstrap при старте: если tracks_collab коллекции ещё нет, а сессий
- *      хватает — тренируем сразу (с задержкой 30с чтобы NATS успел подняться).
- *
- * Сессия = последовательность positive/skip-событий одного юзера, разделённых
- * паузой ≤30 минут. Для item2vec лучше брать ВСЕ события (не только positive),
- * т.к. сама последовательность прослушивания «треки слушают вместе» — это сигнал
- * сходства независимо от того like юзер поставил или просто играл.
- */
 const SESSION_GAP_MS = 30 * 60 * 1000;
 const MIN_SESSION_LEN = 2;
 const MAX_SESSION_LEN = 200;
 const HISTORY_WINDOW_DAYS = 90;
-/** Минимум сессий для старта тренировки. По умолчанию низкий — на раннем тестовом
- *  инстансе 100 сессий не набирается, а без tracks_collab wave даже не поднимется
- *  на collab-ветку. Тюнится через COLLAB_MIN_SESSIONS. */
 const DEFAULT_MIN_SESSIONS = 20;
 
 const SESSION_EVENTS = new Set(['like', 'local_like', 'playlist_add', 'full_play', 'skip']);
@@ -42,15 +24,12 @@ export class CollabTrainerService implements OnModuleInit {
   private lastTrainAt = 0;
 
   constructor(
-    @InjectRepository(UserEvent)
-    private readonly events: Repository<UserEvent>,
+    @Inject(DB) private readonly db: Database,
     private readonly nats: NatsService,
     private readonly collab: CollabVectorService,
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Bootstrap: если коллекция collab ещё не существует — попробовать обучить
-    // через 30с после старта (даём NATS/воркеру время подняться).
     setTimeout(() => {
       void this.bootstrapIfNeeded();
     }, 30_000);
@@ -74,7 +53,6 @@ export class CollabTrainerService implements OnModuleInit {
     }
   }
 
-  /** По умолчанию каждые 6 часов. */
   @Cron(CronExpression.EVERY_6_HOURS)
   async scheduledTrain(): Promise<void> {
     if (process.env.COLLAB_AUTO_TRAIN === 'false') return;
@@ -83,11 +61,6 @@ export class CollabTrainerService implements OnModuleInit {
     );
   }
 
-  /**
-   * Уведомление о новом session-events событии. Вызывается из EventsService
-   * на каждое positive/skip/full_play. Когда накопилось ≥ COLLAB_TRIGGER_EVENTS
-   * с прошлой тренировки — фоном запускаем trainNow (debounced cooldown 10 мин).
-   */
   noteEvent(): void {
     this.eventCounter++;
     const threshold = Number.parseInt(process.env.COLLAB_TRIGGER_EVENTS ?? '100', 10);
@@ -102,7 +75,6 @@ export class CollabTrainerService implements OnModuleInit {
     );
   }
 
-  /** Ручной запуск. Идемпотентен (не запускает второй параллельно). */
   async trainNow(opts: { dim?: number; minCount?: number } = {}): Promise<{
     enqueued: boolean;
     sessions: number;
@@ -140,8 +112,6 @@ export class CollabTrainerService implements OnModuleInit {
         epochs: 5,
         negative: 10,
       });
-      // Кеш юзеров инвалидируем после успешного train (его сообщит done.train_collab).
-      // Сейчас просто помечаем чтобы dim перепроверился.
       this.collab.invalidateAll();
       this.lastTrainAt = Date.now();
       return { enqueued: true, sessions: sessions.length };
@@ -150,19 +120,18 @@ export class CollabTrainerService implements OnModuleInit {
     }
   }
 
-  /**
-   * Собирает сессии из user_events: события одного юзера в хронологическом
-   * порядке, разделённые гэпом > SESSION_GAP_MS, считаются разными сессиями.
-   * Дубликаты track_id внутри сессии убираем (повторное прослушивание не несёт
-   * дополнительной информации для co-listen сигнала).
-   */
   private async buildSessions(): Promise<number[][]> {
     const since = new Date(Date.now() - HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    const rows = await this.events.find({
-      where: { createdAt: MoreThanOrEqual(since) },
-      order: { scUserId: 'ASC', createdAt: 'ASC' },
-      select: ['scUserId', 'scTrackId', 'createdAt', 'eventType'],
-    });
+    const rows = await this.db
+      .select({
+        scUserId: userEvents.scUserId,
+        scTrackId: userEvents.scTrackId,
+        createdAt: userEvents.createdAt,
+        eventType: userEvents.eventType,
+      })
+      .from(userEvents)
+      .where(gte(userEvents.createdAt, since))
+      .orderBy(asc(userEvents.scUserId), asc(userEvents.createdAt));
 
     const sessions: number[][] = [];
     let currentUser: string | null = null;

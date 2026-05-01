@@ -1,11 +1,26 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AxiosError } from 'axios';
-import { Repository } from 'typeorm';
+import { and, asc, count, eq } from 'drizzle-orm';
 import { AuthService } from '../auth/auth.service.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { type PendingAction, pendingActions } from '../db/schema.js';
 import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
-import { type ActionType, PendingAction } from './entities/pending-action.entity.js';
+
+export type ActionType =
+  | 'like'
+  | 'unlike'
+  | 'repost'
+  | 'unrepost'
+  | 'comment'
+  | 'playlist_create'
+  | 'playlist_update'
+  | 'playlist_delete'
+  | 'like_playlist'
+  | 'unlike_playlist'
+  | 'repost_playlist'
+  | 'unrepost_playlist';
 
 const MAX_RETRIES = 5;
 const SYNC_INTERVAL_MS = 60 * 1000;
@@ -16,8 +31,7 @@ export class PendingActionsService {
   private syncTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    @InjectRepository(PendingAction)
-    private readonly repo: Repository<PendingAction>,
+    @Inject(DB) private readonly db: Database,
     private readonly sc: SoundcloudService,
     private readonly authService: AuthService,
     private readonly oauthAppsService: OAuthAppsService,
@@ -33,15 +47,9 @@ export class PendingActionsService {
   }
 
   onModuleDestroy() {
-    if (this.syncTimer) {
-      clearInterval(this.syncTimer);
-    }
+    if (this.syncTimer) clearInterval(this.syncTimer);
   }
 
-  /**
-   * Проверяет, является ли ошибка баном (403 CloudFront).
-   * Если да — экшен можно закинуть в очередь.
-   */
   isBanError(error: unknown): boolean {
     if (error instanceof AxiosError && error.response) {
       const { status, data } = error.response;
@@ -57,67 +65,78 @@ export class PendingActionsService {
     return false;
   }
 
-  /** Добавить действие в очередь */
   async enqueue(
     sessionId: string,
     actionType: ActionType,
     targetUrn: string,
     payload?: Record<string, unknown> | null,
   ): Promise<PendingAction> {
-    // Дедупликация: если уже есть pending action с таким же типом и целью — обновить
-    const existing = await this.repo.findOne({
-      where: { sessionId, actionType, targetUrn, status: 'pending' },
+    const existing = await this.db.query.pendingActions.findFirst({
+      where: and(
+        eq(pendingActions.sessionId, sessionId),
+        eq(pendingActions.actionType, actionType),
+        eq(pendingActions.targetUrn, targetUrn),
+        eq(pendingActions.status, 'pending'),
+      ),
     });
 
     if (existing) {
-      existing.payload = payload ?? existing.payload;
-      existing.retryCount = 0;
-      existing.error = null;
-      return this.repo.save(existing);
+      const [updated] = await this.db
+        .update(pendingActions)
+        .set({
+          payload: payload ?? existing.payload,
+          retryCount: 0,
+          error: null,
+        })
+        .where(eq(pendingActions.id, existing.id))
+        .returning();
+      return updated;
     }
 
-    const action = this.repo.create({
-      sessionId,
-      actionType,
-      targetUrn,
-      payload: payload ?? null,
-      status: 'pending',
-    });
-    const saved = await this.repo.save(action);
+    const [saved] = await this.db
+      .insert(pendingActions)
+      .values({
+        sessionId,
+        actionType,
+        targetUrn,
+        payload: payload ?? null,
+        status: 'pending',
+      })
+      .returning();
     this.logger.log(`Enqueued: ${actionType} ${targetUrn} for session ${sessionId.slice(0, 8)}...`);
     return saved;
   }
 
-  /** Получить pending actions для сессии */
   async getForSession(sessionId: string): Promise<PendingAction[]> {
-    return this.repo.find({
-      where: { sessionId, status: 'pending' },
-      order: { createdAt: 'ASC' },
-    });
+    return this.db
+      .select()
+      .from(pendingActions)
+      .where(and(eq(pendingActions.sessionId, sessionId), eq(pendingActions.status, 'pending')))
+      .orderBy(asc(pendingActions.createdAt));
   }
 
-  /** Статистика pending actions для сессии */
   async getStats(sessionId: string): Promise<{ pending: number; failed: number }> {
-    const [pending, failed] = await Promise.all([
-      this.repo.count({ where: { sessionId, status: 'pending' } }),
-      this.repo.count({ where: { sessionId, status: 'failed' } }),
-    ]);
+    const countWhere = (status: 'pending' | 'failed') =>
+      this.db
+        .select({ n: count() })
+        .from(pendingActions)
+        .where(and(eq(pendingActions.sessionId, sessionId), eq(pendingActions.status, status)))
+        .then((r) => r[0]?.n ?? 0);
+    const [pending, failed] = await Promise.all([countWhere('pending'), countWhere('failed')]);
     return { pending, failed };
   }
 
-  /** Синхронизировать все pending actions */
   async syncAll(): Promise<{ synced: number; failed: number }> {
-    // Проверяем, есть ли вообще активные аппки
     if (!(await this.oauthAppsService.hasActiveApp())) {
-      // Нет активных аппок — пропускаем sync
       return { synced: 0, failed: 0 };
     }
 
-    const actions = await this.repo.find({
-      where: { status: 'pending' },
-      order: { createdAt: 'ASC' },
-      take: 50,
-    });
+    const actions = await this.db
+      .select()
+      .from(pendingActions)
+      .where(eq(pendingActions.status, 'pending'))
+      .orderBy(asc(pendingActions.createdAt))
+      .limit(50);
 
     if (actions.length === 0) return { synced: 0, failed: 0 };
 
@@ -127,65 +146,67 @@ export class PendingActionsService {
     let failed = 0;
 
     for (const action of actions) {
+      const update: Partial<PendingAction> = {};
       try {
         await this.executeAction(action);
-        action.status = 'done';
+        update.status = 'done';
         synced++;
       } catch (err: any) {
         if (this.isBanError(err)) {
-          // Все ещё забанены — не увеличиваем retry, просто пропускаем
           this.logger.warn(
             `Still banned, skipping sync for ${action.actionType} ${action.targetUrn}`,
           );
-          break; // Не продолжаем — всё равно забанены
+          break;
         }
-
-        action.retryCount++;
-        action.error = err.message?.slice(0, 500) ?? 'Unknown error';
-
-        if (action.retryCount >= MAX_RETRIES) {
-          action.status = 'failed';
+        update.retryCount = action.retryCount + 1;
+        update.error = err.message?.slice(0, 500) ?? 'Unknown error';
+        if ((update.retryCount ?? 0) >= MAX_RETRIES) {
+          update.status = 'failed';
           failed++;
           this.logger.warn(`Action failed permanently: ${action.actionType} ${action.targetUrn}`);
         }
       }
-
-      await this.repo.save(action);
+      await this.db
+        .update(pendingActions)
+        .set(update)
+        .where(eq(pendingActions.id, action.id));
     }
 
     if (synced > 0) {
       this.logger.log(`Sync complete: ${synced} synced, ${failed} failed`);
     }
-
     return { synced, failed };
   }
 
-  /** Ручной sync для конкретной сессии */
   async syncForSession(sessionId: string): Promise<{ synced: number; failed: number }> {
-    const actions = await this.repo.find({
-      where: { sessionId, status: 'pending' },
-      order: { createdAt: 'ASC' },
-    });
+    const actions = await this.db
+      .select()
+      .from(pendingActions)
+      .where(and(eq(pendingActions.sessionId, sessionId), eq(pendingActions.status, 'pending')))
+      .orderBy(asc(pendingActions.createdAt));
 
     let synced = 0;
     let failed = 0;
 
     for (const action of actions) {
+      const update: Partial<PendingAction> = {};
       try {
         await this.executeAction(action);
-        action.status = 'done';
+        update.status = 'done';
         synced++;
       } catch (err: any) {
         if (this.isBanError(err)) break;
-
-        action.retryCount++;
-        action.error = err.message?.slice(0, 500) ?? 'Unknown error';
-        if (action.retryCount >= MAX_RETRIES) {
-          action.status = 'failed';
+        update.retryCount = action.retryCount + 1;
+        update.error = err.message?.slice(0, 500) ?? 'Unknown error';
+        if ((update.retryCount ?? 0) >= MAX_RETRIES) {
+          update.status = 'failed';
           failed++;
         }
       }
-      await this.repo.save(action);
+      await this.db
+        .update(pendingActions)
+        .set(update)
+        .where(eq(pendingActions.id, action.id));
     }
 
     return { synced, failed };
@@ -194,7 +215,7 @@ export class PendingActionsService {
   private async executeAction(action: PendingAction): Promise<void> {
     const token = await this.authService.getValidAccessToken(action.sessionId);
 
-    switch (action.actionType) {
+    switch (action.actionType as ActionType) {
       case 'like':
         await this.sc.apiPost(`/likes/tracks/${action.targetUrn}`, token);
         break;

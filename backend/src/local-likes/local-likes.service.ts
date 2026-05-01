@@ -1,14 +1,14 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, Repository } from 'typeorm';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { AuthService } from '../auth/auth.service.js';
-import { LocalLike } from './entities/local-like.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { localLikes } from '../db/schema.js';
 
 @Injectable()
 export class LocalLikesService {
   constructor(
-    @InjectRepository(LocalLike)
-    private readonly repo: Repository<LocalLike>,
+    @Inject(DB) private readonly db: Database,
     private readonly authService: AuthService,
   ) {}
 
@@ -26,15 +26,19 @@ export class LocalLikesService {
     trackData: Record<string, unknown>,
   ): Promise<void> {
     const soundcloudUserId = await this.getScUserId(sessionId);
-    const existing = await this.repo.findOne({ where: { soundcloudUserId, scTrackId } });
-    if (existing) return;
-    const entity = this.repo.create({ soundcloudUserId, scTrackId, trackData });
-    await this.repo.save(entity);
+    await this.db
+      .insert(localLikes)
+      .values({ soundcloudUserId, scTrackId, trackData })
+      .onConflictDoNothing({ target: [localLikes.soundcloudUserId, localLikes.scTrackId] });
   }
 
   async remove(sessionId: string, scTrackId: string): Promise<void> {
     const soundcloudUserId = await this.getScUserId(sessionId);
-    await this.repo.delete({ soundcloudUserId, scTrackId });
+    await this.db
+      .delete(localLikes)
+      .where(
+        and(eq(localLikes.soundcloudUserId, soundcloudUserId), eq(localLikes.scTrackId, scTrackId)),
+      );
   }
 
   async findAll(
@@ -43,16 +47,15 @@ export class LocalLikesService {
     cursor?: string,
   ): Promise<{ collection: Record<string, unknown>[]; next_href: string | null }> {
     const soundcloudUserId = await this.getScUserId(sessionId);
-    const where: Record<string, unknown> = { soundcloudUserId };
-    if (cursor) {
-      where.createdAt = LessThan(new Date(cursor));
-    }
+    const conds = [eq(localLikes.soundcloudUserId, soundcloudUserId)];
+    if (cursor) conds.push(lt(localLikes.createdAt, new Date(cursor)));
 
-    const items = await this.repo.find({
-      where,
-      order: { createdAt: 'DESC' },
-      take: limit + 1,
-    });
+    const items = await this.db
+      .select()
+      .from(localLikes)
+      .where(and(...conds))
+      .orderBy(desc(localLikes.createdAt))
+      .limit(limit + 1);
 
     const hasMore = items.length > limit;
     const collection = items.slice(0, limit);
@@ -67,23 +70,29 @@ export class LocalLikesService {
 
   async isLiked(sessionId: string, scTrackId: string): Promise<boolean> {
     const soundcloudUserId = await this.getScUserId(sessionId);
-    return !!(await this.repo.findOne({ where: { soundcloudUserId, scTrackId } }));
+    const row = await this.db.query.localLikes.findFirst({
+      where: and(
+        eq(localLikes.soundcloudUserId, soundcloudUserId),
+        eq(localLikes.scTrackId, scTrackId),
+      ),
+      columns: { id: true },
+    });
+    return !!row;
   }
 
   async getLikedTrackIds(sessionId: string, scTrackIds: string[]): Promise<Set<string>> {
-    if (scTrackIds.length === 0) {
-      return new Set();
-    }
+    if (scTrackIds.length === 0) return new Set();
 
     const soundcloudUserId = await this.getScUserId(sessionId);
-    const items = await this.repo.find({
-      select: { scTrackId: true },
-      where: {
-        soundcloudUserId,
-        scTrackId: In(scTrackIds),
-      },
-    });
-
+    const items = await this.db
+      .select({ scTrackId: localLikes.scTrackId })
+      .from(localLikes)
+      .where(
+        and(
+          eq(localLikes.soundcloudUserId, soundcloudUserId),
+          inArray(localLikes.scTrackId, scTrackIds),
+        ),
+      );
     return new Set(items.map((item) => item.scTrackId));
   }
 }

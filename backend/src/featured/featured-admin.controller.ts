@@ -20,8 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
-import type { FeaturedItemType } from './entities/featured-item.entity.js';
-import { FeaturedService } from './featured.service.js';
+import { FeaturedService, type FeaturedItemType } from './featured.service.js';
 
 class CreateFeaturedDto {
   @ApiProperty({ example: 'track', enum: ['track', 'playlist', 'user'] })

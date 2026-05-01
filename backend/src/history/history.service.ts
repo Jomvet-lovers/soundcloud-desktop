@@ -1,14 +1,14 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { and, count, desc, eq, gt } from 'drizzle-orm';
 import { AuthService } from '../auth/auth.service.js';
-import { ListeningHistory } from './entities/listening-history.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { type ListeningHistory, listeningHistory } from '../db/schema.js';
 
 @Injectable()
 export class HistoryService {
   constructor(
-    @InjectRepository(ListeningHistory)
-    private readonly repo: Repository<ListeningHistory>,
+    @Inject(DB) private readonly db: Database,
     private readonly authService: AuthService,
   ) {}
 
@@ -33,22 +33,17 @@ export class HistoryService {
   ): Promise<void> {
     const soundcloudUserId = await this.getScUserId(sessionId);
 
-    // Dedup: same track <60s ago → skip
-    const recent = await this.repo.findOne({
-      where: {
-        soundcloudUserId,
-        scTrackId: data.scTrackId,
-        playedAt: MoreThan(new Date(Date.now() - 60_000)),
-      },
-      order: { playedAt: 'DESC' },
+    const recent = await this.db.query.listeningHistory.findFirst({
+      where: and(
+        eq(listeningHistory.soundcloudUserId, soundcloudUserId),
+        eq(listeningHistory.scTrackId, data.scTrackId),
+        gt(listeningHistory.playedAt, new Date(Date.now() - 60_000)),
+      ),
+      orderBy: desc(listeningHistory.playedAt),
     });
     if (recent) return;
 
-    const entry = this.repo.create({
-      soundcloudUserId,
-      ...data,
-    });
-    await this.repo.save(entry);
+    await this.db.insert(listeningHistory).values({ soundcloudUserId, ...data });
   }
 
   async findAll(
@@ -57,17 +52,25 @@ export class HistoryService {
     offset: number,
   ): Promise<{ collection: ListeningHistory[]; total: number }> {
     const soundcloudUserId = await this.getScUserId(sessionId);
-    const [collection, total] = await this.repo.findAndCount({
-      where: { soundcloudUserId },
-      order: { playedAt: 'DESC' },
-      take: limit,
-      skip: offset,
-    });
-    return { collection, total };
+    const where = eq(listeningHistory.soundcloudUserId, soundcloudUserId);
+
+    const [collection, totalRows] = await Promise.all([
+      this.db
+        .select()
+        .from(listeningHistory)
+        .where(where)
+        .orderBy(desc(listeningHistory.playedAt))
+        .limit(limit)
+        .offset(offset),
+      this.db.select({ n: count() }).from(listeningHistory).where(where),
+    ]);
+    return { collection, total: totalRows[0]?.n ?? 0 };
   }
 
   async clear(sessionId: string): Promise<void> {
     const soundcloudUserId = await this.getScUserId(sessionId);
-    await this.repo.delete({ soundcloudUserId });
+    await this.db
+      .delete(listeningHistory)
+      .where(eq(listeningHistory.soundcloudUserId, soundcloudUserId));
   }
 }

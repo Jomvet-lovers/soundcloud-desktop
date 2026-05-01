@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { In, IsNull, Not, Repository } from 'typeorm';
+import { and, desc, inArray, isNotNull } from 'drizzle-orm';
 import { CentroidService } from '../centroids/centroid.service.js';
 import { CollabVectorService } from '../collab/collab-vector.service.js';
 import { userIdToQdrantId } from '../common/user-id.js';
-import { IndexedTrack } from '../indexing/entities/indexed-track.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { indexedTracks } from '../db/schema.js';
 import { LTR_FEATURE_COUNT, LtrService } from '../ltr/ltr.service.js';
 import { WorkerClient } from '../lyrics/worker.client.js';
 import { S3VerifierService } from './s3-verifier.service.js';
@@ -59,10 +60,8 @@ export class RecommendationsService {
   private readonly logger = new Logger(RecommendationsService.name);
 
   constructor(
-    @Inject('QDRANT_CLIENT')
-    private readonly qdrant: QdrantClient,
-    @InjectRepository(IndexedTrack)
-    private readonly tracksRepo: Repository<IndexedTrack>,
+    @Inject('QDRANT_CLIENT') private readonly qdrant: QdrantClient,
+    @Inject(DB) private readonly db: Database,
     private readonly worker: WorkerClient,
     private readonly s3: S3VerifierService,
     private readonly centroids: CentroidService,
@@ -637,10 +636,14 @@ export class RecommendationsService {
   ): Promise<RecommendResult[]> {
     if (!items.length) return [];
     const ids = items.map((it) => String(it.id));
-    const tracks = await this.tracksRepo.find({
-      where: { scTrackId: In(ids) },
-      select: ['scTrackId', 'rawScData', 'language'],
-    });
+    const tracks = await this.db
+      .select({
+        scTrackId: indexedTracks.scTrackId,
+        rawScData: indexedTracks.rawScData,
+        language: indexedTracks.language,
+      })
+      .from(indexedTracks)
+      .where(inArray(indexedTracks.scTrackId, ids));
     const byId = new Map(tracks.map((t) => [t.scTrackId, t]));
     const boost = this.popularityBoost;
     const userLangSet = new Set(userLanguages ?? []);
@@ -802,16 +805,16 @@ export class RecommendationsService {
     limit: number,
     languages?: string[],
   ): Promise<RecommendResult[]> {
-    const where: Record<string, unknown> = { indexedAt: Not(IsNull()) };
+    const conds = [isNotNull(indexedTracks.indexedAt)];
     if (languages?.length) {
-      where.language = In(languages);
+      conds.push(inArray(indexedTracks.language, languages));
     }
-    const tracks = await this.tracksRepo.find({
-      where,
-      order: { indexedAt: 'DESC' },
-      take: Math.max(limit * 3, 60),
-      select: ['scTrackId'],
-    });
+    const tracks = await this.db
+      .select({ scTrackId: indexedTracks.scTrackId })
+      .from(indexedTracks)
+      .where(and(...conds))
+      .orderBy(desc(indexedTracks.indexedAt))
+      .limit(Math.max(limit * 3, 60));
     return tracks
       .filter((t) => !exclude.includes(t.scTrackId))
       .slice(0, limit)

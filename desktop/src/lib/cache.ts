@@ -57,12 +57,39 @@ export function getCacheSize(): Promise<number> {
   return invoke<number>('track_cache_size');
 }
 
+export function getLikedCacheSize(): Promise<number> {
+  return invoke<number>('track_liked_cache_size');
+}
+
 export function clearCache(): Promise<void> {
   return invoke('track_clear_cache');
 }
 
+export function clearLikedCache(): Promise<void> {
+  return invoke('track_clear_liked_cache');
+}
+
 export function listCachedUrns(): Promise<string[]> {
   return invoke<string[]>('track_list_cached');
+}
+
+export interface LikeCacheEntry {
+  urn: string;
+  urls: string[];
+  storageUrls: string[];
+  sessionId: string | null;
+}
+
+export function cacheLikedTracks(entries: LikeCacheEntry[]): Promise<void> {
+  return invoke('track_cache_likes', { entries });
+}
+
+export function isCacheLikesRunning(): Promise<boolean> {
+  return invoke<boolean>('track_cache_likes_running');
+}
+
+export function cancelCacheLikes(): Promise<void> {
+  return invoke('track_cancel_cache_likes');
 }
 
 export function enforceAudioCacheLimit(

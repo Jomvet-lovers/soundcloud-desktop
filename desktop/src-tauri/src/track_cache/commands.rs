@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::track_cache::state::{TrackCacheEntry, TrackCacheState};
+use crate::track_cache::state::{LikeCacheEntry, TrackCacheEntry, TrackCacheState};
 
 #[derive(serde::Deserialize)]
 pub struct PreloadEntry {
@@ -32,6 +32,7 @@ pub async fn track_ensure_cached(
             &fallback_urls,
             &storage_urls,
             session_id.as_deref(),
+            false,
         )
         .await
 }
@@ -89,6 +90,7 @@ pub async fn track_preload(
                     &fallback_urls,
                     &storage_urls,
                     session_id.as_deref(),
+                    false,
                 )
                 .await
             {
@@ -108,8 +110,18 @@ pub fn track_cache_size(state: State<'_, TrackCacheState>) -> u64 {
 }
 
 #[tauri::command]
+pub fn track_liked_cache_size(state: State<'_, TrackCacheState>) -> u64 {
+    state.liked_cache_size()
+}
+
+#[tauri::command]
 pub fn track_clear_cache(state: State<'_, TrackCacheState>) {
     state.clear_cache();
+}
+
+#[tauri::command]
+pub fn track_clear_liked_cache(state: State<'_, TrackCacheState>) {
+    state.clear_liked_cache();
 }
 
 #[tauri::command]
@@ -120,4 +132,28 @@ pub fn track_list_cached(state: State<'_, TrackCacheState>) -> Vec<String> {
 #[tauri::command]
 pub fn track_enforce_cache_limit(limit_mb: u64, state: State<'_, TrackCacheState>) {
     state.enforce_limit(limit_mb);
+}
+
+#[tauri::command]
+pub async fn track_cache_likes(
+    entries: Vec<LikeCacheEntry>,
+    state: State<'_, TrackCacheState>,
+) -> Result<(), String> {
+    let state = state.inner().clone();
+    tokio::spawn(async move {
+        if let Err(err) = state.cache_likes(entries).await {
+            eprintln!("[TrackCache] cache_likes error: {err}");
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn track_cache_likes_running(state: State<'_, TrackCacheState>) -> bool {
+    state.cache_likes_running()
+}
+
+#[tauri::command]
+pub fn track_cancel_cache_likes(state: State<'_, TrackCacheState>) {
+    state.cancel_cache_likes();
 }

@@ -34,6 +34,7 @@ RUN apt-get update \
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/drizzle ./drizzle
 COPY package.json ./
 COPY --from=gateway-builder /build/gateway/target/release/gateway /usr/local/bin/gateway
 

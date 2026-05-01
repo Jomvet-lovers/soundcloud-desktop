@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,15 +8,15 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { and, eq, lt } from 'drizzle-orm';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { loginRequests, sessions, type Session } from '../db/schema.js';
 import { isValidUuid } from '../common/uuid.js';
 import { OAuthAppsService } from '../oauth-apps/oauth-apps.service.js';
 import { type OAuthCredentials, SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import { ScMe } from '../soundcloud/soundcloud.types.js';
 import { REFRESH_BUFFER_MS } from './auth.constants.js';
-import { LoginRequest } from './entities/login-request.entity.js';
-import { Session } from './entities/session.entity.js';
 
 const LOGIN_REQUEST_TTL_MS = 15 * 60_000;
 
@@ -25,21 +26,18 @@ export class AuthService implements OnModuleInit {
   private readonly refreshInFlight = new Map<string, Promise<Session>>();
   private cleanupTimer?: ReturnType<typeof setInterval>;
 
+  constructor(
+    @Inject(DB) private readonly db: Database,
+    private readonly soundcloudService: SoundcloudService,
+    private readonly oauthAppsService: OAuthAppsService,
+    private readonly configService: ConfigService,
+  ) {}
+
   onModuleInit() {
     this.cleanupTimer = setInterval(() => {
       void this.cleanupExpiredLoginRequests();
     }, 60_000);
   }
-
-  constructor(
-    @InjectRepository(Session)
-    private readonly sessionRepo: Repository<Session>,
-    @InjectRepository(LoginRequest)
-    private readonly loginRequestRepo: Repository<LoginRequest>,
-    private readonly soundcloudService: SoundcloudService,
-    private readonly oauthAppsService: OAuthAppsService,
-    private readonly configService: ConfigService,
-  ) {}
 
   async initiateLogin(
     existingSessionId?: string,
@@ -71,7 +69,9 @@ export class AuthService implements OnModuleInit {
 
     let targetSessionId: string | null = null;
     if (existingSessionId) {
-      const existing = await this.sessionRepo.findOne({ where: { id: existingSessionId } });
+      const existing = await this.db.query.sessions.findFirst({
+        where: eq(sessions.id, existingSessionId),
+      });
       if (existing) {
         targetSessionId = existing.id;
         this.logger.log(`Re-auth flow for existing session ${existing.id}`);
@@ -82,15 +82,17 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    const loginRequest = this.loginRequestRepo.create({
-      state,
-      codeVerifier,
-      oauthAppId,
-      targetSessionId,
-      status: 'pending',
-      expiresAt: new Date(Date.now() + LOGIN_REQUEST_TTL_MS),
-    });
-    await this.loginRequestRepo.save(loginRequest);
+    const [loginRequest] = await this.db
+      .insert(loginRequests)
+      .values({
+        state,
+        codeVerifier,
+        oauthAppId,
+        targetSessionId,
+        status: 'pending',
+        expiresAt: new Date(Date.now() + LOGIN_REQUEST_TTL_MS),
+      })
+      .returning();
 
     this.logger.log(
       `LoginRequest created id=${loginRequest.id} state=${state.slice(0, 8)}… target=${targetSessionId ?? 'new'} expiresAt=${loginRequest.expiresAt.toISOString()}`,
@@ -111,19 +113,11 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  /**
-   * Принимает callback от SoundCloud и **сразу** возвращает информацию для рендера
-   * страницы. Реальный обмен кода + /me + сохранение происходит в фоне — страница
-   * polling'ует /auth/login/status и видит прогресс. Это убирает зависание HTML
-   * на 2-5 секунд и даёт защиту от дубликат-вызовов callback'а (preview, retry).
-   */
   async handleCallback(
     code: string,
     state: string,
   ): Promise<{
-    /** Если null — state не найден, рендерим error-страницу. */
     loginRequestId: string | null;
-    /** Известный финальный исход (если уже completed/failed). Для свежезахваченных — pending. */
     initialStatus: 'pending' | 'completed' | 'failed';
     error?: string;
     sessionId?: string;
@@ -131,31 +125,20 @@ export class AuthService implements OnModuleInit {
   }> {
     this.logger.log(`Callback received: state=${state?.slice(0, 8)}… code=${code?.slice(0, 8)}…`);
 
-    // Атомарно захватываем pending → processing. Только один параллельный callback пройдёт.
-    const claim = await this.loginRequestRepo
-      .createQueryBuilder()
-      .update(LoginRequest)
+    const claimed = await this.db
+      .update(loginRequests)
       .set({ status: 'processing' })
-      .where('state = :state AND status = :status', { state, status: 'pending' })
-      .execute();
+      .where(and(eq(loginRequests.state, state), eq(loginRequests.status, 'pending')))
+      .returning({ id: loginRequests.id });
 
-    if (claim.affected) {
-      // Захвачено нами — запускаем фоновую обработку, страница увидит результат через polling.
-      const captured = await this.loginRequestRepo.findOne({ where: { state } });
-      if (!captured) {
-        this.logger.error(`Login request disappeared after claim, state=${state?.slice(0, 8)}…`);
-        return {
-          loginRequestId: null,
-          initialStatus: 'failed',
-          error: 'Internal error. Please try again.',
-        };
-      }
-      void this.runCallbackBackground(captured.id, code);
-      return { loginRequestId: captured.id, initialStatus: 'pending' };
+    if (claimed.length > 0) {
+      void this.runCallbackBackground(claimed[0].id, code);
+      return { loginRequestId: claimed[0].id, initialStatus: 'pending' };
     }
 
-    // Не захватили — либо state не существует, либо уже processed/processing.
-    const existing = await this.loginRequestRepo.findOne({ where: { state } });
+    const existing = await this.db.query.loginRequests.findFirst({
+      where: eq(loginRequests.state, state),
+    });
     if (!existing) {
       this.logger.warn(`Callback state not found: ${state?.slice(0, 8)}…`);
       return {
@@ -172,7 +155,6 @@ export class AuthService implements OnModuleInit {
       };
     }
     if (existing.status === 'processing') {
-      // Двойной callback на ещё не завершённый запрос: пусть тоже polling'ует.
       return { loginRequestId: existing.id, initialStatus: 'pending' };
     }
     return {
@@ -182,13 +164,11 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  /**
-   * Фоновая обработка захваченного LoginRequest. НЕ throw'ит — все ошибки
-   * сохраняются в БД (status=failed + error). Страница увидит их через polling.
-   */
   private async runCallbackBackground(loginRequestId: string, code: string): Promise<void> {
     try {
-      const lr = await this.loginRequestRepo.findOne({ where: { id: loginRequestId } });
+      const lr = await this.db.query.loginRequests.findFirst({
+        where: eq(loginRequests.id, loginRequestId),
+      });
       if (!lr) {
         this.logger.error(`Background: loginRequest ${loginRequestId} disappeared`);
         return;
@@ -224,35 +204,51 @@ export class AuthService implements OnModuleInit {
         return;
       }
 
-      let session: Session | null = null;
+      const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
+      const scope = tokenResponse.scope || '';
+
+      let session: Session | undefined;
       if (lr.targetSessionId) {
-        session = await this.sessionRepo.findOne({ where: { id: lr.targetSessionId } });
-      }
-
-      if (!session) {
-        session = this.sessionRepo.create({
-          accessToken: tokenResponse.access_token,
-          refreshToken: tokenResponse.refresh_token,
-          expiresAt: new Date(Date.now() + tokenResponse.expires_in * 1000),
-          scope: tokenResponse.scope || '',
-          soundcloudUserId: me.urn,
-          username: me.username,
-          oauthAppId: lr.oauthAppId,
+        session = await this.db.query.sessions.findFirst({
+          where: eq(sessions.id, lr.targetSessionId),
         });
-      } else {
-        session.accessToken = tokenResponse.access_token;
-        session.refreshToken = tokenResponse.refresh_token;
-        session.expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
-        session.scope = tokenResponse.scope || '';
-        session.soundcloudUserId = me.urn;
-        session.username = me.username;
-        if (lr.oauthAppId) session.oauthAppId = lr.oauthAppId;
       }
-      await this.sessionRepo.save(session);
 
-      lr.status = 'completed';
-      lr.resultSessionId = session.id;
-      await this.loginRequestRepo.save(lr);
+      if (session) {
+        const [updated] = await this.db
+          .update(sessions)
+          .set({
+            accessToken: tokenResponse.access_token,
+            refreshToken: tokenResponse.refresh_token,
+            expiresAt,
+            scope,
+            soundcloudUserId: me.urn,
+            username: me.username,
+            ...(lr.oauthAppId ? { oauthAppId: lr.oauthAppId } : {}),
+          })
+          .where(eq(sessions.id, session.id))
+          .returning();
+        session = updated;
+      } else {
+        const [created] = await this.db
+          .insert(sessions)
+          .values({
+            accessToken: tokenResponse.access_token,
+            refreshToken: tokenResponse.refresh_token,
+            expiresAt,
+            scope,
+            soundcloudUserId: me.urn,
+            username: me.username,
+            oauthAppId: lr.oauthAppId,
+          })
+          .returning();
+        session = created;
+      }
+
+      await this.db
+        .update(loginRequests)
+        .set({ status: 'completed', resultSessionId: session.id })
+        .where(eq(loginRequests.id, loginRequestId));
 
       this.logger.log(
         `Login completed: request=${loginRequestId} session=${session.id} user=${me.username}`,
@@ -268,7 +264,10 @@ export class AuthService implements OnModuleInit {
 
   private async markRequestFailed(id: string, error: string): Promise<void> {
     try {
-      await this.loginRequestRepo.update({ id }, { status: 'failed', error });
+      await this.db
+        .update(loginRequests)
+        .set({ status: 'failed', error })
+        .where(eq(loginRequests.id, id));
     } catch (err: any) {
       this.logger.error(`Failed to mark login request ${id} as failed: ${err?.message}`);
     }
@@ -279,7 +278,9 @@ export class AuthService implements OnModuleInit {
     sessionId?: string;
     error?: string;
   }> {
-    const lr = await this.loginRequestRepo.findOne({ where: { id: loginRequestId } });
+    const lr = await this.db.query.loginRequests.findFirst({
+      where: eq(loginRequests.id, loginRequestId),
+    });
     if (!lr) return { status: 'expired', error: 'Unknown login request' };
     if (
       (lr.status === 'pending' || lr.status === 'processing') &&
@@ -287,7 +288,6 @@ export class AuthService implements OnModuleInit {
     ) {
       return { status: 'expired', error: 'Login request expired' };
     }
-    // 'processing' для клиента эквивалентен 'pending' — пусть продолжает polling.
     const status = lr.status === 'processing' ? 'pending' : lr.status;
     return {
       status,
@@ -311,11 +311,12 @@ export class AuthService implements OnModuleInit {
   }
 
   private async doRefresh(sessionId: string): Promise<Session> {
-    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    const session = await this.db.query.sessions.findFirst({
+      where: eq(sessions.id, sessionId),
+    });
     if (!session) {
       throw new UnauthorizedException('Session not found');
     }
-
     if (!session.refreshToken) {
       throw new UnauthorizedException('No refresh token available');
     }
@@ -328,31 +329,34 @@ export class AuthService implements OnModuleInit {
         creds,
       );
 
-      session.accessToken = tokenResponse.access_token;
-      if (tokenResponse.refresh_token) {
-        session.refreshToken = tokenResponse.refresh_token;
-      }
-      session.expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
-      if (tokenResponse.scope) session.scope = tokenResponse.scope;
+      const [updated] = await this.db
+        .update(sessions)
+        .set({
+          accessToken: tokenResponse.access_token,
+          refreshToken: tokenResponse.refresh_token || session.refreshToken,
+          expiresAt: new Date(Date.now() + tokenResponse.expires_in * 1000),
+          ...(tokenResponse.scope ? { scope: tokenResponse.scope } : {}),
+        })
+        .where(eq(sessions.id, sessionId))
+        .returning();
 
-      await this.sessionRepo.save(session);
       this.logger.log(
-        `Session ${sessionId} refreshed, expires at ${session.expiresAt.toISOString()}`,
+        `Session ${sessionId} refreshed, expires at ${updated.expiresAt.toISOString()}`,
       );
-      return session;
+      return updated;
     } catch (error: any) {
       this.logger.warn(
         `Refresh failed for session ${sessionId}: ${error?.response?.data?.error_description || error?.message}`,
       );
-      // НЕ удаляем сессию: refresh может временно отказать (network/5xx).
-      // Пусть остаётся, у юзера откроется ReAuthOverlay → re-auth попадёт в ту же запись.
       throw new UnauthorizedException('Refresh token expired or invalid. Please re-authenticate.');
     }
   }
 
   async logout(sessionId: string): Promise<void> {
     if (!isValidUuid(sessionId)) return;
-    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    const session = await this.db.query.sessions.findFirst({
+      where: eq(sessions.id, sessionId),
+    });
     if (!session) return;
 
     if (session.accessToken) {
@@ -363,19 +367,22 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    await this.sessionRepo.remove(session);
+    await this.db.delete(sessions).where(eq(sessions.id, sessionId));
   }
 
   async getSession(sessionId: string): Promise<Session | null> {
     if (!isValidUuid(sessionId)) return null;
-    return this.sessionRepo.findOne({ where: { id: sessionId } });
+    const s = await this.db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
+    return s ?? null;
   }
 
   async getValidAccessToken(sessionId: string): Promise<string> {
     if (!isValidUuid(sessionId)) {
       throw new UnauthorizedException('Malformed session id');
     }
-    let session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    let session = await this.db.query.sessions.findFirst({
+      where: eq(sessions.id, sessionId),
+    });
     if (!session) {
       throw new UnauthorizedException('Session not found');
     }
@@ -434,7 +441,7 @@ export class AuthService implements OnModuleInit {
 
   private async cleanupExpiredLoginRequests(): Promise<void> {
     try {
-      await this.loginRequestRepo.delete({ expiresAt: LessThan(new Date()) });
+      await this.db.delete(loginRequests).where(lt(loginRequests.expiresAt, new Date()));
     } catch (err: any) {
       this.logger.warn(`Failed to cleanup expired login requests: ${err?.message}`);
     }

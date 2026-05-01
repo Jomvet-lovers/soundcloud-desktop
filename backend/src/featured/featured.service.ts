@@ -1,11 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { desc, eq } from 'drizzle-orm';
 import { AuthService } from '../auth/auth.service.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { type FeaturedItem, featuredItems } from '../db/schema.js';
 import { LocalLikesService } from '../local-likes/local-likes.service.js';
 import { SoundcloudService } from '../soundcloud/soundcloud.service.js';
 import type { ScPlaylist, ScTrack, ScUser } from '../soundcloud/soundcloud.types.js';
-import { FeaturedItem, type FeaturedItemType } from './entities/featured-item.entity.js';
+
+export type FeaturedItemType = 'track' | 'playlist' | 'user';
 
 export interface FeaturedResult {
   type: FeaturedItemType;
@@ -17,40 +20,43 @@ export class FeaturedService {
   private readonly logger = new Logger(FeaturedService.name);
 
   constructor(
-    @InjectRepository(FeaturedItem)
-    private readonly repo: Repository<FeaturedItem>,
+    @Inject(DB) private readonly db: Database,
     private readonly sc: SoundcloudService,
     private readonly authService: AuthService,
     private readonly localLikes: LocalLikesService,
   ) {}
 
-  // ─── Admin CRUD ──────────────────────────────────────────
-
   findAll(): Promise<FeaturedItem[]> {
-    return this.repo.find({ order: { createdAt: 'DESC' } });
+    return this.db.select().from(featuredItems).orderBy(desc(featuredItems.createdAt));
   }
 
-  create(data: { type: FeaturedItemType; scUrn: string; weight?: number; active?: boolean }) {
-    const item = this.repo.create(data);
-    return this.repo.save(item);
+  async create(data: { type: FeaturedItemType; scUrn: string; weight?: number; active?: boolean }) {
+    const [row] = await this.db.insert(featuredItems).values(data).returning();
+    return row;
   }
 
   async update(
     id: string,
     data: Partial<Pick<FeaturedItem, 'type' | 'scUrn' | 'weight' | 'active'>>,
   ) {
-    await this.repo.update(id, data);
-    return this.repo.findOneByOrFail({ id });
+    const [row] = await this.db
+      .update(featuredItems)
+      .set(data)
+      .where(eq(featuredItems.id, id))
+      .returning();
+    if (!row) throw new Error(`featured item ${id} not found`);
+    return row;
   }
 
   async remove(id: string) {
-    await this.repo.delete(id);
+    await this.db.delete(featuredItems).where(eq(featuredItems.id, id));
   }
 
-  // ─── Public pick ─────────────────────────────────────────
-
   async pick(sessionId: string): Promise<FeaturedResult | null> {
-    const items = await this.repo.find({ where: { active: true } });
+    const items = await this.db
+      .select()
+      .from(featuredItems)
+      .where(eq(featuredItems.active, true));
     if (items.length === 0) return null;
 
     const picked = weightedRandom(items);

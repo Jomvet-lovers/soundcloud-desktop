@@ -1,18 +1,15 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { CollabTrainerService } from '../collab/collab-trainer.service.js';
 import { CollabVectorService } from '../collab/collab-vector.service.js';
 import { normalizeScTrackId } from '../common/sc-ids.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { type UserEvent, userEvents } from '../db/schema.js';
 import { DislikesService } from '../dislikes/dislikes.service.js';
 import { IndexingService } from '../indexing/indexing.service.js';
 import { UserTasteService } from '../user-taste/user-taste.service.js';
-import { UserEvent } from './entities/user-event.entity.js';
 
-/**
- * Веса используются только для записи в БД (для аналитики и для negative seed
- * в qdrant.recommend). В EMA user_taste идут только TASTE_EVENTS (см. UserTasteService).
- */
 const EVENT_WEIGHTS: Record<string, number> = {
   like: 1.0,
   local_like: 1.0,
@@ -24,7 +21,6 @@ const EVENT_WEIGHTS: Record<string, number> = {
 
 const POSITIVE_EVENTS = new Set(['like', 'local_like', 'playlist_add']);
 const TASTE_EVENTS = POSITIVE_EVENTS;
-/** События которые попадают в item2vec session-corpus (для auto-trigger). */
 const COLLAB_TRIGGER_EVENTS = new Set(['like', 'local_like', 'playlist_add', 'full_play', 'skip']);
 
 @Injectable()
@@ -33,8 +29,7 @@ export class EventsService {
   private readonly userLocks = new Map<string, Promise<void>>();
 
   constructor(
-    @InjectRepository(UserEvent)
-    private readonly repo: Repository<UserEvent>,
+    @Inject(DB) private readonly db: Database,
     private readonly userTaste: UserTasteService,
     private readonly indexing: IndexingService,
     @Inject(forwardRef(() => DislikesService))
@@ -60,11 +55,13 @@ export class EventsService {
     }
   }
 
-  /**
-   * Try to apply a single event to the taste vector with current-state guards.
-   * - Returns true if event was handled (either EMA applied or deliberately skipped by guard).
-   * - Returns false if track isn't indexed yet — caller should enqueue it.
-   */
+  private async markApplied(id: string): Promise<void> {
+    await this.db
+      .update(userEvents)
+      .set({ tasteAppliedAt: new Date() })
+      .where(eq(userEvents.id, id));
+  }
+
   private async tryApply(event: UserEvent): Promise<boolean> {
     const isCurrentlyDisliked = await this.dislikes.isDislikedByUserId(
       event.scUserId,
@@ -72,14 +69,12 @@ export class EventsService {
     );
 
     if (POSITIVE_EVENTS.has(event.eventType) && isCurrentlyDisliked) {
-      await this.repo.update(event.id, { tasteAppliedAt: new Date() });
+      await this.markApplied(event.id);
       return true;
     }
 
-    // События не влияющие на taste-вектор (skip/full_play/dislike) — просто помечаем applied,
-    // не enqueue-им трек в воркер. Они нужны только в БД для negative seed / exclude / dislike-list.
     if (!TASTE_EVENTS.has(event.eventType)) {
-      await this.repo.update(event.id, { tasteAppliedAt: new Date() });
+      await this.markApplied(event.id);
       return true;
     }
 
@@ -89,7 +84,7 @@ export class EventsService {
       event.eventType,
     );
     if (applied) {
-      await this.repo.update(event.id, { tasteAppliedAt: new Date() });
+      await this.markApplied(event.id);
       return true;
     }
     return false;
@@ -108,33 +103,21 @@ export class EventsService {
     }
 
     await this.runSerially(`events:${scUserId}`, async () => {
-      const event = await this.repo.save(
-        this.repo.create({
-          scUserId,
-          scTrackId: normalizedId,
-          eventType,
-          weight,
-          seeded: false,
-        }),
-      );
+      const [event] = await this.db
+        .insert(userEvents)
+        .values({ scUserId, scTrackId: normalizedId, eventType, weight, seeded: false })
+        .returning();
       const applied = await this.tryApply(event);
       if (!applied) {
         this.indexing.ensureTrackQueuedById(normalizedId).catch((e) => {
           this.logger.error(`Failed to enqueue ${normalizedId}: ${(e as Error).message}`);
         });
       }
-      // Сбрасываем кеш collab-вектора юзера: следующий wave/similar пересчитает.
       if (POSITIVE_EVENTS.has(eventType)) this.collab.invalidate(scUserId);
-      // Auto-trigger тренировки collab при достижении порога новых событий.
       if (COLLAB_TRIGGER_EVENTS.has(eventType)) this.collabTrainer.noteEvent();
     });
   }
 
-  /**
-   * Backfill missing `like` events for tracks the user has already liked on SoundCloud.
-   * Idempotent across calls: only records events for tracks without a `like` yet.
-   * For unindexed tracks, enqueues them — consumer will apply taste when worker finishes.
-   */
   async ensureLikesRecorded(scUserId: string, scTrackIds: string[]): Promise<void> {
     if (!scUserId || scTrackIds.length === 0) return;
 
@@ -144,20 +127,33 @@ export class EventsService {
     if (normalized.length === 0) return;
 
     await this.runSerially(`events:${scUserId}`, async () => {
-      const existing = await this.repo.find({
-        select: { scTrackId: true },
-        where: { scUserId, eventType: 'like', scTrackId: In(normalized) },
-      });
+      const existing = await this.db
+        .select({ scTrackId: userEvents.scTrackId })
+        .from(userEvents)
+        .where(
+          and(
+            eq(userEvents.scUserId, scUserId),
+            eq(userEvents.eventType, 'like'),
+            inArray(userEvents.scTrackId, normalized),
+          ),
+        );
       const existingSet = new Set(existing.map((e) => e.scTrackId));
       const missing = [...new Set(normalized.filter((id) => !existingSet.has(id)))];
       if (missing.length === 0) return;
 
       const weight = EVENT_WEIGHTS.like;
-      const saved = await this.repo.save(
-        missing.map((scTrackId) =>
-          this.repo.create({ scUserId, scTrackId, eventType: 'like', weight, seeded: true }),
-        ),
-      );
+      const saved = await this.db
+        .insert(userEvents)
+        .values(
+          missing.map((scTrackId) => ({
+            scUserId,
+            scTrackId,
+            eventType: 'like',
+            weight,
+            seeded: true,
+          })),
+        )
+        .returning();
 
       for (const event of saved) {
         const applied = await this.tryApply(event);
@@ -170,15 +166,12 @@ export class EventsService {
     });
   }
 
-  /**
-   * Called by IndexingQueueConsumer when worker finishes indexing a track.
-   * Applies all pending events for this track across users, serialized per-user.
-   */
   async applyPendingEventsForTrack(scTrackId: string): Promise<void> {
-    const pending = await this.repo.find({
-      where: { scTrackId, tasteAppliedAt: IsNull() },
-      order: { createdAt: 'ASC' },
-    });
+    const pending = await this.db
+      .select()
+      .from(userEvents)
+      .where(and(eq(userEvents.scTrackId, scTrackId), isNull(userEvents.tasteAppliedAt)))
+      .orderBy(asc(userEvents.createdAt));
     if (pending.length === 0) return;
 
     const byUser = new Map<string, UserEvent[]>();
@@ -204,32 +197,32 @@ export class EventsService {
   }
 
   async getRecentLiked(scUserId: string, limit = 5): Promise<string[]> {
-    const events = await this.repo.find({
-      where: { scUserId, eventType: 'like' },
-      order: { createdAt: 'DESC' },
-      take: limit,
-      select: ['scTrackId'],
-    });
-    return events.map((e) => e.scTrackId);
+    const rows = await this.db
+      .select({ scTrackId: userEvents.scTrackId })
+      .from(userEvents)
+      .where(and(eq(userEvents.scUserId, scUserId), eq(userEvents.eventType, 'like')))
+      .orderBy(desc(userEvents.createdAt))
+      .limit(limit);
+    return rows.map((e) => e.scTrackId);
   }
 
   async getRecentSkipped(scUserId: string, limit = 3): Promise<string[]> {
-    const events = await this.repo.find({
-      where: { scUserId, eventType: 'skip' },
-      order: { createdAt: 'DESC' },
-      take: limit,
-      select: ['scTrackId'],
-    });
-    return events.map((e) => e.scTrackId);
+    const rows = await this.db
+      .select({ scTrackId: userEvents.scTrackId })
+      .from(userEvents)
+      .where(and(eq(userEvents.scUserId, scUserId), eq(userEvents.eventType, 'skip')))
+      .orderBy(desc(userEvents.createdAt))
+      .limit(limit);
+    return rows.map((e) => e.scTrackId);
   }
 
   async getRecentPlayed(scUserId: string, limit = 50): Promise<string[]> {
-    const events = await this.repo.find({
-      where: { scUserId },
-      order: { createdAt: 'DESC' },
-      take: limit,
-      select: ['scTrackId'],
-    });
-    return [...new Set(events.map((e) => e.scTrackId))];
+    const rows = await this.db
+      .select({ scTrackId: userEvents.scTrackId })
+      .from(userEvents)
+      .where(eq(userEvents.scUserId, scUserId))
+      .orderBy(desc(userEvents.createdAt))
+      .limit(limit);
+    return [...new Set(rows.map((e) => e.scTrackId))];
   }
 }

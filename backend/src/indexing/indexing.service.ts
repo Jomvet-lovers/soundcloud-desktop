@@ -1,13 +1,14 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, LessThan, Repository } from 'typeorm';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { and, count, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { NatsService } from '../bus/nats.service.js';
 import { STREAMS, SUBJECTS } from '../bus/subjects.js';
 import { normalizeScTrackId } from '../common/sc-ids.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { indexedTracks } from '../db/schema.js';
 import { LyricsService } from '../lyrics/lyrics.service.js';
 import type { ScTrack } from '../soundcloud/soundcloud.types.js';
 import { TranscodeTriggerService } from '../transcode/transcode-trigger.service.js';
-import { IndexedTrack } from './entities/indexed-track.entity.js';
 
 const REAP_INTERVAL_MS = 5 * 60 * 1000;
 const REAP_AGE_MS = 5 * 60 * 1000;
@@ -19,8 +20,7 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
   private reapTimer?: NodeJS.Timeout;
 
   constructor(
-    @InjectRepository(IndexedTrack)
-    private readonly repo: Repository<IndexedTrack>,
+    @Inject(DB) private readonly db: Database,
     private readonly nats: NatsService,
     private readonly lyrics: LyricsService,
     private readonly trigger: TranscodeTriggerService,
@@ -38,14 +38,15 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
 
   async ensureTrackIndexed(scTrack: ScTrack): Promise<void> {
     const scTrackId = String(scTrack.urn?.split(':').pop() ?? scTrack.urn);
-    const existing = await this.repo.findOne({ where: { scTrackId }, select: ['id', 'indexedAt'] });
+    const existing = await this.db.query.indexedTracks.findFirst({
+      where: eq(indexedTracks.scTrackId, scTrackId),
+      columns: { id: true, indexedAt: true },
+    });
     if (existing?.indexedAt) return;
 
     if (!existing) {
-      const inserted = await this.repo
-        .createQueryBuilder()
-        .insert()
-        .into(IndexedTrack)
+      const inserted = await this.db
+        .insert(indexedTracks)
         .values({
           scTrackId,
           title: scTrack.title,
@@ -54,12 +55,12 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
           durationMs: scTrack.duration,
           artworkUrl: scTrack.artwork_url ?? null,
           streamUrl: scTrack.stream_url ?? null,
-          rawScData: scTrack as any,
+          rawScData: scTrack as unknown as Record<string, unknown>,
           indexedAt: null,
         })
-        .orIgnore()
-        .execute();
-      if (!inserted.identifiers.length) return;
+        .onConflictDoNothing({ target: indexedTracks.scTrackId })
+        .returning({ id: indexedTracks.id });
+      if (inserted.length === 0) return;
     }
 
     this.trigger.trigger(scTrackId);
@@ -72,11 +73,10 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Внешний ре-ентер (ручной админский). */
   async ensureTrackQueuedById(scTrackId: string): Promise<void> {
-    const track = await this.repo.findOne({
-      where: { scTrackId },
-      select: ['scTrackId', 'indexedAt'],
+    const track = await this.db.query.indexedTracks.findFirst({
+      where: eq(indexedTracks.scTrackId, scTrackId),
+      columns: { scTrackId: true, indexedAt: true },
     });
     if (!track) {
       this.logger.warn(`Cannot queue ${scTrackId}: not in indexed_tracks`);
@@ -87,17 +87,15 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getStats(): Promise<{ indexed: number; pending: number }> {
-    const total = await this.repo.count();
-    const indexedCount = await this.repo
-      .createQueryBuilder('t')
-      .where('t.indexed_at IS NOT NULL')
-      .getCount();
+    const totalRows = await this.db.select({ n: count() }).from(indexedTracks);
+    const indexedRows = await this.db
+      .select({ n: count() })
+      .from(indexedTracks)
+      .where(isNotNull(indexedTracks.indexedAt));
+    const total = totalRows[0]?.n ?? 0;
+    const indexedCount = indexedRows[0]?.n ?? 0;
     return { indexed: indexedCount, pending: total - indexedCount };
   }
-
-  // ──────────────────────────────────────────────────────────────
-  // pipeline
-  // ──────────────────────────────────────────────────────────────
 
   private async subscribeStorageUploaded(): Promise<void> {
     await this.nats.consume(
@@ -108,43 +106,47 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
         const scTrackId = normalizeScTrackId(payload.sc_track_id);
         if (!scTrackId || !payload.storage_url) return;
 
-        const existing = await this.repo.findOne({
-          where: { scTrackId },
-          select: ['id', 'indexedAt'],
+        const existing = await this.db.query.indexedTracks.findFirst({
+          where: eq(indexedTracks.scTrackId, scTrackId),
+          columns: { id: true, indexedAt: true },
         });
         if (existing?.indexedAt) {
-          await this.repo.update({ scTrackId }, { s3VerifiedAt: () => 'now()', s3MissingAt: null });
+          await this.db
+            .update(indexedTracks)
+            .set({ s3VerifiedAt: sql`now()`, s3MissingAt: null })
+            .where(eq(indexedTracks.scTrackId, scTrackId));
           return;
         }
 
         if (!existing) {
-          const inserted = await this.repo
-            .createQueryBuilder()
-            .insert()
-            .into(IndexedTrack)
+          const inserted = await this.db
+            .insert(indexedTracks)
             .values({
               scTrackId,
               indexedAt: null,
-              s3VerifiedAt: () => 'now()',
+              s3VerifiedAt: sql`now()` as unknown as Date,
               s3MissingAt: null,
             })
-            .orIgnore()
-            .execute();
-          if (!inserted.identifiers.length) {
-            const post = await this.repo.findOne({
-              where: { scTrackId },
-              select: ['indexedAt'],
+            .onConflictDoNothing({ target: indexedTracks.scTrackId })
+            .returning({ id: indexedTracks.id });
+          if (inserted.length === 0) {
+            const post = await this.db.query.indexedTracks.findFirst({
+              where: eq(indexedTracks.scTrackId, scTrackId),
+              columns: { indexedAt: true },
             });
             if (post?.indexedAt) {
-              await this.repo.update(
-                { scTrackId },
-                { s3VerifiedAt: () => 'now()', s3MissingAt: null },
-              );
+              await this.db
+                .update(indexedTracks)
+                .set({ s3VerifiedAt: sql`now()`, s3MissingAt: null })
+                .where(eq(indexedTracks.scTrackId, scTrackId));
               return;
             }
           }
         } else {
-          await this.repo.update({ scTrackId }, { s3VerifiedAt: () => 'now()', s3MissingAt: null });
+          await this.db
+            .update(indexedTracks)
+            .set({ s3VerifiedAt: sql`now()`, s3MissingAt: null })
+            .where(eq(indexedTracks.scTrackId, scTrackId));
         }
 
         await this.nats.publish(SUBJECTS.indexAudio, {
@@ -169,24 +171,28 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
       async (data) => {
         const payload = data as { sc_track_id?: string };
         if (!payload.sc_track_id) return;
-        await this.repo.update(
-          { scTrackId: payload.sc_track_id, indexedAt: IsNull() },
-          { indexedAt: () => 'now()' as any },
-        );
+        await this.db
+          .update(indexedTracks)
+          .set({ indexedAt: sql`now()` })
+          .where(
+            and(
+              eq(indexedTracks.scTrackId, payload.sc_track_id),
+              isNull(indexedTracks.indexedAt),
+            ),
+          );
         this.logger.debug(`indexed_at set for ${payload.sc_track_id}`);
       },
       SUBJECTS.doneIndexAudio,
     );
   }
 
-  /** Крон: переотправляет зависшие (INSERT прошёл, pipeline упал). */
   private async reap(): Promise<void> {
     const cutoff = new Date(Date.now() - REAP_AGE_MS);
-    const stuck = await this.repo.find({
-      where: { indexedAt: IsNull(), createdAt: LessThan(cutoff) },
-      select: ['scTrackId'],
-      take: REAP_BATCH,
-    });
+    const stuck = await this.db
+      .select({ scTrackId: indexedTracks.scTrackId })
+      .from(indexedTracks)
+      .where(and(isNull(indexedTracks.indexedAt), lt(indexedTracks.createdAt, cutoff)))
+      .limit(REAP_BATCH);
     if (!stuck.length) return;
     this.logger.log(`reaping ${stuck.length} stuck tracks`);
     for (const t of stuck) {

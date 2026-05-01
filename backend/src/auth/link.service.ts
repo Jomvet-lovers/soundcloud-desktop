@@ -1,22 +1,22 @@
 import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { eq, lt } from 'drizzle-orm';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { linkRequests, sessions } from '../db/schema.js';
 import { AuthService } from './auth.service.js';
-import {
-  LinkRequest,
-  type LinkRequestMode,
-  type LinkRequestStatus,
-} from './entities/link-request.entity.js';
-import { Session } from './entities/session.entity.js';
 
 const LINK_REQUEST_TTL_MS = 5 * 60_000;
+
+export type LinkRequestMode = 'pull' | 'push';
+export type LinkRequestStatus = 'pending' | 'claimed' | 'failed';
 
 export interface CreateLinkResult {
   linkRequestId: string;
@@ -27,7 +27,6 @@ export interface CreateLinkResult {
 export interface LinkStatusResult {
   status: LinkRequestStatus | 'expired';
   mode: LinkRequestMode;
-  /** Появляется когда status=claimed и mode=pull (receiver получает свой sessionId). */
   sessionId?: string;
   error?: string;
 }
@@ -37,10 +36,7 @@ export class LinkService {
   private readonly logger = new Logger(LinkService.name);
 
   constructor(
-    @InjectRepository(LinkRequest)
-    private readonly linkRepo: Repository<LinkRequest>,
-    @InjectRepository(Session)
-    private readonly sessionRepo: Repository<Session>,
+    @Inject(DB) private readonly db: Database,
     private readonly authService: AuthService,
   ) {}
 
@@ -55,49 +51,48 @@ export class LinkService {
     }
 
     if (sourceSessionId) {
-      const exists = await this.sessionRepo.findOne({ where: { id: sourceSessionId } });
+      const exists = await this.db.query.sessions.findFirst({
+        where: eq(sessions.id, sourceSessionId),
+      });
       if (!exists) throw new UnauthorizedException('Source session not found');
     }
 
     const claimToken = randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + LINK_REQUEST_TTL_MS);
 
-    const link = this.linkRepo.create({
-      claimToken,
-      mode,
-      sourceSessionId: sourceSessionId ?? null,
-      targetSessionId: null,
-      status: 'pending',
-      expiresAt,
-    });
-    await this.linkRepo.save(link);
+    const [link] = await this.db
+      .insert(linkRequests)
+      .values({
+        claimToken,
+        mode,
+        sourceSessionId: sourceSessionId ?? null,
+        targetSessionId: null,
+        status: 'pending',
+        expiresAt,
+      })
+      .returning();
 
     this.logger.log(`Link request created: id=${link.id} mode=${mode}`);
     return { linkRequestId: link.id, claimToken, expiresAt };
   }
 
-  /**
-   * Claim a link request by claim token.
-   *
-   * pull: вызывает source-устройство (передаёт свою сессию receiver-у).
-   *   Требует sourceSessionId. Возвращает targetSessionId — id новой сессии для receiver.
-   * push: вызывает receiver-устройство (забирает сессию у source).
-   *   sourceSessionId игнорируется (берётся из LinkRequest). Возвращает sessionId для receiver.
-   */
   async claim(
     claimToken: string,
     sourceSessionIdFromCaller?: string,
   ): Promise<{ sessionId: string; mode: LinkRequestMode }> {
-    const link = await this.linkRepo.findOne({ where: { claimToken } });
+    const link = await this.db.query.linkRequests.findFirst({
+      where: eq(linkRequests.claimToken, claimToken),
+    });
     if (!link) throw new NotFoundException('Invalid or already used link token');
 
     if (link.status !== 'pending') {
       throw new BadRequestException('Link token is already used or expired');
     }
     if (link.expiresAt.getTime() < Date.now()) {
-      link.status = 'failed';
-      link.error = 'Expired';
-      await this.linkRepo.save(link);
+      await this.db
+        .update(linkRequests)
+        .set({ status: 'failed', error: 'Expired' })
+        .where(eq(linkRequests.id, link.id));
       throw new BadRequestException('Link token expired');
     }
 
@@ -114,10 +109,11 @@ export class LinkService {
       sourceSessionId = link.sourceSessionId;
     }
 
-    const source = await this.sessionRepo.findOne({ where: { id: sourceSessionId } });
+    const source = await this.db.query.sessions.findFirst({
+      where: eq(sessions.id, sourceSessionId),
+    });
     if (!source) throw new UnauthorizedException('Source session not found');
 
-    // Гарантируем что accessToken свежий (refresh если протух) перед копированием.
     try {
       await this.authService.getValidAccessToken(source.id);
     } catch (err: any) {
@@ -128,30 +124,28 @@ export class LinkService {
         'Source session is not valid. The originating device must re-authenticate.',
       );
     }
-    const refreshedSource = await this.sessionRepo.findOne({ where: { id: source.id } });
+    const refreshedSource = await this.db.query.sessions.findFirst({
+      where: eq(sessions.id, source.id),
+    });
     if (!refreshedSource) throw new UnauthorizedException('Source session not found');
 
-    // Создаём НОВУЮ сессию-копию для target-устройства.
-    // Не клонируем refreshToken: каждое устройство получает свой refreshToken после первого
-    // успешного refresh? — но SoundCloud OAuth выдаёт один refresh_token для одного auth code.
-    // Реалистично: копируем оба токена. SC поддерживает несколько concurrent сессий с одним
-    // refresh_token (token rotation отключён или мягкий). Если после первого refresh старый
-    // refresh_token инвалидируется — обе сессии просто получат 401 и пройдут re-auth.
-    const target = this.sessionRepo.create({
-      accessToken: refreshedSource.accessToken,
-      refreshToken: refreshedSource.refreshToken,
-      expiresAt: refreshedSource.expiresAt,
-      scope: refreshedSource.scope,
-      soundcloudUserId: refreshedSource.soundcloudUserId,
-      username: refreshedSource.username,
-      oauthAppId: refreshedSource.oauthAppId,
-    });
-    await this.sessionRepo.save(target);
+    const [target] = await this.db
+      .insert(sessions)
+      .values({
+        accessToken: refreshedSource.accessToken,
+        refreshToken: refreshedSource.refreshToken,
+        expiresAt: refreshedSource.expiresAt,
+        scope: refreshedSource.scope,
+        soundcloudUserId: refreshedSource.soundcloudUserId,
+        username: refreshedSource.username,
+        oauthAppId: refreshedSource.oauthAppId,
+      })
+      .returning();
 
-    link.sourceSessionId = sourceSessionId;
-    link.targetSessionId = target.id;
-    link.status = 'claimed';
-    await this.linkRepo.save(link);
+    await this.db
+      .update(linkRequests)
+      .set({ sourceSessionId, targetSessionId: target.id, status: 'claimed' })
+      .where(eq(linkRequests.id, link.id));
 
     this.logger.log(
       `Link claimed: id=${link.id} mode=${link.mode} source=${sourceSessionId} target=${target.id}`,
@@ -160,7 +154,9 @@ export class LinkService {
   }
 
   async getStatus(linkRequestId: string): Promise<LinkStatusResult> {
-    const link = await this.linkRepo.findOne({ where: { id: linkRequestId } });
+    const link = await this.db.query.linkRequests.findFirst({
+      where: eq(linkRequests.id, linkRequestId),
+    });
     if (!link) return { status: 'expired', mode: 'pull', error: 'Unknown link request' };
 
     if (link.status === 'pending' && link.expiresAt.getTime() < Date.now()) {
@@ -180,7 +176,7 @@ export class LinkService {
 
   private async cleanup(): Promise<void> {
     try {
-      await this.linkRepo.delete({ expiresAt: LessThan(new Date()) });
+      await this.db.delete(linkRequests).where(lt(linkRequests.expiresAt, new Date()));
     } catch (err: any) {
       this.logger.warn(`Failed to cleanup expired link requests: ${err?.message}`);
     }

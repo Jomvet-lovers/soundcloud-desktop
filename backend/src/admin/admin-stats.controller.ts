@@ -1,9 +1,10 @@
-import { Controller, Get, Headers, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Headers, Inject, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
-import { Session } from '../auth/entities/session.entity.js';
+import { count, gt } from 'drizzle-orm';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { sessions } from '../db/schema.js';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -11,8 +12,7 @@ export class AdminStatsController {
   private readonly adminToken: string;
 
   constructor(
-    @InjectRepository(Session)
-    private readonly sessionRepo: Repository<Session>,
+    @Inject(DB) private readonly db: Database,
     configService: ConfigService,
   ) {
     this.adminToken = configService.get<string>('admin.token') ?? '';
@@ -35,11 +35,18 @@ export class AdminStatsController {
     const ago7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const ago30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+    const countWhere = (since?: Date) =>
+      this.db
+        .select({ n: count() })
+        .from(sessions)
+        .where(since ? gt(sessions.updatedAt, since) : undefined)
+        .then((r) => r[0]?.n ?? 0);
+
     const [active24h, active7d, active30d, total] = await Promise.all([
-      this.sessionRepo.count({ where: { updatedAt: MoreThan(ago24h) } }),
-      this.sessionRepo.count({ where: { updatedAt: MoreThan(ago7d) } }),
-      this.sessionRepo.count({ where: { updatedAt: MoreThan(ago30d) } }),
-      this.sessionRepo.count(),
+      countWhere(ago24h),
+      countWhere(ago7d),
+      countWhere(ago30d),
+      countWhere(),
     ]);
 
     return {

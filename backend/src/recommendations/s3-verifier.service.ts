@@ -1,10 +1,11 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
+import { inArray, sql } from 'drizzle-orm';
 import { firstValueFrom } from 'rxjs';
-import { In, Repository } from 'typeorm';
-import { IndexedTrack } from '../indexing/entities/indexed-track.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import { indexedTracks } from '../db/schema.js';
 
 const MISS_TTL_MS = 24 * 60 * 60 * 1000;
 const HEAD_CONCURRENCY = 16;
@@ -35,16 +36,6 @@ function pLimit(max: number) {
     });
 }
 
-/**
- * Lazy S3 truth для рекомендаций.
- *
- * Positive cache: indexed_tracks.s3_verified_at — обновляется на NATS event
- * `storage.track_uploaded` или после успешного HEAD.
- * Negative cache: indexed_tracks.s3_missing_at с TTL = 24h.
- *
- * Фильтр в рекомендациях вызывает findMissing() уже на финальной выборке
- * (top-N после artistCap), не на всём пуле кандидатов из Qdrant.
- */
 @Injectable()
 export class S3VerifierService {
   private readonly logger = new Logger(S3VerifierService.name);
@@ -54,23 +45,25 @@ export class S3VerifierService {
   constructor(
     private readonly http: HttpService,
     config: ConfigService,
-    @InjectRepository(IndexedTrack)
-    private readonly repo: Repository<IndexedTrack>,
+    @Inject(DB) private readonly db: Database,
   ) {
     this.storageUrl = (config.get<string>('storage.url') ?? '').replace(/\/+$/, '');
   }
 
-  /** Возвращает Set scTrackId, у которых файла в S3 точно нет. */
   async findMissing(scTrackIds: string[]): Promise<Set<string>> {
     const missing = new Set<string>();
     if (!scTrackIds.length || !this.storageUrl) return missing;
 
     const ttlCutoff = new Date(Date.now() - MISS_TTL_MS);
 
-    const rows = await this.repo.find({
-      where: { scTrackId: In(scTrackIds) },
-      select: ['scTrackId', 's3VerifiedAt', 's3MissingAt'],
-    });
+    const rows = await this.db
+      .select({
+        scTrackId: indexedTracks.scTrackId,
+        s3VerifiedAt: indexedTracks.s3VerifiedAt,
+        s3MissingAt: indexedTracks.s3MissingAt,
+      })
+      .from(indexedTracks)
+      .where(inArray(indexedTracks.scTrackId, scTrackIds));
     const byId = new Map(rows.map((r) => [r.scTrackId, r]));
 
     const toCheck: string[] = [];
@@ -94,29 +87,24 @@ export class S3VerifierService {
     const missIds: string[] = [];
     checked.forEach((found, i) => {
       const id = toCheck[i];
-      if (found) {
-        okIds.push(id);
-      } else {
+      if (found) okIds.push(id);
+      else {
         missIds.push(id);
         missing.add(id);
       }
     });
 
     if (okIds.length) {
-      await this.repo
-        .createQueryBuilder()
-        .update(IndexedTrack)
-        .set({ s3VerifiedAt: () => 'now()', s3MissingAt: null })
-        .where({ scTrackId: In(okIds) })
-        .execute();
+      await this.db
+        .update(indexedTracks)
+        .set({ s3VerifiedAt: sql`now()`, s3MissingAt: null })
+        .where(inArray(indexedTracks.scTrackId, okIds));
     }
     if (missIds.length) {
-      await this.repo
-        .createQueryBuilder()
-        .update(IndexedTrack)
-        .set({ s3MissingAt: () => 'now()' })
-        .where({ scTrackId: In(missIds) })
-        .execute();
+      await this.db
+        .update(indexedTracks)
+        .set({ s3MissingAt: sql`now()` })
+        .where(inArray(indexedTracks.scTrackId, missIds));
       this.logger.debug(`S3 miss x${missIds.length} (ok=${okIds.length})`);
     }
 

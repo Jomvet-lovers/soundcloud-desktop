@@ -1,11 +1,16 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { and, asc, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { NatsService } from '../bus/nats.service.js';
 import { STREAMS, SUBJECTS } from '../bus/subjects.js';
-import { IndexedTrack } from '../indexing/entities/indexed-track.entity.js';
+import { DB } from '../db/db.constants.js';
+import type { Database } from '../db/db.module.js';
+import {
+  indexedTracks,
+  type LyricsCache,
+  lyricsCache,
+  type NewLyricsCache,
+} from '../db/schema.js';
 import { TranscodeTriggerService } from '../transcode/transcode-trigger.service.js';
-import { LyricsCache, LyricsSource } from './entities/lyrics-cache.entity.js';
 import { GeniusService } from './genius.service.js';
 import { LrclibService } from './lrclib.service.js';
 import {
@@ -17,6 +22,8 @@ import {
 } from './lyrics.util.js';
 import { MusixmatchService } from './musixmatch.service.js';
 import { WorkerClient } from './worker.client.js';
+
+export type LyricsSource = LyricsCache['source'];
 
 export interface LyricsResponse {
   scTrackId: string | null;
@@ -48,11 +55,8 @@ const SNIPPET_LEN = 220;
 const MIN_META_OVERLAP = 0.25;
 const MAX_DURATION_DIFF = 0.25;
 
-/** Cap concurrent lyrics lookups kicked off by indexing so the worker queues don't explode. */
 const INDEXING_CONCURRENCY = Number.parseInt(process.env.LYRICS_INDEXING_CONCURRENCY ?? '3', 10);
 
-/** Whisper-reap: периодически добиваем треки, у которых alignment/full-transcribe
- *  не сработал с первого storage-event'а (whisper упал, NATS лёг и т.п.). */
 const REAP_INTERVAL_MS = 10 * 60 * 1000;
 const REAP_MIN_AGE_MS = 10 * 60 * 1000;
 const REAP_LIMIT_ALIGN = 30;
@@ -140,18 +144,13 @@ function normalizeScTrackId(raw: string): string {
 @Injectable()
 export class LyricsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(LyricsService.name);
-  /** External-lookup промисы (lrclib/mxm/genius). handleUploaded ждёт их перед whisper'ом. */
   private readonly inflight = new Map<string, Promise<LyricsResponse>>();
-  /** Whisper-промисы (align/full). Дедуп повторных storage-events для одного трека. */
   private readonly whisperInflight = new Map<string, Promise<void>>();
   private readonly indexingSem = new Semaphore(INDEXING_CONCURRENCY);
   private reapTimer?: NodeJS.Timeout;
 
   constructor(
-    @InjectRepository(LyricsCache)
-    private readonly cache: Repository<LyricsCache>,
-    @InjectRepository(IndexedTrack)
-    private readonly indexed: Repository<IndexedTrack>,
+    @Inject(DB) private readonly db: Database,
     private readonly nats: NatsService,
     private readonly lrclib: LrclibService,
     private readonly mxm: MusixmatchService,
@@ -167,10 +166,15 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       async (data) => {
         const payload = data as { sc_track_id?: string; skipped?: boolean };
         if (!payload.sc_track_id || payload.skipped) return;
-        await this.cache.update(
-          { scTrackId: payload.sc_track_id, embeddedAt: IsNull() },
-          { embeddedAt: () => 'now()' as any },
-        );
+        await this.db
+          .update(lyricsCache)
+          .set({ embeddedAt: sql`now()` })
+          .where(
+            and(
+              eq(lyricsCache.scTrackId, payload.sc_track_id),
+              isNull(lyricsCache.embeddedAt),
+            ),
+          );
       },
       SUBJECTS.doneEmbedLyrics,
     );
@@ -184,19 +188,12 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     if (this.reapTimer) clearInterval(this.reapTimer);
   }
 
-  /**
-   * Endpoint 1 — поиск по URN/id. Backend сам тянет artist/title/duration из
-   * indexed_tracks.rawScData, читает/пишет кеш. Используется при воспроизведении
-   * трека и индексации из axios interceptor.
-   */
   async ensureLyrics(scTrackIdRaw: string): Promise<LyricsResponse> {
     const scTrackId = normalizeScTrackId(scTrackIdRaw) ?? scTrackIdRaw;
-    const cached = await this.cache.findOne({ where: { scTrackId } });
+    const cached = await this.db.query.lyricsCache.findFirst({
+      where: eq(lyricsCache.scTrackId, scTrackId),
+    });
     if (cached) {
-      // Если лирика есть, но embed НЕ завершился (worker был оффлайн / NATS упал) —
-      // повторно публикуем embed-задачу. Без этого ретрая lyrics-вектор
-      // может не появиться в Qdrant до тех пор, пока юзер не сделает что-то
-      // что снова вызовет ensureLyrics.
       if (!cached.embeddedAt) {
         const text = pickLyricsText(cached.plainText, cached.syncedLrc);
         if (text && text.length > 30) {
@@ -223,28 +220,11 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     return promise;
   }
 
-  /**
-   * Endpoint 2 — ручной поиск по artist/title (preview).
-   *
-   * Кеш НЕ трогаем (ни чтение, ни запись), ни PG ни qdrant. Юзер вводит
-   * произвольные данные — нельзя attach'ить результат к scTrackId, иначе:
-   *   - если ввели чужой "artist - title" и внешние нашли совпадение → лирика
-   *     чужого трека сохранится на урн текущего;
-   *   - stage3 self-gen транскрибит реальный аудио по урну (игнорит ввод),
-   *     произвольный поиск триггерит whisper на чужой трек.
-   *
-   * Если будем делать "сохранить найденное на этот трек" — это ОТДЕЛЬНОЕ
-   * действие пользователя (кнопка "Apply"), не побочка search-запроса.
-   */
   async searchLyrics(hints: LyricsHints): Promise<LyricsResponse> {
     if (!hints.title || !hints.artist) return this.emptyResponse(null);
     return this.runPipeline(null, hints as Required<LyricsHints>, false);
   }
 
-  /**
-   * Бизнес-обработчик для IndexingService: тот же ensureLyrics, только
-   * под семафором — массовая индексация не должна забивать очередь воркера.
-   */
   async ensureLyricsForIndexing(scTrackIdRaw: string): Promise<void> {
     const scTrackId = normalizeScTrackId(scTrackIdRaw);
     if (!scTrackId) return;
@@ -288,7 +268,7 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    const entity = this.cache.create({
+    const insertValues: NewLyricsCache = {
       scTrackId,
       syncedLrc: picked.syncedLrc,
       plainText: picked.plainText,
@@ -296,8 +276,8 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       language: null,
       languageConfidence: null,
       embeddedAt: null,
-    });
-    await this.cache.save(entity);
+    };
+    const [entity] = await this.db.insert(lyricsCache).values(insertValues).returning();
 
     const textForLang = pickLyricsText(picked.plainText, picked.syncedLrc);
     if (textForLang && textForLang.length > 30) {
@@ -305,15 +285,14 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`after-found ${scTrackId}: ${(e as Error).message}`),
       );
     }
-    // alignment plainText→syncedLrc делает handleUploaded, когда трек реально в storage.
 
     return this.toResponse(entity);
   }
 
   private async loadHintsFromDb(scTrackId: string): Promise<LyricsHints> {
-    const row = await this.indexed.findOne({
-      where: { scTrackId },
-      select: ['title', 'durationMs', 'rawScData'],
+    const row = await this.db.query.indexedTracks.findFirst({
+      where: eq(indexedTracks.scTrackId, scTrackId),
+      columns: { title: true, durationMs: true, rawScData: true },
     });
     const raw = (row?.rawScData ?? {}) as {
       title?: string;
@@ -381,8 +360,6 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`[stage2] LLM added nothing new for ${logId}, skipping fanout`);
     }
 
-    // stage3 (whisper self-gen) уехал в handleUploaded — он крутится только когда
-    // трек реально доступен в storage, а внешний поиск ничего не дал.
     return { source: 'none', syncedLrc: null, plainText: null };
   }
 
@@ -447,7 +424,6 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       const ca = canonMeta(c.artistGuess ?? '');
       const ct = canonMeta(c.titleGuess ?? '');
       if (!ca || !ct) continue;
-      // 1) Прямое совпадение с исходными artist/title.
       if (a && t && ca === a && ct === t) {
         this.logger.log(
           `${stage} exact match (direct) for ${scTrackId}: ${c.source} ` +
@@ -455,7 +431,6 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
         );
         return c;
       }
-      // 2) Совпадение с любым heuristic query (обе перестановки artist/title).
       const fwd = `${ca} ${ct}`;
       const rev = `${ct} ${ca}`;
       if (querySet.has(fwd) || querySet.has(rev)) {
@@ -555,16 +530,6 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     return this.dedupe(all).slice(0, MAX_CANDIDATES);
   }
 
-  /**
-   * Реактивный обработчик `storage.track_uploaded` — крутит whisper, когда трек
-   * реально лежит в backend. Маршруты:
-   *   - есть syncedLrc       → ничего не делаем;
-   *   - есть только plainText → align (whisper с initial_prompt=plainText);
-   *   - записи нет           → full transcribe (внешние сервисы ничего не нашли).
-   * Перед whisper'ом ждёт inflight внешнего поиска, чтобы не запустить виспер
-   * параллельно с lrclib/mxm/genius. Дедуп через whisperInflight — повторные
-   * events на тот же трек не плодят дублей.
-   */
   async handleUploaded(scTrackIdRaw: string, storageUrl: string): Promise<void> {
     const scTrackId = normalizeScTrackId(scTrackIdRaw);
     if (!scTrackId || !storageUrl) return;
@@ -574,13 +539,12 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
 
     const promise = (async () => {
       try {
-        // дождаться внешнего поиска, если он ещё крутится
         const ext = this.inflight.get(scTrackId);
-        if (ext) {
-          await ext.catch(() => {});
-        }
+        if (ext) await ext.catch(() => {});
 
-        const entity = await this.cache.findOne({ where: { scTrackId } });
+        const entity = await this.db.query.lyricsCache.findFirst({
+          where: eq(lyricsCache.scTrackId, scTrackId),
+        });
         if (entity?.syncedLrc) return;
 
         if (entity?.plainText) {
@@ -597,7 +561,6 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     return promise;
   }
 
-  /** plain → synced via whisper с initial_prompt. */
   private async alignWithWhisper(entity: LyricsCache, storageUrl: string): Promise<void> {
     if (!entity.plainText || entity.syncedLrc) return;
     let result: Awaited<ReturnType<WorkerClient['transcribeAudio']>>;
@@ -612,44 +575,43 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     if (!result?.syncedLrc) return;
-    await this.cache.update({ scTrackId: entity.scTrackId }, { syncedLrc: result.syncedLrc });
+    await this.db
+      .update(lyricsCache)
+      .set({ syncedLrc: result.syncedLrc })
+      .where(eq(lyricsCache.scTrackId, entity.scTrackId));
     this.logger.log(`aligned sync LRC for ${entity.scTrackId}`);
   }
 
-  /**
-   * Периодический проход для треков, у которых whisper не отработал с первого
-   * storage-event'а (упал воркер, потерялся ack, и т.п.). Дёргает trigger —
-   * стриминг сделает HEAD storage и для cached треков publish'нёт событие
-   * заново; handleUploaded подхватит и попробует ещё раз. Не сохраняем null,
-   * так что повторные сухие проходы не превращаются в false-negative.
-   */
   private async reapWhisper(): Promise<void> {
     const cutoff = new Date(Date.now() - REAP_MIN_AGE_MS);
 
-    // Treck #1: есть plainText, но нет syncedLrc — нужен alignment.
-    const needAlign = await this.cache
-      .createQueryBuilder('l')
-      .select('l.scTrackId', 'scTrackId')
-      .where('l.plainText IS NOT NULL')
-      .andWhere('length(l.plainText) > 0')
-      .andWhere('l.syncedLrc IS NULL')
-      .andWhere('l.createdAt < :cutoff', { cutoff })
-      .orderBy('l.createdAt', 'ASC')
-      .limit(REAP_LIMIT_ALIGN)
-      .getRawMany<{ scTrackId: string }>();
+    const needAlign = await this.db
+      .select({ scTrackId: lyricsCache.scTrackId })
+      .from(lyricsCache)
+      .where(
+        and(
+          isNotNull(lyricsCache.plainText),
+          sql`length(${lyricsCache.plainText}) > 0`,
+          isNull(lyricsCache.syncedLrc),
+          lt(lyricsCache.createdAt, cutoff),
+        ),
+      )
+      .orderBy(asc(lyricsCache.createdAt))
+      .limit(REAP_LIMIT_ALIGN);
 
-    // Treck #2: индекс есть (трек уехал в storage), а в lyrics_cache записи нет
-    // (внешний поиск пуст; с того момента whisper мог упасть). full-transcribe.
-    const needFull = await this.indexed
-      .createQueryBuilder('t')
-      .select('t.scTrackId', 'scTrackId')
-      .leftJoin(LyricsCache, 'l', 'l.sc_track_id = t.sc_track_id')
-      .where('t.indexedAt IS NOT NULL')
-      .andWhere('l.sc_track_id IS NULL')
-      .andWhere('t.createdAt < :cutoff', { cutoff })
-      .orderBy('t.createdAt', 'ASC')
-      .limit(REAP_LIMIT_FULL)
-      .getRawMany<{ scTrackId: string }>();
+    const needFull = await this.db
+      .select({ scTrackId: indexedTracks.scTrackId })
+      .from(indexedTracks)
+      .leftJoin(lyricsCache, eq(lyricsCache.scTrackId, indexedTracks.scTrackId))
+      .where(
+        and(
+          isNotNull(indexedTracks.indexedAt),
+          isNull(lyricsCache.scTrackId),
+          lt(indexedTracks.createdAt, cutoff),
+        ),
+      )
+      .orderBy(asc(indexedTracks.createdAt))
+      .limit(REAP_LIMIT_FULL);
 
     const ids = [...needAlign.map((r) => r.scTrackId), ...needFull.map((r) => r.scTrackId)];
     if (!ids.length) return;
@@ -661,22 +623,20 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Реtry для зависших embed-задач: лирика в кеше есть, но `embeddedAt` так и
-   * остался NULL (worker лежал, NATS падал, перезапуск — embed-сообщение
-   * потерялось / не доехало). Без этого lyrics-вектор не появится в Qdrant
-   * пока юзер сам не вызовет ensureLyrics на этот трек.
-   */
   private async reapEmbeds(): Promise<void> {
     const cutoff = new Date(Date.now() - REAP_MIN_AGE_MS);
-    const stuck = await this.cache
-      .createQueryBuilder('l')
-      .where('l.embeddedAt IS NULL')
-      .andWhere('l.createdAt < :cutoff', { cutoff })
-      .andWhere("(length(coalesce(l.plainText, l.syncedLrc, '')) > 30)")
-      .orderBy('l.createdAt', 'ASC')
-      .limit(REAP_LIMIT_FULL)
-      .getMany();
+    const stuck = await this.db
+      .select()
+      .from(lyricsCache)
+      .where(
+        and(
+          isNull(lyricsCache.embeddedAt),
+          lt(lyricsCache.createdAt, cutoff),
+          sql`length(coalesce(${lyricsCache.plainText}, ${lyricsCache.syncedLrc}, '')) > 30`,
+        ),
+      )
+      .orderBy(asc(lyricsCache.createdAt))
+      .limit(REAP_LIMIT_FULL);
     if (!stuck.length) return;
 
     this.logger.log(`[lyrics-reap] re-publishing embed for ${stuck.length} stuck rows`);
@@ -689,7 +649,6 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Внешний поиск пуст → виспер с нуля. На пустой результат — ничего не сохраняем. */
   private async fullTranscribe(scTrackId: string, storageUrl: string): Promise<void> {
     let result: Awaited<ReturnType<WorkerClient['transcribeAudio']>>;
     try {
@@ -703,16 +662,18 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const entity = this.cache.create({
-      scTrackId,
-      syncedLrc: result.syncedLrc,
-      plainText: result.plainText,
-      source: 'self_gen',
-      language: null,
-      languageConfidence: null,
-      embeddedAt: null,
-    });
-    await this.cache.save(entity);
+    const [entity] = await this.db
+      .insert(lyricsCache)
+      .values({
+        scTrackId,
+        syncedLrc: result.syncedLrc,
+        plainText: result.plainText,
+        source: 'self_gen',
+        language: null,
+        languageConfidence: null,
+        embeddedAt: null,
+      })
+      .returning();
     this.logger.log(`self-generated LRC for ${scTrackId} (lang=${result.language})`);
 
     const text = pickLyricsText(result.plainText, result.syncedLrc);
@@ -744,11 +705,6 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     return out;
   }
 
-  /**
-   * `text` — лучший доступный текст лирики (plain или stripped synced),
-   * заранее выбранный через pickLyricsText. Используется и для детекта языка,
-   * и для embed в qdrant.
-   */
   private async afterFound(entity: LyricsCache, text: string): Promise<void> {
     let lang: { language: string; confidence: number } | null = null;
     try {
@@ -777,14 +733,14 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     if (lang) {
       entity.language = lang.language;
       entity.languageConfidence = lang.confidence;
-      await this.cache.update(
-        { scTrackId: entity.scTrackId },
-        { language: lang.language, languageConfidence: lang.confidence },
-      );
-      await this.indexed.update(
-        { scTrackId: entity.scTrackId },
-        { language: lang.language, languageConfidence: lang.confidence },
-      );
+      await this.db
+        .update(lyricsCache)
+        .set({ language: lang.language, languageConfidence: lang.confidence })
+        .where(eq(lyricsCache.scTrackId, entity.scTrackId));
+      await this.db
+        .update(indexedTracks)
+        .set({ language: lang.language, languageConfidence: lang.confidence })
+        .where(eq(indexedTracks.scTrackId, entity.scTrackId));
     }
 
     await this.nats.publish(SUBJECTS.embedLyrics, {
