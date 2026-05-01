@@ -4,4 +4,4 @@ dist
 *.md
 .git
 *.tsbuildinfo
-cert-runner/target
+gateway/target
