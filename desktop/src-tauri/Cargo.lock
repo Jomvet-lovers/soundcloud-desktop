@@ -4212,6 +4212,7 @@ dependencies = [
  "audiopus",
  "base64 0.22.1",
  "biquad",
+ "bytes",
  "chrono",
  "cpal",
  "discord-rich-presence",
@@ -4221,6 +4222,7 @@ dependencies = [
  "libc",
  "ogg",
  "raw-window-handle",
+ "regex",
  "reqwest 0.12.28",
  "rodio",
  "serde",
@@ -4235,6 +4237,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tokio",
+ "url",
  "urlencoding",
  "warp",
 ]

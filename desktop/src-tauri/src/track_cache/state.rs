@@ -13,6 +13,8 @@ use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore};
 
+use crate::track_cache::sc_anon::AnonClient;
+
 const MIN_AUDIO_SIZE: u64 = 8192;
 const AUDIO_SNIFF_LEN: usize = 16;
 const STREAM_WRITE_BUFFER_SIZE: usize = 256 * 1024;
@@ -219,6 +221,7 @@ struct ActiveDownload {
 #[serde(rename_all = "lowercase")]
 pub enum DownloadSource {
     Storage,
+    Anon,
     Api,
 }
 
@@ -226,6 +229,7 @@ impl DownloadSource {
     fn label(self) -> &'static str {
         match self {
             Self::Storage => "storage",
+            Self::Anon => "anon",
             Self::Api => "api",
         }
     }
@@ -285,6 +289,7 @@ pub struct TrackCacheState {
     preload_limiter: Arc<Semaphore>,
     /// Per-host storage circuit breaker: host -> epoch secs of last failure.
     storage_cooldowns: Arc<StdMutex<HashMap<String, u64>>>,
+    anon: Arc<AnonClient>,
 }
 
 pub fn init(audio_dir: PathBuf) -> TrackCacheState {
@@ -306,6 +311,8 @@ pub fn init(audio_dir: PathBuf) -> TrackCacheState {
         .build()
         .expect("failed to build storage client");
 
+    let anon = Arc::new(AnonClient::new(client.clone()));
+
     TrackCacheState {
         audio_dir,
         client,
@@ -314,6 +321,7 @@ pub fn init(audio_dir: PathBuf) -> TrackCacheState {
         active: Arc::new(Mutex::new(HashMap::new())),
         preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
         storage_cooldowns: Arc::new(StdMutex::new(HashMap::new())),
+        anon,
     }
 }
 
@@ -430,6 +438,78 @@ async fn write_response_to_cache(
         cleanup_temp_file(&temp_path).await;
         return Err(DownloadError::Fatal("Invalid audio data".into()));
     }
+
+    let cache_meta = TrackCacheMetadata { quality, source: Some(source) };
+
+    if let Ok(meta) = tokio::fs::metadata(&final_path).await {
+        if meta.len() >= MIN_AUDIO_SIZE {
+            cleanup_temp_file(&temp_path).await;
+            return Ok(DownloadResult { path: final_path });
+        }
+    }
+
+    match tokio::fs::rename(&temp_path, &final_path).await {
+        Ok(()) => {
+            write_cache_metadata(&final_path, &cache_meta).await;
+            Ok(DownloadResult { path: final_path })
+        }
+        Err(first_err) => {
+            if tokio::fs::metadata(&final_path)
+                .await
+                .map(|meta| meta.len() >= MIN_AUDIO_SIZE)
+                .unwrap_or(false)
+            {
+                cleanup_temp_file(&temp_path).await;
+                return Ok(DownloadResult { path: final_path });
+            }
+
+            tokio::fs::remove_file(&final_path).await.ok();
+            match tokio::fs::rename(&temp_path, &final_path).await {
+                Ok(()) => {
+                    write_cache_metadata(&final_path, &cache_meta).await;
+                    Ok(DownloadResult { path: final_path })
+                }
+                Err(second_err) => {
+                    cleanup_temp_file(&temp_path).await;
+                    Err(DownloadError::Fatal(format!(
+                        "Cache rename failed: {first_err}; {second_err}"
+                    )))
+                }
+            }
+        }
+    }
+}
+
+/// Write a fully buffered audio payload (e.g. anon HLS download) to cache.
+async fn write_bytes_to_cache(
+    audio_dir: &Path,
+    urn: &str,
+    data: &[u8],
+    quality: PlaybackQuality,
+    source: DownloadSource,
+) -> Result<DownloadResult, DownloadError> {
+    let total_size = data.len() as u64;
+    let sniff_len = AUDIO_SNIFF_LEN.min(data.len());
+    if !is_valid_audio(&data[..sniff_len], total_size) {
+        return Err(DownloadError::Fatal("Invalid audio data".into()));
+    }
+
+    let final_path = audio_dir.join(urn_to_filename(urn));
+    let temp_path = temp_file_path(audio_dir, urn);
+
+    let file = File::create(&temp_path)
+        .await
+        .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
+    let mut writer = BufWriter::with_capacity(STREAM_WRITE_BUFFER_SIZE, file);
+    if let Err(err) = writer.write_all(data).await {
+        cleanup_temp_file(&temp_path).await;
+        return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
+    }
+    if let Err(err) = writer.flush().await {
+        cleanup_temp_file(&temp_path).await;
+        return Err(DownloadError::Fatal(format!("Cache flush failed: {err}")));
+    }
+    drop(writer);
 
     let cache_meta = TrackCacheMetadata { quality, source: Some(source) };
 
@@ -707,7 +787,47 @@ impl TrackCacheState {
             }
         }
 
-        // 2. Try each API URL in order
+        // 2. Try anon: download directly from SC public API v2.
+        //    Saves a hop through our streaming infra when the user can reach
+        //    SoundCloud directly.
+        match self.anon.get_stream(urn).await {
+            Ok(Some(result)) => {
+                println!("[TrackCache] {urn} → anon (SC api v2)");
+                match write_bytes_to_cache(
+                    &self.audio_dir,
+                    urn,
+                    &result.data,
+                    PlaybackQuality::Sq,
+                    DownloadSource::Anon,
+                )
+                .await
+                {
+                    Ok(res) => {
+                        let kb = std::fs::metadata(&res.path)
+                            .map(|m| m.len() / 1024)
+                            .unwrap_or(0);
+                        let ms = start.elapsed().as_millis();
+                        println!("[TrackCache] downloaded {urn} via anon — {kb} KB in {ms}ms");
+                        return Ok(res.path);
+                    }
+                    Err(DownloadError::Fatal(e)) => {
+                        eprintln!("[TrackCache] anon write failed for {urn}: {e}");
+                    }
+                    Err(DownloadError::Retryable(e)) => {
+                        eprintln!("[TrackCache] anon write failed for {urn}: {e}");
+                    }
+                }
+            }
+            Ok(None) => {
+                println!("[TrackCache] anon: no usable transcoding for {urn}");
+            }
+            Err(e) => {
+                eprintln!("[TrackCache] anon failed for {urn}: {e}");
+                last_err = format!("anon: {e}");
+            }
+        }
+
+        // 3. Try each API URL in order
         for (i, url) in urls.iter().enumerate() {
             println!("[TrackCache] trying URL #{} for {urn} - {url}", i + 1);
 

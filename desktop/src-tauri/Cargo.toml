@@ -40,6 +40,9 @@ ogg = "0.9.2"
 audiopus = "0.2.0"
 chrono = { version = "0.4", features = ["clock"] }
 libc = "0.2"
+url = "2"
+regex = { version = "1", default-features = false, features = ["std"] }
+bytes = "1"
 
 [profile.release]
 lto = true
