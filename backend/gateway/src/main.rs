@@ -60,7 +60,7 @@ async fn main() -> ExitCode {
 
 async fn run(cfg: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let start = Instant::now();
-    let pool = BackendPool::new(cfg.backend_count, &cfg.socket_dir);
+    let pool = BackendPool::new(cfg.backend_count, &cfg.socket_dir, cfg.backend_tcp_base);
 
     let tls_state = if cfg.tls.enabled {
         acme::ensure_initial_cert(&cfg).await?;

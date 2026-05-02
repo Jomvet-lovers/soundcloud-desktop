@@ -8,6 +8,9 @@ pub struct Config {
     pub backend_count: usize,
     pub backend_command: Vec<OsString>,
     pub socket_dir: PathBuf,
+    /// If Some(base_port), backends listen on TCP `127.0.0.1:base_port + index`
+    /// instead of UDS. Useful for diagnosing UDS-specific issues.
+    pub backend_tcp_base: Option<u16>,
     pub http_port: u16,
     pub https_port: u16,
     pub redirect_http: bool,
@@ -17,6 +20,10 @@ pub struct Config {
     pub backoff_min: Duration,
     pub backoff_max: Duration,
     pub kill_grace: Duration,
+    /// Max number of *additional* attempts on a different live backend if the
+    /// upstream call fails (connect/handshake/timeout). Only applied to
+    /// idempotent methods (GET/HEAD/OPTIONS). 0 = no retry.
+    pub proxy_retry_limit: usize,
     pub tls: TlsConfig,
 }
 
@@ -43,6 +50,8 @@ impl Config {
             env::var("BACKEND_SOCKET_DIR").unwrap_or_else(|_| "/run/scd".to_string()),
         );
 
+        let backend_tcp_base = parse_u16("BACKEND_TCP_BASE");
+
         let http_port = parse_u16("TLS_HTTP_PORT").unwrap_or(80);
         let https_port = parse_u16("TLS_HTTPS_PORT").unwrap_or(443);
 
@@ -62,6 +71,7 @@ impl Config {
             backend_count,
             backend_command: argv,
             socket_dir,
+            backend_tcp_base,
             http_port,
             https_port,
             redirect_http: parse_bool("TLS_HTTP_REDIRECT", true),
@@ -71,6 +81,7 @@ impl Config {
             backoff_min: Duration::from_millis(parse_u64("BACKOFF_MIN_MS").unwrap_or(500)),
             backoff_max: Duration::from_millis(parse_u64("BACKOFF_MAX_MS").unwrap_or(30_000)),
             kill_grace: Duration::from_millis(parse_u64("KILL_GRACE_MS").unwrap_or(10_000)),
+            proxy_retry_limit: parse_usize("PROXY_RETRY_LIMIT").unwrap_or(2),
             tls: TlsConfig {
                 enabled: tls_enabled,
                 domains,

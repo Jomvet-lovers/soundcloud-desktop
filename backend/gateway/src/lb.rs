@@ -1,3 +1,4 @@
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -7,10 +8,25 @@ use rand::Rng;
 pub const STATE_DOWN: u8 = 0;
 pub const STATE_UP: u8 = 1;
 
+#[derive(Debug, Clone)]
+pub enum BackendAddr {
+    Uds(PathBuf),
+    Tcp(SocketAddr),
+}
+
+impl BackendAddr {
+    pub fn describe(&self) -> String {
+        match self {
+            BackendAddr::Uds(p) => p.display().to_string(),
+            BackendAddr::Tcp(s) => s.to_string(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Backend {
     pub id: usize,
-    pub socket_path: PathBuf,
+    pub addr: BackendAddr,
     pub inflight: AtomicU32,
     pub state: AtomicU8,
 }
@@ -32,12 +48,19 @@ pub struct BackendPool {
 }
 
 impl BackendPool {
-    pub fn new(count: usize, socket_dir: &Path) -> Self {
+    pub fn new(count: usize, socket_dir: &Path, tcp_base: Option<u16>) -> Self {
         let backends = (0..count)
             .map(|i| {
+                let addr = match tcp_base {
+                    Some(base) => BackendAddr::Tcp(SocketAddr::from((
+                        Ipv4Addr::new(127, 0, 0, 1),
+                        base + i as u16,
+                    ))),
+                    None => BackendAddr::Uds(socket_dir.join(format!("backend-{i}.sock"))),
+                };
                 Arc::new(Backend {
                     id: i,
-                    socket_path: socket_dir.join(format!("backend-{i}.sock")),
+                    addr,
                     inflight: AtomicU32::new(0),
                     state: AtomicU8::new(STATE_DOWN),
                 })
@@ -48,11 +71,13 @@ impl BackendPool {
         }
     }
 
-    pub fn pick(&self) -> Option<InflightHandle> {
+    /// P2C least-loaded over the live set, skipping any backend whose id
+    /// appears in `skip` (used for retry — never reselect the same dead one).
+    pub fn pick_excluding(&self, skip: &[usize]) -> Option<InflightHandle> {
         let alive: Vec<&Arc<Backend>> = self
             .backends
             .iter()
-            .filter(|b| b.is_up())
+            .filter(|b| b.is_up() && !skip.contains(&b.id))
             .collect();
         let chosen = match alive.len() {
             0 => return None,
@@ -76,6 +101,7 @@ impl BackendPool {
         chosen.inflight.fetch_add(1, Ordering::AcqRel);
         Some(InflightHandle { backend: chosen })
     }
+
 }
 
 pub struct InflightHandle {

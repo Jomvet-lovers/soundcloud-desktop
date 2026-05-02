@@ -7,13 +7,14 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
-use crate::lb::{Backend, BackendPool, STATE_DOWN};
+use crate::lb::{Backend, BackendAddr, BackendPool, STATE_DOWN};
 
-// If a worker is reported DOWN by health-check for longer than this, the
-// supervisor force-kills it. Without this a wedged Node process (event-loop
-// blocked, but not crashed) lives forever, holding RAM/CPU.
-const STUCK_DOWN_THRESHOLD: Duration = Duration::from_secs(30);
-const STUCK_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+// Safety net: if a worker is reported DOWN continuously (no UP flips) for
+// longer than this, the supervisor force-kills it. This is a last resort —
+// the threshold is intentionally large so a worker that's just slow under
+// load (event-loop briefly busy) does not get killed.
+const STUCK_DOWN_THRESHOLD: Duration = Duration::from_secs(300);
+const STUCK_CHECK_INTERVAL: Duration = Duration::from_secs(15);
 
 pub struct Supervisor {
     handles: Vec<JoinHandle<()>>,
@@ -60,7 +61,9 @@ async fn run_loop(cfg: Config, backend: Arc<Backend>, mut shutdown_rx: watch::Re
             return;
         }
 
-        let _ = tokio::fs::remove_file(&backend.socket_path).await;
+        if let BackendAddr::Uds(path) = &backend.addr {
+            let _ = tokio::fs::remove_file(path).await;
+        }
 
         let (program, args) = match cfg.backend_command.split_first() {
             Some(p) => p,
@@ -71,14 +74,23 @@ async fn run_loop(cfg: Config, backend: Arc<Backend>, mut shutdown_rx: watch::Re
         };
         let mut cmd = Command::new(program);
         cmd.args(args);
-        cmd.env("BACKEND_SOCKET", &backend.socket_path);
+        match &backend.addr {
+            BackendAddr::Uds(path) => {
+                cmd.env("BACKEND_SOCKET", path);
+                cmd.env_remove("PORT");
+            }
+            BackendAddr::Tcp(sock) => {
+                cmd.env("PORT", sock.port().to_string());
+                cmd.env_remove("BACKEND_SOCKET");
+            }
+        }
         cmd.env("BACKEND_INDEX", backend.id.to_string());
         cmd.kill_on_drop(true);
 
         info!(
-            "[supervisor] spawning backend {} (sock={})",
+            "[supervisor] spawning backend {} ({})",
             backend.id,
-            backend.socket_path.display()
+            backend.addr.describe(),
         );
         let started = Instant::now();
         let mut child = match cmd.spawn() {

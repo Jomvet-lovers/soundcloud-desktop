@@ -12,14 +12,15 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use rustls::server::{Acceptor, ServerConfig};
-use tokio::net::{TcpListener, UnixStream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::{TcpListener, TcpStream, UnixStream};
 use tokio::task::JoinHandle;
 use tokio_rustls::LazyConfigAcceptor;
 use tracing::{debug, error, warn};
 
 use crate::acme::issuer::handle_http01;
 use crate::config::Config;
-use crate::lb::BackendPool;
+use crate::lb::{BackendAddr, BackendPool};
 use crate::status;
 use crate::tls::{alpn_resolver, TlsState};
 
@@ -96,7 +97,7 @@ async fn handle_http(
     if cfg.redirect_http && tls.is_some() {
         return redirect_to_https(&req, cfg.https_port);
     }
-    proxy_request(req, pool, peer, false).await
+    proxy_request(req, pool, peer, false, cfg.proxy_retry_limit).await
 }
 
 fn redirect_to_https(req: &Request<Incoming>, https_port: u16) -> Response<ResponseBody> {
@@ -209,7 +210,7 @@ async fn handle_https_conn(
             if req.uri().path() == cfg.health_path {
                 return Ok::<_, hyper::Error>(status::handle(&pool, start).await);
             }
-            Ok::<_, hyper::Error>(proxy_request(req, pool, peer, true).await)
+            Ok::<_, hyper::Error>(proxy_request(req, pool, peer, true, cfg.proxy_retry_limit).await)
         }
     });
     if let Err(e) = server_http1::Builder::new()
@@ -226,92 +227,188 @@ async fn proxy_request(
     pool: BackendPool,
     peer: SocketAddr,
     https: bool,
+    retry_limit: usize,
 ) -> Response<ResponseBody> {
-    let handle = match pool.pick() {
-        Some(h) => h,
-        None => {
-            warn!("[proxy] no live backends");
-            return Response::builder()
-                .status(StatusCode::SERVICE_UNAVAILABLE)
-                .body(full(b"no backends".to_vec()))
-                .unwrap();
-        }
-    };
-
     inject_forwarded_headers(req.headers_mut(), peer, https);
-    // Force the upstream to close after this request. We don't pool UDS connections
-    // (handshake on loopback is microseconds); reuse would otherwise leak keep-alive
-    // sockets on the Node side and balloon CPU/RAM until the worker freezes.
+    // Force the upstream to close after this request. We don't pool connections
+    // to the worker (handshake on loopback is microseconds); reuse would leak
+    // keep-alive sockets on the Node side and balloon CPU/RAM.
     req.headers_mut()
         .insert(CONNECTION, HeaderValue::from_static("close"));
 
-    let backend_id = handle.backend.id;
+    let (parts, body) = req.into_parts();
+    let idempotent = matches!(
+        parts.method,
+        hyper::Method::GET | hyper::Method::HEAD | hyper::Method::OPTIONS
+    );
 
-    let stream = match tokio::time::timeout(
-        UDS_CONNECT_TIMEOUT,
-        UnixStream::connect(&handle.backend.socket_path),
-    )
-    .await
-    {
-        Ok(Ok(s)) => s,
+    // Buffer the body only when we may need to retry. Non-idempotent methods
+    // (POST/PUT/PATCH/DELETE) or anything past the first attempt can't safely
+    // be replayed, so we stream the body once and accept that a single failure
+    // becomes a 502 to the client.
+    let (buffered_body, mut streaming_body): (Option<Bytes>, Option<Incoming>) =
+        if idempotent && retry_limit > 0 {
+            match body.collect().await {
+                Ok(c) => (Some(c.to_bytes()), None),
+                Err(e) => {
+                    warn!("[proxy] read client body: {e}");
+                    return bad_gateway("client body read failed");
+                }
+            }
+        } else {
+            (None, Some(body))
+        };
+
+    let max_attempts = if idempotent { retry_limit + 1 } else { 1 };
+    let mut tried: Vec<usize> = Vec::with_capacity(max_attempts);
+    let mut last_error: Option<String> = None;
+
+    for attempt in 0..max_attempts {
+        let handle = match pool.pick_excluding(&tried) {
+            Some(h) => h,
+            None => break,
+        };
+        let backend_id = handle.backend.id;
+        tried.push(backend_id);
+
+        // Build a fresh Request for each attempt (parts cloned cheaply — only
+        // the body needs distinct ownership).
+        let req_body: ResponseBody = if let Some(bytes) = &buffered_body {
+            full(bytes.to_vec())
+        } else {
+            match streaming_body.take() {
+                Some(b) => b.boxed(),
+                None => break, // shouldn't happen — non-idempotent has 1 attempt
+            }
+        };
+        let mut req_builder = Request::builder()
+            .method(parts.method.clone())
+            .uri(parts.uri.clone())
+            .version(parts.version);
+        if let Some(h) = req_builder.headers_mut() {
+            h.clone_from(&parts.headers);
+        }
+        let upstream_req = match req_builder.body(req_body) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!("[proxy] build req: {e}");
+                return bad_gateway("internal request build failed");
+            }
+        };
+
+        match try_one(&handle.backend.addr, upstream_req, backend_id).await {
+            Ok(res) => {
+                drop(handle);
+                return res;
+            }
+            Err(e) => {
+                warn!(
+                    "[proxy] backend {backend_id} attempt {} failed: {e}",
+                    attempt + 1
+                );
+                last_error = Some(e);
+                // For non-idempotent we already streamed the body — can't retry.
+                if !idempotent {
+                    break;
+                }
+            }
+        }
+    }
+
+    if tried.is_empty() {
+        warn!("[proxy] no live backends");
+        return Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .body(full(b"no backends".to_vec()))
+            .unwrap();
+    }
+    warn!(
+        "[proxy] all {} attempts failed: {}",
+        tried.len(),
+        last_error.unwrap_or_else(|| "unknown".into())
+    );
+    bad_gateway("backend request failed")
+}
+
+async fn try_one(
+    addr: &BackendAddr,
+    req: Request<ResponseBody>,
+    backend_id: usize,
+) -> Result<Response<ResponseBody>, String> {
+    let _ = backend_id;
+    let conn_result = match addr {
+        BackendAddr::Uds(p) => match tokio::time::timeout(
+            UDS_CONNECT_TIMEOUT,
+            UnixStream::connect(p),
+        )
+        .await
+        {
+            Ok(Ok(s)) => handshake_io(TokioIo::new(s)).await,
+            Ok(Err(e)) => Err(format!("uds connect: {e}")),
+            Err(_) => Err("uds connect timeout".into()),
+        },
+        BackendAddr::Tcp(s) => match tokio::time::timeout(
+            UDS_CONNECT_TIMEOUT,
+            TcpStream::connect(s),
+        )
+        .await
+        {
+            Ok(Ok(stream)) => {
+                let _ = stream.set_nodelay(true);
+                handshake_io(TokioIo::new(stream)).await
+            }
+            Ok(Err(e)) => Err(format!("tcp connect: {e}")),
+            Err(_) => Err("tcp connect timeout".into()),
+        },
+    };
+
+    let (mut sender, conn_handle) = conn_result?;
+
+    match tokio::time::timeout(UPSTREAM_REQUEST_TIMEOUT, sender.send_request(req)).await {
+        Ok(Ok(res)) => {
+            drop(sender);
+            // conn_handle stays alive to drive the response body stream until
+            // EOF / UPSTREAM_CONN_DEADLINE.
+            let _ = conn_handle;
+            Ok(res.map(|b| b.boxed()))
+        }
         Ok(Err(e)) => {
-            warn!("[proxy] uds connect backend {backend_id}: {e}");
-            return bad_gateway("backend connect failed");
+            conn_handle.abort();
+            Err(format!("send: {e}"))
         }
         Err(_) => {
-            warn!("[proxy] uds connect timeout backend {backend_id}");
-            return bad_gateway("backend connect timeout");
+            conn_handle.abort();
+            Err("request timeout".into())
         }
-    };
-    let io = TokioIo::new(stream);
-    let (mut sender, conn) = match tokio::time::timeout(
+    }
+}
+
+async fn handshake_io<I>(
+    io: TokioIo<I>,
+) -> Result<
+    (
+        client_http1::SendRequest<ResponseBody>,
+        tokio::task::JoinHandle<()>,
+    ),
+    String,
+>
+where
+    I: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+    let (sender, conn) = match tokio::time::timeout(
         UDS_HANDSHAKE_TIMEOUT,
-        client_http1::handshake(io),
+        client_http1::handshake::<_, ResponseBody>(io),
     )
     .await
     {
         Ok(Ok(p)) => p,
-        Ok(Err(e)) => {
-            warn!("[proxy] uds handshake backend {backend_id}: {e}");
-            return bad_gateway("backend handshake failed");
-        }
-        Err(_) => {
-            warn!("[proxy] uds handshake timeout backend {backend_id}");
-            return bad_gateway("backend handshake timeout");
-        }
+        Ok(Err(e)) => return Err(format!("handshake: {e}")),
+        Err(_) => return Err("handshake timeout".into()),
     };
-
-    // Drive the connection task with a hard upper bound. Even with `Connection: close`
-    // we don't want a buggy/wedged upstream to keep this task alive forever.
     let conn_handle = tokio::spawn(async move {
         let _ = tokio::time::timeout(UPSTREAM_CONN_DEADLINE, conn).await;
     });
-
-    match tokio::time::timeout(UPSTREAM_REQUEST_TIMEOUT, sender.send_request(req)).await {
-        Ok(Ok(res)) => {
-            // Body streams through the conn task. Detach: the inflight handle keeps the
-            // backend marked busy until this future is dropped — but since the body is
-            // returned upstream, we can't hold it here. The conn task self-terminates
-            // when the body is fully read (server FINs due to Connection: close) or via
-            // the UPSTREAM_CONN_DEADLINE timeout above.
-            drop(handle);
-            // Hand off sender ownership so it lives until the body is consumed.
-            // (sender drop signals the conn task; we let conn task own its own lifetime
-            // via the deadline.)
-            drop(sender);
-            res.map(|b| b.boxed())
-        }
-        Ok(Err(e)) => {
-            warn!("[proxy] backend {backend_id} send: {e}");
-            conn_handle.abort();
-            bad_gateway("backend request failed")
-        }
-        Err(_) => {
-            warn!("[proxy] backend {backend_id} request timeout");
-            conn_handle.abort();
-            bad_gateway("backend request timeout")
-        }
-    }
+    Ok((sender, conn_handle))
 }
 
 fn bad_gateway(msg: &'static str) -> Response<ResponseBody> {

@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -8,12 +7,13 @@ use hyper::client::conn::http1;
 use hyper::header::{CONNECTION, HOST};
 use hyper::{HeaderMap, Request};
 use hyper_util::rt::TokioIo;
-use tokio::net::UnixStream;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::{TcpStream, UnixStream};
 use tokio::task::JoinHandle;
 use tracing::info;
 
 use crate::config::Config;
-use crate::lb::{BackendPool, STATE_DOWN, STATE_UP};
+use crate::lb::{BackendAddr, BackendPool, STATE_DOWN, STATE_UP};
 
 const CONN_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -21,7 +21,7 @@ pub fn spawn(cfg: Config, pool: BackendPool) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             for backend in pool.backends.iter() {
-                let ok = check(&backend.socket_path, &cfg.health_path, cfg.health_timeout).await;
+                let ok = check(&backend.addr, &cfg.health_path, cfg.health_timeout).await;
                 let new = if ok { STATE_UP } else { STATE_DOWN };
                 let prev = backend.state.swap(new, Ordering::AcqRel);
                 if prev != new {
@@ -38,12 +38,30 @@ pub fn spawn(cfg: Config, pool: BackendPool) -> JoinHandle<()> {
     })
 }
 
-async fn check(sock: &Path, path: &str, timeout: Duration) -> bool {
-    let stream = match tokio::time::timeout(timeout, UnixStream::connect(sock)).await {
-        Ok(Ok(s)) => s,
-        _ => return false,
-    };
-    let io = TokioIo::new(stream);
+async fn check(addr: &BackendAddr, path: &str, timeout: Duration) -> bool {
+    match addr {
+        BackendAddr::Uds(p) => {
+            let stream = match tokio::time::timeout(timeout, UnixStream::connect(p)).await {
+                Ok(Ok(s)) => s,
+                _ => return false,
+            };
+            check_with_io(TokioIo::new(stream), path, timeout).await
+        }
+        BackendAddr::Tcp(s) => {
+            let stream = match tokio::time::timeout(timeout, TcpStream::connect(s)).await {
+                Ok(Ok(s)) => s,
+                _ => return false,
+            };
+            let _ = stream.set_nodelay(true);
+            check_with_io(TokioIo::new(stream), path, timeout).await
+        }
+    }
+}
+
+async fn check_with_io<I>(io: TokioIo<I>, path: &str, timeout: Duration) -> bool
+where
+    I: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
     let (mut sender, conn) = match tokio::time::timeout(timeout, http1::handshake(io)).await {
         Ok(Ok(p)) => p,
         _ => return false,
