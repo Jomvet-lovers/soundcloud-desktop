@@ -77,60 +77,67 @@ export class SoundcloudService {
     codeVerifier: string,
     creds: OAuthCredentials,
   ): Promise<ScTokenResponse> {
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${AUTH_BASE}/oauth/token`, {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json; charset=utf-8',
-    });
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+      code,
+      redirect_uri: creds.redirectUri,
+      code_verifier: codeVerifier,
+    }).toString();
 
-    const { data } = await firstValueFrom(
-      this.httpService.post<ScTokenResponse>(
-        url,
-        new URLSearchParams({
-          grant_type: 'authorization_code',
-          client_id: creds.clientId,
-          client_secret: creds.clientSecret,
-          code,
-          redirect_uri: creds.redirectUri,
-          code_verifier: codeVerifier,
-        }).toString(),
-        { headers },
-      ),
+    return this.withFallback(
+      `${AUTH_BASE}/oauth/token`,
+      {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json; charset=utf-8',
+      },
+      async (url, headers) => {
+        const { data } = await firstValueFrom(
+          this.httpService.post<ScTokenResponse>(url, body, { headers }),
+        );
+        return data;
+      },
     );
-    return data;
   }
 
   async refreshAccessToken(
     refreshToken: string,
     creds: OAuthCredentials,
   ): Promise<ScTokenResponse> {
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${AUTH_BASE}/oauth/token`, {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json; charset=utf-8',
-    });
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: creds.clientId,
+      client_secret: creds.clientSecret,
+      refresh_token: refreshToken,
+    }).toString();
 
-    const { data } = await firstValueFrom(
-      this.httpService.post<ScTokenResponse>(
-        url,
-        new URLSearchParams({
-          grant_type: 'refresh_token',
-          client_id: creds.clientId,
-          client_secret: creds.clientSecret,
-          refresh_token: refreshToken,
-        }).toString(),
-        { headers },
-      ),
+    return this.withFallback(
+      `${AUTH_BASE}/oauth/token`,
+      {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json; charset=utf-8',
+      },
+      async (url, headers) => {
+        const { data } = await firstValueFrom(
+          this.httpService.post<ScTokenResponse>(url, body, { headers }),
+        );
+        return data;
+      },
     );
-    return data;
   }
 
   async signOut(accessToken: string): Promise<void> {
-    const { url, headers } = this.proxyWith(this.apiProxyUrl, `${AUTH_BASE}/sign-out`, {
-      'Content-Type': 'application/json; charset=utf-8',
-      Accept: 'application/json; charset=utf-8',
-    });
-
-    await firstValueFrom(
-      this.httpService.post(url, JSON.stringify({ access_token: accessToken }), { headers }),
+    const body = JSON.stringify({ access_token: accessToken });
+    await this.withFallback(
+      `${AUTH_BASE}/sign-out`,
+      {
+        'Content-Type': 'application/json; charset=utf-8',
+        Accept: 'application/json; charset=utf-8',
+      },
+      async (url, headers) => {
+        await firstValueFrom(this.httpService.post(url, body, { headers }));
+      },
     ).catch(() => {});
   }
 

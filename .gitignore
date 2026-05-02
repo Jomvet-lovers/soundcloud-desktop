@@ -16,6 +16,7 @@ streaming/target
 storage/target
 tls-common/target
 backend/gateway/target
+backend-rs/target
 
 storage/data
 streaming/data
