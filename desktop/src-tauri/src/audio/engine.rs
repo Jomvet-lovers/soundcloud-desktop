@@ -36,12 +36,20 @@ fn stop_current_player(state: &AudioState) {
     }
 }
 
+fn apply_current_rate(state: &AudioState, player: &rodio::Player) {
+    let rate = *state.playback_rate.lock().unwrap();
+    if (rate - 1.0).abs() > f32::EPSILON {
+        player.set_speed(rate);
+    }
+}
+
 fn commit_loaded_track(
     state: &AudioState,
     bytes: Vec<u8>,
     new_player: rodio::Player,
     normalization_gain: f32,
 ) {
+    apply_current_rate(state, &new_player);
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
     *state.normalization_gain.lock().unwrap() = normalization_gain;
@@ -59,6 +67,7 @@ async fn build_player_from_bytes(
     normalization_cache_key: Option<String>,
     start_paused: bool,
     eq_params: std::sync::Arc<std::sync::RwLock<crate::audio::types::EqParams>>,
+    analyser_buffer: std::sync::Arc<crate::audio::analyser::AnalyserBuffer>,
 ) -> Result<(Vec<u8>, rodio::Player, Option<f64>, f32), String> {
     task::spawn_blocking(move || {
         let normalization_gain = if normalization_enabled {
@@ -77,6 +86,7 @@ async fn build_player_from_bytes(
             normalization_gain,
             start_paused,
             eq_params,
+            analyser_buffer,
         )?;
         Ok((bytes, player, duration_secs, normalization_gain))
     })
@@ -114,10 +124,12 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
         },
         was_paused,
         state.eq_params.clone(),
+        state.analyser_buffer.clone(),
     )?;
     if position.as_secs_f64() > 0.0 {
         new_player.try_seek(position).ok();
     }
+    apply_current_rate(state, &new_player);
 
     let mut player = state.player.lock().unwrap();
     if let Some(old) = player.take() {
@@ -159,6 +171,7 @@ pub async fn load_file(
         normalization_cache_key,
         start_paused,
         state.eq_params.clone(),
+        state.analyser_buffer.clone(),
     )
     .await?;
 
@@ -259,6 +272,7 @@ pub async fn load_url(
         normalization_cache_key,
         start_paused,
         state.eq_params.clone(),
+        state.analyser_buffer.clone(),
     )
     .await?;
 
@@ -347,10 +361,12 @@ pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
         },
         was_paused,
         state.eq_params.clone(),
+        state.analyser_buffer.clone(),
     )?;
     if position > 0.0 {
         new_player.try_seek(target).ok();
     }
+    apply_current_rate(&state, &new_player);
 
     let mut player = state.player.lock().unwrap();
     if let Some(old) = player.take() {
@@ -367,6 +383,18 @@ pub fn set_volume(volume: f64, state: State<'_, AudioState>) {
     *state.volume.lock().unwrap() = vol;
     if let Some(ref player) = *state.player.lock().unwrap() {
         player.set_volume(vol);
+    }
+}
+
+fn clamp_playback_rate(rate: f64) -> f32 {
+    (rate.clamp(0.5, 2.0)) as f32
+}
+
+pub fn set_playback_rate(rate: f64, state: State<'_, AudioState>) {
+    let value = clamp_playback_rate(rate);
+    *state.playback_rate.lock().unwrap() = value;
+    if let Some(ref player) = *state.player.lock().unwrap() {
+        player.set_speed(value);
     }
 }
 

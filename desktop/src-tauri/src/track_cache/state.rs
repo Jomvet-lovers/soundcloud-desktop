@@ -13,6 +13,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore};
 
+use crate::app::diagnostics::log_native;
 use crate::track_cache::sc_anon::AnonClient;
 
 const MIN_AUDIO_SIZE: u64 = 8192;
@@ -288,6 +289,18 @@ fn now_secs() -> u64 {
 
 fn host_of(url: &str) -> Option<String> {
     Url::parse(url).ok()?.host_str().map(str::to_string)
+}
+
+/// Convert a storage stream URL (`<base>/sq/<file>`) into a redirect URL
+/// (`<base>/redirect/sq/<file>`) that 307s to a presigned S3 URL.
+fn make_redirect_url(storage_url: &str) -> Option<String> {
+    let mut parsed = Url::parse(storage_url).ok()?;
+    let path = parsed.path().trim_start_matches('/').to_string();
+    if path.is_empty() || path.starts_with("redirect/") {
+        return None;
+    }
+    parsed.set_path(&format!("redirect/{path}"));
+    Some(parsed.to_string())
 }
 
 fn dir_size(dir: &Path) -> u64 {
@@ -673,6 +686,19 @@ impl TrackCacheState {
         self.preload_limiter.clone().try_acquire_owned().ok()
     }
 
+    /// Wire up the Tauri AppHandle so that anon/cache writes can persist
+    /// diagnostics to `desktop.log`.
+    pub fn set_app_handle(&mut self, handle: tauri::AppHandle) {
+        self.anon.set_app_handle(handle.clone());
+        self.app_handle = Some(handle);
+    }
+
+    fn diag(&self, level: &str, msg: String) {
+        if let Some(app) = self.app_handle.as_ref() {
+            log_native(app, level, &msg);
+        }
+    }
+
     fn file_path(&self, urn: &str) -> PathBuf {
         self.audio_dir.join(urn_to_filename(urn))
     }
@@ -814,7 +840,7 @@ impl TrackCacheState {
         let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
 
-        // 1. Try each storage URL once, sorted: healthy hosts first.
+        // Sort storage URLs: healthy hosts first.
         let mut sorted: Vec<&String> = storage_urls.iter().collect();
         sorted.sort_by_key(|url| {
             let healthy = host_of(url)
@@ -823,24 +849,27 @@ impl TrackCacheState {
             if healthy { 0 } else { 1 }
         });
 
-        for storage_url in sorted {
+        // 1. Try storage `/redirect/...` URLs — fast presign + direct S3 download.
+        //    Saves storage server bandwidth when S3 is reachable from the user.
+        //    No cooldown is recorded here: a failure may be S3-side (banned/blocked),
+        //    but the storage stream fallback (step 3) might still work.
+        for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
                 continue;
             };
-            if !self.storage_host_available(&host) {
+            let Some(redirect_url) = make_redirect_url(storage_url) else {
                 continue;
-            }
+            };
             let prefer_hq = storage_url.contains("/hq/");
 
-            match self.storage_client.get(storage_url).send().await {
+            match self.client.get(&redirect_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    self.mark_storage_host_ok(&host);
                     let quality = if prefer_hq {
                         PlaybackQuality::Hq
                     } else {
                         PlaybackQuality::Sq
                     };
-                    println!("[TrackCache] {urn} → storage ({host})");
+                    println!("[TrackCache] {urn} → s3 (redirect via {host})");
                     match write_response_to_cache(
                         target_dir,
                         urn,
@@ -856,7 +885,122 @@ impl TrackCacheState {
                                 .map(|m| m.len() / 1024)
                                 .unwrap_or(0);
                             let ms = start.elapsed().as_millis();
-                            println!("[TrackCache] downloaded {urn} via storage — {kb} KB in {ms}ms");
+                            println!("[TrackCache] downloaded {urn} via s3 — {kb} KB in {ms}ms");
+                            return Ok(result.path);
+                        }
+                        Err(DownloadError::Fatal(e)) => {
+                            eprintln!("[TrackCache] s3 write failed for {urn}: {e}");
+                        }
+                        Err(DownloadError::Retryable(e)) => {
+                            eprintln!("[TrackCache] s3 download failed for {urn}: {e}");
+                        }
+                    }
+                }
+                Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 410 => {}
+                Ok(resp) => {
+                    eprintln!(
+                        "[TrackCache] s3 redirect HTTP {} for {urn} ({host})",
+                        resp.status()
+                    );
+                }
+                Err(err) => {
+                    eprintln!("[TrackCache] s3 redirect failed for {urn} ({host}): {err}");
+                }
+            }
+        }
+
+        // 2. Try anon: download directly from SC public API v2.
+        //    Saves a hop through our streaming infra when the user can reach
+        //    SoundCloud directly.
+        match self.anon.get_stream(urn).await {
+            Ok(Some(result)) => {
+                let line = format!("[TrackCache] {urn} → anon (SC api v2)");
+                println!("{line}");
+                self.diag("INFO", line);
+                match write_bytes_to_cache(
+                    target_dir,
+                    urn,
+                    &result.data,
+                    PlaybackQuality::Sq,
+                    DownloadSource::Anon,
+                )
+                .await
+                {
+                    Ok(res) => {
+                        let kb = std::fs::metadata(&res.path)
+                            .map(|m| m.len() / 1024)
+                            .unwrap_or(0);
+                        let ms = start.elapsed().as_millis();
+                        let line = format!(
+                            "[TrackCache] downloaded {urn} via anon — {kb} KB in {ms}ms"
+                        );
+                        println!("{line}");
+                        self.diag("INFO", line);
+                        return Ok(res.path);
+                    }
+                    Err(DownloadError::Fatal(e)) => {
+                        let line = format!("[TrackCache] anon write failed for {urn}: {e}");
+                        eprintln!("{line}");
+                        self.diag("ERROR", line);
+                    }
+                    Err(DownloadError::Retryable(e)) => {
+                        let line = format!("[TrackCache] anon write failed for {urn}: {e}");
+                        eprintln!("{line}");
+                        self.diag("ERROR", line);
+                    }
+                }
+            }
+            Ok(None) => {
+                let line = format!("[TrackCache] anon: no usable transcoding for {urn}");
+                println!("{line}");
+                self.diag("INFO", line);
+            }
+            Err(e) => {
+                let line = format!("[TrackCache] anon failed for {urn}: {e}");
+                eprintln!("{line}");
+                self.diag("WARN", line);
+                last_err = format!("anon: {e}");
+            }
+        }
+
+        // 3. Storage stream fallback — proxies S3 bytes through the storage server.
+        //    Used when the user cannot reach S3 directly (e.g. region-blocked).
+        for storage_url in &sorted {
+            let Some(host) = host_of(storage_url) else {
+                continue;
+            };
+            if !self.storage_host_available(&host) {
+                continue;
+            }
+            let prefer_hq = storage_url.contains("/hq/");
+
+            match self.storage_client.get(*storage_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    self.mark_storage_host_ok(&host);
+                    let quality = if prefer_hq {
+                        PlaybackQuality::Hq
+                    } else {
+                        PlaybackQuality::Sq
+                    };
+                    println!("[TrackCache] {urn} → storage stream ({host})");
+                    match write_response_to_cache(
+                        target_dir,
+                        urn,
+                        resp,
+                        quality,
+                        DownloadSource::Storage,
+                        self.app_handle.as_ref(),
+                    )
+                    .await
+                    {
+                        Ok(result) => {
+                            let kb = std::fs::metadata(&result.path)
+                                .map(|m| m.len() / 1024)
+                                .unwrap_or(0);
+                            let ms = start.elapsed().as_millis();
+                            println!(
+                                "[TrackCache] downloaded {urn} via storage stream — {kb} KB in {ms}ms"
+                            );
                             return Ok(result.path);
                         }
                         Err(DownloadError::Fatal(e)) => {
@@ -879,47 +1023,7 @@ impl TrackCacheState {
             }
         }
 
-        // 2. Try anon: download directly from SC public API v2.
-        //    Saves a hop through our streaming infra when the user can reach
-        //    SoundCloud directly.
-        match self.anon.get_stream(urn).await {
-            Ok(Some(result)) => {
-                println!("[TrackCache] {urn} → anon (SC api v2)");
-                match write_bytes_to_cache(
-                    target_dir,
-                    urn,
-                    &result.data,
-                    PlaybackQuality::Sq,
-                    DownloadSource::Anon,
-                )
-                .await
-                {
-                    Ok(res) => {
-                        let kb = std::fs::metadata(&res.path)
-                            .map(|m| m.len() / 1024)
-                            .unwrap_or(0);
-                        let ms = start.elapsed().as_millis();
-                        println!("[TrackCache] downloaded {urn} via anon — {kb} KB in {ms}ms");
-                        return Ok(res.path);
-                    }
-                    Err(DownloadError::Fatal(e)) => {
-                        eprintln!("[TrackCache] anon write failed for {urn}: {e}");
-                    }
-                    Err(DownloadError::Retryable(e)) => {
-                        eprintln!("[TrackCache] anon write failed for {urn}: {e}");
-                    }
-                }
-            }
-            Ok(None) => {
-                println!("[TrackCache] anon: no usable transcoding for {urn}");
-            }
-            Err(e) => {
-                eprintln!("[TrackCache] anon failed for {urn}: {e}");
-                last_err = format!("anon: {e}");
-            }
-        }
-
-        // 3. Try each API URL in order
+        // 4. Try each API URL in order
         for (i, url) in urls.iter().enumerate() {
             println!("[TrackCache] trying URL #{} for {urn} - {url}", i + 1);
 

@@ -26,7 +26,16 @@
     "repeat": "Повтор",
     "qualityHQ": "HQ",
     "qualitySQ": "SQ",
-    "qualityCDN": "CDN"
+    "qualityCDN": "CDN",
+    "playbackSpeed": "Скорость",
+    "playbackSpeedReset": "Сбросить до 1.00x",
+    "soundTuning": "Настройка звука",
+    "pitch": "Питч",
+    "pitchReset": "Сбросить питч",
+    "pitchModeAuto": "Питч следует за скоростью",
+    "pitchModeAutoShort": "Авто",
+    "pitchModeManual": "Ручной питч",
+    "pitchModeManualShort": "Вручную"
   },
   "auth": {
     "signIn": "Войти через SoundCloud",
@@ -100,7 +109,8 @@
     "dislike": "Не рекомендовать",
     "removeDislike": "Убрать дизлайк",
     "play": "Слушать",
-    "pause": "Пауза"
+    "pause": "Пауза",
+    "openTrackPage": "Страница трека"
   },
   "playlist": {
     "playAll": "Воспроизвести",
@@ -286,6 +296,8 @@
     "startupPageDesc": "Какая страница должна открываться при старте приложения",
     "playback": "Воспроизведение",
     "floatingComments": "Плавающие комментарии",
+    "lyricsVisualizer": "Визуализатор в лирике",
+    "lyricsVisualizerDesc": "FFT-волна по биту трека на фоне фуллскрин лирики. По умолчанию выключено.",
     "floatingCommentsDesc": "Показывать комментарии как всплывающие пилюли во время воспроизведения",
     "discordRpc": "Discord Rich Presence",
     "discordRpcDesc": "Показывать текущий статус прослушивания SoundCloud в Discord",

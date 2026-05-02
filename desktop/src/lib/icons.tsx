@@ -55,10 +55,10 @@ import {
   Send as _Send,
   Settings as _Settings,
   Shuffle as _Shuffle,
-  Smartphone as _Smartphone,
   SkipBack as _SkipBack,
   SkipForward as _SkipForward,
   SlidersHorizontal as _SlidersHorizontal,
+  Smartphone as _Smartphone,
   Sparkles as _Sparkles,
   Square as _Square,
   Star as _Star,
@@ -229,3 +229,4 @@ export const musicIcon14 = <_Music size={14} className="text-white/15" />;
 export const musicIcon22 = <_Music size={22} className="text-white/15" />;
 export const musicIcon20 = <_Music size={16} className="text-white/20" />;
 export const audioLines16 = <_AudioLines size={16} />;
+export const slidersHorizontal16 = <_SlidersHorizontal size={16} />;

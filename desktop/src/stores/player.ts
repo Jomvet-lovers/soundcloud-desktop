@@ -34,6 +34,43 @@ type RepeatMode = 'off' | 'one' | 'all';
 export type PlaybackQuality = 'hq' | 'sq';
 export type PlaybackSource = 'storage' | 'api';
 
+export const PLAYBACK_RATE_MIN = 0.5;
+export const PLAYBACK_RATE_MAX = 2.0;
+export const PLAYBACK_RATE_STEP = 0.05;
+export const PLAYBACK_RATE_DEFAULT = 1.0;
+
+export const PITCH_SEMITONES_MIN = -12;
+export const PITCH_SEMITONES_MAX = 12;
+export const PITCH_SEMITONES_STEP = 0.5;
+
+export type PitchControlMode = 'auto' | 'manual';
+
+export function clampPlaybackRate(rate: number): number {
+  if (!Number.isFinite(rate)) return PLAYBACK_RATE_DEFAULT;
+  return Math.round(Math.max(PLAYBACK_RATE_MIN, Math.min(PLAYBACK_RATE_MAX, rate)) * 100) / 100;
+}
+
+export function clampPitchSemitones(semi: number): number {
+  if (!Number.isFinite(semi)) return 0;
+  return Math.round(Math.max(PITCH_SEMITONES_MIN, Math.min(PITCH_SEMITONES_MAX, semi)) * 2) / 2;
+}
+
+/** Pitch the player should treat as effective:
+ *  - in 'auto' mode it's the semitone equivalent of the playback rate (rate ↔ pitch coupled)
+ *  - in 'manual' mode it's the user-driven slider value
+ */
+export function getEffectivePitchSemitones(
+  rate: number,
+  mode: PitchControlMode,
+  manual: number,
+): number {
+  if (mode === 'auto') {
+    const safe = Math.max(0.01, rate);
+    return clampPitchSemitones((Math.log(safe) / Math.log(2)) * 12);
+  }
+  return clampPitchSemitones(manual);
+}
+
 function shuffleArray<T>(arr: T[]): void {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -64,6 +101,14 @@ interface PlayerState {
   next: () => void;
   prev: () => void;
   setVolume: (v: number) => void;
+  playbackRate: number;
+  setPlaybackRate: (rate: number) => void;
+  resetPlaybackRate: () => void;
+  pitchSemitones: number;
+  pitchControlMode: PitchControlMode;
+  setPitchSemitones: (value: number) => void;
+  resetPitchSemitones: () => void;
+  setPitchControlMode: (mode: PitchControlMode) => void;
   setQueue: (queue: Track[]) => void;
   addToQueue: (tracks: Track[]) => void;
   addToQueueNext: (tracks: Track[]) => void;
@@ -92,6 +137,9 @@ export const usePlayerStore = create<PlayerState>()(
       downloadProgress: null,
       playbackQuality: null,
       playbackSource: null,
+      playbackRate: PLAYBACK_RATE_DEFAULT,
+      pitchSemitones: 0,
+      pitchControlMode: 'auto',
 
       play: (track, queue) => {
         if (queue) {
@@ -187,6 +235,12 @@ export const usePlayerStore = create<PlayerState>()(
           ...(clamped === 0 && prev > 0 ? { volumeBeforeMute: prev } : {}),
         });
       },
+
+      setPlaybackRate: (rate) => set({ playbackRate: clampPlaybackRate(rate) }),
+      resetPlaybackRate: () => set({ playbackRate: PLAYBACK_RATE_DEFAULT }),
+      setPitchSemitones: (value) => set({ pitchSemitones: clampPitchSemitones(value) }),
+      resetPitchSemitones: () => set({ pitchSemitones: 0 }),
+      setPitchControlMode: (mode) => set({ pitchControlMode: mode }),
 
       setQueue: (queue) =>
         set((s) => {
@@ -344,6 +398,9 @@ export const usePlayerStore = create<PlayerState>()(
         queueIndex: state.queueIndex,
         shuffle: state.shuffle,
         repeat: state.repeat,
+        playbackRate: state.playbackRate,
+        pitchSemitones: state.pitchSemitones,
+        pitchControlMode: state.pitchControlMode,
       }),
     },
   ),

@@ -10,10 +10,13 @@ mod hls;
 use bytes::Bytes;
 use reqwest::Client;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::AppHandle;
 use tokio::sync::RwLock;
 
+use crate::app::diagnostics::log_native;
 use hls::{download_hls_full, download_progressive};
 
 const SC_BASE_URL: &str = "https://soundcloud.com";
@@ -73,12 +76,12 @@ pub struct AnonStreamResult {
 /// Caches a public `client_id` extracted from soundcloud.com homepage hydration.
 /// Includes a circuit breaker so users with SC blocked don't eat connect-timeouts
 /// on every track.
-#[derive(Clone)]
 pub struct AnonClient {
     client: Client,
     client_id: Arc<RwLock<Option<String>>>,
     fail_count: Arc<AtomicU8>,
     cooldown_until: Arc<AtomicU64>,
+    app_handle: OnceLock<AppHandle>,
 }
 
 impl AnonClient {
@@ -88,6 +91,22 @@ impl AnonClient {
             client_id: Arc::new(RwLock::new(None)),
             fail_count: Arc::new(AtomicU8::new(0)),
             cooldown_until: Arc::new(AtomicU64::new(0)),
+            app_handle: OnceLock::new(),
+        }
+    }
+
+    pub fn set_app_handle(&self, handle: AppHandle) {
+        let _ = self.app_handle.set(handle);
+    }
+
+    fn log(&self, level: &str, msg: String) {
+        let line = format!("[SCAnon] {msg}");
+        match level {
+            "ERROR" | "WARN" => eprintln!("{line}"),
+            _ => println!("{line}"),
+        }
+        if let Some(app) = self.app_handle.get() {
+            log_native(app, level, &line);
         }
     }
 
@@ -106,7 +125,10 @@ impl AnonClient {
             self.cooldown_until
                 .store(now_secs() + COOLDOWN_SECS, Ordering::Relaxed);
             self.fail_count.store(0, Ordering::Relaxed);
-            eprintln!("[SCAnon] circuit open — skipping anon for {COOLDOWN_SECS}s");
+            self.log(
+                "WARN",
+                format!("circuit open — skipping anon for {COOLDOWN_SECS}s"),
+            );
         }
     }
 
@@ -133,7 +155,7 @@ impl AnonClient {
         let track = match self.get_track_by_id(track_id).await {
             Ok(t) => t,
             Err(e) => {
-                eprintln!("[SCAnon] get track failed: {e}");
+                self.log("WARN", format!("get track failed: {e}"));
                 return Err(e);
             }
         };
@@ -145,12 +167,15 @@ impl AnonClient {
         let transcodings: &[Transcoding] = match transcodings {
             Some(t) if !t.is_empty() => t.as_slice(),
             _ => {
-                eprintln!("[SCAnon] no transcodings for {track_id}, refreshing client_id");
+                self.log(
+                    "INFO",
+                    format!("no transcodings for {track_id}, refreshing client_id"),
+                );
                 self.invalidate_and_refresh().await?;
                 let retry_track = match self.get_track_by_id(track_id).await {
                     Ok(t) => t,
                     Err(e) => {
-                        eprintln!("[SCAnon] retry get track failed: {e}");
+                        self.log("WARN", format!("retry get track failed: {e}"));
                         return Err(e);
                     }
                 };
@@ -159,7 +184,10 @@ impl AnonClient {
                     .and_then(|m| m.transcodings)
                     .unwrap_or_default();
                 if transcodings_owned.is_empty() {
-                    eprintln!("[SCAnon] still no transcodings for {track_id} after refresh");
+                    self.log(
+                        "INFO",
+                        format!("still no transcodings for {track_id} after refresh"),
+                    );
                     return Ok(None);
                 }
                 transcodings_owned.as_slice()
@@ -170,12 +198,15 @@ impl AnonClient {
             Ok(Some(r)) => Ok(Some(r)),
             Ok(None) => Ok(None),
             Err(e) => {
-                eprintln!("[SCAnon] stream failed for {track_id}, refreshing client_id: {e}");
+                self.log(
+                    "WARN",
+                    format!("stream failed for {track_id}, refreshing client_id: {e}"),
+                );
                 self.invalidate_and_refresh().await?;
                 let retry_track = match self.get_track_by_id(track_id).await {
                     Ok(t) => t,
                     Err(e2) => {
-                        eprintln!("[SCAnon] retry get track failed: {e2}");
+                        self.log("WARN", format!("retry get track failed: {e2}"));
                         return Err(e2);
                     }
                 };
@@ -275,7 +306,7 @@ impl AnonClient {
 
         let mut cached = self.client_id.write().await;
         *cached = Some(client_id.clone());
-        println!("[SCAnon] refreshed public client_id");
+        self.log("INFO", "refreshed public client_id".to_string());
         Ok(client_id)
     }
 

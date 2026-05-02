@@ -26,7 +26,16 @@
     "repeat": "Repeat",
     "qualityHQ": "HQ",
     "qualitySQ": "SQ",
-    "qualityCDN": "CDN"
+    "qualityCDN": "CDN",
+    "playbackSpeed": "Speed",
+    "playbackSpeedReset": "Reset to 1.00x",
+    "soundTuning": "Sound tuning",
+    "pitch": "Pitch",
+    "pitchReset": "Reset pitch",
+    "pitchModeAuto": "Pitch follows speed",
+    "pitchModeAutoShort": "Auto",
+    "pitchModeManual": "Manual pitch",
+    "pitchModeManualShort": "Manual"
   },
   "auth": {
     "signIn": "Sign in with SoundCloud",
@@ -100,7 +109,8 @@
     "dislike": "Don't recommend",
     "removeDislike": "Remove dislike",
     "play": "Play",
-    "pause": "Pause"
+    "pause": "Pause",
+    "openTrackPage": "Open track page"
   },
   "playlist": {
     "playAll": "Play All",
@@ -281,6 +291,8 @@
     "playback": "Playback",
     "floatingComments": "Floating comments",
     "floatingCommentsDesc": "Show comments as floating pills during playback",
+    "lyricsVisualizer": "Lyrics visualizer",
+    "lyricsVisualizerDesc": "Real-time FFT wave behind the fullscreen lyrics. Off by default to save GPU.",
     "discordRpc": "Discord Rich Presence",
     "discordRpcDesc": "Show your current SoundCloud playback status in Discord",
     "discordRpcMode": "Display mode",

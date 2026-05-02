@@ -4,12 +4,7 @@ import { NatsService } from '../bus/nats.service.js';
 import { STREAMS, SUBJECTS } from '../bus/subjects.js';
 import { DB } from '../db/db.constants.js';
 import type { Database } from '../db/db.module.js';
-import {
-  indexedTracks,
-  type LyricsCache,
-  lyricsCache,
-  type NewLyricsCache,
-} from '../db/schema.js';
+import { indexedTracks, type LyricsCache, lyricsCache, type NewLyricsCache } from '../db/schema.js';
 import { TranscodeTriggerService } from '../transcode/transcode-trigger.service.js';
 import { GeniusService } from './genius.service.js';
 import { LrclibService } from './lrclib.service.js';
@@ -21,6 +16,7 @@ import {
   stripLrcTimestamps,
 } from './lyrics.util.js';
 import { MusixmatchService } from './musixmatch.service.js';
+import { NeteaseService } from './netease.service.js';
 import { WorkerClient } from './worker.client.js';
 
 export type LyricsSource = LyricsCache['source'];
@@ -155,6 +151,7 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
     private readonly lrclib: LrclibService,
     private readonly mxm: MusixmatchService,
     private readonly genius: GeniusService,
+    private readonly netease: NeteaseService,
     private readonly worker: WorkerClient,
     private readonly trigger: TranscodeTriggerService,
   ) {}
@@ -170,10 +167,7 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
           .update(lyricsCache)
           .set({ embeddedAt: sql`now()` })
           .where(
-            and(
-              eq(lyricsCache.scTrackId, payload.sc_track_id),
-              isNull(lyricsCache.embeddedAt),
-            ),
+            and(eq(lyricsCache.scTrackId, payload.sc_track_id), isNull(lyricsCache.embeddedAt)),
           );
       },
       SUBJECTS.doneEmbedLyrics,
@@ -520,6 +514,18 @@ export class LyricsService implements OnModuleInit, OnModuleDestroy {
             plainText: r.plainText,
             artistGuess: r.artistGuess,
             titleGuess: r.titleGuess,
+          })),
+        ),
+      );
+      tasks.push(
+        this.netease.searchByQuery(q, 5).then((rs) =>
+          rs.map<Candidate>((r) => ({
+            source: 'netease',
+            syncedLrc: r.syncedLrc,
+            plainText: r.plainText ?? (r.syncedLrc ? stripLrcTimestamps(r.syncedLrc) : null),
+            artistGuess: r.artistGuess,
+            titleGuess: r.titleGuess,
+            durationSec: r.durationSec,
           })),
         ),
       );

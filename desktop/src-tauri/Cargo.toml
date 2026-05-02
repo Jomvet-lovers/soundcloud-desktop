@@ -33,6 +33,7 @@ tauri-plugin-single-instance = "2.4.0"
 rodio = { version = "0.22.2", features = ["mp3", "symphonia-aac", "symphonia-isomp4", "symphonia-ogg"] }
 cpal = "0.17"
 biquad = "0.5"
+rustfft = { version = "6", default-features = false }
 souvlaki = "0.8"
 raw-window-handle = "0.6"
 tauri-plugin-dialog = "2.7.0"

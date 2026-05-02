@@ -5,6 +5,7 @@ use std::time::Duration;
 use rodio::mixer::Mixer;
 use rodio::Player;
 
+use crate::audio::analyser::AnalyserBuffer;
 use crate::audio::device::open_device_sink;
 use crate::audio::types::{
     AudioThreadCmd, EqParams, FloatingCommentEvent, LyricsTimingLine, MediaCmd,
@@ -27,6 +28,7 @@ pub struct AudioState {
     pub normalization_enabled: AtomicBool,
     pub normalization_gain: Mutex<f32>,
     pub volume: Mutex<f32>,
+    pub playback_rate: Mutex<f32>,
     pub has_track: AtomicBool,
     pub ended_notified: AtomicBool,
     pub suppress_ended_until_ms: AtomicU64,
@@ -40,6 +42,7 @@ pub struct AudioState {
     pub last_known_default_output: Mutex<Option<String>>,
     pub lyrics_timeline: Mutex<Option<LyricsTimelineState>>,
     pub comments_timeline: Mutex<Option<CommentsTimelineState>>,
+    pub analyser_buffer: Arc<AnalyserBuffer>,
 }
 
 pub fn init() -> AudioState {
@@ -119,6 +122,7 @@ pub fn init() -> AudioState {
         normalization_enabled: AtomicBool::new(true),
         normalization_gain: Mutex::new(1.0),
         volume: Mutex::new(0.25),
+        playback_rate: Mutex::new(1.0),
         has_track: AtomicBool::new(false),
         ended_notified: AtomicBool::new(false),
         suppress_ended_until_ms: AtomicU64::new(0),
@@ -132,5 +136,6 @@ pub fn init() -> AudioState {
         last_known_default_output: Mutex::new(None),
         lyrics_timeline: Mutex::new(None),
         comments_timeline: Mutex::new(None),
+        analyser_buffer: AnalyserBuffer::new(),
     }
 }

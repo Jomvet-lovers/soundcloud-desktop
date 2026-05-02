@@ -1,6 +1,6 @@
 import { api } from './api';
 
-export type LyricsSource = 'lrclib' | 'musixmatch' | 'genius' | 'self_gen' | 'none';
+export type LyricsSource = 'lrclib' | 'musixmatch' | 'genius' | 'netease' | 'self_gen' | 'none';
 
 export interface LyricLine {
   time: number;

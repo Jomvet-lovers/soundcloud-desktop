@@ -4,12 +4,15 @@ import { listen } from '@tauri-apps/api/event';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { api } from '../../lib/api';
 import { getCurrentTime, handlePrev, seek } from '../../lib/audio';
+import { toggleDislike, useDislikeStatus } from '../../lib/dislikes';
 import { ago, art, durLong } from '../../lib/formatters';
 import { type Comment, invalidateAllLikesCache, useTrackComments } from '../../lib/hooks';
 import {
+  ExternalLink,
   Eye,
   Heart,
   ListPlus,
@@ -24,6 +27,7 @@ import {
   SkipBack,
   SkipForward,
   shuffleIcon16,
+  ThumbsDown,
   X,
 } from '../../lib/icons';
 import { optimisticToggleLike, useLiked } from '../../lib/likes';
@@ -43,7 +47,15 @@ import {
   useLyricsStore,
 } from '../../stores/lyrics';
 import { type Track, usePlayerStore } from '../../stores/player';
-import { ProgressSlider, ProgressTime } from '../layout/NowPlayingBar';
+import { useSettingsStore } from '../../stores/settings';
+import {
+  ControlVolumeBtn,
+  PlaybackRateSlider,
+  ProgressSlider,
+  ProgressTime,
+  VolumeLabel,
+  VolumeSlider,
+} from '../layout/NowPlayingBar';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
 
 /* ── Source labels ────────────────────────────────────────── */
@@ -52,6 +64,7 @@ const SOURCE_LABELS: Record<LyricsSource, string> = {
   lrclib: 'LRCLib',
   musixmatch: 'Musixmatch',
   genius: 'Genius',
+  netease: 'NetEase',
   self_gen: 'AI',
   none: '',
 };
@@ -209,6 +222,62 @@ const FullscreenLikeButton = React.memo(({ track }: { track: Track }) => {
   );
 });
 
+/* ── Shared: dislike button (matches NowBar style) ─────────── */
+
+const FullscreenDislikeButton = React.memo(({ track }: { track: Track }) => {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const disliked = useDislikeStatus(track.urn);
+  const next = usePlayerStore((s) => s.next);
+
+  const toggle = async () => {
+    const nowDisliked = !disliked;
+    if (nowDisliked && track.user_favorite) {
+      optimisticToggleLike(qc, track, false);
+      invalidateAllLikesCache();
+      api(`/likes/tracks/${encodeURIComponent(track.urn)}`, { method: 'DELETE' }).catch(() => {});
+    }
+    if (nowDisliked && usePlayerStore.getState().currentTrack?.urn === track.urn) {
+      next();
+    }
+    await toggleDislike(qc, track, nowDisliked);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      title={disliked ? t('track.removeDislike') : t('track.dislike')}
+      className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer hover:bg-white/[0.06] outline-none ${
+        disliked ? 'text-rose-400' : 'text-white/30 hover:text-white/60'
+      }`}
+    >
+      <ThumbsDown size={18} fill={disliked ? 'currentColor' : 'none'} />
+    </button>
+  );
+});
+
+/* ── Open track page inside the app ──────────────────────── */
+
+const FullscreenOpenTrackButton = React.memo(({ track }: { track: Track }) => {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const closeLyrics = useLyricsStore((s) => s.close);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        closeLyrics();
+        navigate(`/track/${encodeURIComponent(track.urn)}`);
+      }}
+      title={t('track.openTrackPage')}
+      className="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-150 cursor-pointer hover:bg-white/[0.06] text-white/30 hover:text-white/60 outline-none"
+    >
+      <ExternalLink size={18} />
+    </button>
+  );
+});
+
 /* ── Transport controls ───────────────────────────────────── */
 
 const Controls = React.memo(({ track }: { track: Track }) => {
@@ -231,7 +300,12 @@ const Controls = React.memo(({ track }: { track: Track }) => {
     'w-9 h-9 rounded-full flex items-center justify-center transition-all duration-150 cursor-pointer hover:bg-white/[0.06] outline-none';
 
   return (
-    <div className="flex items-center justify-center gap-3">
+    <div className="flex items-center justify-center gap-2">
+      <AddToPlaylistDialog trackUrns={[track.urn]}>
+        <button type="button" className={`${small} text-white/30 hover:text-white/60`}>
+          <ListPlus size={20} />
+        </button>
+      </AddToPlaylistDialog>
       <FullscreenLikeButton track={track} />
       <button
         type="button"
@@ -264,11 +338,8 @@ const Controls = React.memo(({ track }: { track: Track }) => {
       >
         {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
       </button>
-      <AddToPlaylistDialog trackUrns={[track.urn]}>
-        <button type="button" className={`${small} text-white/30 hover:text-white/60`}>
-          <ListPlus size={20} />
-        </button>
-      </AddToPlaylistDialog>
+      <FullscreenDislikeButton track={track} />
+      <FullscreenOpenTrackButton track={track} />
     </div>
   );
 });
@@ -379,7 +450,7 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
   const widthClass = `w-full ${maxArt ?? 'max-w-[360px]'}`;
 
   return (
-    <div className="flex flex-col items-center justify-center gap-5 px-12">
+    <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-[clamp(8px,1.4vh,22px)] overflow-y-auto scrollbar-hide px-12 py-6">
       <div
         className={`${widthClass} aspect-square rounded-2xl overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/[0.08] relative group/art`}
       >
@@ -435,7 +506,14 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
       )}
 
       <div className={`${widthClass} text-center space-y-1`}>
-        <p className="text-[18px] font-bold text-white/95 truncate">{track.title}</p>
+        <div className="flex items-center justify-center gap-2 min-w-0">
+          <p className="text-[18px] font-bold text-white/95 truncate">{track.title}</p>
+          {track.access === 'preview' && (
+            <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/20 text-amber-400/90 px-1.5 py-px rounded">
+              Preview
+            </span>
+          )}
+        </div>
         <p className="text-[14px] text-white/40 truncate">{track.user.username}</p>
       </div>
 
@@ -447,6 +525,17 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
       </div>
 
       <Controls track={track} />
+
+      <div
+        className={`${widthClass} flex flex-col gap-2 rounded-[22px] border border-white/[0.07] bg-black/30 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.30)] backdrop-blur-xl`}
+      >
+        <div className="flex items-center gap-2">
+          <ControlVolumeBtn size="sm" />
+          <VolumeSlider className="flex-1" />
+          <VolumeLabel />
+        </div>
+        <PlaybackRateSlider />
+      </div>
     </div>
   );
 });
@@ -479,7 +568,44 @@ const LyricsSourceBadge = React.memo(
   },
 );
 
-/* ── Synced lyrics — DOM refs, 0 React re-renders ─────────── */
+/* ── Synced lyrics — per-character rAF live progress (rate-aware) ── */
+
+function clamp01(v: number) {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+function isAnimatedChar(ch: string) {
+  return !/^\s$/u.test(ch);
+}
+
+interface CharCell {
+  ch: string;
+  animated: boolean;
+}
+
+function splitChars(text: string): CharCell[] {
+  // Use Array.from to handle surrogate pairs / emoji as single grapheme-ish units.
+  return Array.from(text).map((ch) => ({ ch, animated: isAnimatedChar(ch) }));
+}
+
+function splitWordsForChars(cells: CharCell[]): CharCell[][] {
+  // Group consecutive cells of same kind (animated vs whitespace) so words stay together
+  // and don't break across lines mid-word.
+  const groups: CharCell[][] = [];
+  let cur: CharCell[] = [];
+  let curKind: boolean | null = null;
+  for (const c of cells) {
+    if (c.animated !== curKind) {
+      if (cur.length) groups.push(cur);
+      cur = [c];
+      curKind = c.animated;
+    } else {
+      cur.push(c);
+    }
+  }
+  if (cur.length) groups.push(cur);
+  return groups;
+}
 
 const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
   const displayLines = useMemo(() => buildDisplayLines(lines), [lines]);
@@ -487,9 +613,11 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
   const activeRef = useRef(-1);
   const linesRef = useRef(displayLines);
   const lineElsRef = useRef<HTMLElement[]>([]);
+  const lineCharElsRef = useRef<HTMLElement[][]>([]);
   const pauseBarsRef = useRef<Array<HTMLElement | null>>([]);
   const manualScrollRef = useRef(false);
   const lastScrollTsRef = useRef(0);
+  const lineProgressRef = useRef(0);
   linesRef.current = displayLines;
 
   useEffect(() => {
@@ -497,10 +625,14 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
     if (!container) return;
 
     lineElsRef.current = Array.from(container.querySelectorAll<HTMLElement>('.lyric-line'));
+    lineCharElsRef.current = lineElsRef.current.map((el) =>
+      Array.from(el.querySelectorAll<HTMLElement>('[data-char-index]')),
+    );
     pauseBarsRef.current = lineElsRef.current.map((el) =>
       el.querySelector<HTMLElement>('.lyric-pause-bar'),
     );
     activeRef.current = -1;
+    lineProgressRef.current = 0;
     manualScrollRef.current = false;
 
     const markManual = () => {
@@ -514,37 +646,55 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
       lines: displayLines.map((line) => ({ timeSecs: line.time })),
     });
 
+    /** Per-char "head" sweeps left-to-right across the line.
+     *  Each char's local progress is `head - charIndex`, smoothed.
+     *  Slight forward leak (`+SOFT_LEAD`) so the leading char visibly lights up
+     *  before becoming the active char — mimics the karaoke-style sweep. */
+    const SOFT_LEAD = 0.6;
+    const SOFT_TAIL = 1.4;
+
+    const writeLineProgress = (i: number, p: number) => {
+      const el = lineElsRef.current[i];
+      if (!el) return;
+      const value = clamp01(p);
+      el.style.setProperty('--lyric-progress', `${(value * 100).toFixed(2)}%`);
+      el.style.setProperty('--lyric-progress-value', value.toFixed(4));
+
+      const chars = lineCharElsRef.current[i];
+      if (chars && chars.length > 0) {
+        const total = chars.length;
+        const head = value * total;
+        for (let c = 0; c < total; c++) {
+          const local = clamp01((head - c + SOFT_LEAD) / SOFT_TAIL);
+          // smoothstep
+          const eased = local * local * (3 - 2 * local);
+          chars[c].style.setProperty('--char-progress', eased.toFixed(4));
+        }
+      }
+
+      const line = linesRef.current[i];
+      const bar = pauseBarsRef.current[i];
+      if (bar && line.pause) {
+        bar.style.width = `${(value * 100).toFixed(2)}%`;
+      }
+    };
+
     const setLineState = (i: number, state: string) => {
       const el = lineElsRef.current[i];
       if (!el || el.dataset.state === state) return;
-      const line = linesRef.current[i];
-
-      // Set CSS variables BEFORE flipping data-state so animation starts with correct timing.
-      if (state === 'active') {
-        const next = linesRef.current[i + 1];
-        const duration = Math.max(0.6, (next?.time ?? line.time + 3) - line.time);
-        const elapsed = Math.max(0, getCurrentTime() - line.time);
-        el.style.setProperty('--lyric-fill-duration', `${duration}s`);
-        el.style.setProperty('--lyric-fill-delay', `-${Math.min(elapsed, duration).toFixed(3)}s`);
-      }
-
       el.dataset.state = state;
 
-      if (state !== 'active') {
-        el.style.removeProperty('--lyric-fill-duration');
-        el.style.removeProperty('--lyric-fill-delay');
-      }
-
+      const line = linesRef.current[i];
       const bar = pauseBarsRef.current[i];
-      if (bar) {
-        if (state === 'active' && line.pause && line.duration) {
-          bar.style.setProperty('--pause-duration', `${line.duration}s`);
-          bar.dataset.state = 'active';
-        } else if (state === 'past' || state === 'past-near') {
-          bar.dataset.state = 'past';
-        } else {
-          bar.dataset.state = '';
-        }
+
+      if (state === 'past' || state === 'past-near') {
+        writeLineProgress(i, 1);
+        if (bar && line.pause) bar.dataset.state = 'past';
+      } else if (state === 'next' || state === 'next-near') {
+        writeLineProgress(i, 0);
+        if (bar && line.pause) bar.dataset.state = '';
+      } else if (state === 'active') {
+        if (bar && line.pause) bar.dataset.state = 'active';
       }
     };
 
@@ -557,9 +707,8 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
 
       const prev = activeRef.current;
       activeRef.current = idx;
+      lineProgressRef.current = 0;
 
-      // Lines change state only when active-line moves (~every 2-4s).
-      // O(n) DOM walk with early-return on equal state — cheap for typical lyrics.
       for (let i = 0; i < lineEls.length; i++) {
         let state: string;
         if (i === idx) state = 'active';
@@ -583,7 +732,31 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
       }
     });
 
-    // Sync animation play-state with audio. Subscribe directly to avoid React re-renders.
+    let rafId = 0;
+    let lastTickTs = 0;
+    const FRAME_BUDGET_MS = 33; // ~30fps — sweep is per-char so 30fps still looks smooth
+    const tick = (ts: number) => {
+      rafId = requestAnimationFrame(tick);
+      if (ts - lastTickTs < FRAME_BUDGET_MS) return;
+      lastTickTs = ts;
+      if (document.visibilityState === 'hidden') return;
+
+      const idx = activeRef.current;
+      if (idx < 0 || idx >= linesRef.current.length) return;
+      const cur = linesRef.current[idx];
+      const next = linesRef.current[idx + 1];
+      const dur = Math.max(0.4, (next?.time ?? cur.time + 2.6) - cur.time);
+      const target = clamp01((getCurrentTime() - cur.time) / dur);
+
+      const prev = lineProgressRef.current;
+      const diff = target - prev;
+      const smoothed =
+        diff < 0 ? target : prev + diff * (diff > 0.18 || target > 0.92 ? 0.7 : 0.32);
+      lineProgressRef.current = smoothed;
+      writeLineProgress(idx, smoothed);
+    };
+    rafId = requestAnimationFrame(tick);
+
     const applyPaused = (paused: boolean) => {
       container.classList.toggle('lyrics-paused', paused);
     };
@@ -593,6 +766,7 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
     });
 
     return () => {
+      cancelAnimationFrame(rafId);
       container.removeEventListener('wheel', markManual);
       container.removeEventListener('touchstart', markManual);
       container.removeEventListener('pointerdown', markManual);
@@ -626,6 +800,11 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
               </div>
             );
           }
+          const cells = splitChars(line.text);
+          const groups = splitWordsForChars(cells);
+          // animatedIndex must be stable across whole line (chars-only count) so
+          // CSS sweep aligns with visible glyphs only, ignoring whitespace.
+          let animatedIndex = 0;
           return (
             <div
               key={`${line.time}-${i}`}
@@ -636,10 +815,25 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
               }}
             >
               <span className="lyric-fill">
-                <span className="layer-dim">{line.text}</span>
-                <span className="layer-bright" aria-hidden="true">
-                  {line.text}
-                </span>
+                {groups.map((group, gi) => {
+                  if (group.length === 0) return null;
+                  const isWhitespace = !group[0].animated;
+                  if (isWhitespace) {
+                    return <span key={gi}>{group.map((c) => c.ch).join('')}</span>;
+                  }
+                  return (
+                    <span key={gi} className="lyric-word">
+                      {group.map((c, ci) => {
+                        const idx = animatedIndex++;
+                        return (
+                          <span key={ci} className="lyric-char" data-char-index={idx}>
+                            {c.ch}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  );
+                })}
               </span>
             </div>
           );
@@ -1136,6 +1330,250 @@ const LyricsPane = React.memo(({ track }: { track: Track }) => {
   );
 });
 
+/* ── Fullscreen wave visualizer — driven by real FFT from Rust ────── */
+/* Rust `audio:fft` event delivers 64 log-spaced magnitude bins ~30Hz.
+ * We never poll: the canvas redraws ONLY when a new frame arrives + a short
+ * decay tail (~250ms) so play→pause fades smoothly. No rAF when idle. */
+
+const VIS_BINS = 64;
+
+function readAccentRgb(): [number, number, number] {
+  if (typeof window === 'undefined') return [255, 85, 0];
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim();
+  if (raw.startsWith('#')) {
+    const hex = raw.slice(1);
+    const v =
+      hex.length === 3
+        ? hex
+            .split('')
+            .map((c) => c + c)
+            .join('')
+        : hex;
+    return [
+      Number.parseInt(v.slice(0, 2), 16),
+      Number.parseInt(v.slice(2, 4), 16),
+      Number.parseInt(v.slice(4, 6), 16),
+    ];
+  }
+  const m = raw.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (m) return [+m[1], +m[2], +m[3]];
+  return [255, 85, 0];
+}
+
+const FullscreenVisualizer = React.memo(() => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  // Mirror of the latest FFT bins. Smoothed display values live separately
+  // so we can do a quick decay tail after the last event.
+  const targetRef = useRef<Float32Array>(new Float32Array(VIS_BINS));
+  const displayRef = useRef<Float32Array>(new Float32Array(VIS_BINS));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+
+    const accent = readAccentRgb();
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let cssW = 0;
+    let cssH = 0;
+
+    const resize = () => {
+      const r = wrap.getBoundingClientRect();
+      cssW = Math.max(1, Math.floor(r.width));
+      cssH = Math.max(1, Math.floor(r.height));
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(cssW * dpr);
+      canvas.height = Math.floor(cssH * dpr);
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(wrap);
+
+    // Reusable smoothed-bins buffer; refilled per-frame to avoid GC churn.
+    const smoothedBins = new Float32Array(VIS_BINS);
+    // X-coords for each bin, evenly spread across the full viewport width.
+    let sampleXs: Float32Array | null = null;
+    const buildSampleXs = () => {
+      const xs = new Float32Array(VIS_BINS);
+      for (let i = 0; i < VIS_BINS; i++) xs[i] = (i / (VIS_BINS - 1)) * cssW;
+      sampleXs = xs;
+    };
+
+    const draw = () => {
+      if (document.visibilityState === 'hidden') return;
+      ctx.clearRect(0, 0, cssW, cssH);
+      if (!sampleXs || sampleXs.length !== VIS_BINS) buildSampleXs();
+
+      const display = displayRef.current;
+
+      // Smooth bins horizontally to kill staircase between adjacent bins.
+      // 1-2-1 kernel; result is rounder, no "sharp jump bass→treble" artifact.
+      smoothedBins[0] = (display[0] * 3 + display[1]) * 0.25;
+      smoothedBins[VIS_BINS - 1] = (display[VIS_BINS - 1] * 3 + display[VIS_BINS - 2]) * 0.25;
+      for (let i = 1; i < VIS_BINS - 1; i++) {
+        smoothedBins[i] = display[i - 1] * 0.25 + display[i] * 0.5 + display[i + 1] * 0.25;
+      }
+
+      // Wave sits at the very bottom; amplitude grows upward.
+      const baseY = cssH - 6;
+      const maxAmp = cssH * 0.78;
+      const xs = sampleXs!;
+
+      let peak = 0;
+      for (let i = 0; i < VIS_BINS; i++) if (display[i] > peak) peak = display[i];
+
+      // Smooth path: quadratic Béziers through midpoints between consecutive bins.
+      // Bins go left → right across the full width: bin[0]=lows on the left,
+      // bin[VIS_BINS-1]=highs on the right. No mirroring.
+      const tracePath = (ampScale: number) => {
+        ctx.beginPath();
+        const y0 = baseY - smoothedBins[0] * maxAmp * ampScale;
+        ctx.moveTo(xs[0], y0);
+        for (let i = 0; i < VIS_BINS - 1; i++) {
+          const yA = baseY - smoothedBins[i] * maxAmp * ampScale;
+          const yB = baseY - smoothedBins[i + 1] * maxAmp * ampScale;
+          const xA = xs[i];
+          const xB = xs[i + 1];
+          const xMid = (xA + xB) * 0.5;
+          const yMid = (yA + yB) * 0.5;
+          ctx.quadraticCurveTo(xA, yA, xMid, yMid);
+        }
+        // Final anchor at the rightmost bin
+        ctx.lineTo(xs[VIS_BINS - 1], baseY - smoothedBins[VIS_BINS - 1] * maxAmp * ampScale);
+      };
+
+      // Filled body with vertical accent gradient.
+      const fillGrad = ctx.createLinearGradient(0, 0, 0, cssH);
+      fillGrad.addColorStop(0, `rgba(${accent[0]}, ${accent[1]}, ${accent[2]}, 0)`);
+      fillGrad.addColorStop(
+        0.5,
+        `rgba(${accent[0]}, ${accent[1]}, ${accent[2]}, ${(0.18 * Math.min(1, peak * 1.3)).toFixed(3)})`,
+      );
+      fillGrad.addColorStop(
+        1,
+        `rgba(${accent[0]}, ${accent[1]}, ${accent[2]}, ${(0.32 * Math.min(1, peak * 1.3)).toFixed(3)})`,
+      );
+
+      tracePath(1.0);
+      ctx.lineTo(cssW, baseY);
+      ctx.lineTo(0, baseY);
+      ctx.closePath();
+      ctx.fillStyle = fillGrad;
+      ctx.fill();
+
+      // Strokes — 3 layered for depth.
+      const drawStroke = (
+        ampScale: number,
+        alphaMul: number,
+        hueAccent: boolean,
+        lineW: number,
+      ) => {
+        tracePath(ampScale);
+        const [rC, gC, bC] = hueAccent ? accent : [255, 255, 255];
+        const peakAlpha = (0.45 + 0.4 * Math.min(1, peak)) * alphaMul;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = lineW;
+        ctx.strokeStyle = `rgba(${rC}, ${gC}, ${bC}, ${peakAlpha.toFixed(3)})`;
+        ctx.shadowBlur = 24 * alphaMul;
+        ctx.shadowColor = `rgba(${rC}, ${gC}, ${bC}, ${(peakAlpha * 0.6).toFixed(3)})`;
+        ctx.stroke();
+      };
+
+      drawStroke(1.0, 1.0, true, 2.4);
+      drawStroke(0.78, 0.5, false, 1.2);
+      ctx.shadowBlur = 0;
+    };
+
+    let rafId = 0;
+    let lastEventTs = 0;
+    let lastDecayTs = performance.now();
+
+    // Single rAF that runs only when there is something to animate:
+    // either a new frame is available, or we are still decaying after pause.
+    let dirty = false;
+    const ensureLoop = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(loop);
+    };
+    const loop = (ts: number) => {
+      const dt = Math.min(0.05, (ts - lastDecayTs) / 1000);
+      lastDecayTs = ts;
+
+      // Smooth target → display. Faster attack, slower release.
+      const target = targetRef.current;
+      const display = displayRef.current;
+      const attack = 1 - Math.exp(-dt * 18); // ~55ms
+      const release = 1 - Math.exp(-dt * 5); // ~200ms
+      let any = false;
+      for (let i = 0; i < VIS_BINS; i++) {
+        const t = target[i];
+        const d = display[i];
+        const k = t > d ? attack : release;
+        const next = d + (t - d) * k;
+        display[i] = next;
+        if (next > 1e-3 || t > 1e-3) any = true;
+      }
+
+      draw();
+
+      const sinceEvent = ts - lastEventTs;
+      // Keep ticking while there's energy on screen, or up to 350ms after the
+      // last event (lets us animate the post-event smoothing curve). Otherwise
+      // park the rAF — pure idle CPU.
+      if (any && (dirty || sinceEvent < 350)) {
+        rafId = requestAnimationFrame(loop);
+      } else {
+        rafId = 0;
+        dirty = false;
+      }
+    };
+
+    const unlistenPromise = listen<number[]>('audio:fft', (event) => {
+      const bins = event.payload;
+      if (!bins || bins.length === 0) return;
+      const target = targetRef.current;
+      const n = Math.min(target.length, bins.length);
+      for (let i = 0; i < n; i++) target[i] = bins[i];
+      lastEventTs = performance.now();
+      dirty = true;
+      ensureLoop();
+    });
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      ro.disconnect();
+      unlistenPromise.then((u) => u());
+    };
+  }, []);
+
+  return (
+    <div
+      ref={wrapRef}
+      className="absolute inset-x-0 bottom-0 z-0 pointer-events-none"
+      style={{
+        height: 'min(56vh, 460px)',
+        // Hard floor at bottom (full opacity until ~78% from the top of the canvas)
+        // and a soft fade upward — so the wave reads as rooted to the very edge.
+        maskImage: 'linear-gradient(to top, black 0%, black 60%, transparent 100%)',
+        WebkitMaskImage: 'linear-gradient(to top, black 0%, black 60%, transparent 100%)',
+        contain: 'strict',
+        transform: 'translateZ(0)',
+      }}
+    >
+      <canvas ref={canvasRef} className="block" />
+    </div>
+  );
+});
+
 /* ── Lyrics Panel (fullscreen) ────────────────────────────── */
 
 export const LyricsPanel = React.memo(() => {
@@ -1152,6 +1590,7 @@ export const LyricsPanel = React.memo(() => {
   const { t } = useTranslation();
   const colorRef = useArtworkColor(track?.artwork_url ?? null);
   const splitLayoutRef = useRef<HTMLDivElement>(null);
+  const visualizerEnabled = useSettingsStore((s) => s.lyricsVisualizer);
 
   useEffect(() => {
     if (!open) return;
@@ -1170,6 +1609,7 @@ export const LyricsPanel = React.memo(() => {
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden animate-fade-in-up bg-[#08080a]">
       <FullscreenBackground artworkSrc={artwork500} color={colorRef.current} />
+      {visualizerEnabled && <FullscreenVisualizer />}
 
       <div
         className={`relative z-10 px-6 pt-5 pb-2 ${rightPanelOpen ? 'flex items-center justify-between gap-4' : 'flex items-center justify-center gap-4'}`}

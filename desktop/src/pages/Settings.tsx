@@ -893,6 +893,8 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const { t } = useTranslation();
   const floatingComments = useSettingsStore((s) => s.floatingComments);
   const setFloatingComments = useSettingsStore((s) => s.setFloatingComments);
+  const lyricsVisualizer = useSettingsStore((s) => s.lyricsVisualizer);
+  const setLyricsVisualizer = useSettingsStore((s) => s.setLyricsVisualizer);
   const normalizeVolume = useSettingsStore((s) => s.normalizeVolume);
   const setNormalizeVolume = useSettingsStore((s) => s.setNormalizeVolume);
   const highQualityStreaming = useSettingsStore((s) => s.highQualityStreaming);
@@ -928,6 +930,27 @@ const PlaybackSection = React.memo(function PlaybackSection() {
           <div
             className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
               floatingComments ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Lyrics visualizer */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[13px] text-white/70 font-medium">{t('settings.lyricsVisualizer')}</p>
+          <p className="text-[11px] text-white/30 mt-0.5">{t('settings.lyricsVisualizerDesc')}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setLyricsVisualizer(!lyricsVisualizer)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            lyricsVisualizer ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              lyricsVisualizer ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
             }`}
           />
         </button>

@@ -369,106 +369,62 @@ body,
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.08));
 }
 
-/* ── Active-line karaoke fill (layered clip-path reveal) ───── */
+/* ── Active-line karaoke fill — driven by --lyric-progress (rAF) ── */
 .lyric-fill {
   position: relative;
   display: inline-block;
   max-width: 100%;
   white-space: pre-wrap;
   vertical-align: top;
-}
-
-.lyric-fill .layer-dim {
-  display: inline-block;
   color: rgba(255, 255, 255, 0.32);
-  -webkit-clip-path: inset(0 0 0 0%);
-  clip-path: inset(0 0 0 0%);
-  transition: color 0.4s var(--ease-apple);
 }
 
-.lyric-fill .layer-bright {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  color: #fff;
-  white-space: pre-wrap;
-  -webkit-clip-path: inset(0 100% 0 0);
-  clip-path: inset(0 100% 0 0);
-  background-image: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 1) 0%,
-    rgba(255, 255, 255, 0.96) 32%,
-    rgba(255, 255, 255, 0.86) 70%,
-    rgba(255, 255, 255, 0.74) 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.36))
-    drop-shadow(0 0 36px rgba(255, 255, 255, 0.16));
+/* A "word" wrapper just keeps characters from breaking mid-word. */
+.lyric-word {
+  display: inline-block;
+  white-space: nowrap;
 }
 
-/* Active: animate both layers in sync */
-.lyric-line[data-state="active"] .layer-dim {
-  animation-name: karaokeDim;
-  animation-duration: var(--lyric-fill-duration, 3s);
-  animation-timing-function: linear;
-  animation-delay: var(--lyric-fill-delay, 0s);
-  animation-fill-mode: forwards;
-  animation-iteration-count: 1;
+/* Per-character animated highlight driven by rAF.
+   --char-progress 0..1 sweeps left-to-right across the active line. */
+.lyric-char {
+  display: inline-block;
+  position: relative;
+  color: rgba(255, 255, 255, calc(0.26 + 0.74 * var(--char-progress, 0)));
+  text-shadow:
+    0 0 calc(10px * var(--char-progress, 0))
+    rgba(255, 255, 255, calc(0.18 * var(--char-progress, 0))),
+    0 0 calc(24px * var(--char-progress, 0))
+    rgba(255, 255, 255, calc(0.1 * var(--char-progress, 0)));
+  transform: translateY(calc(-1.5px * var(--char-progress, 0)))
+    scale(calc(1 + 0.022 * var(--char-progress, 0)));
+  transform-origin: center 80%;
+  transition:
+    color 90ms linear,
+    text-shadow 130ms linear,
+    transform 140ms ease-out;
+  will-change: color, text-shadow, transform;
 }
 
-.lyric-line[data-state="active"] .layer-bright {
-  animation-name: karaokeBright;
-  animation-duration: var(--lyric-fill-duration, 3s);
-  animation-timing-function: linear;
-  animation-delay: var(--lyric-fill-delay, 0s);
-  animation-fill-mode: forwards;
-  animation-iteration-count: 1;
+/* Past line — all chars fully lit */
+.lyric-line[data-state="past"] .lyric-char,
+.lyric-line[data-state="past-near"] .lyric-char {
+  color: rgba(255, 255, 255, 1);
+  text-shadow: 0 0 22px rgba(255, 255, 255, 0.18);
+  transform: none;
 }
 
-/* Past states: bright fully revealed, dim hidden */
-.lyric-line[data-state="past"] .layer-dim,
-.lyric-line[data-state="past-near"] .layer-dim {
-  -webkit-clip-path: inset(0 0 0 100%);
-  clip-path: inset(0 0 0 100%);
+/* Next line — fully dim */
+.lyric-line[data-state="next"] .lyric-char,
+.lyric-line[data-state="next-near"] .lyric-char {
+  color: rgba(255, 255, 255, 0.3);
+  text-shadow: none;
+  transform: none;
 }
 
-.lyric-line[data-state="past"] .layer-bright,
-.lyric-line[data-state="past-near"] .layer-bright {
-  -webkit-clip-path: inset(0 0% 0 0);
-  clip-path: inset(0 0% 0 0);
-}
-
-/* Pause sync */
-.lyrics-paused .lyric-line[data-state="active"] .layer-dim,
-.lyrics-paused .lyric-line[data-state="active"] .layer-bright {
-  animation-play-state: paused;
-}
-
-@keyframes karaokeDim {
-  from {
-    -webkit-clip-path: inset(0 0 0 0%);
-    clip-path: inset(0 0 0 0%);
-  }
-  to {
-    -webkit-clip-path: inset(0 0 0 100%);
-    clip-path: inset(0 0 0 100%);
-  }
-}
-
-@keyframes karaokeBright {
-  from {
-    -webkit-clip-path: inset(0 100% 0 0);
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    -webkit-clip-path: inset(0 0% 0 0);
-    clip-path: inset(0 0% 0 0);
-  }
+/* Pause: kill micro-transitions while frozen */
+.lyrics-paused .lyric-line[data-state="active"] .lyric-char {
+  transition-duration: 0ms;
 }
 
 /* ── Artwork zoom-in modal ─────────────────────────────────── */

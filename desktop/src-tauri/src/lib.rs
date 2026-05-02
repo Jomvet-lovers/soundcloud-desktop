@@ -102,14 +102,16 @@ pub fn run() {
             }));
 
             let mut track_cache_state = track_cache::init(audio_dir, liked_audio_dir);
-            track_cache_state.app_handle = Some(app.handle().clone());
+            track_cache_state.set_app_handle(app.handle().clone());
             app.manage(track_cache_state);
 
             let audio_state = audio::init();
+            let analyser_buffer = audio_state.analyser_buffer.clone();
             app.manage(audio_state);
             audio::start_tick_emitter(app.handle());
             audio::start_media_controls(app.handle());
             audio::start_default_output_monitor(app.handle());
+            audio::start_fft_thread(app.handle().clone(), analyser_buffer);
 
             app::tray::setup_tray(app).expect("failed to setup tray");
 
@@ -135,6 +137,7 @@ pub fn run() {
             audio::audio_stop,
             audio::audio_seek,
             audio::audio_set_volume,
+            audio::audio_set_playback_rate,
             audio::audio_get_position,
             audio::audio_set_eq,
             audio::audio_set_normalization,

@@ -1,3 +1,4 @@
+pub mod analyser;
 pub mod commands;
 mod decode;
 mod device;
@@ -9,6 +10,7 @@ mod tick;
 mod timing;
 mod types;
 
+pub use analyser::start_fft_thread;
 pub use commands::*;
 pub use device::start_default_output_monitor;
 pub use media_controls::start_media_controls;

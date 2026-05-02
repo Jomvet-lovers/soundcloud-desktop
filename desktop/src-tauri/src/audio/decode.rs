@@ -9,6 +9,7 @@ use rodio::source::SeekError;
 use rodio::{Decoder, Player, Source};
 use sha2::{Digest, Sha256};
 
+use crate::audio::analyser::{AnalyserBuffer, AnalyserSource};
 use crate::audio::eq::{EqSource, GainSource};
 use crate::audio::types::{
     ChannelCount, EqParams, SampleRate, NORMALIZATION_ANALYSIS_SAMPLES,
@@ -310,6 +311,7 @@ pub fn create_player_from_bytes(
     normalization_gain: f32,
     start_paused: bool,
     eq_params: Arc<RwLock<EqParams>>,
+    analyser_buffer: Arc<AnalyserBuffer>,
 ) -> Result<(Player, Option<f64>), String> {
     let player = Player::connect_new(mixer);
     player.set_volume(volume);
@@ -322,25 +324,25 @@ pub fn create_player_from_bytes(
         let source =
             OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
-        player.append(EqSource::new(
-            GainSource::new(source, normalization_gain),
-            eq_params,
+        player.append(AnalyserSource::new(
+            EqSource::new(GainSource::new(source, normalization_gain), eq_params),
+            analyser_buffer,
         ));
     } else if Decoder::new(Cursor::new(bytes.to_vec())).is_ok() {
         let source = Decoder::new(Cursor::new(bytes.to_vec()))
             .map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
-        player.append(EqSource::new(
-            GainSource::new(source, normalization_gain),
-            eq_params,
+        player.append(AnalyserSource::new(
+            EqSource::new(GainSource::new(source, normalization_gain), eq_params),
+            analyser_buffer,
         ));
     } else {
         let source =
             OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
-        player.append(EqSource::new(
-            GainSource::new(source, normalization_gain),
-            eq_params,
+        player.append(AnalyserSource::new(
+            EqSource::new(GainSource::new(source, normalization_gain), eq_params),
+            analyser_buffer,
         ));
     }
 

@@ -82,6 +82,11 @@ pub fn audio_set_volume(volume: f64, state: State<'_, AudioState>) {
 }
 
 #[tauri::command]
+pub fn audio_set_playback_rate(rate: f64, state: State<'_, AudioState>) {
+    engine::set_playback_rate(rate, state);
+}
+
+#[tauri::command]
 pub fn audio_get_position(state: State<'_, AudioState>) -> f64 {
     engine::get_position(state)
 }

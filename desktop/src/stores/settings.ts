@@ -78,6 +78,7 @@ export interface SettingsState {
   soundwaveLanguages: string[];
   soundwaveMode: 'similar' | 'diverse';
   soundwaveHideLiked: boolean;
+  lyricsVisualizer: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -105,6 +106,7 @@ export interface SettingsState {
   setSoundwaveLanguages: (langs: string[]) => void;
   setSoundwaveMode: (mode: 'similar' | 'diverse') => void;
   setSoundwaveHideLiked: (v: boolean) => void;
+  setLyricsVisualizer: (v: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -136,6 +138,7 @@ const DEFAULTS = {
   soundwaveLanguages: [] as string[],
   soundwaveMode: 'similar' as 'similar' | 'diverse',
   soundwaveHideLiked: false,
+  lyricsVisualizer: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -190,6 +193,7 @@ export const useSettingsStore = create<SettingsState>()(
       setSoundwaveLanguages: (soundwaveLanguages) => set({ soundwaveLanguages }),
       setSoundwaveMode: (soundwaveMode) => set({ soundwaveMode }),
       setSoundwaveHideLiked: (soundwaveHideLiked) => set({ soundwaveHideLiked }),
+      setLyricsVisualizer: (lyricsVisualizer) => set({ lyricsVisualizer }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -247,6 +251,7 @@ export const useSettingsStore = create<SettingsState>()(
         soundwaveLanguages: s.soundwaveLanguages,
         soundwaveMode: s.soundwaveMode,
         soundwaveHideLiked: s.soundwaveHideLiked,
+        lyricsVisualizer: s.lyricsVisualizer,
       }),
     },
   ),

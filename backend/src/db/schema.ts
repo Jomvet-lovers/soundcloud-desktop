@@ -217,7 +217,16 @@ export const lyricsCache = pgTable(
     plainText: text('plain_text'),
     source: varchar('source', { length: 16 })
       .notNull()
-      .$type<'lrclib' | 'musixmatch' | 'lyricsovh' | 'genius' | 'textyl' | 'self_gen' | 'none'>(),
+      .$type<
+        | 'lrclib'
+        | 'musixmatch'
+        | 'lyricsovh'
+        | 'genius'
+        | 'textyl'
+        | 'netease'
+        | 'self_gen'
+        | 'none'
+      >(),
     language: varchar('language', { length: 8 }),
     languageConfidence: real('language_confidence'),
     embeddedAt: timestamp('embedded_at', { withTimezone: true }),
