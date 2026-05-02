@@ -35,18 +35,9 @@
 </a>
 </p>
 
-> [!CAUTION]
-> Поддержать проект:
-> 
-> Бусти: https://boosty.to/lolinamide
-> 
-> TON: UQAiVd_p6zV3iYNy0H9ZokH6_OEvzSrk-88taa7Mc2kE7pUZ
-> 
-> LTC: LLw3Wh1eGDetjoCc76cbfEHusy1vvaupo8
-> 
-> BTC: bc1qqjk9vy453q9jxvpwm7qa4wg3fw03rgzfa9xadf
-> 
-> и голосовалка - [#264](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/264)
+---
+
+![soundwave-banner](https://github.com/user-attachments/assets/826d01ed-71c3-4b35-9802-f82ac8cc28ab)
 
 ---
 
