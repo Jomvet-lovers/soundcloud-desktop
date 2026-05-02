@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Incoming;
 use hyper::client::conn::http1 as client_http1;
-use hyper::header::{HeaderName, HeaderValue};
+use hyper::header::{HeaderName, HeaderValue, CONNECTION};
 use hyper::server::conn::http1 as server_http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
@@ -24,6 +24,13 @@ use crate::status;
 use crate::tls::{alpn_resolver, TlsState};
 
 const ACME_TLS_ALPN: &[u8] = b"acme-tls/1";
+
+const UDS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const UDS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+// Hard cap on backend connection lifetime (covers slow streams + safety net
+// against a buggy upstream that won't close after `Connection: close`).
+const UPSTREAM_CONN_DEADLINE: Duration = Duration::from_secs(300);
 
 type ResponseBody = BoxBody<Bytes, hyper::Error>;
 
@@ -232,53 +239,86 @@ async fn proxy_request(
     };
 
     inject_forwarded_headers(req.headers_mut(), peer, https);
+    // Force the upstream to close after this request. We don't pool UDS connections
+    // (handshake on loopback is microseconds); reuse would otherwise leak keep-alive
+    // sockets on the Node side and balloon CPU/RAM until the worker freezes.
+    req.headers_mut()
+        .insert(CONNECTION, HeaderValue::from_static("close"));
 
-    let stream = match UnixStream::connect(&handle.backend.socket_path).await {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(
-                "[proxy] uds connect backend {}: {e}",
-                handle.backend.id
-            );
-            return Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(full(b"backend connect failed".to_vec()))
-                .unwrap();
+    let backend_id = handle.backend.id;
+
+    let stream = match tokio::time::timeout(
+        UDS_CONNECT_TIMEOUT,
+        UnixStream::connect(&handle.backend.socket_path),
+    )
+    .await
+    {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
+            warn!("[proxy] uds connect backend {backend_id}: {e}");
+            return bad_gateway("backend connect failed");
+        }
+        Err(_) => {
+            warn!("[proxy] uds connect timeout backend {backend_id}");
+            return bad_gateway("backend connect timeout");
         }
     };
     let io = TokioIo::new(stream);
-    let (mut sender, conn) = match client_http1::handshake(io).await {
-        Ok(p) => p,
-        Err(e) => {
-            warn!(
-                "[proxy] uds handshake backend {}: {e}",
-                handle.backend.id
-            );
-            return Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(full(b"backend handshake failed".to_vec()))
-                .unwrap();
+    let (mut sender, conn) = match tokio::time::timeout(
+        UDS_HANDSHAKE_TIMEOUT,
+        client_http1::handshake(io),
+    )
+    .await
+    {
+        Ok(Ok(p)) => p,
+        Ok(Err(e)) => {
+            warn!("[proxy] uds handshake backend {backend_id}: {e}");
+            return bad_gateway("backend handshake failed");
+        }
+        Err(_) => {
+            warn!("[proxy] uds handshake timeout backend {backend_id}");
+            return bad_gateway("backend handshake timeout");
         }
     };
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            debug!("[proxy] backend conn ended: {e}");
-        }
+
+    // Drive the connection task with a hard upper bound. Even with `Connection: close`
+    // we don't want a buggy/wedged upstream to keep this task alive forever.
+    let conn_handle = tokio::spawn(async move {
+        let _ = tokio::time::timeout(UPSTREAM_CONN_DEADLINE, conn).await;
     });
 
-    match sender.send_request(req).await {
-        Ok(res) => {
-            let _hold = handle;
+    match tokio::time::timeout(UPSTREAM_REQUEST_TIMEOUT, sender.send_request(req)).await {
+        Ok(Ok(res)) => {
+            // Body streams through the conn task. Detach: the inflight handle keeps the
+            // backend marked busy until this future is dropped — but since the body is
+            // returned upstream, we can't hold it here. The conn task self-terminates
+            // when the body is fully read (server FINs due to Connection: close) or via
+            // the UPSTREAM_CONN_DEADLINE timeout above.
+            drop(handle);
+            // Hand off sender ownership so it lives until the body is consumed.
+            // (sender drop signals the conn task; we let conn task own its own lifetime
+            // via the deadline.)
+            drop(sender);
             res.map(|b| b.boxed())
         }
-        Err(e) => {
-            warn!("[proxy] backend {} send: {e}", handle.backend.id);
-            Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(full(b"backend request failed".to_vec()))
-                .unwrap()
+        Ok(Err(e)) => {
+            warn!("[proxy] backend {backend_id} send: {e}");
+            conn_handle.abort();
+            bad_gateway("backend request failed")
+        }
+        Err(_) => {
+            warn!("[proxy] backend {backend_id} request timeout");
+            conn_handle.abort();
+            bad_gateway("backend request timeout")
         }
     }
+}
+
+fn bad_gateway(msg: &'static str) -> Response<ResponseBody> {
+    Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .body(full(msg.as_bytes().to_vec()))
+        .unwrap()
 }
 
 fn inject_forwarded_headers(headers: &mut hyper::HeaderMap, peer: SocketAddr, https: bool) {

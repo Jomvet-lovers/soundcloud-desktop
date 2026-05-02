@@ -1,10 +1,12 @@
 use std::path::Path;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
 use hyper::client::conn::http1;
-use hyper::Request;
+use hyper::header::{CONNECTION, HOST};
+use hyper::{HeaderMap, Request};
 use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
 use tokio::task::JoinHandle;
@@ -12,6 +14,8 @@ use tracing::info;
 
 use crate::config::Config;
 use crate::lb::{BackendPool, STATE_DOWN, STATE_UP};
+
+const CONN_DEADLINE: Duration = Duration::from_secs(10);
 
 pub fn spawn(cfg: Config, pool: BackendPool) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -34,7 +38,7 @@ pub fn spawn(cfg: Config, pool: BackendPool) -> JoinHandle<()> {
     })
 }
 
-async fn check(sock: &Path, path: &str, timeout: std::time::Duration) -> bool {
+async fn check(sock: &Path, path: &str, timeout: Duration) -> bool {
     let stream = match tokio::time::timeout(timeout, UnixStream::connect(sock)).await {
         Ok(Ok(s)) => s,
         _ => return false,
@@ -44,22 +48,41 @@ async fn check(sock: &Path, path: &str, timeout: std::time::Duration) -> bool {
         Ok(Ok(p)) => p,
         _ => return false,
     };
-    tokio::spawn(async move {
-        let _ = conn.await;
+    // Drive connection in a child task with a hard deadline so it can never leak.
+    let conn_handle = tokio::spawn(async move {
+        let _ = tokio::time::timeout(CONN_DEADLINE, conn).await;
     });
-    let req = match Request::builder()
-        .method("GET")
-        .uri(path)
-        .header("host", "health.local")
-        .body(empty())
-    {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-    match tokio::time::timeout(timeout, sender.send_request(req)).await {
-        Ok(Ok(res)) => res.status().is_success(),
-        _ => false,
+
+    let mut headers = HeaderMap::new();
+    headers.insert(HOST, "health.local".parse().unwrap());
+    headers.insert(CONNECTION, "close".parse().unwrap());
+
+    let mut builder = Request::builder().method("GET").uri(path);
+    if let Some(h) = builder.headers_mut() {
+        *h = headers;
     }
+    let req = match builder.body(empty()) {
+        Ok(r) => r,
+        Err(_) => {
+            conn_handle.abort();
+            return false;
+        }
+    };
+
+    let ok = match tokio::time::timeout(timeout, sender.send_request(req)).await {
+        Ok(Ok(res)) => {
+            let success = res.status().is_success();
+            // Drain the body so the upstream can close cleanly.
+            let _ = res.into_body().collect().await;
+            success
+        }
+        _ => false,
+    };
+    drop(sender);
+    // Connection: close → server FINs after response → conn task exits on its own.
+    // Hard cap via spawn timeout above; abort here belt-and-suspenders.
+    conn_handle.abort();
+    ok
 }
 
 fn empty() -> http_body_util::combinators::BoxBody<Bytes, hyper::Error> {

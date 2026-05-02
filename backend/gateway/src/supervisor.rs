@@ -9,6 +9,12 @@ use tracing::{error, info, warn};
 use crate::config::Config;
 use crate::lb::{Backend, BackendPool, STATE_DOWN};
 
+// If a worker is reported DOWN by health-check for longer than this, the
+// supervisor force-kills it. Without this a wedged Node process (event-loop
+// blocked, but not crashed) lives forever, holding RAM/CPU.
+const STUCK_DOWN_THRESHOLD: Duration = Duration::from_secs(30);
+const STUCK_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+
 pub struct Supervisor {
     handles: Vec<JoinHandle<()>>,
     shutdown_tx: watch::Sender<bool>,
@@ -87,9 +93,45 @@ async fn run_loop(cfg: Config, backend: Arc<Backend>, mut shutdown_rx: watch::Re
             }
         };
 
-        let exit = tokio::select! {
-            status = child.wait() => Exit::Natural(status),
-            _ = shutdown_rx.changed() => Exit::Shutdown,
+        // Track how long the worker has been DOWN per health-check. If it stays
+        // DOWN past STUCK_DOWN_THRESHOLD, kill it — supervisor will respawn.
+        let mut down_since: Option<Instant> = None;
+        // Give the worker some grace after spawn before we start counting DOWN.
+        let warmup = Instant::now() + Duration::from_secs(20);
+
+        let exit = loop {
+            tokio::select! {
+                status = child.wait() => break Exit::Natural(status),
+                _ = shutdown_rx.changed() => break Exit::Shutdown,
+                _ = tokio::time::sleep(STUCK_CHECK_INTERVAL) => {
+                    if Instant::now() < warmup {
+                        continue;
+                    }
+                    if backend.is_up() {
+                        down_since = None;
+                        continue;
+                    }
+                    let now = Instant::now();
+                    let since = *down_since.get_or_insert(now);
+                    if now.duration_since(since) >= STUCK_DOWN_THRESHOLD {
+                        warn!(
+                            "[supervisor] backend {} stuck DOWN for {:?}, killing",
+                            backend.id,
+                            now.duration_since(since)
+                        );
+                        let _ = child.start_kill();
+                        let status = match tokio::time::timeout(cfg.kill_grace, child.wait()).await {
+                            Ok(s) => s,
+                            Err(_) => {
+                                warn!("[supervisor] backend {} hard-kill after stuck", backend.id);
+                                let _ = child.kill().await;
+                                child.wait().await
+                            }
+                        };
+                        break Exit::Natural(status);
+                    }
+                }
+            }
         };
 
         if backend.set_state(STATE_DOWN) {
