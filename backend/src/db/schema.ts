@@ -48,6 +48,8 @@ export const loginRequests = pgTable(
     status: varchar('status', { length: 16 }).notNull().default('pending').$type<
       'pending' | 'processing' | 'completed' | 'failed'
     >(),
+    step: varchar('step', { length: 16 }).$type<'token' | 'profile' | 'session'>(),
+    username: text('username'),
     resultSessionId: uuid('result_session_id'),
     error: text('error'),
     createdAt: createdAt(),

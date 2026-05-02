@@ -125,15 +125,16 @@ export class AuthService implements OnModuleInit {
   }> {
     this.logger.log(`Callback received: state=${state?.slice(0, 8)}… code=${code?.slice(0, 8)}…`);
 
-    const claimed = await this.db
+    // Atomic claim — single UPDATE returning everything we need to start the background work.
+    const [claimed] = await this.db
       .update(loginRequests)
-      .set({ status: 'processing' })
+      .set({ status: 'processing', step: 'token' })
       .where(and(eq(loginRequests.state, state), eq(loginRequests.status, 'pending')))
-      .returning({ id: loginRequests.id });
+      .returning();
 
-    if (claimed.length > 0) {
-      void this.runCallbackBackground(claimed[0].id, code);
-      return { loginRequestId: claimed[0].id, initialStatus: 'pending' };
+    if (claimed) {
+      void this.runCallbackBackground(claimed, code);
+      return { loginRequestId: claimed.id, initialStatus: 'pending' };
     }
 
     const existing = await this.db.query.loginRequests.findFirst({
@@ -152,6 +153,7 @@ export class AuthService implements OnModuleInit {
         loginRequestId: existing.id,
         initialStatus: 'completed',
         sessionId: existing.resultSessionId ?? undefined,
+        username: existing.username ?? undefined,
       };
     }
     if (existing.status === 'processing') {
@@ -164,16 +166,12 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  private async runCallbackBackground(loginRequestId: string, code: string): Promise<void> {
+  private async runCallbackBackground(
+    lr: typeof loginRequests.$inferSelect,
+    code: string,
+  ): Promise<void> {
+    const loginRequestId = lr.id;
     try {
-      const lr = await this.db.query.loginRequests.findFirst({
-        where: eq(loginRequests.id, loginRequestId),
-      });
-      if (!lr) {
-        this.logger.error(`Background: loginRequest ${loginRequestId} disappeared`);
-        return;
-      }
-
       if (lr.expiresAt.getTime() < Date.now()) {
         await this.markRequestFailed(loginRequestId, 'Login request expired');
         return;
@@ -198,23 +196,31 @@ export class AuthService implements OnModuleInit {
         return;
       }
 
+      // Step → profile (don't await — it's fire-and-forget UI hint, the real source of truth is below).
+      void this.db
+        .update(loginRequests)
+        .set({ step: 'profile' })
+        .where(eq(loginRequests.id, loginRequestId))
+        .catch(() => {});
+
       const me = await this.fetchScMeWithRetries(tokenResponse.access_token);
       if (!me?.urn) {
         await this.markRequestFailed(loginRequestId, 'Failed to fetch SoundCloud user info');
         return;
       }
 
+      // Step → session.
+      void this.db
+        .update(loginRequests)
+        .set({ step: 'session' })
+        .where(eq(loginRequests.id, loginRequestId))
+        .catch(() => {});
+
       const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
       const scope = tokenResponse.scope || '';
 
       let session: Session | undefined;
       if (lr.targetSessionId) {
-        session = await this.db.query.sessions.findFirst({
-          where: eq(sessions.id, lr.targetSessionId),
-        });
-      }
-
-      if (session) {
         const [updated] = await this.db
           .update(sessions)
           .set({
@@ -226,10 +232,11 @@ export class AuthService implements OnModuleInit {
             username: me.username,
             ...(lr.oauthAppId ? { oauthAppId: lr.oauthAppId } : {}),
           })
-          .where(eq(sessions.id, session.id))
+          .where(eq(sessions.id, lr.targetSessionId))
           .returning();
         session = updated;
-      } else {
+      }
+      if (!session) {
         const [created] = await this.db
           .insert(sessions)
           .values({
@@ -247,7 +254,12 @@ export class AuthService implements OnModuleInit {
 
       await this.db
         .update(loginRequests)
-        .set({ status: 'completed', resultSessionId: session.id })
+        .set({
+          status: 'completed',
+          step: null,
+          resultSessionId: session.id,
+          username: me.username ?? null,
+        })
         .where(eq(loginRequests.id, loginRequestId));
 
       this.logger.log(
@@ -275,11 +287,24 @@ export class AuthService implements OnModuleInit {
 
   async getLoginRequestStatus(loginRequestId: string): Promise<{
     status: 'pending' | 'completed' | 'failed' | 'expired';
+    step?: 'token' | 'profile' | 'session';
     sessionId?: string;
+    username?: string;
     error?: string;
   }> {
+    if (!isValidUuid(loginRequestId)) {
+      return { status: 'expired', error: 'Invalid login request id' };
+    }
     const lr = await this.db.query.loginRequests.findFirst({
       where: eq(loginRequests.id, loginRequestId),
+      columns: {
+        status: true,
+        step: true,
+        resultSessionId: true,
+        username: true,
+        error: true,
+        expiresAt: true,
+      },
     });
     if (!lr) return { status: 'expired', error: 'Unknown login request' };
     if (
@@ -291,7 +316,9 @@ export class AuthService implements OnModuleInit {
     const status = lr.status === 'processing' ? 'pending' : lr.status;
     return {
       status,
+      step: lr.step ?? undefined,
       sessionId: lr.resultSessionId ?? undefined,
+      username: lr.username ?? undefined,
       error: lr.error ?? undefined,
     };
   }
@@ -426,10 +453,13 @@ export class AuthService implements OnModuleInit {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return await this.soundcloudService.apiGet<ScMe>('/me', accessToken);
-      } catch (err) {
+      } catch (err: any) {
         lastErr = err;
+        // 401/403 — токен невалидный, повтор не поможет.
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) break;
         if (attempt < 2) {
-          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
         }
       }
     }

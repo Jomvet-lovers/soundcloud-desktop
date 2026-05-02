@@ -17,13 +17,22 @@ export const ReAuthOverlay = React.memo(() => {
   const logout = useAuthStore((s) => s.logout);
   const [copied, setCopied] = useState(false);
 
-  const { startLogin, authUrl, isPolling } = useOAuthFlow((sessionId) => {
+  const { startLogin, authUrl, isPolling, step } = useOAuthFlow((sessionId) => {
     markReAuthed();
     setSession(sessionId);
     setSessionExpired(false);
     fetchUser().catch(() => {});
     queryClient.invalidateQueries();
   });
+
+  const stepLabel =
+    step === 'token'
+      ? t('auth.stepToken')
+      : step === 'profile'
+        ? t('auth.stepProfile')
+        : step === 'session'
+          ? t('auth.stepSession')
+          : t('reauth.signingIn');
 
   const handleLogin = async () => {
     try {
@@ -103,7 +112,7 @@ export const ReAuthOverlay = React.memo(() => {
               {isPolling ? (
                 <div className="flex flex-col items-center gap-3 py-2">
                   <div className="w-8 h-8 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
-                  <p className="text-[11.5px] text-white/30">{t('reauth.signingIn')}</p>
+                  <p className="text-[11.5px] text-white/45">{stepLabel}</p>
                   {authUrl && (
                     <button
                       type="button"

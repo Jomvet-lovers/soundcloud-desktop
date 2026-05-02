@@ -233,9 +233,9 @@ export function renderCallbackPage(params: CallbackPageParams): string {
     <p class="subtitle" id="subtitle">Hang tight, finishing up the handshake with SoundCloud.</p>
 
     <div class="steps" id="steps">
-      <div class="step active" data-step="exchange"><span class="dot"></span><span>Exchanging authorization code</span></div>
+      <div class="step active" data-step="token"><span class="dot"></span><span>Exchanging authorization code</span></div>
       <div class="step" data-step="profile"><span class="dot"></span><span>Fetching your profile</span></div>
-      <div class="step" data-step="finalize"><span class="dot"></span><span>Finalizing session</span></div>
+      <div class="step" data-step="session"><span class="dot"></span><span>Finalizing session</span></div>
     </div>
 
     <div id="errorBox"></div>
@@ -277,20 +277,16 @@ export function renderCallbackPage(params: CallbackPageParams): string {
     var stepsBox = document.getElementById('steps');
     var errorBox = document.getElementById('errorBox');
 
+    var STEP_ORDER = ['token', 'profile', 'session'];
+
     function setStep(name) {
+      var idx = STEP_ORDER.indexOf(name);
+      if (idx < 0) idx = 0;
       var nodes = stepsBox.querySelectorAll('.step');
-      var hit = false;
-      nodes.forEach(function (n) {
-        if (hit) {
-          n.classList.remove('active', 'done');
-        } else if (n.dataset.step === name) {
-          n.classList.add('active');
-          n.classList.remove('done');
-          hit = true;
-        } else {
-          n.classList.remove('active');
-          n.classList.add('done');
-        }
+      nodes.forEach(function (n, i) {
+        n.classList.remove('active', 'done');
+        if (i < idx) n.classList.add('done');
+        else if (i === idx) n.classList.add('active');
       });
     }
 
@@ -342,18 +338,13 @@ export function renderCallbackPage(params: CallbackPageParams): string {
       return;
     }
 
-    // Pending — анимируем шаги и polling'уем.
-    var stepIdx = 0;
-    var stepNames = ['exchange', 'profile', 'finalize'];
-    var stepTimer = setInterval(function () {
-      if (stepIdx < stepNames.length - 1) {
-        stepIdx += 1;
-        setStep(stepNames[stepIdx]);
-      }
-    }, 1200);
+    // Pending — реальный прогресс из polling-а, никаких фейковых таймеров.
+    setStep('token');
 
     var pollAttempts = 0;
-    var maxAttempts = 90;
+    // 0.3s × 100 = 30s максимум на весь процесс. Обычно укладывается в 2-3s.
+    var MAX_ATTEMPTS = 100;
+    var INTERVAL_MS = 300;
 
     function poll() {
       pollAttempts += 1;
@@ -361,20 +352,12 @@ export function renderCallbackPage(params: CallbackPageParams): string {
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (s) {
           if (!s) { schedule(); return; }
+          if (s.step) setStep(s.step);
           if (s.status === 'completed') {
-            clearInterval(stepTimer);
-            if (s.sessionId) {
-              fetch('/auth/session', { headers: { 'x-session-id': s.sessionId }, cache: 'no-store' })
-                .then(function (r) { return r.ok ? r.json() : null; })
-                .then(function (sess) { showSuccess(sess && sess.username); })
-                .catch(function () { showSuccess(null); });
-            } else {
-              showSuccess(null);
-            }
+            showSuccess(s.username || null);
             return;
           }
           if (s.status === 'failed' || s.status === 'expired') {
-            clearInterval(stepTimer);
             showError(s.error || 'Authentication failed.');
             return;
           }
@@ -384,15 +367,15 @@ export function renderCallbackPage(params: CallbackPageParams): string {
     }
 
     function schedule() {
-      if (pollAttempts >= maxAttempts) {
-        clearInterval(stepTimer);
+      if (pollAttempts >= MAX_ATTEMPTS) {
         showError('Authentication is taking too long. Please try again.');
         return;
       }
-      setTimeout(poll, 700);
+      setTimeout(poll, INTERVAL_MS);
     }
 
-    setTimeout(poll, 400);
+    // Первый poll сразу — токен мог уже обменяться к моменту рендера.
+    poll();
   })();
   </script>
 </body>

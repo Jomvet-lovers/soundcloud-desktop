@@ -42,7 +42,11 @@
     "signingIn": "Waiting for authorization...",
     "signOut": "Sign Out",
     "copyLink": "Copy link",
-    "copied": "Copied!"
+    "copied": "Copied!",
+    "stepWaiting": "Waiting for SoundCloud authorization",
+    "stepToken": "Exchanging authorization code",
+    "stepProfile": "Fetching your profile",
+    "stepSession": "Finalizing session"
   },
   "reauth": {
     "title": "Session Expired",

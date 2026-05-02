@@ -10,8 +10,17 @@ export class LoginStatusResponseDto {
   @ApiProperty({ enum: ['pending', 'completed', 'failed', 'expired'] })
   status: 'pending' | 'completed' | 'failed' | 'expired';
 
+  @ApiPropertyOptional({
+    enum: ['token', 'profile', 'session'],
+    description: 'Current background step while status=pending',
+  })
+  step?: 'token' | 'profile' | 'session';
+
   @ApiPropertyOptional({ format: 'uuid', description: 'Available when status=completed' })
   sessionId?: string;
+
+  @ApiPropertyOptional({ description: 'SoundCloud username, available when status=completed' })
+  username?: string;
 
   @ApiPropertyOptional() error?: string;
 }

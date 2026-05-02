@@ -11,11 +11,16 @@ interface LoginResponse {
 
 interface LoginStatusResponse {
   status: 'pending' | 'completed' | 'failed' | 'expired';
+  step?: 'token' | 'profile' | 'session';
   sessionId?: string;
+  username?: string;
   error?: string;
 }
 
+export type OAuthStep = 'waiting' | 'token' | 'profile' | 'session';
 export type OAuthFlowError = { kind: 'failed' | 'expired'; message: string };
+
+const POLL_INTERVAL_MS = 700;
 
 export function useOAuthFlow(
   onSuccess: (sessionId: string) => void,
@@ -23,6 +28,7 @@ export function useOAuthFlow(
 ) {
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [step, setStep] = useState<OAuthStep>('waiting');
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSuccessRef = useRef(onSuccess);
   const onFailureRef = useRef(onFailure);
@@ -36,6 +42,7 @@ export function useOAuthFlow(
     }
     setIsPolling(false);
     setAuthUrl(null);
+    setStep('waiting');
   }, []);
 
   useEffect(() => cancel, [cancel]);
@@ -43,6 +50,7 @@ export function useOAuthFlow(
   const startLogin = useCallback(async () => {
     cancel();
     setIsPolling(true);
+    setStep('waiting');
 
     // x-session-id (если есть) автоматически уйдёт через apiRequest — тогда бэк
     // привяжет результат к существующей сессии и sessionId не сменится.
@@ -52,11 +60,11 @@ export function useOAuthFlow(
 
     const tryPoll = async (base: string): Promise<LoginStatusResponse | null> => {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 10_000);
+      const timer = setTimeout(() => controller.abort(), 8_000);
       try {
         const res = await fetch(
           `${base}/auth/login/status?id=${encodeURIComponent(loginRequestId)}`,
-          { signal: controller.signal },
+          { signal: controller.signal, cache: 'no-store' as RequestCache },
         );
         if (!res.ok) return null;
         return (await res.json()) as LoginStatusResponse;
@@ -76,9 +84,11 @@ export function useOAuthFlow(
       }
 
       if (!data) {
-        pollRef.current = setTimeout(pollOnce, 2000);
+        pollRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
         return;
       }
+
+      if (data.step) setStep(data.step);
 
       if (data.status === 'completed' && data.sessionId) {
         cancel();
@@ -90,11 +100,11 @@ export function useOAuthFlow(
         onFailureRef.current?.({ kind: data.status, message: data.error ?? 'Login failed' });
         return;
       }
-      pollRef.current = setTimeout(pollOnce, 2000);
+      pollRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
     };
 
-    pollRef.current = setTimeout(pollOnce, 2000);
+    pollRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
   }, [cancel]);
 
-  return { startLogin, authUrl, isPolling, cancel };
+  return { startLogin, authUrl, isPolling, step, cancel };
 }

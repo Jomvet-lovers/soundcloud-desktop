@@ -19,7 +19,7 @@ export function Login() {
     queryClient.invalidateQueries();
   };
 
-  const { startLogin, authUrl, isPolling } = useOAuthFlow(onLoginSuccess);
+  const { startLogin, authUrl, isPolling, step } = useOAuthFlow(onLoginSuccess);
 
   const handleLogin = async () => {
     try {
@@ -28,6 +28,15 @@ export function Login() {
       console.error('Login failed:', e);
     }
   };
+
+  const stepLabel =
+    step === 'token'
+      ? t('auth.stepToken')
+      : step === 'profile'
+        ? t('auth.stepProfile')
+        : step === 'session'
+          ? t('auth.stepSession')
+          : t('auth.stepWaiting');
 
   return (
     <div className="h-screen flex items-center justify-center relative overflow-hidden">
@@ -54,7 +63,7 @@ export function Login() {
         {isPolling ? (
           <div className="flex flex-col items-center gap-4">
             <div className="w-10 h-10 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
-            <p className="text-[12px] text-white/25">{t('auth.signingIn')}</p>
+            <p className="text-[12px] text-white/40">{stepLabel}</p>
             {authUrl && (
               <button
                 type="button"
