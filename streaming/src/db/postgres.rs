@@ -49,38 +49,7 @@ impl PgPool {
         client.execute("SELECT 1", &[]).await?;
         info!("PostgreSQL connected");
 
-        let pg_pool = Self { pool };
-        pg_pool.run_migrations().await?;
-        Ok(pg_pool)
-    }
-
-    async fn run_migrations(&self) -> Result<(), PgError> {
-        let client = self.pool.get().await?;
-
-        // Add lastAccessedAt column to cdn_tracks if not exists
-        // TypeORM uses camelCase column names by default
-        client
-            .execute(
-                r#"
-                DO $$
-                BEGIN
-                    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cdn_tracks')
-                       AND NOT EXISTS (
-                           SELECT 1 FROM information_schema.columns
-                           WHERE table_name = 'cdn_tracks' AND column_name = 'lastAccessedAt'
-                       )
-                    THEN
-                        ALTER TABLE cdn_tracks
-                        ADD COLUMN "lastAccessedAt" TIMESTAMPTZ DEFAULT NOW();
-                    END IF;
-                END $$;
-                "#,
-                &[],
-            )
-            .await?;
-
-        info!("PG migrations done");
-        Ok(())
+        Ok(Self { pool })
     }
 
     /// Get session by x-session-id → access_token + soundcloud_user_id
@@ -91,7 +60,7 @@ impl PgPool {
         let client = self.pool.get().await?;
         let row = client
             .query_opt(
-                r#"SELECT "accessToken", "soundcloudUserId" FROM sessions WHERE id = $1"#,
+                r#"SELECT access_token, soundcloud_user_id FROM sessions WHERE id = $1"#,
                 &[&session_id],
             )
             .await?;
@@ -111,9 +80,9 @@ impl PgPool {
         let client = self.pool.get().await?;
         let rows = client
             .query(
-                r#"SELECT id, "trackUrn", quality, "cdnPath", status
+                r#"SELECT id, track_urn, quality, cdn_path, status
                    FROM cdn_tracks
-                   WHERE "trackUrn" = $1 AND status = 'ok'"#,
+                   WHERE track_urn = $1 AND status = 'ok'"#,
                 &[&track_urn],
             )
             .await?;
@@ -144,7 +113,7 @@ impl PgPool {
         let client = self.pool.get().await?;
         client
             .execute(
-                r#"UPDATE cdn_tracks SET "lastAccessedAt" = NOW() WHERE id = $1::text::uuid"#,
+                r#"UPDATE cdn_tracks SET last_accessed_at = NOW() WHERE id = $1::text::uuid"#,
                 &[&id],
             )
             .await?;
@@ -163,9 +132,9 @@ impl PgPool {
         let client = self.pool.get().await?;
         client
             .execute(
-                r#"INSERT INTO cdn_tracks (id, "trackUrn", quality, "cdnPath", status, "createdAt", "updatedAt", "lastAccessedAt")
+                r#"INSERT INTO cdn_tracks (id, track_urn, quality, cdn_path, status, created_at, updated_at, last_accessed_at)
                    VALUES ($1::text::uuid, $2, $3, $4, $5, NOW(), NOW(), NOW())
-                   ON CONFLICT ("trackUrn", quality) DO UPDATE SET status = $5, "cdnPath" = $4, "updatedAt" = NOW()"#,
+                   ON CONFLICT (track_urn, quality) DO UPDATE SET status = $5, cdn_path = $4, updated_at = NOW()"#,
                 &[&id, &track_urn, &quality, &cdn_path, &status],
             )
             .await?;
@@ -177,7 +146,7 @@ impl PgPool {
         let client = self.pool.get().await?;
         client
             .execute(
-                r#"UPDATE cdn_tracks SET status = $2, "updatedAt" = NOW() WHERE id = $1::text::uuid"#,
+                r#"UPDATE cdn_tracks SET status = $2, updated_at = NOW() WHERE id = $1::text::uuid"#,
                 &[&id, &status],
             )
             .await?;
@@ -193,11 +162,11 @@ impl PgPool {
         let interval = format!("{older_than_days} days");
         let rows = client
             .query(
-                r#"SELECT id, "trackUrn", quality, "cdnPath", status
+                r#"SELECT id, track_urn, quality, cdn_path, status
                    FROM cdn_tracks
                    WHERE status = 'ok'
-                     AND "lastAccessedAt" < NOW() - $1::interval
-                   ORDER BY "lastAccessedAt" ASC"#,
+                     AND last_accessed_at < NOW() - $1::interval
+                   ORDER BY last_accessed_at ASC"#,
                 &[&interval],
             )
             .await?;
@@ -213,10 +182,10 @@ impl PgPool {
         let client = self.pool.get().await?;
         let rows = client
             .query(
-                r#"SELECT id, "trackUrn", quality, "cdnPath", status
+                r#"SELECT id, track_urn, quality, cdn_path, status
                    FROM cdn_tracks
                    WHERE status = 'ok'
-                   ORDER BY "lastAccessedAt" ASC
+                   ORDER BY last_accessed_at ASC
                    LIMIT $1"#,
                 &[&limit],
             )
@@ -243,8 +212,8 @@ impl PgPool {
         let client = self.pool.get().await?;
         let rows = client
             .query(
-                r#"SELECT "accessToken" FROM sessions
-                   WHERE "expiresAt" > NOW() AND "accessToken" <> $1
+                r#"SELECT access_token FROM sessions
+                   WHERE expires_at > NOW() AND access_token <> $1
                    ORDER BY RANDOM()
                    LIMIT $2"#,
                 &[&exclude_token, &limit],
@@ -259,7 +228,7 @@ impl PgPool {
         let now = chrono::Utc::now().timestamp();
         let row = client
             .query_opt(
-                r#"SELECT 1 FROM subscriptions WHERE "userUrn" = $1 AND "expDate" > $2"#,
+                r#"SELECT 1 FROM subscriptions WHERE user_urn = $1 AND exp_date > $2"#,
                 &[&user_urn, &now],
             )
             .await?;
