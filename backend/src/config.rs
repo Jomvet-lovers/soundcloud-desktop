@@ -77,6 +77,7 @@ pub struct InternalCfg {
 #[derive(Clone, Debug)]
 pub struct SubscriptionsCfg {
     pub snapshot_dir: String,
+    pub always_premium: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +187,7 @@ impl AppConfig {
 
             subscriptions: SubscriptionsCfg {
                 snapshot_dir: env_str("SUBSCRIPTIONS_SNAPSHOT_DIR", "/snapshots"),
+                always_premium: env_str("SUBSCRIPTIONS_ALWAYS_PREMIUM", "false") == "true",
             },
 
             soundwave: SoundwaveCfg {

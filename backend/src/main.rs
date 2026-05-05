@@ -119,8 +119,11 @@ async fn main() {
     let list_cache = ListCacheService::new(redis_pool.clone());
     let local_likes = LocalLikesService::new(pg.clone());
     let events = EventsService::new(pg.clone());
-    let subscriptions =
-        SubscriptionsService::new(pg.clone(), config.subscriptions.snapshot_dir.clone());
+    let subscriptions = SubscriptionsService::new(
+        pg.clone(),
+        config.subscriptions.snapshot_dir.clone(),
+        config.subscriptions.always_premium,
+    );
     if let Err(e) = subscriptions.restore_from_snapshot().await {
         warn!(error = %e, "subscriptions restore failed");
     }

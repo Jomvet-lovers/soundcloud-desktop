@@ -8,6 +8,7 @@ import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
 import { ReAuthOverlay } from './components/ReAuthOverlay';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
+import { CHECK_UPDATES } from './lib/constants';
 import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
 import { getAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
@@ -134,7 +135,7 @@ export default function App() {
   }, [appMode, fetchUser, sessionId]);
 
   useEffect(() => {
-    if (!isAuthenticated || appMode !== 'online') {
+    if (!CHECK_UPDATES || !isAuthenticated || appMode !== 'online') {
       setAvailableRelease(null);
       return;
     }

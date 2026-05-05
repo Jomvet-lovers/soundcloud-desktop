@@ -21,17 +21,22 @@ pub struct Subscription {
 pub struct SubscriptionsService {
     pg: PgPool,
     snapshot_dir: PathBuf,
+    always_premium: bool,
 }
 
 impl SubscriptionsService {
-    pub fn new(pg: PgPool, snapshot_dir: String) -> Arc<Self> {
+    pub fn new(pg: PgPool, snapshot_dir: String, always_premium: bool) -> Arc<Self> {
         Arc::new(Self {
             pg,
             snapshot_dir: PathBuf::from(snapshot_dir),
+            always_premium,
         })
     }
 
     pub async fn is_premium(&self, user_urn: &str) -> AppResult<bool> {
+        if self.always_premium {
+            return Ok(true);
+        }
         let now = chrono::Utc::now().timestamp();
         let row: Option<(i64,)> =
             sqlx::query_as("SELECT exp_date FROM subscriptions WHERE user_urn = $1")

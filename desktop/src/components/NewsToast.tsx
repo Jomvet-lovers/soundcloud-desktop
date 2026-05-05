@@ -2,8 +2,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { proxiedAssetUrl } from '../lib/asset-url';
+import { NEWS, type NewsItem, SHOW_NEWS } from '../lib/constants';
 import { X } from '../lib/icons';
-import { NEWS, type NewsItem } from '../lib/news';
 import { useNewsStore } from '../stores/news';
 
 // ─── Toast Card (bottom-left) ──────────────────────────────
@@ -177,9 +177,12 @@ export const NewsToast = React.memo(function NewsToast() {
 
   const visible = useMemo(
     () =>
-      NEWS.filter(
-        (item) => !permanentlyDismissed.includes(item.id) && !sessionDismissed.includes(item.id),
-      ),
+      SHOW_NEWS
+        ? NEWS.filter(
+            (item) =>
+              !permanentlyDismissed.includes(item.id) && !sessionDismissed.includes(item.id),
+          )
+        : [],
     [permanentlyDismissed, sessionDismissed],
   );
 
