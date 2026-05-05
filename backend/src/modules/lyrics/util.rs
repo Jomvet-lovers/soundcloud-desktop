@@ -14,8 +14,6 @@ static RE_FEAT_TAIL: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\s+(feat\.?|ft\.?|featuring|prod\.?)\b.*$").unwrap());
 static RE_PARENS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
 static RE_WS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
-static RE_LRC_LINE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.*)").unwrap());
 static RE_LRC_TS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[\d{2}:\d{2}\.\d{2,3}\]").unwrap());
 
 pub fn clean_title(s: &str) -> String {
@@ -62,34 +60,6 @@ pub fn split_artist_title(raw: &str) -> Option<(String, String)> {
         }
     }
     None
-}
-
-#[derive(Debug, Clone)]
-pub struct LyricLine {
-    pub time: f64,
-    pub text: String,
-}
-
-pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
-    let mut lines = Vec::new();
-    for raw in lrc.split('\n') {
-        let Some(caps) = RE_LRC_LINE.captures(raw) else {
-            continue;
-        };
-        let mm: f64 = caps[1].parse().unwrap_or(0.0);
-        let ss: f64 = caps[2].parse().unwrap_or(0.0);
-        let mut frac_str = caps[3].to_string();
-        while frac_str.len() < 3 {
-            frac_str.push('0');
-        }
-        let ms: f64 = frac_str.parse().unwrap_or(0.0);
-        let time = mm * 60.0 + ss + ms / 1000.0;
-        let text = caps[4].trim().to_string();
-        if !text.is_empty() {
-            lines.push(LyricLine { time, text });
-        }
-    }
-    lines
 }
 
 pub fn strip_lrc_timestamps(lrc: &str) -> String {
@@ -205,7 +175,7 @@ pub fn detect_language_heuristic(text: &str) -> Option<LangDetect> {
 pub fn heuristic_queries(artist: &str, title: &str) -> Vec<String> {
     let mut out: BTreeSet<String> = BTreeSet::new();
     let mut order: Vec<String> = Vec::new();
-    let mut add = |s: &str, order: &mut Vec<String>, out: &mut BTreeSet<String>| {
+    let add = |s: &str, order: &mut Vec<String>, out: &mut BTreeSet<String>| {
         let cleaned = RE_WS.replace_all(&alpha_only(s), " ").trim().to_string();
         if cleaned.len() >= 2 && !out.contains(&cleaned) {
             out.insert(cleaned.clone());

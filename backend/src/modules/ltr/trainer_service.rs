@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 use qdrant_client::qdrant::{
-    point_id::PointIdOptions, vectors_output::VectorsOptions, GetPointsBuilder, PointId,
-    VectorOutput,
+    point_id::PointIdOptions, vector_output::Vector as VectorVariant,
+    vectors_output::VectorsOptions, GetPointsBuilder, PointId,
 };
 use serde_json::Value;
 use sqlx::PgPool;
@@ -398,9 +398,12 @@ impl LtrTrainerService {
             .get_points(GetPointsBuilder::new(coll, vec![numeric_id(id)]).with_vectors(true))
             .await
             .ok()?;
-        let p = resp.result.first()?;
-        match p.vectors.as_ref().and_then(|v| v.vectors_options.as_ref()) {
-            Some(VectorsOptions::Vector(VectorOutput { data, .. })) => Some(data.clone()),
+        let p = resp.result.into_iter().next()?;
+        match p.vectors.and_then(|v| v.vectors_options)? {
+            VectorsOptions::Vector(v) => match v.into_vector() {
+                VectorVariant::Dense(dense) => Some(dense.data),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -430,10 +433,10 @@ impl LtrTrainerService {
                 None => continue,
             };
             if let Some(vectors) = p.vectors {
-                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
-                    vectors.vectors_options
-                {
-                    out.insert(id_str, data);
+                if let Some(VectorsOptions::Vector(v)) = vectors.vectors_options {
+                    if let VectorVariant::Dense(dense) = v.into_vector() {
+                        out.insert(id_str, dense.data);
+                    }
                 }
             }
         }

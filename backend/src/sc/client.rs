@@ -4,7 +4,7 @@ use std::time::Duration;
 use base64::Engine;
 use bytes::Bytes;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use reqwest::{Client, Method, StatusCode};
+use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::OnceCell;
@@ -62,10 +62,6 @@ impl ScClient {
 
     pub fn auth_base_url(&self) -> &str {
         AUTH_BASE
-    }
-
-    pub fn http(&self) -> &Client {
-        &self.inner.http
     }
 
     pub fn install_track_observer(&self, obs: Arc<dyn TrackObserver>) {

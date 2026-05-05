@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use qdrant_client::qdrant::{
-    point_id::PointIdOptions, vectors_output::VectorsOptions, Condition, Filter, GetPointsBuilder,
-    PointId, RecommendStrategy, SearchPointsBuilder, Value as QValue, VectorOutput,
+    point_id::PointIdOptions, vector_output::Vector as VectorVariant,
+    vectors_output::VectorsOptions, Condition, Filter, GetPointsBuilder, PointId, RecommendStrategy,
+    SearchPointsBuilder, Value as QValue,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -732,9 +733,12 @@ impl RecommendationsService {
             .get_points(GetPointsBuilder::new(collection, vec![numeric_id(id)]).with_vectors(true))
             .await
             .ok()?;
-        let p = resp.result.first()?;
-        match p.vectors.as_ref().and_then(|v| v.vectors_options.as_ref()) {
-            Some(VectorsOptions::Vector(VectorOutput { data, .. })) => Some(data.clone()),
+        let p = resp.result.into_iter().next()?;
+        match p.vectors.and_then(|v| v.vectors_options)? {
+            VectorsOptions::Vector(v) => match v.into_vector() {
+                VectorVariant::Dense(dense) => Some(dense.data),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -759,10 +763,10 @@ impl RecommendationsService {
                         None => continue,
                     };
                     if let Some(vectors) = p.vectors {
-                        if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
-                            vectors.vectors_options
-                        {
-                            out.insert(id_str, data);
+                        if let Some(VectorsOptions::Vector(v)) = vectors.vectors_options {
+                            if let VectorVariant::Dense(dense) = v.into_vector() {
+                                out.insert(id_str, dense.data);
+                            }
                         }
                     }
                 }

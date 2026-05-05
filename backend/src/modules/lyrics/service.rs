@@ -2,9 +2,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::NaiveDateTime;
 use mini_moka::sync::Cache;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use tokio::sync::{Mutex, Semaphore};
@@ -13,7 +12,7 @@ use tracing::{debug, info, warn};
 
 use crate::bus::nats::NatsService;
 use crate::bus::subjects::{streams, subjects};
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::lyrics::lrclib::LrclibService;
 use crate::modules::lyrics::musixmatch::MusixmatchService;
@@ -101,7 +100,6 @@ pub struct LyricsCacheRow {
     pub language: Option<String>,
     pub language_confidence: Option<f32>,
     pub embedded_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone)]
@@ -168,7 +166,7 @@ impl LyricsService {
             streams::DONE.name,
             "backend-done-embed-lyrics",
             Some(subjects::DONE_EMBED_LYRICS),
-            move |data, _meta| {
+            move |data| {
                 let svc = svc.clone();
                 async move {
                     let sc_track_id = data
@@ -226,7 +224,7 @@ impl LyricsService {
         let sc_track_id = normalize(sc_track_id_raw);
 
         let cached: Option<LyricsCacheRow> =
-            sqlx::query_as("SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at, created_at FROM lyrics_cache WHERE sc_track_id = $1")
+            sqlx::query_as("SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at FROM lyrics_cache WHERE sc_track_id = $1")
                 .bind(&sc_track_id)
                 .fetch_optional(&self.pg)
                 .await?;
@@ -344,7 +342,7 @@ impl LyricsService {
 
         let row: LyricsCacheRow = sqlx::query_as(
             "INSERT INTO lyrics_cache (sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at) \
-             VALUES ($1, $2, $3, $4, NULL, NULL, NULL) RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at, created_at",
+             VALUES ($1, $2, $3, $4, NULL, NULL, NULL) RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at",
         )
         .bind(sc_track_id)
         .bind(&picked.synced_lrc)
@@ -745,7 +743,7 @@ impl LyricsService {
         let _g = lock.lock().await;
 
         let entity: Option<LyricsCacheRow> = match sqlx::query_as(
-            "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at, created_at FROM lyrics_cache WHERE sc_track_id = $1",
+            "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at FROM lyrics_cache WHERE sc_track_id = $1",
         )
         .bind(&sc_track_id)
         .fetch_optional(&self.pg)
@@ -832,7 +830,7 @@ impl LyricsService {
         }
         let row: LyricsCacheRow = sqlx::query_as(
             "INSERT INTO lyrics_cache (sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at) \
-             VALUES ($1, $2, $3, 'self_gen', NULL, NULL, NULL) RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at, created_at",
+             VALUES ($1, $2, $3, 'self_gen', NULL, NULL, NULL) RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at",
         )
         .bind(sc_track_id)
         .bind(&res.synced_lrc)
@@ -953,7 +951,7 @@ impl LyricsService {
         let cutoff =
             chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
         let stuck: Vec<LyricsCacheRow> = sqlx::query_as(
-            "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at, created_at FROM lyrics_cache \
+            "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at FROM lyrics_cache \
              WHERE embedded_at IS NULL AND created_at < $1 \
              AND length(coalesce(plain_text, synced_lrc, '')) > 30 \
              ORDER BY created_at ASC LIMIT $2",

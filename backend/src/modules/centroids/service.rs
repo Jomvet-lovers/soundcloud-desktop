@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use qdrant_client::qdrant::{vectors_output::VectorsOptions, ScrollPointsBuilder};
+use qdrant_client::qdrant::{
+    vector_output::Vector as VectorVariant, vectors_output::VectorsOptions, ScrollPointsBuilder,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -16,7 +18,6 @@ const SCROLL_BATCH: u32 = 256;
 #[derive(Debug, Clone)]
 struct CentroidEntry {
     vector: Option<Vec<f32>>,
-    points_count: usize,
 }
 
 pub struct CentroidService {
@@ -74,13 +75,7 @@ impl CentroidService {
         match self.refresh_inner(collection).await {
             Ok((count, dim)) if count == 0 => {
                 if let Ok(mut g) = self.cache.write() {
-                    g.insert(
-                        collection.to_string(),
-                        CentroidEntry {
-                            vector: None,
-                            points_count: 0,
-                        },
-                    );
+                    g.insert(collection.to_string(), CentroidEntry { vector: None });
                 }
                 warn!(collection, "centroid: empty collection");
             }
@@ -123,20 +118,23 @@ impl CentroidService {
                 let Some(vectors) = &point.vectors else {
                     continue;
                 };
-                let Some(VectorsOptions::Vector(vec)) = &vectors.vectors_options else {
+                let Some(VectorsOptions::Vector(v)) = vectors.vectors_options.clone() else {
                     continue;
                 };
-                if vec.data.is_empty() {
+                let VectorVariant::Dense(dense) = v.into_vector() else {
+                    continue;
+                };
+                if dense.data.is_empty() {
                     continue;
                 }
                 if acc.is_empty() {
-                    acc = vec![0.0; vec.data.len()];
+                    acc = vec![0.0; dense.data.len()];
                 }
-                if acc.len() != vec.data.len() {
+                if acc.len() != dense.data.len() {
                     continue;
                 }
-                for (i, v) in vec.data.iter().enumerate() {
-                    acc[i] += *v as f64;
+                for (i, val) in dense.data.iter().enumerate() {
+                    acc[i] += *val as f64;
                 }
                 count += 1;
             }
@@ -166,10 +164,7 @@ impl CentroidService {
         if let Ok(mut g) = self.cache.write() {
             g.insert(
                 collection.to_string(),
-                CentroidEntry {
-                    vector: Some(mean),
-                    points_count: count,
-                },
+                CentroidEntry { vector: Some(mean) },
             );
         }
         Ok((count, dim))

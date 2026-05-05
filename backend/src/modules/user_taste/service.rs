@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use qdrant_client::qdrant::{
-    point_id::PointIdOptions, vectors_output::VectorsOptions, GetPointsBuilder, PointId,
-    PointStruct, UpsertPointsBuilder, Value as QValue, VectorOutput,
+    point_id::PointIdOptions, vector_output::Vector as VectorVariant,
+    vectors_output::VectorsOptions, GetPointsBuilder, PointId, PointStruct, UpsertPointsBuilder,
+    Value as QValue,
 };
 use std::collections::HashMap;
 use tracing::debug;
@@ -143,12 +144,12 @@ impl UserTasteService {
             .map_err(|e| {
                 crate::error::AppError::internal(format!("qdrant retrieve {collection}: {e}"))
             })?;
-        if let Some(point) = resp.result.first() {
-            if let Some(vectors) = &point.vectors {
-                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
-                    &vectors.vectors_options
-                {
-                    return Ok(Some(data.clone()));
+        if let Some(point) = resp.result.into_iter().next() {
+            if let Some(vectors) = point.vectors {
+                if let Some(VectorsOptions::Vector(v)) = vectors.vectors_options {
+                    if let VectorVariant::Dense(dense) = v.into_vector() {
+                        return Ok(Some(dense.data));
+                    }
                 }
             }
         }
@@ -172,15 +173,15 @@ impl UserTasteService {
             .map_err(|e| {
                 crate::error::AppError::internal(format!("qdrant retrieve {collection}: {e}"))
             })?;
-        let Some(point) = resp.result.first() else {
+        let Some(point) = resp.result.into_iter().next() else {
             return Ok(None);
         };
-        let vec = match &point.vectors {
-            Some(v) => match &v.vectors_options {
-                Some(VectorsOptions::Vector(VectorOutput { data, .. })) => data.clone(),
+        let vec = match point.vectors.and_then(|v| v.vectors_options) {
+            Some(VectorsOptions::Vector(v)) => match v.into_vector() {
+                VectorVariant::Dense(dense) => dense.data,
                 _ => return Ok(None),
             },
-            None => return Ok(None),
+            _ => return Ok(None),
         };
         let event_count = point
             .payload

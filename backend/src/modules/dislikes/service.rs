@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -103,32 +102,6 @@ impl DislikesService {
         .fetch_optional(&self.pg)
         .await?;
         Ok(row.is_some())
-    }
-
-    pub async fn get_disliked_track_ids(
-        &self,
-        sc_user_id: &str,
-        sc_track_ids: &[String],
-    ) -> AppResult<HashSet<String>> {
-        if sc_track_ids.is_empty() {
-            return Ok(HashSet::new());
-        }
-        let normalized: Vec<String> = sc_track_ids
-            .iter()
-            .filter_map(|id| normalize_sc_track_id(id))
-            .collect();
-        if normalized.is_empty() {
-            return Ok(HashSet::new());
-        }
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM disliked_tracks \
-             WHERE sc_user_id = $1 AND sc_track_id = ANY($2)",
-        )
-        .bind(sc_user_id)
-        .bind(&normalized)
-        .fetch_all(&self.pg)
-        .await?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
     pub async fn list_ids_by_user_id(

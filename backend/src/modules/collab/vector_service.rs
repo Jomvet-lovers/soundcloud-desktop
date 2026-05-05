@@ -3,8 +3,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use qdrant_client::qdrant::{
-    point_id::PointIdOptions, vectors_output::VectorsOptions, GetCollectionInfoRequest,
-    GetPointsBuilder, PointId, VectorOutput,
+    point_id::PointIdOptions, vector_output::Vector as VectorVariant,
+    vectors_output::VectorsOptions, GetCollectionInfoRequest, GetPointsBuilder, PointId,
 };
 use sqlx::PgPool;
 use tracing::debug;
@@ -98,8 +98,11 @@ impl CollabVectorService {
             .ok()?;
         let point = resp.result.first()?;
         let vectors = point.vectors.as_ref()?;
-        match &vectors.vectors_options {
-            Some(VectorsOptions::Vector(VectorOutput { data, .. })) => Some(data.clone()),
+        match vectors.vectors_options.clone() {
+            Some(VectorsOptions::Vector(v)) => match v.into_vector() {
+                VectorVariant::Dense(dense) => Some(dense.data),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -129,10 +132,10 @@ impl CollabVectorService {
                 None => continue,
             };
             if let Some(vectors) = p.vectors {
-                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
-                    vectors.vectors_options
-                {
-                    out.insert(id_str, data);
+                if let Some(VectorsOptions::Vector(v)) = vectors.vectors_options {
+                    if let VectorVariant::Dense(dense) = v.into_vector() {
+                        out.insert(id_str, dense.data);
+                    }
                 }
             }
         }

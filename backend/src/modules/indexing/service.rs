@@ -123,18 +123,6 @@ impl IndexingService {
         Ok(())
     }
 
-    pub async fn ensure_tracks_indexed(self: &Arc<Self>, tracks: &[Value]) {
-        for t in tracks {
-            let svc = self.clone();
-            let track = t.clone();
-            tokio::spawn(async move {
-                if let Err(e) = svc.ensure_track_indexed(&track).await {
-                    debug!(error = %e, "ensureTrackIndexed failed");
-                }
-            });
-        }
-    }
-
     pub async fn ensure_track_queued_by_id(&self, sc_track_id: &str) -> AppResult<()> {
         let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
             "SELECT sc_track_id, indexed_at FROM indexed_tracks WHERE sc_track_id = $1",
@@ -174,7 +162,7 @@ impl IndexingService {
             streams::STORAGE_EVENTS.name,
             "backend-storage-uploaded",
             Some(subjects::STORAGE_TRACK_UPLOADED),
-            move |data, _meta| {
+            move |data| {
                 let svc = svc.clone();
                 async move {
                     let sc_track_id_raw = data.get("sc_track_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -270,7 +258,7 @@ impl IndexingService {
             streams::DONE.name,
             "backend-done-index-audio",
             Some(subjects::DONE_INDEX_AUDIO),
-            move |data, _meta| {
+            move |data| {
                 let svc = svc.clone();
                 async move {
                     let Some(sc_track_id) = data.get("sc_track_id").and_then(|v| v.as_str()) else {

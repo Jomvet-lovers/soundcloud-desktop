@@ -24,12 +24,6 @@ pub struct NatsService {
     shutdown: CancellationToken,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ConsumeMeta {
-    pub stream_seq: u64,
-    pub deliveries: u64,
-}
-
 #[derive(Debug)]
 struct RpcReply<T> {
     ok: bool,
@@ -85,14 +79,6 @@ impl NatsService {
         svc.ensure_stream(&streams::STORAGE_EVENTS, false, None)
             .await?;
         Ok(svc)
-    }
-
-    pub fn client(&self) -> &Client {
-        &self.nc
-    }
-
-    pub fn jetstream(&self) -> &async_nats::jetstream::Context {
-        &self.js
     }
 
     async fn ensure_stream(
@@ -234,7 +220,7 @@ impl NatsService {
         filter_subject: Option<&'static str>,
         handler: F,
     ) where
-        F: Fn(serde_json::Value, ConsumeMeta) -> Fut + Send + Sync + 'static,
+        F: Fn(serde_json::Value) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = AppResult<()>> + Send + 'static,
     {
         let js = self.js.clone();
@@ -319,19 +305,8 @@ impl NatsService {
                         }
                     };
 
-                    let meta = match msg.info() {
-                        Ok(info) => ConsumeMeta {
-                            stream_seq: info.stream_sequence,
-                            deliveries: info.delivered as u64,
-                        },
-                        Err(_) => ConsumeMeta {
-                            stream_seq: 0,
-                            deliveries: 0,
-                        },
-                    };
-
                     match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
-                        Ok(data) => match handler(data, meta).await {
+                        Ok(data) => match handler(data).await {
                             Ok(()) => {
                                 if let Err(e) = msg.ack().await {
                                     warn!(stream, durable, error = %e, "consume: ack failed");

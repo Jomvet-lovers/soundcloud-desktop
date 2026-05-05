@@ -21,14 +21,6 @@ pub enum FeaturedItemType {
 }
 
 impl FeaturedItemType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Track => "track",
-            Self::Playlist => "playlist",
-            Self::User => "user",
-        }
-    }
-
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "track" => Some(Self::Track),

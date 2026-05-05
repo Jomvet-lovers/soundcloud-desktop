@@ -13,8 +13,6 @@ pub mod subjects {
 
     pub const DONE_INDEX_AUDIO: &str = "done.index_audio";
     pub const DONE_EMBED_LYRICS: &str = "done.embed_lyrics";
-    pub const DONE_TRAIN_COLLAB: &str = "done.train_collab";
-    pub const DONE_TRAIN_LTR: &str = "done.train_ltr";
 
     pub const STORAGE_TRACK_UPLOADED: &str = "storage.track_uploaded";
 }

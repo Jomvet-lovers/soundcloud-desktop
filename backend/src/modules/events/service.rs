@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::NaiveDateTime;
 use mini_moka::sync::Cache;
 use sqlx::{FromRow, PgPool};
 use tokio::sync::{Mutex as AsyncMutex, OnceCell};
@@ -47,10 +46,6 @@ pub struct UserEventRow {
     pub sc_user_id: String,
     pub sc_track_id: String,
     pub event_type: String,
-    pub weight: f64,
-    pub seeded: bool,
-    pub created_at: NaiveDateTime,
-    pub taste_applied_at: Option<NaiveDateTime>,
 }
 
 pub struct EventsService {
@@ -167,7 +162,7 @@ impl EventsService {
 
         let event: UserEventRow = sqlx::query_as(
             "INSERT INTO user_events (sc_user_id, sc_track_id, event_type, weight, seeded) \
-             VALUES ($1, $2, $3, $4, false) RETURNING id, sc_user_id, sc_track_id, event_type, weight, seeded, created_at, taste_applied_at",
+             VALUES ($1, $2, $3, $4, false) RETURNING id, sc_user_id, sc_track_id, event_type",
         )
         .bind(sc_user_id)
         .bind(&normalized)
@@ -250,7 +245,7 @@ impl EventsService {
         let saved: Vec<UserEventRow> = sqlx::query_as(
             "INSERT INTO user_events (sc_user_id, sc_track_id, event_type, weight, seeded) \
              SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::float8[], $5::bool[]) \
-             RETURNING id, sc_user_id, sc_track_id, event_type, weight, seeded, created_at, taste_applied_at",
+             RETURNING id, sc_user_id, sc_track_id, event_type",
         )
         .bind(&user_ids)
         .bind(&missing)
@@ -282,7 +277,7 @@ impl EventsService {
         sc_track_id: &str,
     ) -> AppResult<()> {
         let pending: Vec<UserEventRow> = sqlx::query_as(
-            "SELECT id, sc_user_id, sc_track_id, event_type, weight, seeded, created_at, taste_applied_at \
+            "SELECT id, sc_user_id, sc_track_id, event_type \
              FROM user_events WHERE sc_track_id = $1 AND taste_applied_at IS NULL \
              ORDER BY created_at ASC",
         )
@@ -373,7 +368,7 @@ impl EventsService {
             crate::bus::subjects::streams::DONE.name,
             "backend-events-done",
             None,
-            move |data, _meta| {
+            move |data| {
                 let svc = svc.clone();
                 async move {
                     let sc_track_id = match data.get("sc_track_id") {

@@ -15,17 +15,9 @@ pub struct RankCandidate {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RankScore {
-    pub idx: usize,
-    pub score: f32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct RankResult {
     pub best_idx: usize,
     pub score: f32,
-    #[serde(default)]
-    pub scores: Option<Vec<RankScore>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
