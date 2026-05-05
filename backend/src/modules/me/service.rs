@@ -3,11 +3,11 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tracing::debug;
 
+use crate::cache::cache_service::CacheScope;
 use crate::cache::{
     build_list_cache_key, extract_sc_cursor, FetchChunkResult, GetPageOptions, ListCacheService,
     ListPageResult,
 };
-use crate::cache::cache_service::CacheScope;
 use crate::error::AppResult;
 use crate::modules::events::EventsService;
 use crate::modules::local_likes::LocalLikesService;
@@ -60,7 +60,10 @@ impl MeService {
         if urns.is_empty() {
             return Ok(());
         }
-        let liked = self.local_likes.get_liked_track_ids(sc_user_id, &urns).await?;
+        let liked = self
+            .local_likes
+            .get_liked_track_ids(sc_user_id, &urns)
+            .await?;
         if liked.is_empty() {
             return Ok(());
         }
@@ -91,7 +94,8 @@ impl MeService {
         if track_origins.is_empty() {
             return Ok(());
         }
-        self.apply_local_like_flags(sc_user_id, &mut track_origins).await?;
+        self.apply_local_like_flags(sc_user_id, &mut track_origins)
+            .await?;
 
         // by_urn: urn -> annotated track
         let by_urn: std::collections::HashMap<String, Value> = track_origins
@@ -104,11 +108,15 @@ impl MeService {
             .collect();
 
         for a in activities.iter_mut() {
-            let Some(origin) = a.get("origin") else { continue };
+            let Some(origin) = a.get("origin") else {
+                continue;
+            };
             if origin.get("kind").and_then(|k| k.as_str()) != Some("track") {
                 continue;
             }
-            let Some(urn) = origin.get("urn").and_then(|v| v.as_str()) else { continue };
+            let Some(urn) = origin.get("urn").and_then(|v| v.as_str()) else {
+                continue;
+            };
             if let Some(annotated) = by_urn.get(urn) {
                 if let Some(obj) = a.as_object_mut() {
                     obj.insert("origin".into(), annotated.clone());
@@ -153,8 +161,7 @@ impl MeService {
                         if let Some(c) = cursor {
                             params.push(("cursor".into(), c));
                         }
-                        let resp: Value =
-                            sc.api_get_value(&path, &token, Some(&params)).await?;
+                        let resp: Value = sc.api_get_value(&path, &token, Some(&params)).await?;
                         let items: Vec<Value> = resp
                             .get("collection")
                             .and_then(|v| v.as_array().cloned())
@@ -163,10 +170,7 @@ impl MeService {
                             .get("next_href")
                             .and_then(|v| v.as_str())
                             .and_then(|h| extract_sc_cursor(Some(h)));
-                        Ok::<_, crate::error::AppError>(FetchChunkResult {
-                            items,
-                            next_cursor,
-                        })
+                        Ok::<_, crate::error::AppError>(FetchChunkResult { items, next_cursor })
                     }
                 },
             )
@@ -232,8 +236,7 @@ impl MeService {
         limit: i64,
         access: &str,
     ) -> AppResult<ListPageResult<Value>> {
-        let cache_key =
-            build_list_cache_key("me-liked-tracks", &[("access", access.to_string())]);
+        let cache_key = build_list_cache_key("me-liked-tracks", &[("access", access.to_string())]);
         let mut result = self
             .list_page(
                 &cache_key,

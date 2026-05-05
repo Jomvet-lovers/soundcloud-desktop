@@ -5,7 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sqlx::types::Uuid;
 use sqlx::PgPool;
-use tracing::{warn};
+use tracing::warn;
 
 use crate::error::{AppError, AppResult};
 use crate::modules::auth::AuthService;
@@ -159,7 +159,10 @@ impl PendingActionsService {
 
     pub async fn sync_all(&self) -> AppResult<SyncStats> {
         if !self.oauth_apps.has_active_app().await? {
-            return Ok(SyncStats { synced: 0, failed: 0 });
+            return Ok(SyncStats {
+                synced: 0,
+                failed: 0,
+            });
         }
         let actions: Vec<PendingAction> = sqlx::query_as(
             "SELECT * FROM pending_actions WHERE status = 'pending' \
@@ -168,7 +171,10 @@ impl PendingActionsService {
         .fetch_all(&self.pg)
         .await?;
         if actions.is_empty() {
-            return Ok(SyncStats { synced: 0, failed: 0 });
+            return Ok(SyncStats {
+                synced: 0,
+                failed: 0,
+            });
         }
         self.run_actions(actions).await
     }
@@ -252,7 +258,9 @@ impl PendingActionsService {
                     .await?;
             }
             "unlike" => {
-                self.sc.api_delete(&format!("/likes/tracks/{urn}"), &token).await?;
+                self.sc
+                    .api_delete(&format!("/likes/tracks/{urn}"), &token)
+                    .await?;
             }
             "repost" => {
                 self.sc
@@ -260,11 +268,17 @@ impl PendingActionsService {
                     .await?;
             }
             "unrepost" => {
-                self.sc.api_delete(&format!("/reposts/tracks/{urn}"), &token).await?;
+                self.sc
+                    .api_delete(&format!("/reposts/tracks/{urn}"), &token)
+                    .await?;
             }
             "comment" => {
                 self.sc
-                    .api_post_value(&format!("/tracks/{urn}/comments"), &token, action.payload.as_ref())
+                    .api_post_value(
+                        &format!("/tracks/{urn}/comments"),
+                        &token,
+                        action.payload.as_ref(),
+                    )
                     .await?;
             }
             "like_playlist" => {
@@ -273,7 +287,9 @@ impl PendingActionsService {
                     .await?;
             }
             "unlike_playlist" => {
-                self.sc.api_delete(&format!("/likes/playlists/{urn}"), &token).await?;
+                self.sc
+                    .api_delete(&format!("/likes/playlists/{urn}"), &token)
+                    .await?;
             }
             "repost_playlist" => {
                 self.sc
@@ -281,7 +297,9 @@ impl PendingActionsService {
                     .await?;
             }
             "unrepost_playlist" => {
-                self.sc.api_delete(&format!("/reposts/playlists/{urn}"), &token).await?;
+                self.sc
+                    .api_delete(&format!("/reposts/playlists/{urn}"), &token)
+                    .await?;
             }
             "playlist_create" => {
                 self.sc
@@ -290,11 +308,17 @@ impl PendingActionsService {
             }
             "playlist_update" => {
                 self.sc
-                    .api_put_value(&format!("/playlists/{urn}"), &token, action.payload.as_ref())
+                    .api_put_value(
+                        &format!("/playlists/{urn}"),
+                        &token,
+                        action.payload.as_ref(),
+                    )
                     .await?;
             }
             "playlist_delete" => {
-                self.sc.api_delete(&format!("/playlists/{urn}"), &token).await?;
+                self.sc
+                    .api_delete(&format!("/playlists/{urn}"), &token)
+                    .await?;
             }
             other => {
                 warn!(action_type = other, "Unknown action type");

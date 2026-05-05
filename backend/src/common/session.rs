@@ -16,7 +16,10 @@ pub struct SessionCtx {
 impl FromRequestParts<AppState> for SessionCtx {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let raw = extract_session_id(parts)
             .ok_or_else(|| AppError::unauthorized("Missing or malformed x-session-id header"))?;
 
@@ -43,7 +46,10 @@ pub struct OptionalSession(pub Option<SessionCtx>);
 impl FromRequestParts<AppState> for OptionalSession {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let Some(raw) = extract_session_id(parts) else {
             return Ok(OptionalSession(None));
         };
@@ -69,13 +75,20 @@ pub struct RawSessionIdHeader(pub Option<String>);
 impl FromRequestParts<AppState> for RawSessionIdHeader {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         Ok(RawSessionIdHeader(extract_session_id(parts)))
     }
 }
 
 fn extract_session_id(parts: &Parts) -> Option<String> {
-    if let Some(v) = parts.headers.get("x-session-id").and_then(|v| v.to_str().ok()) {
+    if let Some(v) = parts
+        .headers
+        .get("x-session-id")
+        .and_then(|v| v.to_str().ok())
+    {
         if !v.is_empty() {
             return Some(v.to_string());
         }

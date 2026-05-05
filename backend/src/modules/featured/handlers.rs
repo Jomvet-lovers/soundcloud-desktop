@@ -47,7 +47,9 @@ async fn pick(
     ctx: SessionCtx,
 ) -> AppResult<Json<Option<FeaturedResult>>> {
     Ok(Json(
-        st.featured.pick(&ctx.session_id.to_string(), &ctx.sc_user_id).await?,
+        st.featured
+            .pick(&ctx.session_id.to_string(), &ctx.sc_user_id)
+            .await?,
     ))
 }
 

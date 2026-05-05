@@ -11,9 +11,6 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/indexing/stats", get(get_stats))
 }
 
-async fn get_stats(
-    State(st): State<AppState>,
-    _ctx: SessionCtx,
-) -> AppResult<Json<IndexingStats>> {
+async fn get_stats(State(st): State<AppState>, _ctx: SessionCtx) -> AppResult<Json<IndexingStats>> {
     Ok(Json(st.indexing.get_stats().await?))
 }

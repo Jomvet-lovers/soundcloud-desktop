@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use qdrant_client::qdrant::{
-    point_id::PointIdOptions, vectors_output::VectorsOptions, GetPointsBuilder, PointId, PointStruct,
-    UpsertPointsBuilder, Value as QValue, VectorOutput,
+    point_id::PointIdOptions, vectors_output::VectorsOptions, GetPointsBuilder, PointId,
+    PointStruct, UpsertPointsBuilder, Value as QValue, VectorOutput,
 };
 use std::collections::HashMap;
 use tracing::debug;
@@ -38,8 +38,12 @@ impl UserTasteService {
         sc_track_id: &str,
         event_type: &str,
     ) -> AppResult<bool> {
-        let Some(weight) = event_weight(event_type) else { return Ok(false) };
-        let Some(norm) = normalize_sc_track_id(sc_track_id) else { return Ok(false) };
+        let Some(weight) = event_weight(event_type) else {
+            return Ok(false);
+        };
+        let Some(norm) = normalize_sc_track_id(sc_track_id) else {
+            return Ok(false);
+        };
         let track_point: u64 = match norm.parse() {
             Ok(v) => v,
             Err(_) => return Ok(false),
@@ -102,7 +106,11 @@ impl UserTasteService {
             _ => track_vec.iter().map(|v| v * weight).collect::<Vec<f32>>(),
         };
 
-        let norm = new_vec.iter().map(|v| (*v as f64) * (*v as f64)).sum::<f64>().sqrt() as f32;
+        let norm = new_vec
+            .iter()
+            .map(|v| (*v as f64) * (*v as f64))
+            .sum::<f64>()
+            .sqrt() as f32;
         if norm > 0.0 {
             for v in &mut new_vec {
                 *v /= norm;
@@ -120,7 +128,9 @@ impl UserTasteService {
             .raw()
             .upsert_points(UpsertPointsBuilder::new(taste_collection, vec![point]))
             .await
-            .map_err(|e| crate::error::AppError::internal(format!("qdrant upsert {taste_collection}: {e}")))?;
+            .map_err(|e| {
+                crate::error::AppError::internal(format!("qdrant upsert {taste_collection}: {e}"))
+            })?;
         Ok(true)
     }
 
@@ -128,15 +138,16 @@ impl UserTasteService {
         let resp = self
             .qdrant
             .raw()
-            .get_points(
-                GetPointsBuilder::new(collection, vec![numeric_id(id)])
-                    .with_vectors(true),
-            )
+            .get_points(GetPointsBuilder::new(collection, vec![numeric_id(id)]).with_vectors(true))
             .await
-            .map_err(|e| crate::error::AppError::internal(format!("qdrant retrieve {collection}: {e}")))?;
+            .map_err(|e| {
+                crate::error::AppError::internal(format!("qdrant retrieve {collection}: {e}"))
+            })?;
         if let Some(point) = resp.result.first() {
             if let Some(vectors) = &point.vectors {
-                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) = &vectors.vectors_options {
+                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
+                    &vectors.vectors_options
+                {
                     return Ok(Some(data.clone()));
                 }
             }
@@ -158,8 +169,12 @@ impl UserTasteService {
                     .with_payload(true),
             )
             .await
-            .map_err(|e| crate::error::AppError::internal(format!("qdrant retrieve {collection}: {e}")))?;
-        let Some(point) = resp.result.first() else { return Ok(None) };
+            .map_err(|e| {
+                crate::error::AppError::internal(format!("qdrant retrieve {collection}: {e}"))
+            })?;
+        let Some(point) = resp.result.first() else {
+            return Ok(None);
+        };
         let vec = match &point.vectors {
             Some(v) => match &v.vectors_options {
                 Some(VectorsOptions::Vector(VectorOutput { data, .. })) => data.clone(),

@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 use qdrant_client::qdrant::{
-    point_id::PointIdOptions, vectors_output::VectorsOptions, GetPointsBuilder, PointId, VectorOutput,
+    point_id::PointIdOptions, vectors_output::VectorsOptions, GetPointsBuilder, PointId,
+    VectorOutput,
 };
 use serde_json::Value;
 use sqlx::PgPool;
@@ -129,7 +130,11 @@ impl LtrTrainerService {
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            return Ok(TrainResult { enqueued: false, examples: 0, reason: Some("in_progress".into()) });
+            return Ok(TrainResult {
+                enqueued: false,
+                examples: 0,
+                reason: Some("in_progress".into()),
+            });
         }
         let result = self.train_impl().await;
         self.in_progress.store(false, Ordering::Release);
@@ -152,7 +157,11 @@ impl LtrTrainerService {
         }
         info!(count = examples.len(), "[ltr.train] publishing");
         self.ltr.publish_training(&examples).await?;
-        Ok(TrainResult { enqueued: true, examples: examples.len(), reason: None })
+        Ok(TrainResult {
+            enqueued: true,
+            examples: examples.len(),
+            reason: None,
+        })
     }
 
     async fn build_examples(self: &Arc<Self>) -> AppResult<Vec<LtrExample>> {
@@ -207,7 +216,9 @@ impl LtrTrainerService {
 
         let mut label_by_track: HashMap<String, i32> = HashMap::new();
         for (track_id, ev_type) in events {
-            let Some(lab) = label_for(&ev_type) else { continue };
+            let Some(lab) = label_for(&ev_type) else {
+                continue;
+            };
             label_by_track
                 .entry(track_id)
                 .and_modify(|prev| {
@@ -316,12 +327,11 @@ impl LtrTrainerService {
             return Ok(HashSet::new());
         }
         let ids: Vec<String> = events.into_iter().map(|(s,)| s).collect();
-        let tracks: Vec<(Option<String>,)> = sqlx::query_as(
-            "SELECT language FROM indexed_tracks WHERE sc_track_id = ANY($1)",
-        )
-        .bind(&ids)
-        .fetch_all(&self.pg)
-        .await?;
+        let tracks: Vec<(Option<String>,)> =
+            sqlx::query_as("SELECT language FROM indexed_tracks WHERE sc_track_id = ANY($1)")
+                .bind(&ids)
+                .fetch_all(&self.pg)
+                .await?;
         let mut counts: HashMap<String, usize> = HashMap::new();
         for (l,) in tracks {
             if let Some(l) = l {
@@ -333,10 +343,7 @@ impl LtrTrainerService {
         Ok(sorted.into_iter().take(3).map(|(l, _)| l).collect())
     }
 
-    async fn load_track_vectors(
-        &self,
-        ids: &[u64],
-    ) -> AppResult<HashMap<String, TrackVectors>> {
+    async fn load_track_vectors(&self, ids: &[u64]) -> AppResult<HashMap<String, TrackVectors>> {
         let id_strs: Vec<String> = ids.iter().map(|i| i.to_string()).collect();
 
         let mert_fut = self.retrieve_batch(collections::TRACKS_MERT, ids);
@@ -423,7 +430,9 @@ impl LtrTrainerService {
                 None => continue,
             };
             if let Some(vectors) = p.vectors {
-                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) = vectors.vectors_options {
+                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
+                    vectors.vectors_options
+                {
                     out.insert(id_str, data);
                 }
             }

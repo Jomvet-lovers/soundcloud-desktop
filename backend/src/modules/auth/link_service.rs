@@ -103,9 +103,7 @@ impl LinkService {
                 .fetch_optional(&self.pool)
                 .await?;
         let Some(link) = link else {
-            return Err(AppError::not_found(
-                "Invalid or already used link token",
-            ));
+            return Err(AppError::not_found("Invalid or already used link token"));
         };
 
         if link.status != "pending" {
@@ -115,13 +113,11 @@ impl LinkService {
         }
         let now = Utc::now().naive_utc();
         if link.expires_at < now {
-            sqlx::query(
-                "UPDATE link_requests SET status = 'failed', error = $2 WHERE id = $1",
-            )
-            .bind(link.id)
-            .bind("Expired")
-            .execute(&self.pool)
-            .await?;
+            sqlx::query("UPDATE link_requests SET status = 'failed', error = $2 WHERE id = $1")
+                .bind(link.id)
+                .bind("Expired")
+                .execute(&self.pool)
+                .await?;
             return Err(AppError::bad_request("Link token expired"));
         }
 

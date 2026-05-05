@@ -116,8 +116,10 @@ impl RecommendationsService {
         mode: WaveMode,
         req_id: &str,
     ) -> AppResult<Vec<RecommendResult>> {
-        self.wave(sc_user_id, None, positive, negative, exclude, limit, languages, mode, req_id)
-            .await
+        self.wave(
+            sc_user_id, None, positive, negative, exclude, limit, languages, mode, req_id,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -134,10 +136,20 @@ impl RecommendationsService {
         req_id: &str,
     ) -> AppResult<Vec<RecommendResult>> {
         let anchor = sc_track_id.and_then(parse_id_or_null);
-        let positive_ids: Vec<u64> = positive.iter().filter_map(|s| parse_id_or_null(s)).collect();
-        let negative_ids: Vec<u64> = negative.iter().filter_map(|s| parse_id_or_null(s)).collect();
+        let positive_ids: Vec<u64> = positive
+            .iter()
+            .filter_map(|s| parse_id_or_null(s))
+            .collect();
+        let negative_ids: Vec<u64> = negative
+            .iter()
+            .filter_map(|s| parse_id_or_null(s))
+            .collect();
 
-        let div = if mode == WaveMode::Diverse { DIVERSE_DIVERSITY } else { 0.0 };
+        let div = if mode == WaveMode::Diverse {
+            DIVERSE_DIVERSITY
+        } else {
+            0.0
+        };
         let fetch_limit: usize = if mode == WaveMode::Diverse {
             (limit * 20).max(500)
         } else {
@@ -189,13 +201,17 @@ impl RecommendationsService {
         }
 
         let scored = self.score_by_all_bases(&candidate_ids, &seed, req_id).await;
-        let filtered: Vec<ScoredCandidate> =
-            scored.into_iter().filter(|s| s.score >= threshold).collect();
+        let filtered: Vec<ScoredCandidate> = scored
+            .into_iter()
+            .filter(|s| s.score >= threshold)
+            .collect();
         info!(req_id, scored = filtered.len(), "wave scored");
 
         let enriched = self.enrich_and_boost(filtered, languages).await?;
         let reranked_count = enriched.len().min(limit * 4);
-        let reranked = self.apply_ltr_rerank(enriched, reranked_count, req_id).await;
+        let reranked = self
+            .apply_ltr_rerank(enriched, reranked_count, req_id)
+            .await;
         let ranked = if div > 0.0 {
             let work = reranked.len().min(limit * 8);
             self.apply_mmr(reranked, div, work).await
@@ -207,7 +223,11 @@ impl RecommendationsService {
         if verified.len() >= 5 {
             return Ok(verified);
         }
-        warn!(req_id, count = verified.len(), "wave too few results, fallback");
+        warn!(
+            req_id,
+            count = verified.len(),
+            "wave too few results, fallback"
+        );
         self.get_fallback_tracks(exclude, limit, languages).await
     }
 
@@ -220,14 +240,24 @@ impl RecommendationsService {
         diversity: f32,
         req_id: &str,
     ) -> AppResult<Vec<RecommendResult>> {
-        let Some(anchor) = parse_id_or_null(sc_track_id) else { return Ok(Vec::new()) };
+        let Some(anchor) = parse_id_or_null(sc_track_id) else {
+            return Ok(Vec::new());
+        };
 
         let div = diversity.clamp(0.0, 1.0);
-        let fetch_limit: usize = if div > 0.5 { (limit * 18).max(240) } else { (limit * 8).max(80) };
+        let fetch_limit: usize = if div > 0.5 {
+            (limit * 18).max(240)
+        } else {
+            (limit * 8).max(80)
+        };
         let threshold = (self.cfg.score_threshold as f32 - div * 0.04).max(0.0);
 
         let seed = self.load_track_vectors(anchor).await;
-        if seed.collab.is_none() && seed.mert.is_none() && seed.clap.is_none() && seed.lyrics.is_none() {
+        if seed.collab.is_none()
+            && seed.mert.is_none()
+            && seed.clap.is_none()
+            && seed.lyrics.is_none()
+        {
             warn!(req_id, anchor, "similar: no vectors");
             return Ok(Vec::new());
         }
@@ -274,11 +304,15 @@ impl RecommendationsService {
         }
 
         let scored = self.score_by_all_bases(&candidate_ids, &seed, req_id).await;
-        let filtered: Vec<ScoredCandidate> =
-            scored.into_iter().filter(|s| s.score >= threshold).collect();
+        let filtered: Vec<ScoredCandidate> = scored
+            .into_iter()
+            .filter(|s| s.score >= threshold)
+            .collect();
         let enriched = self.enrich_and_boost(filtered, languages).await?;
         let reranked_count = enriched.len().min(limit * 4);
-        let reranked = self.apply_ltr_rerank(enriched, reranked_count, req_id).await;
+        let reranked = self
+            .apply_ltr_rerank(enriched, reranked_count, req_id)
+            .await;
         let ranked = if div > 0.0 {
             let work = reranked.len().min(limit * 8);
             self.apply_mmr(reranked, div, work).await
@@ -307,8 +341,9 @@ impl RecommendationsService {
         let filter = self.build_filter(&[], languages);
         let fetch_limit = (limit * 3).max(40);
 
-        let mut builder = SearchPointsBuilder::new(collections::TRACKS_CLAP, vec, fetch_limit as u64)
-            .with_payload(true);
+        let mut builder =
+            SearchPointsBuilder::new(collections::TRACKS_CLAP, vec, fetch_limit as u64)
+                .with_payload(true);
         if let Some(f) = filter {
             builder = builder.filter(f);
         }
@@ -367,27 +402,31 @@ impl RecommendationsService {
         };
         let mert_fut = async {
             if seed.mert.is_some() {
-                self.retrieve_vectors(collections::TRACKS_MERT, candidate_ids).await
+                self.retrieve_vectors(collections::TRACKS_MERT, candidate_ids)
+                    .await
             } else {
                 HashMap::new()
             }
         };
         let clap_fut = async {
             if seed.clap.is_some() {
-                self.retrieve_vectors(collections::TRACKS_CLAP, candidate_ids).await
+                self.retrieve_vectors(collections::TRACKS_CLAP, candidate_ids)
+                    .await
             } else {
                 HashMap::new()
             }
         };
         let lyrics_fut = async {
             if seed.lyrics.is_some() {
-                self.retrieve_vectors(collections::TRACKS_LYRICS, candidate_ids).await
+                self.retrieve_vectors(collections::TRACKS_LYRICS, candidate_ids)
+                    .await
             } else {
                 HashMap::new()
             }
         };
         let payload_fut = async {
-            self.retrieve_payloads(collections::TRACKS_MERT, candidate_ids).await
+            self.retrieve_payloads(collections::TRACKS_MERT, candidate_ids)
+                .await
         };
 
         let (collab_map, mert_map, clap_map, lyrics_map, payload_map) =
@@ -440,7 +479,11 @@ impl RecommendationsService {
                 features,
             });
         }
-        out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         info!(req_id, total = out.len(), with_collab, "scored");
         out
     }
@@ -548,7 +591,12 @@ impl RecommendationsService {
         let c_fut = self.retrieve_vector(collections::TRACKS_CLAP, track_id);
         let l_fut = self.retrieve_vector(collections::TRACKS_LYRICS, track_id);
         let (collab, mert, clap, lyrics) = tokio::join!(collab_fut, m_fut, c_fut, l_fut);
-        SeedVectors { collab, mert, clap, lyrics }
+        SeedVectors {
+            collab,
+            mert,
+            clap,
+            lyrics,
+        }
     }
 
     async fn search_by_vector(
@@ -558,8 +606,8 @@ impl RecommendationsService {
         filter: Option<&Filter>,
         limit: usize,
     ) -> Vec<RecommendResult> {
-        let mut builder = SearchPointsBuilder::new(collection, vector.to_vec(), limit as u64)
-            .with_payload(true);
+        let mut builder =
+            SearchPointsBuilder::new(collection, vector.to_vec(), limit as u64).with_payload(true);
         if let Some(f) = filter {
             builder = builder.filter(f.clone());
         }
@@ -711,7 +759,9 @@ impl RecommendationsService {
                         None => continue,
                     };
                     if let Some(vectors) = p.vectors {
-                        if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) = vectors.vectors_options {
+                        if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
+                            vectors.vectors_options
+                        {
                             out.insert(id_str, data);
                         }
                     }
@@ -791,7 +841,10 @@ impl RecommendationsService {
             .map(|it| {
                 let key = it.id.to_string();
                 let entry = by_id.get(&key);
-                let raw = entry.and_then(|(r, _)| r.as_ref()).cloned().unwrap_or(Value::Null);
+                let raw = entry
+                    .and_then(|(r, _)| r.as_ref())
+                    .cloned()
+                    .unwrap_or(Value::Null);
                 let language = entry.and_then(|(_, l)| l.clone());
                 let artist_pub = raw
                     .get("publisher_metadata")
@@ -804,10 +857,7 @@ impl RecommendationsService {
                     .and_then(|v| v.as_str())
                     .map(String::from);
                 let artist = artist_pub.or(artist_user);
-                let genre = raw
-                    .get("genre")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
+                let genre = raw.get("genre").and_then(|v| v.as_str()).map(String::from);
                 let playback_count = raw
                     .get("playback_count")
                     .and_then(|v| v.as_i64())
@@ -854,7 +904,11 @@ impl RecommendationsService {
         let tail_vec: Vec<RecommendResult> = tail.to_vec();
         let features: Vec<Vec<f32>> = head_vec
             .iter()
-            .map(|it| it.features.clone().unwrap_or_else(|| vec![0.0; LTR_FEATURE_COUNT]))
+            .map(|it| {
+                it.features
+                    .clone()
+                    .unwrap_or_else(|| vec![0.0; LTR_FEATURE_COUNT])
+            })
             .collect();
         let scores = match self.ltr.score(&features).await {
             Some(s) => s,
@@ -902,7 +956,9 @@ impl RecommendationsService {
             return [head_vec, tail_vec].concat();
         }
 
-        let vectors = self.retrieve_vectors(collections::TRACKS_MERT, &numeric_ids).await;
+        let vectors = self
+            .retrieve_vectors(collections::TRACKS_MERT, &numeric_ids)
+            .await;
         if vectors.len() < 2 {
             return [head_vec, tail_vec].concat();
         }
@@ -924,12 +980,20 @@ impl RecommendationsService {
 
         let mut pool: Vec<RecommendResult> = head_vec
             .iter()
-            .filter(|it| value_to_u64(&it.id).map(|n| vectors.contains_key(&n.to_string())).unwrap_or(false))
+            .filter(|it| {
+                value_to_u64(&it.id)
+                    .map(|n| vectors.contains_key(&n.to_string()))
+                    .unwrap_or(false)
+            })
             .cloned()
             .collect();
         let no_vec: Vec<RecommendResult> = head_vec
             .into_iter()
-            .filter(|it| value_to_u64(&it.id).map(|n| !vectors.contains_key(&n.to_string())).unwrap_or(true))
+            .filter(|it| {
+                value_to_u64(&it.id)
+                    .map(|n| !vectors.contains_key(&n.to_string()))
+                    .unwrap_or(true)
+            })
             .collect();
         pool.sort_by(|a, b| {
             b.score
@@ -1165,7 +1229,9 @@ fn qvalue_to_value(v: QValue) -> Value {
         Some(Kind::IntegerValue(i)) => json!(i),
         Some(Kind::DoubleValue(d)) => json!(d),
         Some(Kind::StringValue(s)) => Value::String(s),
-        Some(Kind::ListValue(l)) => Value::Array(l.values.into_iter().map(qvalue_to_value).collect()),
+        Some(Kind::ListValue(l)) => {
+            Value::Array(l.values.into_iter().map(qvalue_to_value).collect())
+        }
         Some(Kind::StructValue(s)) => {
             let mut m = serde_json::Map::new();
             for (k, val) in s.fields {

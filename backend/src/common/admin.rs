@@ -9,7 +9,10 @@ pub struct AdminAuth;
 impl FromRequestParts<AppState> for AdminAuth {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let expected = &state.config.admin.token;
         if expected.is_empty() {
             return Err(AppError::unauthorized("Invalid admin token"));

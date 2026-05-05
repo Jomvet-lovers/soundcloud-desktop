@@ -89,7 +89,10 @@ impl SubscriptionsService {
             .fetch_one(&self.pg)
             .await?;
         if count.0 > 0 {
-            info!(n = count.0, "Subscriptions table populated, skipping restore");
+            info!(
+                n = count.0,
+                "Subscriptions table populated, skipping restore"
+            );
             return Ok(());
         }
         let path = self.snapshot_dir.join(SNAPSHOT_FILE);

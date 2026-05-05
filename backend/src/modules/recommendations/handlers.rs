@@ -26,7 +26,11 @@ fn new_req_id() -> String {
 
 fn parse_languages(raw: Option<&str>) -> Option<Vec<String>> {
     let s = raw?;
-    let v: Vec<String> = s.split(',').filter(|x| !x.is_empty()).map(String::from).collect();
+    let v: Vec<String> = s
+        .split(',')
+        .filter(|x| !x.is_empty())
+        .map(String::from)
+        .collect();
     if v.is_empty() {
         None
     } else {
@@ -72,7 +76,10 @@ async fn load_wave_context(
     let played = played?;
     let disliked = disliked?;
     let disliked_set: HashSet<String> = disliked.iter().cloned().collect();
-    let positive: Vec<String> = liked.into_iter().filter(|id| !disliked_set.contains(id)).collect();
+    let positive: Vec<String> = liked
+        .into_iter()
+        .filter(|id| !disliked_set.contains(id))
+        .collect();
     let mut neg_set: HashSet<String> = HashSet::new();
     for id in skipped.iter().chain(disliked.iter()) {
         neg_set.insert(id.clone());
@@ -170,7 +177,12 @@ async fn similar(
     let client_excl: Vec<String> = q
         .exclude
         .as_deref()
-        .map(|s| s.split(',').filter(|x| !x.is_empty()).map(String::from).collect())
+        .map(|s| {
+            s.split(',')
+                .filter(|x| !x.is_empty())
+                .map(String::from)
+                .collect()
+        })
         .unwrap_or_default();
     let mut exclude_set: HashSet<String> = client_excl.into_iter().collect();
     exclude_set.insert(track_id.clone());
@@ -180,7 +192,14 @@ async fn similar(
     let diversity = parse_diversity(q.diversity.as_deref());
     let out = st
         .recommendations
-        .similar(&track_id, &exclude, limit, languages.as_deref(), diversity, &req_id)
+        .similar(
+            &track_id,
+            &exclude,
+            limit,
+            languages.as_deref(),
+            diversity,
+            &req_id,
+        )
         .await?;
     Ok(Json(out))
 }

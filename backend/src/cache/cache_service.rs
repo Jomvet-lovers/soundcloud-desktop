@@ -35,7 +35,13 @@ impl CacheService {
         Arc::new(Self { redis })
     }
 
-    pub fn build_key(&self, method: &str, url: &str, scope: CacheScope, session_id: Option<&str>) -> String {
+    pub fn build_key(
+        &self,
+        method: &str,
+        url: &str,
+        scope: CacheScope,
+        session_id: Option<&str>,
+    ) -> String {
         let (path, query) = match url.split_once('?') {
             Some((p, q)) => (p, q),
             None => (url, ""),
@@ -45,10 +51,9 @@ impl CacheService {
         let sorted = qparts.join("&");
 
         let raw = match scope {
-            CacheScope::User => format!(
-                "user:{method}:{path}:{sorted}:{}",
-                session_id.unwrap_or("")
-            ),
+            CacheScope::User => {
+                format!("user:{method}:{path}:{sorted}:{}", session_id.unwrap_or(""))
+            }
             CacheScope::Shared => format!("shared:{method}:{path}:{sorted}"),
         };
         let digest = Sha256::digest(raw.as_bytes());

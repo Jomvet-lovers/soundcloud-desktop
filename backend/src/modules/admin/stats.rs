@@ -39,10 +39,7 @@ pub async fn get_stats(
     }))
 }
 
-async fn count_since(
-    state: &AppState,
-    since: Option<chrono::NaiveDateTime>,
-) -> AppResult<i64> {
+async fn count_since(state: &AppState, since: Option<chrono::NaiveDateTime>) -> AppResult<i64> {
     let n: i64 = if let Some(ts) = since {
         sqlx::query_scalar("SELECT COUNT(*)::int8 FROM sessions WHERE updated_at > $1")
             .bind(ts)

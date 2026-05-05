@@ -29,7 +29,9 @@ impl RepostsService {
         {
             Ok(v) => Ok(v),
             Err(e) if PendingActionsService::is_ban_error(&e) => {
-                self.pending.enqueue(session_id, "repost", track_urn, None).await?;
+                self.pending
+                    .enqueue(session_id, "repost", track_urn, None)
+                    .await?;
                 Ok(json!({ "queued": true, "actionType": "repost", "targetUrn": track_urn }))
             }
             Err(e) => Err(e),
@@ -42,10 +44,16 @@ impl RepostsService {
         session_id: &str,
         track_urn: &str,
     ) -> AppResult<Value> {
-        match self.sc.api_delete(&format!("/reposts/tracks/{track_urn}"), token).await {
+        match self
+            .sc
+            .api_delete(&format!("/reposts/tracks/{track_urn}"), token)
+            .await
+        {
             Ok(v) => Ok(v),
             Err(e) if PendingActionsService::is_ban_error(&e) => {
-                self.pending.enqueue(session_id, "unrepost", track_urn, None).await?;
+                self.pending
+                    .enqueue(session_id, "unrepost", track_urn, None)
+                    .await?;
                 Ok(json!({ "queued": true, "actionType": "unrepost", "targetUrn": track_urn }))
             }
             Err(e) => Err(e),
@@ -84,7 +92,11 @@ impl RepostsService {
         session_id: &str,
         playlist_urn: &str,
     ) -> AppResult<Value> {
-        match self.sc.api_delete(&format!("/reposts/playlists/{playlist_urn}"), token).await {
+        match self
+            .sc
+            .api_delete(&format!("/reposts/playlists/{playlist_urn}"), token)
+            .await
+        {
             Ok(v) => Ok(v),
             Err(e) if PendingActionsService::is_ban_error(&e) => {
                 self.pending

@@ -17,10 +17,16 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/tracks", get(search))
-        .route("/tracks/{track_urn}", get(get_by_id).put(update_track).delete(delete_track))
+        .route(
+            "/tracks/{track_urn}",
+            get(get_by_id).put(update_track).delete(delete_track),
+        )
         .route("/tracks/{track_urn}/streams", get(get_streams))
         .route("/tracks/{track_urn}/stream", get(proxy_stream))
-        .route("/tracks/{track_urn}/comments", get(get_comments).post(create_comment))
+        .route(
+            "/tracks/{track_urn}/comments",
+            get(get_comments).post(create_comment),
+        )
         .route("/tracks/{track_urn}/favoriters", get(get_favoriters))
         .route("/tracks/{track_urn}/reposters", get(get_reposters))
         .route("/tracks/{track_urn}/related", get(get_related))
@@ -67,14 +73,26 @@ async fn search(
     Query(q): Query<SearchQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    let access = q.access.unwrap_or_else(|| "playable,preview,blocked".into());
+    let access = q
+        .access
+        .unwrap_or_else(|| "playable,preview,blocked".into());
     let mut extra: Vec<(String, String)> = vec![("access".into(), access)];
-    if let Some(v) = q.q { extra.push(("q".into(), v)); }
-    if let Some(v) = q.ids { extra.push(("ids".into(), v)); }
-    if let Some(v) = q.genres { extra.push(("genres".into(), v)); }
-    if let Some(v) = q.tags { extra.push(("tags".into(), v)); }
+    if let Some(v) = q.q {
+        extra.push(("q".into(), v));
+    }
+    if let Some(v) = q.ids {
+        extra.push(("ids".into(), v));
+    }
+    if let Some(v) = q.genres {
+        extra.push(("genres".into(), v));
+    }
+    if let Some(v) = q.tags {
+        extra.push(("tags".into(), v));
+    }
     Ok(Json(
-        st.tracks.search(&ctx.access_token, &ctx.sc_user_id, page, limit, extra).await?,
+        st.tracks
+            .search(&ctx.access_token, &ctx.sc_user_id, page, limit, extra)
+            .await?,
     ))
 }
 
@@ -88,9 +106,19 @@ async fn get_by_id(
     if let Some(t) = s.secret_token {
         params.push(("secret_token".into(), t));
     }
-    cached_or_fetch(&st, "GET", &request_url("/tracks", &track_urn, &params), CacheScope::Shared, None, 600, || async {
-        st.tracks.get_by_id(&ctx.access_token, &ctx.sc_user_id, &track_urn, &params).await
-    })
+    cached_or_fetch(
+        &st,
+        "GET",
+        &request_url("/tracks", &track_urn, &params),
+        CacheScope::Shared,
+        None,
+        600,
+        || async {
+            st.tracks
+                .get_by_id(&ctx.access_token, &ctx.sc_user_id, &track_urn, &params)
+                .await
+        },
+    )
     .await
 }
 
@@ -100,7 +128,11 @@ async fn update_track(
     Path(track_urn): Path<String>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(st.tracks.update(&ctx.access_token, &track_urn, &body).await?))
+    Ok(Json(
+        st.tracks
+            .update(&ctx.access_token, &track_urn, &body)
+            .await?,
+    ))
 }
 
 async fn delete_track(
@@ -123,7 +155,9 @@ async fn get_streams(
     }
     let url = request_url(&format!("/tracks/{track_urn}/streams"), "", &params);
     cached_or_fetch(&st, "GET", &url, CacheScope::Shared, None, 3600, || async {
-        st.tracks.get_streams(&ctx.access_token, &track_urn, &params).await
+        st.tracks
+            .get_streams(&ctx.access_token, &track_urn, &params)
+            .await
     })
     .await
 }
@@ -134,10 +168,13 @@ async fn proxy_stream(
     Path(track_urn): Path<String>,
     Query(q): Query<StreamProxyQuery>,
 ) -> Response {
-    let mut params: Vec<(String, String)> =
-        vec![("session_id".into(), ctx.session_id.to_string())];
-    if let Some(t) = q.secret_token { params.push(("secret_token".into(), t)); }
-    if let Some(h) = q.hq { params.push(("hq".into(), h)); }
+    let mut params: Vec<(String, String)> = vec![("session_id".into(), ctx.session_id.to_string())];
+    if let Some(t) = q.secret_token {
+        params.push(("secret_token".into(), t));
+    }
+    if let Some(h) = q.hq {
+        params.push(("hq".into(), h));
+    }
     let qs = serde_urlencoded::to_string(&params).unwrap_or_default();
     let url = format!(
         "{}/stream/{}?{qs}",
@@ -154,7 +191,11 @@ async fn get_comments(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    Ok(Json(st.tracks.get_comments(&ctx.access_token, &track_urn, page, limit).await?))
+    Ok(Json(
+        st.tracks
+            .get_comments(&ctx.access_token, &track_urn, page, limit)
+            .await?,
+    ))
 }
 
 async fn create_comment(
@@ -165,7 +206,12 @@ async fn create_comment(
 ) -> AppResult<Json<Value>> {
     let v = st
         .tracks
-        .create_comment(&ctx.access_token, &ctx.session_id.to_string(), &track_urn, &body)
+        .create_comment(
+            &ctx.access_token,
+            &ctx.session_id.to_string(),
+            &track_urn,
+            &body,
+        )
         .await?;
     let _ = st
         .cache
@@ -185,7 +231,11 @@ async fn get_favoriters(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    Ok(Json(st.tracks.get_favoriters(&ctx.access_token, &track_urn, page, limit).await?))
+    Ok(Json(
+        st.tracks
+            .get_favoriters(&ctx.access_token, &track_urn, page, limit)
+            .await?,
+    ))
 }
 
 async fn get_reposters(
@@ -195,7 +245,11 @@ async fn get_reposters(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    Ok(Json(st.tracks.get_reposters(&ctx.access_token, &track_urn, page, limit).await?))
+    Ok(Json(
+        st.tracks
+            .get_reposters(&ctx.access_token, &track_urn, page, limit)
+            .await?,
+    ))
 }
 
 async fn get_related(
@@ -206,10 +260,19 @@ async fn get_related(
     Query(a): Query<AccessQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    let access = a.access.unwrap_or_else(|| "playable,preview,blocked".into());
+    let access = a
+        .access
+        .unwrap_or_else(|| "playable,preview,blocked".into());
     Ok(Json(
         st.tracks
-            .get_related(&ctx.access_token, &ctx.sc_user_id, &track_urn, page, limit, &access)
+            .get_related(
+                &ctx.access_token,
+                &ctx.sc_user_id,
+                &track_urn,
+                page,
+                limit,
+                &access,
+            )
             .await?,
     ))
 }
@@ -224,7 +287,11 @@ fn request_url(prefix: &str, suffix: &str, params: &[(String, String)]) -> Strin
         return path;
     }
     let qs = serde_urlencoded::to_string(params).unwrap_or_default();
-    if qs.is_empty() { path } else { format!("{path}?{qs}") }
+    if qs.is_empty() {
+        path
+    } else {
+        format!("{path}?{qs}")
+    }
 }
 
 async fn cached_or_fetch<F, Fut>(
@@ -247,6 +314,9 @@ where
     let v = fetch().await?;
     let payload = serde_json::to_string(&v)
         .map_err(|e| crate::error::AppError::internal(format!("json encode: {e}")))?;
-    let _ = st.cache.set_raw(&key, &payload, ttl_sec, None, scope, session_id).await;
+    let _ = st
+        .cache
+        .set_raw(&key, &payload, ttl_sec, None, scope, session_id)
+        .await;
     Ok(json_response(StatusCode::OK, payload))
 }

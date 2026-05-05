@@ -277,7 +277,10 @@ impl EventsService {
         Ok(())
     }
 
-    pub async fn apply_pending_events_for_track(self: &Arc<Self>, sc_track_id: &str) -> AppResult<()> {
+    pub async fn apply_pending_events_for_track(
+        self: &Arc<Self>,
+        sc_track_id: &str,
+    ) -> AppResult<()> {
         let pending: Vec<UserEventRow> = sqlx::query_as(
             "SELECT id, sc_user_id, sc_track_id, event_type, weight, seeded, created_at, taste_applied_at \
              FROM user_events WHERE sc_track_id = $1 AND taste_applied_at IS NULL \
@@ -361,7 +364,10 @@ impl EventsService {
         Ok(out)
     }
 
-    pub fn spawn_indexing_queue_consumer(self: &Arc<Self>, nats: Arc<crate::bus::nats::NatsService>) {
+    pub fn spawn_indexing_queue_consumer(
+        self: &Arc<Self>,
+        nats: Arc<crate::bus::nats::NatsService>,
+    ) {
         let svc = self.clone();
         nats.consume(
             crate::bus::subjects::streams::DONE.name,

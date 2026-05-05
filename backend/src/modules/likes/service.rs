@@ -95,7 +95,10 @@ impl LikesService {
             if let Some(c) = &cursor {
                 params.push(("cursor".into(), c.clone()));
             }
-            let page: Value = self.sc.api_get_value("/me/playlists", token, Some(&params)).await?;
+            let page: Value = self
+                .sc
+                .api_get_value("/me/playlists", token, Some(&params))
+                .await?;
             if let Some(items) = page.get("collection").and_then(|v| v.as_array()) {
                 for item in items {
                     if let Some(title) = item.get("title").and_then(|v| v.as_str()) {
@@ -105,7 +108,11 @@ impl LikesService {
                     }
                 }
             }
-            let Some(href) = page.get("next_href").and_then(|v| v.as_str()).map(String::from) else {
+            let Some(href) = page
+                .get("next_href")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+            else {
                 return Ok(None);
             };
             match extract_cursor(&href) {
@@ -121,17 +128,23 @@ impl LikesService {
             return Ok(v);
         }
         if let Some(existing) = self.find_likes_playlist(token).await? {
-            self.likes_playlist_cache.insert(cache_key, existing.clone());
+            self.likes_playlist_cache
+                .insert(cache_key, existing.clone());
             return Ok(existing);
         }
         let body = json!({
             "playlist": { "title": LIKES_PLAYLIST_NAME, "sharing": "private" }
         });
-        let created = self.sc.api_post_value("/playlists", token, Some(&body)).await?;
+        let created = self
+            .sc
+            .api_post_value("/playlists", token, Some(&body))
+            .await?;
         self.likes_playlist_cache.insert(cache_key, created.clone());
         if let Some(urn) = created.get("urn").and_then(|v| v.as_str()) {
-            self.playlist_tracks_cache
-                .insert(format!("likes-playlist-tracks:{session_id}:{urn}"), Vec::new());
+            self.playlist_tracks_cache.insert(
+                format!("likes-playlist-tracks:{session_id}:{urn}"),
+                Vec::new(),
+            );
         }
         Ok(created)
     }
@@ -153,7 +166,11 @@ impl LikesService {
             }
             let page: Value = self
                 .sc
-                .api_get_value(&format!("/playlists/{playlist_urn}/tracks"), token, Some(&params))
+                .api_get_value(
+                    &format!("/playlists/{playlist_urn}/tracks"),
+                    token,
+                    Some(&params),
+                )
                 .await?;
             if let Some(items) = page.get("collection").and_then(|v| v.as_array()) {
                 for t in items {
@@ -162,7 +179,11 @@ impl LikesService {
                     }
                 }
             }
-            let Some(href) = page.get("next_href").and_then(|v| v.as_str()).map(String::from) else {
+            let Some(href) = page
+                .get("next_href")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+            else {
                 return Ok(urns);
             };
             match extract_cursor(&href) {
@@ -185,7 +206,9 @@ impl LikesService {
                 return Ok(v);
             }
         }
-        let urns = self.fetch_all_playlist_track_urns(token, playlist_urn).await?;
+        let urns = self
+            .fetch_all_playlist_track_urns(token, playlist_urn)
+            .await?;
         self.playlist_tracks_cache.insert(cache_key, urns.clone());
         Ok(urns)
     }
@@ -215,8 +238,10 @@ impl LikesService {
             .sc
             .api_put_value(&format!("/playlists/{playlist_urn}"), token, Some(&body))
             .await?;
-        self.playlist_tracks_cache
-            .insert(format!("likes-playlist-tracks:{session_id}:{playlist_urn}"), track_urns);
+        self.playlist_tracks_cache.insert(
+            format!("likes-playlist-tracks:{session_id}:{playlist_urn}"),
+            track_urns,
+        );
         self.likes_playlist_cache
             .insert(format!("likes-playlist:{session_id}"), updated.clone());
         Ok(updated)
@@ -246,12 +271,15 @@ impl LikesService {
         }
 
         let next: Vec<String> = if should_be_present {
-            std::iter::once(track_urn.to_string()).chain(existing.into_iter()).collect()
+            std::iter::once(track_urn.to_string())
+                .chain(existing.into_iter())
+                .collect()
         } else {
             existing.into_iter().filter(|u| u != track_urn).collect()
         };
 
-        self.update_likes_playlist_tracks(session_id, token, &urn, next).await
+        self.update_likes_playlist_tracks(session_id, token, &urn, next)
+            .await
     }
 
     async fn sync_track_with_likes_playlist(
@@ -287,11 +315,14 @@ impl LikesService {
                     return Ok(playlist);
                 }
                 let next: Vec<String> = if should_be_present {
-                    std::iter::once(track_urn.to_string()).chain(existing.into_iter()).collect()
+                    std::iter::once(track_urn.to_string())
+                        .chain(existing.into_iter())
+                        .collect()
                 } else {
                     existing.into_iter().filter(|u| u != track_urn).collect()
                 };
-                self.update_likes_playlist_tracks(session_id, token, &urn, next).await
+                self.update_likes_playlist_tracks(session_id, token, &urn, next)
+                    .await
             }
         }
     }
@@ -329,7 +360,10 @@ impl LikesService {
             .is_ok();
 
         if !sc_like_ok || !playlist_sync_ok {
-            if let Some(td) = self.track_data_for_fallback(token, track_urn, track_data).await {
+            if let Some(td) = self
+                .track_data_for_fallback(token, track_urn, track_data)
+                .await
+            {
                 let _ = self.local_likes.add(sc_user_id, track_urn, &td).await;
             }
             if !sc_like_ok && !playlist_sync_ok {
@@ -399,7 +433,11 @@ impl LikesService {
         session_id: &str,
         playlist_urn: &str,
     ) -> AppResult<Value> {
-        match self.sc.api_delete(&format!("/likes/playlists/{playlist_urn}"), token).await {
+        match self
+            .sc
+            .api_delete(&format!("/likes/playlists/{playlist_urn}"), token)
+            .await
+        {
             Ok(v) => Ok(v),
             Err(e) if PendingActionsService::is_ban_error(&e) => {
                 self.pending
@@ -432,10 +470,17 @@ impl LikesService {
             let Some(items) = page.get("collection").and_then(|v| v.as_array()) else {
                 break;
             };
-            if items.iter().any(|p| p.get("urn").and_then(|v| v.as_str()) == Some(playlist_urn)) {
+            if items
+                .iter()
+                .any(|p| p.get("urn").and_then(|v| v.as_str()) == Some(playlist_urn))
+            {
                 return Ok(json!({ "liked": true }));
             }
-            let Some(href) = page.get("next_href").and_then(|v| v.as_str()).map(String::from) else {
+            let Some(href) = page
+                .get("next_href")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+            else {
                 break;
             };
             match extract_cursor(&href) {

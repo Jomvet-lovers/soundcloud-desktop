@@ -39,7 +39,12 @@ impl IndexingService {
         lyrics: Arc<LyricsService>,
         trigger: Arc<TranscodeTriggerService>,
     ) -> Arc<Self> {
-        Arc::new(Self { pg, nats, lyrics, trigger })
+        Arc::new(Self {
+            pg,
+            nats,
+            lyrics,
+            trigger,
+        })
     }
 
     pub fn spawn(self: &Arc<Self>, shutdown: CancellationToken) {
@@ -58,12 +63,11 @@ impl IndexingService {
             None => urn.to_string(),
         };
 
-        let existing: Option<(Uuid, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-            "SELECT id, indexed_at FROM indexed_tracks WHERE sc_track_id = $1",
-        )
-        .bind(&sc_track_id)
-        .fetch_optional(&self.pg)
-        .await?;
+        let existing: Option<(Uuid, Option<chrono::DateTime<chrono::Utc>>)> =
+            sqlx::query_as("SELECT id, indexed_at FROM indexed_tracks WHERE sc_track_id = $1")
+                .bind(&sc_track_id)
+                .fetch_optional(&self.pg)
+                .await?;
         if let Some((_, Some(_))) = existing {
             return Ok(());
         }
@@ -71,13 +75,19 @@ impl IndexingService {
         if existing.is_none() {
             let title = sc_track.get("title").and_then(|v| v.as_str()).unwrap_or("");
             let genre = sc_track.get("genre").and_then(|v| v.as_str());
-            let tag_list = sc_track.get("tag_list").and_then(|v| v.as_str()).unwrap_or("");
+            let tag_list = sc_track
+                .get("tag_list")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let tags: Vec<String> = tag_list
                 .split_whitespace()
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
-            let duration_ms = sc_track.get("duration").and_then(|v| v.as_i64()).map(|v| v as i32);
+            let duration_ms = sc_track
+                .get("duration")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32);
             let artwork_url = sc_track.get("artwork_url").and_then(|v| v.as_str());
             let stream_url = sc_track.get("stream_url").and_then(|v| v.as_str());
 
@@ -300,8 +310,7 @@ impl IndexingService {
     }
 
     async fn reap(self: &Arc<Self>) -> AppResult<()> {
-        let cutoff =
-            chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_AGE).unwrap();
+        let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_AGE).unwrap();
         let stuck: Vec<(String,)> = sqlx::query_as(
             "SELECT sc_track_id FROM indexed_tracks \
              WHERE indexed_at IS NULL AND created_at < $1 LIMIT $2",
@@ -313,7 +322,10 @@ impl IndexingService {
         if stuck.is_empty() {
             return Ok(());
         }
-        info!(count = stuck.len(), "indexing reap: retriggering stuck tracks");
+        info!(
+            count = stuck.len(),
+            "indexing reap: retriggering stuck tracks"
+        );
         for (id,) in stuck {
             self.trigger.trigger(&id);
         }

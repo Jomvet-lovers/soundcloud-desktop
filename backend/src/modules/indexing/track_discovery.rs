@@ -102,7 +102,9 @@ impl TrackObserver for TrackDiscoveryService {
             return;
         }
 
-        let Some(svc_arc) = self.weak_self.upgrade() else { return };
+        let Some(svc_arc) = self.weak_self.upgrade() else {
+            return;
+        };
         for id in fresh {
             let svc = svc_arc.clone();
             let token = access_token.clone();

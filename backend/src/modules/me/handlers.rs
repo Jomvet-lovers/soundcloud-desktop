@@ -21,7 +21,10 @@ pub fn router() -> Router<AppState> {
         .route("/me/likes/playlists", get(get_liked_playlists))
         .route("/me/followings", get(get_followings))
         .route("/me/followings/tracks", get(get_followings_tracks))
-        .route("/me/followings/{user_urn}", put(follow_user).delete(unfollow_user))
+        .route(
+            "/me/followings/{user_urn}",
+            put(follow_user).delete(unfollow_user),
+        )
         .route("/me/followers", get(get_followers))
         .route("/me/playlists", get(get_playlists))
         .route("/me/tracks", get(get_tracks))
@@ -31,10 +34,7 @@ async fn get_profile(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<J
     Ok(Json(st.me.get_profile(&ctx.access_token).await?))
 }
 
-async fn get_subscription(
-    State(st): State<AppState>,
-    ctx: SessionCtx,
-) -> AppResult<Json<Value>> {
+async fn get_subscription(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<Json<Value>> {
     let premium = st.subscriptions.is_premium(&ctx.sc_user_id).await?;
     Ok(Json(premium_response(premium)))
 }
@@ -47,7 +47,13 @@ async fn get_feed(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.me
-            .get_feed(&ctx.access_token, &ctx.session_id.to_string(), &ctx.sc_user_id, page, limit)
+            .get_feed(
+                &ctx.access_token,
+                &ctx.session_id.to_string(),
+                &ctx.sc_user_id,
+                page,
+                limit,
+            )
             .await?,
     ))
 }
@@ -60,7 +66,13 @@ async fn get_feed_tracks(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.me
-            .get_feed_tracks(&ctx.access_token, &ctx.session_id.to_string(), &ctx.sc_user_id, page, limit)
+            .get_feed_tracks(
+                &ctx.access_token,
+                &ctx.session_id.to_string(),
+                &ctx.sc_user_id,
+                page,
+                limit,
+            )
             .await?,
     ))
 }
@@ -72,7 +84,9 @@ async fn get_liked_tracks(
     Query(a): Query<LikedTracksQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = q.resolved();
-    let access = a.access.unwrap_or_else(|| "playable,preview,blocked".into());
+    let access = a
+        .access
+        .unwrap_or_else(|| "playable,preview,blocked".into());
     Ok(Json(
         st.me
             .get_liked_tracks(

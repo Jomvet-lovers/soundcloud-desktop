@@ -34,7 +34,10 @@ async fn train(
     body: Option<Json<TrainBody>>,
 ) -> AppResult<Json<Value>> {
     let body = body.map(|Json(b)| b).unwrap_or_default();
-    let result = st.collab_trainer.train_now(body.dim, body.min_count).await?;
+    let result = st
+        .collab_trainer
+        .train_now(body.dim, body.min_count)
+        .await?;
     Ok(Json(json!({
         "enqueued": result.enqueued,
         "sessions": result.sessions,

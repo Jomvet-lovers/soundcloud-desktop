@@ -75,11 +75,15 @@ impl NatsService {
         let svc = Arc::new(Self { nc, js, shutdown });
         svc.ensure_stream(&streams::AI_RPC, true, Some(120)).await?;
         svc.ensure_stream(&streams::INDEX_AUDIO, true, None).await?;
-        svc.ensure_stream(&streams::EMBED_LYRICS, true, None).await?;
-        svc.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60)).await?;
-        svc.ensure_stream(&streams::TRAIN_LTR, true, Some(24 * 60 * 60)).await?;
+        svc.ensure_stream(&streams::EMBED_LYRICS, true, None)
+            .await?;
+        svc.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60))
+            .await?;
+        svc.ensure_stream(&streams::TRAIN_LTR, true, Some(24 * 60 * 60))
+            .await?;
         svc.ensure_stream(&streams::DONE, false, None).await?;
-        svc.ensure_stream(&streams::STORAGE_EVENTS, false, None).await?;
+        svc.ensure_stream(&streams::STORAGE_EVENTS, false, None)
+            .await?;
         Ok(svc)
     }
 
@@ -120,15 +124,15 @@ impl NatsService {
             Err(e) => {
                 let msg = e.to_string();
                 if msg.contains("already in use") || msg.contains("already exists") {
-                    self.js
-                        .update_stream(&stream_cfg)
-                        .await
-                        .map_err(|e| {
-                            AppError::internal(format!("JetStream update {}: {e}", cfg.name))
-                        })?;
+                    self.js.update_stream(&stream_cfg).await.map_err(|e| {
+                        AppError::internal(format!("JetStream update {}: {e}", cfg.name))
+                    })?;
                     Ok(())
                 } else {
-                    Err(AppError::internal(format!("JetStream create {}: {e}", cfg.name)))
+                    Err(AppError::internal(format!(
+                        "JetStream create {}: {e}",
+                        cfg.name
+                    )))
                 }
             }
         }
@@ -146,9 +150,11 @@ impl NatsService {
         T: DeserializeOwned,
     {
         let inbox = self.nc.new_inbox();
-        let mut sub = self.nc.subscribe(inbox.clone()).await.map_err(|e| {
-            AppError::internal(format!("nats subscribe inbox failed: {e}"))
-        })?;
+        let mut sub = self
+            .nc
+            .subscribe(inbox.clone())
+            .await
+            .map_err(|e| AppError::internal(format!("nats subscribe inbox failed: {e}")))?;
         sub.unsubscribe_after(1).await.ok();
 
         let mut headers = HeaderMap::new();
@@ -186,12 +192,10 @@ impl NatsService {
             return Ok(None);
         }
 
-        let parsed: serde_json::Value = serde_json::from_slice(&msg.payload).map_err(|e| {
-            AppError::internal(format!("rpc reply decode {subject}: {e}"))
-        })?;
-        let reply = parse_rpc_reply::<T>(parsed).map_err(|e| {
-            AppError::internal(format!("rpc reply structure {subject}: {e}"))
-        })?;
+        let parsed: serde_json::Value = serde_json::from_slice(&msg.payload)
+            .map_err(|e| AppError::internal(format!("rpc reply decode {subject}: {e}")))?;
+        let reply = parse_rpc_reply::<T>(parsed)
+            .map_err(|e| AppError::internal(format!("rpc reply structure {subject}: {e}")))?;
 
         if !reply.ok {
             let msg = reply.error.unwrap_or_else(|| format!("{subject} failed"));
@@ -276,10 +280,7 @@ impl NatsService {
                     }
                 }
 
-                let consumer = match stream_handle
-                    .get_consumer::<pull::Config>(durable)
-                    .await
-                {
+                let consumer = match stream_handle.get_consumer::<pull::Config>(durable).await {
                     Ok(c) => c,
                     Err(e) => {
                         warn!(stream, durable, error = %e, "consume: get_consumer failed, retry in 2s");
@@ -323,7 +324,10 @@ impl NatsService {
                             stream_seq: info.stream_sequence,
                             deliveries: info.delivered as u64,
                         },
-                        Err(_) => ConsumeMeta { stream_seq: 0, deliveries: 0 },
+                        Err(_) => ConsumeMeta {
+                            stream_seq: 0,
+                            deliveries: 0,
+                        },
                     };
 
                     match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
@@ -335,9 +339,11 @@ impl NatsService {
                             }
                             Err(e) => {
                                 error!(stream, durable, error = %e, "consume: handler failed");
-                                let _ = msg.ack_with(async_nats::jetstream::AckKind::Nak(Some(
-                                    Duration::from_secs(5),
-                                ))).await;
+                                let _ = msg
+                                    .ack_with(async_nats::jetstream::AckKind::Nak(Some(
+                                        Duration::from_secs(5),
+                                    )))
+                                    .await;
                             }
                         },
                         Err(e) => {

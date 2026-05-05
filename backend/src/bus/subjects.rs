@@ -27,11 +27,32 @@ pub struct StreamCfg {
 pub mod streams {
     use super::StreamCfg;
 
-    pub const AI_RPC: StreamCfg = StreamCfg { name: "AI_RPC", subjects: &["ai.rpc.>"] };
-    pub const INDEX_AUDIO: StreamCfg = StreamCfg { name: "INDEX_AUDIO", subjects: &["index.audio.>"] };
-    pub const EMBED_LYRICS: StreamCfg = StreamCfg { name: "EMBED_LYRICS", subjects: &["embed.lyrics.>"] };
-    pub const TRAIN_COLLAB: StreamCfg = StreamCfg { name: "TRAIN_COLLAB", subjects: &["train.collab.>"] };
-    pub const TRAIN_LTR: StreamCfg = StreamCfg { name: "TRAIN_LTR", subjects: &["train.ltr.>"] };
-    pub const DONE: StreamCfg = StreamCfg { name: "PIPELINE_DONE", subjects: &["done.>"] };
-    pub const STORAGE_EVENTS: StreamCfg = StreamCfg { name: "STORAGE_EVENTS", subjects: &["storage.>"] };
+    pub const AI_RPC: StreamCfg = StreamCfg {
+        name: "AI_RPC",
+        subjects: &["ai.rpc.>"],
+    };
+    pub const INDEX_AUDIO: StreamCfg = StreamCfg {
+        name: "INDEX_AUDIO",
+        subjects: &["index.audio.>"],
+    };
+    pub const EMBED_LYRICS: StreamCfg = StreamCfg {
+        name: "EMBED_LYRICS",
+        subjects: &["embed.lyrics.>"],
+    };
+    pub const TRAIN_COLLAB: StreamCfg = StreamCfg {
+        name: "TRAIN_COLLAB",
+        subjects: &["train.collab.>"],
+    };
+    pub const TRAIN_LTR: StreamCfg = StreamCfg {
+        name: "TRAIN_LTR",
+        subjects: &["train.ltr.>"],
+    };
+    pub const DONE: StreamCfg = StreamCfg {
+        name: "PIPELINE_DONE",
+        subjects: &["done.>"],
+    };
+    pub const STORAGE_EVENTS: StreamCfg = StreamCfg {
+        name: "STORAGE_EVENTS",
+        subjects: &["storage.>"],
+    };
 }

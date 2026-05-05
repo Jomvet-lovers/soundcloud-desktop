@@ -52,7 +52,10 @@ impl TracksService {
         if urns.is_empty() {
             return Ok(());
         }
-        let liked = self.local_likes.get_liked_track_ids(sc_user_id, &urns).await?;
+        let liked = self
+            .local_likes
+            .get_liked_track_ids(sc_user_id, &urns)
+            .await?;
         if liked.is_empty() {
             return Ok(());
         }
@@ -104,8 +107,7 @@ impl TracksService {
                         if let Some(c) = cursor {
                             params.push(("cursor".into(), c));
                         }
-                        let resp: Value =
-                            sc.api_get_value(&path, &token, Some(&params)).await?;
+                        let resp: Value = sc.api_get_value(&path, &token, Some(&params)).await?;
                         let items: Vec<Value> = resp
                             .get("collection")
                             .and_then(|v| v.as_array().cloned())
@@ -143,7 +145,8 @@ impl TracksService {
                 extra,
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection).await?;
+        self.apply_local_like_flags(sc_user_id, &mut result.collection)
+            .await?;
         Ok(result)
     }
 
@@ -171,7 +174,9 @@ impl TracksService {
     }
 
     pub async fn delete(&self, token: &str, track_urn: &str) -> AppResult<Value> {
-        self.sc.api_delete(&format!("/tracks/{track_urn}"), token).await
+        self.sc
+            .api_delete(&format!("/tracks/{track_urn}"), token)
+            .await
     }
 
     pub async fn get_streams(
@@ -305,7 +310,8 @@ impl TracksService {
                 vec![("access".into(), access.to_string())],
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection).await?;
+        self.apply_local_like_flags(sc_user_id, &mut result.collection)
+            .await?;
         Ok(result)
     }
 }

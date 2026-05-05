@@ -41,8 +41,14 @@ async fn find_all(
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(50)
         .min(200);
-    let offset = q.offset.as_deref().and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
-    Ok(Json(st.history.find_all(&ctx.sc_user_id, limit, offset).await?))
+    let offset = q
+        .offset
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    Ok(Json(
+        st.history.find_all(&ctx.sc_user_id, limit, offset).await?,
+    ))
 }
 
 async fn clear(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<StatusCode> {

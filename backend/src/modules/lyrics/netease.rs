@@ -78,22 +78,26 @@ impl NeteaseService {
         let mut out = Vec::new();
         for (song, lyric) in songs.into_iter().zip(lyrics_res.into_iter()) {
             let Some(lrc) = lyric else { continue };
-            let artists = song
-                .artists
-                .clone()
-                .or(song.ar.clone())
-                .unwrap_or_default();
+            let artists = song.artists.clone().or(song.ar.clone()).unwrap_or_default();
             let artist_guess: String = artists
                 .iter()
                 .filter_map(|a| a.name.as_deref())
                 .collect::<Vec<_>>()
                 .join(", ");
             let ms = song.duration.or(song.dt).unwrap_or(0);
-            let duration_sec = if ms > 0 { Some((ms as f64 / 1000.0).round() as i64) } else { None };
+            let duration_sec = if ms > 0 {
+                Some((ms as f64 / 1000.0).round() as i64)
+            } else {
+                None
+            };
             out.push(NeteaseResult {
                 synced_lrc: lrc.synced,
                 plain_text: lrc.plain,
-                artist_guess: if artist_guess.is_empty() { None } else { Some(artist_guess) },
+                artist_guess: if artist_guess.is_empty() {
+                    None
+                } else {
+                    Some(artist_guess)
+                },
                 title_guess: song.name,
                 duration_sec,
             });
@@ -126,10 +130,7 @@ impl NeteaseService {
                 return Vec::new();
             }
         };
-        let songs = parsed
-            .result
-            .and_then(|r| r.songs)
-            .unwrap_or_default();
+        let songs = parsed.result.and_then(|r| r.songs).unwrap_or_default();
         songs
             .into_iter()
             .filter(|s| s.id.is_some())
@@ -174,7 +175,10 @@ impl NeteaseService {
         if synced_raw.is_none() && plain.is_none() {
             return None;
         }
-        Some(Lrc { synced: synced_raw, plain })
+        Some(Lrc {
+            synced: synced_raw,
+            plain,
+        })
     }
 }
 

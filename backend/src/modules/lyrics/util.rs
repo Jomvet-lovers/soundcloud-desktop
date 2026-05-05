@@ -73,7 +73,9 @@ pub struct LyricLine {
 pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for raw in lrc.split('\n') {
-        let Some(caps) = RE_LRC_LINE.captures(raw) else { continue };
+        let Some(caps) = RE_LRC_LINE.captures(raw) else {
+            continue;
+        };
         let mm: f64 = caps[1].parse().unwrap_or(0.0);
         let ss: f64 = caps[2].parse().unwrap_or(0.0);
         let mut frac_str = caps[3].to_string();
@@ -129,7 +131,8 @@ pub fn detect_language_heuristic(text: &str) -> Option<LangDetect> {
     if text.is_empty() {
         return None;
     }
-    let mut counts: std::collections::HashMap<&'static str, usize> = std::collections::HashMap::new();
+    let mut counts: std::collections::HashMap<&'static str, usize> =
+        std::collections::HashMap::new();
     let mut total: usize = 0;
     let sample: String = text.chars().take(4000).collect();
     for ch in sample.chars() {
@@ -182,7 +185,11 @@ pub fn detect_language_heuristic(text: &str) -> Option<LangDetect> {
         "cjk" => {
             let ja = counts.get("hiragana").copied().unwrap_or(0)
                 + counts.get("katakana").copied().unwrap_or(0);
-            if ja > 0 { "ja" } else { "zh" }
+            if ja > 0 {
+                "ja"
+            } else {
+                "zh"
+            }
         }
         "arabic" => "ar",
         "hebrew" => "he",
@@ -216,7 +223,11 @@ pub fn heuristic_queries(artist: &str, title: &str) -> Vec<String> {
     if let Some((real_artist, real_title)) = split_artist_title(title) {
         let real_title_clean = clean_title(&real_title);
         add(&format!("{real_artist} {real_title}"), &mut order, &mut out);
-        add(&format!("{real_artist} {real_title_clean}"), &mut order, &mut out);
+        add(
+            &format!("{real_artist} {real_title_clean}"),
+            &mut order,
+            &mut out,
+        );
         add(&real_title_clean, &mut order, &mut out);
     }
 

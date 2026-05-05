@@ -221,7 +221,10 @@ impl AppConfig {
             },
 
             mxm: MxmCfg {
-                api_base: env_str("MUSIXMATCH_API_BASE", "https://apic-desktop.musixmatch.com/ws/1.1"),
+                api_base: env_str(
+                    "MUSIXMATCH_API_BASE",
+                    "https://apic-desktop.musixmatch.com/ws/1.1",
+                ),
             },
         }
     }

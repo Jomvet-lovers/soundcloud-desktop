@@ -12,10 +12,7 @@ use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/local-likes/{sc_track_id}",
-            post(add).delete(remove),
-        )
+        .route("/local-likes/{sc_track_id}", post(add).delete(remove))
         .route("/local-likes", get(find_all))
 }
 

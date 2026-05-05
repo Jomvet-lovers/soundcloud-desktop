@@ -43,6 +43,8 @@ impl ResolveService {
                 Err(_) => debug!("Token failed for resolve, trying next..."),
             }
         }
-        Err(AppError::internal("No valid session token available for resolve"))
+        Err(AppError::internal(
+            "No valid session token available for resolve",
+        ))
     }
 }

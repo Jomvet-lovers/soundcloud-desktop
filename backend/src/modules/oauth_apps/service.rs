@@ -51,11 +51,10 @@ impl OAuthAppsService {
     }
 
     pub async fn count_active(&self) -> AppResult<i64> {
-        let n: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*)::int8 FROM oauth_apps WHERE active = true",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let n: i64 =
+            sqlx::query_scalar("SELECT COUNT(*)::int8 FROM oauth_apps WHERE active = true")
+                .fetch_one(&self.pool)
+                .await?;
         Ok(n)
     }
 
@@ -144,8 +143,7 @@ impl OAuthAppsService {
         redirect_uri: Option<&str>,
         active: Option<bool>,
     ) -> AppResult<OAuthApp> {
-        let uuid =
-            Uuid::parse_str(id).map_err(|_| AppError::not_found("OAuth app not found"))?;
+        let uuid = Uuid::parse_str(id).map_err(|_| AppError::not_found("OAuth app not found"))?;
         let row: Option<OAuthApp> = sqlx::query_as(
             "UPDATE oauth_apps SET \
                 name = COALESCE($2, name), \

@@ -27,7 +27,11 @@ impl PlaylistsService {
         list_cache: Arc<ListCacheService>,
         pending: Arc<PendingActionsService>,
     ) -> Arc<Self> {
-        Arc::new(Self { sc, list_cache, pending })
+        Arc::new(Self {
+            sc,
+            list_cache,
+            pending,
+        })
     }
 
     async fn list_page(
@@ -88,15 +92,29 @@ impl PlaylistsService {
         extra: Vec<(String, String)>,
     ) -> AppResult<ListPageResult<Value>> {
         let key = build_list_cache_key("playlists-search", &as_pairs(&extra));
-        self.list_page(&key, TTL_SEARCH, page, limit, "/playlists".into(), token.to_string(), extra)
-            .await
+        self.list_page(
+            &key,
+            TTL_SEARCH,
+            page,
+            limit,
+            "/playlists".into(),
+            token.to_string(),
+            extra,
+        )
+        .await
     }
 
     pub async fn create(&self, token: &str, session_id: &str, body: &Value) -> AppResult<Value> {
-        match self.sc.api_post_value("/playlists", token, Some(body)).await {
+        match self
+            .sc
+            .api_post_value("/playlists", token, Some(body))
+            .await
+        {
             Ok(v) => Ok(v),
             Err(e) if PendingActionsService::is_ban_error(&e) => {
-                self.pending.enqueue(session_id, "playlist_create", "new", Some(body)).await?;
+                self.pending
+                    .enqueue(session_id, "playlist_create", "new", Some(body))
+                    .await?;
                 Ok(json!({ "queued": true, "actionType": "playlist_create" }))
             }
             Err(e) => Err(e),
@@ -147,7 +165,11 @@ impl PlaylistsService {
         session_id: &str,
         playlist_urn: &str,
     ) -> AppResult<Value> {
-        match self.sc.api_delete(&format!("/playlists/{playlist_urn}"), token).await {
+        match self
+            .sc
+            .api_delete(&format!("/playlists/{playlist_urn}"), token)
+            .await
+        {
             Ok(v) => Ok(v),
             Err(e) if PendingActionsService::is_ban_error(&e) => {
                 self.pending

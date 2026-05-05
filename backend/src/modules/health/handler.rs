@@ -10,7 +10,6 @@ pub struct HealthResponse {
 pub async fn check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
-        timestamp: chrono::Utc::now()
-            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     })
 }

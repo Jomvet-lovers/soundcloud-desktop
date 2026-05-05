@@ -29,7 +29,11 @@ impl UsersService {
         list_cache: Arc<ListCacheService>,
         local_likes: Arc<LocalLikesService>,
     ) -> Arc<Self> {
-        Arc::new(Self { sc, list_cache, local_likes })
+        Arc::new(Self {
+            sc,
+            list_cache,
+            local_likes,
+        })
     }
 
     async fn apply_local_like_flags(
@@ -44,7 +48,10 @@ impl UsersService {
         if urns.is_empty() {
             return Ok(());
         }
-        let liked = self.local_likes.get_liked_track_ids(sc_user_id, &urns).await?;
+        let liked = self
+            .local_likes
+            .get_liked_track_ids(sc_user_id, &urns)
+            .await?;
         if liked.is_empty() {
             return Ok(());
         }
@@ -119,15 +126,29 @@ impl UsersService {
         ids: Option<String>,
     ) -> AppResult<ListPageResult<Value>> {
         let mut extra: Vec<(String, String)> = Vec::new();
-        if let Some(v) = q.clone() { extra.push(("q".into(), v)); }
-        if let Some(v) = ids.clone() { extra.push(("ids".into(), v)); }
+        if let Some(v) = q.clone() {
+            extra.push(("q".into(), v));
+        }
+        if let Some(v) = ids.clone() {
+            extra.push(("ids".into(), v));
+        }
         let key = build_list_cache_key("users-search", &as_pairs(&extra));
-        self.list_page(&key, TTL_SEARCH, page, limit, "/users".into(), token.to_string(), extra)
-            .await
+        self.list_page(
+            &key,
+            TTL_SEARCH,
+            page,
+            limit,
+            "/users".into(),
+            token.to_string(),
+            extra,
+        )
+        .await
     }
 
     pub async fn get_by_id(&self, token: &str, user_urn: &str) -> AppResult<Value> {
-        self.sc.api_get_value(&format!("/users/{user_urn}"), token, None).await
+        self.sc
+            .api_get_value(&format!("/users/{user_urn}"), token, None)
+            .await
     }
 
     pub async fn get_followers(
@@ -212,7 +233,8 @@ impl UsersService {
                 vec![("access".into(), access.to_string())],
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection).await?;
+        self.apply_local_like_flags(sc_user_id, &mut result.collection)
+            .await?;
         Ok(result)
     }
 
@@ -226,11 +248,10 @@ impl UsersService {
         show_tracks: Option<String>,
     ) -> AppResult<ListPageResult<Value>> {
         let mut extra: Vec<(String, String)> = vec![("access".into(), access.to_string())];
-        if let Some(v) = show_tracks { extra.push(("show_tracks".into(), v)); }
-        let key = build_list_cache_key(
-            &format!("user-playlists:{user_urn}"),
-            &as_pairs(&extra),
-        );
+        if let Some(v) = show_tracks {
+            extra.push(("show_tracks".into(), v));
+        }
+        let key = build_list_cache_key(&format!("user-playlists:{user_urn}"), &as_pairs(&extra));
         self.list_page(
             &key,
             TTL_USER_PLAYLISTS,
@@ -267,7 +288,8 @@ impl UsersService {
                 vec![("access".into(), access.to_string())],
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection).await?;
+        self.apply_local_like_flags(sc_user_id, &mut result.collection)
+            .await?;
         Ok(result)
     }
 

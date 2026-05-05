@@ -86,8 +86,7 @@ impl LocalLikesService {
         };
 
         let has_more = rows.len() as i64 > limit;
-        let slice: Vec<(Value, NaiveDateTime)> =
-            rows.into_iter().take(limit as usize).collect();
+        let slice: Vec<(Value, NaiveDateTime)> = rows.into_iter().take(limit as usize).collect();
         let next_href = if has_more {
             slice.last().map(|(_, dt)| {
                 let iso = DateTime::<Utc>::from_naive_utc_and_offset(*dt, Utc)

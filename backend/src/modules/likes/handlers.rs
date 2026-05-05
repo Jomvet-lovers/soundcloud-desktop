@@ -16,7 +16,9 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/likes/playlists/{playlist_urn}",
-            post(like_playlist).delete(unlike_playlist).get(is_playlist_liked),
+            post(like_playlist)
+                .delete(unlike_playlist)
+                .get(is_playlist_liked),
         )
 }
 
@@ -72,7 +74,11 @@ async fn like_playlist(
 ) -> AppResult<(StatusCode, Json<Value>)> {
     let v = st
         .likes
-        .like_playlist(&ctx.access_token, &ctx.session_id.to_string(), &playlist_urn)
+        .like_playlist(
+            &ctx.access_token,
+            &ctx.session_id.to_string(),
+            &playlist_urn,
+        )
         .await?;
     let session_id = ctx.session_id.to_string();
     let _ = st
@@ -96,7 +102,11 @@ async fn unlike_playlist(
 ) -> AppResult<Json<Value>> {
     let v = st
         .likes
-        .unlike_playlist(&ctx.access_token, &ctx.session_id.to_string(), &playlist_urn)
+        .unlike_playlist(
+            &ctx.access_token,
+            &ctx.session_id.to_string(),
+            &playlist_urn,
+        )
         .await?;
     let session_id = ctx.session_id.to_string();
     let _ = st
@@ -119,6 +129,8 @@ async fn is_playlist_liked(
     Path(playlist_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
     Ok(Json(
-        st.likes.is_playlist_liked(&ctx.access_token, &playlist_urn).await?,
+        st.likes
+            .is_playlist_liked(&ctx.access_token, &playlist_urn)
+            .await?,
     ))
 }

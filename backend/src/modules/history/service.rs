@@ -100,12 +100,11 @@ impl HistoryService {
         .bind(offset)
         .fetch_all(&self.pg)
         .await?;
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM listening_history WHERE soundcloud_user_id = $1",
-        )
-        .bind(sc_user_id)
-        .fetch_one(&self.pg)
-        .await?;
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM listening_history WHERE soundcloud_user_id = $1")
+                .bind(sc_user_id)
+                .fetch_one(&self.pg)
+                .await?;
         Ok(HistoryPage {
             collection,
             total: total.0,

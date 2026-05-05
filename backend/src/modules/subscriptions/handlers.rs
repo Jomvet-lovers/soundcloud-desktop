@@ -12,7 +12,10 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/admin/subscriptions", get(list).post(upsert))
-        .route("/admin/subscriptions/{user_urn}", axum::routing::delete(remove))
+        .route(
+            "/admin/subscriptions/{user_urn}",
+            axum::routing::delete(remove),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -21,10 +24,7 @@ struct UpsertBody {
     exp_date: i64,
 }
 
-async fn list(
-    _: AdminAuth,
-    State(st): State<AppState>,
-) -> AppResult<Json<Vec<Subscription>>> {
+async fn list(_: AdminAuth, State(st): State<AppState>) -> AppResult<Json<Vec<Subscription>>> {
     Ok(Json(st.subscriptions.list().await?))
 }
 
@@ -33,7 +33,9 @@ async fn upsert(
     State(st): State<AppState>,
     Json(body): Json<UpsertBody>,
 ) -> AppResult<Json<Value>> {
-    st.subscriptions.upsert(&body.user_urn, body.exp_date).await?;
+    st.subscriptions
+        .upsert(&body.user_urn, body.exp_date)
+        .await?;
     Ok(Json(json!({ "message": "ok" })))
 }
 

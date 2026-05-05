@@ -119,7 +119,9 @@ impl MusixmatchService {
     }
 
     pub async fn search_by_query(&self, q: &str, limit: usize) -> Vec<MxmCandidate> {
-        let Some(token) = self.get_token().await else { return Vec::new() };
+        let Some(token) = self.get_token().await else {
+            return Vec::new();
+        };
         let tracks = self.track_search(q, &token, limit).await;
         let mut out = Vec::new();
         for t in tracks {
@@ -321,7 +323,9 @@ fn normalize_mxm_subtitle(raw: &str) -> String {
         total: Option<f64>,
     }
     let parsed: Result<Vec<Line>, _> = serde_json::from_str(raw);
-    let Ok(lines) = parsed else { return raw.to_string() };
+    let Ok(lines) = parsed else {
+        return raw.to_string();
+    };
     let mut out = Vec::with_capacity(lines.len());
     for line in lines {
         let total = line.time.and_then(|t| t.total).unwrap_or(0.0);

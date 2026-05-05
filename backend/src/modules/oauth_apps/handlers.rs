@@ -5,9 +5,7 @@ use serde_json::{json, Value};
 
 use crate::common::admin::AdminAuth;
 use crate::error::AppResult;
-use crate::modules::oauth_apps::dto::{
-    CreateOAuthAppDto, OAuthAppResponse, UpdateOAuthAppDto,
-};
+use crate::modules::oauth_apps::dto::{CreateOAuthAppDto, OAuthAppResponse, UpdateOAuthAppDto};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {

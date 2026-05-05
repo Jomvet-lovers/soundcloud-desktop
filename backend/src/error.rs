@@ -63,9 +63,11 @@ impl AppError {
                 StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY)
             }
             Self::ScUnreachable(_) => StatusCode::BAD_GATEWAY,
-            Self::Db(_) | Self::Redis(_) | Self::RedisPool(_) | Self::Http(_) | Self::Internal(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            Self::Db(_)
+            | Self::Redis(_)
+            | Self::RedisPool(_)
+            | Self::Http(_)
+            | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

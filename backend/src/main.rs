@@ -29,13 +29,13 @@ use crate::modules::auth::{AuthService, LinkService};
 use crate::modules::centroids::CentroidService;
 use crate::modules::collab::{CollabTrainerService, CollabVectorService};
 use crate::modules::dislikes::DislikesService;
-use crate::modules::ltr::{LtrService, LtrTrainerService};
 use crate::modules::events::EventsService;
 use crate::modules::featured::FeaturedService;
 use crate::modules::history::HistoryService;
 use crate::modules::indexing::IndexingService;
 use crate::modules::likes::LikesService;
 use crate::modules::local_likes::LocalLikesService;
+use crate::modules::ltr::{LtrService, LtrTrainerService};
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::lyrics::lrclib::LrclibService;
 use crate::modules::lyrics::musixmatch::MusixmatchService;
@@ -67,7 +67,9 @@ async fn main() {
     let config = Arc::new(AppConfig::from_env());
     info!(port = config.port, "backend starting");
 
-    let pg = db::connect(&config).await.expect("Failed to connect to PostgreSQL");
+    let pg = db::connect(&config)
+        .await
+        .expect("Failed to connect to PostgreSQL");
     info!("PostgreSQL connected");
     if let Err(e) = db::migrate(&pg).await {
         error!(error = %e, "Failed to run migrations");
@@ -117,14 +119,26 @@ async fn main() {
     let list_cache = ListCacheService::new(redis_pool.clone());
     let local_likes = LocalLikesService::new(pg.clone());
     let events = EventsService::new(pg.clone());
-    let subscriptions = SubscriptionsService::new(pg.clone(), config.subscriptions.snapshot_dir.clone());
+    let subscriptions =
+        SubscriptionsService::new(pg.clone(), config.subscriptions.snapshot_dir.clone());
     if let Err(e) = subscriptions.restore_from_snapshot().await {
         warn!(error = %e, "subscriptions restore failed");
     }
     subscriptions.spawn_snapshot_loop(shutdown.clone());
-    let me = MeService::new(sc.clone(), list_cache.clone(), local_likes.clone(), events.clone());
-    let pending_actions = PendingActionsService::new(pg.clone(), sc.clone(), auth.clone(), oauth_apps.clone());
-    let tracks = TracksService::new(sc.clone(), list_cache.clone(), local_likes.clone(), pending_actions.clone());
+    let me = MeService::new(
+        sc.clone(),
+        list_cache.clone(),
+        local_likes.clone(),
+        events.clone(),
+    );
+    let pending_actions =
+        PendingActionsService::new(pg.clone(), sc.clone(), auth.clone(), oauth_apps.clone());
+    let tracks = TracksService::new(
+        sc.clone(),
+        list_cache.clone(),
+        local_likes.clone(),
+        pending_actions.clone(),
+    );
     let playlists = PlaylistsService::new(sc.clone(), list_cache.clone(), pending_actions.clone());
     let users = UsersService::new(sc.clone(), list_cache.clone(), local_likes.clone());
     let dislikes = DislikesService::new(pg.clone(), events.clone());
@@ -177,21 +191,16 @@ async fn main() {
     );
     ltr_trainer.spawn_bootstrap_and_cron(shutdown.clone());
 
-    let indexing = IndexingService::new(
-        pg.clone(),
-        nats.clone(),
-        lyrics.clone(),
-        transcode.clone(),
-    );
+    let indexing =
+        IndexingService::new(pg.clone(), nats.clone(), lyrics.clone(), transcode.clone());
     indexing.spawn(shutdown.clone());
 
-    let track_discovery = crate::modules::indexing::TrackDiscoveryService::new(
-        sc.clone(),
-        indexing.clone(),
-    );
+    let track_discovery =
+        crate::modules::indexing::TrackDiscoveryService::new(sc.clone(), indexing.clone());
     sc.install_track_observer(track_discovery.clone());
 
-    let s3_verifier = S3VerifierService::new(http_client.clone(), config.storage.url.clone(), pg.clone());
+    let s3_verifier =
+        S3VerifierService::new(http_client.clone(), config.storage.url.clone(), pg.clone());
     let recommendations = RecommendationsService::new(
         qdrant.clone(),
         pg.clone(),
@@ -218,10 +227,16 @@ async fn main() {
         let token = shutdown.clone();
         let pa = pending_actions.clone();
         tasks.spawn(async move {
-            run_periodic("pending_actions.sync_all", token, BG_TICK, BG_WORK_TIMEOUT, move || {
-                let pa = pa.clone();
-                async move { pa.sync_all().await.map(|_| ()) }
-            })
+            run_periodic(
+                "pending_actions.sync_all",
+                token,
+                BG_TICK,
+                BG_WORK_TIMEOUT,
+                move || {
+                    let pa = pa.clone();
+                    async move { pa.sync_all().await.map(|_| ()) }
+                },
+            )
             .await;
         });
     }
@@ -230,10 +245,16 @@ async fn main() {
         let token = shutdown.clone();
         let auth = auth.clone();
         tasks.spawn(async move {
-            run_periodic("auth.cleanup_login_requests", token, BG_TICK, BG_WORK_TIMEOUT, move || {
-                let auth = auth.clone();
-                async move { auth.cleanup_expired_login_requests().await }
-            })
+            run_periodic(
+                "auth.cleanup_login_requests",
+                token,
+                BG_TICK,
+                BG_WORK_TIMEOUT,
+                move || {
+                    let auth = auth.clone();
+                    async move { auth.cleanup_expired_login_requests().await }
+                },
+            )
             .await;
         });
     }
@@ -242,10 +263,16 @@ async fn main() {
         let token = shutdown.clone();
         let auth = auth.clone();
         tasks.spawn(async move {
-            run_periodic("auth.cleanup_link_requests", token, BG_TICK, BG_WORK_TIMEOUT, move || {
-                let auth = auth.clone();
-                async move { auth.cleanup_expired_link_requests().await }
-            })
+            run_periodic(
+                "auth.cleanup_link_requests",
+                token,
+                BG_TICK,
+                BG_WORK_TIMEOUT,
+                move || {
+                    let auth = auth.clone();
+                    async move { auth.cleanup_expired_link_requests().await }
+                },
+            )
             .await;
         });
     }

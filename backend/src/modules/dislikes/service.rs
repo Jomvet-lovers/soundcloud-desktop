@@ -38,7 +38,9 @@ impl DislikesService {
         track_data: Option<&Value>,
     ) -> AppResult<StatusResult> {
         let Some(id) = normalize_sc_track_id(sc_track_id) else {
-            return Ok(StatusResult { status: "invalid".into() });
+            return Ok(StatusResult {
+                status: "invalid".into(),
+            });
         };
 
         let inserted: Option<(uuid::Uuid,)> = sqlx::query_as(
@@ -56,19 +58,25 @@ impl DislikesService {
         if inserted.is_some() {
             self.events.record(sc_user_id, &id, "dislike").await?;
         }
-        Ok(StatusResult { status: "ok".into() })
+        Ok(StatusResult {
+            status: "ok".into(),
+        })
     }
 
     pub async fn remove(&self, sc_user_id: &str, sc_track_id: &str) -> AppResult<StatusResult> {
         let Some(id) = normalize_sc_track_id(sc_track_id) else {
-            return Ok(StatusResult { status: "invalid".into() });
+            return Ok(StatusResult {
+                status: "invalid".into(),
+            });
         };
         sqlx::query("DELETE FROM disliked_tracks WHERE sc_user_id = $1 AND sc_track_id = $2")
             .bind(sc_user_id)
             .bind(&id)
             .execute(&self.pg)
             .await?;
-        Ok(StatusResult { status: "removed".into() })
+        Ok(StatusResult {
+            status: "removed".into(),
+        })
     }
 
     pub async fn is_disliked(&self, sc_user_id: &str, sc_track_id: &str) -> AppResult<bool> {
@@ -123,7 +131,11 @@ impl DislikesService {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    pub async fn list_ids_by_user_id(&self, sc_user_id: &str, limit: i64) -> AppResult<Vec<String>> {
+    pub async fn list_ids_by_user_id(
+        &self,
+        sc_user_id: &str,
+        limit: i64,
+    ) -> AppResult<Vec<String>> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT sc_track_id FROM disliked_tracks \
              WHERE sc_user_id = $1 ORDER BY created_at DESC LIMIT $2",
@@ -181,10 +193,7 @@ impl DislikesService {
         } else {
             None
         };
-        let collection: Vec<Value> = slice
-            .into_iter()
-            .filter_map(|(td, _)| td)
-            .collect();
+        let collection: Vec<Value> = slice.into_iter().filter_map(|(td, _)| td).collect();
         Ok(DislikesPage {
             collection,
             next_href,

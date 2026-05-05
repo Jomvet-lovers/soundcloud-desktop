@@ -45,7 +45,9 @@ async fn remove(
     ctx: SessionCtx,
     Path(sc_track_id): Path<String>,
 ) -> AppResult<Json<StatusResult>> {
-    Ok(Json(st.dislikes.remove(&ctx.sc_user_id, &sc_track_id).await?))
+    Ok(Json(
+        st.dislikes.remove(&ctx.sc_user_id, &sc_track_id).await?,
+    ))
 }
 
 async fn status(
@@ -53,12 +55,18 @@ async fn status(
     ctx: SessionCtx,
     Path(sc_track_id): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let disliked = st.dislikes.is_disliked(&ctx.sc_user_id, &sc_track_id).await?;
+    let disliked = st
+        .dislikes
+        .is_disliked(&ctx.sc_user_id, &sc_track_id)
+        .await?;
     Ok(Json(json!({ "disliked": disliked })))
 }
 
 async fn ids(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<Json<Value>> {
-    let ids = st.dislikes.list_ids_by_user_id(&ctx.sc_user_id, 1000).await?;
+    let ids = st
+        .dislikes
+        .list_ids_by_user_id(&ctx.sc_user_id, 1000)
+        .await?;
     Ok(Json(json!({ "ids": ids })))
 }
 

@@ -21,11 +21,17 @@ pub fn router() -> Router<AppState> {
         .route("/users/{user_urn}", get(get_by_id))
         .route("/users/{user_urn}/followers", get(get_followers))
         .route("/users/{user_urn}/followings", get(get_followings))
-        .route("/users/{user_urn}/followings/{following_urn}", get(get_is_following))
+        .route(
+            "/users/{user_urn}/followings/{following_urn}",
+            get(get_is_following),
+        )
         .route("/users/{user_urn}/tracks", get(get_tracks))
         .route("/users/{user_urn}/playlists", get(get_playlists))
         .route("/users/{user_urn}/likes/tracks", get(get_liked_tracks))
-        .route("/users/{user_urn}/likes/playlists", get(get_liked_playlists))
+        .route(
+            "/users/{user_urn}/likes/playlists",
+            get(get_liked_playlists),
+        )
         .route("/users/{user_urn}/subscription", get(get_subscription))
         .route("/users/{user_urn}/web-profiles", get(get_web_profiles))
 }
@@ -59,7 +65,11 @@ async fn search(
     Query(q): Query<SearchQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    Ok(Json(st.users.search(&ctx.access_token, page, limit, q.q, q.ids).await?))
+    Ok(Json(
+        st.users
+            .search(&ctx.access_token, page, limit, q.q, q.ids)
+            .await?,
+    ))
 }
 
 async fn get_by_id(
@@ -68,9 +78,16 @@ async fn get_by_id(
     Path(user_urn): Path<String>,
 ) -> AppResult<Response> {
     let url = format!("/users/{user_urn}");
-    cached_or_fetch(&st, "GET", &url, CacheScope::Shared, None, 3600, None, || async {
-        st.users.get_by_id(&ctx.access_token, &user_urn).await
-    })
+    cached_or_fetch(
+        &st,
+        "GET",
+        &url,
+        CacheScope::Shared,
+        None,
+        3600,
+        None,
+        || async { st.users.get_by_id(&ctx.access_token, &user_urn).await },
+    )
     .await
 }
 
@@ -81,7 +98,11 @@ async fn get_followers(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    Ok(Json(st.users.get_followers(&ctx.access_token, &user_urn, page, limit).await?))
+    Ok(Json(
+        st.users
+            .get_followers(&ctx.access_token, &user_urn, page, limit)
+            .await?,
+    ))
 }
 
 async fn get_followings(
@@ -91,7 +112,11 @@ async fn get_followings(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    Ok(Json(st.users.get_followings(&ctx.access_token, &user_urn, page, limit).await?))
+    Ok(Json(
+        st.users
+            .get_followings(&ctx.access_token, &user_urn, page, limit)
+            .await?,
+    ))
 }
 
 async fn get_is_following(
@@ -100,10 +125,22 @@ async fn get_is_following(
     Path((user_urn, following_urn)): Path<(String, String)>,
 ) -> AppResult<Response> {
     let url = format!("/users/{user_urn}/followings/{following_urn}");
-    cached_or_fetch(&st, "GET", &url, CacheScope::Shared, None, 30, None, || async {
-        let v = st.users.get_is_following(&ctx.access_token, &user_urn, &following_urn).await?;
-        Ok(Value::Bool(v))
-    })
+    cached_or_fetch(
+        &st,
+        "GET",
+        &url,
+        CacheScope::Shared,
+        None,
+        30,
+        None,
+        || async {
+            let v = st
+                .users
+                .get_is_following(&ctx.access_token, &user_urn, &following_urn)
+                .await?;
+            Ok(Value::Bool(v))
+        },
+    )
     .await
 }
 
@@ -115,10 +152,19 @@ async fn get_tracks(
     Query(q): Query<AccessQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    let access = q.access.unwrap_or_else(|| "playable,preview,blocked".into());
+    let access = q
+        .access
+        .unwrap_or_else(|| "playable,preview,blocked".into());
     Ok(Json(
         st.users
-            .get_tracks(&ctx.access_token, &ctx.sc_user_id, &user_urn, page, limit, &access)
+            .get_tracks(
+                &ctx.access_token,
+                &ctx.sc_user_id,
+                &user_urn,
+                page,
+                limit,
+                &access,
+            )
             .await?,
     ))
 }
@@ -131,10 +177,19 @@ async fn get_playlists(
     Query(q): Query<PlaylistsQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    let access = q.access.unwrap_or_else(|| "playable,preview,blocked".into());
+    let access = q
+        .access
+        .unwrap_or_else(|| "playable,preview,blocked".into());
     Ok(Json(
         st.users
-            .get_playlists(&ctx.access_token, &user_urn, page, limit, &access, q.show_tracks)
+            .get_playlists(
+                &ctx.access_token,
+                &user_urn,
+                page,
+                limit,
+                &access,
+                q.show_tracks,
+            )
             .await?,
     ))
 }
@@ -147,10 +202,19 @@ async fn get_liked_tracks(
     Query(q): Query<AccessQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    let access = q.access.unwrap_or_else(|| "playable,preview,blocked".into());
+    let access = q
+        .access
+        .unwrap_or_else(|| "playable,preview,blocked".into());
     Ok(Json(
         st.users
-            .get_liked_tracks(&ctx.access_token, &ctx.sc_user_id, &user_urn, page, limit, &access)
+            .get_liked_tracks(
+                &ctx.access_token,
+                &ctx.sc_user_id,
+                &user_urn,
+                page,
+                limit,
+                &access,
+            )
             .await?,
     ))
 }
@@ -162,7 +226,11 @@ async fn get_liked_playlists(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
-    Ok(Json(st.users.get_liked_playlists(&ctx.access_token, &user_urn, page, limit).await?))
+    Ok(Json(
+        st.users
+            .get_liked_playlists(&ctx.access_token, &user_urn, page, limit)
+            .await?,
+    ))
 }
 
 async fn get_subscription(
@@ -171,10 +239,19 @@ async fn get_subscription(
     Path(user_urn): Path<String>,
 ) -> AppResult<Response> {
     let url = format!("/users/{user_urn}/subscription");
-    cached_or_fetch(&st, "GET", &url, CacheScope::Shared, None, 300, None, || async {
-        let premium = st.subscriptions.is_premium(&user_urn).await?;
-        Ok(premium_response(premium))
-    })
+    cached_or_fetch(
+        &st,
+        "GET",
+        &url,
+        CacheScope::Shared,
+        None,
+        300,
+        None,
+        || async {
+            let premium = st.subscriptions.is_premium(&user_urn).await?;
+            Ok(premium_response(premium))
+        },
+    )
     .await
 }
 
@@ -184,9 +261,20 @@ async fn get_web_profiles(
     Path(user_urn): Path<String>,
 ) -> AppResult<Response> {
     let url = format!("/users/{user_urn}/web-profiles");
-    cached_or_fetch(&st, "GET", &url, CacheScope::Shared, None, 86400, None, || async {
-        st.users.get_web_profiles(&ctx.access_token, &user_urn).await
-    })
+    cached_or_fetch(
+        &st,
+        "GET",
+        &url,
+        CacheScope::Shared,
+        None,
+        86400,
+        None,
+        || async {
+            st.users
+                .get_web_profiles(&ctx.access_token, &user_urn)
+                .await
+        },
+    )
     .await
 }
 
@@ -209,8 +297,11 @@ where
         return Ok(json_response(StatusCode::OK, raw));
     }
     let v = fetch().await?;
-    let payload = serde_json::to_string(&v)
-        .map_err(|e| AppError::internal(format!("json encode: {e}")))?;
-    let _ = st.cache.set_raw(&key, &payload, ttl_sec, cache_key, scope, session_id).await;
+    let payload =
+        serde_json::to_string(&v).map_err(|e| AppError::internal(format!("json encode: {e}")))?;
+    let _ = st
+        .cache
+        .set_raw(&key, &payload, ttl_sec, cache_key, scope, session_id)
+        .await;
     Ok(json_response(StatusCode::OK, payload))
 }

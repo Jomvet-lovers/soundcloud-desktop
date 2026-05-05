@@ -11,17 +11,14 @@ const GENIUS_SEARCH: &str = "https://genius.com/api/search/multi";
 const TIMEOUT: Duration = Duration::from_secs(15);
 const UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-static RE_OPEN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)<div\b[^>]*\bdata-lyrics-container="true"[^>]*>"#).unwrap()
-});
+static RE_OPEN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)<div\b[^>]*\bdata-lyrics-container="true"[^>]*>"#).unwrap());
 static RE_BR: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
 static RE_TAGS: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]+>").unwrap());
-static RE_LEAD_CONTRIB: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^\d+\s*Contributors").unwrap());
+static RE_LEAD_CONTRIB: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^\d+\s*Contributors").unwrap());
 static RE_LEAD_LYRICS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^[^\n]*?Lyrics").unwrap());
-static RE_LEAD_TEXT_PESN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^\[Текст песни.*?\]").unwrap()
-});
+static RE_LEAD_TEXT_PESN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^\[Текст песни.*?\]").unwrap());
 
 #[derive(Debug, Clone)]
 pub struct GeniusCandidate {

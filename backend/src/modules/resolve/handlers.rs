@@ -27,7 +27,9 @@ async fn resolve(
     Query(q): Query<ResolveQuery>,
 ) -> AppResult<Response> {
     let cache_url = format!("/resolve?url={}", q.url);
-    let key = st.cache.build_key("GET", &cache_url, CacheScope::Shared, None);
+    let key = st
+        .cache
+        .build_key("GET", &cache_url, CacheScope::Shared, None);
     if let Ok(Some(raw)) = st.cache.get_raw(&key).await {
         return Ok(json_response(StatusCode::OK, raw));
     }
@@ -39,8 +41,11 @@ async fn resolve(
         },
         None => st.resolve.resolve_with_random_token(&q.url).await?,
     };
-    let payload = serde_json::to_string(&v)
-        .map_err(|e| AppError::internal(format!("json encode: {e}")))?;
-    let _ = st.cache.set_raw(&key, &payload, 86400, None, CacheScope::Shared, None).await;
+    let payload =
+        serde_json::to_string(&v).map_err(|e| AppError::internal(format!("json encode: {e}")))?;
+    let _ = st
+        .cache
+        .set_raw(&key, &payload, 86400, None, CacheScope::Shared, None)
+        .await;
     Ok(json_response(StatusCode::OK, payload))
 }

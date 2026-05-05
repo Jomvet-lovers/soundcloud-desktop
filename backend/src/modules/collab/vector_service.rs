@@ -74,7 +74,9 @@ impl CollabVectorService {
             .and_then(|c| c.params)
             .and_then(|p| p.vectors_config)
             .and_then(|vc| match vc.config {
-                Some(qdrant_client::qdrant::vectors_config::Config::Params(p)) => Some(p.size as u32),
+                Some(qdrant_client::qdrant::vectors_config::Config::Params(p)) => {
+                    Some(p.size as u32)
+                }
                 _ => None,
             });
         if let Ok(mut g) = self.dim.write() {
@@ -111,9 +113,7 @@ impl CollabVectorService {
         let resp = match self
             .qdrant
             .raw()
-            .get_points(
-                GetPointsBuilder::new(collections::TRACKS_COLLAB, pids).with_vectors(true),
-            )
+            .get_points(GetPointsBuilder::new(collections::TRACKS_COLLAB, pids).with_vectors(true))
             .await
         {
             Ok(r) => r,
@@ -129,7 +129,9 @@ impl CollabVectorService {
                 None => continue,
             };
             if let Some(vectors) = p.vectors {
-                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) = vectors.vectors_options {
+                if let Some(VectorsOptions::Vector(VectorOutput { data, .. })) =
+                    vectors.vectors_options
+                {
                     out.insert(id_str, data);
                 }
             }
@@ -193,7 +195,10 @@ impl CollabVectorService {
         if let Ok(mut g) = self.cache.write() {
             g.insert(
                 sc_user_id.to_string(),
-                CacheEntry { vector, expires_at: Instant::now() + TTL },
+                CacheEntry {
+                    vector,
+                    expires_at: Instant::now() + TTL,
+                },
             );
         }
     }

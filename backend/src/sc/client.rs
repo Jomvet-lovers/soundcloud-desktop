@@ -208,7 +208,8 @@ impl ScClient {
         access_token: &str,
         body: Option<&Value>,
     ) -> AppResult<Value> {
-        self.api_post::<Value, Value>(path, access_token, body).await
+        self.api_post::<Value, Value>(path, access_token, body)
+            .await
     }
 
     pub async fn api_put<B: serde::Serialize, T: DeserializeOwned>(
@@ -283,7 +284,13 @@ impl ScClient {
 
         if self.inner.proxy_fallback {
             match self
-                .send(method.clone(), target_url, headers.clone(), body.clone(), false)
+                .send(
+                    method.clone(),
+                    target_url,
+                    headers.clone(),
+                    body.clone(),
+                    false,
+                )
                 .await
             {
                 Ok(r) => return Ok(r),
@@ -343,11 +350,13 @@ impl ScClient {
             let body: Value = if bytes.is_empty() {
                 Value::Null
             } else {
-                serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-                    Value::String(String::from_utf8_lossy(&bytes).into_owned())
-                })
+                serde_json::from_slice(&bytes)
+                    .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
             };
-            return Err(AppError::ScApi { status: status.as_u16(), body });
+            return Err(AppError::ScApi {
+                status: status.as_u16(),
+                body,
+            });
         }
 
         Ok(bytes)

@@ -163,7 +163,11 @@ impl FeaturedService {
         Ok(())
     }
 
-    pub async fn pick(&self, session_id: &str, sc_user_id: &str) -> AppResult<Option<FeaturedResult>> {
+    pub async fn pick(
+        &self,
+        session_id: &str,
+        sc_user_id: &str,
+    ) -> AppResult<Option<FeaturedResult>> {
         let items: Vec<FeaturedItem> = sqlx::query_as(
             r#"SELECT id, "type", sc_urn, weight, active, created_at FROM featured_items WHERE active = true"#,
         )
@@ -215,23 +219,34 @@ impl FeaturedService {
                         }
                     }
                 }
-                Ok(FeaturedResult { type_: "track".into(), data: track })
+                Ok(FeaturedResult {
+                    type_: "track".into(),
+                    data: track,
+                })
             }
             "playlist" => {
                 let playlist: Value = self
                     .sc
                     .api_get_value(&format!("/playlists/{}", item.sc_urn), token, None)
                     .await?;
-                Ok(FeaturedResult { type_: "playlist".into(), data: playlist })
+                Ok(FeaturedResult {
+                    type_: "playlist".into(),
+                    data: playlist,
+                })
             }
             "user" => {
                 let user: Value = self
                     .sc
                     .api_get_value(&format!("/users/{}", item.sc_urn), token, None)
                     .await?;
-                Ok(FeaturedResult { type_: "user".into(), data: user })
+                Ok(FeaturedResult {
+                    type_: "user".into(),
+                    data: user,
+                })
             }
-            other => Err(AppError::internal(format!("unknown featured type: {other}"))),
+            other => Err(AppError::internal(format!(
+                "unknown featured type: {other}"
+            ))),
         }
     }
 }

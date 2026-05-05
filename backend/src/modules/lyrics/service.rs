@@ -19,7 +19,8 @@ use crate::modules::lyrics::lrclib::LrclibService;
 use crate::modules::lyrics::musixmatch::MusixmatchService;
 use crate::modules::lyrics::netease::NeteaseService;
 use crate::modules::lyrics::util::{
-    canon_meta, detect_language_heuristic, heuristic_queries, pick_lyrics_text, strip_lrc_timestamps,
+    canon_meta, detect_language_heuristic, heuristic_queries, pick_lyrics_text,
+    strip_lrc_timestamps,
 };
 use crate::modules::lyrics::worker_client::{RankCandidate, WorkerClient};
 use crate::modules::transcode::TranscodeTriggerService;
@@ -39,10 +40,35 @@ const INFLIGHT_CAPACITY: u64 = 4096;
 const INFLIGHT_TTL: Duration = Duration::from_secs(5 * 60);
 
 const STOPWORDS: &[&str] = &[
-    "feat", "ft", "featuring", "prod", "remix", "edit", "version", "mix", "cover", "live",
-    "acoustic", "instrumental", "original", "official", "audio", "video", "lyrics", "lyric",
-    "sped", "slowed", "nightcore", "reverb", "extended", "radio", "clean", "explicit", "hd",
-    "hq", "mv",
+    "feat",
+    "ft",
+    "featuring",
+    "prod",
+    "remix",
+    "edit",
+    "version",
+    "mix",
+    "cover",
+    "live",
+    "acoustic",
+    "instrumental",
+    "original",
+    "official",
+    "audio",
+    "video",
+    "lyrics",
+    "lyric",
+    "sped",
+    "slowed",
+    "nightcore",
+    "reverb",
+    "extended",
+    "radio",
+    "clean",
+    "explicit",
+    "hd",
+    "hq",
+    "mv",
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,7 +175,10 @@ impl LyricsService {
                         .get("sc_track_id")
                         .and_then(|v| v.as_str())
                         .map(String::from);
-                    let skipped = data.get("skipped").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let skipped = data
+                        .get("skipped")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     let Some(id) = sc_track_id else { return Ok(()) };
                     if skipped {
                         return Ok(());
@@ -190,7 +219,10 @@ impl LyricsService {
         });
     }
 
-    pub async fn ensure_lyrics(self: &Arc<Self>, sc_track_id_raw: &str) -> AppResult<LyricsResponse> {
+    pub async fn ensure_lyrics(
+        self: &Arc<Self>,
+        sc_track_id_raw: &str,
+    ) -> AppResult<LyricsResponse> {
         let sc_track_id = normalize(sc_track_id_raw);
 
         let cached: Option<LyricsCacheRow> =
@@ -200,7 +232,9 @@ impl LyricsService {
                 .await?;
         if let Some(row) = cached {
             if row.embedded_at.is_none() {
-                if let Some(text) = pick_lyrics_text(row.plain_text.as_deref(), row.synced_lrc.as_deref()) {
+                if let Some(text) =
+                    pick_lyrics_text(row.plain_text.as_deref(), row.synced_lrc.as_deref())
+                {
                     if text.len() > 30 {
                         let svc = self.clone();
                         let row_clone = row.clone();
@@ -229,7 +263,9 @@ impl LyricsService {
         }
 
         let hints = self.load_hints_from_db(&sc_track_id).await?;
-        let result = self.run_pipeline(Some(sc_track_id.as_str()), &hints, true).await?;
+        let result = self
+            .run_pipeline(Some(sc_track_id.as_str()), &hints, true)
+            .await?;
         *guard = Some(result.clone());
         let id = sc_track_id.clone();
         let cache = self.inflight.clone();
@@ -286,7 +322,9 @@ impl LyricsService {
             return Ok(empty_response(sc_track_id));
         }
 
-        let picked = self.find_lyrics(&log_id, artist, title, duration_sec).await?;
+        let picked = self
+            .find_lyrics(&log_id, artist, title, duration_sec)
+            .await?;
         if picked.plain_text.is_none() && picked.synced_lrc.is_none() {
             info!(log_id = %log_id, "no lyrics found — not caching");
             return Ok(empty_response(sc_track_id));
@@ -356,11 +394,18 @@ impl LyricsService {
 
         let title = title_db.or(title_raw).unwrap_or_default();
         let artist = artist_pub.or(artist_user).unwrap_or_default();
-        let dur_ms = duration_ms_db.map(|v| v as i64).or(duration_raw).unwrap_or(0);
+        let dur_ms = duration_ms_db
+            .map(|v| v as i64)
+            .or(duration_raw)
+            .unwrap_or(0);
         Ok(LyricsHints {
             title,
             artist,
-            duration_sec: if dur_ms > 0 { Some((dur_ms as f64 / 1000.0).round() as i64) } else { None },
+            duration_sec: if dur_ms > 0 {
+                Some((dur_ms as f64 / 1000.0).round() as i64)
+            } else {
+                None
+            },
         })
     }
 
@@ -382,10 +427,13 @@ impl LyricsService {
             return Ok(pick);
         }
 
-        let llm_queries = self.worker.generate_search_queries(artist, title).await.unwrap_or_default();
+        let llm_queries = self
+            .worker
+            .generate_search_queries(artist, title)
+            .await
+            .unwrap_or_default();
         info!(log_id, queries = ?llm_queries, "[stage2] queries");
-        let heur_lower: HashSet<String> =
-            heuristics.iter().map(|q| q.to_lowercase()).collect();
+        let heur_lower: HashSet<String> = heuristics.iter().map(|q| q.to_lowercase()).collect();
         let new_queries: Vec<String> = llm_queries
             .iter()
             .filter(|q| !heur_lower.contains(&q.trim().to_lowercase()))
@@ -393,7 +441,14 @@ impl LyricsService {
             .collect();
         if !new_queries.is_empty() {
             if let Some(pick) = self
-                .search_and_pick(&llm_queries, artist, title, duration_sec, log_id, "[stage2]")
+                .search_and_pick(
+                    &llm_queries,
+                    artist,
+                    title,
+                    duration_sec,
+                    log_id,
+                    "[stage2]",
+                )
                 .await?
             {
                 return Ok(pick);
@@ -422,18 +477,15 @@ impl LyricsService {
         stage: &str,
     ) -> AppResult<Option<Candidate>> {
         let raw = self.fanout_search(queries).await;
-        info!(
-            stage,
-            sc_track_id,
-            count = raw.len(),
-            "raw candidates"
-        );
+        info!(stage, sc_track_id, count = raw.len(), "raw candidates");
         let candidates = self.filter_by_metadata(raw, artist, title, duration_sec, sc_track_id);
         if candidates.is_empty() {
             info!(stage, sc_track_id, "no candidates survived metadata filter");
             return Ok(None);
         }
-        if let Some(exact) = self.pick_exact_match(&candidates, queries, artist, title, sc_track_id, stage) {
+        if let Some(exact) =
+            self.pick_exact_match(&candidates, queries, artist, title, sc_track_id, stage)
+        {
             return Ok(Some(exact));
         }
         let rank_cands: Vec<RankCandidate> = candidates
@@ -564,7 +616,11 @@ impl LyricsService {
     async fn fanout_search(&self, queries: &[String]) -> Vec<Candidate> {
         let mut seen = HashSet::new();
         let mut unique: Vec<String> = Vec::new();
-        for q in queries.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        for q in queries
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
             if seen.insert(q.clone()) {
                 unique.push(q);
             }
@@ -745,7 +801,9 @@ impl LyricsService {
             }
         };
         let Some(res) = result else { return Ok(()) };
-        let Some(synced) = res.synced_lrc else { return Ok(()) };
+        let Some(synced) = res.synced_lrc else {
+            return Ok(());
+        };
         sqlx::query("UPDATE lyrics_cache SET synced_lrc = $2 WHERE sc_track_id = $1")
             .bind(&entity.sc_track_id)
             .bind(&synced)
@@ -755,7 +813,11 @@ impl LyricsService {
         Ok(())
     }
 
-    async fn full_transcribe(self: &Arc<Self>, sc_track_id: &str, storage_url: &str) -> AppResult<()> {
+    async fn full_transcribe(
+        self: &Arc<Self>,
+        sc_track_id: &str,
+        storage_url: &str,
+    ) -> AppResult<()> {
         let result = match self.worker.transcribe_audio(storage_url, None, None).await {
             Ok(r) => r,
             Err(e) => {
@@ -802,9 +864,11 @@ impl LyricsService {
             }
         };
         if lang.is_none() {
-            lang = detect_language_heuristic(text).map(|h| crate::modules::lyrics::worker_client::LangResult {
-                language: h.language,
-                confidence: h.confidence,
+            lang = detect_language_heuristic(text).map(|h| {
+                crate::modules::lyrics::worker_client::LangResult {
+                    language: h.language,
+                    confidence: h.confidence,
+                }
             });
             if let Some(l) = &lang {
                 info!(track = %entity.sc_track_id, language = %l.language, confidence = l.confidence, "detectLanguage heuristic");
@@ -846,7 +910,8 @@ impl LyricsService {
     }
 
     async fn reap_whisper(self: &Arc<Self>) -> AppResult<()> {
-        let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
+        let cutoff =
+            chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
 
         let need_align: Vec<(String,)> = sqlx::query_as(
             "SELECT sc_track_id FROM lyrics_cache \
@@ -873,7 +938,11 @@ impl LyricsService {
         if total == 0 {
             return Ok(());
         }
-        info!(align = need_align.len(), full = need_full.len(), "[lyrics-reap] retrying whisper");
+        info!(
+            align = need_align.len(),
+            full = need_full.len(),
+            "[lyrics-reap] retrying whisper"
+        );
         for (id,) in need_align.into_iter().chain(need_full.into_iter()) {
             self.trigger.trigger(&id);
         }
@@ -881,7 +950,8 @@ impl LyricsService {
     }
 
     async fn reap_embeds(self: &Arc<Self>) -> AppResult<()> {
-        let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
+        let cutoff =
+            chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
         let stuck: Vec<LyricsCacheRow> = sqlx::query_as(
             "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at, created_at FROM lyrics_cache \
              WHERE embedded_at IS NULL AND created_at < $1 \
@@ -897,7 +967,10 @@ impl LyricsService {
         }
         info!(count = stuck.len(), "[lyrics-reap] re-publishing embed");
         for row in stuck {
-            let Some(text) = pick_lyrics_text(row.plain_text.as_deref(), row.synced_lrc.as_deref()) else { continue };
+            let Some(text) = pick_lyrics_text(row.plain_text.as_deref(), row.synced_lrc.as_deref())
+            else {
+                continue;
+            };
             if text.len() <= 30 {
                 continue;
             }
@@ -936,10 +1009,12 @@ fn to_response(row: &LyricsCacheRow) -> LyricsResponse {
 }
 
 fn build_snippet(c: &Candidate) -> String {
-    let text = c
-        .plain_text
-        .clone()
-        .unwrap_or_else(|| c.synced_lrc.as_deref().map(strip_lrc_timestamps).unwrap_or_default());
+    let text = c.plain_text.clone().unwrap_or_else(|| {
+        c.synced_lrc
+            .as_deref()
+            .map(strip_lrc_timestamps)
+            .unwrap_or_default()
+    });
     let guess = if c.artist_guess.is_some() || c.title_guess.is_some() {
         format!(
             "({} — {}) ",

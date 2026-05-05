@@ -57,10 +57,7 @@ async fn login_status(
 }
 
 #[tracing::instrument(skip(state))]
-async fn callback(
-    State(state): State<AppState>,
-    Query(q): Query<CallbackQuery>,
-) -> Response {
+async fn callback(State(state): State<AppState>, Query(q): Query<CallbackQuery>) -> Response {
     let html = match state.auth.handle_callback(&q.code, &q.state).await {
         Ok(result) => {
             let login_id = result.login_request_id.map(|u| u.to_string());

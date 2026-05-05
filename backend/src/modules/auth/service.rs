@@ -79,11 +79,10 @@ impl AuthService {
     }
 
     pub async fn get_session(&self, session_id: Uuid) -> AppResult<Option<Session>> {
-        let row: Option<Session> =
-            sqlx::query_as("SELECT * FROM sessions WHERE id = $1")
-                .bind(session_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<Session> = sqlx::query_as("SELECT * FROM sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(row)
     }
 
@@ -131,7 +130,9 @@ impl AuthService {
         if session.refresh_token.is_empty() {
             return Err(AppError::unauthorized("No refresh token available"));
         }
-        let creds = self.get_credentials_for_app(session.oauth_app_id.as_deref()).await?;
+        let creds = self
+            .get_credentials_for_app(session.oauth_app_id.as_deref())
+            .await?;
 
         let token = match self
             .sc
@@ -152,8 +153,7 @@ impl AuthService {
         } else {
             token.refresh_token.clone()
         };
-        let new_expires =
-            (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc();
+        let new_expires = (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc();
         let new_scope = if token.scope.is_empty() {
             session.scope.clone()
         } else {
@@ -352,11 +352,14 @@ impl AuthService {
     async fn do_callback_work(&self, lr: LoginRequest, code: String) -> AppResult<()> {
         let now = Utc::now().naive_utc();
         if lr.expires_at < now {
-            self.mark_request_failed(lr.id, "Login request expired").await?;
+            self.mark_request_failed(lr.id, "Login request expired")
+                .await?;
             return Ok(());
         }
 
-        let creds = self.get_credentials_for_app(lr.oauth_app_id.as_deref()).await?;
+        let creds = self
+            .get_credentials_for_app(lr.oauth_app_id.as_deref())
+            .await?;
         let token = match self
             .sc
             .exchange_code_for_token(&code, &lr.code_verifier, &creds)
@@ -396,8 +399,7 @@ impl AuthService {
             warn!(request = %lr.id, error = %e, "Failed to advance step to session");
         }
 
-        let expires_at =
-            (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc();
+        let expires_at = (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc();
         let scope = token.scope.clone();
 
         let session: Session = if let Some(target) = lr.target_session_id {
@@ -421,10 +423,14 @@ impl AuthService {
             .await?;
             match updated {
                 Some(s) => s,
-                None => self.insert_session(&token, expires_at, &scope, &me, &lr.oauth_app_id).await?,
+                None => {
+                    self.insert_session(&token, expires_at, &scope, &me, &lr.oauth_app_id)
+                        .await?
+                }
             }
         } else {
-            self.insert_session(&token, expires_at, &scope, &me, &lr.oauth_app_id).await?
+            self.insert_session(&token, expires_at, &scope, &me, &lr.oauth_app_id)
+                .await?
         };
 
         sqlx::query(
@@ -475,13 +481,11 @@ impl AuthService {
     }
 
     async fn mark_request_failed(&self, id: Uuid, err: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE login_requests SET status = 'failed', error = $2 WHERE id = $1",
-        )
-        .bind(id)
-        .bind(err)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE login_requests SET status = 'failed', error = $2 WHERE id = $1")
+            .bind(id)
+            .bind(err)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

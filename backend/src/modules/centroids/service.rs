@@ -76,7 +76,10 @@ impl CentroidService {
                 if let Ok(mut g) = self.cache.write() {
                     g.insert(
                         collection.to_string(),
-                        CentroidEntry { vector: None, points_count: 0 },
+                        CentroidEntry {
+                            vector: None,
+                            points_count: 0,
+                        },
                     );
                 }
                 warn!(collection, "centroid: empty collection");
@@ -108,20 +111,21 @@ impl CentroidService {
             if let Some(off) = offset.clone() {
                 builder = builder.offset(off);
             }
-            let resp = self
-                .qdrant
-                .raw()
-                .scroll(builder)
-                .await
-                .map_err(|e| crate::error::AppError::internal(format!("qdrant scroll {collection}: {e}")))?;
+            let resp = self.qdrant.raw().scroll(builder).await.map_err(|e| {
+                crate::error::AppError::internal(format!("qdrant scroll {collection}: {e}"))
+            })?;
 
             if resp.result.is_empty() {
                 break;
             }
 
             for point in &resp.result {
-                let Some(vectors) = &point.vectors else { continue };
-                let Some(VectorsOptions::Vector(vec)) = &vectors.vectors_options else { continue };
+                let Some(vectors) = &point.vectors else {
+                    continue;
+                };
+                let Some(VectorsOptions::Vector(vec)) = &vectors.vectors_options else {
+                    continue;
+                };
                 if vec.data.is_empty() {
                     continue;
                 }
@@ -148,7 +152,11 @@ impl CentroidService {
         }
 
         let mut mean: Vec<f32> = acc.iter().map(|v| (v / count as f64) as f32).collect();
-        let norm = mean.iter().map(|x| (*x as f64) * (*x as f64)).sum::<f64>().sqrt() as f32;
+        let norm = mean
+            .iter()
+            .map(|x| (*x as f64) * (*x as f64))
+            .sum::<f64>()
+            .sqrt() as f32;
         if norm > 0.0 {
             for v in &mut mean {
                 *v /= norm;
@@ -158,7 +166,10 @@ impl CentroidService {
         if let Ok(mut g) = self.cache.write() {
             g.insert(
                 collection.to_string(),
-                CentroidEntry { vector: Some(mean), points_count: count },
+                CentroidEntry {
+                    vector: Some(mean),
+                    points_count: count,
+                },
             );
         }
         Ok((count, dim))
@@ -193,11 +204,14 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 }
 
 pub fn normalize(v: &mut [f32]) {
-    let norm = v.iter().map(|x| (*x as f64) * (*x as f64)).sum::<f64>().sqrt() as f32;
+    let norm = v
+        .iter()
+        .map(|x| (*x as f64) * (*x as f64))
+        .sum::<f64>()
+        .sqrt() as f32;
     if norm > 0.0 {
         for x in v {
             *x /= norm;
         }
     }
 }
-

@@ -95,7 +95,9 @@ impl CollabTrainerService {
         }
         info!("[collab.bootstrap] tracks_collab missing, triggering initial train");
         match self.train_now(None, None).await {
-            Ok(res) => info!(enqueued = res.enqueued, sessions = res.sessions, reason = ?res.reason, "[collab.bootstrap] result"),
+            Ok(res) => {
+                info!(enqueued = res.enqueued, sessions = res.sessions, reason = ?res.reason, "[collab.bootstrap] result")
+            }
             Err(e) => warn!(error = %e, "[collab.bootstrap] failed"),
         }
     }
@@ -167,9 +169,7 @@ impl CollabTrainerService {
         let min_count = min_count_override.unwrap_or(self.cfg.min_count);
         info!(
             sessions = sessions.len(),
-            dim,
-            min_count,
-            "[collab.train] enqueuing"
+            dim, min_count, "[collab.train] enqueuing"
         );
         let payload = json!({
             "sessions": sessions,
@@ -181,13 +181,17 @@ impl CollabTrainerService {
         });
         self.nats.publish(subjects::TRAIN_COLLAB, &payload).await?;
         self.collab.invalidate_all();
-        self.last_train_at_ms.store(Utc::now().timestamp_millis(), Ordering::Relaxed);
-        Ok(TrainResult { enqueued: true, sessions: sessions.len(), reason: None })
+        self.last_train_at_ms
+            .store(Utc::now().timestamp_millis(), Ordering::Relaxed);
+        Ok(TrainResult {
+            enqueued: true,
+            sessions: sessions.len(),
+            reason: None,
+        })
     }
 
     async fn build_sessions(&self) -> AppResult<Vec<Vec<u64>>> {
-        let since = Utc::now().naive_utc()
-            - chrono::Duration::days(HISTORY_WINDOW_DAYS);
+        let since = Utc::now().naive_utc() - chrono::Duration::days(HISTORY_WINDOW_DAYS);
         let rows: Vec<(String, String, chrono::NaiveDateTime, String)> = sqlx::query_as(
             "SELECT sc_user_id, sc_track_id, created_at, event_type FROM user_events \
              WHERE created_at >= $1 \
@@ -224,7 +228,9 @@ impl CollabTrainerService {
             if !session_set.contains(event_type.as_str()) {
                 continue;
             }
-            let Ok(tid) = sc_track_id.parse::<u64>() else { continue };
+            let Ok(tid) = sc_track_id.parse::<u64>() else {
+                continue;
+            };
             let ts_ms = created_at.and_utc().timestamp_millis();
 
             match &current_user {
