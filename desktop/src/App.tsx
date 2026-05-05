@@ -73,7 +73,7 @@ export default function App() {
     });
   }, []);
   const appMode = useAppStatusStore((s) =>
-    !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
+    s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
   const hasLocalSession = Boolean(sessionId);
   const canUseMainShell = isAuthenticated || hasLocalSession;

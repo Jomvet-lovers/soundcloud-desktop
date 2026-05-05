@@ -15,6 +15,8 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Search,
+  X,
 } from '../lib/icons';
 import { getOfflineLikedTracks, getOfflineTracksByUrns } from '../lib/offline-index';
 import { useAppStatusStore } from '../stores/app-status';
@@ -46,10 +48,59 @@ function buildPlayableQueue(tracks: Track[], cachedUrns: Set<string>) {
   return tracks.filter((track) => cachedUrns.has(track.urn));
 }
 
+function normalizeQuery(q: string): string {
+  return q.trim().toLowerCase();
+}
+
+function filterTracks(tracks: Track[], query: string): Track[] {
+  if (!query) return tracks;
+  return tracks.filter((track) => {
+    const title = track.title?.toLowerCase() ?? '';
+    if (title.includes(query)) return true;
+    const username = track.user?.username?.toLowerCase() ?? '';
+    return username.includes(query);
+  });
+}
+
+const OfflineSearchBar = React.memo(function OfflineSearchBar({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="group relative overflow-hidden rounded-[22px] border border-white/[0.10] bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02)_55%,rgba(255,255,255,0.05))] p-[1px] shadow-[0_18px_50px_rgba(0,0,0,0.30)] backdrop-blur-[36px] transition-colors focus-within:border-white/[0.18]">
+      <div className="pointer-events-none absolute inset-0 rounded-[22px] bg-[radial-gradient(ellipse_at_top_left,rgba(255,255,255,0.14),transparent_55%)]" />
+      <div className="relative flex items-center gap-3 rounded-[21px] bg-black/35 px-4 py-2.5 backdrop-blur-[36px]">
+        <Search size={15} className="text-white/40" strokeWidth={1.8} />
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={t('offline.searchPlaceholder')}
+          className="w-full bg-transparent text-[13.5px] font-medium text-white/90 placeholder:text-white/30 focus:outline-none"
+          aria-label={t('offline.searchPlaceholder')}
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/55 transition-colors hover:border-white/20 hover:bg-white/[0.10] hover:text-white/85"
+            aria-label="clear"
+          >
+            <X size={12} strokeWidth={2.2} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
 const StatusBadge = React.memo(function StatusBadge() {
   const { t } = useTranslation();
   const mode = useAppStatusStore((s) =>
-    !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
+    s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
 
   const config = {
@@ -424,13 +475,14 @@ export const OfflinePage = React.memo(() => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const appMode = useAppStatusStore((s) =>
-    !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
+    s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
   const [state, setState] = useState<OfflineLibraryState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [pendingStats, setPendingStats] = useState<PendingStats>(EMPTY_STATS);
   const [syncing, setSyncing] = useState(false);
   const [activeSection, setActiveSection] = useState<OfflineSectionKey>('likes');
+  const [search, setSearch] = useState('');
   const bgFetchDone = useRef(false);
 
   useEffect(() => {
@@ -560,6 +612,16 @@ export const OfflinePage = React.memo(() => {
     [state.cachedUrns, state.likedTracks],
   );
 
+  const normalizedQuery = useMemo(() => normalizeQuery(search), [search]);
+  const filteredLikes = useMemo(
+    () => filterTracks(state.likedTracks, normalizedQuery),
+    [state.likedTracks, normalizedQuery],
+  );
+  const filteredCached = useMemo(
+    () => filterTracks(state.cachedTracks, normalizedQuery),
+    [state.cachedTracks, normalizedQuery],
+  );
+
   const statusTitle = useMemo(() => {
     if (appMode === 'offline') return t('offline.offlineTitle');
     return t('offline.readyTitle');
@@ -672,13 +734,15 @@ export const OfflinePage = React.memo(() => {
               />
             </div>
 
+            <OfflineSearchBar value={search} onChange={setSearch} />
+
             {activeSection === 'likes' ? (
               <OfflineSection
                 icon={<Heart size={18} />}
                 title={t('offline.likesTitle')}
-                items={state.likedTracks}
+                items={filteredLikes}
                 cachedUrns={state.cachedUrns}
-                emptyText={t('offline.likesEmpty')}
+                emptyText={normalizedQuery ? t('offline.searchEmpty') : t('offline.likesEmpty')}
                 likesMode
                 tone="likes"
               />
@@ -686,9 +750,9 @@ export const OfflinePage = React.memo(() => {
               <OfflineSection
                 icon={<Download size={18} />}
                 title={t('offline.cachedTitle')}
-                items={state.cachedTracks}
+                items={filteredCached}
                 cachedUrns={state.cachedUrns}
-                emptyText={t('offline.cachedEmpty')}
+                emptyText={normalizedQuery ? t('offline.searchEmpty') : t('offline.cachedEmpty')}
                 tone="cached"
               />
             )}

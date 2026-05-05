@@ -1102,6 +1102,53 @@ impl TrackCacheState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    fn liked_has_file(&self, urn: &str) -> bool {
+        let path = self.liked_file_path(urn);
+        std::fs::metadata(&path)
+            .map(|m| m.len() >= MIN_AUDIO_SIZE)
+            .unwrap_or(false)
+    }
+
+    /// If the track lives only in the regular audio cache, move it to the
+    /// protected `liked_dir`. Tries an atomic rename first and falls back to
+    /// copy+remove when the dirs are on different filesystems.
+    /// Returns `true` when the track ends up in `liked_dir`.
+    async fn promote_to_liked(&self, urn: &str) -> bool {
+        if self.liked_has_file(urn) {
+            return true;
+        }
+        let audio = self.file_path(urn);
+        if !std::fs::metadata(&audio)
+            .map(|m| m.len() >= MIN_AUDIO_SIZE)
+            .unwrap_or(false)
+        {
+            return false;
+        }
+
+        let liked = self.liked_file_path(urn);
+        let audio_meta = cache_metadata_path(&audio);
+        let liked_meta = cache_metadata_path(&liked);
+
+        if tokio::fs::rename(&audio, &liked).await.is_ok() {
+            tokio::fs::rename(&audio_meta, &liked_meta).await.ok();
+            return true;
+        }
+
+        let bytes = match tokio::fs::read(&audio).await {
+            Ok(bytes) => bytes,
+            Err(_) => return false,
+        };
+        if tokio::fs::write(&liked, &bytes).await.is_err() {
+            return false;
+        }
+        if let Ok(meta_bytes) = tokio::fs::read(&audio_meta).await {
+            tokio::fs::write(&liked_meta, &meta_bytes).await.ok();
+            tokio::fs::remove_file(&audio_meta).await.ok();
+        }
+        tokio::fs::remove_file(&audio).await.ok();
+        true
+    }
+
     pub fn cancel_cache_likes(&self) {
         self.likes_cancel
             .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1143,7 +1190,21 @@ impl TrackCacheState {
                 break;
             }
 
-            if self.is_cached(&entry.urn) {
+            if self.liked_has_file(&entry.urn) {
+                skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.emit_likes_progress(
+                    "progress",
+                    total,
+                    done.load(std::sync::atomic::Ordering::Relaxed),
+                    failed.load(std::sync::atomic::Ordering::Relaxed),
+                    skipped.load(std::sync::atomic::Ordering::Relaxed),
+                    Some(&entry.urn),
+                );
+                continue;
+            }
+
+            if self.promote_to_liked(&entry.urn).await {
                 skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 self.emit_likes_progress(

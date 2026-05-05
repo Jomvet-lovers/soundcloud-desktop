@@ -30,7 +30,11 @@
     "signingIn": "Yetkilendirme bekleniyor...",
     "signOut": "Cikis Yap",
     "copyLink": "Baglantiyi kopyala",
-    "copied": "Kopyalandi!"
+    "copied": "Kopyalandi!",
+    "tagline": "Muziginiz, sizin tarzinizda",
+    "orSeparator": "veya",
+    "continueOffline": "Giris yapmadan devam et",
+    "continueOfflineDesc": "Yerel kutuphanenizdeki indirilmis parcalari ve begenileri dinleyin"
   },
   "reauth": {
     "title": "Oturum Suresi Doldu",
@@ -211,7 +215,9 @@
     "notCached": "Indirilmedi",
     "pendingCount": "{{count}} bekliyor",
     "failedCount": "{{count}} basarisiz",
-    "syncNow": "Simdi esitle"
+    "syncNow": "Simdi esitle",
+    "searchPlaceholder": "Baslik veya sanatci ara",
+    "searchEmpty": "Hicbir sey bulunamadi"
   },
   "settings": {
     "title": "Ayarlar",

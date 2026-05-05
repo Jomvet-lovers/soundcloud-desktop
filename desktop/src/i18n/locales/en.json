@@ -46,7 +46,11 @@
     "stepWaiting": "Waiting for SoundCloud authorization",
     "stepToken": "Exchanging authorization code",
     "stepProfile": "Fetching your profile",
-    "stepSession": "Finalizing session"
+    "stepSession": "Finalizing session",
+    "tagline": "Your music, your way",
+    "orSeparator": "or",
+    "continueOffline": "Continue without signing in",
+    "continueOfflineDesc": "Listen to downloaded tracks and likes from your local library"
   },
   "reauth": {
     "title": "Session Expired",
@@ -245,7 +249,9 @@
     "notCached": "Not cached",
     "pendingCount": "{{count}} pending",
     "failedCount": "{{count}} failed",
-    "syncNow": "Sync now"
+    "syncNow": "Sync now",
+    "searchPlaceholder": "Search by title or artist",
+    "searchEmpty": "Nothing matches your search"
   },
   "settings": {
     "title": "Settings",

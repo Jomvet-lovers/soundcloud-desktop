@@ -40,7 +40,7 @@ export const Sidebar = React.memo(() => {
   const { t, i18n } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const appMode = useAppStatusStore((s) =>
-    !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
+    s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
   const { collapsed, pinnedPlaylists, toggleSidebar } = useSettingsStore(
     useShallow((s) => ({
