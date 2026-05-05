@@ -179,11 +179,14 @@ services:
   backend:
     build:
       context: ./backend
+      additional_contexts:
+        tls-common: ./tls-common
     restart: unless-stopped
     stop_grace_period: 5s
     ports:
-      - "3000:80"
+      - "3000:3000"
     environment:
+      PORT: 3000
       SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID}
       SOUNDCLOUD_CLIENT_SECRET: ${SOUNDCLOUD_CLIENT_SECRET}
       SOUNDCLOUD_REDIRECT_URI: ${SOUNDCLOUD_REDIRECT_URI:-http://localhost:3000/auth/callback}
@@ -196,8 +199,6 @@ services:
       DATABASE_NAME: soundcloud_desktop
       STREAMING_SERVICE_URL: http://streaming:8080
       SUBSCRIPTIONS_SNAPSHOT_DIR: /snapshots
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-dev}
       QDRANT_URL: http://qdrant:6333
       NATS_URL: nats://nats:4222
@@ -206,6 +207,7 @@ services:
       REDIS_URL: redis://redis:6379
       SOUNDWAVE_AUDIO_WEIGHT: ${SOUNDWAVE_AUDIO_WEIGHT:-0.7}
       SOUNDWAVE_LYRICS_WEIGHT: ${SOUNDWAVE_LYRICS_WEIGHT:-0.3}
+      RUST_LOG: ${RUST_LOG:-info,backend=debug,tower_http=info,sqlx=warn}
     volumes:
       - backend_snapshots:/snapshots
     depends_on:

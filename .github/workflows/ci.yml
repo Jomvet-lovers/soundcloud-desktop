@@ -20,27 +20,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
         with:
-          version: 10
+          components: clippy, rustfmt
 
-      - uses: actions/setup-node@v4
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: backend/pnpm-lock.yaml
+          workspaces: backend -> target
+          key: backend
 
-      - name: Install
+      - name: Format check
         working-directory: backend
-        run: pnpm install --frozen-lockfile
+        run: cargo fmt --check
 
-      - name: Check
+      - name: Clippy
         working-directory: backend
-        run: pnpm check
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Build
         working-directory: backend
-        run: pnpm build
+        run: cargo build --release
 
   # CI читает кэш с main, но НЕ пишет — иначе PR-билды затирают рабочий кэш.
   # cache-to остаётся только в auto-build.yml (release pipeline).

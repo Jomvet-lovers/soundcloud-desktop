@@ -1,0 +1,27 @@
+pub mod auth;
+pub mod centroids;
+pub mod collab;
+pub mod dislikes;
+pub mod events;
+pub mod featured;
+pub mod history;
+pub mod indexing;
+pub mod likes;
+pub mod local_likes;
+pub mod ltr;
+pub mod lyrics;
+pub mod me;
+pub mod oauth_apps;
+pub mod pending_actions;
+pub mod playlists;
+pub mod recommendations;
+pub mod reposts;
+pub mod resolve;
+pub mod subscriptions;
+pub mod tracks;
+pub mod transcode;
+pub mod user_taste;
+pub mod users;
+
+pub mod admin;
+pub mod health;
