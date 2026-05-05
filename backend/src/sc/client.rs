@@ -4,9 +4,10 @@ use std::time::Duration;
 use base64::Engine;
 use bytes::Bytes;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use reqwest::{Client, Method, Response, StatusCode};
+use reqwest::{Client, Method, StatusCode};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use tokio::sync::OnceCell;
 
 use crate::config::SoundcloudCfg;
 use crate::error::{AppError, AppResult};
@@ -22,6 +23,10 @@ pub struct OAuthCredentials {
     pub redirect_uri: String,
 }
 
+pub trait TrackObserver: Send + Sync {
+    fn observe(&self, body: Bytes, access_token: String);
+}
+
 #[derive(Clone)]
 pub struct ScClient {
     inner: Arc<Inner>,
@@ -31,6 +36,7 @@ struct Inner {
     http: Client,
     proxy_url: String,
     proxy_fallback: bool,
+    observer: OnceCell<Arc<dyn TrackObserver>>,
 }
 
 impl ScClient {
@@ -49,6 +55,7 @@ impl ScClient {
                 http,
                 proxy_url: cfg.proxy_url.clone(),
                 proxy_fallback: cfg.proxy_fallback,
+                observer: OnceCell::new(),
             }),
         })
     }
@@ -61,6 +68,9 @@ impl ScClient {
         &self.inner.http
     }
 
+    pub fn install_track_observer(&self, obs: Arc<dyn TrackObserver>) {
+        let _ = self.inner.observer.set(obs);
+    }
 
     pub async fn exchange_code_for_token(
         &self,
@@ -89,10 +99,10 @@ impl ScClient {
         );
 
         let url = format!("{AUTH_BASE}/oauth/token");
-        let resp = self
-            .with_fallback(Method::POST, &url, headers, Some(Bytes::from(body)))
+        let bytes = self
+            .with_fallback(Method::POST, &url, headers, Some(Bytes::from(body)), false)
             .await?;
-        Ok(json_body(resp).await?)
+        decode_json(&bytes)
     }
 
     pub async fn refresh_access_token(
@@ -119,10 +129,10 @@ impl ScClient {
         );
 
         let url = format!("{AUTH_BASE}/oauth/token");
-        let resp = self
-            .with_fallback(Method::POST, &url, headers, Some(Bytes::from(body)))
+        let bytes = self
+            .with_fallback(Method::POST, &url, headers, Some(Bytes::from(body)), false)
             .await?;
-        Ok(json_body(resp).await?)
+        decode_json(&bytes)
     }
 
     pub async fn sign_out(&self, access_token: &str) {
@@ -139,7 +149,7 @@ impl ScClient {
 
         let url = format!("{AUTH_BASE}/sign-out");
         if let Err(e) = self
-            .with_fallback(Method::POST, &url, headers, Some(Bytes::from(body)))
+            .with_fallback(Method::POST, &url, headers, Some(Bytes::from(body)), false)
             .await
         {
             tracing::debug!(error = %e, "sign-out call failed (ignored)");
@@ -154,10 +164,11 @@ impl ScClient {
     ) -> AppResult<T> {
         let url = build_api_url(path, params);
         let headers = auth_headers(access_token, false);
-        let resp = self
-            .with_fallback(Method::GET, &url, headers, None)
+        let bytes = self
+            .with_fallback(Method::GET, &url, headers, None, true)
             .await?;
-        json_body(resp).await
+        self.observe(&bytes, access_token);
+        decode_json(&bytes)
     }
 
     pub async fn api_get_value(
@@ -184,10 +195,11 @@ impl ScClient {
             ),
             None => Bytes::new(),
         };
-        let resp = self
-            .with_fallback(Method::POST, &url, headers, Some(payload))
+        let bytes = self
+            .with_fallback(Method::POST, &url, headers, Some(payload), true)
             .await?;
-        json_body(resp).await
+        self.observe(&bytes, access_token);
+        decode_json(&bytes)
     }
 
     pub async fn api_post_value(
@@ -214,10 +226,11 @@ impl ScClient {
             ),
             None => Bytes::new(),
         };
-        let resp = self
-            .with_fallback(Method::PUT, &url, headers, Some(payload))
+        let bytes = self
+            .with_fallback(Method::PUT, &url, headers, Some(payload), true)
             .await?;
-        json_body(resp).await
+        self.observe(&bytes, access_token);
+        decode_json(&bytes)
     }
 
     pub async fn api_put_value(
@@ -232,20 +245,26 @@ impl ScClient {
     pub async fn api_delete(&self, path: &str, access_token: &str) -> AppResult<Value> {
         let url = format!("{API_BASE}{path}");
         let headers = auth_headers(access_token, false);
-        let resp = self
-            .with_fallback(Method::DELETE, &url, headers, None)
+        let bytes = self
+            .with_fallback(Method::DELETE, &url, headers, None, true)
             .await?;
-        if resp.status() == StatusCode::NO_CONTENT {
-            return Ok(Value::Null);
-        }
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| AppError::ScUnreachable(e.to_string()))?;
         if bytes.is_empty() {
             return Ok(Value::Null);
         }
-        serde_json::from_slice(&bytes).map_err(|e| AppError::internal(format!("json decode: {e}")))
+        self.observe(&bytes, access_token);
+        match serde_json::from_slice::<Value>(&bytes) {
+            Ok(v) => Ok(v),
+            Err(_) => Ok(Value::String(String::from_utf8_lossy(&bytes).into_owned())),
+        }
+    }
+
+    fn observe(&self, bytes: &Bytes, access_token: &str) {
+        if access_token.is_empty() || bytes.is_empty() {
+            return;
+        }
+        if let Some(obs) = self.inner.observer.get() {
+            obs.observe(bytes.clone(), access_token.to_string());
+        }
     }
 
     async fn with_fallback(
@@ -254,10 +273,11 @@ impl ScClient {
         target_url: &str,
         headers: HeaderMap,
         body: Option<Bytes>,
-    ) -> AppResult<Response> {
+        api_call: bool,
+    ) -> AppResult<Bytes> {
         let proxy = &self.inner.proxy_url;
 
-        if proxy.is_empty() {
+        if proxy.is_empty() || !api_call {
             return self.send(method, target_url, headers, body, false).await;
         }
 
@@ -284,8 +304,8 @@ impl ScClient {
         headers: HeaderMap,
         body: Option<Bytes>,
         via_proxy: bool,
-    ) -> AppResult<Response> {
-        let (url, mut extra_headers) = if via_proxy {
+    ) -> AppResult<Bytes> {
+        let (url, mut extra_headers) = if via_proxy && !self.inner.proxy_url.is_empty() {
             let encoded = base64::engine::general_purpose::STANDARD.encode(target_url);
             let mut h = headers;
             h.insert(
@@ -314,11 +334,12 @@ impl ScClient {
             .map_err(|e| AppError::ScUnreachable(e.to_string()))?;
 
         let status = resp.status();
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| AppError::ScUnreachable(e.to_string()))?;
+
         if status.is_client_error() || status.is_server_error() {
-            let bytes = resp
-                .bytes()
-                .await
-                .map_err(|e| AppError::ScUnreachable(e.to_string()))?;
             let body: Value = if bytes.is_empty() {
                 Value::Null
             } else {
@@ -326,13 +347,10 @@ impl ScClient {
                     Value::String(String::from_utf8_lossy(&bytes).into_owned())
                 })
             };
-            return Err(AppError::ScApi {
-                status: status.as_u16(),
-                body,
-            });
+            return Err(AppError::ScApi { status: status.as_u16(), body });
         }
 
-        Ok(resp)
+        Ok(bytes)
     }
 }
 
@@ -369,16 +387,12 @@ fn build_api_url(path: &str, params: Option<&[(String, String)]>) -> String {
     }
 }
 
-async fn json_body<T: DeserializeOwned>(resp: Response) -> AppResult<T> {
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| AppError::ScUnreachable(e.to_string()))?;
+fn decode_json<T: DeserializeOwned>(bytes: &Bytes) -> AppResult<T> {
     if bytes.is_empty() {
         return serde_json::from_slice::<T>(b"null")
             .map_err(|e| AppError::internal(format!("empty body decode: {e}")));
     }
-    serde_json::from_slice(&bytes).map_err(|e| {
+    serde_json::from_slice(bytes).map_err(|e| {
         tracing::warn!(error = %e, "SC JSON decode failed");
         AppError::internal(format!("SC JSON decode: {e}"))
     })

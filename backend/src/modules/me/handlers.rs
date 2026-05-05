@@ -141,7 +141,7 @@ async fn follow_user(
     // Сбросить накопительный кэш me-followings этой сессии.
     if let Err(e) = st
         .list_cache
-        .invalidate_by_cache_keys(&["me-followings".to_string()], Some(&ctx.session_id.to_string()))
+        .invalidate_by_prefixes(&["me-followings"], Some(&ctx.session_id.to_string()))
         .await
     {
         tracing::warn!(error = %e, "list-cache invalidate failed");
@@ -157,7 +157,7 @@ async fn unfollow_user(
     let v = st.me.unfollow_user(&ctx.access_token, &user_urn).await?;
     if let Err(e) = st
         .list_cache
-        .invalidate_by_cache_keys(&["me-followings".to_string()], Some(&ctx.session_id.to_string()))
+        .invalidate_by_prefixes(&["me-followings"], Some(&ctx.session_id.to_string()))
         .await
     {
         tracing::warn!(error = %e, "list-cache invalidate failed");

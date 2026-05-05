@@ -185,6 +185,12 @@ async fn main() {
     );
     indexing.spawn(shutdown.clone());
 
+    let track_discovery = crate::modules::indexing::TrackDiscoveryService::new(
+        sc.clone(),
+        indexing.clone(),
+    );
+    sc.install_track_observer(track_discovery.clone());
+
     let s3_verifier = S3VerifierService::new(http_client.clone(), config.storage.url.clone(), pg.clone());
     let recommendations = RecommendationsService::new(
         qdrant.clone(),

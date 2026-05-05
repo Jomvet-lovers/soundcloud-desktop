@@ -144,6 +144,51 @@ impl ListCacheService {
         }
     }
 
+    pub async fn invalidate_by_prefixes(
+        &self,
+        prefixes: &[&str],
+        session_id: Option<&str>,
+    ) -> AppResult<()> {
+        if prefixes.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.redis.get().await?;
+        let mut patterns: Vec<String> = Vec::new();
+        for p in prefixes {
+            patterns.push(format!(
+                "{LIST_PREFIX}{}*",
+                Self::build_redis_key(p, CacheScope::Shared, None)
+            ));
+            if session_id.is_some() {
+                patterns.push(format!(
+                    "{LIST_PREFIX}{}*",
+                    Self::build_redis_key(p, CacheScope::User, session_id)
+                ));
+            }
+        }
+        for pattern in patterns {
+            let mut cursor: u64 = 0;
+            loop {
+                let (next, keys): (u64, Vec<String>) = deadpool_redis::redis::cmd("SCAN")
+                    .arg(cursor)
+                    .arg("MATCH")
+                    .arg(&pattern)
+                    .arg("COUNT")
+                    .arg(200)
+                    .query_async(&mut conn)
+                    .await?;
+                if !keys.is_empty() {
+                    let _: () = conn.del(keys).await?;
+                }
+                if next == 0 {
+                    break;
+                }
+                cursor = next;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn invalidate_by_cache_keys(
         &self,
         cache_keys: &[String],

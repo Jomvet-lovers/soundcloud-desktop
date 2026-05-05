@@ -39,10 +39,7 @@ async fn like_track(
         .await?;
     let _ = st
         .list_cache
-        .invalidate_by_cache_keys(
-            &["me-liked-tracks".into()],
-            Some(&ctx.session_id.to_string()),
-        )
+        .invalidate_by_prefixes(&["me-liked-tracks"], Some(&ctx.session_id.to_string()))
         .await;
     Ok((StatusCode::OK, Json(v)))
 }
@@ -63,10 +60,7 @@ async fn unlike_track(
         .await?;
     let _ = st
         .list_cache
-        .invalidate_by_cache_keys(
-            &["me-liked-tracks".into()],
-            Some(&ctx.session_id.to_string()),
-        )
+        .invalidate_by_prefixes(&["me-liked-tracks"], Some(&ctx.session_id.to_string()))
         .await;
     Ok(Json(v))
 }
@@ -83,7 +77,7 @@ async fn like_playlist(
     let session_id = ctx.session_id.to_string();
     let _ = st
         .list_cache
-        .invalidate_by_cache_keys(&["me-liked-playlists".into()], Some(&session_id))
+        .invalidate_by_prefixes(&["me-liked-playlists"], Some(&session_id))
         .await;
     let _ = st
         .cache
@@ -107,7 +101,7 @@ async fn unlike_playlist(
     let session_id = ctx.session_id.to_string();
     let _ = st
         .list_cache
-        .invalidate_by_cache_keys(&["me-liked-playlists".into()], Some(&session_id))
+        .invalidate_by_prefixes(&["me-liked-playlists"], Some(&session_id))
         .await;
     let _ = st
         .cache

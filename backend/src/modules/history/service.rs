@@ -1,22 +1,26 @@
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDateTime};
-use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Duration, NaiveDateTime, SecondsFormat, Utc};
+use serde::{Deserialize, Serialize, Serializer};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 
 use crate::error::AppResult;
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct ListeningHistory {
     pub id: Uuid,
+    #[serde(rename = "soundcloudUserId")]
     pub soundcloud_user_id: String,
+    #[serde(rename = "scTrackId")]
     pub sc_track_id: String,
     pub title: String,
     pub artist_name: String,
     pub artist_urn: Option<String>,
     pub artwork_url: Option<String>,
     pub duration: i32,
+    #[serde(serialize_with = "ts_iso")]
     pub played_at: NaiveDateTime,
 }
 
@@ -115,4 +119,9 @@ impl HistoryService {
             .await?;
         Ok(())
     }
+}
+
+pub fn ts_iso<S: Serializer>(dt: &NaiveDateTime, s: S) -> Result<S::Ok, S::Error> {
+    let utc = DateTime::<Utc>::from_naive_utc_and_offset(*dt, Utc);
+    s.serialize_str(&utc.to_rfc3339_opts(SecondsFormat::Millis, true))
 }

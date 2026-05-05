@@ -76,7 +76,7 @@ async fn create(
 ) -> AppResult<Json<Value>> {
     let v = st.playlists.create(&ctx.access_token, &ctx.session_id.to_string(), &body).await?;
     let _ = st.cache.clear_by_cache_keys(&["me-playlists".into()], Some(&ctx.session_id.to_string())).await;
-    let _ = st.list_cache.invalidate_by_cache_keys(&["me-playlists".into()], Some(&ctx.session_id.to_string())).await;
+    let _ = st.list_cache.invalidate_by_prefixes(&["me-playlists"], Some(&ctx.session_id.to_string())).await;
     Ok(Json(v))
 }
 
@@ -107,13 +107,13 @@ async fn update_playlist(
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
     let v = st.playlists.update(&ctx.access_token, &ctx.session_id.to_string(), &playlist_urn, &body).await?;
-    let keys = vec![
-        "me-playlists".into(),
-        format!("playlist-detail:{playlist_urn}"),
-        format!("playlist-tracks:{playlist_urn}"),
-    ];
-    let _ = st.cache.clear_by_cache_keys(&keys, Some(&ctx.session_id.to_string())).await;
-    let _ = st.list_cache.invalidate_by_cache_keys(&keys, Some(&ctx.session_id.to_string())).await;
+    let detail_key = format!("playlist-detail:{playlist_urn}");
+    let tracks_key = format!("playlist-tracks:{playlist_urn}");
+    let exact_keys = vec![detail_key.clone(), tracks_key.clone()];
+    let session_id = ctx.session_id.to_string();
+    let _ = st.cache.clear_by_cache_keys(&[exact_keys.clone(), vec!["me-playlists".into()]].concat(), Some(&session_id)).await;
+    let _ = st.list_cache.invalidate_by_cache_keys(&exact_keys, Some(&session_id)).await;
+    let _ = st.list_cache.invalidate_by_prefixes(&["me-playlists"], Some(&session_id)).await;
     Ok(Json(v))
 }
 
@@ -123,14 +123,16 @@ async fn delete_playlist(
     Path(playlist_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
     let v = st.playlists.delete(&ctx.access_token, &ctx.session_id.to_string(), &playlist_urn).await?;
-    let keys = vec![
-        "me-playlists".into(),
-        "me-liked-playlists".into(),
-        format!("playlist-detail:{playlist_urn}"),
-        format!("playlist-tracks:{playlist_urn}"),
-    ];
-    let _ = st.cache.clear_by_cache_keys(&keys, Some(&ctx.session_id.to_string())).await;
-    let _ = st.list_cache.invalidate_by_cache_keys(&keys, Some(&ctx.session_id.to_string())).await;
+    let detail_key = format!("playlist-detail:{playlist_urn}");
+    let tracks_key = format!("playlist-tracks:{playlist_urn}");
+    let exact_keys = vec![detail_key.clone(), tracks_key.clone()];
+    let session_id = ctx.session_id.to_string();
+    let _ = st.cache.clear_by_cache_keys(
+        &[exact_keys.clone(), vec!["me-playlists".into(), "me-liked-playlists".into()]].concat(),
+        Some(&session_id),
+    ).await;
+    let _ = st.list_cache.invalidate_by_cache_keys(&exact_keys, Some(&session_id)).await;
+    let _ = st.list_cache.invalidate_by_prefixes(&["me-playlists", "me-liked-playlists"], Some(&session_id)).await;
     Ok(Json(v))
 }
 
