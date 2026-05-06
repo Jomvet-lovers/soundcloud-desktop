@@ -6,7 +6,7 @@ use tracing::{debug, info, warn};
 
 use super::anon::{AnonClient, Transcoding};
 use super::hls::{download_hls_full, download_progressive};
-use super::proxy::{proxy_get_json, proxy_get_text};
+use super::proxy::{fetch_get_json, fetch_get_text};
 
 const FAILURE_THRESHOLD: u32 = 3;
 
@@ -201,7 +201,7 @@ impl CookiesClient {
         }
 
         let resp: ResolveResp =
-            proxy_get_json(&self.client, &self.proxy_url, &target, headers).await?;
+            fetch_get_json(&self.client, &self.proxy_url, &target, headers, false).await?;
 
         let mime = transcoding
             .format
@@ -221,6 +221,7 @@ impl CookiesClient {
                 &resp.url,
                 mime,
                 HashMap::new(),
+                false,
             )
             .await
         } else {
@@ -230,6 +231,7 @@ impl CookiesClient {
                 &resp.url,
                 mime,
                 HashMap::new(),
+                false,
             )
             .await
         }
@@ -243,9 +245,10 @@ impl CookiesClient {
         );
         headers.insert("Cookie".into(), self.cookies.clone());
 
-        let (html, _) = proxy_get_text(&self.client, &self.proxy_url, permalink_url, headers)
-            .await
-            .ok()?;
+        let (html, _) =
+            fetch_get_text(&self.client, &self.proxy_url, permalink_url, headers, false)
+                .await
+                .ok()?;
 
         extract_cookie_hydration_data(&html)
     }

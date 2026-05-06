@@ -42,6 +42,13 @@ struct Inner {
     relay: Option<Arc<RelayClient>>,
 }
 
+#[derive(Clone, Copy)]
+enum Channel {
+    Direct,
+    Proxy,
+    Relay,
+}
+
 impl ScClient {
     pub fn new(cfg: &SoundcloudCfg) -> Result<Self, reqwest::Error> {
         let http = Client::builder()
@@ -290,59 +297,190 @@ impl ScClient {
         body: Option<Bytes>,
         api_call: bool,
     ) -> AppResult<Bytes> {
-        let proxy = &self.inner.proxy_url;
+        let proxy_set = !self.inner.proxy_url.is_empty();
+        let relay_set = self.inner.relay.is_some();
+        let is_get = method == Method::GET;
+        let pf = self.inner.proxy_fallback;
 
-        if proxy.is_empty() || !api_call {
-            return self.send(method, target_url, headers, body, false).await;
+        if !proxy_set && !relay_set {
+            return self.send_direct(method, target_url, headers, body).await;
         }
 
-        if self.inner.proxy_fallback {
-            // direct → relay → proxy
-            match self
-                .send(
-                    method.clone(),
+        if !api_call {
+            // auth: direct → proxy → relay
+            return self
+                .try_chain(
+                    method,
                     target_url,
-                    headers.clone(),
-                    body.clone(),
-                    false,
+                    headers,
+                    body,
+                    &[Channel::Direct, Channel::Proxy, Channel::Relay],
+                )
+                .await;
+        }
+
+        if pf {
+            if is_get {
+                // direct → race(relay, proxy)
+                match self
+                    .send_direct(
+                        method.clone(),
+                        target_url,
+                        headers.clone(),
+                        body.clone(),
+                    )
+                    .await
+                {
+                    Ok(b) => return Ok(b),
+                    Err(e) => tracing::debug!(error = %e, "direct failed, racing relay&proxy"),
+                }
+                self.race_relay_proxy(method, target_url, headers, body)
+                    .await
+            } else {
+                self.try_chain(
+                    method,
+                    target_url,
+                    headers,
+                    body,
+                    &[Channel::Direct, Channel::Proxy, Channel::Relay],
                 )
                 .await
-            {
-                Ok(r) => return Ok(r),
-                Err(direct_err) => {
-                    tracing::debug!(error = %direct_err, "direct failed, trying relay");
-                    match self
-                        .send_via_relay(&method, target_url, &headers, body.as_ref())
-                        .await
-                    {
-                        Some(Ok(b)) => return Ok(b),
-                        Some(Err(e)) => return Err(e),
-                        None => {}
-                    }
-                    return self.send(method, target_url, headers, body, true).await;
-                }
             }
-        }
-
-        // relay → proxy
-        match self
-            .send_via_relay(&method, target_url, &headers, body.as_ref())
+        } else if is_get {
+            self.race_relay_proxy(method, target_url, headers, body)
+                .await
+        } else {
+            self.try_chain(
+                method,
+                target_url,
+                headers,
+                body,
+                &[Channel::Proxy, Channel::Relay],
+            )
             .await
-        {
-            Some(Ok(b)) => Ok(b),
-            Some(Err(e)) => Err(e),
-            None => self.send(method, target_url, headers, body, true).await,
         }
     }
 
-    async fn send_via_relay(
+    async fn try_chain(
         &self,
-        method: &Method,
+        method: Method,
         target_url: &str,
-        headers: &HeaderMap,
-        body: Option<&Bytes>,
-    ) -> Option<AppResult<Bytes>> {
-        let relay = self.inner.relay.as_ref()?;
+        headers: HeaderMap,
+        body: Option<Bytes>,
+        chain: &[Channel],
+    ) -> AppResult<Bytes> {
+        let mut last: Option<AppError> = None;
+        for ch in chain {
+            let r = match ch {
+                Channel::Direct => {
+                    self.send_direct(
+                        method.clone(),
+                        target_url,
+                        headers.clone(),
+                        body.clone(),
+                    )
+                    .await
+                }
+                Channel::Proxy => {
+                    if self.inner.proxy_url.is_empty() {
+                        continue;
+                    }
+                    self.send_proxy(
+                        method.clone(),
+                        target_url,
+                        headers.clone(),
+                        body.clone(),
+                    )
+                    .await
+                }
+                Channel::Relay => {
+                    if self.inner.relay.is_none() {
+                        continue;
+                    }
+                    self.send_relay(
+                        method.clone(),
+                        target_url.to_string(),
+                        headers.clone(),
+                        body.clone(),
+                    )
+                    .await
+                }
+            };
+            match r {
+                Ok(b) => return Ok(b),
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(last.unwrap_or_else(|| AppError::internal("no channels available")))
+    }
+
+    async fn race_relay_proxy(
+        &self,
+        method: Method,
+        target_url: &str,
+        headers: HeaderMap,
+        body: Option<Bytes>,
+    ) -> AppResult<Bytes> {
+        let proxy_set = !self.inner.proxy_url.is_empty();
+        let relay_set = self.inner.relay.is_some();
+        match (relay_set, proxy_set) {
+            (true, true) => {
+                let m1 = method.clone();
+                let u1 = target_url.to_string();
+                let h1 = headers.clone();
+                let b1 = body.clone();
+                let relay_fut: std::pin::Pin<
+                    Box<dyn std::future::Future<Output = AppResult<Bytes>> + Send + '_>,
+                > = Box::pin(self.send_relay(m1, u1, h1, b1));
+                let proxy_fut: std::pin::Pin<
+                    Box<dyn std::future::Future<Output = AppResult<Bytes>> + Send + '_>,
+                > = Box::pin(self.send_proxy(method, target_url, headers, body));
+                match futures::future::select_ok(vec![relay_fut, proxy_fut]).await {
+                    Ok((b, _)) => Ok(b),
+                    Err(e) => Err(e),
+                }
+            }
+            (true, false) => {
+                self.send_relay(method, target_url.to_string(), headers, body)
+                    .await
+            }
+            (false, true) => self.send_proxy(method, target_url, headers, body).await,
+            (false, false) => self.send_direct(method, target_url, headers, body).await,
+        }
+    }
+
+    async fn send_direct(
+        &self,
+        method: Method,
+        target_url: &str,
+        headers: HeaderMap,
+        body: Option<Bytes>,
+    ) -> AppResult<Bytes> {
+        self.send(method, target_url, headers, body, false).await
+    }
+
+    async fn send_proxy(
+        &self,
+        method: Method,
+        target_url: &str,
+        headers: HeaderMap,
+        body: Option<Bytes>,
+    ) -> AppResult<Bytes> {
+        self.send(method, target_url, headers, body, true).await
+    }
+
+    async fn send_relay(
+        &self,
+        method: Method,
+        target_url: String,
+        headers: HeaderMap,
+        body: Option<Bytes>,
+    ) -> AppResult<Bytes> {
+        let relay = self
+            .inner
+            .relay
+            .as_ref()
+            .ok_or_else(|| AppError::internal("relay not configured"))?;
         let mut h: HashMap<String, String> = HashMap::new();
         for (k, v) in headers.iter() {
             if let Ok(vs) = v.to_str() {
@@ -350,31 +488,29 @@ impl ScClient {
             }
         }
         let req = RelayRequest {
-            url: target_url.to_string(),
+            url: target_url,
             method: method.as_str().to_string(),
             headers: h,
-            body: body.cloned().unwrap_or_default(),
+            body: body.unwrap_or_default(),
         };
-        match relay.fetch(&req).await {
-            Ok(resp) => {
-                if resp.status >= 400 {
-                    let v: Value = if resp.body.is_empty() {
-                        Value::Null
-                    } else {
-                        serde_json::from_slice(&resp.body).unwrap_or_else(|_| {
-                            Value::String(String::from_utf8_lossy(&resp.body).into_owned())
-                        })
-                    };
-                    Some(Err(AppError::ScApi {
-                        status: resp.status,
-                        body: v,
-                    }))
-                } else {
-                    Some(Ok(resp.body))
-                }
-            }
-            Err(_) => None,
+        let resp = relay
+            .fetch(&req)
+            .await
+            .map_err(|e| AppError::ScUnreachable(e.to_string()))?;
+        if resp.status >= 400 {
+            let v: Value = if resp.body.is_empty() {
+                Value::Null
+            } else {
+                serde_json::from_slice(&resp.body).unwrap_or_else(|_| {
+                    Value::String(String::from_utf8_lossy(&resp.body).into_owned())
+                })
+            };
+            return Err(AppError::ScApi {
+                status: resp.status,
+                body: v,
+            });
         }
+        Ok(resp.body)
     }
 
     async fn send(

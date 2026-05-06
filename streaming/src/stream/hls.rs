@@ -4,7 +4,21 @@ use std::collections::HashMap;
 use tracing::debug;
 use url::Url;
 
-use super::proxy::proxy_get_bytes;
+use super::proxy::{fetch_direct_bytes, fetch_get_bytes};
+
+async fn fetch_one(
+    client: &Client,
+    proxy_url: &str,
+    target_url: &str,
+    headers: HashMap<String, String>,
+    direct_only: bool,
+) -> Result<(Bytes, HashMap<String, String>), Box<dyn std::error::Error + Send + Sync>> {
+    if direct_only {
+        fetch_direct_bytes(client, target_url, headers).await
+    } else {
+        fetch_get_bytes(client, proxy_url, target_url, headers, false).await
+    }
+}
 
 const HLS_PREFETCH_SEGMENTS: usize = 3;
 
@@ -60,8 +74,9 @@ pub async fn download_progressive(
     url: &str,
     mime_type: &str,
     extra_headers: HashMap<String, String>,
+    direct_only: bool,
 ) -> Result<(Bytes, &'static str), Box<dyn std::error::Error + Send + Sync>> {
-    let (data, _) = proxy_get_bytes(client, proxy_url, url, extra_headers).await?;
+    let (data, _) = fetch_one(client, proxy_url, url, extra_headers, direct_only).await?;
     if data.is_empty() {
         return Err("progressive download returned empty body".into());
     }
@@ -77,8 +92,9 @@ pub async fn download_hls_full(
     m3u8_url: &str,
     mime_type: &str,
     m3u8_headers: HashMap<String, String>,
+    direct_only: bool,
 ) -> Result<(Bytes, &'static str), Box<dyn std::error::Error + Send + Sync>> {
-    let (m3u8_text, _) = proxy_get_bytes(client, proxy_url, m3u8_url, m3u8_headers).await?;
+    let (m3u8_text, _) = fetch_one(client, proxy_url, m3u8_url, m3u8_headers, direct_only).await?;
     let m3u8_content = String::from_utf8_lossy(&m3u8_text);
     let (init_url, segment_urls) = parse_m3u8(&m3u8_content, m3u8_url);
 
@@ -88,37 +104,34 @@ pub async fn download_hls_full(
 
     let mut buf = BytesMut::new();
 
-    // Download init segment
     if let Some(ref init) = init_url {
-        let (data, _) = proxy_get_bytes(client, proxy_url, init, HashMap::new()).await?;
-        // Check CENC encryption
+        let (data, _) = fetch_one(client, proxy_url, init, HashMap::new(), direct_only).await?;
         if data.windows(4).any(|w| w == b"enca") {
             return Err("Stream is CENC encrypted".into());
         }
         buf.extend_from_slice(&data);
     }
 
-    // Download segments with prefetch queue
-    let mut inflight: Vec<tokio::task::JoinHandle<Result<Bytes, reqwest::Error>>> = Vec::new();
+    type SegResult = Result<Bytes, Box<dyn std::error::Error + Send + Sync>>;
+    let mut inflight: Vec<tokio::task::JoinHandle<SegResult>> = Vec::new();
     let mut next_idx = 0;
 
-    let fill_queue =
-        |inflight: &mut Vec<tokio::task::JoinHandle<Result<Bytes, reqwest::Error>>>,
-         next_idx: &mut usize,
-         client: &Client,
-         proxy_url: &str,
-         urls: &[String]| {
-            while *next_idx < urls.len() && inflight.len() < HLS_PREFETCH_SEGMENTS {
-                let c = client.clone();
-                let p = proxy_url.to_string();
-                let u = urls[*next_idx].clone();
-                inflight.push(tokio::spawn(async move {
-                    let (data, _) = proxy_get_bytes(&c, &p, &u, HashMap::new()).await?;
-                    Ok(data)
-                }));
-                *next_idx += 1;
-            }
-        };
+    let fill_queue = |inflight: &mut Vec<tokio::task::JoinHandle<SegResult>>,
+                      next_idx: &mut usize,
+                      client: &Client,
+                      proxy_url: &str,
+                      urls: &[String]| {
+        while *next_idx < urls.len() && inflight.len() < HLS_PREFETCH_SEGMENTS {
+            let c = client.clone();
+            let p = proxy_url.to_string();
+            let u = urls[*next_idx].clone();
+            inflight.push(tokio::spawn(async move {
+                let (data, _) = fetch_one(&c, &p, &u, HashMap::new(), direct_only).await?;
+                Ok(data)
+            }));
+            *next_idx += 1;
+        }
+    };
 
     fill_queue(
         &mut inflight,
@@ -134,7 +147,7 @@ pub async fn download_hls_full(
             Ok(Ok(chunk)) => buf.extend_from_slice(&chunk),
             Ok(Err(e)) => {
                 debug!("HLS segment download error: {e}");
-                return Err(e.into());
+                return Err(e);
             }
             Err(e) => {
                 debug!("HLS segment task panic: {e}");

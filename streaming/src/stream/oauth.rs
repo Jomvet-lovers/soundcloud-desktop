@@ -5,7 +5,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use super::hls::{download_hls_full, download_progressive};
-use super::proxy::proxy_get_json;
+use super::proxy::fetch_get_json;
 use crate::db::postgres::PgPool;
 
 const API_BASE: &str = "https://api.soundcloud.com";
@@ -210,7 +210,7 @@ async fn get_streams(
     headers.insert("Authorization".into(), format!("OAuth {access_token}"));
     headers.insert("Accept".into(), "application/json; charset=utf-8".into());
 
-    match proxy_get_json::<ScStreams>(client, proxy_url, &target, headers).await {
+    match fetch_get_json::<ScStreams>(client, proxy_url, &target, headers, false).await {
         Ok(s) => Some(s),
         Err(e) => {
             warn!("[oauth] get streams failed: {e}");
@@ -228,17 +228,17 @@ async fn try_format(
     proto: &str,
     mime: &str,
 ) -> Result<OAuthStreamResult, Box<dyn std::error::Error + Send + Sync>> {
-    // If proxy_fallback: try direct first, then via proxy
-    if proxy_fallback && !proxy_url.is_empty() {
-        match try_format_inner(client, "", access_token, url, proto, mime).await {
+    // pf=true: direct → proxy&relay
+    if proxy_fallback {
+        match try_format_inner(client, proxy_url, access_token, url, proto, mime, true).await {
             Ok(result) => return Ok(result),
             Err(e) => {
-                warn!("[oauth] direct format {proto} failed, falling back to proxy: {e}");
+                warn!("[oauth] direct format {proto} failed, falling back to proxy&relay: {e}");
             }
         }
     }
 
-    try_format_inner(client, proxy_url, access_token, url, proto, mime).await
+    try_format_inner(client, proxy_url, access_token, url, proto, mime, false).await
 }
 
 async fn try_format_inner(
@@ -248,14 +248,15 @@ async fn try_format_inner(
     url: &str,
     proto: &str,
     mime: &str,
+    direct_only: bool,
 ) -> Result<OAuthStreamResult, Box<dyn std::error::Error + Send + Sync>> {
     let mut headers = HashMap::new();
     headers.insert("Authorization".into(), format!("OAuth {access_token}"));
 
     let (data, content_type) = if proto == "hls" {
-        download_hls_full(client, proxy_url, url, mime, headers).await?
+        download_hls_full(client, proxy_url, url, mime, headers, direct_only).await?
     } else {
-        download_progressive(client, proxy_url, url, mime, headers).await?
+        download_progressive(client, proxy_url, url, mime, headers, direct_only).await?
     };
     Ok(OAuthStreamResult { data, content_type })
 }

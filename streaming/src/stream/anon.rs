@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use super::hls::{download_hls_full, download_progressive};
-use super::proxy::{proxy_get_json, proxy_get_text};
+use super::proxy::{fetch_get_json, fetch_get_text};
 
 const SC_BASE_URL: &str = "https://soundcloud.com";
 const SC_API_V2: &str = "https://api-v2.soundcloud.com";
@@ -81,11 +81,12 @@ impl AnonClient {
         let client_id = self.get_client_id().await?;
         let target = format!("{SC_API_V2}/tracks/{track_id}?client_id={client_id}");
 
-        match proxy_get_json::<ResolvedTrack>(
+        match fetch_get_json::<ResolvedTrack>(
             &self.client,
             &self.proxy_url,
             &target,
             HashMap::new(),
+            false,
         )
         .await
         {
@@ -93,7 +94,14 @@ impl AnonClient {
             Err(_) => {
                 let new_id = self.invalidate_and_refresh().await?;
                 let retry_target = format!("{SC_API_V2}/tracks/{track_id}?client_id={new_id}");
-                proxy_get_json(&self.client, &self.proxy_url, &retry_target, HashMap::new()).await
+                fetch_get_json(
+                    &self.client,
+                    &self.proxy_url,
+                    &retry_target,
+                    HashMap::new(),
+                    false,
+                )
+                .await
             }
         }
     }
@@ -105,11 +113,12 @@ impl AnonClient {
         let client_id = self.get_client_id().await?;
         let target = build_resolve_target(url, &client_id);
 
-        match proxy_get_json::<serde_json::Value>(
+        match fetch_get_json::<serde_json::Value>(
             &self.client,
             &self.proxy_url,
             &target,
             HashMap::new(),
+            false,
         )
         .await
         {
@@ -117,7 +126,14 @@ impl AnonClient {
             Err(_) => {
                 let new_id = self.invalidate_and_refresh().await?;
                 let retry_target = build_resolve_target(url, &new_id);
-                proxy_get_json(&self.client, &self.proxy_url, &retry_target, HashMap::new()).await
+                fetch_get_json(
+                    &self.client,
+                    &self.proxy_url,
+                    &retry_target,
+                    HashMap::new(),
+                    false,
+                )
+                .await
             }
         }
     }
@@ -138,11 +154,12 @@ impl AnonClient {
         };
         let target = format!("{transcoding_url}{sep}client_id={client_id}");
 
-        match proxy_get_json::<TranscodingResolveResponse>(
+        match fetch_get_json::<TranscodingResolveResponse>(
             &self.client,
             &self.proxy_url,
             &target,
             HashMap::new(),
+            false,
         )
         .await
         {
@@ -150,9 +167,14 @@ impl AnonClient {
             Err(_) if explicit_client_id.is_none() => {
                 let new_id = self.invalidate_and_refresh().await?;
                 let retry_target = format!("{transcoding_url}{sep}client_id={new_id}");
-                let r: TranscodingResolveResponse =
-                    proxy_get_json(&self.client, &self.proxy_url, &retry_target, HashMap::new())
-                        .await?;
+                let r: TranscodingResolveResponse = fetch_get_json(
+                    &self.client,
+                    &self.proxy_url,
+                    &retry_target,
+                    HashMap::new(),
+                    false,
+                )
+                .await?;
                 Ok(r.url)
             }
             Err(e) => Err(e),
@@ -273,6 +295,7 @@ impl AnonClient {
                     &media_url,
                     mime,
                     HashMap::new(),
+                    false,
                 )
                 .await
             } else {
@@ -282,6 +305,7 @@ impl AnonClient {
                     &media_url,
                     mime,
                     HashMap::new(),
+                    false,
                 )
                 .await
             };
@@ -312,7 +336,8 @@ impl AnonClient {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36".into(),
         );
 
-        let (html, _) = proxy_get_text(&self.client, &self.proxy_url, SC_BASE_URL, headers).await?;
+        let (html, _) =
+            fetch_get_text(&self.client, &self.proxy_url, SC_BASE_URL, headers, false).await?;
 
         let client_id = extract_client_id_from_hydration(&html)
             .ok_or("Failed to extract SoundCloud client_id from page")?;
