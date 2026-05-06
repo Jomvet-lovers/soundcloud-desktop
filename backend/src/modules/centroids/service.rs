@@ -162,10 +162,7 @@ impl CentroidService {
         }
         let dim = mean.len();
         if let Ok(mut g) = self.cache.write() {
-            g.insert(
-                collection.to_string(),
-                CentroidEntry { vector: Some(mean) },
-            );
+            g.insert(collection.to_string(), CentroidEntry { vector: Some(mean) });
         }
         Ok((count, dim))
     }

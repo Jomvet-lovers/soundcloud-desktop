@@ -44,6 +44,8 @@ libc = "0.2"
 url = "2"
 regex = { version = "1", default-features = false, features = ["std"] }
 bytes = "1"
+call-client = { path = "../../call/client" }
+tracing = "0.1"
 
 [profile.release]
 lto = true

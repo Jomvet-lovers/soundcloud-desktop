@@ -88,14 +88,18 @@ jobs:
             extra_tags: ""
             cache_type: gha
             free_disk: false
-            build_contexts: "tls-common=tls-common"
+            build_contexts: |
+              tls-common=tls-common
+              call=call
           - name: streaming
             context: streaming
             file: ""
             extra_tags: ""
             cache_type: gha
             free_disk: false
-            build_contexts: "tls-common=tls-common"
+            build_contexts: |
+              tls-common=tls-common
+              call=call
           - name: storage
             context: storage
             file: ""
@@ -125,6 +129,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+
+      - name: Checkout internal repo (when PAT present, for backend/streaming)
+        if: ${{ secrets.INTERNAL_PAT != '' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/SoundCloud-Desktop-Internal
+          token: ${{ secrets.INTERNAL_PAT }}
+          path: _internal
+
+      - name: Replace mock call/ with real
+        if: ${{ secrets.INTERNAL_PAT != '' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
+        run: |
+          rm -rf call
+          cp -r _internal/call ./call
 
       # GPU-образ воркера съедает ~20 GB (CUDA base + torch CUDA wheels + bitsandbytes).
       # Стандартный runner даёт ~14 GB free — без этого шага падает на ENOSPC.
@@ -236,11 +254,36 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-22.04-arm'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libasound2-dev protobuf-compiler
 
       - name: Install dependencies (macos only)
         if: matrix.platform == 'macos-latest'
-        run: brew install autoconf automake libtool
+        run: brew install autoconf automake libtool protobuf
+
+      - name: Install protoc (windows only)
+        if: matrix.platform == 'windows-latest'
+        run: choco install protoc -y --no-progress
+
+      - name: Checkout internal repo (when PAT present)
+        if: ${{ secrets.INTERNAL_PAT != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/SoundCloud-Desktop-Internal
+          token: ${{ secrets.INTERNAL_PAT }}
+          path: _internal
+
+      - name: Replace mock call/ with real (unix)
+        if: ${{ secrets.INTERNAL_PAT != '' && runner.os != 'Windows' }}
+        run: |
+          rm -rf call
+          cp -r _internal/call ./call
+
+      - name: Replace mock call/ with real (windows)
+        if: ${{ secrets.INTERNAL_PAT != '' && runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force call
+          Copy-Item -Recurse _internal/call ./call
 
       - name: Set cross-compilation environment for macOS x86_64
         if: matrix.job_name == 'macos-amd64'

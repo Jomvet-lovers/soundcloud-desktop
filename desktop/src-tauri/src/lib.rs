@@ -86,6 +86,7 @@ pub fn run() {
                 .ok();
 
             let (static_port, proxy_port) = rt.block_on(network::server::start_all(wallpapers_dir));
+            let rt_handle = rt.handle().clone();
 
             std::thread::spawn(move || {
                 rt.block_on(std::future::pending::<()>());
@@ -114,6 +115,10 @@ pub fn run() {
             audio::start_fft_thread(app.handle().clone(), analyser_buffer);
 
             app::tray::setup_tray(app).expect("failed to setup tray");
+
+            let call_state = network::call::CallState::init(data_dir.clone(), rt_handle);
+            network::call::manage_state(app.handle(), call_state.clone());
+            network::call::maybe_autostart(app.handle(), call_state);
 
             Ok(())
         })
@@ -171,6 +176,9 @@ pub fn run() {
             track_cache::track_cancel_cache_likes,
             network::image_cache::image_cache_size,
             network::image_cache::image_cache_clear,
+            network::call::call_set_enabled,
+            network::call::call_is_enabled,
+            network::call::call_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

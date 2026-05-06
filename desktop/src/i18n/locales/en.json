@@ -419,5 +419,17 @@
       "description": "Join our community — discuss, suggest features, report bugs",
       "body": "We've launched an official Discord server for SoundCloud Desktop!\n\nJoin to chat with other users, suggest new features, report bugs, and stay up to date with the latest news.\n\nhttps://discord.gg/xQcGBP8fGG"
     }
+  },
+  "call": {
+    "title": "Peer network",
+    "enable": "Enable",
+    "disable": "Disable",
+    "status": {
+      "disabled": "off",
+      "connecting": "connecting",
+      "provisioning": "registering",
+      "active": "active",
+      "failed": "failed"
+    }
   }
 }

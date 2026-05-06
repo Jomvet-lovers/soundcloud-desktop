@@ -1,9 +1,13 @@
 FROM rust:bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
 
 # Shared tls-common crate is provided as a named build context.
 # `additional_contexts: tls-common: ../tls-common` in compose,
 # or `docker build --build-context tls-common=../tls-common ./streaming`.
 COPY --from=tls-common . /app/tls-common
+COPY --from=call . /app/call
 
 WORKDIR /app/streaming
 

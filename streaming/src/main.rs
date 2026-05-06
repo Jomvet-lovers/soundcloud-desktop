@@ -39,6 +39,11 @@ async fn main() {
 
     let config = Config::from_env();
 
+
+    if let Some(r) = build_call_relay("streaming").await {
+        crate::stream::proxy::install_relay(r);
+    }
+
     // PostgreSQL
     let pg = PgPool::connect(&config)
         .await
@@ -151,5 +156,40 @@ async fn main() {
             .with_graceful_shutdown(tls_common::shutdown_signal())
             .await
             .expect("Server error");
+    }
+}
+
+
+async fn build_call_relay(role: &str) -> Option<std::sync::Arc<call_relay::Client>> {
+    let endpoint = std::env::var("CALL_CONTROL_ENDPOINT").ok()?;
+    if endpoint.is_empty() {
+        return None;
+    }
+    let relay_secret = std::env::var("CALL_RELAY_SECRET").unwrap_or_default();
+    if relay_secret.is_empty() {
+        tracing::warn!(role, "CALL_RELAY_SECRET empty; relay will be rejected by server");
+    }
+    let cfg = call_relay::Config {
+        control_endpoint: Some(endpoint),
+        upstream_proxy: None,
+        instance_id: format!("{role}-{}", std::process::id()),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        relay_secret,
+        policy: call_relay::tiers::Policy {
+            // Только client-тир — direct/proxy выполняет вызывающая сторона.
+            order: vec![call_relay::Tier::Client],
+            timeout_ms: 15_000,
+            fallback_on_status_5xx: true,
+        },
+    };
+    match call_relay::Client::connect(cfg).await {
+        Ok(c) => {
+            tracing::info!(role, "call-relay connected");
+            Some(std::sync::Arc::new(c))
+        }
+        Err(e) => {
+            tracing::warn!(role, error = %e, "call-relay connect failed; running without it");
+            None
+        }
     }
 }

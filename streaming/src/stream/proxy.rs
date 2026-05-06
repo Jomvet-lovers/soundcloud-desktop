@@ -1,11 +1,25 @@
 use base64::Engine;
 use reqwest::Client;
 use std::collections::HashMap;
+
+use std::sync::Arc;
+
+use std::sync::OnceLock;
 use std::time::Duration;
 use tracing::debug;
 
+use tracing::warn;
+
 const MAX_RETRIES: usize = 3;
 const RETRY_DELAYS: [u64; 3] = [300, 800, 2000];
+
+
+static RELAY: OnceLock<Arc<call_relay::Client>> = OnceLock::new();
+
+
+pub fn install_relay(relay: Arc<call_relay::Client>) {
+    let _ = RELAY.set(relay);
+}
 
 /// Build proxied request URL + headers.
 /// If proxy_url is set, rewrites to proxy with X-Target: base64(target_url).
@@ -37,6 +51,27 @@ pub async fn proxy_get_bytes(
     target_url: &str,
     extra: HashMap<String, String>,
 ) -> Result<(bytes::Bytes, HashMap<String, String>), reqwest::Error> {
+
+    if let Some(relay) = RELAY.get() {
+        let req = call_relay::Request {
+            url: target_url.to_string(),
+            method: "GET".to_string(),
+            headers: extra.clone(),
+            body: bytes::Bytes::new(),
+        };
+        match relay.fetch(&req).await {
+            Ok(resp) if (200..300).contains(&resp.status) => {
+                return Ok((resp.body, resp.headers));
+            }
+            Ok(resp) => {
+                debug!("relay returned {} for {target_url}, falling back", resp.status);
+            }
+            Err(e) => {
+                warn!(error = %e, "relay fetch failed, falling back");
+            }
+        }
+    }
+
     let (url, headers) = proxy_target(proxy_url, target_url, extra);
 
     let mut last_err = None;

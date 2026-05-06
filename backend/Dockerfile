@@ -1,7 +1,11 @@
 FROM rust:1-bookworm AS builder
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 
 COPY --from=tls-common . /build/tls-common
+COPY --from=call . /build/call
 
 WORKDIR /build/backend
 COPY Cargo.toml ./

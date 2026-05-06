@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { CallProxySection } from '../components/settings/CallProxySection.tsx';
 import { Skeleton } from '../components/ui/Skeleton.tsx';
 import { changeAppLanguage } from '../i18n';
 import { switchAudioDevice } from '../lib/audio';
@@ -1215,6 +1216,7 @@ export function Settings() {
       <PlaybackSection />
       <AudioDeviceSection />
       <ImportSection />
+      <CallProxySection />
       <AccountSection />
     </div>
   );

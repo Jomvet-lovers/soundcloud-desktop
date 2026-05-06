@@ -20,6 +20,9 @@ backend/target
 storage/data
 streaming/data
 
+# CI checkout slot for sibling repos.
+/_internal
+
 # IDE
 .idea/
 

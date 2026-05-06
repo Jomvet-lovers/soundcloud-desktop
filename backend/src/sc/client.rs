@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
 use bytes::Bytes;
+use call_relay::{Client as RelayClient, Request as RelayRequest};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
@@ -37,6 +39,7 @@ struct Inner {
     proxy_url: String,
     proxy_fallback: bool,
     observer: OnceCell<Arc<dyn TrackObserver>>,
+    relay: Option<Arc<RelayClient>>,
 }
 
 impl ScClient {
@@ -56,8 +59,23 @@ impl ScClient {
                 proxy_url: cfg.proxy_url.clone(),
                 proxy_fallback: cfg.proxy_fallback,
                 observer: OnceCell::new(),
+                relay: None,
             }),
         })
+    }
+
+    pub fn with_relay(self, relay: Arc<RelayClient>) -> Self {
+        let inner = Arc::new(Inner {
+            http: self.inner.http.clone(),
+            proxy_url: self.inner.proxy_url.clone(),
+            proxy_fallback: self.inner.proxy_fallback,
+            observer: OnceCell::new(),
+            relay: Some(relay),
+        });
+        if let Some(obs) = self.inner.observer.get().cloned() {
+            let _ = inner.observer.set(obs);
+        }
+        Self { inner }
     }
 
     pub fn auth_base_url(&self) -> &str {
@@ -279,6 +297,7 @@ impl ScClient {
         }
 
         if self.inner.proxy_fallback {
+            // direct → relay → proxy
             match self
                 .send(
                     method.clone(),
@@ -291,13 +310,71 @@ impl ScClient {
             {
                 Ok(r) => return Ok(r),
                 Err(direct_err) => {
-                    tracing::debug!(error = %direct_err, "Direct call failed, falling back to proxy");
+                    tracing::debug!(error = %direct_err, "direct failed, trying relay");
+                    match self
+                        .send_via_relay(&method, target_url, &headers, body.as_ref())
+                        .await
+                    {
+                        Some(Ok(b)) => return Ok(b),
+                        Some(Err(e)) => return Err(e),
+                        None => {}
+                    }
                     return self.send(method, target_url, headers, body, true).await;
                 }
             }
         }
 
-        self.send(method, target_url, headers, body, true).await
+        // relay → proxy
+        match self
+            .send_via_relay(&method, target_url, &headers, body.as_ref())
+            .await
+        {
+            Some(Ok(b)) => Ok(b),
+            Some(Err(e)) => Err(e),
+            None => self.send(method, target_url, headers, body, true).await,
+        }
+    }
+
+    async fn send_via_relay(
+        &self,
+        method: &Method,
+        target_url: &str,
+        headers: &HeaderMap,
+        body: Option<&Bytes>,
+    ) -> Option<AppResult<Bytes>> {
+        let relay = self.inner.relay.as_ref()?;
+        let mut h: HashMap<String, String> = HashMap::new();
+        for (k, v) in headers.iter() {
+            if let Ok(vs) = v.to_str() {
+                h.insert(k.as_str().to_string(), vs.to_string());
+            }
+        }
+        let req = RelayRequest {
+            url: target_url.to_string(),
+            method: method.as_str().to_string(),
+            headers: h,
+            body: body.cloned().unwrap_or_default(),
+        };
+        match relay.fetch(&req).await {
+            Ok(resp) => {
+                if resp.status >= 400 {
+                    let v: Value = if resp.body.is_empty() {
+                        Value::Null
+                    } else {
+                        serde_json::from_slice(&resp.body).unwrap_or_else(|_| {
+                            Value::String(String::from_utf8_lossy(&resp.body).into_owned())
+                        })
+                    };
+                    Some(Err(AppError::ScApi {
+                        status: resp.status,
+                        body: v,
+                    }))
+                } else {
+                    Some(Ok(resp.body))
+                }
+            }
+            Err(_) => None,
+        }
     }
 
     async fn send(

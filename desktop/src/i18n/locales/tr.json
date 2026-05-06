@@ -383,5 +383,17 @@
       "description": "Toplulugumuza katilin — tartisma, oneriler, hata bildirimi",
       "body": "SoundCloud Desktop icin resmi Discord sunucumuzu actik!\n\nDiger kullanicilarla sohbet etmek, yeni ozellikler onermek, hata bildirmek ve en son haberleri takip etmek icin katilin.\n\nhttps://discord.gg/xQcGBP8fGG"
     }
+  },
+  "call": {
+    "title": "Eslesme agi",
+    "enable": "Etkinlestir",
+    "disable": "Devre disi birak",
+    "status": {
+      "disabled": "kapali",
+      "connecting": "baglaniyor",
+      "provisioning": "kaydediliyor",
+      "active": "aktif",
+      "failed": "hata"
+    }
   }
 }

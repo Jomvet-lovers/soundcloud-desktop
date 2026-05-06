@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use qdrant_client::qdrant::{
     point_id::PointIdOptions, vector_output::Vector as VectorVariant,
-    vectors_output::VectorsOptions, Condition, Filter, GetPointsBuilder, PointId, RecommendStrategy,
-    SearchPointsBuilder, Value as QValue,
+    vectors_output::VectorsOptions, Condition, Filter, GetPointsBuilder, PointId,
+    RecommendStrategy, SearchPointsBuilder, Value as QValue,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
