@@ -1,9 +1,11 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::Redirect;
 use axum::Router;
+use rustls::ServerConfig;
 use rustls_acme::caches::DirCache;
 use rustls_acme::AcmeConfig;
 use tokio_stream::StreamExt;
@@ -97,8 +99,13 @@ pub async fn serve(cfg: TlsConfig, app: Router) {
         .directory_lets_encrypt(!cfg.staging)
         .state();
 
-    let rustls_config = state.default_rustls_config();
-    let acceptor = state.axum_acceptor(rustls_config);
+    // ALPN h2/http1.1 — без этого rustls-acme отдаёт пустой ALPN, и tonic
+    // (и другие h2-only клиенты) валится "HTTP/2 was not negotiated".
+    let mut rustls_config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_cert_resolver(state.resolver());
+    rustls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    let acceptor = state.axum_acceptor(Arc::new(rustls_config));
 
     tokio::spawn(async move {
         while let Some(res) = state.next().await {
