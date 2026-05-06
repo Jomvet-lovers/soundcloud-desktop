@@ -63,7 +63,7 @@ function resolveApiBases(path: string): string[] {
 function fetchWithTimeout(
   url: string,
   options: RequestInit,
-  timeoutMs: number = 10_000,
+  timeoutMs: number = 60_000,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
