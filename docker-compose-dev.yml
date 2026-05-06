@@ -13,6 +13,7 @@
 #   redis     -> 6379
 #   qdrant    -> 6333 / 6334
 #   nats      -> 4222 (client) / 8222 (monitoring)
+
 name: soundcloud-desktop-dev
 
 services:
