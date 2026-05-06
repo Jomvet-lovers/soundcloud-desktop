@@ -78,6 +78,8 @@ jobs:
   docker:
     needs: version
     runs-on: ubuntu-latest
+    env:
+      HAS_INTERNAL_PAT: ${{ secrets.INTERNAL_PAT != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -131,7 +133,7 @@ jobs:
           ref: main
 
       - name: Checkout internal repo (when PAT present, for backend/streaming)
-        if: ${{ secrets.INTERNAL_PAT != '' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
+        if: ${{ env.HAS_INTERNAL_PAT == 'true' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/SoundCloud-Desktop-Internal
@@ -139,7 +141,7 @@ jobs:
           path: _internal
 
       - name: Replace mock call/ with real
-        if: ${{ secrets.INTERNAL_PAT != '' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
+        if: ${{ env.HAS_INTERNAL_PAT == 'true' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
         run: |
           rm -rf call
           cp -r _internal/call ./call
@@ -222,6 +224,8 @@ jobs:
 
   build:
     needs: version
+    env:
+      HAS_INTERNAL_PAT: ${{ secrets.INTERNAL_PAT != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -265,7 +269,7 @@ jobs:
         run: choco install protoc -y --no-progress
 
       - name: Checkout internal repo (when PAT present)
-        if: ${{ secrets.INTERNAL_PAT != '' }}
+        if: ${{ env.HAS_INTERNAL_PAT == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/SoundCloud-Desktop-Internal
@@ -273,13 +277,13 @@ jobs:
           path: _internal
 
       - name: Replace mock call/ with real (unix)
-        if: ${{ secrets.INTERNAL_PAT != '' && runner.os != 'Windows' }}
+        if: ${{ env.HAS_INTERNAL_PAT == 'true' && runner.os != 'Windows' }}
         run: |
           rm -rf call
           cp -r _internal/call ./call
 
       - name: Replace mock call/ with real (windows)
-        if: ${{ secrets.INTERNAL_PAT != '' && runner.os == 'Windows' }}
+        if: ${{ env.HAS_INTERNAL_PAT == 'true' && runner.os == 'Windows' }}
         shell: pwsh
         run: |
           Remove-Item -Recurse -Force call
