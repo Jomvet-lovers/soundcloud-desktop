@@ -162,7 +162,7 @@ pub async fn serve(cfg: TlsConfig, app: Router) {
         if let Err(e) = axum_server::bind(https_addr)
             .handle(https_handle)
             .acceptor(acceptor)
-            .serve(app.into_make_service())
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
             .await
         {
             error!("HTTPS :{} server error: {}", https_port, e);
