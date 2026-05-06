@@ -1,3 +1,4 @@
+pub mod anon;
 pub mod handlers;
 pub mod service;
 

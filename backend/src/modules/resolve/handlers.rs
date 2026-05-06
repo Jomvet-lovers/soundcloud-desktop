@@ -34,13 +34,8 @@ async fn resolve(
         return Ok(json_response(StatusCode::OK, raw));
     }
 
-    let v: Value = match session {
-        Some(ctx) => match st.resolve.resolve(&ctx.access_token, &q.url).await {
-            Ok(v) => v,
-            Err(_) => st.resolve.resolve_with_random_token(&q.url).await?,
-        },
-        None => st.resolve.resolve_with_random_token(&q.url).await?,
-    };
+    let user_token = session.as_ref().map(|s| s.access_token.as_str());
+    let v: Value = st.resolve.resolve(user_token, &q.url).await?;
     let payload =
         serde_json::to_string(&v).map_err(|e| AppError::internal(format!("json encode: {e}")))?;
     let _ = st

@@ -201,6 +201,45 @@ impl ScClient {
         self.api_get::<Value>(path, access_token, params).await
     }
 
+    pub async fn api_get_value_direct(
+        &self,
+        path: &str,
+        access_token: &str,
+        params: Option<&[(String, String)]>,
+    ) -> AppResult<Value> {
+        let url = build_api_url(path, params);
+        let headers = auth_headers(access_token, false);
+        let bytes = self
+            .send_direct(Method::GET, &url, headers, None)
+            .await?;
+        self.observe(&bytes, access_token);
+        decode_json(&bytes)
+    }
+
+    pub async fn api_get_value_via_relay_proxy(
+        &self,
+        path: &str,
+        access_token: &str,
+        params: Option<&[(String, String)]>,
+    ) -> AppResult<Value> {
+        let url = build_api_url(path, params);
+        let headers = auth_headers(access_token, false);
+        let bytes = self
+            .race_relay_proxy(Method::GET, &url, headers, None)
+            .await?;
+        self.observe(&bytes, access_token);
+        decode_json(&bytes)
+    }
+
+    pub async fn anon_get_via_relay_proxy(
+        &self,
+        target_url: &str,
+        headers: HeaderMap,
+    ) -> AppResult<Bytes> {
+        self.race_relay_proxy(Method::GET, target_url, headers, None)
+            .await
+    }
+
     pub async fn api_post<B: serde::Serialize, T: DeserializeOwned>(
         &self,
         path: &str,
