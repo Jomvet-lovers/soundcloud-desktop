@@ -1,15 +1,16 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::future::join_all;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use reqwest::Client;
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use tracing::debug;
 
-const TIMEOUT: Duration = Duration::from_secs(12);
+use crate::common::external_fetch::ExternalFetcher;
+
 const SEARCH_LIMIT: usize = 5;
+const UA: &str = "scd-backend/0.1 (netease lookup)";
 
 static RE_LRC_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[[^\]\r\n]*\]\s*").unwrap());
 
@@ -55,13 +56,20 @@ struct LyricInner {
 }
 
 pub struct NeteaseService {
-    http: Client,
+    fetcher: Arc<ExternalFetcher>,
     base: String,
 }
 
 impl NeteaseService {
-    pub fn new(http: Client, base: String) -> Arc<Self> {
-        Arc::new(Self { http, base })
+    pub fn new(fetcher: Arc<ExternalFetcher>, base: String) -> Arc<Self> {
+        Arc::new(Self { fetcher, base })
+    }
+
+    fn headers() -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("User-Agent", UA.parse().unwrap());
+        h.insert("Accept", "application/json".parse().unwrap());
+        h
     }
 
     pub async fn search_by_query(&self, q: &str, limit: usize) -> Vec<NeteaseResult> {
@@ -112,18 +120,14 @@ impl NeteaseService {
             urlencoding::encode(q),
             limit
         );
-        let resp = match self.http.get(&url).timeout(TIMEOUT).send().await {
-            Ok(r) if r.status().is_success() => r,
-            Ok(r) => {
-                debug!(status = %r.status(), "netease search non-2xx");
-                return Vec::new();
-            }
+        let bytes = match self.fetcher.get_bytes(&url, Self::headers()).await {
+            Ok(b) => b,
             Err(e) => {
                 debug!(error = %e, "netease search failed");
                 return Vec::new();
             }
         };
-        let parsed: SearchResp = match resp.json().await {
+        let parsed: SearchResp = match serde_json::from_slice(&bytes) {
             Ok(p) => p,
             Err(e) => {
                 debug!(error = %e, "netease parse failed");
@@ -143,15 +147,14 @@ impl NeteaseService {
             return None;
         }
         let url = format!("{}/lyric?id={}", self.base, id);
-        let resp = match self.http.get(&url).timeout(TIMEOUT).send().await {
-            Ok(r) if r.status().is_success() => r,
-            Ok(_) => return None,
+        let bytes = match self.fetcher.get_bytes(&url, Self::headers()).await {
+            Ok(b) => b,
             Err(e) => {
                 debug!(id, error = %e, "netease lyric failed");
                 return None;
             }
         };
-        let parsed: LyricResp = match resp.json().await {
+        let parsed: LyricResp = match serde_json::from_slice(&bytes) {
             Ok(p) => p,
             Err(e) => {
                 debug!(id, error = %e, "netease lyric parse failed");

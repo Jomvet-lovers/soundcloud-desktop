@@ -90,10 +90,13 @@ impl IndexingService {
                 .map(|v| v as i32);
             let artwork_url = sc_track.get("artwork_url").and_then(|v| v.as_str());
             let stream_url = sc_track.get("stream_url").and_then(|v| v.as_str());
+            let uploader_sc_user_id = extract_uploader_sc_user_id(sc_track);
+            let (release_year, release_date) =
+                crate::common::release_date::extract(sc_track);
 
             let inserted: Option<(Uuid,)> = sqlx::query_as(
-                "INSERT INTO indexed_tracks (sc_track_id, title, genre, tags, duration_ms, artwork_url, stream_url, raw_sc_data, indexed_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL) \
+                "INSERT INTO indexed_tracks (sc_track_id, title, genre, tags, duration_ms, artwork_url, stream_url, raw_sc_data, uploader_sc_user_id, release_year, release_date, indexed_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL) \
                  ON CONFLICT (sc_track_id) DO NOTHING \
                  RETURNING id",
             )
@@ -105,6 +108,9 @@ impl IndexingService {
             .bind(artwork_url)
             .bind(stream_url)
             .bind(sc_track)
+            .bind(uploader_sc_user_id.as_deref())
+            .bind(release_year)
+            .bind(release_date)
             .fetch_optional(&self.pg)
             .await?;
             if inserted.is_none() {
@@ -113,6 +119,11 @@ impl IndexingService {
         }
 
         self.trigger.trigger(&sc_track_id);
+        if let Err(e) =
+            crate::modules::enrich::publish_enrich(&self.nats, &sc_track_id).await
+        {
+            debug!(track = %sc_track_id, error = %e, "enrich publish failed");
+        }
         let lyrics = self.lyrics.clone();
         let id = sc_track_id.clone();
         tokio::spawn(async move {
@@ -272,10 +283,61 @@ impl IndexingService {
                     .execute(&svc.pg)
                     .await?;
                     debug!(track = %sc_track_id, "indexed_at set");
+                    if let Some(fp) = data.get("fingerprint").and_then(|v| v.as_str()) {
+                        if !fp.is_empty() {
+                            svc.apply_fingerprint(sc_track_id, fp).await?;
+                        }
+                    }
                     Ok(())
                 }
             },
         );
+    }
+
+    async fn apply_fingerprint(self: &Arc<Self>, sc_track_id: &str, fingerprint: &str) -> AppResult<()> {
+        let row: Option<(uuid::Uuid, Option<uuid::Uuid>)> = sqlx::query_as(
+            "SELECT id, canonical_track_id FROM indexed_tracks WHERE sc_track_id = $1",
+        )
+        .bind(sc_track_id)
+        .fetch_optional(&self.pg)
+        .await?;
+        let Some((track_id, canonical)) = row else {
+            return Ok(());
+        };
+
+        sqlx::query("UPDATE indexed_tracks SET audio_fingerprint = $2 WHERE id = $1")
+            .bind(track_id)
+            .bind(fingerprint)
+            .execute(&self.pg)
+            .await?;
+
+        let prefix: String = fingerprint.chars().take(64).collect();
+        let neighbour: Option<(uuid::Uuid, Option<uuid::Uuid>)> = sqlx::query_as(
+            "SELECT id, canonical_track_id FROM indexed_tracks
+             WHERE substr(audio_fingerprint, 1, 64) = $1
+               AND id <> $2
+             LIMIT 1",
+        )
+        .bind(&prefix)
+        .bind(track_id)
+        .fetch_optional(&self.pg)
+        .await?;
+        let Some((other_id, other_canonical)) = neighbour else {
+            return Ok(());
+        };
+
+        let canonical_id = canonical.or(other_canonical).unwrap_or_else(uuid::Uuid::new_v4);
+        sqlx::query(
+            "UPDATE indexed_tracks SET canonical_track_id = $1
+             WHERE id IN ($2, $3) AND (canonical_track_id IS NULL OR canonical_track_id <> $1)",
+        )
+        .bind(canonical_id)
+        .bind(track_id)
+        .bind(other_id)
+        .execute(&self.pg)
+        .await?;
+        debug!(track = %sc_track_id, %canonical_id, "fingerprint canonicalized");
+        Ok(())
     }
 
     fn spawn_reap_loop(self: &Arc<Self>, shutdown: CancellationToken) {
@@ -319,4 +381,25 @@ impl IndexingService {
         }
         Ok(())
     }
+}
+
+fn extract_uploader_sc_user_id(sc_track: &Value) -> Option<String> {
+    let user = sc_track.get("user")?;
+    if let Some(id) = user.get("id") {
+        if let Some(s) = id.as_str() {
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
+        }
+        if let Some(n) = id.as_i64() {
+            return Some(n.to_string());
+        }
+    }
+    if let Some(urn) = user.get("urn").and_then(|v| v.as_str()) {
+        let tail = urn.rsplit(':').next().unwrap_or("");
+        if !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) {
+            return Some(tail.to_string());
+        }
+    }
+    None
 }

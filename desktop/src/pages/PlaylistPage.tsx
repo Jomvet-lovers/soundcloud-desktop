@@ -17,6 +17,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { LikeButton } from '../components/music/LikeButton';
+import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
@@ -172,7 +173,6 @@ const SortableTrackRow = React.memo(
     isOwner: boolean;
     onRemove?: (urn: string) => void;
   }) {
-    const navigate = useNavigate();
     const { t } = useTranslation();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
@@ -243,22 +243,7 @@ const SortableTrackRow = React.memo(
           )}
         </div>
 
-        <div className="flex-1 min-w-0">
-          <p
-            className={`text-[13px] font-medium truncate cursor-pointer transition-colors duration-150 ${
-              isThis ? 'text-accent' : 'text-white/85 hover:text-white'
-            }`}
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-          >
-            {track.title}
-          </p>
-          <p
-            className="text-[11px] text-white/30 truncate mt-0.5 cursor-pointer hover:text-white/50 transition-colors duration-150"
-            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-          >
-            {track.user.username}
-          </p>
-        </div>
+        <TrackTitleArtist track={track} highlight={isThis} size="sm" />
 
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {track.playback_count != null && (
@@ -302,7 +287,6 @@ const SortableTrackRow = React.memo(
 
 const TrackRow = React.memo(
   function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
-    const navigate = useNavigate();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
 
@@ -350,22 +334,7 @@ const TrackRow = React.memo(
           )}
         </div>
 
-        <div className="flex-1 min-w-0">
-          <p
-            className={`text-[13px] font-medium truncate cursor-pointer transition-colors duration-150 ${
-              isThis ? 'text-accent' : 'text-white/85 hover:text-white'
-            }`}
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-          >
-            {track.title}
-          </p>
-          <p
-            className="text-[11px] text-white/30 truncate mt-0.5 cursor-pointer hover:text-white/50 transition-colors duration-150"
-            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-          >
-            {track.user.username}
-          </p>
-        </div>
+        <TrackTitleArtist track={track} highlight={isThis} size="sm" />
 
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {track.playback_count != null && (

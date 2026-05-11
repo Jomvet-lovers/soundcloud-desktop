@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
+import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualGrid } from '../components/ui/VirtualGrid';
 import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
@@ -56,7 +57,6 @@ const LibraryTrackRow = React.memo(
     onPlay?: () => void;
   }) {
     const { t } = useTranslation();
-    const navigate = useNavigate();
     const { isThis, isThisPlaying, togglePlay: baseToggle } = useTrackPlay(track, queue);
     const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
 
@@ -111,24 +111,12 @@ const LibraryTrackRow = React.memo(
           )}
         </div>
 
-        <div className="flex-1 min-w-0 flex flex-col justify-center">
-          <p
-            className={`text-[14px] font-medium truncate cursor-pointer transition-colors duration-200 ${
-              isThis
-                ? 'text-accent drop-shadow-[0_0_8px_rgba(255,85,0,0.4)]'
-                : 'text-white/90 hover:text-white'
-            }`}
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-          >
-            {track.title}
-          </p>
-          <p
-            className="text-[12px] text-white/40 truncate mt-0.5 cursor-pointer hover:text-white/70 transition-colors"
-            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-          >
-            {track.user.username}
-          </p>
-        </div>
+        <TrackTitleArtist
+          track={track}
+          highlight={isThis}
+          size="md"
+          className="flex flex-col justify-center"
+        />
 
         <LikeButton track={track} />
 

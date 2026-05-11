@@ -93,6 +93,17 @@
     "likes": "лайков",
     "reposts": "репостов",
     "posted": "Опубликовано",
+    "uploadedBy": "залил <1>{{name}}</1>",
+    "verifiedArtist": "Верифицированный артист (точность {{confidence}})",
+    "unverifiedArtist": "Из тайтла, без внешнего подтверждения (точность {{confidence}})",
+    "uploadKind": {
+      "original": "оригинал",
+      "demo": "демо",
+      "alt": "alt",
+      "reupload": "перезалив"
+    },
+    "notFoundOnSc": "не найдено на SoundCloud",
+    "wantedHint": "Трек известен, но ещё не залит на SC",
     "description": "Описание",
     "noComments": "Пока нет комментариев",
     "postComment": "Отправить",
@@ -163,7 +174,10 @@
     "publicProfile": "Так выглядит ваш публичный профиль",
     "about": "О себе",
     "memberSince": "В SoundCloud с",
-    "links": "Ссылки"
+    "links": "Ссылки",
+    "verifiedArtist": "Верифицированный артист",
+    "auraTitle": "Аура",
+    "auraCustom": "Свой цвет"
   },
   "library": {
     "likedTracks": "Любимые треки",
@@ -384,7 +398,10 @@
     "retry": "Повторить",
     "seeAll": "Показать все",
     "cancel": "Отмена",
-    "back": "Назад"
+    "back": "Назад",
+    "empty": "Здесь пока пусто",
+    "expand": "Подробнее",
+    "collapse": "Свернуть"
   },
   "star": {
     "title": "Подписка Star",
@@ -437,5 +454,63 @@
       "active": "активен",
       "failed": "ошибка"
     }
+  },
+  "artist": {
+    "title": "Артист",
+    "tracks": "Треки",
+    "appearsOn": "Где участвовал",
+    "albums": "Альбомы",
+    "related": "Похожие",
+    "about": "Об артисте",
+    "aboutTitle": "Об артисте",
+    "noTracks": "Треков пока нет",
+    "noAppearances": "Участий пока нет",
+    "noAlbums": "Альбомов пока нет",
+    "noRelated": "Похожих артистов пока нет",
+    "noBio": "Био не заполнено",
+    "scAccounts": "Аккаунты SoundCloud",
+    "mainAccount": "Основной",
+    "demoAccount": "Демо",
+    "playMix": "Играть микс",
+    "sortPopular": "Популярные",
+    "sortRecent": "Новые",
+    "viewList": "Списком",
+    "viewYears": "По годам",
+    "comingSoon": "Скоро",
+    "country": "Страна",
+    "confidence": "Точность",
+    "links": "Ссылки",
+    "featured": "Фит",
+    "affinity": "Близость",
+    "releaseYear": "Релиз",
+    "unknownYear": "Без даты",
+    "statsTracks": "Треков",
+    "statsFeatured": "Фитов",
+    "statsAlbums": "Альбомов",
+    "statsRelated": "Похожих",
+    "kind": {
+      "album": "Альбом",
+      "ep": "EP",
+      "single": "Сингл",
+      "compilation": "Сборник"
+    }
+  },
+  "album": {
+    "playAlbum": "Играть альбом",
+    "pauseAlbum": "Пауза",
+    "tracks": "Треки",
+    "tracksCount_one": "{{count}} трек",
+    "tracksCount_few": "{{count}} трека",
+    "tracksCount_many": "{{count}} треков",
+    "tracksCount_other": "{{count}} треков",
+    "cast": "Состав",
+    "primaryArtist": "Основной",
+    "featured": "Фит",
+    "remixer": "Ремикс",
+    "producer": "Продюсер",
+    "availability": "{{indexed}}/{{total}} доступно",
+    "verified": "Проверено",
+    "noTracks": "Пока нет проиндексированных треков",
+    "comingSoon": "Скоро"
   }
 }

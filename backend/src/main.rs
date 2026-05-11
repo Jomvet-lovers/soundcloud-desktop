@@ -25,10 +25,14 @@ use tracing::{error, info, warn};
 use crate::bus::nats::NatsService;
 use crate::cache::{CacheService, ListCacheService};
 use crate::config::AppConfig;
+use crate::modules::auras::AurasService;
 use crate::modules::auth::{AuthService, LinkService};
 use crate::modules::centroids::CentroidService;
 use crate::modules::collab::{CollabTrainerService, CollabVectorService};
 use crate::modules::dislikes::DislikesService;
+use crate::modules::enrich::{
+    AiResolverClient, ArtistCrawlService, EnrichService, MbClient, TokenPool,
+};
 use crate::modules::events::EventsService;
 use crate::modules::featured::FeaturedService;
 use crate::modules::history::HistoryService;
@@ -103,10 +107,16 @@ async fn main() {
 
     let sc = ScClient::new(&config.soundcloud).expect("Failed to build SC HTTP client");
 
-    let sc = match build_call_relay("backend").await {
+    let relay_client = build_call_relay("backend").await;
+    let sc = match relay_client.clone() {
         Some(r) => sc.with_relay(r),
         None => sc,
     };
+    let external_fetcher = crate::common::external_fetch::ExternalFetcher::new(
+        http_client.clone(),
+        config.soundcloud.proxy_url.clone(),
+        relay_client.clone(),
+    );
 
     let oauth_apps = OAuthAppsService::new(pg.clone(), config.clone());
     if let Err(e) = oauth_apps.migrate_env_app().await {
@@ -133,6 +143,7 @@ async fn main() {
         warn!(error = %e, "subscriptions restore failed");
     }
     subscriptions.spawn_snapshot_loop(shutdown.clone());
+    let auras = AurasService::new(pg.clone(), subscriptions.clone());
     let me = MeService::new(
         sc.clone(),
         list_cache.clone(),
@@ -159,16 +170,16 @@ async fn main() {
     let user_taste = UserTasteService::new(qdrant.clone());
     let transcode = TranscodeTriggerService::new(http_client.clone(), config.clone(), nats.clone());
     let worker = WorkerClient::new(nats.clone());
-    let lrclib = LrclibService::new(http_client.clone());
-    let mxm = MusixmatchService::new(http_client.clone(), config.mxm.api_base.clone());
-    let genius = GeniusService::new(http_client.clone());
-    let netease = NeteaseService::new(http_client.clone(), config.netease.api_base.clone());
+    let lrclib = LrclibService::new(external_fetcher.clone());
+    let mxm = MusixmatchService::new(external_fetcher.clone(), config.mxm.api_base.clone());
+    let genius = GeniusService::new(external_fetcher.clone(), config.genius.clone());
+    let netease = NeteaseService::new(external_fetcher.clone(), config.netease.api_base.clone());
     let lyrics = LyricsService::new(
         pg.clone(),
         nats.clone(),
         lrclib,
         mxm,
-        genius,
+        genius.clone(),
         netease,
         worker.clone(),
         transcode.clone(),
@@ -202,6 +213,75 @@ async fn main() {
     let indexing =
         IndexingService::new(pg.clone(), nats.clone(), lyrics.clone(), transcode.clone());
     indexing.spawn(shutdown.clone());
+
+    let mb = MbClient::new(
+        external_fetcher.clone(),
+        config.enrich.mb_user_agent.clone(),
+        config.enrich.mb_rate_limit_ms,
+    );
+    let ai_resolver = if config.enrich.ai_enabled {
+        Some(AiResolverClient::new(
+            nats.clone(),
+            redis_pool.clone(),
+            config.enrich.ai_timeout_ms,
+            config.enrich.ai_daily_budget,
+        ))
+    } else {
+        None
+    };
+    let enrich = EnrichService::new(
+        pg.clone(),
+        nats.clone(),
+        mb.clone(),
+        genius.clone(),
+        ai_resolver,
+        config.enrich.clone(),
+    );
+    enrich.spawn(shutdown.clone());
+
+    let token_pool = Arc::new(TokenPool::new(pg.clone()));
+    let artist_crawl = ArtistCrawlService::new(
+        pg.clone(),
+        mb,
+        genius.clone(),
+        sc.clone(),
+        token_pool.clone(),
+        resolve.clone(),
+        config.enrich_crawl.clone(),
+    );
+    artist_crawl.spawn(shutdown.clone());
+
+    let ai_matcher = if config.enrich.ai_enabled {
+        Some(crate::modules::enrich::ai_matcher::AiMatcherClient::new(
+            nats.clone(),
+            redis_pool.clone(),
+            config.enrich.ai_timeout_ms,
+            config.enrich.ai_daily_budget,
+        ))
+    } else {
+        None
+    };
+
+    let sc_account_scanner = crate::modules::enrich::sc_account_scan::ScAccountScanner::new(
+        pg.clone(),
+        sc.clone(),
+        token_pool.clone(),
+        indexing.clone(),
+        ai_matcher.clone(),
+    );
+
+    let wanted_resolver = crate::modules::enrich::WantedResolverService::new(
+        pg.clone(),
+        sc.clone(),
+        token_pool.clone(),
+        indexing.clone(),
+        sc_account_scanner.clone(),
+        ai_matcher.clone(),
+        &config.enrich_crawl,
+    );
+    wanted_resolver.spawn(shutdown.clone());
+    let wanted_resolver_state = wanted_resolver.clone();
+    enrich.install_followup(artist_crawl.clone(), wanted_resolver.clone());
 
     let track_discovery =
         crate::modules::indexing::TrackDiscoveryService::new(sc.clone(), indexing.clone());
@@ -298,6 +378,7 @@ async fn main() {
         events,
         dislikes,
         subscriptions,
+        auras,
         me,
         pending_actions,
         tracks,
@@ -314,6 +395,9 @@ async fn main() {
         ltr_trainer,
         indexing,
         recommendations,
+        enrich,
+        artist_crawl: artist_crawl.clone(),
+        wanted_resolver: wanted_resolver_state,
     };
 
     let app = router::build(state);

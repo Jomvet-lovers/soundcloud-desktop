@@ -1,7 +1,11 @@
+pub mod albums;
+pub mod artists;
+pub mod auras;
 pub mod auth;
 pub mod centroids;
 pub mod collab;
 pub mod dislikes;
+pub mod enrich;
 pub mod events;
 pub mod featured;
 pub mod history;

@@ -20,6 +20,14 @@ pub struct AppConfig {
     pub lyrics: LyricsCfg,
     pub netease: NeteaseCfg,
     pub mxm: MxmCfg,
+    pub genius: GeniusCfg,
+    pub enrich: EnrichCfg,
+    pub enrich_crawl: EnrichCrawlCfg,
+}
+
+#[derive(Clone, Debug)]
+pub struct GeniusCfg {
+    pub access_token: String,
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +128,28 @@ pub struct NeteaseCfg {
 #[derive(Clone, Debug)]
 pub struct MxmCfg {
     pub api_base: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnrichCfg {
+    pub enabled: bool,
+    pub mb_user_agent: String,
+    pub mb_rate_limit_ms: u64,
+    pub backfill_batch: i64,
+    pub backfill_interval_sec: u64,
+    pub max_attempts: u32,
+    pub ai_enabled: bool,
+    pub ai_timeout_ms: u64,
+    pub ai_daily_budget: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct EnrichCrawlCfg {
+    pub enabled: bool,
+    pub interval_sec: u64,
+    pub batch_size: i64,
+    pub stale_after_hours: u32,
+    pub max_attempts: u32,
 }
 
 impl AppConfig {
@@ -227,6 +257,33 @@ impl AppConfig {
                     "MUSIXMATCH_API_BASE",
                     "https://apic-desktop.musixmatch.com/ws/1.1",
                 ),
+            },
+
+            genius: GeniusCfg {
+                access_token: env_str("GENIUS_ACCESS_TOKEN", ""),
+            },
+
+            enrich: EnrichCfg {
+                enabled: env_str("ENRICH_ENABLED", "true") != "false",
+                mb_user_agent: env_str(
+                    "ENRICH_MB_USER_AGENT",
+                    "scd-backend/0.1 ( https://scdinternal.site )",
+                ),
+                mb_rate_limit_ms: env_u64("ENRICH_MB_RATE_LIMIT_MS", 1100),
+                backfill_batch: env_u64("ENRICH_BACKFILL_BATCH", 100) as i64,
+                backfill_interval_sec: env_u64("ENRICH_BACKFILL_INTERVAL_SEC", 60),
+                max_attempts: env_u32("ENRICH_MAX_ATTEMPTS", 5),
+                ai_enabled: env_str("ENRICH_AI_ENABLED", "true") != "false",
+                ai_timeout_ms: env_u64("ENRICH_AI_TIMEOUT_MS", 20_000),
+                ai_daily_budget: env_u64("ENRICH_AI_DAILY_BUDGET", 5000),
+            },
+
+            enrich_crawl: EnrichCrawlCfg {
+                enabled: env_str("ENRICH_CRAWL_ENABLED", "true") != "false",
+                interval_sec: env_u64("ENRICH_CRAWL_INTERVAL_SEC", 3600),
+                batch_size: env_u64("ENRICH_CRAWL_BATCH", 100) as i64,
+                stale_after_hours: env_u32("ENRICH_CRAWL_STALE_HOURS", 168),
+                max_attempts: env_u32("ENRICH_CRAWL_MAX_ATTEMPTS", 10),
             },
         }
     }

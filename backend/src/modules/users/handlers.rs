@@ -12,6 +12,7 @@ use crate::common::pagination::PaginationQuery;
 use crate::common::response::json_response;
 use crate::common::session::SessionCtx;
 use crate::error::{AppError, AppResult};
+use crate::modules::enrich::dto as enrich_dto;
 use crate::modules::me::service::premium_response;
 use crate::state::AppState;
 
@@ -155,18 +156,19 @@ async fn get_tracks(
     let access = q
         .access
         .unwrap_or_else(|| "playable,preview,blocked".into());
-    Ok(Json(
-        st.users
-            .get_tracks(
-                &ctx.access_token,
-                &ctx.sc_user_id,
-                &user_urn,
-                page,
-                limit,
-                &access,
-            )
-            .await?,
-    ))
+    let mut result = st
+        .users
+        .get_tracks(
+            &ctx.access_token,
+            &ctx.sc_user_id,
+            &user_urn,
+            page,
+            limit,
+            &access,
+        )
+        .await?;
+    enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
+    Ok(Json(result))
 }
 
 async fn get_playlists(
@@ -205,18 +207,19 @@ async fn get_liked_tracks(
     let access = q
         .access
         .unwrap_or_else(|| "playable,preview,blocked".into());
-    Ok(Json(
-        st.users
-            .get_liked_tracks(
-                &ctx.access_token,
-                &ctx.sc_user_id,
-                &user_urn,
-                page,
-                limit,
-                &access,
-            )
-            .await?,
-    ))
+    let mut result = st
+        .users
+        .get_liked_tracks(
+            &ctx.access_token,
+            &ctx.sc_user_id,
+            &user_urn,
+            page,
+            limit,
+            &access,
+        )
+        .await?;
+    enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
+    Ok(Json(result))
 }
 
 async fn get_liked_playlists(

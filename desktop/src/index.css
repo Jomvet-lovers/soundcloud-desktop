@@ -82,24 +82,18 @@ body,
 }
 
 /* ── Shimmer ───────────────────────────────────────────────── */
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 .skeleton-shimmer {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.03) 25%,
-    rgba(255, 255, 255, 0.06) 50%,
-    rgba(255, 255, 255, 0.03) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 2s ease-in-out infinite;
+  background: rgba(255, 255, 255, 0.05);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer { animation: none; }
 }
 
 /* ── Scrollbar hide ────────────────────────────────────────── */

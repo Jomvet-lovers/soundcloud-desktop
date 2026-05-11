@@ -4,11 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { preloadTrack } from '../../lib/audio';
 import { art, dur, fc } from '../../lib/formatters';
 import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
 import { LikeButton } from './LikeButton';
+import { UploadKindDot } from './UploadKindDot';
 
 interface TrackCardProps {
   track: Track;
@@ -22,6 +24,15 @@ export const TrackCard = React.memo(
     const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
     const artwork = art(track.artwork_url, 't300x300');
+    const artistDisplay = useArtistDisplay(track);
+    const displayTitle = useDisplayTitle(track);
+    const isWanted = artistDisplay.availability !== 'indexed';
+    const artistTarget =
+      track.enrichment?.primary_artist?.id && artistDisplay.verified
+        ? `/artist/${encodeURIComponent(track.enrichment.primary_artist.id)}`
+        : track.user?.urn
+          ? `/user/${encodeURIComponent(track.user.urn)}`
+          : null;
 
     const handleAddToQueue = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -110,26 +121,41 @@ export const TrackCard = React.memo(
         {/* Info */}
         <div className="mt-3 min-w-0">
           <p
-            className="text-[13px] font-medium text-white/90 truncate leading-snug cursor-pointer hover:text-white transition-colors duration-150"
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+            className={`text-[13px] font-medium truncate leading-snug ${isWanted ? 'text-white/55' : 'text-white/90 cursor-pointer hover:text-white'} transition-colors duration-150`}
+            onClick={
+              isWanted ? undefined : () => navigate(`/track/${encodeURIComponent(track.urn)}`)
+            }
           >
-            {track.title}
+            {displayTitle}
           </p>
           <p
-            className="text-[11px] text-white/35 truncate mt-0.5 cursor-pointer hover:text-white/55 transition-colors duration-150"
-            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+            className={`text-[11px] truncate mt-0.5 flex items-center gap-1 ${
+              isWanted ? 'text-white/30' : 'text-white/35 cursor-pointer hover:text-white/55'
+            } transition-colors duration-150`}
+            onClick={artistTarget && !isWanted ? () => navigate(artistTarget) : undefined}
           >
-            {track.user.username}
+            <UploadKindDot kind={artistDisplay.uploadKind} />
+            <span className="truncate">{artistDisplay.primary}</span>
           </p>
-          {track.playback_count != null && (
-            <p className="text-[10px] text-white/20 mt-1 tabular-nums">
-              {fc(track.playback_count)} plays
+          {isWanted ? (
+            <p className="text-[10px] text-white/25 mt-1">
+              {t('track.notFoundOnSc', 'not found on SoundCloud')}
             </p>
+          ) : (
+            track.playback_count != null && (
+              <p className="text-[10px] text-white/20 mt-1 tabular-nums">
+                {fc(track.playback_count)} plays
+              </p>
+            )
           )}
         </div>
       </div>
     );
   },
   (prev, next) =>
-    prev.track.urn === next.track.urn && prev.track.user_favorite === next.track.user_favorite,
+    prev.track.urn === next.track.urn &&
+    prev.track.user_favorite === next.track.user_favorite &&
+    prev.track.enrichment?.primary_artist?.name === next.track.enrichment?.primary_artist?.name &&
+    prev.track.enrichment?.upload_kind === next.track.enrichment?.upload_kind &&
+    prev.track.enrichment?.availability === next.track.enrichment?.availability,
 );

@@ -43,6 +43,7 @@ pub fn build(state: AppState) -> Router {
         .merge(modules::local_likes::router())
         .merge(modules::oauth_apps::router())
         .merge(modules::subscriptions::router())
+        .merge(modules::auras::router())
         .merge(modules::likes::router())
         .merge(modules::dislikes::router())
         .merge(modules::featured::router())
@@ -51,6 +52,9 @@ pub fn build(state: AppState) -> Router {
         .merge(modules::ltr::router())
         .merge(modules::indexing::router())
         .merge(modules::recommendations::router())
+        .merge(modules::enrich::router())
+        .merge(modules::artists::router())
+        .merge(modules::albums::router())
         .with_state(state)
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(

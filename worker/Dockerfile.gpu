@@ -8,7 +8,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 python3.11-dev python3.11-distutils \
-    ffmpeg libsndfile1 curl ca-certificates \
+    ffmpeg libsndfile1 libchromaprint-tools curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3.11

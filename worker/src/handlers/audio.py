@@ -1,8 +1,9 @@
 """INDEX_AUDIO: скачать трек с S3, посчитать MuQ + MuQ-MuLan, записать в qdrant."""
 import asyncio
-import io
 import json
 import logging
+import shutil
+import subprocess
 import tempfile
 import time
 
@@ -53,6 +54,34 @@ def _embed_muq(models: Models, audio_bytes: bytes) -> list[float]:
     return acc.detach().float().cpu().numpy().tolist()
 
 
+def _chromaprint_fingerprint(audio_bytes: bytes) -> str | None:
+    """Возвращает chromaprint (compressed string) для audio_bytes или None.
+    Использует системный fpcalc; если бинаря нет — тихо отдаёт None."""
+    fpcalc = shutil.which("fpcalc")
+    if not fpcalc:
+        return None
+    with tempfile.NamedTemporaryFile(suffix=".audio", delete=True) as f:
+        f.write(audio_bytes)
+        f.flush()
+        try:
+            res = subprocess.run(
+                [fpcalc, "-raw", "-length", "120", f.name],
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log.warning(f"[fpcalc] failed: {e}")
+            return None
+    if res.returncode != 0:
+        log.warning(f"[fpcalc] non-zero {res.returncode}: {res.stderr.decode(errors='ignore')[:200]}")
+        return None
+    for line in res.stdout.decode(errors="ignore").splitlines():
+        if line.startswith("FINGERPRINT="):
+            return line[len("FINGERPRINT="):].strip() or None
+    return None
+
+
 def _embed_mulan(models: Models, audio_bytes: bytes) -> list[float]:
     dtype = next(models.mulan.parameters()).dtype
     wavs = _load_wav(audio_bytes, sr=24000).to(DEVICE, dtype=dtype)
@@ -71,6 +100,8 @@ async def handle(
     sc_track_id = str(payload["sc_track_id"])
     s3_url = payload["s3_url"]
     language = payload.get("language")
+
+    fingerprint: str | None = None
 
     # Идемпотентность: вектора уже есть → просто публикуем done.
     if has_audio_vectors(qdrant, sc_track_id):
@@ -95,11 +126,18 @@ async def handle(
                 )
             upsert_audio(qdrant, sc_track_id, muq_vec, mulan_vec, language)
             log.info(f"[audio] {sc_track_id} embedded + upserted")
+            try:
+                fingerprint = await asyncio.to_thread(_chromaprint_fingerprint, audio_bytes)
+            except Exception as e:
+                log.warning(f"[audio] {sc_track_id} chromaprint crashed: {e}")
         finally:
             if DEVICE == "cuda":
                 torch.cuda.empty_cache()
 
+    done_payload: dict = {"sc_track_id": sc_track_id}
+    if fingerprint:
+        done_payload["fingerprint"] = fingerprint
     await nc.publish(
         subj.SUBJECT_DONE_INDEX_AUDIO,
-        json.dumps({"sc_track_id": sc_track_id}).encode(),
+        json.dumps(done_payload).encode(),
     )

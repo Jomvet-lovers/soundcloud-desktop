@@ -5,11 +5,16 @@ pub mod subjects {
     pub const AI_TRANSCRIBE: &str = "ai.rpc.transcribe";
     pub const AI_ENCODE_TEXT_MULAN: &str = "ai.rpc.encode_text_mulan";
     pub const AI_LTR_SCORE: &str = "ai.rpc.ltr_score";
+    pub const AI_RESOLVE_ARTIST: &str = "ai.rpc.resolve_artist";
+    pub const AI_VERIFY_EXISTENCE: &str = "ai.rpc.verify_existence";
+    pub const AI_MATCH_TRACK: &str = "ai.rpc.match_track";
 
     pub const INDEX_AUDIO: &str = "index.audio.new";
     pub const EMBED_LYRICS: &str = "embed.lyrics.new";
     pub const TRAIN_COLLAB: &str = "train.collab.new";
     pub const TRAIN_LTR: &str = "train.ltr.new";
+
+    pub const ENRICH_TRACK: &str = "enrich.track.new";
 
     pub const DONE_INDEX_AUDIO: &str = "done.index_audio";
     pub const DONE_EMBED_LYRICS: &str = "done.embed_lyrics";
@@ -44,6 +49,10 @@ pub mod streams {
     pub const TRAIN_LTR: StreamCfg = StreamCfg {
         name: "TRAIN_LTR",
         subjects: &["train.ltr.>"],
+    };
+    pub const ENRICH: StreamCfg = StreamCfg {
+        name: "ENRICH",
+        subjects: &["enrich.>"],
     };
     pub const DONE: StreamCfg = StreamCfg {
         name: "PIPELINE_DONE",

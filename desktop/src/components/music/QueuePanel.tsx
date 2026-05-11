@@ -1,4 +1,4 @@
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import React from 'react';
@@ -6,7 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/shallow';
 import { art, dur } from '../../lib/formatters';
 import { GripVertical, pauseTextWhite12, playIcon32, Trash2, X } from '../../lib/icons';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { usePlayerStore } from '../../stores/player';
+import { UploadKindDot } from './UploadKindDot';
 
 /* ── Now Playing (single, non-draggable) ─────────────────────────── */
 const NowPlayingItem = React.memo(() => {
@@ -133,14 +135,7 @@ const QueueRow = React.memo(function QueueRow({
         )}
       </div>
 
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={handleClick}>
-        <p
-          className={`text-[12px] truncate leading-snug ${isCurrent ? 'text-accent font-medium' : 'text-white/80'}`}
-        >
-          {track.title}
-        </p>
-        <p className="text-[10px] text-white/30 truncate mt-0.5">{track.user.username}</p>
-      </div>
+      <QueueTrackRowBody track={track} isCurrent={isCurrent} onClick={handleClick} />
 
       <span className="text-[10px] text-white/20 tabular-nums shrink-0">{dur(track.duration)}</span>
 
@@ -154,6 +149,32 @@ const QueueRow = React.memo(function QueueRow({
       >
         <X size={12} />
       </button>
+    </div>
+  );
+});
+
+const QueueTrackRowBody = React.memo(function QueueTrackRowBody({
+  track,
+  isCurrent,
+  onClick,
+}: {
+  track: import('../../stores/player').Track;
+  isCurrent: boolean;
+  onClick: () => void;
+}) {
+  const artistDisplay = useArtistDisplay(track);
+  const displayTitle = useDisplayTitle(track);
+  return (
+    <div className="flex-1 min-w-0 cursor-pointer" onClick={onClick}>
+      <p
+        className={`text-[12px] truncate leading-snug ${isCurrent ? 'text-accent font-medium' : 'text-white/80'}`}
+      >
+        {displayTitle}
+      </p>
+      <p className="text-[10px] text-white/30 truncate mt-0.5 flex items-center gap-1">
+        <UploadKindDot kind={artistDisplay.uploadKind} />
+        <span className="truncate">{artistDisplay.primary}</span>
+      </p>
     </div>
   );
 });

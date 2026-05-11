@@ -75,6 +75,8 @@ impl NatsService {
             .await?;
         svc.ensure_stream(&streams::TRAIN_LTR, true, Some(24 * 60 * 60))
             .await?;
+        svc.ensure_stream(&streams::ENRICH, true, Some(7 * 24 * 60 * 60))
+            .await?;
         svc.ensure_stream(&streams::DONE, false, None).await?;
         svc.ensure_stream(&streams::STORAGE_EVENTS, false, None)
             .await?;

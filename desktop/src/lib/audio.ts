@@ -22,6 +22,7 @@ import { isUrnDisliked } from './dislikes';
 import { recordEvent } from './events';
 import { art } from './formatters';
 import { rememberTracks } from './offline-index';
+import { getArtistDisplay, getDisplayTitle } from './track-display';
 
 const SKIP_THRESHOLD_SEC = 30;
 /** Минимум, чтобы засчитать «прослушано полностью» для коротких треков (50% длительности). */
@@ -536,9 +537,11 @@ useSettingsStore.subscribe((state, prev) => {
 
 function updateMetadata(track: Track, durationSecs?: number) {
   const coverUrl = art(track.artwork_url, 't500x500') || undefined;
+  const display = getArtistDisplay(track);
+  const title = getDisplayTitle(track);
   invoke('audio_set_metadata', {
-    title: track.title,
-    artist: track.user.username,
+    title,
+    artist: display.primary || track.user.username,
     coverUrl: coverUrl || null,
     durationSecs: durationSecs ?? track.duration / 1000,
   }).catch(console.error);

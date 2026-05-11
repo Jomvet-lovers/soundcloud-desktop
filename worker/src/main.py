@@ -17,6 +17,7 @@ from .bus import connect, ensure_consumer, run_rpc_msg, run_with_lifecycle
 from .handlers import ai, audio, lyrics
 from .handlers import collab as collab_handler
 from .handlers import ltr as ltr_handler
+from .handlers.resolve import match_track, resolve_artist, verify_existence
 from .handlers.transcribe import transcribe
 from .models import load_all
 from .storage import ensure_collections, new_client
@@ -118,6 +119,12 @@ def _route_ai(models, subject: str, payload: dict):
         return ai.encode_text_mulan(models, payload)
     if subject == subj.AI_LTR_SCORE:
         return ltr_handler.score(models, payload)
+    if subject == subj.AI_RESOLVE_ARTIST:
+        return resolve_artist(models, payload)
+    if subject == subj.AI_VERIFY_EXISTENCE:
+        return verify_existence(models, payload)
+    if subject == subj.AI_MATCH_TRACK:
+        return match_track(models, payload)
     raise ValueError(f"unknown AI subject: {subject}")
 
 

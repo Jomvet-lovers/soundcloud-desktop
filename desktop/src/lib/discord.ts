@@ -3,6 +3,7 @@ import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { getCurrentTime, subscribe as subscribeAudioTime } from './audio';
 import { trackedInvoke as invoke } from './diagnostics';
+import { getArtistDisplay, getDisplayTitle } from './track-display';
 
 let connected = false;
 let lastConnectAttemptAt = 0;
@@ -37,10 +38,11 @@ async function updatePresence(track: Track) {
   try {
     const isPlaying = usePlayerStore.getState().isPlaying;
     const { discordRpcMode, discordRpcShowButton } = useSettingsStore.getState();
+    const display = getArtistDisplay(track);
     await invoke('discord_set_activity', {
       track: {
-        title: track.title,
-        artist: track.user.username,
+        title: getDisplayTitle(track),
+        artist: display.primary || track.user.username,
         artwork_url: artworkToLarge(track.artwork_url),
         track_url: track.permalink_url ? `${track.permalink_url}`.replace(/\?.*$/, '') : undefined,
         duration_secs: Math.round(track.duration / 1000),

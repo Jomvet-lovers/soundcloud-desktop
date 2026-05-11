@@ -38,6 +38,7 @@ import {
   searchLyricsManual,
   splitArtistTitle,
 } from '../../lib/lyrics';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import {
   clampLyricsSplit,
   LYRICS_SPLIT_DEFAULT,
@@ -417,6 +418,8 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
   const { t } = useTranslation();
   const artwork500 = art(track.artwork_url, 't500x500');
   const artwork200 = art(track.artwork_url, 't200x200');
+  const artistDisplay = useArtistDisplay(track);
+  const displayTitle = useDisplayTitle(track);
   const [loaded, setLoaded] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
   const [showFullArt, setShowFullArt] = useState(false);
@@ -499,22 +502,22 @@ const TrackColumn = React.memo(({ track, maxArt }: { track: Track; maxArt?: stri
       {showFullArt && artwork500 && (
         <ArtworkViewModal
           src={artwork500}
-          title={track.title}
-          subtitle={track.user.username}
+          title={displayTitle}
+          subtitle={artistDisplay.primary}
           onClose={() => setShowFullArt(false)}
         />
       )}
 
       <div className={`${widthClass} text-center space-y-1`}>
         <div className="flex items-center justify-center gap-2 min-w-0">
-          <p className="text-[18px] font-bold text-white/95 truncate">{track.title}</p>
+          <p className="text-[18px] font-bold text-white/95 truncate">{displayTitle}</p>
           {track.access === 'preview' && (
             <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide bg-amber-500/20 text-amber-400/90 px-1.5 py-px rounded">
               Preview
             </span>
           )}
         </div>
-        <p className="text-[14px] text-white/40 truncate">{track.user.username}</p>
+        <p className="text-[14px] text-white/40 truncate">{artistDisplay.primary}</p>
       </div>
 
       <div className={widthClass}>

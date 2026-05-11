@@ -60,6 +60,17 @@
     "likes": "begeni",
     "reposts": "yeniden paylasim",
     "posted": "Yuklendi",
+    "uploadedBy": "<1>{{name}}</1> tarafindan yuklendi",
+    "verifiedArtist": "Dogrulanmis sanatci (guven {{confidence}})",
+    "unverifiedArtist": "Basliktan, dogrulanmadi (guven {{confidence}})",
+    "uploadKind": {
+      "original": "orijinal",
+      "demo": "demo",
+      "alt": "alt",
+      "reupload": "yeniden yukleme"
+    },
+    "notFoundOnSc": "SoundCloud'da bulunamadi",
+    "wantedHint": "Sarki biliniyor ama henuz yuklenmedi",
     "description": "Aciklama",
     "noComments": "Henuz yorum yok",
     "postComment": "Gonder",
@@ -128,7 +139,10 @@
     "publicProfile": "Diger insanlar profilinizi boyle gorur",
     "about": "Hakkinda",
     "memberSince": "Uyelik tarihi",
-    "links": "Baglantilar"
+    "links": "Baglantilar",
+    "verifiedArtist": "Dogrulanmis sanatci",
+    "auraTitle": "Aura",
+    "auraCustom": "Ozel"
   },
   "library": {
     "likedTracks": "Begenilen Parcalar",
@@ -342,7 +356,8 @@
     "retry": "Tekrar dene",
     "seeAll": "Tumunu Gor",
     "cancel": "Iptal",
-    "back": "Geri"
+    "back": "Geri",
+    "empty": "Burada henuz bir sey yok"
   },
   "star": {
     "title": "Star Abonelik",
@@ -395,5 +410,18 @@
       "active": "aktif",
       "failed": "hata"
     }
+  },
+  "artist": {
+    "tracks": "Parçalar",
+    "appearsOn": "Konuk olduğu",
+    "albums": "Albümler",
+    "related": "Benzer",
+    "about": "Hakkında",
+    "noTracks": "Parça yok",
+    "noAppearances": "Konukluk yok",
+    "noBio": "Biyografi yok",
+    "scAccounts": "SoundCloud hesapları",
+    "mainAccount": "Ana",
+    "demoAccount": "Demo"
   }
 }

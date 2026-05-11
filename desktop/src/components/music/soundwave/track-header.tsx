@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { getCurrentTime, getDuration, subscribe } from '../../../lib/audio';
 import { art, dur } from '../../../lib/formatters';
 import { pauseBlack14, playBlack14 } from '../../../lib/icons';
 import { useTrackPlay } from '../../../lib/useTrackPlay';
 import type { Track } from '../../../stores/player';
+import { TrackTitleArtist } from '../TrackTitleArtist';
 
 function formatMMSS(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
@@ -47,7 +47,6 @@ interface Props {
 /** Cover + title/artist row rendered above the waveform. */
 export const WaveTrackHeader = React.memo(
   function WaveTrackHeader({ track, queue, isCurrent }: Props) {
-    const navigate = useNavigate();
     const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
     const cover = art(track.artwork_url, 't200x200');
 
@@ -83,20 +82,7 @@ export const WaveTrackHeader = React.memo(
           </span>
         </button>
 
-        <div className="min-w-0 flex-1">
-          <p
-            className="text-[15px] font-semibold text-white/95 truncate leading-tight cursor-pointer hover:text-white transition-colors"
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
-          >
-            {track.title}
-          </p>
-          <p
-            className="text-[12px] text-white/50 truncate mt-0.5 cursor-pointer hover:text-white/80 transition-colors"
-            onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-          >
-            {track.user.username}
-          </p>
-        </div>
+        <TrackTitleArtist track={track} highlight={isCurrent} size="md" />
 
         {isCurrent ? (
           <CurrentTimeDisplay />

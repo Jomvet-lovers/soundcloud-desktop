@@ -3,13 +3,15 @@ use std::time::{Duration, Instant};
 
 use parking_lot_compat::Mutex;
 use regex::Regex;
-use reqwest::Client;
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use tracing::debug;
 
+use crate::common::external_fetch::ExternalFetcher;
+
 const APP_ID: &str = "web-desktop-app-v1.0";
-const TIMEOUT: Duration = Duration::from_secs(15);
 const TOKEN_TTL: Duration = Duration::from_secs(9 * 60 * 60);
+const UA: &str = "scd-backend/0.1 (musixmatch lookup)";
 
 mod parking_lot_compat {
     use std::sync::Mutex as StdMutex;
@@ -104,18 +106,26 @@ struct TokenCache {
 }
 
 pub struct MusixmatchService {
-    http: Client,
+    fetcher: Arc<ExternalFetcher>,
     base: String,
     token_cache: Mutex<Option<TokenCache>>,
 }
 
 impl MusixmatchService {
-    pub fn new(http: Client, base: String) -> Arc<Self> {
+    pub fn new(fetcher: Arc<ExternalFetcher>, base: String) -> Arc<Self> {
         Arc::new(Self {
-            http,
+            fetcher,
             base,
             token_cache: Mutex::new(None),
         })
+    }
+
+    fn headers() -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("User-Agent", UA.parse().unwrap());
+        h.insert("Accept", "application/json".parse().unwrap());
+        h.insert("Cookie", "x-mxm-token-guid=".parse().unwrap());
+        h
     }
 
     pub async fn search_by_query(&self, q: &str, limit: usize) -> Vec<MxmCandidate> {
@@ -163,16 +173,9 @@ impl MusixmatchService {
             urlencoding::encode(q),
             limit,
         );
-        let resp = match self.send(&url).await {
-            Some(r) => r,
+        let parsed: SearchResp = match self.send_json(&url, "track.search").await {
+            Some(p) => p,
             None => return Vec::new(),
-        };
-        let parsed: SearchResp = match resp.json().await {
-            Ok(p) => p,
-            Err(e) => {
-                debug!(error = %e, "mxm search parse failed");
-                return Vec::new();
-            }
         };
         let list = parsed
             .message
@@ -202,14 +205,7 @@ impl MusixmatchService {
             urlencoding::encode(token),
             track_id,
         );
-        let resp = self.send(&url).await?;
-        let parsed: SubtitleResp = match resp.json().await {
-            Ok(p) => p,
-            Err(e) => {
-                debug!(error = %e, "mxm subtitle parse failed");
-                return None;
-            }
-        };
+        let parsed: SubtitleResp = self.send_json(&url, "track.subtitle.get").await?;
         let raw = parsed.message?.body?.subtitle?.subtitle_body?;
         let lrc = normalize_mxm_subtitle(&raw);
         if lrc.len() > 20 {
@@ -227,14 +223,7 @@ impl MusixmatchService {
             urlencoding::encode(token),
             track_id,
         );
-        let resp = self.send(&url).await?;
-        let parsed: LyricsResp = match resp.json().await {
-            Ok(p) => p,
-            Err(e) => {
-                debug!(error = %e, "mxm lyrics parse failed");
-                return None;
-            }
-        };
+        let parsed: LyricsResp = self.send_json(&url, "track.lyrics.get").await?;
         let body = parsed.message?.body?.lyrics?.lyrics_body?;
         if body.len() < 20 {
             return None;
@@ -260,14 +249,7 @@ impl MusixmatchService {
             }
         }
         let url = format!("{}/token.get?app_id={}", self.base, APP_ID);
-        let resp = self.send(&url).await?;
-        let parsed: TokenResp = match resp.json().await {
-            Ok(p) => p,
-            Err(e) => {
-                debug!(error = %e, "mxm token.get parse failed");
-                return None;
-            }
-        };
+        let parsed: TokenResp = self.send_json(&url, "token.get").await?;
         let token = parsed.message?.body?.user_token?;
         if token.is_empty() || token == "UpgradeOnlyUpgradeOnlyUpgradeOnlyUpgradeOnly" {
             return None;
@@ -281,22 +263,18 @@ impl MusixmatchService {
         Some(token)
     }
 
-    async fn send(&self, url: &str) -> Option<reqwest::Response> {
-        match self
-            .http
-            .get(url)
-            .header("Cookie", "x-mxm-token-guid=")
-            .timeout(TIMEOUT)
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => Some(r),
-            Ok(r) => {
-                debug!(status = %r.status(), "mxm non-2xx");
-                None
-            }
+    async fn send_json<T: for<'de> Deserialize<'de>>(&self, url: &str, label: &str) -> Option<T> {
+        let bytes = match self.fetcher.get_bytes(url, Self::headers()).await {
+            Ok(b) => b,
             Err(e) => {
-                debug!(error = %e, "mxm request failed");
+                debug!(error = %e, label, "mxm request failed");
+                return None;
+            }
+        };
+        match serde_json::from_slice::<T>(&bytes) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                debug!(error = %e, label, "mxm parse failed");
                 None
             }
         }

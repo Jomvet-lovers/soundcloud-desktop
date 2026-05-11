@@ -12,6 +12,7 @@ use crate::common::pagination::PaginationQuery;
 use crate::common::response::json_response;
 use crate::common::session::SessionCtx;
 use crate::error::{AppError, AppResult};
+use crate::modules::enrich::dto as enrich_dto;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -126,9 +127,14 @@ async fn get_by_id(
         3600,
         Some(&cache_key),
         || async {
-            st.playlists
+            let mut value = st
+                .playlists
                 .get_by_id(&ctx.access_token, &playlist_urn, &params)
-                .await
+                .await?;
+            if let Some(arr) = value.get_mut("tracks").and_then(|v| v.as_array_mut()) {
+                enrich_dto::apply_to_tracks(&st.pg, arr.as_mut_slice()).await?;
+            }
+            Ok(value)
         },
     )
     .await
@@ -226,11 +232,12 @@ async fn get_tracks(
     if let Some(v) = q.secret_token {
         extra.push(("secret_token".into(), v));
     }
-    Ok(Json(
-        st.playlists
-            .get_tracks(&ctx.access_token, &playlist_urn, page, limit, extra)
-            .await?,
-    ))
+    let mut result = st
+        .playlists
+        .get_tracks(&ctx.access_token, &playlist_urn, page, limit, extra)
+        .await?;
+    enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
+    Ok(Json(result))
 }
 
 async fn get_reposters(

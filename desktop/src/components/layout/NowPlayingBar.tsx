@@ -29,6 +29,7 @@ import {
   volumeXIcon16,
 } from '../../lib/icons';
 import { optimisticToggleLike } from '../../lib/likes';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { useLyricsStore } from '../../stores/lyrics';
 import {
   getEffectivePitchSemitones,
@@ -43,6 +44,7 @@ import {
 } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
 import { EqualizerPanel } from '../music/EqualizerPanel';
+import { UploadKindDot } from '../music/UploadKindDot';
 
 /* ── Download Progress Panel ────────────────────────────────── */
 
@@ -762,7 +764,6 @@ const TuningBtn = React.memo(() => {
 const TrackInfo = React.memo(() => {
   const navigate = useNavigate();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
-  const openLyricsPanel = useLyricsStore((s) => s.openPanel);
   const artworkSmall = art(currentTrack?.artwork_url, 't200x200');
 
   if (!currentTrack) {
@@ -773,6 +774,27 @@ const TrackInfo = React.memo(() => {
     );
   }
 
+  return <TrackInfoBody track={currentTrack} artworkSmall={artworkSmall} navigate={navigate} />;
+});
+
+const TrackInfoBody = React.memo(function TrackInfoBody({
+  track,
+  artworkSmall,
+  navigate,
+}: {
+  track: Track;
+  artworkSmall: string | null;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const openLyricsPanel = useLyricsStore((s) => s.openPanel);
+  const artistDisplay = useArtistDisplay(track);
+  const displayTitle = useDisplayTitle(track);
+  const artistTarget =
+    track.enrichment?.primary_artist?.id && artistDisplay.verified
+      ? `/artist/${encodeURIComponent(track.enrichment.primary_artist.id)}`
+      : track.user?.urn
+        ? `/user/${encodeURIComponent(track.user.urn)}`
+        : null;
   return (
     <div className="flex items-center gap-3.5 w-[340px] min-w-0">
       <div
@@ -800,20 +822,21 @@ const TrackInfo = React.memo(() => {
         <div className="flex items-center gap-1.5 min-w-0">
           <p
             className="text-[13px] text-white/90 truncate font-medium cursor-pointer hover:text-white leading-tight transition-colors"
-            onClick={() => navigate(`/track/${encodeURIComponent(currentTrack.urn)}`)}
+            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
           >
-            {currentTrack.title}
+            {displayTitle}
           </p>
         </div>
         <p
-          className="text-[11px] text-white/35 truncate mt-1 cursor-pointer hover:text-white/55 transition-colors"
-          onClick={() => navigate(`/user/${encodeURIComponent(currentTrack.user.urn)}`)}
+          className="text-[11px] text-white/35 truncate mt-1 flex items-center gap-1 cursor-pointer hover:text-white/55 transition-colors"
+          onClick={artistTarget ? () => navigate(artistTarget) : undefined}
         >
-          {currentTrack.user.username}
+          <UploadKindDot kind={artistDisplay.uploadKind} />
+          <span className="truncate">{artistDisplay.primary}</span>
         </p>
       </div>
-      <LikeButton trackUrn={currentTrack.urn} />
-      <NowBarDislikeButton trackUrn={currentTrack.urn} />
+      <LikeButton trackUrn={track.urn} />
+      <NowBarDislikeButton trackUrn={track.urn} />
       <PlaybackQualityBadge />
     </div>
   );

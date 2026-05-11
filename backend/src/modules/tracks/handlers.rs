@@ -12,6 +12,7 @@ use crate::common::pagination::PaginationQuery;
 use crate::common::response::json_response;
 use crate::common::session::SessionCtx;
 use crate::error::AppResult;
+use crate::modules::enrich::dto as enrich_dto;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -89,11 +90,12 @@ async fn search(
     if let Some(v) = q.tags {
         extra.push(("tags".into(), v));
     }
-    Ok(Json(
-        st.tracks
-            .search(&ctx.access_token, &ctx.sc_user_id, page, limit, extra)
-            .await?,
-    ))
+    let mut result = st
+        .tracks
+        .search(&ctx.access_token, &ctx.sc_user_id, page, limit, extra)
+        .await?;
+    enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
+    Ok(Json(result))
 }
 
 async fn get_by_id(
@@ -114,9 +116,12 @@ async fn get_by_id(
         None,
         600,
         || async {
-            st.tracks
+            let mut track = st
+                .tracks
                 .get_by_id(&ctx.access_token, &ctx.sc_user_id, &track_urn, &params)
-                .await
+                .await?;
+            enrich_dto::apply_to_track(&st.pg, &mut track).await?;
+            Ok(track)
         },
     )
     .await
@@ -263,18 +268,19 @@ async fn get_related(
     let access = a
         .access
         .unwrap_or_else(|| "playable,preview,blocked".into());
-    Ok(Json(
-        st.tracks
-            .get_related(
-                &ctx.access_token,
-                &ctx.sc_user_id,
-                &track_urn,
-                page,
-                limit,
-                &access,
-            )
-            .await?,
-    ))
+    let mut result = st
+        .tracks
+        .get_related(
+            &ctx.access_token,
+            &ctx.sc_user_id,
+            &track_urn,
+            page,
+            limit,
+            &access,
+        )
+        .await?;
+    enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
+    Ok(Json(result))
 }
 
 fn request_url(prefix: &str, suffix: &str, params: &[(String, String)]) -> String {

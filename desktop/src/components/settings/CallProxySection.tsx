@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-
+import { type CallStatus, callIsEnabled, callSetEnabled, callStatus } from '../../lib/call';
 import { Lock } from '../../lib/icons';
-import { callIsEnabled, callSetEnabled, callStatus, type CallStatus } from '../../lib/call';
 import { StarModal, useStarSubscription } from '../layout/StarSubscription';
 
 const STATUS_POLL_MS = 5000;
@@ -26,7 +25,9 @@ export const CallProxySection: React.FC = React.memo(() => {
     callIsEnabled()
       .then((v) => {
         setEnabled(v);
-        callStatus().then(setStatus).catch(() => {});
+        callStatus()
+          .then(setStatus)
+          .catch(() => {});
       })
       .catch(() => {});
   }, []);
@@ -34,7 +35,9 @@ export const CallProxySection: React.FC = React.memo(() => {
   useEffect(() => {
     if (!enabled) return;
     const id = setInterval(() => {
-      callStatus().then(setStatus).catch(() => {});
+      callStatus()
+        .then(setStatus)
+        .catch(() => {});
     }, STATUS_POLL_MS);
     return () => clearInterval(id);
   }, [enabled]);
@@ -115,9 +118,7 @@ export const CallProxySection: React.FC = React.memo(() => {
             <h3 className="text-[15px] font-semibold tracking-tight text-white">
               {t('call.title')}
             </h3>
-            <p className="text-[11px] text-white/45 mt-0.5">
-              {t(`call.status.${status.kind}`)}
-            </p>
+            <p className="text-[11px] text-white/45 mt-0.5">{t(`call.status.${status.kind}`)}</p>
             {status.kind === 'failed' && status.error ? (
               <p
                 className="text-[10px] text-red-400/80 mt-1 font-mono break-all"

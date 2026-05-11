@@ -4,9 +4,11 @@ use sqlx::PgPool;
 
 use crate::cache::{CacheService, ListCacheService};
 use crate::config::AppConfig;
+use crate::modules::auras::AurasService;
 use crate::modules::auth::{AuthService, LinkService};
 use crate::modules::collab::{CollabTrainerService, CollabVectorService};
 use crate::modules::dislikes::DislikesService;
+use crate::modules::enrich::{ArtistCrawlService, EnrichService, WantedResolverService};
 use crate::modules::events::EventsService;
 use crate::modules::featured::FeaturedService;
 use crate::modules::history::HistoryService;
@@ -39,6 +41,7 @@ pub struct AppState {
     pub events: Arc<EventsService>,
     pub dislikes: Arc<DislikesService>,
     pub subscriptions: Arc<SubscriptionsService>,
+    pub auras: Arc<AurasService>,
     pub me: Arc<MeService>,
     pub pending_actions: Arc<PendingActionsService>,
     pub tracks: Arc<TracksService>,
@@ -55,4 +58,7 @@ pub struct AppState {
     pub ltr_trainer: Arc<LtrTrainerService>,
     pub indexing: Arc<IndexingService>,
     pub recommendations: Arc<RecommendationsService>,
+    pub enrich: Arc<EnrichService>,
+    pub artist_crawl: Arc<ArtistCrawlService>,
+    pub wanted_resolver: Arc<WantedResolverService>,
 }

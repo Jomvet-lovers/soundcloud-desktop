@@ -104,7 +104,7 @@ fn fmt_chain<E: std::error::Error + ?Sized>(e: &E) -> String {
 
 async fn run_call_loop(_app: AppHandle, state: Arc<CallState>) -> Result<(), String> {
     let endpoint_url = std::env::var("CALL_EDGE_ENDPOINT")
-        .unwrap_or_else(|_| "https://call.scdinternal.site".to_string());
+        .unwrap_or_else(|_| "https://call.scdinternal.site:444".to_string());
     let pow_difficulty = std::env::var("CALL_POW_DIFFICULTY_BITS")
         .ok()
         .and_then(|s| s.parse().ok())

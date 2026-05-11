@@ -1,12 +1,13 @@
 use std::sync::Arc;
-use std::time::Duration;
 
-use reqwest::Client;
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use tracing::debug;
 
+use crate::common::external_fetch::ExternalFetcher;
+
 const LRCLIB_API: &str = "https://lrclib.net/api";
-const TIMEOUT: Duration = Duration::from_secs(15);
+const UA: &str = "scd-backend/0.1 (lrclib lookup)";
 
 #[derive(Debug, Clone)]
 pub struct LrclibResult {
@@ -32,27 +33,31 @@ struct Raw {
 }
 
 pub struct LrclibService {
-    http: Client,
+    fetcher: Arc<ExternalFetcher>,
 }
 
 impl LrclibService {
-    pub fn new(http: Client) -> Arc<Self> {
-        Arc::new(Self { http })
+    pub fn new(fetcher: Arc<ExternalFetcher>) -> Arc<Self> {
+        Arc::new(Self { fetcher })
+    }
+
+    fn headers() -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("User-Agent", UA.parse().unwrap());
+        h.insert("Accept", "application/json".parse().unwrap());
+        h
     }
 
     pub async fn search_by_query(&self, q: &str, limit: usize) -> Vec<LrclibResult> {
         let url = format!("{LRCLIB_API}/search?q={}", urlencoding::encode(q));
-        let resp = match self.http.get(&url).timeout(TIMEOUT).send().await {
-            Ok(r) => r,
+        let bytes = match self.fetcher.get_bytes(&url, Self::headers()).await {
+            Ok(b) => b,
             Err(e) => {
                 debug!(error = %e, "LRCLIB search failed");
                 return Vec::new();
             }
         };
-        if !resp.status().is_success() {
-            return Vec::new();
-        }
-        let data: Vec<Raw> = match resp.json().await {
+        let data: Vec<Raw> = match serde_json::from_slice(&bytes) {
             Ok(d) => d,
             Err(e) => {
                 debug!(error = %e, "LRCLIB parse failed");

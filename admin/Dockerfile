@@ -1,9 +1,11 @@
 # ---- Builder ----
 FROM node:22-bookworm-slim AS build
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.0.9 --activate
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+ENV CI=true
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .

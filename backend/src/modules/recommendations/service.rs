@@ -182,7 +182,7 @@ impl RecommendationsService {
             "wave start"
         );
 
-        let candidate_ids = self
+        let mut candidate_ids = self
             .build_candidate_pool(
                 user_collab.as_deref(),
                 seed.mert.is_some(),
@@ -196,6 +196,17 @@ impl RecommendationsService {
                 req_id,
             )
             .await;
+        let coplay_ids = self
+            .coplay_arm(sc_user_id, anchor, exclude, fetch_limit / 4, req_id)
+            .await;
+        if !coplay_ids.is_empty() {
+            let mut existing: HashSet<u64> = candidate_ids.iter().copied().collect();
+            for id in coplay_ids {
+                if existing.insert(id) {
+                    candidate_ids.push(id);
+                }
+            }
+        }
         if candidate_ids.is_empty() {
             warn!(req_id, "wave: empty pool, fallback");
             return self.get_fallback_tracks(exclude, limit, languages).await;
@@ -574,6 +585,87 @@ impl RecommendationsService {
         }
 
         pool.into_iter().collect()
+    }
+
+    async fn coplay_arm(
+        &self,
+        sc_user_id: &str,
+        anchor: Option<u64>,
+        exclude: &[String],
+        limit: usize,
+        req_id: &str,
+    ) -> Vec<u64> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let mut seed_sc_ids: Vec<String> = Vec::new();
+        if let Some(a) = anchor {
+            seed_sc_ids.push(a.to_string());
+        }
+        let recent: Vec<(String,)> = sqlx::query_as(
+            "SELECT sc_track_id FROM user_events
+             WHERE sc_user_id = $1
+               AND event_type IN ('like', 'play_complete')
+             ORDER BY created_at DESC
+             LIMIT 50",
+        )
+        .bind(sc_user_id)
+        .fetch_all(&self.pg)
+        .await
+        .unwrap_or_default();
+        for (id,) in recent {
+            seed_sc_ids.push(id);
+        }
+        if seed_sc_ids.is_empty() {
+            return Vec::new();
+        }
+        let co_artists: Vec<(uuid::Uuid,)> = sqlx::query_as(
+            "WITH seed AS (
+                 SELECT DISTINCT primary_artist_id AS aid
+                 FROM indexed_tracks
+                 WHERE sc_track_id = ANY($1) AND primary_artist_id IS NOT NULL
+             )
+             SELECT (CASE WHEN ac.a_id = s.aid THEN ac.b_id ELSE ac.a_id END) AS co_id
+             FROM seed s
+             JOIN artist_coplay ac ON ac.a_id = s.aid OR ac.b_id = s.aid
+             GROUP BY co_id
+             ORDER BY MAX(ac.weight) DESC
+             LIMIT 30",
+        )
+        .bind(&seed_sc_ids)
+        .fetch_all(&self.pg)
+        .await
+        .unwrap_or_default();
+        if co_artists.is_empty() {
+            return Vec::new();
+        }
+        let co_ids: Vec<uuid::Uuid> = co_artists.into_iter().map(|(a,)| a).collect();
+
+        let track_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT it.sc_track_id
+             FROM track_artists ta
+             JOIN indexed_tracks it ON it.id = ta.indexed_track_id
+             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
+             WHERE ta.artist_id = ANY($1)
+               AND ta.role = 'primary'
+               AND it.indexed_at IS NOT NULL
+               AND NOT (it.sc_track_id = ANY($2))
+             ORDER BY COALESCE(c.play_count, 0) DESC
+             LIMIT $3",
+        )
+        .bind(&co_ids)
+        .bind(exclude)
+        .bind(limit as i64)
+        .fetch_all(&self.pg)
+        .await
+        .unwrap_or_default();
+
+        let out: Vec<u64> = track_rows
+            .into_iter()
+            .filter_map(|(id,)| id.parse::<u64>().ok())
+            .collect();
+        info!(req_id, count = out.len(), "pool coplay-arm");
+        out
     }
 
     async fn load_user_taste_vectors(

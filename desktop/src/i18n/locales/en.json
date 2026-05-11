@@ -93,6 +93,17 @@
     "likes": "likes",
     "reposts": "reposts",
     "posted": "Posted",
+    "uploadedBy": "uploaded by <1>{{name}}</1>",
+    "verifiedArtist": "Verified artist (confidence {{confidence}})",
+    "unverifiedArtist": "Parsed from title, not externally verified (confidence {{confidence}})",
+    "uploadKind": {
+      "original": "original",
+      "demo": "demo",
+      "alt": "alt",
+      "reupload": "re-upload"
+    },
+    "notFoundOnSc": "not found on SoundCloud",
+    "wantedHint": "Track is known but not uploaded yet",
     "description": "Description",
     "noComments": "No comments yet",
     "postComment": "Post",
@@ -162,7 +173,10 @@
     "publicProfile": "This is how your public profile looks to others",
     "about": "About",
     "memberSince": "Member since",
-    "links": "Links"
+    "links": "Links",
+    "verifiedArtist": "Verified Artist",
+    "auraTitle": "Aura",
+    "auraCustom": "Custom"
   },
   "library": {
     "likedTracks": "Liked Tracks",
@@ -378,7 +392,10 @@
     "retry": "Retry",
     "seeAll": "See All",
     "cancel": "Cancel",
-    "back": "Back"
+    "back": "Back",
+    "empty": "Nothing here yet",
+    "expand": "Read more",
+    "collapse": "Collapse"
   },
   "star": {
     "title": "Star Subscription",
@@ -431,5 +448,61 @@
       "active": "active",
       "failed": "failed"
     }
+  },
+  "artist": {
+    "title": "Artist",
+    "tracks": "Tracks",
+    "appearsOn": "Appears on",
+    "albums": "Albums",
+    "related": "Related",
+    "about": "About",
+    "aboutTitle": "About",
+    "noTracks": "No tracks",
+    "noAppearances": "No appearances",
+    "noAlbums": "No albums yet",
+    "noRelated": "No related artists yet",
+    "noBio": "No bio yet",
+    "scAccounts": "SoundCloud accounts",
+    "mainAccount": "Main",
+    "demoAccount": "Demo",
+    "playMix": "Play Mix",
+    "sortPopular": "Popular",
+    "sortRecent": "Recent",
+    "viewList": "List",
+    "viewYears": "By year",
+    "comingSoon": "Coming soon",
+    "country": "Country",
+    "confidence": "Confidence",
+    "links": "Links",
+    "featured": "Featured",
+    "affinity": "Affinity",
+    "releaseYear": "Released",
+    "unknownYear": "Undated",
+    "statsTracks": "Tracks",
+    "statsFeatured": "Featured",
+    "statsAlbums": "Albums",
+    "statsRelated": "Related",
+    "kind": {
+      "album": "Album",
+      "ep": "EP",
+      "single": "Single",
+      "compilation": "Compilation"
+    }
+  },
+  "album": {
+    "playAlbum": "Play Album",
+    "pauseAlbum": "Pause Album",
+    "tracks": "Tracks",
+    "tracksCount_one": "{{count}} track",
+    "tracksCount_other": "{{count}} tracks",
+    "cast": "Cast",
+    "primaryArtist": "Primary",
+    "featured": "Featured",
+    "remixer": "Remixer",
+    "producer": "Producer",
+    "availability": "{{indexed}}/{{total}} available",
+    "verified": "Verified",
+    "noTracks": "No tracks indexed yet",
+    "comingSoon": "Coming soon"
   }
 }

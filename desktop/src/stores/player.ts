@@ -2,6 +2,48 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
+export interface EnrichmentArtist {
+  id: string;
+  name: string;
+  avatar_url?: string;
+  sc_user_id?: string;
+  source: string;
+  confidence: number;
+  verified: boolean;
+}
+
+export interface EnrichmentParticipant {
+  artist: EnrichmentArtist;
+  role: string;
+  confidence: number;
+}
+
+export interface EnrichmentAlbum {
+  id: string;
+  title: string;
+  year?: number;
+  cover_url?: string;
+  type: string;
+  primary_artist?: EnrichmentArtist;
+}
+
+export type TrackAvailability = 'indexed' | 'wanted' | 'not_found';
+
+export interface TrackEnrichment {
+  state: string;
+  source?: string;
+  confidence?: number;
+  upload_kind: string;
+  availability?: TrackAvailability;
+  primary_artist?: EnrichmentArtist;
+  participants?: EnrichmentParticipant[];
+  album?: EnrichmentAlbum;
+  release_year?: number;
+  release_date?: string;
+  release_source?: string;
+  isrc?: string;
+}
+
 export interface Track {
   id: number;
   urn: string;
@@ -28,6 +70,7 @@ export interface Track {
     avatar_url: string;
     permalink_url: string;
   };
+  enrichment?: TrackEnrichment;
 }
 
 type RepeatMode = 'off' | 'one' | 'all';

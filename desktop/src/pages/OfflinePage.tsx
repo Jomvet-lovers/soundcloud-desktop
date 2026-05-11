@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { listCachedUrns } from '../lib/cache';
@@ -223,10 +224,7 @@ const OfflineTrackRow = React.memo(function OfflineTrackRow({
         )}
       </button>
 
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-semibold text-white/92">{track.title}</div>
-        <div className="mt-1 truncate text-[12px] text-white/42">{track.user.username}</div>
-      </div>
+      <TrackTitleArtist track={track} size="md" />
 
       <div className="hidden shrink-0 items-center gap-2 sm:flex">
         {showCachedBadge ? (
