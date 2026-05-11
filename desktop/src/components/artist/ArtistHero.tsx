@@ -3,12 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Check, ChevronDown, Globe, ListMusic, MicVocal, Music, Users } from '../../lib/icons';
-import type { Track } from '../../stores/player';
 import { GlassHeroPanel } from '../ui/GlassHeroPanel';
 import { AvatarArtifact } from '../user/AvatarArtifact';
 import { StatOrb } from '../user/StatOrb';
 import { InfoChip, VerifiedBadge } from '../user/UserChips';
-import { ArtistMixButton } from './ArtistMixButton';
 import { SocialIcon, socialLabel } from './socials';
 import type { ArtistDetail } from './types';
 
@@ -16,7 +14,6 @@ interface ArtistHeroProps {
   artist: ArtistDetail;
   hasStar: boolean;
   aura: Aura;
-  popularTracks: Track[];
 }
 
 const SocialChip = memo(({ kind, url, title }: { kind: string; url: string; title: string }) => (
@@ -66,7 +63,7 @@ const ScAccountChip = memo(
   },
 );
 
-function ArtistHeroImpl({ artist, hasStar, aura, popularTracks }: ArtistHeroProps) {
+function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
   const { t } = useTranslation();
   const [bioExpanded, setBioExpanded] = useState(false);
   const accent = auraRgba(aura, 0.18);
@@ -153,11 +150,6 @@ function ArtistHeroImpl({ artist, hasStar, aura, popularTracks }: ArtistHeroProp
               ))}
             </div>
           )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap items-center gap-3 pt-1 justify-center lg:justify-start">
-            <ArtistMixButton tracks={popularTracks} aura={aura} />
-          </div>
         </div>
 
         {/* Right column stats */}

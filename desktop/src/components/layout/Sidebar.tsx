@@ -6,6 +6,7 @@ import { changeAppLanguage } from '../../i18n';
 import { art } from '../../lib/formatters';
 import {
   Clock,
+  Compass,
   Download,
   Globe,
   Home,
@@ -32,6 +33,7 @@ const languages = [
 const navItems = [
   { to: '/home', icon: Home, label: 'nav.home' },
   { to: '/search', icon: Search, label: 'nav.search' },
+  { to: '/discover', icon: Compass, label: 'nav.discover' },
   { to: '/library', icon: Library, label: 'nav.library' },
   { to: '/offline', icon: Download, label: 'nav.offline' },
 ];

@@ -1,0 +1,1 @@
+export { ArtistSoundWave } from './ArtistSoundWave';

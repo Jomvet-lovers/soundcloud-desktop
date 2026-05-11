@@ -1,67 +1,56 @@
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '../../../lib/api';
-import { AudioLines, playBlack14, Sparkles } from '../../../lib/icons';
-import { hydrateByIds, type RecommendResult, useSoundWaveSimilar } from '../../../lib/soundwave';
-import type { Track } from '../../../stores/player';
+import { AudioLines, Compass, Disc3, Headphones, playBlack14, Sparkles } from '../../../lib/icons';
 import { usePlayerStore } from '../../../stores/player';
+import {
+  ClusterEmptyState,
+  type ClusterId,
+  ClusterRow,
+  ClusterSkeletonState,
+  NeighborsRow,
+  useClusterWave,
+} from '../cluster';
 import { AmbientLayer } from './ambient';
-import { RecommendationsStrip, SkeletonStrip } from './strip';
-import { useInfiniteWave } from './use-infinite-wave';
 
 interface Props {
-  /** URN of the anchor track (e.g. "soundcloud:tracks:123456"). */
   trackUrn: string;
 }
 
-async function fetchSimilarTail(anchorTrackId: string, excludeUrns: string[]): Promise<Track[]> {
-  if (!anchorTrackId) return [];
-  const qs = new URLSearchParams({ limit: '20' });
-  const excludeIds = excludeUrns.map((u) => u.split(':').pop()).filter(Boolean) as string[];
-  if (excludeIds.length) qs.set('exclude', excludeIds.join(','));
-  const recs = await api<RecommendResult[]>(
-    `/recommendations/similar/${encodeURIComponent(anchorTrackId)}?${qs}`,
-  ).catch(() => [] as RecommendResult[]);
-  if (!recs.length) return [];
-  return hydrateByIds(recs);
-}
+const CLUSTER_ORDER: ClusterId[] = ['same_artist', 'same_vibe', 'featured_with', 'fans_also'];
 
-/**
- * "Similar tracks" shelf for the TrackPage — same visual language as the home
- * SoundWaveBlock but without the live waveform, and always anchored on the
- * current track.
- */
+const CLUSTER_ICON: Partial<Record<ClusterId, React.ReactNode>> = {
+  same_artist: <Disc3 size={14} />,
+  same_vibe: <AudioLines size={14} />,
+  featured_with: <Compass size={14} />,
+  fans_also: <Headphones size={14} />,
+};
+
 export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
   trackUrn,
 }: Props) {
   const { t } = useTranslation();
   const trackId = useMemo(() => trackUrn.split(':').pop() ?? '', [trackUrn]);
 
-  const { data, isLoading } = useSoundWaveSimilar({ trackId });
-  const tracks = useMemo(() => data?.tracks ?? [], [data]);
-
-  const fetchMore = useCallback(
-    () =>
-      fetchSimilarTail(
-        trackId,
-        tracks.map((t) => t.urn),
-      ),
-    [trackId, tracks],
-  );
-
-  useInfiniteWave({
-    enabled: !!trackId,
-    tracks,
-    fetchMore,
+  const { data, isLoading } = useClusterWave({
+    queryKey: ['cluster-wave', 'similar', trackId],
+    url: trackId ? `/recommendations/similar/${encodeURIComponent(trackId)}` : null,
   });
 
-  const hasTracks = tracks.length > 0;
-  const showCold = !isLoading && !hasTracks;
+  const clusters = data?.clusters ?? [];
+  const allTracks = useMemo(() => data?.allTracks ?? [], [data]);
 
-  const handlePlayAll = () => {
-    if (!hasTracks) return;
-    usePlayerStore.getState().play(tracks[0], tracks);
-  };
+  const orderedClusters = useMemo(() => {
+    const byId = new Map(clusters.map((c) => [c.id, c]));
+    return CLUSTER_ORDER.map((id) => byId.get(id)).filter((c): c is NonNullable<typeof c> => !!c);
+  }, [clusters]);
+
+  const handlePlay = useCallback(() => {
+    if (allTracks.length === 0) return;
+    usePlayerStore.getState().play(allTracks[0], allTracks);
+  }, [allTracks]);
+
+  const showEmpty = !isLoading && orderedClusters.length === 0;
+  const canPlay = allTracks.length > 0;
 
   return (
     <section
@@ -72,7 +61,7 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
         borderColor: 'rgba(255,255,255,0.08)',
       }}
     >
-      <AmbientLayer particleCount={6} blur={30} intensity={0.35} />
+      <AmbientLayer particleCount={8} blur={35} intensity={0.4} />
 
       <div
         className="absolute inset-0 pointer-events-none"
@@ -84,45 +73,43 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
         }}
       />
 
-      <div className="relative p-5 flex flex-col gap-4" style={{ isolation: 'isolate' }}>
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              className="relative w-9 h-9 rounded-2xl flex items-center justify-center shrink-0"
-              style={{
-                background: 'linear-gradient(135deg, var(--color-accent), rgba(255,255,255,0.12))',
-                boxShadow: '0 0 20px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.2)',
-              }}
-            >
-              <AudioLines size={15} style={{ color: 'var(--color-accent-contrast)' }} />
+      <div className="relative p-5 md:p-6 flex flex-col gap-6" style={{ isolation: 'isolate' }}>
+        <header className="flex items-center gap-3 flex-wrap">
+          <div
+            className="relative w-10 h-10 rounded-2xl flex items-center justify-center shrink-0"
+            style={{
+              background: 'linear-gradient(135deg, var(--color-accent), rgba(255,255,255,0.12))',
+              boxShadow: '0 0 24px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.2)',
+            }}
+          >
+            <AudioLines size={17} style={{ color: 'var(--color-accent-contrast)' }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="soundwave-title text-[18px] font-black tracking-tight leading-none">
+                {t('soundwave.similar.title')}
+              </h2>
+              <span
+                className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.16em] px-2 py-[3px] rounded-full text-white/90"
+                style={{
+                  background:
+                    'linear-gradient(135deg, var(--color-accent-glow), rgba(255,255,255,0.06))',
+                  border: '0.5px solid var(--color-accent-glow)',
+                }}
+              >
+                <Sparkles size={9} style={{ color: 'var(--color-accent)' }} />
+                AI
+              </span>
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="soundwave-title text-[16px] font-bold tracking-tight leading-none">
-                  {t('soundwave.similar')}
-                </h2>
-                <span
-                  className="relative overflow-hidden inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.12em] px-2 py-[3px] rounded-full text-white/90"
-                  style={{
-                    background:
-                      'linear-gradient(135deg, var(--color-accent-glow), rgba(255,255,255,0.06))',
-                    border: '1px solid var(--color-accent-glow)',
-                  }}
-                >
-                  <Sparkles size={9} style={{ color: 'var(--color-accent)' }} />
-                  AI
-                </span>
-              </div>
-              <p className="text-[11px] text-white/50 mt-1 truncate">
-                {t('soundwave.similarDesc')}
-              </p>
-            </div>
+            <p className="text-[11.5px] text-white/45 mt-1 truncate">
+              {t('soundwave.similar.desc')}
+            </p>
           </div>
 
-          {hasTracks && (
+          {canPlay && (
             <button
               type="button"
-              onClick={handlePlayAll}
+              onClick={handlePlay}
               className="flex items-center gap-2 pl-2.5 pr-4 h-9 rounded-full font-semibold text-[12.5px] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-[0.97] hover:scale-[1.03]"
               style={{
                 background: 'var(--color-accent)',
@@ -130,7 +117,6 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
                 boxShadow:
                   '0 5px 18px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.25)',
               }}
-              title={t('soundwave.playAll')}
             >
               <span
                 className="w-5 h-5 rounded-full flex items-center justify-center"
@@ -138,37 +124,46 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
               >
                 {playBlack14}
               </span>
-              {t('soundwave.playAll')}
+              {t('soundwave.similar.playAll')}
             </button>
           )}
-        </div>
+        </header>
 
-        <div className="min-h-[240px]">
-          {isLoading ? (
-            <SkeletonStrip count={8} width={170} />
-          ) : showCold ? (
-            <div className="relative py-6 px-5 rounded-2xl bg-white/[0.025] border border-white/[0.05] flex items-center gap-4">
-              <div
-                className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"
-                style={{
-                  background:
-                    'linear-gradient(135deg, var(--color-accent-glow), rgba(255,255,255,0.04))',
-                  border: '1px solid var(--color-accent-glow)',
-                }}
-              >
-                <Sparkles size={17} style={{ color: 'var(--color-accent)' }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold text-white/90">
-                  {t('soundwave.similarEmpty')}
-                </p>
-                <p className="text-[11.5px] text-white/45 mt-0.5">{t('soundwave.similarCold')}</p>
-              </div>
-            </div>
-          ) : (
-            <RecommendationsStrip tracks={tracks} width={170} />
-          )}
-        </div>
+        {isLoading ? (
+          <ClusterSkeletonState rows={2} itemsPerRow={6} />
+        ) : showEmpty ? (
+          <ClusterEmptyState
+            title={t('soundwave.similar.empty')}
+            description={t('soundwave.similar.emptyDesc')}
+          />
+        ) : (
+          <div className="flex flex-col gap-6">
+            {orderedClusters.map((c, idx) =>
+              c.id === 'featured_with' && c.neighbors ? (
+                <NeighborsRow
+                  key={c.id}
+                  title={t(`soundwave.similar.cluster.${c.id}`)}
+                  description={t(`soundwave.similar.cluster.${c.id}Desc`)}
+                  icon={CLUSTER_ICON[c.id]}
+                  index={idx}
+                  cluster={c}
+                  queue={allTracks}
+                />
+              ) : (
+                <ClusterRow
+                  key={c.id}
+                  clusterId={c.id}
+                  title={t(`soundwave.similar.cluster.${c.id}`)}
+                  description={t(`soundwave.similar.cluster.${c.id}Desc`)}
+                  icon={CLUSTER_ICON[c.id]}
+                  index={idx}
+                  tracks={c.tracks}
+                  queue={allTracks}
+                />
+              ),
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

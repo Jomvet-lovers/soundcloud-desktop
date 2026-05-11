@@ -5,6 +5,8 @@ interface HorizontalScrollProps {
   className?: string;
 }
 
+const DRAG_THRESHOLD = 6;
+
 export function HorizontalScroll({ children, className = '' }: HorizontalScrollProps) {
   const ref = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef({
@@ -15,10 +17,6 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
     startScrollLeft: 0,
   });
 
-  const isInteractiveTarget = (target: EventTarget | null) =>
-    target instanceof Element &&
-    target.closest('button, a, input, textarea, select, summary, [role="button"]') != null;
-
   useEffect(() => {
     return () => {
       document.body.style.removeProperty('user-select');
@@ -27,8 +25,6 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (isInteractiveTarget(e.target)) return;
-
     const el = ref.current;
     if (!el) return;
 
@@ -39,48 +35,37 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
       startX: e.clientX,
       startScrollLeft: el.scrollLeft,
     };
+    document.body.style.userSelect = 'none';
   };
 
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const el = ref.current;
-    const dragState = dragStateRef.current;
-    if (!el || !dragState.active || dragState.pointerId !== e.pointerId) return;
+    const drag = dragStateRef.current;
+    if (!el || !drag.active || drag.pointerId !== e.pointerId) return;
 
-    const deltaX = e.clientX - dragState.startX;
-    if (!dragState.dragging && Math.abs(deltaX) > 6) {
-      dragState.dragging = true;
-      el.setPointerCapture(dragState.pointerId);
-      document.body.style.userSelect = 'none';
+    const deltaX = e.clientX - drag.startX;
+    if (!drag.dragging && Math.abs(deltaX) > DRAG_THRESHOLD) {
+      drag.dragging = true;
+      el.setPointerCapture(drag.pointerId);
     }
 
-    if (!dragState.dragging) return;
-
-    el.scrollLeft = dragState.startScrollLeft - deltaX;
+    if (!drag.dragging) return;
+    el.scrollLeft = drag.startScrollLeft - deltaX;
     e.preventDefault();
   };
 
   const stopDragging = (pointerId: number) => {
     const el = ref.current;
-    const dragState = dragStateRef.current;
-    if (!dragState.active || dragState.pointerId !== pointerId) return;
+    const drag = dragStateRef.current;
+    if (!drag.active || drag.pointerId !== pointerId) return;
 
-    if (el?.hasPointerCapture(pointerId)) {
-      el.releasePointerCapture(pointerId);
-    }
+    if (el?.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
 
-    dragState.active = false;
+    drag.active = false;
     window.setTimeout(() => {
-      dragState.dragging = false;
+      drag.dragging = false;
     }, 0);
     document.body.style.removeProperty('user-select');
-  };
-
-  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    stopDragging(e.pointerId);
-  };
-
-  const handlePointerCancel = (e: ReactPointerEvent<HTMLDivElement>) => {
-    stopDragging(e.pointerId);
   };
 
   return (
@@ -88,8 +73,8 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
       ref={ref}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
+      onPointerUp={(e) => stopDragging(e.pointerId)}
+      onPointerCancel={(e) => stopDragging(e.pointerId)}
       onClickCapture={(e) => {
         if (dragStateRef.current.dragging) {
           e.preventDefault();

@@ -19,7 +19,6 @@ pub fn router() -> Router<AppState> {
         .route("/artists/{id}", get(detail))
         .route("/artists/{id}/tracks", get(tracks))
         .route("/artists/{id}/albums", get(albums))
-        .route("/artists/{id}/wave", get(wave))
         .route("/artists/{id}/star", get(star))
 }
 
@@ -247,16 +246,6 @@ async fn albums(
     Ok(Json(rows))
 }
 
-async fn wave(
-    State(st): State<AppState>,
-    _ctx: SessionCtx,
-    Path(id): Path<Uuid>,
-) -> AppResult<Json<Value>> {
-    let mut tracks = fetch_artist_tracks(&st.pg, id, "any", "popular", 1, 30).await?;
-    enrich_dto::apply_to_tracks(&st.pg, &mut tracks).await?;
-    Ok(Json(serde_json::json!({ "collection": tracks })))
-}
-
 #[derive(Debug, Serialize)]
 struct ArtistStarResponse {
     premium: bool,
@@ -434,7 +423,7 @@ async fn fetch_artist_tracks(
         _ => "TRUE",
     };
     let order_clause = match sort {
-        "recent" => "it.created_at DESC, it.id DESC",
+        "recent" => "it.release_date DESC NULLS LAST, it.release_year DESC NULLS LAST, it.created_at DESC, it.id DESC",
         _ => "COALESCE(c.play_count, 0) DESC, it.created_at DESC",
     };
     let sql = format!(

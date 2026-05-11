@@ -20,6 +20,8 @@ struct RecordEventDto {
     sc_track_id: String,
     #[serde(rename = "eventType")]
     event_type: String,
+    #[serde(rename = "positionPct", default)]
+    position_pct: Option<f32>,
 }
 
 async fn record(
@@ -28,7 +30,12 @@ async fn record(
     Json(body): Json<RecordEventDto>,
 ) -> AppResult<Json<Value>> {
     st.events
-        .record(&body.sc_user_id, &body.sc_track_id, &body.event_type)
+        .record(
+            &body.sc_user_id,
+            &body.sc_track_id,
+            &body.event_type,
+            body.position_pct,
+        )
         .await?;
     Ok(Json(json!({ "ok": true })))
 }

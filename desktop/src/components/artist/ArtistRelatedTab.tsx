@@ -1,9 +1,9 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { type Aura, auraRgb, auraRgba } from '../../lib/aura';
 import { Globe, Users } from '../../lib/icons';
 import { Avatar } from '../ui/Avatar';
-import { type Aura, auraRgb, auraRgba } from '../../lib/aura';
 import type { RelatedArtist } from './types';
 
 interface ArtistRelatedTabProps {

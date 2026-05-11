@@ -309,6 +309,14 @@ async fn main() {
     );
     events.spawn_indexing_queue_consumer(nats.clone());
 
+    crate::modules::recommendations::cron::spawn_cron_loops(
+        recommendations.clone(),
+        nats.clone(),
+        qdrant.clone(),
+        pg.clone(),
+        shutdown.clone(),
+    );
+
     let mut tasks = JoinSet::new();
 
     {

@@ -79,6 +79,7 @@ export interface SettingsState {
   soundwaveMode: 'similar' | 'diverse';
   soundwaveHideLiked: boolean;
   lyricsVisualizer: boolean;
+  artistWaveCollapsed: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -107,6 +108,7 @@ export interface SettingsState {
   setSoundwaveMode: (mode: 'similar' | 'diverse') => void;
   setSoundwaveHideLiked: (v: boolean) => void;
   setLyricsVisualizer: (v: boolean) => void;
+  setArtistWaveCollapsed: (v: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -139,6 +141,7 @@ const DEFAULTS = {
   soundwaveMode: 'similar' as 'similar' | 'diverse',
   soundwaveHideLiked: false,
   lyricsVisualizer: false,
+  artistWaveCollapsed: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -194,6 +197,7 @@ export const useSettingsStore = create<SettingsState>()(
       setSoundwaveMode: (soundwaveMode) => set({ soundwaveMode }),
       setSoundwaveHideLiked: (soundwaveHideLiked) => set({ soundwaveHideLiked }),
       setLyricsVisualizer: (lyricsVisualizer) => set({ lyricsVisualizer }),
+      setArtistWaveCollapsed: (artistWaveCollapsed) => set({ artistWaveCollapsed }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -208,7 +212,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 14,
+      version: 15,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;
@@ -252,6 +256,7 @@ export const useSettingsStore = create<SettingsState>()(
         soundwaveMode: s.soundwaveMode,
         soundwaveHideLiked: s.soundwaveHideLiked,
         lyricsVisualizer: s.lyricsVisualizer,
+        artistWaveCollapsed: s.artistWaveCollapsed,
       }),
     },
   ),

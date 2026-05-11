@@ -148,4 +148,67 @@ impl WorkerClient {
             .await?;
         Ok(res.and_then(|r| r.vector))
     }
+
+    pub async fn score_two_tower(&self, features: &[Vec<f32>]) -> AppResult<Option<Vec<f32>>> {
+        if features.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            scores: Option<Vec<f32>>,
+        }
+        let res: Option<Resp> = self
+            .nats
+            .request(
+                subjects::AI_TWO_TOWER_SCORE,
+                &serde_json::json!({ "features": features }),
+                Duration::from_secs(10),
+                false,
+            )
+            .await?;
+        Ok(res.and_then(|r| r.scores))
+    }
+
+    pub async fn predict_next_track_vectors(
+        &self,
+        sessions: &[Vec<Vec<f32>>],
+    ) -> AppResult<Option<Vec<Vec<f32>>>> {
+        if sessions.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            vectors: Option<Vec<Vec<f32>>>,
+        }
+        let res: Option<Resp> = self
+            .nats
+            .request(
+                subjects::AI_SEQUENTIAL_PREDICT,
+                &serde_json::json!({ "sessions": sessions }),
+                Duration::from_secs(15),
+                false,
+            )
+            .await?;
+        Ok(res.and_then(|r| r.vectors))
+    }
+
+    pub async fn score_quality(&self, features: &[Vec<f32>]) -> AppResult<Option<Vec<f32>>> {
+        if features.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        #[derive(Deserialize)]
+        struct Resp {
+            scores: Option<Vec<f32>>,
+        }
+        let res: Option<Resp> = self
+            .nats
+            .request(
+                subjects::AI_QUALITY_SCORE,
+                &serde_json::json!({ "features": features }),
+                Duration::from_secs(10),
+                false,
+            )
+            .await?;
+        Ok(res.and_then(|r| r.scores))
+    }
 }

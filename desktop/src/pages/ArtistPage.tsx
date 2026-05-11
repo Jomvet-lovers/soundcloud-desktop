@@ -8,6 +8,7 @@ import { ArtistRelatedTab } from '../components/artist/ArtistRelatedTab';
 import { ArtistTracksTab, type TracksView } from '../components/artist/ArtistTracksTab';
 import type { ArtistTabId, TracksSort } from '../components/artist/types';
 import { useArtistDetail, useArtistStar } from '../components/artist/useArtistData';
+import { ArtistSoundWave } from '../components/artist/wave';
 import { AuraField } from '../components/user/AuraField';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
 import { type TabDescriptor, TabDock } from '../components/user/TabDock';
@@ -76,12 +77,11 @@ export function ArtistPage() {
           className="relative z-10 w-full max-w-[1480px] mx-auto px-4 md:px-8 pt-10 md:pt-16 pb-32"
           style={{ isolation: 'isolate' }}
         >
-          <ArtistHero
-            artist={artist}
-            hasStar={hasStar}
-            aura={aura}
-            popularTracks={artist.popular_tracks}
-          />
+          <ArtistHero artist={artist} hasStar={hasStar} aura={aura} />
+
+          <div className="mt-8">
+            <ArtistSoundWave artistId={artist.id} artistName={artist.name} aura={aura} />
+          </div>
 
           <div className="mt-10 mb-8">
             <TabDock<ArtistTabId> tabs={tabs} active={tab} onChange={setTab} aura={aura} />

@@ -22,6 +22,7 @@ import { isUrnDisliked } from './dislikes';
 import { recordEvent } from './events';
 import { art } from './formatters';
 import { rememberTracks } from './offline-index';
+import { getUrnCluster, recordClusterFeedback } from './recsFeedback';
 import { getArtistDisplay, getDisplayTitle } from './track-display';
 
 const SKIP_THRESHOLD_SEC = 30;
@@ -416,7 +417,10 @@ listen('audio:ended', () => {
       cachedTime >= SKIP_THRESHOLD_SEC ||
       (cachedDuration > 0 && cachedTime >= cachedDuration * FULL_PLAY_RATIO);
     if (playedEnough) {
-      recordEvent('full_play', currentUrn);
+      const positionPct = cachedDuration > 0 ? Math.min(1, cachedTime / cachedDuration) : undefined;
+      recordEvent('full_play', currentUrn, positionPct);
+      const cluster = getUrnCluster(currentUrn);
+      if (cluster) recordClusterFeedback(cluster, 'complete');
     }
     lastEndedUrn = currentUrn;
   }
@@ -450,7 +454,9 @@ usePlayerStore.subscribe((state, prev) => {
       previousTime < SKIP_THRESHOLD_SEC &&
       previousUrn !== lastEndedUrn
     ) {
-      recordEvent('skip', previousUrn);
+      const previousDuration = cachedDuration > 0 ? cachedDuration : fallbackDuration;
+      const positionPct = previousDuration > 0 ? previousTime / previousDuration : undefined;
+      recordEvent('skip', previousUrn, positionPct);
     }
     lastEndedUrn = null;
 

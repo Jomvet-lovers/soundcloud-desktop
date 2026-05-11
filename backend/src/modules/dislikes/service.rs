@@ -55,7 +55,7 @@ impl DislikesService {
         .await?;
 
         if inserted.is_some() {
-            self.events.record(sc_user_id, &id, "dislike").await?;
+            self.events.record(sc_user_id, &id, "dislike", None).await?;
         }
         Ok(StatusResult {
             status: "ok".into(),

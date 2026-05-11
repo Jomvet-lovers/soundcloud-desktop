@@ -1,8 +1,8 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Disc3, Loader2 } from '../../lib/icons';
 import { type Aura, auraRgba } from '../../lib/aura';
+import { Disc3, Loader2 } from '../../lib/icons';
 import type { ArtistAlbum } from './types';
 import { useArtistAlbums } from './useArtistData';
 
@@ -98,10 +98,7 @@ const YearGroup = memo(
               {year ?? '∞'}
             </span>
             <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/30 md:text-right whitespace-nowrap">
-              {year != null
-                ? t('artist.releaseYear')
-                : t('artist.unknownYear')}{' '}
-              · {items.length}
+              {year != null ? t('artist.releaseYear') : t('artist.unknownYear')} · {items.length}
             </span>
           </div>
         </div>

@@ -1,6 +1,27 @@
+pub mod artist_wave;
+pub mod bandits;
+pub mod clusters;
+pub mod cold_start;
+pub mod cron;
+pub mod debias;
+pub mod deep_rerank;
 pub mod handlers;
+pub mod home_wave;
+pub mod impressions;
+pub mod mmr;
+pub mod quality;
+pub mod quality_features;
+pub mod quality_scorer;
+pub mod rerank_multi;
 pub mod s3_verifier;
+pub mod search;
+pub mod sequential;
 pub mod service;
+pub mod trainer;
+pub mod sessions;
+pub mod signal;
+pub mod similar_wave;
+pub mod taste_modes;
 
 pub use handlers::router;
 pub use s3_verifier::S3VerifierService;

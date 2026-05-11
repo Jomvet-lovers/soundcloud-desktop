@@ -17,6 +17,9 @@ from .bus import connect, ensure_consumer, run_rpc_msg, run_with_lifecycle
 from .handlers import ai, audio, lyrics
 from .handlers import collab as collab_handler
 from .handlers import ltr as ltr_handler
+from .handlers import quality as quality_handler
+from .handlers import sequential as sequential_handler
+from .handlers import two_tower as two_tower_handler
 from .handlers.resolve import match_track, resolve_artist, verify_existence
 from .handlers.transcribe import transcribe
 from .models import load_all
@@ -125,6 +128,12 @@ def _route_ai(models, subject: str, payload: dict):
         return verify_existence(models, payload)
     if subject == subj.AI_MATCH_TRACK:
         return match_track(models, payload)
+    if subject == subj.AI_TWO_TOWER_SCORE:
+        return two_tower_handler.score(models, payload)
+    if subject == subj.AI_SEQUENTIAL_PREDICT:
+        return sequential_handler.predict(models, payload)
+    if subject == subj.AI_QUALITY_SCORE:
+        return quality_handler.score(models, payload)
     raise ValueError(f"unknown AI subject: {subject}")
 
 
@@ -151,6 +160,24 @@ async def main() -> None:
     )
     await ensure_consumer(
         js, subj.STREAM_TRAIN_LTR, subj.DURABLE_TRAIN_LTR, subj.SUBJECT_TRAIN_LTR_NEW
+    )
+    await ensure_consumer(
+        js,
+        subj.STREAM_TRAIN_TWO_TOWER,
+        subj.DURABLE_TRAIN_TWO_TOWER,
+        subj.SUBJECT_TRAIN_TWO_TOWER_NEW,
+    )
+    await ensure_consumer(
+        js,
+        subj.STREAM_TRAIN_SEQUENTIAL,
+        subj.DURABLE_TRAIN_SEQUENTIAL,
+        subj.SUBJECT_TRAIN_SEQUENTIAL_NEW,
+    )
+    await ensure_consumer(
+        js,
+        subj.STREAM_TRAIN_QUALITY,
+        subj.DURABLE_TRAIN_QUALITY,
+        subj.SUBJECT_TRAIN_QUALITY_NEW,
     )
 
     stop = asyncio.Event()
@@ -213,6 +240,30 @@ async def main() -> None:
             "[ltr]", stop, is_rpc=False,
         )
     )
+    two_tower_task = asyncio.create_task(
+        _js_pull_loop(
+            js, inference_sem, subj.STREAM_TRAIN_TWO_TOWER, subj.DURABLE_TRAIN_TWO_TOWER,
+            subj.SUBJECT_TRAIN_TWO_TOWER_NEW,
+            lambda p: two_tower_handler.handle(p, models, qdrant, nc),
+            "[two_tower]", stop, is_rpc=False,
+        )
+    )
+    sequential_task = asyncio.create_task(
+        _js_pull_loop(
+            js, inference_sem, subj.STREAM_TRAIN_SEQUENTIAL, subj.DURABLE_TRAIN_SEQUENTIAL,
+            subj.SUBJECT_TRAIN_SEQUENTIAL_NEW,
+            lambda p: sequential_handler.handle(p, models, qdrant, nc),
+            "[sequential]", stop, is_rpc=False,
+        )
+    )
+    quality_task = asyncio.create_task(
+        _js_pull_loop(
+            js, inference_sem, subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY,
+            subj.SUBJECT_TRAIN_QUALITY_NEW,
+            lambda p: quality_handler.handle(p, models, qdrant, nc),
+            "[quality]", stop, is_rpc=False,
+        )
+    )
 
     log.info("Worker ready.")
     await stop.wait()
@@ -222,7 +273,14 @@ async def main() -> None:
     lyrics_task.cancel()
     collab_task.cancel()
     ltr_task.cancel()
-    await asyncio.gather(ai_task, audio_task, lyrics_task, collab_task, ltr_task, return_exceptions=True)
+    two_tower_task.cancel()
+    sequential_task.cancel()
+    quality_task.cancel()
+    await asyncio.gather(
+        ai_task, audio_task, lyrics_task, collab_task, ltr_task,
+        two_tower_task, sequential_task, quality_task,
+        return_exceptions=True,
+    )
     try:
         await asyncio.wait_for(nc.drain(), timeout=2)
     except (asyncio.TimeoutError, Exception) as e:

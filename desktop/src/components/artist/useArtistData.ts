@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { api } from '../../lib/api';
-import type { Track } from '../../stores/player';
 import { type Aura, DEFAULT_AURA, resolveAura } from '../../lib/aura';
+import type { Track } from '../../stores/player';
 import type { ArtistAlbum, ArtistDetail, TracksSort } from './types';
 
 const STALE_DETAIL = 60_000;

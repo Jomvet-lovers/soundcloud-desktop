@@ -1,10 +1,10 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { type Aura, auraRgba } from '../../lib/aura';
 import { dur, fc } from '../../lib/formatters';
 import { Calendar, ListMusic, Loader2, Music } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { VirtualList } from '../ui/VirtualList';
-import { type Aura, auraRgba } from '../../lib/aura';
 import { ThemedTrackRow } from '../user/ThemedTrackRow';
 import type { TracksSort } from './types';
 import { useArtistTracks } from './useArtistData';
@@ -36,6 +36,18 @@ function partition(tracks: Track[]): { available: Track[]; wanted: Track[] } {
 
 type YearBucket = { year: number | null; items: Track[] };
 
+function compareByReleaseDateDesc(a: Track, b: Track): number {
+  const da = a.enrichment?.release_date;
+  const db = b.enrichment?.release_date;
+  if (da && db) {
+    if (da === db) return 0;
+    return da < db ? 1 : -1;
+  }
+  if (da) return -1;
+  if (db) return 1;
+  return 0;
+}
+
 function groupByYear(tracks: Track[]): YearBucket[] {
   const map = new Map<number | 'unknown', Track[]>();
   for (const t of tracks) {
@@ -48,11 +60,15 @@ function groupByYear(tracks: Track[]): YearBucket[] {
   const known: YearBucket[] = [];
   for (const [k, items] of map) {
     if (k === 'unknown') continue;
+    items.sort(compareByReleaseDateDesc);
     known.push({ year: k as number, items });
   }
   known.sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
   const undated = map.get('unknown');
-  if (undated && undated.length > 0) known.push({ year: null, items: undated });
+  if (undated && undated.length > 0) {
+    undated.sort(compareByReleaseDateDesc);
+    known.push({ year: null, items: undated });
+  }
   return known;
 }
 
@@ -73,6 +89,10 @@ function ArtistTracksTabImpl({
   const yearBuckets = useMemo(
     () => (view === 'years' ? groupByYear(available) : []),
     [view, available],
+  );
+  const yearsQueue = useMemo(
+    () => (view === 'years' ? yearBuckets.flatMap((b) => b.items) : []),
+    [view, yearBuckets],
   );
   const totalDuration = useMemo(
     () => tracks.reduce((acc, x) => acc + (x.duration ?? 0), 0),
@@ -104,9 +124,7 @@ function ArtistTracksTabImpl({
           <Music size={24} className="text-white/15" />
         </div>
         <p className="text-white/30 text-sm">
-          {role === 'primary'
-            ? t('artist.noTracks')
-            : t('artist.noAppearances')}
+          {role === 'primary' ? t('artist.noTracks') : t('artist.noAppearances')}
         </p>
       </div>
     );
@@ -153,7 +171,7 @@ function ArtistTracksTabImpl({
             <YearBlock
               key={bucket.year ?? `unknown-${idx}`}
               bucket={bucket}
-              queue={available}
+              queue={yearsQueue}
               aura={aura}
             />
           ))}
@@ -209,10 +227,8 @@ const YearBlock = memo(
               {bucket.year ?? '∞'}
             </span>
             <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/30 md:text-right whitespace-nowrap">
-              {bucket.year != null
-                ? t('artist.releaseYear')
-                : t('artist.unknownYear')}{' '}
-              · {bucket.items.length} · {dur(total)}
+              {bucket.year != null ? t('artist.releaseYear') : t('artist.unknownYear')} ·{' '}
+              {bucket.items.length} · {dur(total)}
             </span>
           </div>
         </div>

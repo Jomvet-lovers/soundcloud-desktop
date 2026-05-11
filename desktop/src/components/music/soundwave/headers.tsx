@@ -1,8 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Sparkles, X } from '../../../lib/icons';
+import { Sparkles, X } from '../../../lib/icons';
 
-/** Small framed icon chip shared by section headers. */
 const IconChip = React.memo(function IconChip({ children }: { children: React.ReactNode }) {
   return (
     <div
@@ -13,19 +12,6 @@ const IconChip = React.memo(function IconChip({ children }: { children: React.Re
       }}
     >
       {children}
-    </div>
-  );
-});
-
-/** "For you" — header above personalized recommendations. */
-export const RecommendationsHeader = React.memo(function RecommendationsHeader() {
-  const { t } = useTranslation();
-  return (
-    <div className="flex items-center gap-2 mb-3 px-1">
-      <IconChip>
-        <ChevronRight size={11} style={{ color: 'var(--color-accent)' }} />
-      </IconChip>
-      <span className="text-[12px] font-semibold text-white/80">{t('soundwave.forYou')}</span>
     </div>
   );
 });

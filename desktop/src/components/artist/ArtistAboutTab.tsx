@@ -1,8 +1,8 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Check, Globe, MicVocal } from '../../lib/icons';
 import { type Aura, auraRgba } from '../../lib/aura';
+import { Check, Globe, MicVocal } from '../../lib/icons';
 import { SocialIcon, socialLabel } from './socials';
 import type { ArtistDetail } from './types';
 
@@ -40,11 +40,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
         )}
         <div className="mt-6 flex flex-wrap gap-2">
           {artist.country && (
-            <Stat
-              icon={<Globe size={12} />}
-              label={t('artist.country')}
-              value={artist.country}
-            />
+            <Stat icon={<Globe size={12} />} label={t('artist.country')} value={artist.country} />
           )}
           <Stat
             icon={<Check size={12} className="text-emerald-400" />}
