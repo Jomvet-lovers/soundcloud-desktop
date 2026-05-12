@@ -128,7 +128,7 @@ async fn build_two_tower_dataset(pg: &PgPool) -> AppResult<Vec<TwoTowerExample>>
              WHERE ue.sc_user_id = i.sc_user_id
                AND ue.sc_track_id = i.sc_track_id
                AND ue.created_at >= i.shown_at
-               AND ue.created_at <= i.shown_at + make_interval(hours => $2)
+               AND ue.created_at <= i.shown_at + make_interval(hours => $2::int)
              ORDER BY ue.created_at
              LIMIT 1
          ) eng ON true
@@ -173,7 +173,7 @@ async fn build_sequential_dataset(
                  ))::bigint AS gap_sec
              FROM user_events
              WHERE event_type IN ('full_play', 'like', 'local_like', 'playlist_add')
-               AND created_at > NOW() - make_interval(days => $1)
+               AND created_at > NOW() - make_interval(days => $1::int)
          ),
          sessioned AS (
              SELECT sc_user_id, sc_track_id, created_at,

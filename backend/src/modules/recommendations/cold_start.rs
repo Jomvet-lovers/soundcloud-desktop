@@ -51,7 +51,7 @@ async fn load_fresh(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<
             sqlx::query_as(
                 "SELECT sc_track_id FROM indexed_tracks
                  WHERE indexed_at IS NOT NULL
-                   AND indexed_at > NOW() - make_interval(days => $2)
+                   AND indexed_at > NOW() - make_interval(days => $2::int)
                    AND language = ANY($1)
                  ORDER BY indexed_at DESC
                  LIMIT $3",
@@ -65,7 +65,7 @@ async fn load_fresh(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<
             sqlx::query_as(
                 "SELECT sc_track_id FROM indexed_tracks
                  WHERE indexed_at IS NOT NULL
-                   AND indexed_at > NOW() - make_interval(days => $1)
+                   AND indexed_at > NOW() - make_interval(days => $1::int)
                  ORDER BY indexed_at DESC
                  LIMIT $2",
             )
@@ -78,7 +78,7 @@ async fn load_fresh(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<
         sqlx::query_as(
             "SELECT sc_track_id FROM indexed_tracks
              WHERE indexed_at IS NOT NULL
-               AND indexed_at > NOW() - make_interval(days => $1)
+               AND indexed_at > NOW() - make_interval(days => $1::int)
              ORDER BY indexed_at DESC
              LIMIT $2",
         )
