@@ -53,6 +53,7 @@ import {
   Trash2,
   X,
 } from '../lib/icons';
+import { useAutoHide } from '../lib/useAutoHide';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
 import { type Track, usePlayerStore } from '../stores/player';
@@ -445,6 +446,7 @@ export const PlaylistPage = React.memo(() => {
         !s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
     })),
   );
+  const showPlayingOverlay = useAutoHide(isPlayingFromThis);
 
   const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
 
@@ -565,17 +567,13 @@ export const PlaylistPage = React.memo(() => {
 
             {/* Play overlay */}
             <div
-              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-                isPlayingFromThis
-                  ? 'bg-black/30 opacity-100'
-                  : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover/cover:bg-black/30 group-hover/cover:opacity-100 ${
+                showPlayingOverlay ? 'bg-black/30 opacity-100' : 'bg-black/0 opacity-0'
               }`}
             >
               <div
-                className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
-                  isPlayingFromThis
-                    ? 'bg-white scale-100'
-                    : 'bg-white/90 scale-75 group-hover/cover:scale-100'
+                className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] group-hover/cover:scale-100 ${
+                  showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
                 }`}
               >
                 {isPlayingFromThis ? pauseBlack22 : playBlack22}

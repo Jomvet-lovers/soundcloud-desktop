@@ -46,6 +46,7 @@ import {
   Sparkles,
 } from '../lib/icons';
 import { getArtistTarget, useArtistDisplay, useDisplayTitle } from '../lib/track-display';
+import { useAutoHide } from '../lib/useAutoHide';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
@@ -150,6 +151,7 @@ const FeaturedCard = React.memo(
     const { t } = useTranslation();
     const track = item.origin as Track;
     const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const showPlayingOverlay = useAutoHide(isThisPlaying);
     const navigate = useNavigate();
     const isRepost = item.type.includes('repost');
     const cover = art(track.artwork_url);
@@ -196,17 +198,13 @@ const FeaturedCard = React.memo(
 
             {/* Hover play overlay on artwork */}
             <div
-              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-                isThisPlaying
-                  ? 'bg-black/30 opacity-100'
-                  : 'bg-black/0 opacity-0 group-hover/cover:bg-black/30 group-hover/cover:opacity-100'
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover/cover:bg-black/30 group-hover/cover:opacity-100 ${
+                showPlayingOverlay ? 'bg-black/30 opacity-100' : 'bg-black/0 opacity-0'
               }`}
             >
               <div
-                className={`w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] ${
-                  isThisPlaying
-                    ? 'bg-white scale-100'
-                    : 'bg-white/90 scale-75 group-hover/cover:scale-100'
+                className={`w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] group-hover/cover:scale-100 ${
+                  showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
                 }`}
               >
                 {isThisPlaying ? pauseBlack18 : playBlack18}
@@ -315,6 +313,7 @@ const FeedTrackCard = React.memo(
     const { t } = useTranslation();
     const track = item.origin as Track;
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const showPlayingOverlay = useAutoHide(isThisPlaying);
     const isRepost = item.type.includes('repost');
     const cover = art(track.artwork_url, 't300x300');
 
@@ -346,15 +345,13 @@ const FeedTrackCard = React.memo(
 
           {/* Play overlay */}
           <div
-            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-              isThisPlaying
-                ? 'bg-black/30 opacity-100'
-                : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:opacity-100'
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 group-hover:bg-black/30 group-hover:opacity-100 ${
+              showPlayingOverlay ? 'bg-black/30 opacity-100' : 'bg-black/0 opacity-0'
             }`}
           >
             <div
-              className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] ${
-                isThisPlaying ? 'bg-white scale-100' : 'bg-white/90 scale-75 group-hover:scale-100'
+              className={`w-9 h-9 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 ease-[var(--ease-apple)] group-hover:scale-100 ${
+                showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
               }`}
             >
               {isThisPlaying ? pauseBlack14 : playBlack14}

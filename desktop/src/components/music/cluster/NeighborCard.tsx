@@ -7,6 +7,7 @@ import {
   setUrnCluster,
   useClusterFeedback,
 } from '../../../lib/recsFeedback';
+import { useAutoHide } from '../../../lib/useAutoHide';
 import { useTrackPlay } from '../../../lib/useTrackPlay';
 import type { Track } from '../../../stores/player';
 import type { ClusterNeighborDto } from './types';
@@ -20,6 +21,7 @@ interface Props {
 export const NeighborCard = React.memo(function NeighborCard({ neighbor, track, queue }: Props) {
   const navigate = useNavigate();
   const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue);
+  const showPlayingOverlay = useAutoHide(isThisPlaying);
   const clusterId = useClusterFeedback();
   const togglePlay = React.useCallback(() => {
     if (clusterId) {
@@ -106,8 +108,8 @@ export const NeighborCard = React.memo(function NeighborCard({ neighbor, track, 
         </span>
 
         <div
-          className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-            isThisPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:opacity-100 ${
+            showPlayingOverlay ? 'opacity-100' : 'opacity-0'
           }`}
         >
           <span

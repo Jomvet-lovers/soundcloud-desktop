@@ -6,6 +6,7 @@ import { art, dur, fc } from '../../lib/formatters';
 import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
 import { recordClusterFeedback, setUrnCluster, useClusterFeedback } from '../../lib/recsFeedback';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
+import { useAutoHide } from '../../lib/useAutoHide';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
@@ -23,6 +24,7 @@ export const TrackCard = React.memo(
     const { t } = useTranslation();
     const navigate = useNavigate();
     const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue);
+    const showPlayingOverlay = useAutoHide(isThisPlaying);
     const clusterId = useClusterFeedback();
     const togglePlay = React.useCallback(() => {
       if (clusterId) {
@@ -79,15 +81,15 @@ export const TrackCard = React.memo(
 
           {/* Hover overlay */}
           <div
-            className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-              isThisPlaying
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:bg-black/30 group-hover:backdrop-blur-[2px] group-hover:opacity-100 ${
+              showPlayingOverlay
                 ? 'bg-black/30 backdrop-blur-[2px] opacity-100'
-                : 'bg-black/0 opacity-0 group-hover:bg-black/30 group-hover:backdrop-blur-[2px] group-hover:opacity-100'
+                : 'bg-black/0 opacity-0'
             }`}
           >
             <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl ${
-                isThisPlaying ? 'bg-white scale-100' : 'bg-white/90 scale-75 group-hover:scale-100'
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl group-hover:scale-100 ${
+                showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
               }`}
             >
               {isThisPlaying ? pauseBlack20 : playBlack20}

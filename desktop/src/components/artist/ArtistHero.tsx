@@ -136,7 +136,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
 
           {/* Socials + SC accounts */}
           {(artist.socials.length > 0 || artist.sc_accounts.length > 0) && (
-            <div className="flex flex-wrap gap-1.5 justify-center lg:justify-start">
+            <div className="flex flex-wrap gap-1.5 justify-center lg:justify-start lg:mt-auto lg:pt-2">
               {artist.sc_accounts.map((acc) => (
                 <ScAccountChip
                   key={acc.sc_user_id}
@@ -153,7 +153,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
         </div>
 
         {/* Right column stats */}
-        <div className="hidden xl:flex flex-col gap-3 self-stretch min-w-[180px]">
+        <div className="hidden lg:flex flex-col gap-3 self-stretch min-w-[180px]">
           <StatOrb
             value={artist.track_count_primary}
             label={t('artist.statsTracks')}
@@ -174,7 +174,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
       </div>
 
       {/* Stats strip on narrow */}
-      <div className="xl:hidden flex flex-wrap gap-2 px-6 md:px-10 pb-6 md:pb-8 justify-center lg:justify-start">
+      <div className="lg:hidden flex flex-wrap gap-2 px-6 md:px-10 pb-6 md:pb-8 justify-center">
         <CompactStat
           icon={<Music size={12} />}
           value={artist.track_count_primary}

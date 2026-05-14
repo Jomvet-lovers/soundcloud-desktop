@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { art, fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
 import { Heart, ListMusic, Play, pauseBlack22 } from '../../lib/icons';
+import { useAutoHide } from '../../lib/useAutoHide';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 
@@ -36,6 +37,7 @@ export const PlaylistCard = React.memo(
         s.currentTrack != null &&
         trackUrns.has(s.currentTrack.urn),
     );
+    const showPlayingOverlay = useAutoHide(isPlayingFromThis);
 
     const handlePlay = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -77,18 +79,16 @@ export const PlaylistCard = React.memo(
           {/* Hover / playing overlay */}
           {showPlayback ? (
             <div
-              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${
-                isPlayingFromThis
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:bg-black/40 group-hover:backdrop-blur-sm group-hover:opacity-100 ${
+                showPlayingOverlay
                   ? 'bg-black/40 backdrop-blur-sm opacity-100'
-                  : 'bg-black/0 opacity-0 group-hover:bg-black/40 group-hover:backdrop-blur-sm group-hover:opacity-100'
+                  : 'bg-black/0 opacity-0'
               }`}
             >
               <div
                 onClick={handlePlay}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 ${
-                  isPlayingFromThis
-                    ? 'bg-white scale-100'
-                    : 'bg-white/90 scale-75 group-hover:scale-100'
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 group-hover:scale-100 ${
+                  showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
                 }`}
               >
                 {isPlayingFromThis ? (

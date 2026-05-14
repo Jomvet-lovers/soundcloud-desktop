@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { getCurrentTime, getDuration, subscribe } from '../../../lib/audio';
 import { art, dur } from '../../../lib/formatters';
 import { pauseBlack14, playBlack14 } from '../../../lib/icons';
+import { useAutoHide } from '../../../lib/useAutoHide';
 import { useTrackPlay } from '../../../lib/useTrackPlay';
 import type { Track } from '../../../stores/player';
 import { TrackTitleArtist } from '../TrackTitleArtist';
@@ -48,6 +49,7 @@ interface Props {
 export const WaveTrackHeader = React.memo(
   function WaveTrackHeader({ track, queue, isCurrent }: Props) {
     const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const showPlayingOverlay = useAutoHide(isThisPlaying);
     const cover = art(track.artwork_url, 't200x200');
 
     return (
@@ -68,13 +70,13 @@ export const WaveTrackHeader = React.memo(
             <div className="w-full h-full bg-white/[0.04]" />
           )}
           <span
-            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ${
-              isThisPlaying ? 'bg-black/35' : 'bg-black/0 group-hover:bg-black/35'
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 group-hover:bg-black/35 ${
+              showPlayingOverlay ? 'bg-black/35' : 'bg-black/0'
             }`}
           >
             <span
-              className={`w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-lg transition-transform duration-200 ${
-                isThisPlaying ? 'scale-100' : 'scale-0 group-hover:scale-100'
+              className={`w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-lg transition-transform duration-200 group-hover:scale-100 ${
+                showPlayingOverlay ? 'scale-100' : 'scale-0'
               }`}
             >
               {isThisPlaying ? pauseBlack14 : playBlack14}

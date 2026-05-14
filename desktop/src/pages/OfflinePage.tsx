@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualList } from '../components/ui/VirtualList';
 import { type AuthStatus, useAuthStatus } from '../lib/auth-status';
-import { listCachedUrns } from '../lib/cache';
+import { listCachedUrns, removeCachedTrack } from '../lib/cache';
 import { art, dur } from '../lib/formatters';
 import { fetchAllLikedTracks } from '../lib/hooks';
 import {
@@ -16,6 +16,7 @@ import {
   Play,
   RotateCcw,
   Search,
+  Trash2,
   X,
 } from '../lib/icons';
 import { getOfflineLikedTracks, getOfflineTracksByUrns } from '../lib/offline-index';
@@ -149,11 +150,13 @@ const OfflineTrackRow = React.memo(function OfflineTrackRow({
   queue,
   canPlay,
   showCachedBadge,
+  onRemove,
 }: {
   track: Track;
   queue: Track[];
   canPlay: boolean;
   showCachedBadge: boolean;
+  onRemove?: (urn: string) => void;
 }) {
   const { t } = useTranslation();
   const play = usePlayerStore((s) => s.play);
@@ -216,6 +219,18 @@ const OfflineTrackRow = React.memo(function OfflineTrackRow({
       <div className="w-14 shrink-0 text-right text-[12px] font-medium tabular-nums text-white/30">
         {dur(track.duration)}
       </div>
+
+      {onRemove && showCachedBadge && (
+        <button
+          type="button"
+          onClick={() => onRemove(track.urn)}
+          title={t('offline.removeCached')}
+          aria-label={t('offline.removeCached')}
+          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/8 bg-white/[0.03] text-white/40 opacity-0 transition-all duration-200 hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-200 focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
     </div>
   );
 });
@@ -360,6 +375,7 @@ function OfflineSection({
   emptyText,
   likesMode = false,
   tone,
+  onRemoveCached,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -368,6 +384,7 @@ function OfflineSection({
   emptyText: string;
   likesMode?: boolean;
   tone: OfflineSectionKey;
+  onRemoveCached?: (urn: string) => void;
 }) {
   const playableQueue = useMemo(() => buildPlayableQueue(items, cachedUrns), [items, cachedUrns]);
   const styles = {
@@ -428,6 +445,7 @@ function OfflineSection({
                     queue={likesMode ? playableQueue : items}
                     canPlay={likesMode ? isCached : true}
                     showCachedBadge={isCached}
+                    onRemove={onRemoveCached}
                   />
                 );
               }}
@@ -455,6 +473,25 @@ export const OfflinePage = React.memo(() => {
   const [search, setSearch] = useState('');
   const bgFetchDone = useRef(false);
   const authStatus = useAuthStatus({ enabled: appMode === 'online' });
+
+  const handleRemoveCached = React.useCallback(async (urn: string) => {
+    try {
+      await removeCachedTrack(urn);
+    } catch (error) {
+      console.warn('[Offline] Failed to remove cached track:', error);
+      return;
+    }
+    setState((prev) => {
+      if (!prev.cachedUrns.has(urn)) return prev;
+      const cachedUrns = new Set(prev.cachedUrns);
+      cachedUrns.delete(urn);
+      return {
+        ...prev,
+        cachedUrns,
+        cachedTracks: prev.cachedTracks.filter((track) => track.urn !== urn),
+      };
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -675,6 +712,7 @@ export const OfflinePage = React.memo(() => {
                 emptyText={normalizedQuery ? t('offline.searchEmpty') : t('offline.likesEmpty')}
                 likesMode
                 tone="likes"
+                onRemoveCached={handleRemoveCached}
               />
             ) : (
               <OfflineSection
@@ -684,6 +722,7 @@ export const OfflinePage = React.memo(() => {
                 cachedUrns={state.cachedUrns}
                 emptyText={normalizedQuery ? t('offline.searchEmpty') : t('offline.cachedEmpty')}
                 tone="cached"
+                onRemoveCached={handleRemoveCached}
               />
             )}
           </>
