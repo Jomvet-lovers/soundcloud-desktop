@@ -73,7 +73,7 @@ impl CentroidService {
 
     async fn refresh(&self, collection: &str) {
         match self.refresh_inner(collection).await {
-            Ok((count, dim)) if count == 0 => {
+            Ok((count, _)) if count == 0 => {
                 if let Ok(mut g) = self.cache.write() {
                     g.insert(collection.to_string(), CentroidEntry { vector: None });
                 }
