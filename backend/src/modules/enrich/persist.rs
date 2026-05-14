@@ -26,8 +26,7 @@ pub async fn apply(
     let featured_ids = upsert_artists(&mut tx, &res.featured, res.source, res.confidence).await?;
     let producer_ids =
         upsert_artists(&mut tx, &res.producers, ResolveSource::Heuristic, 0.3).await?;
-    let remixer_ids =
-        upsert_artists(&mut tx, &res.remixers, ResolveSource::Heuristic, 0.4).await?;
+    let remixer_ids = upsert_artists(&mut tx, &res.remixers, ResolveSource::Heuristic, 0.4).await?;
 
     let prior_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*)::int8 FROM track_artists WHERE indexed_track_id = $1")
@@ -126,13 +125,8 @@ pub async fn apply(
         maybe_attach_reupload_account(&mut tx, artist_id, sc_id).await?;
     }
 
-    let upload_kind = compute_upload_kind(
-        &mut tx,
-        primary_artist_id,
-        uploader_sc_user_id,
-        res.source,
-    )
-    .await?;
+    let upload_kind =
+        compute_upload_kind(&mut tx, primary_artist_id, uploader_sc_user_id, res.source).await?;
 
     let source = res.source.as_str();
     let confidence = calibrate_confidence(&mut tx, source, res.confidence).await?;
@@ -214,9 +208,7 @@ async fn maybe_auto_attach_sc_account(
         return Ok(());
     }
     let exact = un == an;
-    let strong_substring = un.len() >= 4
-        && an.len() >= 4
-        && (un.contains(&an) || an.contains(&un));
+    let strong_substring = un.len() >= 4 && an.len() >= 4 && (un.contains(&an) || an.contains(&un));
     if !exact && !strong_substring {
         return Ok(());
     }
@@ -265,13 +257,12 @@ async fn maybe_attach_reupload_account(
     if sc_user_id.is_empty() {
         return Ok(());
     }
-    let exists: Option<(i32,)> = sqlx::query_as(
-        "SELECT 1 FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2",
-    )
-    .bind(artist_id)
-    .bind(sc_user_id)
-    .fetch_optional(&mut **tx)
-    .await?;
+    let exists: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2")
+            .bind(artist_id)
+            .bind(sc_user_id)
+            .fetch_optional(&mut **tx)
+            .await?;
     if exists.is_some() {
         return Ok(());
     }
@@ -333,7 +324,11 @@ async fn compute_upload_kind(
         source,
         ResolveSource::Isrc | ResolveSource::Mb | ResolveSource::Genius | ResolveSource::ScVerified
     );
-    Ok(if verified_source { "reupload" } else { "unknown" })
+    Ok(if verified_source {
+        "reupload"
+    } else {
+        "unknown"
+    })
 }
 
 pub async fn mark_failed(pg: &PgPool, indexed_track_id: Uuid, error: &str) -> AppResult<()> {
@@ -460,11 +455,7 @@ async fn maybe_promote(
     let mb_to_set = cand.mb_id.clone().or(cur_mb);
     let genius_to_set = cand.genius_id.clone().or(cur_genius);
     let sc_to_set = cand.sc_user_id.clone().or(cur_sc);
-    if !stronger
-        && mb_to_set.is_none()
-        && genius_to_set.is_none()
-        && sc_to_set.is_none()
-    {
+    if !stronger && mb_to_set.is_none() && genius_to_set.is_none() && sc_to_set.is_none() {
         return Ok(());
     }
     sqlx::query(

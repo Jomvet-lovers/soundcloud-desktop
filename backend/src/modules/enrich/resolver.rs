@@ -238,9 +238,7 @@ pub async fn resolve(
             }
             if found.is_none() {
                 if let Some(meta_a) = ctx.metadata_artist.as_deref() {
-                    if !meta_a.is_empty()
-                        && normalize_name(meta_a) != normalize_name(artist)
-                    {
+                    if !meta_a.is_empty() && normalize_name(meta_a) != normalize_name(artist) {
                         match deps
                             .mb
                             .search_recording(meta_a, &title_q, ctx.duration_ms)
@@ -346,9 +344,21 @@ fn heuristic_result(ctx: &TrackContext, parsed: &ParsedTitle) -> ResolveResult {
         }
     }
 
-    let featured = parsed.featured.iter().map(|n| to_candidate(n, None)).collect();
-    let producers = parsed.producers.iter().map(|n| to_candidate(n, None)).collect();
-    let remixers = parsed.remixers.iter().map(|n| to_candidate(n, None)).collect();
+    let featured = parsed
+        .featured
+        .iter()
+        .map(|n| to_candidate(n, None))
+        .collect();
+    let producers = parsed
+        .producers
+        .iter()
+        .map(|n| to_candidate(n, None))
+        .collect();
+    let remixers = parsed
+        .remixers
+        .iter()
+        .map(|n| to_candidate(n, None))
+        .collect();
 
     let primary_self_upload = primary
         .first()
@@ -390,7 +400,11 @@ fn from_mb(
         .into_iter()
         .map(|a| map_artist(a, None))
         .collect();
-    let featured: Vec<ArtistCandidate> = rec.featured.into_iter().map(|a| map_artist(a, None)).collect();
+    let featured: Vec<ArtistCandidate> = rec
+        .featured
+        .into_iter()
+        .map(|a| map_artist(a, None))
+        .collect();
 
     let album = rec.release.map(|rel| AlbumCandidate {
         title: rel.title,
@@ -414,7 +428,11 @@ fn from_mb(
     }
 }
 
-fn merge_with(heuristic: ResolveResult, mb_res: ResolveResult, ctx: &TrackContext) -> ResolveResult {
+fn merge_with(
+    heuristic: ResolveResult,
+    mb_res: ResolveResult,
+    ctx: &TrackContext,
+) -> ResolveResult {
     let mut out = mb_res;
     if out.primary.is_empty() {
         out.primary = heuristic.primary.clone();

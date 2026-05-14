@@ -9,8 +9,8 @@ mod types;
 pub(crate) mod util;
 mod verify;
 
-pub use types::{RecommendResult, WaveMode};
 pub(crate) use types::ScoredCandidate;
+pub use types::{RecommendResult, WaveMode};
 
 use std::sync::Arc;
 

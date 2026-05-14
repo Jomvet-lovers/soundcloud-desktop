@@ -194,11 +194,7 @@ impl AiResolverClient {
         Ok(())
     }
 
-    pub async fn verify_existence(
-        &self,
-        artist: &str,
-        title: &str,
-    ) -> AppResult<Option<bool>> {
+    pub async fn verify_existence(&self, artist: &str, title: &str) -> AppResult<Option<bool>> {
         if artist.trim().is_empty() || title.trim().is_empty() {
             return Ok(None);
         }

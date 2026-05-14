@@ -45,14 +45,20 @@ async fn detail(
     _ctx: SessionCtx,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<AlbumDetailDto>> {
-    let row: Option<(String, String, Option<i16>, Option<String>, f32, Option<Uuid>)> =
-        sqlx::query_as(
-            "SELECT title, type, release_year, cover_url, confidence, primary_artist_id
+    let row: Option<(
+        String,
+        String,
+        Option<i16>,
+        Option<String>,
+        f32,
+        Option<Uuid>,
+    )> = sqlx::query_as(
+        "SELECT title, type, release_year, cover_url, confidence, primary_artist_id
              FROM albums WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&st.pg)
-        .await?;
+    )
+    .bind(id)
+    .fetch_optional(&st.pg)
+    .await?;
     let Some((title, kind, release_year, cover_url, confidence, primary_artist_id)) = row else {
         return Err(AppError::not_found("album not found"));
     };

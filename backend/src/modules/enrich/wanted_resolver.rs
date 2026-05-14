@@ -145,7 +145,14 @@ impl WantedResolverService {
     ) -> AppResult<Vec<WantedRecord>> {
         let mut q = sqlx::query_as::<
             _,
-            (Uuid, String, String, Option<i32>, Option<String>, Option<Uuid>),
+            (
+                Uuid,
+                String,
+                String,
+                Option<i32>,
+                Option<String>,
+                Option<Uuid>,
+            ),
         >(sql)
         .bind(limit);
         if let Some(aid) = artist_id {
@@ -155,14 +162,16 @@ impl WantedResolverService {
         Ok(rows
             .into_iter()
             .filter(|(_, t, _, _, _, _)| !t.trim().is_empty())
-            .map(|(id, title, artist, duration_ms, isrc, primary_artist_id)| WantedRecord {
-                id,
-                title,
-                artist_name: artist,
-                duration_ms,
-                isrc,
-                primary_artist_id,
-            })
+            .map(
+                |(id, title, artist, duration_ms, isrc, primary_artist_id)| WantedRecord {
+                    id,
+                    title,
+                    artist_name: artist,
+                    duration_ms,
+                    isrc,
+                    primary_artist_id,
+                },
+            )
             .collect())
     }
 
@@ -227,12 +236,11 @@ impl WantedResolverService {
                     linked_ids.insert(r.id);
                 }
                 Ok(false) => {
-                    let _ = sqlx::query(
-                        "UPDATE wanted_tracks SET updated_at = now() WHERE id = $1",
-                    )
-                    .bind(r.id)
-                    .execute(&self.pg)
-                    .await;
+                    let _ =
+                        sqlx::query("UPDATE wanted_tracks SET updated_at = now() WHERE id = $1")
+                            .bind(r.id)
+                            .execute(&self.pg)
+                            .await;
                 }
                 Err(e) => warn!(error = %e, %r.id, "wanted-resolver: resolve_one failed"),
             }
@@ -272,7 +280,11 @@ impl WantedResolverService {
             );
             let score = m.score();
             if score >= SEARCH_LINK_THRESHOLD {
-                if best_strict.as_ref().map(|(s, _)| score > *s).unwrap_or(true) {
+                if best_strict
+                    .as_ref()
+                    .map(|(s, _)| score > *s)
+                    .unwrap_or(true)
+                {
                     best_strict = Some((score, idx));
                 }
             } else if score >= BORDERLINE_LOW {
@@ -281,7 +293,9 @@ impl WantedResolverService {
         }
 
         if let Some((score, idx)) = best_strict {
-            return self.link_search_hit(w, &candidates[idx], score, "sc_search").await;
+            return self
+                .link_search_hit(w, &candidates[idx], score, "sc_search")
+                .await;
         }
 
         if borderline.is_empty() {
@@ -332,7 +346,8 @@ impl WantedResolverService {
             Some(&i) => &candidates[i],
             None => return Ok(false),
         };
-        self.link_search_hit(w, chosen, pick.confidence, "sc_search+ai").await
+        self.link_search_hit(w, chosen, pick.confidence, "sc_search+ai")
+            .await
     }
 
     async fn link_search_hit(
@@ -398,18 +413,19 @@ impl WantedResolverService {
         title: &str,
         _artist_name: &str,
     ) -> AppResult<Option<String>> {
-        let primary_artist_id: Option<(Option<Uuid>,)> = sqlx::query_as(
-            "SELECT primary_artist_id FROM wanted_tracks WHERE id = $1",
-        )
-        .bind(wanted_id)
-        .fetch_optional(&self.pg)
-        .await?;
+        let primary_artist_id: Option<(Option<Uuid>,)> =
+            sqlx::query_as("SELECT primary_artist_id FROM wanted_tracks WHERE id = $1")
+                .bind(wanted_id)
+                .fetch_optional(&self.pg)
+                .await?;
         let Some((Some(artist_id),)) = primary_artist_id else {
             return Ok(None);
         };
-        Ok(find_best_indexed_for_artist_title(&self.pg, artist_id, title)
-            .await?
-            .map(|m| m.sc_track_id))
+        Ok(
+            find_best_indexed_for_artist_title(&self.pg, artist_id, title)
+                .await?
+                .map(|m| m.sc_track_id),
+        )
     }
 }
 
@@ -468,11 +484,7 @@ pub async fn find_best_indexed_for_artist_title(
 /// Линкует wanted_track к найденному indexed_track (по sc_track_id) и
 /// перетаскивает связи с альбомами. Race-safe (UPDATE WHERE id, ON CONFLICT
 /// DO NOTHING для album_tracks).
-pub async fn link_wanted_to_sc(
-    pg: &PgPool,
-    wanted_id: Uuid,
-    sc_track_id: &str,
-) -> AppResult<()> {
+pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) -> AppResult<()> {
     let row: Option<(Option<Uuid>,)> = sqlx::query_as(
         "UPDATE wanted_tracks
          SET indexed_track_id = (SELECT id FROM indexed_tracks WHERE sc_track_id = $2 LIMIT 1),

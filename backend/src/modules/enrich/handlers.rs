@@ -28,14 +28,8 @@ pub fn router() -> Router<AppState> {
             "/admin/artists/{src_id}/merge-into/{dst_id}",
             post(merge_artists),
         )
-        .route(
-            "/admin/artists/{artist_id}/retry-crawl",
-            post(retry_crawl),
-        )
-        .route(
-            "/admin/artists/{artist_id}/run-crawl",
-            post(run_crawl_now),
-        )
+        .route("/admin/artists/{artist_id}/retry-crawl", post(retry_crawl))
+        .route("/admin/artists/{artist_id}/run-crawl", post(run_crawl_now))
 }
 
 async fn retry_crawl(
@@ -235,13 +229,11 @@ async fn merge_artists(
         .bind(src)
         .execute(&mut *tx)
         .await?;
-    sqlx::query(
-        "UPDATE indexed_tracks SET primary_artist_id = $1 WHERE primary_artist_id = $2",
-    )
-    .bind(dst)
-    .bind(src)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("UPDATE indexed_tracks SET primary_artist_id = $1 WHERE primary_artist_id = $2")
+        .bind(dst)
+        .bind(src)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("UPDATE wanted_tracks SET primary_artist_id = $1 WHERE primary_artist_id = $2")
         .bind(dst)
         .bind(src)

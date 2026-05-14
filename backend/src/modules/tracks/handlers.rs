@@ -291,4 +291,3 @@ fn request_url(prefix: &str, suffix: &str, params: &[(String, String)]) -> Strin
         format!("{path}?{qs}")
     }
 }
-

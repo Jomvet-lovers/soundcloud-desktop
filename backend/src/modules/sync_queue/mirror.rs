@@ -59,12 +59,7 @@ pub async fn set_wanted(pg: &PgPool, m: WantedMirror, user_id: &str, key: &str) 
 /// - (_, wanted=true) — синканный, ставим (wanted=false, progress=true);
 ///   Phase-3 refresh её не воскресит, в read-path она не попадает.
 /// - wanted=false — уже pending unwant, no-op.
-pub async fn clear_wanted(
-    pg: &PgPool,
-    m: WantedMirror,
-    user_id: &str,
-    key: &str,
-) -> AppResult<()> {
+pub async fn clear_wanted(pg: &PgPool, m: WantedMirror, user_id: &str, key: &str) -> AppResult<()> {
     let select_sql = format!(
         "SELECT progress, wanted_state FROM {table} WHERE user_id = $1 AND {key_col} = $2",
         table = m.table,

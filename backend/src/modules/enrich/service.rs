@@ -216,9 +216,7 @@ impl EnrichService {
             return Ok(None);
         }
 
-        use crate::modules::enrich::resolver::{
-            ArtistCandidate, ResolveResult, ResolveSource,
-        };
+        use crate::modules::enrich::resolver::{ArtistCandidate, ResolveResult, ResolveSource};
         Ok(Some(ResolveResult {
             source: ResolveSource::ScVerified,
             confidence: 1.0,
@@ -301,7 +299,12 @@ impl EnrichService {
                 let primary_name = result.primary.first().map(|a| a.name.clone());
                 if let Some(name) = primary_name {
                     let title_q = if ctx.title.contains(" - ") {
-                        ctx.title.split(" - ").last().unwrap_or(&ctx.title).trim().to_string()
+                        ctx.title
+                            .split(" - ")
+                            .last()
+                            .unwrap_or(&ctx.title)
+                            .trim()
+                            .to_string()
                     } else {
                         ctx.title.clone()
                     };
@@ -348,28 +351,21 @@ impl EnrichService {
                     .and_then(|a| a.genius_id.as_deref())
                     .and_then(|s| s.parse::<i64>().ok())
                 {
-                    self.maybe_ingest_album_tracks(
-                        primary_artist_id,
-                        album_id,
-                        genius_album_id,
-                    );
+                    self.maybe_ingest_album_tracks(primary_artist_id, album_id, genius_album_id);
                 }
             }
         }
         Ok(())
     }
 
-    fn maybe_ingest_album_tracks(
-        &self,
-        artist_id: Uuid,
-        album_id: Uuid,
-        genius_album_id: i64,
-    ) {
+    fn maybe_ingest_album_tracks(&self, artist_id: Uuid, album_id: Uuid, genius_album_id: i64) {
         if self.album_ingest_inflight.contains_key(&album_id) {
             return;
         }
         self.album_ingest_inflight.insert(album_id, ());
-        let Some(crawl) = self.crawl.get().cloned() else { return };
+        let Some(crawl) = self.crawl.get().cloned() else {
+            return;
+        };
         let resolver = self.wanted_resolver.get().cloned();
         tokio::spawn(async move {
             if let Err(e) = crawl
@@ -388,7 +384,11 @@ impl EnrichService {
     }
 
     async fn maybe_kick_followup(&self, artist_id: Uuid) {
-        let row: Option<(Option<String>, Option<String>, Option<chrono::DateTime<chrono::Utc>>)> = match sqlx::query_as(
+        let row: Option<(
+            Option<String>,
+            Option<String>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        )> = match sqlx::query_as(
             "SELECT mb_artist_id, genius_artist_id, last_crawled_at
              FROM artists WHERE id = $1 AND merged_into IS NULL",
         )
@@ -402,14 +402,18 @@ impl EnrichService {
                 return;
             }
         };
-        let Some((mb_id, genius_id, last_crawled_at)) = row else { return };
+        let Some((mb_id, genius_id, last_crawled_at)) = row else {
+            return;
+        };
         if mb_id.is_none() && genius_id.is_none() {
             return;
         }
         if last_crawled_at.is_some() {
             return;
         }
-        let Some(crawl) = self.crawl.get().cloned() else { return };
+        let Some(crawl) = self.crawl.get().cloned() else {
+            return;
+        };
         let resolver = self.wanted_resolver.get().cloned();
         tokio::spawn(async move {
             if let Err(e) = crawl.run_for_artist(artist_id).await {

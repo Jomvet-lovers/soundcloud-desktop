@@ -97,13 +97,14 @@ async fn detail(
     _ctx: SessionCtx,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ArtistDetailDto>> {
-    let row: Option<(String, Option<String>, Option<String>, Option<String>, f32)> = sqlx::query_as(
-        "SELECT name, country, bio, avatar_url, confidence
+    let row: Option<(String, Option<String>, Option<String>, Option<String>, f32)> =
+        sqlx::query_as(
+            "SELECT name, country, bio, avatar_url, confidence
          FROM artists WHERE id = $1 AND merged_into IS NULL",
-    )
-    .bind(id)
-    .fetch_optional(&st.pg)
-    .await?;
+        )
+        .bind(id)
+        .fetch_optional(&st.pg)
+        .await?;
     let Some((name, country, bio, avatar_url, confidence)) = row else {
         return Err(AppError::not_found("artist not found"));
     };
@@ -347,14 +348,16 @@ async fn by_name(
     }
 }
 
-async fn fetch_wanted_stubs(
-    pg: &PgPool,
-    artist_id: Uuid,
-    limit: i64,
-) -> AppResult<Vec<Value>> {
-    let rows: Vec<(Uuid, String, Option<i32>, Option<i16>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT wt.id, wt.title, wt.duration_ms, wt.release_year, wt.isrc, a.name
+async fn fetch_wanted_stubs(pg: &PgPool, artist_id: Uuid, limit: i64) -> AppResult<Vec<Value>> {
+    let rows: Vec<(
+        Uuid,
+        String,
+        Option<i32>,
+        Option<i16>,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "SELECT wt.id, wt.title, wt.duration_ms, wt.release_year, wt.isrc, a.name
              FROM wanted_tracks wt
              LEFT JOIN artists a ON a.id = wt.primary_artist_id
              WHERE wt.primary_artist_id = $1
@@ -362,11 +365,11 @@ async fn fetch_wanted_stubs(
                AND wt.status = 'wanted'
              ORDER BY wt.discovered_at DESC
              LIMIT $2",
-        )
-        .bind(artist_id)
-        .bind(limit)
-        .fetch_all(pg)
-        .await?;
+    )
+    .bind(artist_id)
+    .bind(limit)
+    .fetch_all(pg)
+    .await?;
     let out = rows
         .into_iter()
         .map(|(wid, title, dur_ms, year, isrc, artist_name)| {
@@ -438,5 +441,8 @@ async fn fetch_artist_tracks(
         .bind(offset)
         .fetch_all(pg)
         .await?;
-    Ok(rows.into_iter().filter_map(|(raw,)| raw.map(|j| j.0)).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|(raw,)| raw.map(|j| j.0))
+        .collect())
 }

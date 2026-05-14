@@ -209,9 +209,7 @@ impl ScClient {
     ) -> AppResult<Value> {
         let url = build_api_url(path, params);
         let headers = auth_headers(access_token, false);
-        let bytes = self
-            .send_direct(Method::GET, &url, headers, None)
-            .await?;
+        let bytes = self.send_direct(Method::GET, &url, headers, None).await?;
         self.observe(&bytes, access_token);
         decode_json(&bytes)
     }
@@ -362,12 +360,7 @@ impl ScClient {
             if is_get {
                 // direct → race(relay, proxy)
                 match self
-                    .send_direct(
-                        method.clone(),
-                        target_url,
-                        headers.clone(),
-                        body.clone(),
-                    )
+                    .send_direct(method.clone(), target_url, headers.clone(), body.clone())
                     .await
                 {
                     Ok(b) => return Ok(b),
@@ -412,25 +405,15 @@ impl ScClient {
         for ch in chain {
             let r = match ch {
                 Channel::Direct => {
-                    self.send_direct(
-                        method.clone(),
-                        target_url,
-                        headers.clone(),
-                        body.clone(),
-                    )
-                    .await
+                    self.send_direct(method.clone(), target_url, headers.clone(), body.clone())
+                        .await
                 }
                 Channel::Proxy => {
                     if self.inner.proxy_url.is_empty() {
                         continue;
                     }
-                    self.send_proxy(
-                        method.clone(),
-                        target_url,
-                        headers.clone(),
-                        body.clone(),
-                    )
-                    .await
+                    self.send_proxy(method.clone(), target_url, headers.clone(), body.clone())
+                        .await
                 }
                 Channel::Relay => {
                     if self.inner.relay.is_none() {

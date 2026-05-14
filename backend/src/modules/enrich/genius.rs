@@ -52,10 +52,7 @@ pub async fn search(
             Some((best, c))
         })
         .filter(|(s, _)| *s >= 0.55)
-        .max_by(|a, b| {
-            a.0.partial_cmp(&b.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
     let Some((score, meta)) = scored else {
         return Ok(None);
@@ -144,10 +141,10 @@ mod tests {
         let cand_title = normalize_name("x-ray");
         let cand_artist = normalize_name("Psychosis");
 
-        let normal =
-            score_match(&cand_title, &target_title) * 0.6 + score_match(&cand_artist, &target_artist) * 0.4;
-        let flipped =
-            score_match(&cand_title, &target_artist) * 0.6 + score_match(&cand_artist, &target_title) * 0.4;
+        let normal = score_match(&cand_title, &target_title) * 0.6
+            + score_match(&cand_artist, &target_artist) * 0.4;
+        let flipped = score_match(&cand_title, &target_artist) * 0.6
+            + score_match(&cand_artist, &target_title) * 0.4;
 
         assert!(normal >= 0.95, "normal score too low: {normal}");
         assert!(normal > flipped, "normal must beat flipped");
@@ -161,10 +158,10 @@ mod tests {
         let cand_title = normalize_name("x-ray");
         let cand_artist = normalize_name("Psychosis");
 
-        let normal =
-            score_match(&cand_title, &target_title) * 0.6 + score_match(&cand_artist, &target_artist) * 0.4;
-        let flipped =
-            score_match(&cand_title, &target_artist) * 0.6 + score_match(&cand_artist, &target_title) * 0.4;
+        let normal = score_match(&cand_title, &target_title) * 0.6
+            + score_match(&cand_artist, &target_artist) * 0.4;
+        let flipped = score_match(&cand_title, &target_artist) * 0.6
+            + score_match(&cand_artist, &target_title) * 0.4;
 
         assert!(flipped > normal, "flipped must beat normal in this case");
         assert!(flipped >= 0.95, "flipped score: {flipped}");
@@ -185,6 +182,9 @@ mod tests {
                 score_match(&cand_title, &target_artist) * 0.6
                     + score_match(&cand_artist, &target_title) * 0.4,
             );
-        assert!(best < 0.55, "fake claim should not pass threshold; got {best}");
+        assert!(
+            best < 0.55,
+            "fake claim should not pass threshold; got {best}"
+        );
     }
 }

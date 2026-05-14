@@ -28,7 +28,10 @@ pub async fn load_stats(pg: &PgPool, sc_user_id: &str) -> AppResult<HashMap<Stri
     .bind(sc_user_id)
     .fetch_all(pg)
     .await?;
-    Ok(rows.into_iter().map(|r| (r.cluster_id.clone(), r)).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.cluster_id.clone(), r))
+        .collect())
 }
 
 pub fn sample_priorities(stats: &HashMap<String, ClusterStat>, clusters: &[&str]) -> Vec<f64> {

@@ -74,11 +74,7 @@ impl ClusterBuilder {
         });
     }
 
-    pub fn push_with_neighbors(
-        &mut self,
-        id: &'static str,
-        neighbors: Vec<ClusterNeighbor>,
-    ) {
+    pub fn push_with_neighbors(&mut self, id: &'static str, neighbors: Vec<ClusterNeighbor>) {
         if neighbors.is_empty() {
             return;
         }
@@ -175,4 +171,3 @@ pub fn pick_unique_ids(
     }
     out
 }
-

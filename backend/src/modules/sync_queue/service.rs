@@ -92,7 +92,9 @@ impl SyncQueueService {
 
         if let Ok(mut conn) = self.redis.get().await {
             let payload = format!("{pending}:{failed}");
-            let _: Result<(), _> = conn.set_ex(&key, payload, COUNTS_CACHE_TTL_SEC as u64).await;
+            let _: Result<(), _> = conn
+                .set_ex(&key, payload, COUNTS_CACHE_TTL_SEC as u64)
+                .await;
         }
         Ok((pending, failed))
     }

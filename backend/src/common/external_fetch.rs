@@ -255,7 +255,10 @@ impl ExternalFetcher {
             return Err(AppError::ScApi {
                 status: resp.status,
                 body: serde_json::Value::String(
-                    String::from_utf8_lossy(&resp.body).chars().take(200).collect(),
+                    String::from_utf8_lossy(&resp.body)
+                        .chars()
+                        .take(200)
+                        .collect(),
                 ),
             });
         }

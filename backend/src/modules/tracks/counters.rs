@@ -35,8 +35,10 @@ fn read_i64_from(obj: &Map<String, Value>, key: &str) -> Option<i64> {
 
 fn read_counters_obj(obj: &Map<String, Value>) -> Counters {
     Counters {
-        play_count: read_i64_from(obj, "playback_count").or_else(|| read_i64_from(obj, "play_count")),
-        likes_count: read_i64_from(obj, "likes_count").or_else(|| read_i64_from(obj, "favoritings_count")),
+        play_count: read_i64_from(obj, "playback_count")
+            .or_else(|| read_i64_from(obj, "play_count")),
+        likes_count: read_i64_from(obj, "likes_count")
+            .or_else(|| read_i64_from(obj, "favoritings_count")),
         reposts_count: read_i64_from(obj, "reposts_count"),
         comment_count: read_i64_from(obj, "comment_count"),
     }
@@ -111,14 +113,20 @@ pub async fn sync(pg: &PgPool, tracks: &mut [Value]) -> AppResult<()> {
         .await?;
     }
 
-    let rows: Vec<(String, Option<i64>, Option<i64>, Option<i64>, Option<i64>, chrono::DateTime<chrono::Utc>)> =
-        sqlx::query_as(
-            "SELECT sc_track_id, play_count, likes_count, reposts_count, comment_count, fetched_at
+    let rows: Vec<(
+        String,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(
+        "SELECT sc_track_id, play_count, likes_count, reposts_count, comment_count, fetched_at
              FROM sc_track_counters WHERE sc_track_id = ANY($1)",
-        )
-        .bind(&sc_ids)
-        .fetch_all(pg)
-        .await?;
+    )
+    .bind(&sc_ids)
+    .fetch_all(pg)
+    .await?;
     if rows.is_empty() {
         return Ok(());
     }
@@ -158,23 +166,31 @@ pub async fn sync(pg: &PgPool, tracks: &mut [Value]) -> AppResult<()> {
         let stale = *age > STALE_SECS;
         let already_present = read_counters_obj(obj);
         if let Some(v) = c.play_count {
-            if already_present.play_count.is_none() || (!stale && already_present.play_count != Some(v)) {
+            if already_present.play_count.is_none()
+                || (!stale && already_present.play_count != Some(v))
+            {
                 obj.insert("playback_count".into(), Value::from(v));
             }
         }
         if let Some(v) = c.likes_count {
-            if already_present.likes_count.is_none() || (!stale && already_present.likes_count != Some(v)) {
+            if already_present.likes_count.is_none()
+                || (!stale && already_present.likes_count != Some(v))
+            {
                 obj.insert("likes_count".into(), Value::from(v));
                 obj.insert("favoritings_count".into(), Value::from(v));
             }
         }
         if let Some(v) = c.reposts_count {
-            if already_present.reposts_count.is_none() || (!stale && already_present.reposts_count != Some(v)) {
+            if already_present.reposts_count.is_none()
+                || (!stale && already_present.reposts_count != Some(v))
+            {
                 obj.insert("reposts_count".into(), Value::from(v));
             }
         }
         if let Some(v) = c.comment_count {
-            if already_present.comment_count.is_none() || (!stale && already_present.comment_count != Some(v)) {
+            if already_present.comment_count.is_none()
+                || (!stale && already_present.comment_count != Some(v))
+            {
                 obj.insert("comment_count".into(), Value::from(v));
             }
         }

@@ -504,7 +504,10 @@ impl GeniusService {
             .and_then(|y| i16::try_from(y).ok());
         let album = song.album.and_then(|a| {
             let id = a.id?;
-            let name = a.name.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())?;
+            let name = a
+                .name
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())?;
             let year = a
                 .release_date_components
                 .and_then(|d| d.year)
@@ -516,7 +519,10 @@ impl GeniusService {
                 cover_url: a.cover_art_url,
             })
         });
-        Some(GeniusSongDetails { album, year: song_year })
+        Some(GeniusSongDetails {
+            album,
+            year: song_year,
+        })
     }
 
     pub async fn lookup_artist(&self, genius_id: i64) -> Option<GeniusArtistDetails> {
@@ -588,10 +594,7 @@ impl GeniusService {
             Some(d) => d,
             None => return Vec::new(),
         };
-        let hits = parsed
-            .response
-            .and_then(|r| r.hits)
-            .unwrap_or_default();
+        let hits = parsed.response.and_then(|r| r.hits).unwrap_or_default();
         hits.into_iter()
             .take(limit)
             .filter_map(|h| {
@@ -855,7 +858,11 @@ mod tests {
     async fn live_list_psychosis_albums() {
         let svc = build_client();
         let (albums, _has_more) = svc.list_artist_albums(3401261, 1, 20).await;
-        assert!(albums.len() >= 5, "expected several albums, got {}", albums.len());
+        assert!(
+            albums.len() >= 5,
+            "expected several albums, got {}",
+            albums.len()
+        );
         let names: Vec<String> = albums.iter().map(|a| a.name.to_lowercase()).collect();
         assert!(
             names.iter().any(|n| n.contains("euphoria")),

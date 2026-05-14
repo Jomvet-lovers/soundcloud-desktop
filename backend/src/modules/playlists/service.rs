@@ -155,13 +155,15 @@ impl PlaylistsService {
                 .api_get_value(&format!("/playlists/{playlist_urn}"), token, Some(params))
                 .await;
         }
-        let cached: Option<(sqlx::types::Json<Value>, Option<chrono::DateTime<chrono::Utc>>)> =
-            sqlx::query_as(
-                "SELECT payload, synced_at FROM cached_playlists WHERE playlist_urn = $1",
-            )
-            .bind(playlist_urn)
-            .fetch_optional(&self.pg)
-            .await?;
+        let cached: Option<(
+            sqlx::types::Json<Value>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        )> = sqlx::query_as(
+            "SELECT payload, synced_at FROM cached_playlists WHERE playlist_urn = $1",
+        )
+        .bind(playlist_urn)
+        .fetch_optional(&self.pg)
+        .await?;
         if let Some((j, synced_at)) = cached {
             let pg = self.pg.clone();
             let urn = playlist_urn.to_string();
@@ -228,13 +230,11 @@ impl PlaylistsService {
     /// и его tracks-mirror. SC delete — фоном через worker.
     pub async fn delete(&self, sc_user_id: &str, playlist_urn: &str) -> AppResult<Value> {
         let mut tx = self.pg.begin().await?;
-        sqlx::query(
-            "DELETE FROM user_owned_playlists WHERE user_id = $1 AND playlist_urn = $2",
-        )
-        .bind(sc_user_id)
-        .bind(playlist_urn)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("DELETE FROM user_owned_playlists WHERE user_id = $1 AND playlist_urn = $2")
+            .bind(sc_user_id)
+            .bind(playlist_urn)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM cached_playlists WHERE playlist_urn = $1")
             .bind(playlist_urn)
             .execute(&mut *tx)

@@ -65,8 +65,7 @@ pub fn log_clusters_async(
         let cluster_ids: Vec<String> = rows.iter().map(|r| r.cluster.clone()).collect();
         let positions: Vec<i16> = rows.iter().map(|r| r.position).collect();
         let sources: Vec<&str> = rows.iter().map(|_| source_str).collect();
-        let features_arr: Vec<Option<Value>> =
-            rows.iter().map(|r| r.features.clone()).collect();
+        let features_arr: Vec<Option<Value>> = rows.iter().map(|r| r.features.clone()).collect();
         if let Err(e) = sqlx::query(
             "INSERT INTO rec_impressions
                  (sc_user_id, sc_track_id, cluster_id, source, position, features)
@@ -87,4 +86,3 @@ pub fn log_clusters_async(
         }
     });
 }
-

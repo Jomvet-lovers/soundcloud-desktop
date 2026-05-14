@@ -131,11 +131,7 @@ impl RecommendationsService {
         }
     }
 
-    pub(crate) async fn retrieve_vector(
-        &self,
-        collection: &str,
-        id: u64,
-    ) -> Option<Vec<f32>> {
+    pub(crate) async fn retrieve_vector(&self, collection: &str, id: u64) -> Option<Vec<f32>> {
         let resp = self
             .qdrant
             .raw()

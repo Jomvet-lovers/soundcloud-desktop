@@ -141,13 +141,15 @@ impl TracksService {
                 .api_get_value(&format!("/tracks/{track_urn}"), token, Some(params))
                 .await?
         } else {
-            let cached: Option<(sqlx::types::Json<Value>, Option<chrono::DateTime<chrono::Utc>>)> =
-                sqlx::query_as(
-                    "SELECT raw_sc_data, synced_at FROM indexed_tracks WHERE sc_track_id = $1",
-                )
-                .bind(&sc_track_id)
-                .fetch_optional(&self.pg)
-                .await?;
+            let cached: Option<(
+                sqlx::types::Json<Value>,
+                Option<chrono::DateTime<chrono::Utc>>,
+            )> = sqlx::query_as(
+                "SELECT raw_sc_data, synced_at FROM indexed_tracks WHERE sc_track_id = $1",
+            )
+            .bind(&sc_track_id)
+            .fetch_optional(&self.pg)
+            .await?;
             if let Some((j, synced_at)) = cached {
                 let pg = self.pg.clone();
                 let id = sc_track_id.clone();

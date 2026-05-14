@@ -14,7 +14,9 @@
 
 use serde_json::Value;
 
-use crate::modules::enrich::normalize::{compact_title, normalize_name, normalize_title, parse_sc_title};
+use crate::modules::enrich::normalize::{
+    compact_title, normalize_name, normalize_title, parse_sc_title,
+};
 
 /// Финальный результат matching'а одного SC-кандидата против wanted-трека.
 #[derive(Debug, Clone)]
@@ -57,7 +59,11 @@ impl TrackMatch {
 ///
 /// `cand_uploader_username` помогает parse_sc_title правильно отделить артиста
 /// в случае если в title нет дефиса.
-pub fn title_score(target_title: &str, cand_title: &str, cand_uploader_username: Option<&str>) -> f32 {
+pub fn title_score(
+    target_title: &str,
+    cand_title: &str,
+    cand_uploader_username: Option<&str>,
+) -> f32 {
     let target_n = normalize_title(target_title);
     if target_n.is_empty() {
         return 0.0;
@@ -194,7 +200,10 @@ fn ngram_set(s: &str, n: usize) -> std::collections::HashSet<String> {
     set
 }
 
-fn jaccard_ratio(a: &std::collections::HashSet<String>, b: &std::collections::HashSet<String>) -> f32 {
+fn jaccard_ratio(
+    a: &std::collections::HashSet<String>,
+    b: &std::collections::HashSet<String>,
+) -> f32 {
     if a.is_empty() || b.is_empty() {
         return 0.0;
     }
@@ -217,7 +226,10 @@ fn trigram_overlap(a: &str, b: &str) -> f32 {
 
 /// Извлечь sc_track_id из urn-строки (`soundcloud:tracks:1234`).
 pub fn sc_track_id_from_urn(urn: &str) -> Option<String> {
-    urn.rsplit(':').next().filter(|s| !s.is_empty()).map(String::from)
+    urn.rsplit(':')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 /// Удобный helper: посчитать TrackMatch для SC-сырого кандидата против wanted-задачи.
@@ -310,9 +322,18 @@ mod tests {
 
     #[test]
     fn duration_buckets() {
-        assert_eq!(duration_match(Some(180_000), Some(180_500)), DurationMatch::Exact);
-        assert_eq!(duration_match(Some(180_000), Some(183_000)), DurationMatch::Close);
-        assert_eq!(duration_match(Some(180_000), Some(220_000)), DurationMatch::Far);
+        assert_eq!(
+            duration_match(Some(180_000), Some(180_500)),
+            DurationMatch::Exact
+        );
+        assert_eq!(
+            duration_match(Some(180_000), Some(183_000)),
+            DurationMatch::Close
+        );
+        assert_eq!(
+            duration_match(Some(180_000), Some(220_000)),
+            DurationMatch::Far
+        );
         assert_eq!(duration_match(None, Some(180_000)), DurationMatch::Unknown);
     }
 

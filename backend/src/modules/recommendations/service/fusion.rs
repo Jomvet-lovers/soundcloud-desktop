@@ -27,8 +27,14 @@ impl RecommendationsService {
         req_id: &str,
     ) -> AppResult<Vec<RecommendResult>> {
         let anchor = sc_track_id.and_then(parse_id_or_null);
-        let positive_ids: Vec<u64> = positive.iter().filter_map(|s| parse_id_or_null(s)).collect();
-        let negative_ids: Vec<u64> = negative.iter().filter_map(|s| parse_id_or_null(s)).collect();
+        let positive_ids: Vec<u64> = positive
+            .iter()
+            .filter_map(|s| parse_id_or_null(s))
+            .collect();
+        let negative_ids: Vec<u64> = negative
+            .iter()
+            .filter_map(|s| parse_id_or_null(s))
+            .collect();
 
         let div = if mode == WaveMode::Diverse {
             DIVERSE_DIVERSITY
@@ -128,5 +134,4 @@ impl RecommendationsService {
         );
         self.get_fallback_tracks(exclude, limit, languages).await
     }
-
 }

@@ -3,7 +3,9 @@
 //! → "Hip-Hop"). Остальные жанры проходят через title-case как fallback.
 
 pub fn canonicalize_tags(raw: Vec<String>) -> Vec<String> {
-    raw.into_iter().filter_map(|t| canonicalize_tag(&t)).collect()
+    raw.into_iter()
+        .filter_map(|t| canonicalize_tag(&t))
+        .collect()
 }
 
 pub fn canonicalize_tag(raw: &str) -> Option<String> {

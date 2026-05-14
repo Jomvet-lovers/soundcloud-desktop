@@ -142,7 +142,12 @@ fn kmeans(points: &[(Vec<f32>, f32)], k: usize) -> Vec<TasteMode> {
 fn seed_centers(points: &[(Vec<f32>, f32)], k: usize) -> Vec<Vec<f32>> {
     let mut centers: Vec<Vec<f32>> = Vec::with_capacity(k);
     let mut sorted: Vec<usize> = (0..points.len()).collect();
-    sorted.sort_by(|a, b| points[*b].1.partial_cmp(&points[*a].1).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| {
+        points[*b]
+            .1
+            .partial_cmp(&points[*a].1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     centers.push(points[sorted[0]].0.clone());
     while centers.len() < k {
         let mut best_idx = 0usize;

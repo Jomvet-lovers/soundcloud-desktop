@@ -91,8 +91,7 @@ impl IndexingService {
             let artwork_url = sc_track.get("artwork_url").and_then(|v| v.as_str());
             let stream_url = sc_track.get("stream_url").and_then(|v| v.as_str());
             let uploader_sc_user_id = extract_uploader_sc_user_id(sc_track);
-            let (release_year, release_date) =
-                crate::common::release_date::extract(sc_track);
+            let (release_year, release_date) = crate::common::release_date::extract(sc_track);
 
             let inserted: Option<(Uuid,)> = sqlx::query_as(
                 "INSERT INTO indexed_tracks (sc_track_id, title, genre, tags, duration_ms, artwork_url, stream_url, raw_sc_data, uploader_sc_user_id, release_year, release_date, indexed_at) \
@@ -119,9 +118,7 @@ impl IndexingService {
         }
 
         self.trigger.trigger(&sc_track_id);
-        if let Err(e) =
-            crate::modules::enrich::publish_enrich(&self.nats, &sc_track_id).await
-        {
+        if let Err(e) = crate::modules::enrich::publish_enrich(&self.nats, &sc_track_id).await {
             debug!(track = %sc_track_id, error = %e, "enrich publish failed");
         }
         let lyrics = self.lyrics.clone();
@@ -294,7 +291,11 @@ impl IndexingService {
         );
     }
 
-    async fn apply_fingerprint(self: &Arc<Self>, sc_track_id: &str, fingerprint: &str) -> AppResult<()> {
+    async fn apply_fingerprint(
+        self: &Arc<Self>,
+        sc_track_id: &str,
+        fingerprint: &str,
+    ) -> AppResult<()> {
         let row: Option<(uuid::Uuid, Option<uuid::Uuid>)> = sqlx::query_as(
             "SELECT id, canonical_track_id FROM indexed_tracks WHERE sc_track_id = $1",
         )
@@ -326,7 +327,9 @@ impl IndexingService {
             return Ok(());
         };
 
-        let canonical_id = canonical.or(other_canonical).unwrap_or_else(uuid::Uuid::new_v4);
+        let canonical_id = canonical
+            .or(other_canonical)
+            .unwrap_or_else(uuid::Uuid::new_v4);
         sqlx::query(
             "UPDATE indexed_tracks SET canonical_track_id = $1
              WHERE id IN ($2, $3) AND (canonical_track_id IS NULL OR canonical_track_id <> $1)",

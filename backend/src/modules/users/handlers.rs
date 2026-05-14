@@ -310,4 +310,3 @@ async fn get_web_profiles(
     )
     .await
 }
-

@@ -290,8 +290,13 @@ impl ArtistCrawlService {
         if !socials.is_empty() {
             self.upsert_socials(artist_id, &socials).await?;
         }
-        self.maybe_update_metadata(artist_id, country.as_deref(), avatar_url.as_deref(), bio.as_deref())
-            .await?;
+        self.maybe_update_metadata(
+            artist_id,
+            country.as_deref(),
+            avatar_url.as_deref(),
+            bio.as_deref(),
+        )
+        .await?;
 
         if let Err(e) = self.resolve_sc_accounts(artist_id, &socials).await {
             debug!(artist = %artist_id, error = %e, "SC accounts resolve failed");
@@ -299,13 +304,22 @@ impl ArtistCrawlService {
 
         if let Some(mb_id) = mb_id {
             match self.discover_mb_tracks(artist_id, mb_id, mb_offset).await {
-                Ok(next) => self.set_crawl_offset(artist_id, CrawlSource::Mb, next).await?,
+                Ok(next) => {
+                    self.set_crawl_offset(artist_id, CrawlSource::Mb, next)
+                        .await?
+                }
                 Err(e) => debug!(artist = %artist_id, error = %e, "MB track discovery failed"),
             }
         }
         if let Some(gid) = genius_id.and_then(|s| s.parse::<i64>().ok()) {
-            match self.discover_genius_songs(artist_id, gid, genius_offset).await {
-                Ok(next) => self.set_crawl_offset(artist_id, CrawlSource::Genius, next).await?,
+            match self
+                .discover_genius_songs(artist_id, gid, genius_offset)
+                .await
+            {
+                Ok(next) => {
+                    self.set_crawl_offset(artist_id, CrawlSource::Genius, next)
+                        .await?
+                }
                 Err(e) => debug!(artist = %artist_id, error = %e, "Genius song discovery failed"),
             }
             if let Err(e) = self.discover_genius_albums(artist_id, gid).await {
@@ -396,11 +410,7 @@ impl ArtistCrawlService {
         Ok(offset)
     }
 
-    async fn discover_genius_albums(
-        &self,
-        artist_id: Uuid,
-        genius_id: i64,
-    ) -> AppResult<()> {
+    async fn discover_genius_albums(&self, artist_id: Uuid, genius_id: i64) -> AppResult<()> {
         let mut page = 1u32;
         for _ in 0..10 {
             let (albums, has_more) = self.genius.list_artist_albums(genius_id, page, 20).await;
@@ -437,7 +447,10 @@ impl ArtistCrawlService {
     ) -> AppResult<()> {
         let mut page = 1u32;
         for _ in 0..6 {
-            let (tracks, has_more) = self.genius.list_album_tracks(genius_album_id, page, 50).await;
+            let (tracks, has_more) = self
+                .genius
+                .list_album_tracks(genius_album_id, page, 50)
+                .await;
             if tracks.is_empty() {
                 break;
             }
@@ -478,7 +491,10 @@ impl ArtistCrawlService {
                 .or(Some(primary_artist_id)),
             None => Some(primary_artist_id),
         };
-        let position = track.position.and_then(|n| i16::try_from(n).ok()).unwrap_or(0);
+        let position = track
+            .position
+            .and_then(|n| i16::try_from(n).ok())
+            .unwrap_or(0);
 
         if let Some(pa_id) = track_primary_id {
             if let Some(indexed_id) = self
@@ -511,7 +527,8 @@ impl ArtistCrawlService {
             return Ok(());
         };
         if let Some(pa) = track_primary_id {
-            self.insert_wanted_artist(wanted_id, pa, "primary", 0).await?;
+            self.insert_wanted_artist(wanted_id, pa, "primary", 0)
+                .await?;
         }
         for (pos, fa) in track.featured.iter().enumerate() {
             let id = self
@@ -526,7 +543,8 @@ impl ArtistCrawlService {
                     .await?;
             }
         }
-        self.link_wanted_album(wanted_id, album_id, position).await?;
+        self.link_wanted_album(wanted_id, album_id, position)
+            .await?;
         Ok(())
     }
 
@@ -591,7 +609,10 @@ impl ArtistCrawlService {
     ) -> AppResult<()> {
         let primary_artist_id = match rec.primary_artist.as_ref() {
             Some(a) if a.mb_id == crawled_mb_id => Some(crawled_artist_id),
-            Some(a) => self.ensure_external_artist(Some(&a.mb_id), None, &a.name).await?,
+            Some(a) => {
+                self.ensure_external_artist(Some(&a.mb_id), None, &a.name)
+                    .await?
+            }
             None => None,
         };
 
@@ -641,10 +662,13 @@ impl ArtistCrawlService {
             self.link_wanted_album(wanted_id, album_id, 0).await?;
         }
         if let Some(pa) = primary_artist_id {
-            self.insert_wanted_artist(wanted_id, pa, "primary", 0).await?;
+            self.insert_wanted_artist(wanted_id, pa, "primary", 0)
+                .await?;
         }
         for (pos, fa) in rec.featured.iter().enumerate() {
-            let id = self.ensure_external_artist(Some(&fa.mb_id), None, &fa.name).await?;
+            let id = self
+                .ensure_external_artist(Some(&fa.mb_id), None, &fa.name)
+                .await?;
             if let Some(id) = id {
                 self.insert_wanted_artist(wanted_id, id, "featured", pos as i16)
                     .await?;
@@ -763,13 +787,14 @@ impl ArtistCrawlService {
         };
         let primary_artist_id = match primary.genius_artist_id {
             Some(gid) if gid == crawled_genius_id => Some(crawled_artist_id),
-            _ => self
-                .ensure_external_artist(
+            _ => {
+                self.ensure_external_artist(
                     None,
                     primary.genius_artist_id.map(|i| i.to_string()).as_deref(),
                     &primary.name,
                 )
-                .await?,
+                .await?
+            }
         };
 
         let normalized_title = normalize_title(&song.title);
@@ -821,7 +846,8 @@ impl ArtistCrawlService {
             return Ok(());
         };
         if let Some(pa) = primary_artist_id {
-            self.insert_wanted_artist(wanted_id, pa, "primary", 0).await?;
+            self.insert_wanted_artist(wanted_id, pa, "primary", 0)
+                .await?;
         }
         for (pos, fa) in song.featured.iter().enumerate() {
             let id = self
@@ -1023,27 +1049,23 @@ impl ArtistCrawlService {
         artist_id: Uuid,
         target_title: &str,
     ) -> AppResult<Option<Uuid>> {
-        Ok(crate::modules::enrich::wanted_resolver::find_best_indexed_for_artist_title(
-            &self.pg,
-            artist_id,
-            target_title,
+        Ok(
+            crate::modules::enrich::wanted_resolver::find_best_indexed_for_artist_title(
+                &self.pg,
+                artist_id,
+                target_title,
+            )
+            .await?
+            .map(|m| m.indexed_track_id),
         )
-        .await?
-        .map(|m| m.indexed_track_id))
     }
 
-    async fn link_indexed_album(
-        &self,
-        indexed_track_id: Uuid,
-        album_id: Uuid,
-    ) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE indexed_tracks SET album_id = COALESCE(album_id, $2) WHERE id = $1",
-        )
-        .bind(indexed_track_id)
-        .bind(album_id)
-        .execute(&self.pg)
-        .await?;
+    async fn link_indexed_album(&self, indexed_track_id: Uuid, album_id: Uuid) -> AppResult<()> {
+        sqlx::query("UPDATE indexed_tracks SET album_id = COALESCE(album_id, $2) WHERE id = $1")
+            .bind(indexed_track_id)
+            .bind(album_id)
+            .execute(&self.pg)
+            .await?;
         sqlx::query(
             "INSERT INTO album_tracks (album_id, indexed_track_id) VALUES ($1, $2)
              ON CONFLICT DO NOTHING",

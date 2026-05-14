@@ -59,17 +59,11 @@ pub async fn backfill_missing_scores(service: Arc<RecommendationsService>) -> Ap
         Ok(Some(s)) if s.len() == features_batch.len() => s,
         Ok(_) => {
             warn!("quality_scorer: worker returned no scores, fallback to heuristic");
-            features_batch
-                .iter()
-                .map(|f| fallback_score(f))
-                .collect()
+            features_batch.iter().map(|f| fallback_score(f)).collect()
         }
         Err(e) => {
             warn!(error = %e, "quality_scorer: worker call failed");
-            features_batch
-                .iter()
-                .map(|f| fallback_score(f))
-                .collect()
+            features_batch.iter().map(|f| fallback_score(f)).collect()
         }
     };
 

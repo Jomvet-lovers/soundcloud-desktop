@@ -1,15 +1,12 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-static RE_FEAT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)\b(?:feat|ft|featuring)\.?\s+(.+)").unwrap()
-});
-static RE_PROD: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)\bprod(?:uced)?(?:\.|\s+by)?\s+(.+)").unwrap()
-});
-static RE_REMIX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^(.+?)\s+(remix|edit|bootleg|flip|mashup|mix)$").unwrap()
-});
+static RE_FEAT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b(?:feat|ft|featuring)\.?\s+(.+)").unwrap());
+static RE_PROD: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\bprod(?:uced)?(?:\.|\s+by)?\s+(.+)").unwrap());
+static RE_REMIX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^(.+?)\s+(remix|edit|bootleg|flip|mashup|mix)$").unwrap());
 static RE_NOISE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)^(original\s+mix|extended\s+mix|radio\s+edit|free\s+(?:download|dl)|out\s+now|premiere|exclusive|hq|hd|official(?:\s+(?:audio|video))?|lyrics|lyric\s+video|visualizer|hot|new)$").unwrap()
 });
@@ -46,7 +43,10 @@ static RE_NAME_PREFIX_NOISE: Lazy<Regex> = Lazy::new(|| {
 });
 
 pub fn clean_artist_name(s: &str) -> String {
-    let mut cur = s.trim().trim_matches(|c: char| c == '"' || c == '\'').to_string();
+    let mut cur = s
+        .trim()
+        .trim_matches(|c: char| c == '"' || c == '\'')
+        .to_string();
     for _ in 0..3 {
         let stripped = RE_NAME_PREFIX_NOISE.replace(&cur, "").to_string();
         if stripped == cur {
@@ -85,7 +85,10 @@ pub fn normalize_title(s: &str) -> String {
 /// Используется для сравнения титлов между источниками с разной пунктуацией
 /// (например, "1000-7?что ты сказал" vs "1000 - 7что Ты Сказал").
 pub fn compact_title(s: &str) -> String {
-    normalize_title(s).chars().filter(|c| !c.is_whitespace()).collect()
+    normalize_title(s)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
 }
 
 #[derive(Debug, Default, Clone)]
@@ -154,11 +157,20 @@ pub fn parse_sc_title(raw: &str, uploader: Option<&str>) -> ParsedTitle {
     dedup_keep_order(&mut parsed.producers);
     dedup_keep_order(&mut parsed.remixers);
 
-    let primary_keys: std::collections::HashSet<String> =
-        parsed.primary_artists.iter().map(|s| normalize_name(s)).collect();
-    parsed.featured.retain(|s| !primary_keys.contains(&normalize_name(s)));
-    parsed.producers.retain(|s| !primary_keys.contains(&normalize_name(s)));
-    parsed.remixers.retain(|s| !primary_keys.contains(&normalize_name(s)));
+    let primary_keys: std::collections::HashSet<String> = parsed
+        .primary_artists
+        .iter()
+        .map(|s| normalize_name(s))
+        .collect();
+    parsed
+        .featured
+        .retain(|s| !primary_keys.contains(&normalize_name(s)));
+    parsed
+        .producers
+        .retain(|s| !primary_keys.contains(&normalize_name(s)));
+    parsed
+        .remixers
+        .retain(|s| !primary_keys.contains(&normalize_name(s)));
 
     parsed
 }
@@ -460,4 +472,3 @@ mod tests {
         assert!(p.featured.is_empty());
     }
 }
-

@@ -69,13 +69,12 @@ pub async fn upsert(
 }
 
 pub async fn delete(pg: &PgPool, artist_id: Uuid, sc_user_id: &str) -> AppResult<bool> {
-    let res = sqlx::query(
-        "DELETE FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2",
-    )
-    .bind(artist_id)
-    .bind(sc_user_id)
-    .execute(pg)
-    .await?;
+    let res =
+        sqlx::query("DELETE FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2")
+            .bind(artist_id)
+            .bind(sc_user_id)
+            .execute(pg)
+            .await?;
     Ok(res.rows_affected() > 0)
 }
 

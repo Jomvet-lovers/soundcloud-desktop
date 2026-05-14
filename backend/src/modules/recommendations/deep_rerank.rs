@@ -45,10 +45,7 @@ impl RecommendationsService {
     }
 }
 
-fn build_two_tower_features(
-    item: &RecommendResult,
-    recent_artists: &HashSet<String>,
-) -> Vec<f32> {
+fn build_two_tower_features(item: &RecommendResult, recent_artists: &HashSet<String>) -> Vec<f32> {
     let base = item.features.as_deref().unwrap_or(&[]);
     let mut f = vec![0f32; TWO_TOWER_FEATURES];
     for i in 0..base.len().min(6) {

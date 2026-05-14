@@ -13,10 +13,8 @@ const UA: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
 static HYDRATION_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r#""hydratable"\s*:\s*"apiClient"\s*,\s*"data"\s*:\s*\{\s*"id"\s*:\s*"([^"]+)""#,
-    )
-    .expect("hydration regex")
+    Regex::new(r#""hydratable"\s*:\s*"apiClient"\s*,\s*"data"\s*:\s*\{\s*"id"\s*:\s*"([^"]+)""#)
+        .expect("hydration regex")
 });
 
 pub struct AnonResolveClient {
@@ -246,10 +244,7 @@ mod tests {
             "kind": "system-playlist",
         });
         normalize_v2_to_v1(&mut v);
-        assert_eq!(
-            v["urn"],
-            "soundcloud:system-playlists:charts-top:all-music"
-        );
+        assert_eq!(v["urn"], "soundcloud:system-playlists:charts-top:all-music");
     }
 
     #[test]

@@ -16,8 +16,10 @@ impl RecommendationsService {
     ) -> AppResult<Vec<String>> {
         let lang_filter: Option<Vec<String>> = languages.map(|v| v.to_vec());
 
-        let (fresh, popular) =
-            tokio::join!(load_fresh(&self.pg, lang_filter.as_deref()), load_popular(&self.pg, lang_filter.as_deref()));
+        let (fresh, popular) = tokio::join!(
+            load_fresh(&self.pg, lang_filter.as_deref()),
+            load_popular(&self.pg, lang_filter.as_deref())
+        );
         let fresh = fresh.unwrap_or_default();
         let popular = popular.unwrap_or_default();
 

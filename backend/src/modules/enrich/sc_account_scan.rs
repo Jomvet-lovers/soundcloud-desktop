@@ -126,8 +126,7 @@ impl ScAccountScanner {
                 if remaining.is_empty() {
                     break;
                 }
-                let Some((wid, sc_track_id, score)) =
-                    self.best_strict_match(cand, &remaining)
+                let Some((wid, sc_track_id, score)) = self.best_strict_match(cand, &remaining)
                 else {
                     continue;
                 };
@@ -288,7 +287,11 @@ impl ScAccountScanner {
     }
 
     async fn pick_token(&self) -> Option<String> {
-        match self.tokens.pick_for_background(TOKEN_BACKGROUND_LIMIT).await {
+        match self
+            .tokens
+            .pick_for_background(TOKEN_BACKGROUND_LIMIT)
+            .await
+        {
             Ok(v) => v.into_iter().next(),
             Err(e) => {
                 debug!(error = %e, "sc_account_scan: token pool error");
@@ -372,12 +375,8 @@ impl ScAccountScanner {
     }
 
     async fn persist_link(&self, wanted_id: Uuid, sc_track_id: &str) -> AppResult<()> {
-        crate::modules::enrich::wanted_resolver::link_wanted_to_sc(
-            &self.pg,
-            wanted_id,
-            sc_track_id,
-        )
-        .await
+        crate::modules::enrich::wanted_resolver::link_wanted_to_sc(&self.pg, wanted_id, sc_track_id)
+            .await
     }
 }
 

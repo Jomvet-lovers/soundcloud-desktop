@@ -312,11 +312,7 @@ impl MeService {
         Ok(json!({ "status": "queued", "actionType": "follow_user" }))
     }
 
-    pub async fn unfollow_user(
-        &self,
-        sc_user_id: &str,
-        target_user_urn: &str,
-    ) -> AppResult<Value> {
+    pub async fn unfollow_user(&self, sc_user_id: &str, target_user_urn: &str) -> AppResult<Value> {
         mirror::clear_wanted(&self.pg, FOLLOWINGS_MIRROR, sc_user_id, target_user_urn).await?;
         self.sync_queue
             .enqueue(sc_user_id, "unfollow_user", target_user_urn, None)

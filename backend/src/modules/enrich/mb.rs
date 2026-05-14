@@ -236,7 +236,11 @@ impl MbClient {
         );
         if let Some(ms) = duration_ms {
             let secs = ms / 1000;
-            q.push_str(&format!(" AND dur:[{} TO {}]", (secs - 5).max(0) * 1000, (secs + 5) * 1000));
+            q.push_str(&format!(
+                " AND dur:[{} TO {}]",
+                (secs - 5).max(0) * 1000,
+                (secs + 5) * 1000
+            ));
         }
         let url = format!(
             "{MB_BASE}/recording/?query={}&fmt=json&limit=5&inc=artist-credits+releases",
@@ -287,7 +291,24 @@ fn pick_best_release(releases: Vec<RawRelease>) -> Option<RawRelease> {
 fn mb_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        if matches!(c, '"' | '\\' | '+' | '-' | '!' | '(' | ')' | '{' | '}' | '[' | ']' | '^' | '~' | '*' | '?' | ':') {
+        if matches!(
+            c,
+            '"' | '\\'
+                | '+'
+                | '-'
+                | '!'
+                | '('
+                | ')'
+                | '{'
+                | '}'
+                | '['
+                | ']'
+                | '^'
+                | '~'
+                | '*'
+                | '?'
+                | ':'
+        ) {
             out.push('\\');
         }
         out.push(c);

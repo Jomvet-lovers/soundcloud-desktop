@@ -105,7 +105,10 @@ async fn tail(
     let liked = st.events.get_recent_liked(&ctx.sc_user_id, 5).await?;
     let skipped = st.events.get_recent_skipped(&ctx.sc_user_id, 3).await?;
     let played = st.events.get_recent_played(&ctx.sc_user_id, 50).await?;
-    let disliked = st.dislikes.list_ids_by_user_id(&ctx.sc_user_id, 200).await?;
+    let disliked = st
+        .dislikes
+        .list_ids_by_user_id(&ctx.sc_user_id, 200)
+        .await?;
 
     let disliked_set: HashSet<String> = disliked.iter().cloned().collect();
     let positive: Vec<String> = liked
@@ -244,7 +247,10 @@ async fn artist(
     Query(q): Query<ArtistQuery>,
 ) -> AppResult<Json<ClusterResponse>> {
     let per_cluster = parse_limit(q.limit.as_deref(), 12);
-    let out = st.recommendations.artist_wave(artist_id, per_cluster).await?;
+    let out = st
+        .recommendations
+        .artist_wave(artist_id, per_cluster)
+        .await?;
     Ok(Json(out))
 }
 

@@ -88,8 +88,7 @@ impl RecommendationsService {
             }
         };
 
-        let (vibe_pool, neighbors_raw, deep_pool) =
-            tokio::join!(vibe_fut, neighbors_fut, deep_fut);
+        let (vibe_pool, neighbors_raw, deep_pool) = tokio::join!(vibe_fut, neighbors_fut, deep_fut);
 
         let mut builder = ClusterBuilder::new();
         let essence_ids: Vec<String> = top_tracks.iter().take(per_cluster).cloned().collect();
@@ -139,11 +138,7 @@ impl RecommendationsService {
         Ok(response)
     }
 
-    async fn load_artist_top_tracks(
-        &self,
-        artist_id: Uuid,
-        limit: i64,
-    ) -> AppResult<Vec<String>> {
+    async fn load_artist_top_tracks(&self, artist_id: Uuid, limit: i64) -> AppResult<Vec<String>> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT it.sc_track_id
              FROM track_artists ta
@@ -221,7 +216,10 @@ impl RecommendationsService {
 
         let mut by_artist: HashMap<Uuid, Vec<String>> = HashMap::new();
         for r in rows {
-            by_artist.entry(r.artist_id).or_default().push(r.sc_track_id);
+            by_artist
+                .entry(r.artist_id)
+                .or_default()
+                .push(r.sc_track_id);
         }
         let candidate_track_ids: Vec<u64> = by_artist
             .values()
@@ -339,7 +337,9 @@ async fn build_deep_cluster(
     let mut work: Vec<(String, Vec<f32>, f32)> = candidates
         .into_iter()
         .filter_map(|(id_str, num, rel)| {
-            vec_map.get(&num.to_string()).map(|v| (id_str, v.clone(), rel))
+            vec_map
+                .get(&num.to_string())
+                .map(|v| (id_str, v.clone(), rel))
         })
         .collect();
     if work.is_empty() {

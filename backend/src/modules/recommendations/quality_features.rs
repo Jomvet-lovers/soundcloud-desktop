@@ -76,7 +76,11 @@ pub const QUALITY_FEATURE_LEN: usize = 10;
 
 /// 10-feature vector consumed by the worker quality LR + the Rust fallback
 /// heuristic. Order is contract — do not reorder columns.
-pub fn build_features(meta: &TrackMeta, mert_stats: (f32, f32), clap_stats: (f32, f32)) -> Vec<f32> {
+pub fn build_features(
+    meta: &TrackMeta,
+    mert_stats: (f32, f32),
+    clap_stats: (f32, f32),
+) -> Vec<f32> {
     vec![
         mert_stats.0,
         mert_stats.1,

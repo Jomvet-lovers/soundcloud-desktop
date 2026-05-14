@@ -60,7 +60,9 @@ impl RecommendationsService {
         let signals = load_user_signals(&self.pg, &sc_user_id).await?;
 
         if matches!(signals.best_seed_kind(), SeedKind::ColdStart) && !signals.has_any_signal() {
-            return self.cold_start_response(languages, per_cluster, &sc_user_id).await;
+            return self
+                .cold_start_response(languages, per_cluster, &sc_user_id)
+                .await;
         }
 
         let exclude_set: HashSet<String> = signals
@@ -100,7 +102,10 @@ impl RecommendationsService {
             hour_ctx.as_ref().map(|h| h.centroid.as_slice()),
         );
 
-        let recent_artists = self.recent_artists(&sc_user_id, 40).await.unwrap_or_default();
+        let recent_artists = self
+            .recent_artists(&sc_user_id, 40)
+            .await
+            .unwrap_or_default();
 
         let mut builder = ClusterBuilder::new();
         builder.reserve(exclude_vec.iter().cloned());
@@ -141,7 +146,8 @@ impl RecommendationsService {
             .await;
         builder.push(
             "fresh_drops",
-            fresh.into_iter()
+            fresh
+                .into_iter()
                 .filter(|id| !builder.taken().contains(id))
                 .take(per_cluster)
                 .collect(),
@@ -721,10 +727,7 @@ fn dedupe_neighbors(
     out
 }
 
-fn reorder_by_bandits(
-    clusters: &mut Vec<Cluster>,
-    stats: &HashMap<String, bandits::ClusterStat>,
-) {
+fn reorder_by_bandits(clusters: &mut Vec<Cluster>, stats: &HashMap<String, bandits::ClusterStat>) {
     if clusters.len() <= 1 {
         return;
     }

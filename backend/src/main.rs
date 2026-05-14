@@ -150,7 +150,8 @@ async fn main() {
     }
     subscriptions.spawn_snapshot_loop(shutdown.clone());
     let auras = AurasService::new(pg.clone(), subscriptions.clone());
-    let sync_queue = SyncQueueService::new(pg.clone(), sc.clone(), auth.clone(), redis_pool.clone());
+    let sync_queue =
+        SyncQueueService::new(pg.clone(), sc.clone(), auth.clone(), redis_pool.clone());
     let cold_refresh =
         ColdRefreshService::new(sc.clone(), pg.clone(), cache.clone(), config.cold.clone());
     cold_refresh.clone().spawn_evict_loop(shutdown.clone());

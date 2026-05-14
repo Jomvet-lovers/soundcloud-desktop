@@ -195,19 +195,22 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
     let mut by_track: HashMap<Uuid, Vec<ParticipantDto>> = HashMap::new();
     for p in participants {
         let verified = artist_verified(&p.artist_source, p.artist_sc_user_id.as_deref());
-        by_track.entry(p.indexed_track_id).or_default().push(ParticipantDto {
-            artist: ArtistDto {
-                id: p.artist_id,
-                name: p.artist_name,
-                avatar_url: p.artist_avatar_url,
-                sc_user_id: p.artist_sc_user_id,
-                source: p.artist_source,
-                confidence: p.artist_confidence,
-                verified,
-            },
-            role: p.role,
-            confidence: p.ta_confidence,
-        });
+        by_track
+            .entry(p.indexed_track_id)
+            .or_default()
+            .push(ParticipantDto {
+                artist: ArtistDto {
+                    id: p.artist_id,
+                    name: p.artist_name,
+                    avatar_url: p.artist_avatar_url,
+                    sc_user_id: p.artist_sc_user_id,
+                    source: p.artist_source,
+                    confidence: p.artist_confidence,
+                    verified,
+                },
+                role: p.role,
+                confidence: p.ta_confidence,
+            });
     }
 
     let mut out: HashMap<String, EnrichmentDto> = HashMap::with_capacity(rows.len());
@@ -257,9 +260,8 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
         let participants = by_track.remove(&r.indexed_track_id).unwrap_or_default();
         let (release_year, release_date, release_source) = if let Some(date) = r.it_release_date {
             (
-                r.it_release_year.or_else(|| {
-                    date.format("%Y").to_string().parse::<i16>().ok()
-                }),
+                r.it_release_year
+                    .or_else(|| date.format("%Y").to_string().parse::<i16>().ok()),
                 Some(date.format("%Y-%m-%d").to_string()),
                 Some("sc_upload".to_string()),
             )
@@ -294,7 +296,10 @@ fn parse_year(s: &str) -> Option<i16> {
     if s.len() < 4 {
         return None;
     }
-    s[..4].parse::<i16>().ok().filter(|y| (1900..=2100).contains(y))
+    s[..4]
+        .parse::<i16>()
+        .ok()
+        .filter(|y| (1900..=2100).contains(y))
 }
 
 fn parse_iso_date(s: &str) -> Option<String> {

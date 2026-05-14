@@ -229,7 +229,9 @@ impl ColdRefreshService {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let items = self.fetch_all_pages(coll.sc_path, token, extra_params).await?;
+        let items = self
+            .fetch_all_pages(coll.sc_path, token, extra_params)
+            .await?;
 
         // SC отдаёт новые записи первыми; разворачиваем в (старые→новые) порядок,
         // чтобы `created_at` рос в нашем порядке и `ORDER BY created_at DESC`
@@ -280,14 +282,8 @@ impl ColdRefreshService {
                 .await?;
             }
             if !mirror_keys.is_empty() {
-                batch_upsert_mirror(
-                    &mut tx,
-                    &coll,
-                    sc_user_id,
-                    &mirror_keys,
-                    &mirror_payloads,
-                )
-                .await?;
+                batch_upsert_mirror(&mut tx, &coll, sc_user_id, &mirror_keys, &mirror_payloads)
+                    .await?;
             }
             tx.commit().await?;
         }

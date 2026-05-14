@@ -55,7 +55,9 @@ pub fn spawn_cron_loops(
                     if let Err(e) = trainer::kick_off_two_tower(&pg, nats.clone()).await {
                         warn!(error = %e, "trainer cron: two_tower failed");
                     }
-                    if let Err(e) = trainer::kick_off_sequential(&pg, qdrant.clone(), nats.clone()).await {
+                    if let Err(e) =
+                        trainer::kick_off_sequential(&pg, qdrant.clone(), nats.clone()).await
+                    {
                         warn!(error = %e, "trainer cron: sequential failed");
                     }
                     if let Err(e) = trainer::kick_off_quality(svc, nats.clone()).await {

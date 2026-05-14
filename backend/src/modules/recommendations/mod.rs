@@ -17,11 +17,11 @@ pub mod s3_verifier;
 pub mod search;
 pub mod sequential;
 pub mod service;
-pub mod trainer;
 pub mod sessions;
 pub mod signal;
 pub mod similar_wave;
 pub mod taste_modes;
+pub mod trainer;
 
 pub use handlers::router;
 pub use s3_verifier::S3VerifierService;

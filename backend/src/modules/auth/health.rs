@@ -68,10 +68,7 @@ impl AuthHealthService {
     /// Batch-чтение health-счётчиков для нескольких apps одним pipeline.
     /// На login-флоу заменяет 2N последовательных GET (N = число активных
     /// OAuth-apps).
-    pub async fn app_healths(
-        &self,
-        app_ids: &[String],
-    ) -> AppResult<HashMap<String, AppHealth>> {
+    pub async fn app_healths(&self, app_ids: &[String]) -> AppResult<HashMap<String, AppHealth>> {
         if app_ids.is_empty() {
             return Ok(HashMap::new());
         }

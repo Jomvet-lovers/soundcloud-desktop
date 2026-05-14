@@ -76,23 +76,27 @@ impl OAuthAppsService {
     async fn pick_lru_internal(&self, ids: Option<&[Uuid]>) -> AppResult<OAuthApp> {
         let mut tx = self.pool.begin().await?;
         let app: Option<OAuthApp> = match ids {
-            None => sqlx::query_as(
-                "SELECT * FROM oauth_apps \
+            None => {
+                sqlx::query_as(
+                    "SELECT * FROM oauth_apps \
                  WHERE active = true \
                  ORDER BY last_used_at ASC NULLS FIRST, created_at ASC \
                  LIMIT 1 FOR UPDATE SKIP LOCKED",
-            )
-            .fetch_optional(&mut *tx)
-            .await?,
-            Some(set) => sqlx::query_as(
-                "SELECT * FROM oauth_apps \
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+            }
+            Some(set) => {
+                sqlx::query_as(
+                    "SELECT * FROM oauth_apps \
                  WHERE active = true AND id = ANY($1) \
                  ORDER BY last_used_at ASC NULLS FIRST, created_at ASC \
                  LIMIT 1 FOR UPDATE SKIP LOCKED",
-            )
-            .bind(set)
-            .fetch_optional(&mut *tx)
-            .await?,
+                )
+                .bind(set)
+                .fetch_optional(&mut *tx)
+                .await?
+            }
         };
 
         let app = app.ok_or_else(|| AppError::not_found("No active OAuth apps available"))?;

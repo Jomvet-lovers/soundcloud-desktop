@@ -207,11 +207,7 @@ impl RecommendationsService {
         scored.into_iter().take(limit).map(|(id, _)| id).collect()
     }
 
-    async fn load_featured_with(
-        &self,
-        anchor_track_id: &str,
-        limit: i64,
-    ) -> Vec<ClusterNeighbor> {
+    async fn load_featured_with(&self, anchor_track_id: &str, limit: i64) -> Vec<ClusterNeighbor> {
         let rows: Vec<ArtistTrackRow> = sqlx::query_as::<_, ArtistTrackRow>(
             "WITH anchor_artists AS (
                  SELECT artist_id FROM track_artists ta
@@ -291,4 +287,3 @@ fn filter_vibe_pool(
         .cloned()
         .collect()
 }
-

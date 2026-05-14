@@ -27,4 +27,3 @@ pub fn passes(raw_sc_data: Option<&Value>, plays: i64, min_plays: i64) -> bool {
     }
     true
 }
-

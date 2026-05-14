@@ -53,7 +53,11 @@ impl AurasService {
         if !self.subscriptions.is_premium(user_urn).await? {
             return Err(AppError::bad_request("Star subscription required"));
         }
-        let stored_hex = if aura_id == "custom" { custom_hex } else { None };
+        let stored_hex = if aura_id == "custom" {
+            custom_hex
+        } else {
+            None
+        };
         sqlx::query(
             "INSERT INTO user_auras (user_urn, aura_id, custom_hex, updated_at) \
              VALUES ($1, $2, $3, NOW()) \
@@ -74,7 +78,5 @@ impl AurasService {
 
 fn is_valid_hex(s: &str) -> bool {
     let bytes = s.as_bytes();
-    bytes.len() == 7
-        && bytes[0] == b'#'
-        && bytes[1..].iter().all(|b| b.is_ascii_hexdigit())
+    bytes.len() == 7 && bytes[0] == b'#' && bytes[1..].iter().all(|b| b.is_ascii_hexdigit())
 }

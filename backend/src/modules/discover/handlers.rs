@@ -37,8 +37,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/admin/discover/promoted/{id}",
-            axum::routing::patch(admin_promoted_update)
-                .delete(admin_promoted_delete),
+            axum::routing::patch(admin_promoted_update).delete(admin_promoted_delete),
         )
         .route(
             "/admin/discover/settings",
@@ -279,7 +278,10 @@ fn album_cursor_for_sort(sort: &str, row: &AlbumRow) -> AlbumCursor {
             let y = row.release_year.unwrap_or(0) as f64;
             let d = row
                 .release_date
-                .map(|d| d.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()).num_days() as f64)
+                .map(|d| {
+                    d.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+                        .num_days() as f64
+                })
                 .unwrap_or(0.0);
             (y, d)
         }
@@ -584,7 +586,11 @@ async fn artists(
     .await?;
 
     let has_more = rows.len() as i64 > limit;
-    let last_for_cursor = if has_more { rows.get(limit as usize - 1) } else { None };
+    let last_for_cursor = if has_more {
+        rows.get(limit as usize - 1)
+    } else {
+        None
+    };
     let next_cursor = last_for_cursor.map(|r| cursor::encode(&artist_cursor_for_sort(sort, r)));
 
     let items: Vec<CatalogArtist> = rows
@@ -634,7 +640,11 @@ async fn albums(
     .await?;
 
     let has_more = rows.len() as i64 > limit;
-    let last_for_cursor = if has_more { rows.get(limit as usize - 1) } else { None };
+    let last_for_cursor = if has_more {
+        rows.get(limit as usize - 1)
+    } else {
+        None
+    };
     let next_cursor = last_for_cursor.map(|r| cursor::encode(&album_cursor_for_sort(sort, r)));
 
     let items: Vec<CatalogAlbum> = rows
@@ -647,7 +657,9 @@ async fn albums(
 }
 
 fn map_album_row(r: AlbumRow) -> CatalogAlbum {
-    let release_month = r.release_date.map(|d| d.format("%-m").to_string().parse::<i32>().unwrap_or(0));
+    let release_month = r
+        .release_date
+        .map(|d| d.format("%-m").to_string().parse::<i32>().unwrap_or(0));
     let primary_artist = CatalogAlbumArtist {
         id: r.primary_artist_id.unwrap_or_else(Uuid::nil),
         name: r.primary_artist_name.unwrap_or_default(),
@@ -1048,7 +1060,9 @@ async fn admin_promoted_create(
     Json(body): Json<AdminPromotedCreate>,
 ) -> AppResult<Json<AdminPromotedRow>> {
     if body.entity_type != "artist" && body.entity_type != "album" {
-        return Err(AppError::bad_request("entity_type must be 'artist' or 'album'"));
+        return Err(AppError::bad_request(
+            "entity_type must be 'artist' or 'album'",
+        ));
     }
     let row: AdminPromotedRow = sqlx::query_as(
         r#"INSERT INTO discover_promoted (entity_type, entity_id, position, active, note)
@@ -1094,7 +1108,8 @@ async fn admin_promoted_update(
     .bind(note_value)
     .fetch_optional(&st.pg)
     .await?;
-    row.map(Json).ok_or_else(|| AppError::not_found("promoted not found"))
+    row.map(Json)
+        .ok_or_else(|| AppError::not_found("promoted not found"))
 }
 
 async fn admin_promoted_delete(
@@ -1148,7 +1163,9 @@ async fn admin_settings_update(
 ) -> AppResult<Json<AdminSettingsRow>> {
     if let Some(s) = body.star_strategy.as_deref() {
         if s != "popular" && s != "random" {
-            return Err(AppError::bad_request("star_strategy must be 'popular' or 'random'"));
+            return Err(AppError::bad_request(
+                "star_strategy must be 'popular' or 'random'",
+            ));
         }
     }
     let row: AdminSettingsRow = sqlx::query_as(
@@ -1168,10 +1185,7 @@ async fn admin_settings_update(
     Ok(Json(row))
 }
 
-async fn summary(
-    State(st): State<AppState>,
-    _: SessionCtx,
-) -> AppResult<Json<DiscoverSummary>> {
+async fn summary(State(st): State<AppState>, _: SessionCtx) -> AppResult<Json<DiscoverSummary>> {
     let cached = read_cached::<CachedSummary>(&st, REDIS_KEY_SUMMARY).await;
     let s = match cached {
         Some(s) => s,
@@ -1266,11 +1280,10 @@ async fn pick_random_album(pg: &PgPool) -> AppResult<Option<Uuid>> {
     if let Some((id,)) = row {
         return Ok(Some(id));
     }
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT id FROM albums WHERE track_count > 0 ORDER BY id LIMIT 1"#,
-    )
-    .fetch_optional(pg)
-    .await?;
+    let row: Option<(Uuid,)> =
+        sqlx::query_as(r#"SELECT id FROM albums WHERE track_count > 0 ORDER BY id LIMIT 1"#)
+            .fetch_optional(pg)
+            .await?;
     Ok(row.map(|(id,)| id))
 }
 
@@ -1297,10 +1310,7 @@ async fn pick_random_artist(pg: &PgPool) -> AppResult<Option<Uuid>> {
     Ok(row.map(|(id,)| id))
 }
 
-async fn read_cached<T: for<'de> serde::Deserialize<'de>>(
-    st: &AppState,
-    key: &str,
-) -> Option<T> {
+async fn read_cached<T: for<'de> serde::Deserialize<'de>>(st: &AppState, key: &str) -> Option<T> {
     let raw = st.cache.get_raw(key).await.ok().flatten()?;
     serde_json::from_str(&raw).ok()
 }
@@ -1311,6 +1321,13 @@ async fn cache_payload<T: serde::Serialize>(st: &AppState, key: &str, value: &T)
     };
     let _ = st
         .cache
-        .set_raw(key, &json, ON_DEMAND_CACHE_TTL, None, CacheScope::Shared, None)
+        .set_raw(
+            key,
+            &json,
+            ON_DEMAND_CACHE_TTL,
+            None,
+            CacheScope::Shared,
+            None,
+        )
         .await;
 }
