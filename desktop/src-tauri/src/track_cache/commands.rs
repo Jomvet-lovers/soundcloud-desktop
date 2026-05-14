@@ -120,6 +120,11 @@ pub fn track_clear_cache(state: State<'_, TrackCacheState>) {
 }
 
 #[tauri::command]
+pub fn track_remove_cached(urn: String, state: State<'_, TrackCacheState>) -> bool {
+    state.remove_cached(&urn)
+}
+
+#[tauri::command]
 pub fn track_clear_liked_cache(state: State<'_, TrackCacheState>) {
     state.clear_liked_cache();
 }

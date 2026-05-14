@@ -1330,6 +1330,19 @@ impl TrackCacheState {
         clear_audio_dir(&self.liked_dir);
     }
 
+    pub fn remove_cached(&self, urn: &str) -> bool {
+        let mut removed = false;
+        for path in [self.liked_file_path(urn), self.file_path(urn)] {
+            if std::fs::metadata(&path).is_ok() {
+                if std::fs::remove_file(&path).is_ok() {
+                    removed = true;
+                }
+                remove_cache_metadata(&path);
+            }
+        }
+        removed
+    }
+
     pub fn list_cached_urns(&self) -> Vec<String> {
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut urns: Vec<String> = Vec::new();

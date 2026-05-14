@@ -231,7 +231,8 @@
     "failedCount": "{{count}} basarisiz",
     "syncNow": "Simdi esitle",
     "searchPlaceholder": "Baslik veya sanatci ara",
-    "searchEmpty": "Hicbir sey bulunamadi"
+    "searchEmpty": "Hicbir sey bulunamadi",
+    "removeCached": "Onbellekten kaldir"
   },
   "settings": {
     "title": "Ayarlar",

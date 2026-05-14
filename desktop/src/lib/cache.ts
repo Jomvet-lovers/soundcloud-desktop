@@ -69,6 +69,10 @@ export function clearLikedCache(): Promise<void> {
   return invoke('track_clear_liked_cache');
 }
 
+export function removeCachedTrack(urn: string): Promise<boolean> {
+  return invoke<boolean>('track_remove_cached', { urn });
+}
+
 export function listCachedUrns(): Promise<string[]> {
   return invoke<string[]>('track_list_cached');
 }

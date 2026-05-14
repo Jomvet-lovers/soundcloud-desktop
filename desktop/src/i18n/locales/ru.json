@@ -297,7 +297,8 @@
     "failedCount_many": "{{count}} ошибок",
     "syncNow": "Синхронизировать",
     "searchPlaceholder": "Поиск по названию или артисту",
-    "searchEmpty": "Ничего не нашлось"
+    "searchEmpty": "Ничего не нашлось",
+    "removeCached": "Убрать из кэша"
   },
   "settings": {
     "title": "Настройки",

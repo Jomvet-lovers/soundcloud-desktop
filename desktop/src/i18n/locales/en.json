@@ -291,7 +291,8 @@
     "failedCount": "{{count}} failed",
     "syncNow": "Sync now",
     "searchPlaceholder": "Search by title or artist",
-    "searchEmpty": "Nothing matches your search"
+    "searchEmpty": "Nothing matches your search",
+    "removeCached": "Remove from cache"
   },
   "settings": {
     "title": "Settings",
