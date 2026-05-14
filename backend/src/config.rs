@@ -23,6 +23,25 @@ pub struct AppConfig {
     pub genius: GeniusCfg,
     pub enrich: EnrichCfg,
     pub enrich_crawl: EnrichCrawlCfg,
+    pub cold: ColdCfg,
+}
+
+/// TTL'и для cold-cache. Если synced_at старше TTL — на чтении спавним
+/// фоновый refresh (с Redis SETNX-дедупом). evict_after_sec — для cron'а,
+/// который удаляет давно нечитанные shared-entity-строки из cached_users/
+/// cached_playlists/indexed_tracks.
+#[derive(Clone, Debug)]
+pub struct ColdCfg {
+    pub track_ttl_sec: u64,
+    pub user_ttl_sec: u64,
+    pub playlist_ttl_sec: u64,
+    pub liked_tracks_ttl_sec: u64,
+    pub liked_playlists_ttl_sec: u64,
+    pub followings_ttl_sec: u64,
+    pub owned_ttl_sec: u64,
+    pub evict_after_sec: u64,
+    pub refresh_concurrency: usize,
+    pub refresh_lock_ttl_sec: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -284,6 +303,19 @@ impl AppConfig {
                 batch_size: env_u64("ENRICH_CRAWL_BATCH", 100) as i64,
                 stale_after_hours: env_u32("ENRICH_CRAWL_STALE_HOURS", 168),
                 max_attempts: env_u32("ENRICH_CRAWL_MAX_ATTEMPTS", 10),
+            },
+
+            cold: ColdCfg {
+                track_ttl_sec: env_u64("COLD_TTL_TRACK_SEC", 21600),
+                user_ttl_sec: env_u64("COLD_TTL_USER_SEC", 21600),
+                playlist_ttl_sec: env_u64("COLD_TTL_PLAYLIST_SEC", 3600),
+                liked_tracks_ttl_sec: env_u64("COLD_TTL_LIKED_TRACKS_SEC", 1800),
+                liked_playlists_ttl_sec: env_u64("COLD_TTL_LIKED_PLAYLISTS_SEC", 1800),
+                followings_ttl_sec: env_u64("COLD_TTL_FOLLOWINGS_SEC", 1800),
+                owned_ttl_sec: env_u64("COLD_TTL_OWNED_SEC", 300),
+                evict_after_sec: env_u64("COLD_EVICT_AFTER_SEC", 2_592_000),
+                refresh_concurrency: env_usize("COLD_REFRESH_CONCURRENCY", 32),
+                refresh_lock_ttl_sec: env_u64("COLD_REFRESH_LOCK_TTL_SEC", 60),
             },
         }
     }

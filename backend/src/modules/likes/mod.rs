@@ -1,3 +1,4 @@
+pub mod cold;
 pub mod handlers;
 pub mod service;
 

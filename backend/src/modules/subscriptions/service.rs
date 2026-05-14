@@ -33,6 +33,10 @@ impl SubscriptionsService {
         })
     }
 
+    pub fn always_premium(&self) -> bool {
+        self.always_premium
+    }
+
     pub async fn is_premium(&self, user_urn: &str) -> AppResult<bool> {
         if self.always_premium {
             return Ok(true);

@@ -16,7 +16,7 @@ const TTL: Duration = Duration::from_secs(5 * 60);
 const DIM_RECHECK: Duration = Duration::from_secs(60);
 const MAX_LIKES: i64 = 50;
 
-const POSITIVE_TYPES: &[&str] = &["like", "local_like", "playlist_add"];
+const POSITIVE_TYPES: &[&str] = &["like", "playlist_add"];
 
 #[derive(Debug, Clone)]
 struct CacheEntry {

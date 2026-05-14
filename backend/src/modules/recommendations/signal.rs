@@ -2,7 +2,7 @@ use sqlx::PgPool;
 
 use crate::error::AppResult;
 
-const POSITIVE_TYPES: &[&str] = &["like", "local_like", "playlist_add"];
+const POSITIVE_TYPES: &[&str] = &["like", "playlist_add"];
 const IMPLICIT_POSITIVE: &str = "full_play";
 const NEGATIVE_TYPES: &[&str] = &["dislike", "skip"];
 

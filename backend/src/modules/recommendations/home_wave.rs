@@ -485,7 +485,7 @@ impl RecommendationsService {
                  JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
                  JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
                  WHERE ue.sc_user_id = $1
-                   AND ue.event_type IN ('like', 'local_like', 'playlist_add')
+                   AND ue.event_type IN ('like', 'playlist_add')
                  GROUP BY ta.artist_id
                  ORDER BY cnt DESC
                  LIMIT $2
@@ -543,7 +543,7 @@ impl RecommendationsService {
                  JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
                  JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
                  WHERE ue.sc_user_id = $1
-                   AND ue.event_type IN ('like', 'local_like', 'playlist_add')
+                   AND ue.event_type IN ('like', 'playlist_add')
                  LIMIT 80
              ),
              co AS (
@@ -617,7 +617,7 @@ impl RecommendationsService {
                  JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
                  JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
                  WHERE ue.sc_user_id = $1
-                   AND ue.event_type IN ('like', 'local_like')
+                   AND ue.event_type = 'like'
                    AND ue.created_at > NOW() - INTERVAL '120 days'
              )
              SELECT it.sc_track_id

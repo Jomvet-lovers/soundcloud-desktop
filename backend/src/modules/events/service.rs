@@ -16,7 +16,6 @@ use crate::modules::indexing::IndexingService;
 use crate::modules::user_taste::UserTasteService;
 
 const LIKE_WEIGHT: f64 = 1.0;
-const LOCAL_LIKE_WEIGHT: f64 = 1.0;
 const PLAYLIST_ADD_WEIGHT: f64 = 0.9;
 const FULL_PLAY_WEIGHT: f64 = 0.3;
 const SKIP_WEIGHT: f64 = -0.5;
@@ -25,13 +24,12 @@ const DISLIKE_WEIGHT: f64 = -1.0;
 const USER_LOCK_CAPACITY: u64 = 16_384;
 const USER_LOCK_TTL: Duration = Duration::from_secs(5 * 60);
 
-const POSITIVE_EVENTS: &[&str] = &["like", "local_like", "playlist_add"];
-const COLLAB_TRIGGER_EVENTS: &[&str] = &["like", "local_like", "playlist_add", "full_play", "skip"];
+const POSITIVE_EVENTS: &[&str] = &["like", "playlist_add"];
+const COLLAB_TRIGGER_EVENTS: &[&str] = &["like", "playlist_add", "full_play", "skip"];
 
 fn event_weight(event_type: &str) -> Option<f64> {
     match event_type {
         "like" => Some(LIKE_WEIGHT),
-        "local_like" => Some(LOCAL_LIKE_WEIGHT),
         "playlist_add" => Some(PLAYLIST_ADD_WEIGHT),
         "full_play" => Some(FULL_PLAY_WEIGHT),
         "skip" => Some(SKIP_WEIGHT),

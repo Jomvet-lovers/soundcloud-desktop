@@ -28,7 +28,9 @@ use crate::config::AppConfig;
 use crate::modules::auras::AurasService;
 use crate::modules::auth::{AuthService, LinkService};
 use crate::modules::centroids::CentroidService;
+use crate::modules::cold_refresh::ColdRefreshService;
 use crate::modules::collab::{CollabTrainerService, CollabVectorService};
+use crate::modules::discover::DiscoverService;
 use crate::modules::dislikes::DislikesService;
 use crate::modules::enrich::{
     AiResolverClient, ArtistCrawlService, EnrichService, MbClient, TokenPool,
@@ -38,7 +40,6 @@ use crate::modules::featured::FeaturedService;
 use crate::modules::history::HistoryService;
 use crate::modules::indexing::IndexingService;
 use crate::modules::likes::LikesService;
-use crate::modules::local_likes::LocalLikesService;
 use crate::modules::ltr::{LtrService, LtrTrainerService};
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::lyrics::lrclib::LrclibService;
@@ -47,12 +48,11 @@ use crate::modules::lyrics::netease::NeteaseService;
 use crate::modules::lyrics::{LyricsService, WorkerClient};
 use crate::modules::me::MeService;
 use crate::modules::oauth_apps::OAuthAppsService;
-use crate::modules::pending_actions::PendingActionsService;
 use crate::modules::playlists::PlaylistsService;
 use crate::modules::recommendations::{RecommendationsService, S3VerifierService};
-use crate::modules::reposts::RepostsService;
 use crate::modules::resolve::ResolveService;
 use crate::modules::subscriptions::SubscriptionsService;
+use crate::modules::sync_queue::SyncQueueService;
 use crate::modules::tracks::TracksService;
 use crate::modules::transcode::TranscodeTriggerService;
 use crate::modules::user_taste::UserTasteService;
@@ -127,12 +127,18 @@ async fn main() {
         Err(e) => warn!(error = %e, "Failed to count active OAuth apps"),
     }
 
-    let auth = AuthService::new(pg.clone(), sc.clone(), oauth_apps.clone(), config.clone());
+    let auth_health = crate::modules::auth::AuthHealthService::new(redis_pool.clone());
+    let auth = AuthService::new(
+        pg.clone(),
+        sc.clone(),
+        oauth_apps.clone(),
+        config.clone(),
+        auth_health,
+    );
     let link = LinkService::new(pg.clone(), auth.clone());
 
     let cache = CacheService::new(redis_pool.clone());
     let list_cache = ListCacheService::new(redis_pool.clone());
-    let local_likes = LocalLikesService::new(pg.clone());
     let events = EventsService::new(pg.clone());
     let subscriptions = SubscriptionsService::new(
         pg.clone(),
@@ -144,28 +150,43 @@ async fn main() {
     }
     subscriptions.spawn_snapshot_loop(shutdown.clone());
     let auras = AurasService::new(pg.clone(), subscriptions.clone());
+    let sync_queue = SyncQueueService::new(pg.clone(), sc.clone(), auth.clone(), redis_pool.clone());
+    let cold_refresh =
+        ColdRefreshService::new(sc.clone(), pg.clone(), cache.clone(), config.cold.clone());
+    cold_refresh.clone().spawn_evict_loop(shutdown.clone());
     let me = MeService::new(
         sc.clone(),
+        pg.clone(),
         list_cache.clone(),
-        local_likes.clone(),
+        sync_queue.clone(),
+        cold_refresh.clone(),
         events.clone(),
     );
-    let pending_actions =
-        PendingActionsService::new(pg.clone(), sc.clone(), auth.clone(), oauth_apps.clone());
     let tracks = TracksService::new(
         sc.clone(),
+        pg.clone(),
         list_cache.clone(),
-        local_likes.clone(),
-        pending_actions.clone(),
+        sync_queue.clone(),
+        cold_refresh.clone(),
     );
-    let playlists = PlaylistsService::new(sc.clone(), list_cache.clone(), pending_actions.clone());
-    let users = UsersService::new(sc.clone(), list_cache.clone(), local_likes.clone());
+    let playlists = PlaylistsService::new(
+        sc.clone(),
+        pg.clone(),
+        list_cache.clone(),
+        sync_queue.clone(),
+        cold_refresh.clone(),
+    );
+    let users = UsersService::new(
+        sc.clone(),
+        pg.clone(),
+        list_cache.clone(),
+        cold_refresh.clone(),
+    );
     let dislikes = DislikesService::new(pg.clone(), events.clone());
-    let likes = LikesService::new(sc.clone(), local_likes.clone(), pending_actions.clone());
-    let reposts = RepostsService::new(sc.clone(), pending_actions.clone());
+    let likes = LikesService::new(pg.clone(), sync_queue.clone());
     let resolve = ResolveService::new(sc.clone(), pg.clone());
     let history = HistoryService::new(pg.clone());
-    let featured = FeaturedService::new(pg.clone(), sc.clone(), auth.clone(), local_likes.clone());
+    let featured = FeaturedService::new(pg.clone(), sc.clone(), auth.clone());
     let centroids = CentroidService::new(qdrant.clone());
     let user_taste = UserTasteService::new(qdrant.clone());
     let transcode = TranscodeTriggerService::new(http_client.clone(), config.clone(), nats.clone());
@@ -281,6 +302,9 @@ async fn main() {
     );
     wanted_resolver.spawn(shutdown.clone());
     let wanted_resolver_state = wanted_resolver.clone();
+
+    let discover = DiscoverService::new(pg.clone(), cache.clone(), subscriptions.clone());
+    discover.clone().spawn_refresh_loop(shutdown.clone());
     enrich.install_followup(artist_crawl.clone(), wanted_resolver.clone());
 
     let track_discovery =
@@ -321,16 +345,16 @@ async fn main() {
 
     {
         let token = shutdown.clone();
-        let pa = pending_actions.clone();
+        let sq = sync_queue.clone();
         tasks.spawn(async move {
             run_periodic(
-                "pending_actions.sync_all",
+                "sync_queue.flush",
                 token,
                 BG_TICK,
                 BG_WORK_TIMEOUT,
                 move || {
-                    let pa = pa.clone();
-                    async move { pa.sync_all().await.map(|_| ()) }
+                    let sq = sq.clone();
+                    async move { sq.flush().await.map(|_| ()) }
                 },
             )
             .await;
@@ -382,18 +406,15 @@ async fn main() {
         auth,
         link,
         oauth_apps,
-        local_likes,
         events,
         dislikes,
         subscriptions,
         auras,
         me,
-        pending_actions,
         tracks,
         playlists,
         users,
         likes,
-        reposts,
         resolve,
         history,
         featured,
@@ -406,6 +427,8 @@ async fn main() {
         enrich,
         artist_crawl: artist_crawl.clone(),
         wanted_resolver: wanted_resolver_state,
+        discover,
+        sync_queue: sync_queue.clone(),
     };
 
     let app = router::build(state);

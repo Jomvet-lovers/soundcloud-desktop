@@ -28,12 +28,12 @@ const MAX_PAIRS_PER_USER: usize = 80;
 const MIN_NEGATIVES_PER_USER: i64 = 8;
 const MIN_TOTAL_EXAMPLES: usize = 500;
 
-const POSITIVE_TYPES: &[&str] = &["like", "local_like", "playlist_add"];
-const ALL_TYPES: &[&str] = &["like", "local_like", "playlist_add", "full_play", "skip"];
+const POSITIVE_TYPES: &[&str] = &["like", "playlist_add"];
+const ALL_TYPES: &[&str] = &["like", "playlist_add", "full_play", "skip"];
 
 fn label_for(event_type: &str) -> Option<i32> {
     match event_type {
-        "like" | "local_like" => Some(5),
+        "like" => Some(5),
         "playlist_add" => Some(4),
         "full_play" => Some(3),
         "skip" => Some(0),

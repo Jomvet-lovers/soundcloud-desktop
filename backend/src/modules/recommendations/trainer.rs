@@ -151,7 +151,7 @@ async fn build_two_tower_dataset(pg: &PgPool) -> AppResult<Vec<TwoTowerExample>>
             }
         }
         let label: f32 = match event_type.as_deref() {
-            Some("like" | "local_like" | "playlist_add" | "full_play") => 1.0,
+            Some("like" | "playlist_add" | "full_play") => 1.0,
             _ => 0.0,
         };
         examples.push(TwoTowerExample { features, label });
@@ -172,7 +172,7 @@ async fn build_sequential_dataset(
                      )
                  ))::bigint AS gap_sec
              FROM user_events
-             WHERE event_type IN ('full_play', 'like', 'local_like', 'playlist_add')
+             WHERE event_type IN ('full_play', 'like', 'playlist_add')
                AND created_at > NOW() - make_interval(days => $1::int)
          ),
          sessioned AS (

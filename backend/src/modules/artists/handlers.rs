@@ -134,13 +134,8 @@ async fn detail(
 
     let track_counts: (i64, i64) = sqlx::query_as(
         "SELECT
-            (SELECT COUNT(*)::bigint FROM (
-                 SELECT indexed_track_id::text AS k FROM track_artists
-                  WHERE artist_id = $1 AND role = 'primary'
-                 UNION
-                 SELECT id::text AS k FROM wanted_tracks
-                  WHERE primary_artist_id = $1 AND indexed_track_id IS NULL AND status = 'wanted'
-             ) p),
+            (SELECT COUNT(*)::bigint FROM track_artists
+              WHERE artist_id = $1 AND role = 'primary'),
             (SELECT COUNT(DISTINCT indexed_track_id)::bigint FROM track_artists
               WHERE artist_id = $1 AND role IN ('featured', 'remixer'))",
     )

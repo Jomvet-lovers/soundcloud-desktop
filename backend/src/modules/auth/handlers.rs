@@ -19,6 +19,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/login/status", get(login_status))
         .route("/auth/callback", get(callback))
         .route("/auth/session", get(session))
+        .route("/auth/status", get(status))
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
         .route("/auth/link/create", post(link_create))
@@ -120,6 +121,66 @@ async fn session(
             soundcloud_user_id: None,
             expires_at: None,
         })),
+    }
+}
+
+#[tracing::instrument(skip_all)]
+async fn status(
+    State(state): State<AppState>,
+    RawSessionIdHeader(raw): RawSessionIdHeader,
+) -> AppResult<Json<AuthStatusResponse>> {
+    let Some(session_id) = raw.as_deref().and_then(parse_uuid) else {
+        return Ok(Json(unauthenticated_status()));
+    };
+    let Some(session) = state.auth.get_session(session_id).await? else {
+        return Ok(Json(unauthenticated_status()));
+    };
+    if session.access_token.is_empty() {
+        return Ok(Json(unauthenticated_status()));
+    }
+
+    let expires_in_sec = session
+        .expires_at
+        .and_utc()
+        .signed_duration_since(chrono::Utc::now())
+        .num_seconds();
+    let token_state = if expires_in_sec <= 0 {
+        "expired"
+    } else if expires_in_sec < 60 {
+        "stale"
+    } else {
+        "ok"
+    };
+
+    let user_id = session.soundcloud_user_id.as_deref().unwrap_or_default();
+    let (pending, failed) = state.sync_queue.pending_counts_for_user(user_id).await?;
+
+    Ok(Json(AuthStatusResponse {
+        authenticated: true,
+        session_id: Some(session.id),
+        username: session.username,
+        soundcloud_user_id: session.soundcloud_user_id,
+        oauth_app_id: session.oauth_app_id,
+        expires_at: Some(session.expires_at),
+        expires_in_sec: Some(expires_in_sec),
+        token_state: token_state.into(),
+        pending_sync_count: pending,
+        failed_sync_count: failed,
+    }))
+}
+
+fn unauthenticated_status() -> AuthStatusResponse {
+    AuthStatusResponse {
+        authenticated: false,
+        session_id: None,
+        username: None,
+        soundcloud_user_id: None,
+        oauth_app_id: None,
+        expires_at: None,
+        expires_in_sec: None,
+        token_state: "expired".into(),
+        pending_sync_count: 0,
+        failed_sync_count: 0,
     }
 }
 

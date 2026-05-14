@@ -103,6 +103,9 @@ pub fn parse_sc_title(raw: &str, uploader: Option<&str>) -> ParsedTitle {
     let mut parsed = ParsedTitle::default();
 
     let (artist_part, title_part) = split_first_dash(&stripped);
+    // Префикс вида "01 - …" / "1 - …" — это номер трека в альбоме, а не имя
+    // артиста. Отбрасываем "артистную" часть, чтобы fallback ушёл на uploader.
+    let artist_part = artist_part.filter(|a| !looks_like_track_number(a));
     let title_clean = title_part.trim().to_string();
     parsed.cleaned_title = if title_clean.is_empty() {
         stripped.trim().to_string()
@@ -233,6 +236,22 @@ fn strip_bracket_groups(s: &str) -> String {
         }
     }
     out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn looks_like_track_number(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() || t.len() > 3 {
+        return false;
+    }
+    if !t.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+    // "01"-"09", "001"-"099" — track-number prefixes. "1"-"99" тоже:
+    // голые двузначные числа в начале SC-тайтла практически всегда означают
+    // номер. Длина 3 без ведущего нуля ("100"+) — оставляем, чтобы не
+    // зарезать реальных артистов «112», «311», «808».
+    let n: u32 = t.parse().unwrap_or(u32::MAX);
+    t.starts_with('0') || n <= 99
 }
 
 fn split_first_dash(s: &str) -> (Option<String>, String) {
@@ -404,6 +423,33 @@ mod tests {
         assert_eq!(clean_artist_name("ft Warykid"), "ft Warykid");
         assert_eq!(clean_artist_name("Feat Warykid"), "Feat Warykid");
         assert_eq!(clean_artist_name("Warykid"), "Warykid");
+    }
+
+    #[test]
+    fn parse_track_number_prefix_falls_back_to_uploader() {
+        // Реальный кейс: загрузчик «me.xa» льёт альбом с тайтлами вида
+        // "02 - Моя Страна Меня Не Любит". Раньше heuristic создавал артиста
+        // "02"; теперь "02" опознаётся как номер трека и primary идёт на
+        // uploader.
+        let p = parse_sc_title("02 - Моя Страна Меня Не Любит", Some("me.xa"));
+        assert_eq!(p.primary_artists, vec!["me.xa"]);
+        assert_eq!(p.cleaned_title, "Моя Страна Меня Не Любит");
+
+        let p2 = parse_sc_title("1 - Intro", Some("someone"));
+        assert_eq!(p2.primary_artists, vec!["someone"]);
+        assert_eq!(p2.cleaned_title, "Intro");
+
+        let p3 = parse_sc_title("003 - Outro", Some("someone"));
+        assert_eq!(p3.primary_artists, vec!["someone"]);
+        assert_eq!(p3.cleaned_title, "Outro");
+    }
+
+    #[test]
+    fn parse_real_numeric_artist_keeps_name() {
+        // Реальный артист «112» (R&B) — 3 цифры без ведущего нуля, оставляем.
+        let p = parse_sc_title("112 - Peaches & Cream", None);
+        assert_eq!(p.primary_artists, vec!["112"]);
+        assert_eq!(p.cleaned_title, "Peaches & Cream");
     }
 
     #[test]

@@ -1,5 +1,4 @@
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
 use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -8,13 +7,22 @@ use serde_json::Value;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::ListPageResult;
+use crate::common::cache_helper::cached_or_fetch;
 use crate::common::pagination::PaginationQuery;
-use crate::common::response::json_response;
+use crate::common::sc_ids::extract_sc_id;
 use crate::common::session::SessionCtx;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::modules::enrich::dto as enrich_dto;
 use crate::modules::me::service::premium_response;
 use crate::state::AppState;
+
+/// `/users/{my_urn}/*` для своего URN — это синоним `/me/*`: один и тот же
+/// юзер, один и тот же набор треков/плейлистов/лайков. Делегируем в MeService,
+/// чтобы (а) не делать второй SC fetch на те же данные, (б) видеть приватные
+/// owned tracks/playlists, которые из `/users/{urn}` не отдаются.
+fn is_self(ctx: &SessionCtx, user_urn: &str) -> bool {
+    extract_sc_id(user_urn) == ctx.sc_user_id
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -77,19 +85,10 @@ async fn get_by_id(
     State(st): State<AppState>,
     ctx: SessionCtx,
     Path(user_urn): Path<String>,
-) -> AppResult<Response> {
-    let url = format!("/users/{user_urn}");
-    cached_or_fetch(
-        &st,
-        "GET",
-        &url,
-        CacheScope::Shared,
-        None,
-        3600,
-        None,
-        || async { st.users.get_by_id(&ctx.access_token, &user_urn).await },
-    )
-    .await
+) -> AppResult<Json<Value>> {
+    Ok(Json(
+        st.users.get_by_id(&ctx.access_token, &user_urn).await?,
+    ))
 }
 
 async fn get_followers(
@@ -113,6 +112,13 @@ async fn get_followings(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
+    if is_self(&ctx, &user_urn) {
+        return Ok(Json(
+            st.me
+                .get_followings(&ctx.access_token, &ctx.sc_user_id, page, limit)
+                .await?,
+        ));
+    }
     Ok(Json(
         st.users
             .get_followings(&ctx.access_token, &user_urn, page, limit)
@@ -156,17 +162,22 @@ async fn get_tracks(
     let access = q
         .access
         .unwrap_or_else(|| "playable,preview,blocked".into());
-    let mut result = st
-        .users
-        .get_tracks(
-            &ctx.access_token,
-            &ctx.sc_user_id,
-            &user_urn,
-            page,
-            limit,
-            &access,
-        )
-        .await?;
+    let mut result = if is_self(&ctx, &user_urn) {
+        st.me
+            .get_tracks(&ctx.access_token, &ctx.sc_user_id, page, limit)
+            .await?
+    } else {
+        st.users
+            .get_tracks(
+                &ctx.access_token,
+                &ctx.sc_user_id,
+                &user_urn,
+                page,
+                limit,
+                &access,
+            )
+            .await?
+    };
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))
 }
@@ -179,6 +190,13 @@ async fn get_playlists(
     Query(q): Query<PlaylistsQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
+    if is_self(&ctx, &user_urn) {
+        return Ok(Json(
+            st.me
+                .get_playlists(&ctx.access_token, &ctx.sc_user_id, page, limit)
+                .await?,
+        ));
+    }
     let access = q
         .access
         .unwrap_or_else(|| "playable,preview,blocked".into());
@@ -207,17 +225,22 @@ async fn get_liked_tracks(
     let access = q
         .access
         .unwrap_or_else(|| "playable,preview,blocked".into());
-    let mut result = st
-        .users
-        .get_liked_tracks(
-            &ctx.access_token,
-            &ctx.sc_user_id,
-            &user_urn,
-            page,
-            limit,
-            &access,
-        )
-        .await?;
+    let mut result = if is_self(&ctx, &user_urn) {
+        st.me
+            .get_liked_tracks(&ctx.access_token, &ctx.sc_user_id, page, limit, &access)
+            .await?
+    } else {
+        st.users
+            .get_liked_tracks(
+                &ctx.access_token,
+                &ctx.sc_user_id,
+                &user_urn,
+                page,
+                limit,
+                &access,
+            )
+            .await?
+    };
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))
 }
@@ -229,6 +252,13 @@ async fn get_liked_playlists(
     Query(p): Query<PaginationQuery>,
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = p.resolved();
+    if is_self(&ctx, &user_urn) {
+        return Ok(Json(
+            st.me
+                .get_liked_playlists(&ctx.access_token, &ctx.sc_user_id, page, limit)
+                .await?,
+        ));
+    }
     Ok(Json(
         st.users
             .get_liked_playlists(&ctx.access_token, &user_urn, page, limit)
@@ -281,30 +311,3 @@ async fn get_web_profiles(
     .await
 }
 
-async fn cached_or_fetch<F, Fut>(
-    st: &AppState,
-    method: &str,
-    url: &str,
-    scope: CacheScope,
-    session_id: Option<&str>,
-    ttl_sec: u64,
-    cache_key: Option<&str>,
-    fetch: F,
-) -> AppResult<Response>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = AppResult<Value>>,
-{
-    let key = st.cache.build_key(method, url, scope, session_id);
-    if let Ok(Some(raw)) = st.cache.get_raw(&key).await {
-        return Ok(json_response(StatusCode::OK, raw));
-    }
-    let v = fetch().await?;
-    let payload =
-        serde_json::to_string(&v).map_err(|e| AppError::internal(format!("json encode: {e}")))?;
-    let _ = st
-        .cache
-        .set_raw(&key, &payload, ttl_sec, cache_key, scope, session_id)
-        .await;
-    Ok(json_response(StatusCode::OK, payload))
-}

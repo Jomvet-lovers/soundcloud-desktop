@@ -13,9 +13,11 @@ use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::error::{AppError, AppResult};
+use crate::modules::auth::health::{AuthHealthService, RefreshFailKind};
 use crate::modules::auth::model::{LoginRequest, Session};
+use crate::modules::oauth_apps::model::OAuthApp;
 use crate::modules::oauth_apps::OAuthAppsService;
-use crate::sc::{OAuthCredentials, ScClient, ScMe};
+use crate::sc::{self, OAuthCredentials, ScClient, ScMe};
 
 pub const REFRESH_BUFFER: Duration = Duration::from_secs(60);
 
@@ -56,6 +58,7 @@ pub struct AuthService {
     sc: ScClient,
     oauth_apps: Arc<OAuthAppsService>,
     config: Arc<AppConfig>,
+    health: Arc<AuthHealthService>,
     refresh_locks: Cache<Uuid, Arc<AsyncMutex<()>>>,
 }
 
@@ -65,12 +68,14 @@ impl AuthService {
         sc: ScClient,
         oauth_apps: Arc<OAuthAppsService>,
         config: Arc<AppConfig>,
+        health: Arc<AuthHealthService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             pool,
             sc,
             oauth_apps,
             config,
+            health,
             refresh_locks: Cache::builder()
                 .max_capacity(REFRESH_LOCK_CAPACITY)
                 .time_to_idle(REFRESH_LOCK_TTL)
@@ -116,6 +121,23 @@ impl AuthService {
         Ok(self.get_valid_session(session_id).await?.access_token)
     }
 
+    /// Подбирает свежую сессию по sc_user_id (юзер может быть залогинен с нескольких
+    /// устройств) и возвращает валидный access_token. Нужен sync-воркеру: action в
+    /// очереди привязан к пользователю, а не к конкретной сессии.
+    pub async fn get_valid_access_token_for_user(&self, sc_user_id: &str) -> AppResult<String> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM sessions WHERE soundcloud_user_id = $1 \
+             ORDER BY updated_at DESC LIMIT 1",
+        )
+        .bind(sc_user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let session_id = row
+            .map(|(id,)| id)
+            .ok_or_else(|| AppError::unauthorized("No active session for user"))?;
+        self.get_valid_access_token(session_id).await
+    }
+
     pub async fn refresh_session(&self, session_id: Uuid) -> AppResult<Session> {
         let lock = self.get_or_create_lock(session_id);
         let _g = lock.lock().await;
@@ -130,6 +152,15 @@ impl AuthService {
         if session.refresh_token.is_empty() {
             return Err(AppError::unauthorized("No refresh token available"));
         }
+
+        // Circuit breaker: если этот session недавно зафейлился — не идём в SC
+        // снова (защита от retry-storm на стороне фронта/прокси, который дёргает
+        // /refresh на каждую 401-ошибку). TTL ключа = REFRESH_FAIL_TTL_SEC.
+        let session_key = session.id.to_string();
+        if let Ok(Some(cached)) = self.health.get_cached_refresh_failure(&session_key).await {
+            return Err(AppError::unauthorized(cached));
+        }
+
         let creds = self
             .get_credentials_for_app(session.oauth_app_id.as_deref())
             .await?;
@@ -139,12 +170,37 @@ impl AuthService {
             .refresh_access_token(&session.refresh_token, &creds)
             .await
         {
-            Ok(t) => t,
+            Ok(t) => {
+                if let Some(app_id) = session.oauth_app_id.as_deref() {
+                    let _ = self.health.record_app_success(app_id).await;
+                }
+                let _ = self.health.clear_refresh_failure(&session_key).await;
+                t
+            }
             Err(err) => {
+                let public = public_error_message(&err, "Refresh failed");
+                let kind = if sc::is_rate_limited(&err) {
+                    RefreshFailKind::RateLimit
+                } else {
+                    RefreshFailKind::Generic
+                };
+                let _ = self
+                    .health
+                    .cache_refresh_failure(&session_key, &public, kind)
+                    .await;
+                if let Some(app_id) = session.oauth_app_id.as_deref() {
+                    let _ = self.health.record_app_failure(app_id).await;
+                }
                 warn!(session = %session.id, error = %err, "Refresh failed");
-                return Err(AppError::unauthorized(
-                    "Refresh token expired or invalid. Please re-authenticate.",
-                ));
+                let user_msg = if sc::is_rate_limited(&err) {
+                    "SoundCloud rate-limited the refresh request. Try again in a few minutes."
+                        .to_string()
+                } else if sc::is_ban_error(&err) {
+                    "SoundCloud temporarily blocked this request. Try again later.".to_string()
+                } else {
+                    "Refresh token expired or invalid. Please re-authenticate.".to_string()
+                };
+                return Err(AppError::unauthorized(user_msg));
             }
         };
 
@@ -189,7 +245,7 @@ impl AuthService {
         let code_challenge = base64_url(Sha256::digest(code_verifier.as_bytes()).as_slice());
         let state = hex::encode(random_bytes(16));
 
-        let (creds, oauth_app_id) = match self.oauth_apps.pick_least_recently_used_app().await {
+        let (creds, oauth_app_id) = match self.pick_healthy_app().await {
             Ok(app) => {
                 info!(app_name = %app.name, app_id = %app.id, "Login initiated with app");
                 let id = app.id;
@@ -365,8 +421,16 @@ impl AuthService {
             .exchange_code_for_token(&code, &lr.code_verifier, &creds)
             .await
         {
-            Ok(t) => t,
+            Ok(t) => {
+                if let Some(app_id) = lr.oauth_app_id.as_deref() {
+                    let _ = self.health.record_app_success(app_id).await;
+                }
+                t
+            }
             Err(err) => {
+                if let Some(app_id) = lr.oauth_app_id.as_deref() {
+                    let _ = self.health.record_app_failure(app_id).await;
+                }
                 warn!(request = %lr.id, error = %err, "Token exchange failed");
                 let msg = public_error_message(&err, "Token exchange failed");
                 self.mark_request_failed(lr.id, &msg).await?;
@@ -584,6 +648,43 @@ impl AuthService {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Подбирает наименее давно использованную **здоровую** аппку. Аппки с
+    /// большой долей ошибок за последние 5 мин исключаются, чтобы новый
+    /// пользователь не попал на сломанный пайплайн. Если все апки нездоровы —
+    /// возвращаем LRU (всё равно надо попробовать, иначе блокировка не
+    /// разморозится).
+    async fn pick_healthy_app(&self) -> AppResult<OAuthApp> {
+        let all = self.oauth_apps.find_all().await?;
+        let active: Vec<OAuthApp> = all.into_iter().filter(|a| a.active).collect();
+        if active.is_empty() {
+            return Err(AppError::not_found("No active OAuth apps available"));
+        }
+
+        // Один pipeline на все apps вместо N последовательных round-trip
+        // в Redis (на login-флоу — критичный путь).
+        let ids: Vec<String> = active.iter().map(|a| a.id.to_string()).collect();
+        let healths = self.health.app_healths(&ids).await.unwrap_or_default();
+        let healthy: Vec<OAuthApp> = active
+            .iter()
+            .filter(|a| {
+                healths
+                    .get(&a.id.to_string())
+                    .map(|h| !h.unhealthy())
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+        if healthy.is_empty() {
+            warn!("All OAuth apps marked unhealthy; falling back to LRU pick");
+            return self.oauth_apps.pick_least_recently_used_app().await;
+        }
+        // pick_least_recently_used_app делает FOR UPDATE SKIP LOCKED + updates
+        // last_used_at. Здоровых может быть много — пусть LRU выбирает между
+        // ними. Передаём в Postgres ids healthy-подмножества.
+        let ids: Vec<Uuid> = healthy.iter().map(|a| a.id).collect();
+        self.oauth_apps.pick_lru_from(&ids).await
     }
 
     pub async fn get_credentials_for_app(

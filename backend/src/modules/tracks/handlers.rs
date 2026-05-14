@@ -1,5 +1,4 @@
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -8,8 +7,8 @@ use serde_json::Value;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::ListPageResult;
+use crate::common::cache_helper::cached_or_fetch;
 use crate::common::pagination::PaginationQuery;
-use crate::common::response::json_response;
 use crate::common::session::SessionCtx;
 use crate::error::AppResult;
 use crate::modules::enrich::dto as enrich_dto;
@@ -103,28 +102,17 @@ async fn get_by_id(
     ctx: SessionCtx,
     Path(track_urn): Path<String>,
     Query(s): Query<SecretTokenQuery>,
-) -> AppResult<Response> {
+) -> AppResult<Json<Value>> {
     let mut params: Vec<(String, String)> = Vec::new();
     if let Some(t) = s.secret_token {
         params.push(("secret_token".into(), t));
     }
-    cached_or_fetch(
-        &st,
-        "GET",
-        &request_url("/tracks", &track_urn, &params),
-        CacheScope::Shared,
-        None,
-        600,
-        || async {
-            let mut track = st
-                .tracks
-                .get_by_id(&ctx.access_token, &ctx.sc_user_id, &track_urn, &params)
-                .await?;
-            enrich_dto::apply_to_track(&st.pg, &mut track).await?;
-            Ok(track)
-        },
-    )
-    .await
+    let mut track = st
+        .tracks
+        .get_by_id(&ctx.access_token, &ctx.sc_user_id, &track_urn, &params)
+        .await?;
+    enrich_dto::apply_to_track(&st.pg, &mut track).await?;
+    Ok(Json(track))
 }
 
 async fn update_track(
@@ -159,11 +147,20 @@ async fn get_streams(
         params.push(("secret_token".into(), t));
     }
     let url = request_url(&format!("/tracks/{track_urn}/streams"), "", &params);
-    cached_or_fetch(&st, "GET", &url, CacheScope::Shared, None, 3600, || async {
-        st.tracks
-            .get_streams(&ctx.access_token, &track_urn, &params)
-            .await
-    })
+    cached_or_fetch(
+        &st,
+        "GET",
+        &url,
+        CacheScope::Shared,
+        None,
+        3600,
+        None,
+        || async {
+            st.tracks
+                .get_streams(&ctx.access_token, &track_urn, &params)
+                .await
+        },
+    )
     .await
 }
 
@@ -211,12 +208,7 @@ async fn create_comment(
 ) -> AppResult<Json<Value>> {
     let v = st
         .tracks
-        .create_comment(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &track_urn,
-            &body,
-        )
+        .create_comment(&ctx.sc_user_id, &track_urn, &body)
         .await?;
     let _ = st
         .cache
@@ -300,29 +292,3 @@ fn request_url(prefix: &str, suffix: &str, params: &[(String, String)]) -> Strin
     }
 }
 
-async fn cached_or_fetch<F, Fut>(
-    st: &AppState,
-    method: &str,
-    url: &str,
-    scope: CacheScope,
-    session_id: Option<&str>,
-    ttl_sec: u64,
-    fetch: F,
-) -> AppResult<Response>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = AppResult<Value>>,
-{
-    let key = st.cache.build_key(method, url, scope, session_id);
-    if let Ok(Some(raw)) = st.cache.get_raw(&key).await {
-        return Ok(json_response(StatusCode::OK, raw));
-    }
-    let v = fetch().await?;
-    let payload = serde_json::to_string(&v)
-        .map_err(|e| crate::error::AppError::internal(format!("json encode: {e}")))?;
-    let _ = st
-        .cache
-        .set_raw(&key, &payload, ttl_sec, None, scope, session_id)
-        .await;
-    Ok(json_response(StatusCode::OK, payload))
-}

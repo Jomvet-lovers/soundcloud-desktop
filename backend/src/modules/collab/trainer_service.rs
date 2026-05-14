@@ -18,7 +18,7 @@ const SESSION_GAP_MS: i64 = 30 * 60 * 1000;
 const MIN_SESSION_LEN: usize = 2;
 const MAX_SESSION_LEN: usize = 200;
 const HISTORY_WINDOW_DAYS: i64 = 90;
-const SESSION_EVENTS: &[&str] = &["like", "local_like", "playlist_add", "full_play", "skip"];
+const SESSION_EVENTS: &[&str] = &["like", "playlist_add", "full_play", "skip"];
 
 pub struct CollabTrainerService {
     pg: PgPool,

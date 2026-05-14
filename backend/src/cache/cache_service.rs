@@ -9,6 +9,7 @@ use crate::error::AppResult;
 
 const DATA_PREFIX: &str = "api:";
 const INDEX_PREFIX: &str = "idx:";
+const LOCK_PREFIX: &str = "lock:";
 const DEL_CHUNK: usize = 500;
 
 #[derive(Clone, Copy, Debug)]
@@ -127,6 +128,25 @@ impl CacheService {
             }
         }
         Ok(())
+    }
+
+    /// SETNX-лок. Возвращает true если лок захвачен этим воркером.
+    /// Используется для дедупа фоновых refresh-task'ов: ключ вида
+    /// `refresh:user_likes_tracks:{user_id}` живёт TTL, лишние spawn'ы
+    /// видят занято и тихо отваливаются. Освобождать необязательно —
+    /// TTL сам делает это.
+    pub async fn try_acquire_lock(&self, key: &str, ttl_sec: u64) -> AppResult<bool> {
+        let mut conn = self.redis.get().await?;
+        let full = format!("{LOCK_PREFIX}{key}");
+        let acquired: Option<String> = deadpool_redis::redis::cmd("SET")
+            .arg(&full)
+            .arg("1")
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl_sec)
+            .query_async(&mut conn)
+            .await?;
+        Ok(acquired.is_some())
     }
 
     async fn clear_index(&self, index_key: &str) -> AppResult<()> {

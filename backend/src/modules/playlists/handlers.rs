@@ -1,17 +1,13 @@
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
-use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::cache::cache_service::CacheScope;
 use crate::cache::ListPageResult;
 use crate::common::pagination::PaginationQuery;
-use crate::common::response::json_response;
 use crate::common::session::SessionCtx;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::modules::enrich::dto as enrich_dto;
 use crate::state::AppState;
 
@@ -86,12 +82,8 @@ async fn create(
 ) -> AppResult<Json<Value>> {
     let v = st
         .playlists
-        .create(&ctx.access_token, &ctx.session_id.to_string(), &body)
+        .create(&ctx.access_token, &ctx.sc_user_id, &body)
         .await?;
-    let _ = st
-        .cache
-        .clear_by_cache_keys(&["me-playlists".into()], Some(&ctx.session_id.to_string()))
-        .await;
     let _ = st
         .list_cache
         .invalidate_by_prefixes(&["me-playlists"], Some(&ctx.session_id.to_string()))
@@ -104,7 +96,7 @@ async fn get_by_id(
     ctx: SessionCtx,
     Path(playlist_urn): Path<String>,
     Query(q): Query<DetailQuery>,
-) -> AppResult<Response> {
+) -> AppResult<Json<Value>> {
     let mut params: Vec<(String, String)> = vec![(
         "access".into(),
         q.access
@@ -116,28 +108,14 @@ async fn get_by_id(
     if let Some(v) = q.show_tracks {
         params.push(("show_tracks".into(), v));
     }
-    let url = build_url(&format!("/playlists/{playlist_urn}"), &params);
-    let cache_key = format!("playlist-detail:{playlist_urn}");
-    cached_or_fetch(
-        &st,
-        "GET",
-        &url,
-        CacheScope::Shared,
-        None,
-        3600,
-        Some(&cache_key),
-        || async {
-            let mut value = st
-                .playlists
-                .get_by_id(&ctx.access_token, &playlist_urn, &params)
-                .await?;
-            if let Some(arr) = value.get_mut("tracks").and_then(|v| v.as_array_mut()) {
-                enrich_dto::apply_to_tracks(&st.pg, arr.as_mut_slice()).await?;
-            }
-            Ok(value)
-        },
-    )
-    .await
+    let mut value = st
+        .playlists
+        .get_by_id(&ctx.access_token, &playlist_urn, &params)
+        .await?;
+    if let Some(arr) = value.get_mut("tracks").and_then(|v| v.as_array_mut()) {
+        enrich_dto::apply_to_tracks(&st.pg, arr.as_mut_slice()).await?;
+    }
+    Ok(Json(value))
 }
 
 async fn update_playlist(
@@ -148,27 +126,13 @@ async fn update_playlist(
 ) -> AppResult<Json<Value>> {
     let v = st
         .playlists
-        .update(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &playlist_urn,
-            &body,
-        )
+        .update(&ctx.sc_user_id, &playlist_urn, &body)
         .await?;
-    let detail_key = format!("playlist-detail:{playlist_urn}");
-    let tracks_key = format!("playlist-tracks:{playlist_urn}");
-    let exact_keys = vec![detail_key.clone(), tracks_key.clone()];
     let session_id = ctx.session_id.to_string();
-    let _ = st
-        .cache
-        .clear_by_cache_keys(
-            &[exact_keys.clone(), vec!["me-playlists".into()]].concat(),
-            Some(&session_id),
-        )
-        .await;
+    let tracks_key = format!("playlist-tracks:{playlist_urn}");
     let _ = st
         .list_cache
-        .invalidate_by_cache_keys(&exact_keys, Some(&session_id))
+        .invalidate_by_cache_keys(&[tracks_key], Some(&session_id))
         .await;
     let _ = st
         .list_cache
@@ -182,32 +146,12 @@ async fn delete_playlist(
     ctx: SessionCtx,
     Path(playlist_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let v = st
-        .playlists
-        .delete(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &playlist_urn,
-        )
-        .await?;
-    let detail_key = format!("playlist-detail:{playlist_urn}");
-    let tracks_key = format!("playlist-tracks:{playlist_urn}");
-    let exact_keys = vec![detail_key.clone(), tracks_key.clone()];
+    let v = st.playlists.delete(&ctx.sc_user_id, &playlist_urn).await?;
     let session_id = ctx.session_id.to_string();
-    let _ = st
-        .cache
-        .clear_by_cache_keys(
-            &[
-                exact_keys.clone(),
-                vec!["me-playlists".into(), "me-liked-playlists".into()],
-            ]
-            .concat(),
-            Some(&session_id),
-        )
-        .await;
+    let tracks_key = format!("playlist-tracks:{playlist_urn}");
     let _ = st
         .list_cache
-        .invalidate_by_cache_keys(&exact_keys, Some(&session_id))
+        .invalidate_by_cache_keys(&[tracks_key], Some(&session_id))
         .await;
     let _ = st
         .list_cache
@@ -252,44 +196,4 @@ async fn get_reposters(
             .get_reposters(&ctx.access_token, &playlist_urn, page, limit)
             .await?,
     ))
-}
-
-fn build_url(path: &str, params: &[(String, String)]) -> String {
-    if params.is_empty() {
-        return path.to_string();
-    }
-    let qs = serde_urlencoded::to_string(params).unwrap_or_default();
-    if qs.is_empty() {
-        path.to_string()
-    } else {
-        format!("{path}?{qs}")
-    }
-}
-
-async fn cached_or_fetch<F, Fut>(
-    st: &AppState,
-    method: &str,
-    url: &str,
-    scope: CacheScope,
-    session_id: Option<&str>,
-    ttl_sec: u64,
-    cache_key: Option<&str>,
-    fetch: F,
-) -> AppResult<Response>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = AppResult<Value>>,
-{
-    let key = st.cache.build_key(method, url, scope, session_id);
-    if let Ok(Some(raw)) = st.cache.get_raw(&key).await {
-        return Ok(json_response(StatusCode::OK, raw));
-    }
-    let v = fetch().await?;
-    let payload =
-        serde_json::to_string(&v).map_err(|e| AppError::internal(format!("json encode: {e}")))?;
-    let _ = st
-        .cache
-        .set_raw(&key, &payload, ttl_sec, cache_key, scope, session_id)
-        .await;
-    Ok(json_response(StatusCode::OK, payload))
 }

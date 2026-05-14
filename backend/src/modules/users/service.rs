@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use sqlx::PgPool;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
@@ -8,7 +9,8 @@ use crate::cache::{
     ListPageResult,
 };
 use crate::error::{AppError, AppResult};
-use crate::modules::local_likes::LocalLikesService;
+use crate::modules::cold_refresh::ColdRefreshService;
+use crate::modules::likes::cold as likes_cold;
 use crate::sc::ScClient;
 
 const TTL_SEARCH: u64 = 300;
@@ -19,52 +21,24 @@ const TTL_USER_LIKES: u64 = 600;
 
 pub struct UsersService {
     sc: ScClient,
+    pg: PgPool,
     list_cache: Arc<ListCacheService>,
-    local_likes: Arc<LocalLikesService>,
+    cold_refresh: Arc<ColdRefreshService>,
 }
 
 impl UsersService {
     pub fn new(
         sc: ScClient,
+        pg: PgPool,
         list_cache: Arc<ListCacheService>,
-        local_likes: Arc<LocalLikesService>,
+        cold_refresh: Arc<ColdRefreshService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
+            pg,
             list_cache,
-            local_likes,
+            cold_refresh,
         })
-    }
-
-    async fn apply_local_like_flags(
-        &self,
-        sc_user_id: &str,
-        tracks: &mut [Value],
-    ) -> AppResult<()> {
-        let urns: Vec<String> = tracks
-            .iter()
-            .filter_map(|t| t.get("urn").and_then(|v| v.as_str()).map(String::from))
-            .collect();
-        if urns.is_empty() {
-            return Ok(());
-        }
-        let liked = self
-            .local_likes
-            .get_liked_track_ids(sc_user_id, &urns)
-            .await?;
-        if liked.is_empty() {
-            return Ok(());
-        }
-        for t in tracks.iter_mut() {
-            if let Some(urn) = t.get("urn").and_then(|v| v.as_str()) {
-                if liked.contains(urn) {
-                    if let Some(obj) = t.as_object_mut() {
-                        obj.insert("user_favorite".into(), Value::Bool(true));
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 
     async fn list_page(
@@ -145,10 +119,55 @@ impl UsersService {
         .await
     }
 
+    /// Cold-read /users/{urn}: cached_users → miss → SC + upsert.
+    /// На stale hit спавним фоновой refresh (Redis SETNX дедупит дубликаты).
     pub async fn get_by_id(&self, token: &str, user_urn: &str) -> AppResult<Value> {
-        self.sc
+        let cached: Option<(sqlx::types::Json<Value>, Option<chrono::DateTime<chrono::Utc>>)> =
+            sqlx::query_as("SELECT payload, synced_at FROM cached_users WHERE user_urn = $1")
+                .bind(user_urn)
+                .fetch_optional(&self.pg)
+                .await?;
+        if let Some((j, synced_at)) = cached {
+            let pg = self.pg.clone();
+            let urn = user_urn.to_string();
+            tokio::spawn(async move {
+                let _ = sqlx::query(
+                    "UPDATE cached_users SET last_read_at = now() \
+                     WHERE user_urn = $1 \
+                       AND (last_read_at IS NULL \
+                            OR last_read_at < now() - INTERVAL '5 minutes')",
+                )
+                .bind(&urn)
+                .execute(&pg)
+                .await;
+            });
+            if self.cold_refresh.is_user_stale(synced_at) {
+                let refresh = self.cold_refresh.clone();
+                let urn = user_urn.to_string();
+                let tok = token.to_string();
+                tokio::spawn(async move {
+                    if let Err(e) = refresh.refresh_user(&urn, &tok).await {
+                        tracing::debug!(error = %e, urn = %urn, "user refresh failed");
+                    }
+                });
+            }
+            return Ok(j.0);
+        }
+        let fetched: Value = self
+            .sc
             .api_get_value(&format!("/users/{user_urn}"), token, None)
-            .await
+            .await?;
+        sqlx::query(
+            "INSERT INTO cached_users (user_urn, payload, synced_at, last_read_at) \
+             VALUES ($1, $2, now(), now()) \
+             ON CONFLICT (user_urn) DO UPDATE SET \
+                 payload = EXCLUDED.payload, synced_at = now(), last_read_at = now()",
+        )
+        .bind(user_urn)
+        .bind(&fetched)
+        .execute(&self.pg)
+        .await?;
+        Ok(fetched)
     }
 
     pub async fn get_followers(
@@ -233,8 +252,7 @@ impl UsersService {
                 vec![("access".into(), access.to_string())],
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection)
-            .await?;
+        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
         Ok(result)
     }
 
@@ -288,8 +306,7 @@ impl UsersService {
                 vec![("access".into(), access.to_string())],
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection)
-            .await?;
+        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
         Ok(result)
     }
 

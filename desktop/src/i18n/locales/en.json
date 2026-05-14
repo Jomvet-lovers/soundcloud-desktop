@@ -576,6 +576,8 @@
     "trendValue": "↑ {{value}}",
     "noAlbums": "No albums",
     "noArtists": "No artists",
-    "noMatches": "Nothing matches “{{query}}”"
+    "noMatches": "Nothing matches “{{query}}”",
+    "capAlbums": "That's the cream of the crop — narrow the genre or search to dig deeper.",
+    "capArtists": "That's the cream of the crop — pick a tag or search to dig deeper."
   }
 }

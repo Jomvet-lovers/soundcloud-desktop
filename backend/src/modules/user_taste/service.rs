@@ -18,7 +18,6 @@ const EMA_ALPHA: f32 = 0.25;
 fn event_weight(event_type: &str) -> Option<f32> {
     match event_type {
         "like" => Some(1.0),
-        "local_like" => Some(1.0),
         "playlist_add" => Some(0.9),
         _ => None,
     }

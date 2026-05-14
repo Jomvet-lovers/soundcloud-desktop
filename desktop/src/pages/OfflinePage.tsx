@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualList } from '../components/ui/VirtualList';
-import { api } from '../lib/api';
+import { type AuthStatus, useAuthStatus } from '../lib/auth-status';
 import { listCachedUrns } from '../lib/cache';
 import { art, dur } from '../lib/formatters';
 import { fetchAllLikedTracks } from '../lib/hooks';
@@ -14,7 +14,6 @@ import {
   Heart,
   Music,
   Play,
-  RefreshCw,
   RotateCcw,
   Search,
   X,
@@ -30,11 +29,6 @@ interface OfflineLibraryState {
   cachedUrns: Set<string>;
 }
 
-interface PendingStats {
-  pending: number;
-  failed: number;
-}
-
 type OfflineSectionKey = 'likes' | 'cached';
 
 const EMPTY_STATE: OfflineLibraryState = {
@@ -42,8 +36,6 @@ const EMPTY_STATE: OfflineLibraryState = {
   likedTracks: [],
   cachedUrns: new Set(),
 };
-
-const EMPTY_STATS: PendingStats = { pending: 0, failed: 0 };
 
 function buildPlayableQueue(tracks: Track[], cachedUrns: Set<string>) {
   return tracks.filter((track) => cachedUrns.has(track.urn));
@@ -133,39 +125,21 @@ const StatusBadge = React.memo(function StatusBadge() {
   );
 });
 
-const PendingBadge = React.memo(function PendingBadge({
-  stats,
-  syncing,
-  onSync,
-}: {
-  stats: PendingStats;
-  syncing: boolean;
-  onSync: () => void;
-}) {
+const SyncBadge = React.memo(function SyncBadge({ status }: { status: AuthStatus | undefined }) {
   const { t } = useTranslation();
-
-  if (stats.pending === 0 && stats.failed === 0) return null;
+  const pending = status?.pendingSyncCount ?? 0;
+  const failed = status?.failedSyncCount ?? 0;
+  if (pending === 0 && failed === 0) return null;
 
   return (
-    <div className="inline-flex flex-wrap items-center gap-2">
-      <div className="inline-flex items-center gap-1.5 rounded-full border border-accent/18 bg-accent/[0.10] px-3 py-1.5 text-[11px] font-semibold text-white/78 shadow-[0_0_16px_rgba(255,85,0,0.08)] backdrop-blur-sm">
-        <Clock size={11} />
-        {t('offline.pendingCount', { count: stats.pending })}
-        {stats.failed > 0 && (
-          <span className="ml-1 text-rose-300/80">
-            ({t('offline.failedCount', { count: stats.failed })})
-          </span>
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={onSync}
-        disabled={syncing}
-        className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-accent/18 bg-accent/[0.10] px-3 py-1.5 text-[11px] font-semibold text-white/78 transition-all hover:bg-accent/[0.16] disabled:opacity-50"
-      >
-        <RefreshCw size={11} className={syncing ? 'animate-spin' : ''} />
-        {t('offline.syncNow')}
-      </button>
+    <div className="inline-flex items-center gap-1.5 rounded-full border border-accent/18 bg-accent/[0.10] px-3 py-1.5 text-[11px] font-semibold text-white/78 shadow-[0_0_16px_rgba(255,85,0,0.08)] backdrop-blur-sm">
+      <Clock size={11} />
+      {t('offline.pendingCount', { count: pending })}
+      {failed > 0 && (
+        <span className="ml-1 text-rose-300/80">
+          ({t('offline.failedCount', { count: failed })})
+        </span>
+      )}
     </div>
   );
 });
@@ -477,11 +451,10 @@ export const OfflinePage = React.memo(() => {
   );
   const [state, setState] = useState<OfflineLibraryState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
-  const [pendingStats, setPendingStats] = useState<PendingStats>(EMPTY_STATS);
-  const [syncing, setSyncing] = useState(false);
   const [activeSection, setActiveSection] = useState<OfflineSectionKey>('likes');
   const [search, setSearch] = useState('');
   const bgFetchDone = useRef(false);
+  const authStatus = useAuthStatus({ enabled: appMode === 'online' });
 
   useEffect(() => {
     let cancelled = false;
@@ -547,33 +520,6 @@ export const OfflinePage = React.memo(() => {
   }, [appMode]);
 
   useEffect(() => {
-    if (appMode !== 'online') {
-      setSyncing(false);
-      setPendingStats(EMPTY_STATS);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadStats = () => {
-      api<PendingStats>('/pending-actions/stats')
-        .then((stats) => {
-          if (!cancelled) {
-            setPendingStats(stats);
-          }
-        })
-        .catch(() => {});
-    };
-
-    loadStats();
-    const interval = setInterval(loadStats, 30000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [appMode]);
-
-  useEffect(() => {
     if (
       activeSection === 'likes' &&
       state.likedTracks.length === 0 &&
@@ -590,20 +536,6 @@ export const OfflinePage = React.memo(() => {
       setActiveSection('likes');
     }
   }, [activeSection, state.cachedTracks.length, state.likedTracks.length]);
-
-  const handleSync = useCallback(() => {
-    if (appMode !== 'online') return;
-
-    setSyncing(true);
-    api<{ synced: number; failed: number }>('/pending-actions/sync', { method: 'POST' })
-      .then(() => {
-        api<PendingStats>('/pending-actions/stats')
-          .then(setPendingStats)
-          .catch(() => {});
-      })
-      .catch(() => {})
-      .finally(() => setSyncing(false));
-  }, [appMode]);
 
   const cachedLikesCount = useMemo(
     () => state.likedTracks.filter((track) => state.cachedUrns.has(track.urn)).length,
@@ -653,7 +585,7 @@ export const OfflinePage = React.memo(() => {
               </div>
 
               <div className="flex flex-wrap items-center gap-3 xl:justify-end">
-                <PendingBadge stats={pendingStats} syncing={syncing} onSync={handleSync} />
+                <SyncBadge status={authStatus.data} />
                 <button
                   type="button"
                   onClick={() => {

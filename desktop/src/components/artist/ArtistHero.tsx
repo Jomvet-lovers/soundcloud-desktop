@@ -78,7 +78,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
           aura={aura}
         />
 
-        <div className="flex-1 min-w-0 flex flex-col justify-between gap-5 text-center lg:text-left">
+        <div className="flex-1 min-w-0 flex flex-col justify-start gap-5 text-center lg:text-left">
           {/* Top chips */}
           <div className="flex flex-wrap items-center gap-2 justify-center lg:justify-start">
             {artist.confidence >= 0.7 && (

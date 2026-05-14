@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
 use serde_json::{json, Value};
+use sqlx::PgPool;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
     build_list_cache_key, extract_sc_cursor, FetchChunkResult, GetPageOptions, ListCacheService,
     ListPageResult,
 };
+use crate::common::sc_ids::extract_sc_id;
 use crate::error::{AppError, AppResult};
-use crate::modules::local_likes::LocalLikesService;
-use crate::modules::pending_actions::PendingActionsService;
+use crate::modules::cold_refresh::ColdRefreshService;
+use crate::modules::likes::cold as likes_cold;
+use crate::modules::sync_queue::SyncQueueService;
 use crate::sc::ScClient;
 
 const TTL_SEARCH: u64 = 300;
@@ -20,55 +23,27 @@ const TTL_REPOSTERS: u64 = 600;
 
 pub struct TracksService {
     sc: ScClient,
+    pg: PgPool,
     list_cache: Arc<ListCacheService>,
-    local_likes: Arc<LocalLikesService>,
-    pending: Arc<PendingActionsService>,
+    sync_queue: Arc<SyncQueueService>,
+    cold_refresh: Arc<ColdRefreshService>,
 }
 
 impl TracksService {
     pub fn new(
         sc: ScClient,
+        pg: PgPool,
         list_cache: Arc<ListCacheService>,
-        local_likes: Arc<LocalLikesService>,
-        pending: Arc<PendingActionsService>,
+        sync_queue: Arc<SyncQueueService>,
+        cold_refresh: Arc<ColdRefreshService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
+            pg,
             list_cache,
-            local_likes,
-            pending,
+            sync_queue,
+            cold_refresh,
         })
-    }
-
-    async fn apply_local_like_flags(
-        &self,
-        sc_user_id: &str,
-        tracks: &mut [Value],
-    ) -> AppResult<()> {
-        let urns: Vec<String> = tracks
-            .iter()
-            .filter_map(|t| t.get("urn").and_then(|v| v.as_str()).map(String::from))
-            .collect();
-        if urns.is_empty() {
-            return Ok(());
-        }
-        let liked = self
-            .local_likes
-            .get_liked_track_ids(sc_user_id, &urns)
-            .await?;
-        if liked.is_empty() {
-            return Ok(());
-        }
-        for t in tracks.iter_mut() {
-            if let Some(urn) = t.get("urn").and_then(|v| v.as_str()) {
-                if liked.contains(urn) {
-                    if let Some(obj) = t.as_object_mut() {
-                        obj.insert("user_favorite".into(), Value::Bool(true));
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 
     async fn list_page(
@@ -145,11 +120,12 @@ impl TracksService {
                 extra,
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection)
-            .await?;
+        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
         Ok(result)
     }
 
+    /// Cold read /tracks/{urn}: сначала indexed_tracks, на miss — SC + upsert.
+    /// secret_token-запросы (приватные треки) идут мимо кеша.
     pub async fn get_by_id(
         &self,
         token: &str,
@@ -157,12 +133,70 @@ impl TracksService {
         track_urn: &str,
         params: &[(String, String)],
     ) -> AppResult<Value> {
-        let mut track: Value = self
-            .sc
-            .api_get_value(&format!("/tracks/{track_urn}"), token, Some(params))
-            .await?;
+        let has_secret = params.iter().any(|(k, _)| k == "secret_token");
+        let sc_track_id = extract_sc_id(track_urn).to_string();
+
+        let mut track: Value = if has_secret {
+            self.sc
+                .api_get_value(&format!("/tracks/{track_urn}"), token, Some(params))
+                .await?
+        } else {
+            let cached: Option<(sqlx::types::Json<Value>, Option<chrono::DateTime<chrono::Utc>>)> =
+                sqlx::query_as(
+                    "SELECT raw_sc_data, synced_at FROM indexed_tracks WHERE sc_track_id = $1",
+                )
+                .bind(&sc_track_id)
+                .fetch_optional(&self.pg)
+                .await?;
+            if let Some((j, synced_at)) = cached {
+                let pg = self.pg.clone();
+                let id = sc_track_id.clone();
+                // Условный UPDATE: на горячих треках (тысячи rps на топ-100)
+                // переписывать строку каждый раз — лишний нагруз. Достаточно
+                // обновлять раз в 5 минут, eviction-cutoff гораздо длиннее.
+                tokio::spawn(async move {
+                    let _ = sqlx::query(
+                        "UPDATE indexed_tracks SET last_read_at = now() \
+                         WHERE sc_track_id = $1 \
+                           AND (last_read_at IS NULL \
+                                OR last_read_at < now() - INTERVAL '5 minutes')",
+                    )
+                    .bind(&id)
+                    .execute(&pg)
+                    .await;
+                });
+                if self.cold_refresh.is_track_stale(synced_at) {
+                    let refresh = self.cold_refresh.clone();
+                    let urn = track_urn.to_string();
+                    let tok = token.to_string();
+                    tokio::spawn(async move {
+                        if let Err(e) = refresh.refresh_track(&urn, &tok).await {
+                            tracing::debug!(error = %e, urn = %urn, "track refresh failed");
+                        }
+                    });
+                }
+                j.0
+            } else {
+                let fetched: Value = self
+                    .sc
+                    .api_get_value(&format!("/tracks/{track_urn}"), token, Some(params))
+                    .await?;
+                sqlx::query(
+                    "INSERT INTO indexed_tracks (sc_track_id, raw_sc_data, synced_at, last_read_at) \
+                     VALUES ($1, $2, now(), now()) \
+                     ON CONFLICT (sc_track_id) DO UPDATE SET \
+                         raw_sc_data = EXCLUDED.raw_sc_data, synced_at = now(), last_read_at = now()",
+                )
+                .bind(&sc_track_id)
+                .bind(&fetched)
+                .execute(&self.pg)
+                .await?;
+                fetched
+            }
+        };
+
         let mut single = vec![track];
-        self.apply_local_like_flags(sc_user_id, &mut single).await?;
+        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut single).await?;
         track = single.into_iter().next().unwrap_or(Value::Null);
         Ok(track)
     }
@@ -212,34 +246,18 @@ impl TracksService {
         .await
     }
 
+    /// Оптимистичный комментарий: всегда через sync_queue. Фронт не получает
+    /// сам comment-payload (SC отдаст id позже после синка) — только подтверждение.
     pub async fn create_comment(
         &self,
-        token: &str,
-        session_id: &str,
+        sc_user_id: &str,
         track_urn: &str,
         body: &Value,
     ) -> AppResult<Value> {
-        match self
-            .sc
-            .api_post_value(&format!("/tracks/{track_urn}/comments"), token, Some(body))
-            .await
-        {
-            Ok(v) => Ok(v),
-            Err(e) => {
-                if PendingActionsService::is_ban_error(&e) {
-                    self.pending
-                        .enqueue(session_id, "comment", track_urn, Some(body))
-                        .await?;
-                    Ok(json!({
-                        "queued": true,
-                        "actionType": "comment",
-                        "targetUrn": track_urn,
-                    }))
-                } else {
-                    Err(e)
-                }
-            }
-        }
+        self.sync_queue
+            .enqueue(sc_user_id, "comment", track_urn, Some(body))
+            .await?;
+        Ok(json!({ "status": "queued", "actionType": "comment", "targetUrn": track_urn }))
     }
 
     pub async fn get_favoriters(
@@ -310,8 +328,7 @@ impl TracksService {
                 vec![("access".into(), access.to_string())],
             )
             .await?;
-        self.apply_local_like_flags(sc_user_id, &mut result.collection)
-            .await?;
+        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
         Ok(result)
     }
 }

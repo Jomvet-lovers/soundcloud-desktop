@@ -3,14 +3,14 @@ use std::sync::Arc;
 use chrono::NaiveDateTime;
 use rand::Rng;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use sqlx::FromRow;
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::modules::auth::AuthService;
-use crate::modules::local_likes::LocalLikesService;
+use crate::modules::likes::cold as likes_cold;
 use crate::sc::ScClient;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,22 +56,11 @@ pub struct FeaturedService {
     pg: sqlx::PgPool,
     sc: ScClient,
     auth: Arc<AuthService>,
-    local_likes: Arc<LocalLikesService>,
 }
 
 impl FeaturedService {
-    pub fn new(
-        pg: sqlx::PgPool,
-        sc: ScClient,
-        auth: Arc<AuthService>,
-        local_likes: Arc<LocalLikesService>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
-            pg,
-            sc,
-            auth,
-            local_likes,
-        })
+    pub fn new(pg: sqlx::PgPool, sc: ScClient, auth: Arc<AuthService>) -> Arc<Self> {
+        Arc::new(Self { pg, sc, auth })
     }
 
     pub async fn find_all(&self) -> AppResult<Vec<FeaturedItem>> {
@@ -200,17 +189,9 @@ impl FeaturedService {
                     .sc
                     .api_get_value(&format!("/tracks/{}", item.sc_urn), token, None)
                     .await?;
-                if let Some(urn) = track.get("urn").and_then(|v| v.as_str()).map(String::from) {
-                    let liked = self
-                        .local_likes
-                        .get_liked_track_ids(sc_user_id, &[urn.clone()])
-                        .await?;
-                    if liked.contains(&urn) {
-                        if let Some(obj) = track.as_object_mut() {
-                            obj.insert("user_favorite".into(), json!(true));
-                        }
-                    }
-                }
+                let mut single = vec![track];
+                likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut single).await?;
+                track = single.into_iter().next().unwrap_or(Value::Null);
                 Ok(FeaturedResult {
                     type_: "track".into(),
                     data: track,

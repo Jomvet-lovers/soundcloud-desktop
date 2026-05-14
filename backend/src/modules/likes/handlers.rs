@@ -31,13 +31,7 @@ async fn like_track(
     let track_data = body.map(|Json(v)| v);
     let v = st
         .likes
-        .like_track(
-            &ctx.access_token,
-            &ctx.sc_user_id,
-            &ctx.session_id.to_string(),
-            &track_urn,
-            track_data.as_ref(),
-        )
+        .like_track(&ctx.sc_user_id, &track_urn, track_data.as_ref())
         .await?;
     let _ = st
         .list_cache
@@ -51,15 +45,7 @@ async fn unlike_track(
     ctx: SessionCtx,
     Path(track_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let v = st
-        .likes
-        .unlike_track(
-            &ctx.access_token,
-            &ctx.sc_user_id,
-            &ctx.session_id.to_string(),
-            &track_urn,
-        )
-        .await?;
+    let v = st.likes.unlike_track(&ctx.sc_user_id, &track_urn).await?;
     let _ = st
         .list_cache
         .invalidate_by_prefixes(&["me-liked-tracks"], Some(&ctx.session_id.to_string()))
@@ -74,11 +60,7 @@ async fn like_playlist(
 ) -> AppResult<(StatusCode, Json<Value>)> {
     let v = st
         .likes
-        .like_playlist(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &playlist_urn,
-        )
+        .like_playlist(&ctx.sc_user_id, &playlist_urn)
         .await?;
     let session_id = ctx.session_id.to_string();
     let _ = st
@@ -102,11 +84,7 @@ async fn unlike_playlist(
 ) -> AppResult<Json<Value>> {
     let v = st
         .likes
-        .unlike_playlist(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &playlist_urn,
-        )
+        .unlike_playlist(&ctx.sc_user_id, &playlist_urn)
         .await?;
     let session_id = ctx.session_id.to_string();
     let _ = st
@@ -130,7 +108,7 @@ async fn is_playlist_liked(
 ) -> AppResult<Json<Value>> {
     Ok(Json(
         st.likes
-            .is_playlist_liked(&ctx.access_token, &playlist_urn)
+            .is_playlist_liked(&ctx.sc_user_id, &playlist_urn)
             .await?,
     ))
 }

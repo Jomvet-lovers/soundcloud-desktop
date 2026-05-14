@@ -273,39 +273,6 @@ export function useFeatured() {
   });
 }
 
-/* ── Local Likes ──────────────────────────────────────────────── */
-
-interface LocalLikesPage {
-  collection: Track[];
-  next_href: string | null;
-}
-
-export function useLocalLikes(limit = 50) {
-  const query = useInfiniteQuery({
-    queryKey: ['local-likes'],
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(limit) });
-      if (pageParam) params.set('cursor', pageParam as string);
-      return api<LocalLikesPage>(`/local-likes?${params}`);
-    },
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => {
-      if (!last.next_href) return undefined;
-      try {
-        const url = new URL(last.next_href, 'http://x');
-        return url.searchParams.get('cursor') || undefined;
-      } catch {
-        return undefined;
-      }
-    },
-    staleTime: 0,
-  });
-
-  const tracks = useMemo(() => flattenCollectionPages(query.data?.pages), [query.data]);
-
-  return { tracks, ...query };
-}
-
 /* ── Feed ──────────────────────────────────────────────────────── */
 
 export function useFeed() {
@@ -674,12 +641,12 @@ export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (trackUrns: string[]) =>
-      api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn!)}`, {
+      api(`/playlists/${encodeURIComponent(playlistUrn!)}`, {
         method: 'PUT',
         body: JSON.stringify({ playlist: { tracks: trackUrns.map((urn) => ({ urn })) } }),
       }),
-    onSuccess: (data) => {
-      qc.setQueryData(['playlist', playlistUrn], data);
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['playlist', playlistUrn] });
       qc.invalidateQueries({ queryKey: ['playlist', playlistUrn, 'tracks'] });
       qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
     },

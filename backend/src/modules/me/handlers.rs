@@ -91,14 +91,7 @@ async fn get_liked_tracks(
         .unwrap_or_else(|| "playable,preview,blocked".into());
     let mut result = st
         .me
-        .get_liked_tracks(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &ctx.sc_user_id,
-            page,
-            limit,
-            &access,
-        )
+        .get_liked_tracks(&ctx.access_token, &ctx.sc_user_id, page, limit, &access)
         .await?;
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))
@@ -112,7 +105,7 @@ async fn get_liked_playlists(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.me
-            .get_liked_playlists(&ctx.access_token, &ctx.session_id.to_string(), page, limit)
+            .get_liked_playlists(&ctx.access_token, &ctx.sc_user_id, page, limit)
             .await?,
     ))
 }
@@ -125,7 +118,7 @@ async fn get_followings(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.me
-            .get_followings(&ctx.access_token, &ctx.session_id.to_string(), page, limit)
+            .get_followings(&ctx.access_token, &ctx.sc_user_id, page, limit)
             .await?,
     ))
 }
@@ -155,7 +148,7 @@ async fn follow_user(
     ctx: SessionCtx,
     Path(user_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let v = st.me.follow_user(&ctx.access_token, &user_urn).await?;
+    let v = st.me.follow_user(&ctx.sc_user_id, &user_urn).await?;
     // Сбросить накопительный кэш me-followings этой сессии.
     if let Err(e) = st
         .list_cache
@@ -172,7 +165,7 @@ async fn unfollow_user(
     ctx: SessionCtx,
     Path(user_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
-    let v = st.me.unfollow_user(&ctx.access_token, &user_urn).await?;
+    let v = st.me.unfollow_user(&ctx.sc_user_id, &user_urn).await?;
     if let Err(e) = st
         .list_cache
         .invalidate_by_prefixes(&["me-followings"], Some(&ctx.session_id.to_string()))
@@ -204,7 +197,7 @@ async fn get_playlists(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.me
-            .get_playlists(&ctx.access_token, &ctx.session_id.to_string(), page, limit)
+            .get_playlists(&ctx.access_token, &ctx.sc_user_id, page, limit)
             .await?,
     ))
 }
@@ -217,13 +210,7 @@ async fn get_tracks(
     let (page, limit) = q.resolved();
     let mut result = st
         .me
-        .get_tracks(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &ctx.sc_user_id,
-            page,
-            limit,
-        )
+        .get_tracks(&ctx.access_token, &ctx.sc_user_id, page, limit)
         .await?;
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))

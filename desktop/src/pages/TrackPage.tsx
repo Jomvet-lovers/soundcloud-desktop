@@ -41,7 +41,6 @@ import {
   playBlack11,
   playBlack22,
   playCurrent16,
-  Repeat2,
   Send,
 } from '../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../lib/likes';
@@ -167,39 +166,6 @@ const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: num
       icon={<Heart size={14} fill={liked ? 'currentColor' : 'none'} />}
       count={localCount}
       label={t('track.likes')}
-      onClick={toggle}
-    />
-  );
-});
-
-/* ── Repost Button ───────────────────────────────────────── */
-
-const RepostBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: number }) => {
-  const { t } = useTranslation();
-  const [reposted, setReposted] = useState(false);
-  const [localCount, setLocalCount] = useState(count ?? 0);
-
-  const toggle = async () => {
-    const next = !reposted;
-    setReposted(next);
-    setLocalCount((c) => c + (next ? 1 : -1));
-    try {
-      await api(`/reposts/tracks/${encodeURIComponent(trackUrn)}`, {
-        method: next ? 'POST' : 'DELETE',
-      });
-    } catch {
-      setReposted(!next);
-      setLocalCount((c) => c + (next ? -1 : 1));
-    }
-  };
-
-  return (
-    <EngagementChip
-      active={reposted}
-      activeTone="emerald"
-      icon={<Repeat2 size={14} />}
-      count={localCount}
-      label={t('track.reposts')}
       onClick={toggle}
     />
   );
@@ -716,7 +682,6 @@ export const TrackPage = React.memo(() => {
                   trackUrn={track.urn}
                   count={track.favoritings_count ?? track.likes_count}
                 />
-                <RepostBtn trackUrn={track.urn} count={track.reposts_count} />
               </div>
 
               {/* Utility rail: glass container with icon-only actions */}
@@ -764,11 +729,6 @@ export const TrackPage = React.memo(() => {
             {fc(track.favoritings_count ?? track.likes_count)}
           </span>
           <span className="text-white/15">{t('track.likes')}</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[12px] text-white/30">
-          <Repeat2 size={13} className="text-white/20" />
-          <span className="tabular-nums font-medium">{fc(track.reposts_count)}</span>
-          <span className="text-white/15">{t('track.reposts')}</span>
         </div>
         <div className="flex items-center gap-1.5 text-[12px] text-white/30">
           <MessageCircle size={13} className="text-white/20" />
