@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::cache::extract_sc_cursor;
-use crate::cache::CacheService;
+use crate::cache::{CacheService, ListPageResult};
 use crate::common::sc_ids::extract_sc_id;
 use crate::config::ColdCfg;
 use crate::error::AppResult;
@@ -642,6 +642,73 @@ async fn delete_orphans(
         .execute(pg)
         .await?;
     Ok(())
+}
+
+/// Чтение страницы из mirror-таблицы юзера. Payload берётся либо из самой
+/// mirror-колонки (`mirror_payload_col`, owned-сущности), либо JOIN'ом
+/// в shared cache по ключу коллекции.
+///
+/// Tie-breaker по key-колонке обязателен: batched refresh пишет 500 строк
+/// одной транзакцией с общим `created_at`, без второго ключа сортировки
+/// порядок внутри батча неопределён.
+pub async fn read_collection_page(
+    pg: &PgPool,
+    coll: &UserCollection,
+    sc_user_id: &str,
+    page: i64,
+    limit: i64,
+) -> AppResult<ListPageResult<Value>> {
+    let offset = page.max(0) * limit;
+    let table = coll.mirror_table;
+    let key_col = coll.mirror_key_col;
+    let wanted_filter = if coll.has_wanted_state {
+        "AND m.wanted_state = true"
+    } else {
+        ""
+    };
+
+    let sql = if let Some(payload_col) = coll.mirror_payload_col {
+        format!(
+            "SELECT m.{payload_col} \
+             FROM {table} m \
+             WHERE m.user_id = $1 {wanted_filter} AND m.{payload_col} IS NOT NULL \
+             ORDER BY m.created_at DESC, m.{key_col} DESC \
+             LIMIT $2 OFFSET $3"
+        )
+    } else {
+        let (cache_table, cache_key_col, cache_payload_col) = match coll.shared_cache {
+            SharedCache::Tracks => ("indexed_tracks", "sc_track_id", "raw_sc_data"),
+            SharedCache::Playlists => ("cached_playlists", "playlist_urn", "payload"),
+            SharedCache::Users => ("cached_users", "user_urn", "payload"),
+        };
+        format!(
+            "SELECT c.{cache_payload_col} \
+             FROM {table} m \
+             LEFT JOIN {cache_table} c ON c.{cache_key_col} = m.{key_col} \
+             WHERE m.user_id = $1 {wanted_filter} \
+             ORDER BY m.created_at DESC, m.{key_col} DESC \
+             LIMIT $2 OFFSET $3"
+        )
+    };
+
+    let rows: Vec<(Option<sqlx::types::Json<Value>>,)> = sqlx::query_as(&sql)
+        .bind(sc_user_id)
+        .bind(limit + 1)
+        .bind(offset)
+        .fetch_all(pg)
+        .await?;
+    let has_more = rows.len() as i64 > limit;
+    let collection: Vec<Value> = rows
+        .into_iter()
+        .take(limit as usize)
+        .filter_map(|(raw,)| raw.map(|j| j.0))
+        .collect();
+    Ok(ListPageResult {
+        collection,
+        page,
+        page_size: limit,
+        has_more,
+    })
 }
 
 pub async fn upsert_track_cache(pg: &PgPool, sc_track_id: &str, raw: &Value) -> AppResult<()> {
