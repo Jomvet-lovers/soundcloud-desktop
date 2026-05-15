@@ -43,7 +43,7 @@ export async function ensureTrackCached(
   const { buildStorageUrls, streamFallbackUrls, getSessionId } = await import('./api');
   const sessionId = getSessionId();
   const urls = streamFallbackUrls(urn, highQualityStreaming);
-  const storageUrls = buildStorageUrls(urn, highQualityStreaming);
+  const storageUrls = buildStorageUrls(urn);
 
   return invoke<TrackCacheInfo>('track_ensure_cached', {
     urn,

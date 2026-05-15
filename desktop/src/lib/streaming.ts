@@ -102,15 +102,11 @@ function buildStreamUrl(base: string, trackUrn: string, premium: boolean, hq: bo
   return `${base}/stream/${encodeURIComponent(trackUrn)}${path}?${params.toString()}`;
 }
 
-export function buildStorageUrls(
-  trackUrn: string,
-  hq = useSettingsStore.getState().highQualityStreaming,
-): string[] {
-  const file = `${trackUrn.replace(/:/g, '_')}.ogg`;
-  const qualities = hq ? ['hq', 'sq'] : ['sq', 'hq'];
+export function buildStorageUrls(trackUrn: string): string[] {
+  const file = `${trackUrn.replace(/:/g, '_')}.m4a`;
   const bypass = useSettingsStore.getState().bypassWhitelist;
   const bases = bypass && getIsPremium() ? [BYPASS_STORAGE_BASE, STORAGE_BASE] : [STORAGE_BASE];
-  return [...new Set(bases)].flatMap((base) => qualities.map((q) => `${base}/${q}/${file}`));
+  return [...new Set(bases)].map((base) => `${base}/${file}`);
 }
 
 export function streamFallbackUrls(

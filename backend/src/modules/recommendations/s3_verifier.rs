@@ -118,26 +118,25 @@ impl S3VerifierService {
     }
 
     async fn probe(&self, sc_track_id: &str) -> bool {
-        let filename = format!("soundcloud_tracks_{sc_track_id}.ogg");
-        for quality in ["hq", "sq"] {
-            let url = format!("{}/{}/{}", self.storage_url, quality, filename);
-            match self.http.head(&url).timeout(HEAD_TIMEOUT).send().await {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    if (200..300).contains(&status) {
-                        return true;
-                    }
-                    if status != 404 && status != 410 {
-                        debug!(url, status, "HEAD non-404");
-                        return false;
-                    }
+        let url = format!(
+            "{}/soundcloud_tracks_{sc_track_id}.m4a",
+            self.storage_url
+        );
+        match self.http.head(&url).timeout(HEAD_TIMEOUT).send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                if (200..300).contains(&status) {
+                    return true;
                 }
-                Err(e) => {
-                    debug!(url, error = %e, "HEAD failed");
-                    return false;
+                if status != 404 && status != 410 {
+                    debug!(url, status, "HEAD non-404");
                 }
+                false
+            }
+            Err(e) => {
+                debug!(url, error = %e, "HEAD failed");
+                false
             }
         }
-        false
     }
 }

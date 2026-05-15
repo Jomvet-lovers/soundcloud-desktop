@@ -17,8 +17,7 @@ const TMP_RESCAN_COOLDOWN: Duration = Duration::from_secs(5);
 #[derive(serde::Serialize)]
 pub struct UploadResponse {
     pub filename: String,
-    pub hq_path: String,
-    pub sq_path: String,
+    pub path: String,
     pub duration_secs: f64,
 }
 
@@ -242,8 +241,7 @@ pub async fn upload(
 
     Ok(Json(UploadResponse {
         filename: filename.clone(),
-        hq_path: format!("hq/{filename}.ogg"),
-        sq_path: format!("sq/{filename}.ogg"),
+        path: format!("{filename}.m4a"),
         duration_secs: output.duration_secs,
     }))
 }

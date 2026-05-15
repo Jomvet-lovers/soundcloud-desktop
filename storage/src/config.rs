@@ -5,6 +5,7 @@ use std::path::PathBuf;
 pub enum BackendKind {
     Local,
     S3,
+    Gdrive,
 }
 
 #[derive(Clone, Debug)]
@@ -15,6 +16,35 @@ pub struct S3Config {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub force_path_style: bool,
+}
+
+#[derive(Clone, Debug)]
+pub enum GdriveAuth {
+    /// JSON service-account ключа (как из GCP Console). Работает только с Shared Drive
+    /// или domain-wide delegation — в личный My Drive Google запрещает с 2024.
+    ServiceAccount(String),
+    /// OAuth user creds: client_id + client_secret (от Desktop OAuth-app в GCP)
+    /// + refresh_token живого Google-аккаунта (получается один раз через consent flow,
+    /// см. tools/get-refresh-token.sh). Файлы пишутся в My Drive этого юзера и
+    /// занимают его квоту (или его долю в Google One family pool).
+    UserOAuth {
+        client_id: String,
+        client_secret: String,
+        refresh_token: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct GdriveConfig {
+    pub auth: GdriveAuth,
+    /// ID папки в Drive, в которой лежат `{filename}.m4a` файлы (плоско, без подпапок).
+    /// Для ServiceAccount-варианта папка должна быть расшарена с `client_email` SA
+    /// (Content Manager / Editor). Для UserOAuth-варианта — папка в My Drive самого юзера
+    /// (или расшаренная с него).
+    pub root_folder_id: String,
+    /// Если папка лежит в Shared Drive — указать его ID, чтобы list-запросы
+    /// шли в `corpora=drive` (поиск работает иначе на shared vs personal).
+    pub shared_drive_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -46,6 +76,7 @@ pub struct Config {
     pub disable_upload: bool,
     pub backend: BackendKind,
     pub s3: Option<S3Config>,
+    pub gdrive: Option<GdriveConfig>,
     /// JetStream URL для публикации `storage.track_uploaded`. Пусто = no-op.
     pub nats_url: String,
     /// Базовый URL для composing redirect-ссылок в payload события.
@@ -93,8 +124,11 @@ impl Config {
             .as_str()
         {
             "s3" => BackendKind::S3,
+            "gdrive" => BackendKind::Gdrive,
             "local" | "" => BackendKind::Local,
-            other => panic!("unknown STORAGE_BACKEND: {other} (expected 'local' or 's3')"),
+            other => panic!(
+                "unknown STORAGE_BACKEND: {other} (expected 'local', 's3' or 'gdrive')"
+            ),
         };
 
         let s3 = if backend == BackendKind::S3 {
@@ -110,6 +144,43 @@ impl Config {
                     .ok()
                     .map(|v| parse_bool(&v))
                     .unwrap_or(true),
+            })
+        } else {
+            None
+        };
+
+        let gdrive = if backend == BackendKind::Gdrive {
+            let oauth_refresh = env::var("GDRIVE_OAUTH_REFRESH_TOKEN")
+                .ok()
+                .filter(|v| !v.is_empty());
+            let auth = if let Some(refresh_token) = oauth_refresh {
+                GdriveAuth::UserOAuth {
+                    client_id: env::var("GDRIVE_OAUTH_CLIENT_ID")
+                        .expect("GDRIVE_OAUTH_CLIENT_ID is required for gdrive user-oauth"),
+                    client_secret: env::var("GDRIVE_OAUTH_CLIENT_SECRET")
+                        .expect("GDRIVE_OAUTH_CLIENT_SECRET is required for gdrive user-oauth"),
+                    refresh_token,
+                }
+            } else {
+                let raw = env::var("GDRIVE_SERVICE_ACCOUNT_JSON").expect(
+                    "GDRIVE_SERVICE_ACCOUNT_JSON or GDRIVE_OAUTH_REFRESH_TOKEN is required for gdrive backend",
+                );
+                let json = if raw.trim_start().starts_with('{') {
+                    raw
+                } else {
+                    std::fs::read_to_string(&raw).unwrap_or_else(|e| {
+                        panic!("GDRIVE_SERVICE_ACCOUNT_JSON: failed to read file {raw}: {e}")
+                    })
+                };
+                GdriveAuth::ServiceAccount(json)
+            };
+            Some(GdriveConfig {
+                auth,
+                root_folder_id: env::var("GDRIVE_ROOT_FOLDER_ID")
+                    .expect("GDRIVE_ROOT_FOLDER_ID is required for gdrive backend"),
+                shared_drive_id: env::var("GDRIVE_SHARED_DRIVE_ID")
+                    .ok()
+                    .filter(|v| !v.is_empty()),
             })
         } else {
             None
@@ -154,6 +225,7 @@ impl Config {
                 .unwrap_or(false),
             backend,
             s3,
+            gdrive,
             nats_url: env::var("NATS_URL").unwrap_or_default(),
             event_base_url: env::var("EVENT_BASE_URL")
                 .unwrap_or_default()

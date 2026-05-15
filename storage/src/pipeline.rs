@@ -137,7 +137,7 @@ async fn run_batch(
     )
     .await;
 
-    let mut accepted: Vec<(PipelineJob, f64, (PathBuf, PathBuf))> = Vec::with_capacity(jobs.len());
+    let mut accepted: Vec<(PipelineJob, f64, PathBuf)> = Vec::with_capacity(jobs.len());
     for (job, dur) in jobs.into_iter().zip(durations) {
         let secs = dur.unwrap_or(0.0);
         if secs > 0.0 && secs <= transcode::MIN_UPLOAD_DURATION_SECS {
@@ -148,8 +148,8 @@ async fn run_batch(
             }));
             continue;
         }
-        let outs = transcode::stage_outputs(&config.result_path(), &job.filename);
-        accepted.push((job, secs, outs));
+        let out = transcode::stage_output(&config.result_path(), &job.filename);
+        accepted.push((job, secs, out));
     }
     if accepted.is_empty() {
         return;
@@ -158,8 +158,7 @@ async fn run_batch(
     // 2. ffmpeg: try multi-input batch first; on failure, fall back per-file.
     let started = Instant::now();
     let inputs: Vec<&Path> = accepted.iter().map(|(j, _, _)| j.source.as_path()).collect();
-    let outputs: Vec<(PathBuf, PathBuf)> =
-        accepted.iter().map(|(_, _, o)| o.clone()).collect();
+    let outputs: Vec<PathBuf> = accepted.iter().map(|(_, _, o)| o.clone()).collect();
 
     let batch_res = transcode::run_ffmpeg_batch(&config.ffmpeg_bin, &inputs, &outputs).await;
 
@@ -171,23 +170,26 @@ async fn run_batch(
                 n,
                 started.elapsed().as_millis()
             );
-            for (job, secs, (hq, sq)) in accepted {
-                spawn_commit(&backend, &writer, &config, &bus, job, secs, hq, sq);
+            for (job, secs, out) in accepted {
+                spawn_commit(&backend, &writer, &config, &bus, job, secs, out);
             }
         }
         Err(err) if n > 1 => {
             warn!("[batch] ffmpeg failed n={n}: {err}; retrying per-file");
-            for (job, secs, (hq, sq)) in accepted {
+            for (job, secs, out) in accepted {
                 let cfg = config.clone();
                 let bk = backend.clone();
                 let wp = writer.clone();
                 let bs = bus.clone();
                 tokio::spawn(async move {
-                    let single =
-                        transcode::run_ffmpeg_batch(&cfg.ffmpeg_bin, &[job.source.as_path()], &[(hq.clone(), sq.clone())])
-                            .await;
+                    let single = transcode::run_ffmpeg_batch(
+                        &cfg.ffmpeg_bin,
+                        &[job.source.as_path()],
+                        &[out.clone()],
+                    )
+                    .await;
                     match single {
-                        Ok(()) => spawn_commit(&bk, &wp, &cfg, &bs, job, secs, hq, sq),
+                        Ok(()) => spawn_commit(&bk, &wp, &cfg, &bs, job, secs, out),
                         Err(e) => {
                             let _ = tokio::fs::remove_file(&job.source).await;
                             warn!("[batch] single ffmpeg failed for {}: {e}", job.filename);
@@ -214,15 +216,14 @@ fn spawn_commit(
     bus: &BusClient,
     job: PipelineJob,
     duration_secs: f64,
-    hq: PathBuf,
-    sq: PathBuf,
+    out: PathBuf,
 ) {
     let bk = backend.clone();
     let wp = writer.clone();
     let cfg = config.clone();
     let bs = bus.clone();
     tokio::spawn(async move {
-        let res = commit_pair(&bk, &wp, &cfg, &job.filename, hq, sq).await;
+        let res = commit_single(&bk, &wp, &cfg, &job.filename, out).await;
         let _ = tokio::fs::remove_file(&job.source).await;
         if res.is_ok() {
             publish_uploaded(&bs, &cfg, &job.filename);
@@ -238,36 +239,24 @@ fn publish_uploaded(bus: &BusClient, config: &Config, filename: &str) {
     let Some(sc_track_id) = bus::sc_track_id_from_filename(filename) else {
         return;
     };
-    let storage_url = format!("{}/redirect/hq/{}.ogg", config.event_base_url, filename);
+    let storage_url = format!("{}/redirect/{}.m4a", config.event_base_url, filename);
     bus.publish_track_uploaded(sc_track_id, storage_url);
 }
 
-async fn commit_pair(
+async fn commit_single(
     _backend: &Arc<Backend>,
     writer: &Arc<WriterPool>,
     _config: &Arc<Config>,
     filename: &str,
-    hq_tmp: PathBuf,
-    sq_tmp: PathBuf,
+    tmp: PathBuf,
 ) -> Result<(), PipelineError> {
-    let hq_key = backend::key_for("hq", filename);
-    let sq_key = backend::key_for("sq", filename);
-
-    let (hq_res, sq_res) = tokio::join!(
-        writer.commit(hq_key, hq_tmp.clone(), filename.to_string(), "hq"),
-        writer.commit(sq_key, sq_tmp.clone(), filename.to_string(), "sq"),
-    );
-    if let Err(e) = &hq_res {
-        warn!("[commit] hq {filename} failed: {e}");
-        let _ = tokio::fs::remove_file(&hq_tmp).await;
+    let key = backend::key_for(filename);
+    let res = writer.commit(key, tmp.clone(), filename.to_string()).await;
+    if let Err(e) = &res {
+        warn!("[commit] {filename} failed: {e}");
+        let _ = tokio::fs::remove_file(&tmp).await;
     }
-    if let Err(e) = &sq_res {
-        warn!("[commit] sq {filename} failed: {e}");
-        let _ = tokio::fs::remove_file(&sq_tmp).await;
-    }
-    hq_res?;
-    sq_res?;
-    Ok(())
+    res
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -278,7 +267,6 @@ struct WriterJob {
     key: String,
     src: PathBuf,
     filename: String,
-    quality: &'static str,
     reply: oneshot::Sender<Result<(), PipelineError>>,
 }
 
@@ -317,7 +305,6 @@ impl WriterPool {
         key: String,
         src: PathBuf,
         filename: String,
-        quality: &'static str,
     ) -> Result<(), PipelineError> {
         let (tx, rx) = oneshot::channel();
         if self
@@ -326,7 +313,6 @@ impl WriterPool {
                 key,
                 src,
                 filename,
-                quality,
                 reply: tx,
             })
             .await
@@ -348,7 +334,7 @@ async fn process_writer_job(
     let max_attempts = cfg.upload_retries.saturating_add(1);
     loop {
         let res = backend
-            .commit_transcode(&job.key, &job.src, &cfg.ffprobe_bin, &job.filename, job.quality)
+            .commit_transcode(&job.key, &job.src, &cfg.ffprobe_bin, &job.filename)
             .await;
         match res {
             Ok(()) => return Ok(()),

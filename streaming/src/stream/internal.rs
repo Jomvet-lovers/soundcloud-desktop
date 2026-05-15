@@ -4,10 +4,9 @@
 //!
 //! 1. Проверяет, что файл уже есть в storage (HEAD) — возвращает стабильный redirect-URL.
 //! 2. Иначе: качает трек (cookies HQ → oauth HQ → oauth SQ → anon), НЕ зависит от premium-only.
-//! 3. Заливает в storage через multipart /upload (storage транскодит в HQ+SQ Opus).
-//! 4. Возвращает `{ url }` вида `{storage}/redirect/hq/{file}.ogg`. В S3-режиме storage
-//!    на каждый хит пересчитывает свежий presigned и делает 307 → worker следует по нему.
-//!    В local-режиме storage отдаёт байты сам.
+//! 3. Заливает в storage через multipart /upload (storage транскодит в один AAC m4a).
+//! 4. Возвращает `{ url }` вида `{storage}/redirect/{file}.m4a`. В S3-режиме storage
+//!    пересчитывает presigned, в Gdrive — public link, в local — стримит сам.
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -43,12 +42,12 @@ pub async fn transcode_upload(
 
     let filename = StorageClient::track_filename(&track_urn);
     let storage_base = state.config.storage_url.trim_end_matches('/');
-    let hq_key = format!("hq/{filename}.ogg");
-    let hq_head_url = format!("{storage_base}/{hq_key}");
-    let redirect_url = format!("{storage_base}/redirect/{hq_key}");
+    let key = format!("{filename}.m4a");
+    let head_url = format!("{storage_base}/{key}");
+    let redirect_url = format!("{storage_base}/redirect/{key}");
 
     // 1. Уже лежит в storage → сразу отдаём стабильный redirect-URL.
-    if head_ok(&state.http_client, &hq_head_url).await {
+    if head_ok(&state.http_client, &head_url).await {
         info!("[internal/transcode-upload] {track_urn} already in storage");
         return Ok(Json(TranscodeUploadResponse {
             url: redirect_url,
@@ -62,7 +61,7 @@ pub async fn transcode_upload(
     let data = match fetch_track(&state, &track_urn).await {
         Some(d) => d,
         None => {
-            if head_ok(&state.http_client, &hq_head_url).await {
+            if head_ok(&state.http_client, &head_url).await {
                 info!("[internal/transcode-upload] {track_urn} appeared in storage after fetch fail");
                 return Ok(Json(TranscodeUploadResponse {
                     url: redirect_url,
@@ -74,7 +73,7 @@ pub async fn transcode_upload(
         }
     };
 
-    // 3. Заливаем в storage (multipart). Storage транскодит в hq+sq Opus.
+    // 3. Заливаем в storage (multipart). Storage транскодит в один AAC m4a.
     //    Если upload вернул ошибку, но файл уже лежит (гонка/повторный запрос) — ок.
     let upload_base = state.config.storage_upload_url.trim_end_matches('/');
     if let Err(e) = upload_to_storage(
@@ -86,7 +85,7 @@ pub async fn transcode_upload(
     )
     .await
     {
-        if head_ok(&state.http_client, &hq_head_url).await {
+        if head_ok(&state.http_client, &head_url).await {
             info!(
                 "[internal/transcode-upload] {track_urn} upload failed ({e}) but file present"
             );

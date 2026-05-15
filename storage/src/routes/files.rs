@@ -69,6 +69,14 @@ pub async fn redirect(
                 Err(StatusCode::INTERNAL_SERVER_ERROR)
             }
         },
+        Backend::Gdrive(gd) => match gd.public_link(&path).await {
+            Ok(url) => Ok(Redirect::temporary(&url).into_response()),
+            Err(BackendError::NotFound) => Err(StatusCode::NOT_FOUND),
+            Err(e) => {
+                warn!("[files] redirect gdrive link {path} failed: {e}");
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        },
         Backend::Local(_) => serve(State(state), Path(path)).await,
     }
 }
@@ -106,7 +114,7 @@ pub async fn head(
     Ok(builder.body(Body::empty()).unwrap())
 }
 
-/// DELETE /files/{filename} — delete both HQ and SQ
+/// DELETE /files/{filename} — delete the single m4a track
 pub async fn delete(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -126,21 +134,14 @@ pub async fn delete(
         return Err((StatusCode::BAD_REQUEST, "invalid filename".into()));
     }
 
-    let hq_key = crate::backend::key_for("hq", &filename);
-    let sq_key = crate::backend::key_for("sq", &filename);
-
-    let hq_deleted = state
+    let key = crate::backend::key_for(&filename);
+    let deleted = state
         .backend
-        .delete_file(&hq_key)
+        .delete_file(&key)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete hq: {e}")))?;
-    let sq_deleted = state
-        .backend
-        .delete_file(&sq_key)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete sq: {e}")))?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete: {e}")))?;
 
-    if hq_deleted || sq_deleted {
+    if deleted {
         info!("[files] deleted {filename}");
     } else {
         warn!("[files] {filename} not found for deletion");

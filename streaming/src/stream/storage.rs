@@ -43,20 +43,16 @@ impl StorageClient {
         track_urn.replace(':', "_")
     }
 
-    pub fn track_path(track_urn: &str, quality: &str) -> String {
-        format!("{quality}/{}.ogg", Self::track_filename(track_urn))
+    pub fn track_path(track_urn: &str) -> String {
+        format!("{}.m4a", Self::track_filename(track_urn))
     }
 
-    pub fn internal_url(&self, track_urn: &str, quality: &str) -> String {
-        format!("{}/{}", self.base_url, Self::track_path(track_urn, quality))
+    pub fn internal_url(&self, track_urn: &str) -> String {
+        format!("{}/{}", self.base_url, Self::track_path(track_urn))
     }
 
-    pub fn public_track_url(&self, track_urn: &str, quality: &str) -> String {
-        format!(
-            "{}/{}",
-            self.public_url,
-            Self::track_path(track_urn, quality)
-        )
+    pub fn public_track_url(&self, track_urn: &str) -> String {
+        format!("{}/{}", self.public_url, Self::track_path(track_urn))
     }
 
     fn is_temporarily_unavailable(&self) -> bool {
@@ -64,22 +60,18 @@ impl StorageClient {
         until > 0 && now_ms() < until
     }
 
-    pub async fn try_serve(&self, track_urn: &str, prefer_hq: bool) -> Option<String> {
+    pub async fn try_serve(&self, track_urn: &str) -> Option<String> {
         if !self.enabled() || self.is_temporarily_unavailable() {
             return None;
         }
 
-        let cached = self
-            .pg
-            .find_cached_track(track_urn, prefer_hq)
-            .await
-            .ok()??;
-        let verify_url = self.internal_url(track_urn, &cached.quality);
+        let cached = self.pg.find_cached_track(track_urn).await.ok()??;
+        let verify_url = self.internal_url(track_urn);
 
         match self.verify_url(&verify_url).await {
             VerifyResult::Ok => {
                 let _ = self.pg.update_last_accessed(&cached.id).await;
-                Some(self.public_track_url(track_urn, &cached.quality))
+                Some(self.public_track_url(track_urn))
             }
             VerifyResult::Missing => {
                 let _ = self.pg.update_cdn_track_status(&cached.id, "error").await;
@@ -103,26 +95,15 @@ impl StorageClient {
         let until = self.unavailable_until.clone();
 
         tokio::spawn(async move {
-            let hq_path = Self::track_path(&track_urn, "hq");
-            let sq_path = Self::track_path(&track_urn, "sq");
+            let cdn_path = Self::track_path(&track_urn);
 
-            let hq_id = match pg
-                .insert_cdn_track(&track_urn, "hq", &hq_path, "pending")
+            let id = match pg
+                .insert_cdn_track(&track_urn, &cdn_path, "pending")
                 .await
             {
                 Ok(id) => id,
                 Err(e) => {
-                    warn!("[storage] insert pending hq failed: {e}");
-                    return;
-                }
-            };
-            let sq_id = match pg
-                .insert_cdn_track(&track_urn, "sq", &sq_path, "pending")
-                .await
-            {
-                Ok(id) => id,
-                Err(e) => {
-                    warn!("[storage] insert pending sq failed: {e}");
+                    warn!("[storage] insert pending failed: {e}");
                     return;
                 }
             };
@@ -131,8 +112,7 @@ impl StorageClient {
                 Ok(()) => {
                     consec.store(0, Ordering::Relaxed);
                     until.store(0, Ordering::Relaxed);
-                    let _ = pg.update_cdn_track_status(&hq_id, "ok").await;
-                    let _ = pg.update_cdn_track_status(&sq_id, "ok").await;
+                    let _ = pg.update_cdn_track_status(&id, "ok").await;
                     info!(
                         "[storage] uploaded {} ({:.1} MB)",
                         filename,
@@ -149,8 +129,7 @@ impl StorageClient {
                         warn!("[storage] breaker opened after {} upload failures", prev + 1);
                     }
                     warn!("[storage] upload failed for {filename}: {e}");
-                    let _ = pg.update_cdn_track_status(&hq_id, "error").await;
-                    let _ = pg.update_cdn_track_status(&sq_id, "error").await;
+                    let _ = pg.update_cdn_track_status(&id, "error").await;
                 }
             }
         });

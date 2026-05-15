@@ -17,7 +17,7 @@ mod pipeline;
 mod routes;
 mod transcode;
 
-use backend::{Backend, LocalBackend, S3Backend};
+use backend::{Backend, GdriveBackend, LocalBackend, S3Backend};
 use bus::BusClient;
 use config::{BackendKind, Config};
 use pipeline::Pipeline;
@@ -105,6 +105,17 @@ async fn main() {
                 s3_cfg.bucket, s3_cfg.endpoint, s3_cfg.region
             );
             Backend::S3(b)
+        }
+        BackendKind::Gdrive => {
+            let gd_cfg = config.gdrive.as_ref().expect("Gdrive config missing");
+            let b = GdriveBackend::new(gd_cfg)
+                .await
+                .expect("failed to init gdrive backend");
+            info!(
+                "backend=gdrive root_folder_id={} shared_drive_id={:?}",
+                gd_cfg.root_folder_id, gd_cfg.shared_drive_id
+            );
+            Backend::Gdrive(b)
         }
     };
     let backend = Arc::new(backend);

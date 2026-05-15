@@ -273,7 +273,7 @@ const CacheSection = React.memo(function CacheSection() {
       const entries: LikeCacheEntry[] = tracks.map((track) => ({
         urn: track.urn,
         urls: streamFallbackUrls(track.urn, hq),
-        storageUrls: buildStorageUrls(track.urn, hq),
+        storageUrls: buildStorageUrls(track.urn),
         sessionId,
       }));
       if (entries.length === 0) {

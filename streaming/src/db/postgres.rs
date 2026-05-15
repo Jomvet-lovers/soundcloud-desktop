@@ -28,8 +28,6 @@ pub struct SessionInfo {
 pub struct CdnTrackRecord {
     pub id: String,
     pub track_urn: String,
-    pub quality: String,
-    pub cdn_path: Option<String>,
     pub status: String,
 }
 
@@ -71,41 +69,23 @@ impl PgPool {
         }))
     }
 
-    /// Find cached CDN track (prefer HQ if specified)
+    /// Найти CDN-запись для трека (после m4a-перехода — одна на трек).
+    /// Старые hq/sq-строки могут ещё быть в БД, но указывают на снесённые
+    /// .ogg-файлы. Берём по `quality='single'`, чтобы их не задеть.
     pub async fn find_cached_track(
         &self,
         track_urn: &str,
-        prefer_hq: bool,
     ) -> Result<Option<CdnTrackRecord>, PgError> {
         let client = self.pool.get().await?;
-        let rows = client
-            .query(
-                r#"SELECT id, track_urn, quality, cdn_path, status
+        let row = client
+            .query_opt(
+                r#"SELECT id, track_urn, status
                    FROM cdn_tracks
-                   WHERE track_urn = $1 AND status = 'ok'"#,
+                   WHERE track_urn = $1 AND quality = 'single' AND status = 'ok'"#,
                 &[&track_urn],
             )
             .await?;
-
-        if rows.is_empty() {
-            return Ok(None);
-        }
-
-        if prefer_hq {
-            if let Some(hq) = rows.iter().find(|r| {
-                let q: String = r.get(2);
-                q == "hq"
-            }) {
-                return Ok(Some(row_to_cdn_track(hq)));
-            }
-        } else if let Some(sq) = rows.iter().find(|r| {
-            let q: String = r.get(2);
-            q == "sq"
-        }) {
-            return Ok(Some(row_to_cdn_track(sq)));
-        }
-
-        Ok(Some(row_to_cdn_track(&rows[0])))
+        Ok(row.as_ref().map(row_to_cdn_track))
     }
 
     /// Update last_accessed_at on CDN track
@@ -120,15 +100,18 @@ impl PgPool {
         Ok(())
     }
 
-    /// Insert a new cdn_track record (upsert on conflict)
+    /// Insert (upsert) the single cdn_track row for a track.
+    /// Колонка `quality` сохранена для совместимости со старой схемой —
+    /// всегда пишем `'single'`, чтобы не конфликтовать с легаси hq/sq-строками
+    /// и попадать в уникальный индекс `(track_urn, quality)`.
     pub async fn insert_cdn_track(
         &self,
         track_urn: &str,
-        quality: &str,
         cdn_path: &str,
         status: &str,
     ) -> Result<String, PgError> {
         let id = Uuid::now_v7().to_string();
+        let quality = "single";
         let client = self.pool.get().await?;
         client
             .execute(
@@ -162,7 +145,7 @@ impl PgPool {
         let interval = format!("{older_than_days} days");
         let rows = client
             .query(
-                r#"SELECT id, track_urn, quality, cdn_path, status
+                r#"SELECT id, track_urn, status
                    FROM cdn_tracks
                    WHERE status = 'ok'
                      AND last_accessed_at < NOW() - $1::interval
@@ -182,7 +165,7 @@ impl PgPool {
         let client = self.pool.get().await?;
         let rows = client
             .query(
-                r#"SELECT id, track_urn, quality, cdn_path, status
+                r#"SELECT id, track_urn, status
                    FROM cdn_tracks
                    WHERE status = 'ok'
                    ORDER BY last_accessed_at ASC
@@ -240,8 +223,6 @@ fn row_to_cdn_track(row: &tokio_postgres::Row) -> CdnTrackRecord {
     CdnTrackRecord {
         id: row.get::<_, Uuid>(0).to_string(),
         track_urn: row.get(1),
-        quality: row.get(2),
-        cdn_path: row.get(3),
-        status: row.get(4),
+        status: row.get(2),
     }
 }

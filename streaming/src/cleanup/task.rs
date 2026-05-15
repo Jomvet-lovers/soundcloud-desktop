@@ -35,11 +35,12 @@ async fn run_cleanup(config: &Config, pg: &PgPool, storage: &StorageClient) {
         match pg.get_stale_cdn_tracks(config.storage_cleanup_days).await {
             Ok(tracks) => {
                 for track in tracks {
-                    if let Some(ref path) = track.cdn_path {
-                        if let Err(e) = storage.delete_file(path).await {
-                            warn!("[cleanup] failed to delete storage file {path}: {e}");
-                            continue;
-                        }
+                    if let Err(e) = storage.delete_file(&track.track_urn).await {
+                        warn!(
+                            "[cleanup] failed to delete storage file for {}: {e}",
+                            track.track_urn
+                        );
+                        continue;
                     }
                     if let Err(e) = pg.delete_cdn_track(&track.id).await {
                         warn!("[cleanup] failed to delete PG record {}: {e}", track.id);
@@ -57,11 +58,12 @@ async fn run_cleanup(config: &Config, pg: &PgPool, storage: &StorageClient) {
             match pg.get_cdn_tracks_oldest_first(100).await {
                 Ok(tracks) if !tracks.is_empty() => {
                     for track in tracks {
-                        if let Some(ref path) = track.cdn_path {
-                            if let Err(e) = storage.delete_file(path).await {
-                                warn!("[cleanup] size-cleanup failed to delete {path}: {e}");
-                                continue;
-                            }
+                        if let Err(e) = storage.delete_file(&track.track_urn).await {
+                            warn!(
+                                "[cleanup] size-cleanup failed to delete {}: {e}",
+                                track.track_urn
+                            );
+                            continue;
                         }
                         let _ = pg.delete_cdn_track(&track.id).await;
                         deleted += 1;

@@ -4,9 +4,11 @@ use std::pin::Pin;
 use bytes::Bytes;
 use futures::Stream;
 
+pub mod gdrive;
 pub mod local;
 pub mod s3;
 
+pub use gdrive::GdriveBackend;
 pub use local::LocalBackend;
 pub use s3::S3Backend;
 
@@ -31,6 +33,7 @@ pub enum BackendError {
 pub enum Backend {
     Local(LocalBackend),
     S3(S3Backend),
+    Gdrive(GdriveBackend),
 }
 
 impl Backend {
@@ -42,14 +45,14 @@ impl Backend {
         src_tmp: &Path,
         ffprobe_bin: &str,
         filename: &str,
-        quality: &str,
     ) -> Result<(), BackendError> {
         match self {
             Backend::Local(b) => {
-                b.commit_transcode(key, src_tmp, ffprobe_bin, filename, quality)
+                b.commit_transcode(key, src_tmp, ffprobe_bin, filename)
                     .await
             }
             Backend::S3(b) => b.put_file(key, src_tmp).await,
+            Backend::Gdrive(b) => b.put_file(key, src_tmp).await,
         }
     }
 
@@ -57,6 +60,7 @@ impl Backend {
         match self {
             Backend::Local(b) => b.delete_file(key).await,
             Backend::S3(b) => b.delete_file(key).await,
+            Backend::Gdrive(b) => b.delete_file(key).await,
         }
     }
 
@@ -64,6 +68,7 @@ impl Backend {
         match self {
             Backend::Local(b) => b.head(key).await,
             Backend::S3(b) => b.head(key).await,
+            Backend::Gdrive(b) => b.head(key).await,
         }
     }
 
@@ -74,16 +79,19 @@ impl Backend {
         match self {
             Backend::Local(b) => b.stream(key).await,
             Backend::S3(b) => b.stream(key).await,
+            Backend::Gdrive(b) => b.stream(key).await,
         }
     }
 }
 
-pub fn key_for(quality: &str, filename: &str) -> String {
-    format!("{quality}/{filename}.ogg")
+pub fn key_for(filename: &str) -> String {
+    format!("{filename}.m4a")
 }
 
 pub fn content_type_for(key: &str) -> &'static str {
-    if key.ends_with(".ogg") {
+    if key.ends_with(".m4a") {
+        "audio/mp4"
+    } else if key.ends_with(".ogg") {
         "audio/ogg"
     } else if key.ends_with(".mp3") {
         "audio/mpeg"

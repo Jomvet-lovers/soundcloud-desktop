@@ -16,8 +16,6 @@ pub struct LocalBackend {
 impl LocalBackend {
     pub async fn new(root: &str) -> Result<Self, BackendError> {
         tokio::fs::create_dir_all(root).await?;
-        tokio::fs::create_dir_all(PathBuf::from(root).join("hq")).await?;
-        tokio::fs::create_dir_all(PathBuf::from(root).join("sq")).await?;
         Ok(Self {
             root: PathBuf::from(root),
         })
@@ -33,11 +31,10 @@ impl LocalBackend {
         src_tmp: &Path,
         ffprobe_bin: &str,
         filename: &str,
-        quality: &str,
     ) -> Result<(), BackendError> {
         let dst = self.path_for(key);
 
-        if should_keep_existing(&dst, src_tmp, quality, ffprobe_bin).await {
+        if should_keep_existing(&dst, src_tmp, ffprobe_bin).await {
             let _ = tokio::fs::remove_file(src_tmp).await;
             return Ok(());
         }
@@ -50,7 +47,7 @@ impl LocalBackend {
         })?;
         tokio::fs::create_dir_all(dst_dir).await?;
 
-        let stage_path = dst_dir.join(format!(".{filename}.{quality}.{}.tmp", Uuid::new_v4()));
+        let stage_path = dst_dir.join(format!(".{filename}.{}.tmp", Uuid::new_v4()));
 
         if let Err(err) = move_or_copy_file(src_tmp, &stage_path).await {
             let _ = tokio::fs::remove_file(&stage_path).await;
@@ -125,12 +122,7 @@ async fn probe_duration(path: &Path, ffprobe_bin: &str) -> Option<f64> {
     String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }
 
-async fn should_keep_existing(
-    dst: &Path,
-    src_tmp: &Path,
-    quality: &str,
-    ffprobe_bin: &str,
-) -> bool {
+async fn should_keep_existing(dst: &Path, src_tmp: &Path, ffprobe_bin: &str) -> bool {
     if tokio::fs::metadata(dst).await.is_err() {
         return false;
     }
@@ -142,7 +134,7 @@ async fn should_keep_existing(
     };
     if existing + DURATION_EPSILON_SECS >= candidate {
         info!(
-            "[local] keeping existing {quality} {:.3}s >= new {:.3}s",
+            "[local] keeping existing {:.3}s >= new {:.3}s",
             existing, candidate
         );
         return true;

@@ -35,7 +35,7 @@ ENV PORT=3000 \
     S3_REGION=us-east-1 \
     S3_FORCE_PATH_STYLE=true
 
-RUN mkdir -p /data/storage/hq /data/storage/sq /var/cache/acme
+RUN mkdir -p /data/storage /var/cache/acme
 
 EXPOSE 3000 80 443
 

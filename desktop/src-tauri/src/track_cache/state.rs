@@ -291,8 +291,9 @@ fn host_of(url: &str) -> Option<String> {
     Url::parse(url).ok()?.host_str().map(str::to_string)
 }
 
-/// Convert a storage stream URL (`<base>/sq/<file>`) into a redirect URL
-/// (`<base>/redirect/sq/<file>`) that 307s to a presigned S3 URL.
+/// Convert a storage stream URL (`<base>/<file>.m4a`) into a redirect URL
+/// (`<base>/redirect/<file>.m4a`) that 307s to a backend-direct download
+/// (presigned S3 URL or public Drive link, depending on storage backend).
 fn make_redirect_url(storage_url: &str) -> Option<String> {
     let mut parsed = Url::parse(storage_url).ok()?;
     let path = parsed.path().trim_start_matches('/').to_string();
@@ -849,9 +850,9 @@ impl TrackCacheState {
             if healthy { 0 } else { 1 }
         });
 
-        // 1. Try storage `/redirect/...` URLs — fast presign + direct S3 download.
-        //    Saves storage server bandwidth when S3 is reachable from the user.
-        //    No cooldown is recorded here: a failure may be S3-side (banned/blocked),
+        // 1. Try storage `/redirect/...` URLs — fast 307 to presigned S3 / public Drive.
+        //    Saves storage server bandwidth when the upstream is reachable.
+        //    No cooldown is recorded here: a failure may be backend-side (banned/blocked),
         //    but the storage stream fallback (step 3) might still work.
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
@@ -860,16 +861,11 @@ impl TrackCacheState {
             let Some(redirect_url) = make_redirect_url(storage_url) else {
                 continue;
             };
-            let prefer_hq = storage_url.contains("/hq/");
 
             match self.client.get(&redirect_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    let quality = if prefer_hq {
-                        PlaybackQuality::Hq
-                    } else {
-                        PlaybackQuality::Sq
-                    };
-                    println!("[TrackCache] {urn} → s3 (redirect via {host})");
+                    let quality = PlaybackQuality::Hq;
+                    println!("[TrackCache] {urn} → storage (redirect via {host})");
                     match write_response_to_cache(
                         target_dir,
                         urn,
@@ -963,8 +959,8 @@ impl TrackCacheState {
             }
         }
 
-        // 3. Storage stream fallback — proxies S3 bytes through the storage server.
-        //    Used when the user cannot reach S3 directly (e.g. region-blocked).
+        // 3. Storage stream fallback — proxies bytes through the storage server.
+        //    Used when the user cannot reach the storage backend directly (e.g. region-blocked).
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
                 continue;
@@ -972,16 +968,11 @@ impl TrackCacheState {
             if !self.storage_host_available(&host) {
                 continue;
             }
-            let prefer_hq = storage_url.contains("/hq/");
 
             match self.storage_client.get(*storage_url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     self.mark_storage_host_ok(&host);
-                    let quality = if prefer_hq {
-                        PlaybackQuality::Hq
-                    } else {
-                        PlaybackQuality::Sq
-                    };
+                    let quality = PlaybackQuality::Hq;
                     println!("[TrackCache] {urn} → storage stream ({host})");
                     match write_response_to_cache(
                         target_dir,

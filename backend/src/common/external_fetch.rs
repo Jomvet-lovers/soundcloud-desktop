@@ -24,6 +24,8 @@ use crate::error::{AppError, AppResult};
 const SCRAPE_RELAY_RETRIES: u32 = 3;
 const SCRAPE_RETRY_BASE_MS: u64 = 800;
 
+const RACE_BOUNDED_GRACE: Duration = Duration::from_secs(8);
+
 #[derive(Clone)]
 pub struct ExternalFetcher {
     inner: Arc<Inner>,
@@ -123,20 +125,40 @@ impl ExternalFetcher {
         let relay_set = self.inner.relay.is_some();
         match (relay_set, proxy_set) {
             (true, true) => {
-                let relay_fut: std::pin::Pin<
-                    Box<dyn std::future::Future<Output = AppResult<Bytes>> + Send + '_>,
-                > = Box::pin(self.send_relay(
+                let relay_fut = self.send_relay(
                     method.clone(),
                     url.to_string(),
                     headers.clone(),
                     body.clone(),
-                ));
-                let proxy_fut: std::pin::Pin<
-                    Box<dyn std::future::Future<Output = AppResult<Bytes>> + Send + '_>,
-                > = Box::pin(self.send_proxy(method, url, headers, body));
-                match futures::future::select_ok(vec![relay_fut, proxy_fut]).await {
-                    Ok((b, _)) => Ok(b),
-                    Err(e) => Err(e),
+                );
+                let proxy_fut = self.send_proxy(method, url, headers, body);
+                tokio::pin!(relay_fut);
+                tokio::pin!(proxy_fut);
+
+                tokio::select! {
+                    relay_res = relay_fut.as_mut() => match relay_res {
+                        Ok(b) => Ok(b),
+                        Err(relay_err) => {
+                            await_other_with_grace(proxy_fut, RACE_BOUNDED_GRACE, relay_err).await
+                        }
+                    },
+                    proxy_res = proxy_fut.as_mut() => match proxy_res {
+                        Ok(b) => Ok(b),
+                        Err(proxy_err) => {
+                            let unbounded = matches!(
+                                &proxy_err,
+                                AppError::ScApi { status: 502, .. },
+                            );
+                            if unbounded {
+                                match relay_fut.await {
+                                    Ok(b) => Ok(b),
+                                    Err(_) => Err(proxy_err),
+                                }
+                            } else {
+                                await_other_with_grace(relay_fut, RACE_BOUNDED_GRACE, proxy_err).await
+                            }
+                        }
+                    },
                 }
             }
             (true, false) => {
@@ -263,5 +285,19 @@ impl ExternalFetcher {
             });
         }
         Ok(resp.body)
+    }
+}
+
+async fn await_other_with_grace<F>(
+    other: F,
+    grace: Duration,
+    original_err: AppError,
+) -> AppResult<Bytes>
+where
+    F: std::future::Future<Output = AppResult<Bytes>>,
+{
+    match tokio::time::timeout(grace, other).await {
+        Ok(Ok(b)) => Ok(b),
+        Ok(Err(_)) | Err(_) => Err(original_err),
     }
 }

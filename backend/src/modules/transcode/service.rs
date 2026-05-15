@@ -32,10 +32,11 @@ impl TranscodeTriggerService {
         let this = self.clone();
         let id = sc_track_id.to_string();
         tokio::spawn(async move {
+            let urn = format!("soundcloud:tracks:{id}");
             let url = format!(
                 "{}/internal/transcode-upload/{}",
                 this.config.streaming.service_url,
-                urlencoding::encode(&id),
+                urlencoding::encode(&urn),
             );
             let token = &this.config.internal.token;
             let req = this

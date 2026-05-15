@@ -9,6 +9,7 @@ use tracing::debug;
 
 const MAX_RETRIES: usize = 3;
 const RETRY_DELAYS: [u64; 3] = [300, 800, 2000];
+const RACE_BOUNDED_GRACE: Duration = Duration::from_secs(8);
 
 static RELAY: OnceLock<Arc<call_relay::Client>> = OnceLock::new();
 
@@ -142,15 +143,46 @@ async fn race_relay_proxy(
     target_url: &str,
     extra: HashMap<String, String>,
 ) -> FetchResult {
-    let relay_fut: std::pin::Pin<
-        Box<dyn std::future::Future<Output = FetchResult> + Send>,
-    > = Box::pin(via_relay(relay, target_url.to_string(), extra.clone()));
-    let proxy_fut: std::pin::Pin<
-        Box<dyn std::future::Future<Output = FetchResult> + Send>,
-    > = Box::pin(via_proxy(client, proxy_url, target_url, extra));
-    match futures::future::select_ok(vec![relay_fut, proxy_fut]).await {
-        Ok((v, _)) => Ok(v),
-        Err(e) => Err(e),
+    let relay_fut = via_relay(relay, target_url.to_string(), extra.clone());
+    let proxy_fut = via_proxy(client, proxy_url, target_url, extra);
+    tokio::pin!(relay_fut);
+    tokio::pin!(proxy_fut);
+
+    tokio::select! {
+        relay_res = relay_fut.as_mut() => match relay_res {
+            Ok(v) => Ok(v),
+            Err(relay_err) => {
+                await_other_with_grace(proxy_fut, RACE_BOUNDED_GRACE, relay_err).await
+            }
+        },
+        proxy_res = proxy_fut.as_mut() => match proxy_res {
+            Ok(v) => Ok(v),
+            Err(proxy_err) => {
+                let unbounded = proxy_err.to_string() == "status 502";
+                if unbounded {
+                    match relay_fut.await {
+                        Ok(v) => Ok(v),
+                        Err(_) => Err(proxy_err),
+                    }
+                } else {
+                    await_other_with_grace(relay_fut, RACE_BOUNDED_GRACE, proxy_err).await
+                }
+            }
+        },
+    }
+}
+
+async fn await_other_with_grace<F>(
+    other: F,
+    grace: Duration,
+    original_err: Box<dyn std::error::Error + Send + Sync>,
+) -> FetchResult
+where
+    F: std::future::Future<Output = FetchResult>,
+{
+    match tokio::time::timeout(grace, other).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(_)) | Err(_) => Err(original_err),
     }
 }
 

@@ -48,11 +48,10 @@ pub async fn stream_normal(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    let hq = query.hq.as_deref() == Some("true");
     let secret_token = query.secret_token.as_deref();
 
     // 1. Try CDN
-    if let Some(cdn_url) = state.storage.try_serve(&track_urn, hq).await {
+    if let Some(cdn_url) = state.storage.try_serve(&track_urn).await {
         info!("[stream] {track_urn} → CDN redirect");
         return Ok(Redirect::temporary(&cdn_url).into_response());
     }
@@ -116,7 +115,7 @@ pub async fn stream_premium(
     }
 
     // 1. Try CDN
-    if let Some(cdn_url) = state.storage.try_serve(&track_urn, hq).await {
+    if let Some(cdn_url) = state.storage.try_serve(&track_urn).await {
         info!("[stream/premium] {track_urn} → CDN redirect");
         return Ok(Redirect::temporary(&cdn_url).into_response());
     }
