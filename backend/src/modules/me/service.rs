@@ -188,7 +188,7 @@ impl MeService {
              FROM user_likes_tracks ulk \
              LEFT JOIN indexed_tracks it ON it.sc_track_id = ulk.sc_track_id \
              WHERE ulk.user_id = $1 AND ulk.wanted_state = true \
-             ORDER BY ulk.created_at DESC \
+             ORDER BY ulk.ctid DESC \
              LIMIT $2 OFFSET $3",
         )
         .bind(sc_user_id)
