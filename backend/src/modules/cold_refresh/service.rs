@@ -552,32 +552,38 @@ async fn batch_upsert_mirror(
     // mirror-форм (owned-с-payload, likes/followings, плейн-owned). Имена
     // подставляются через format!() из &'static str — user-input в SQL не
     // попадает.
+    //
+    // `created_at = clock_timestamp()` (volatile per-row), а не дефолтный
+    // `now()` (transaction-time, одинаков на весь батч): без этого 500 строк
+    // refresh-батча получают идентичный ts и ORDER BY теряет SC-порядок.
+    // ON CONFLICT updates НЕ переписывают created_at — сохраняем initial seed
+    // позицию между refresh'ами.
     let (select_cols, update_set) = if let Some(p) = coll.mirror_payload_col {
         (
-            format!("$1, t.k, t.p, false, now()"),
+            "$1, t.k, t.p, false, now(), clock_timestamp()".to_string(),
             format!("{p} = EXCLUDED.{p}, synced_at = now()"),
         )
     } else if coll.has_wanted_state {
         (
-            "$1, t.k, true, false, now()".to_string(),
+            "$1, t.k, true, false, now(), clock_timestamp()".to_string(),
             "synced_at = now()".to_string(),
         )
     } else {
         (
-            "$1, t.k, false, now()".to_string(),
+            "$1, t.k, false, now(), clock_timestamp()".to_string(),
             "synced_at = now()".to_string(),
         )
     };
 
     let insert_cols = if coll.mirror_payload_col.is_some() {
         format!(
-            "user_id, {key_col}, {}, progress, synced_at",
+            "user_id, {key_col}, {}, progress, synced_at, created_at",
             coll.mirror_payload_col.unwrap()
         )
     } else if coll.has_wanted_state {
-        format!("user_id, {key_col}, wanted_state, progress, synced_at")
+        format!("user_id, {key_col}, wanted_state, progress, synced_at, created_at")
     } else {
-        format!("user_id, {key_col}, progress, synced_at")
+        format!("user_id, {key_col}, progress, synced_at, created_at")
     };
 
     let from_clause = if coll.mirror_payload_col.is_some() {
