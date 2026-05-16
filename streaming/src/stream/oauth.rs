@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use super::hls::{download_hls_full, download_progressive};
+use std::sync::Arc;
+
+use super::hls::{download_hls, download_progressive, fetch_m3u8_source, M3u8Refresher};
 use super::proxy::fetch_get_json;
 use crate::db::postgres::PgPool;
 
@@ -254,7 +256,34 @@ async fn try_format_inner(
     headers.insert("Authorization".into(), format!("OAuth {access_token}"));
 
     let (data, content_type) = if proto == "hls" {
-        download_hls_full(client, proxy_url, url, mime, headers, direct_only).await?
+        // SC regenerates freshly-signed segment URLs every time this redirect
+        // URL is fetched with the OAuth header, so the refresher is just the
+        // same request again.
+        let refresher: M3u8Refresher = {
+            let client = client.clone();
+            let proxy_url = proxy_url.to_string();
+            let url = url.to_string();
+            let headers = headers.clone();
+            Arc::new(move || {
+                let client = client.clone();
+                let proxy_url = proxy_url.clone();
+                let url = url.clone();
+                let headers = headers.clone();
+                Box::pin(async move {
+                    fetch_m3u8_source(&client, &proxy_url, &url, headers, direct_only).await
+                })
+            })
+        };
+        download_hls(
+            client,
+            proxy_url,
+            url,
+            mime,
+            headers,
+            direct_only,
+            Some(refresher),
+        )
+        .await?
     } else {
         download_progressive(client, proxy_url, url, mime, headers, direct_only).await?
     };

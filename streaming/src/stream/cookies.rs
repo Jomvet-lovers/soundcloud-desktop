@@ -4,8 +4,10 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::{debug, info, warn};
 
+use std::sync::Arc;
+
 use super::anon::{AnonClient, Transcoding};
-use super::hls::{download_hls_full, download_progressive};
+use super::hls::{download_hls, download_progressive, fetch_m3u8_source, M3u8Refresher};
 use super::proxy::{fetch_get_json, fetch_get_text};
 
 const FAILURE_THRESHOLD: u32 = 3;
@@ -34,6 +36,11 @@ struct CookieHydrationSound {
 #[derive(Debug, serde::Deserialize)]
 struct CookieHydrationMedia {
     transcodings: Option<Vec<Transcoding>>,
+}
+
+#[derive(serde::Deserialize)]
+struct ResolveResp {
+    url: String,
 }
 
 impl CookiesClient {
@@ -195,13 +202,8 @@ impl CookiesClient {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36".into(),
         );
 
-        #[derive(serde::Deserialize)]
-        struct ResolveResp {
-            url: String,
-        }
-
         let resp: ResolveResp =
-            fetch_get_json(&self.client, &self.proxy_url, &target, headers, false).await?;
+            fetch_get_json(&self.client, &self.proxy_url, &target, headers.clone(), false).await?;
 
         let mime = transcoding
             .format
@@ -225,13 +227,40 @@ impl CookiesClient {
             )
             .await
         } else {
-            download_hls_full(
+            // Re-resolve the transcoding (fresh client_id-signed playlist)
+            // when segment tokens expire mid-stream.
+            let refresher: M3u8Refresher = {
+                let client = self.client.clone();
+                let proxy_url = self.proxy_url.clone();
+                let target = target.clone();
+                let headers = headers.clone();
+                Arc::new(move || {
+                    let client = client.clone();
+                    let proxy_url = proxy_url.clone();
+                    let target = target.clone();
+                    let headers = headers.clone();
+                    Box::pin(async move {
+                        let resp: ResolveResp =
+                            fetch_get_json(&client, &proxy_url, &target, headers, false).await?;
+                        fetch_m3u8_source(
+                            &client,
+                            &proxy_url,
+                            &resp.url,
+                            HashMap::new(),
+                            false,
+                        )
+                        .await
+                    })
+                })
+            };
+            download_hls(
                 &self.client,
                 &self.proxy_url,
                 &resp.url,
                 mime,
                 HashMap::new(),
                 false,
+                Some(refresher),
             )
             .await
         }
@@ -257,7 +286,7 @@ impl CookiesClient {
         let prev = self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
         let n = prev + 1;
         // Log at threshold, then every 25 failures to indicate sustained degradation.
-        if n == FAILURE_THRESHOLD || (n > FAILURE_THRESHOLD && n % 25 == 0) {
+        if n == FAILURE_THRESHOLD || (n > FAILURE_THRESHOLD && n.is_multiple_of(25)) {
             warn!("[cookies] consecutive failures: {n}");
         } else {
             debug!("[cookies] consecutive failures: {n}");

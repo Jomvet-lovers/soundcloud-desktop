@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use super::hls::{download_hls_full, download_progressive};
+use super::hls::{download_hls, download_progressive, fetch_m3u8_source, M3u8Refresher};
 use super::proxy::{fetch_get_json, fetch_get_text};
 
 const SC_BASE_URL: &str = "https://soundcloud.com";
@@ -183,7 +183,7 @@ impl AnonClient {
 
     /// Get stream for track via anon API v2
     pub async fn get_stream(
-        &self,
+        self: &Arc<Self>,
         track_urn: &str,
     ) -> Result<Option<AnonStreamResult>, Box<dyn std::error::Error + Send + Sync>> {
         let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
@@ -255,7 +255,7 @@ impl AnonClient {
     }
 
     async fn stream_from_transcodings(
-        &self,
+        self: &Arc<Self>,
         transcodings: &[Transcoding],
     ) -> Result<Option<AnonStreamResult>, Box<dyn std::error::Error + Send + Sync>> {
         let ranked = ranked_transcodings(transcodings);
@@ -299,13 +299,33 @@ impl AnonClient {
                 )
                 .await
             } else {
-                download_hls_full(
+                let refresher: M3u8Refresher = {
+                    let me = Arc::clone(self);
+                    let transcoding_url = t.url.clone();
+                    Arc::new(move || {
+                        let me = Arc::clone(&me);
+                        let transcoding_url = transcoding_url.clone();
+                        Box::pin(async move {
+                            let media = me.resolve_transcoding_url(&transcoding_url, None).await?;
+                            fetch_m3u8_source(
+                                &me.client,
+                                &me.proxy_url,
+                                &media,
+                                HashMap::new(),
+                                false,
+                            )
+                            .await
+                        })
+                    })
+                };
+                download_hls(
                     &self.client,
                     &self.proxy_url,
                     &media_url,
                     mime,
                     HashMap::new(),
                     false,
+                    Some(refresher),
                 )
                 .await
             };
@@ -437,4 +457,63 @@ fn build_resolve_target(url: &str, client_id: &str) -> String {
         .append_pair("client_id", client_id)
         .finish();
     format!("{SC_API_V2}/resolve?{query}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_MEDIA: &str = r#"{
+        "transcodings": [
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/0e383483-3590-44ee-a4a3-c25df162579f/stream/cbc-encrypted-hls", "preset": "aac_160k", "duration": 148821, "snipped": false, "quality": "sq", "is_legacy_transcoding": false, "format": { "protocol": "cbc-encrypted-hls", "mime_type": "audio/mp4; codecs=\"mp4a.40.2\"" } },
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/0e383483-3590-44ee-a4a3-c25df162579f/stream/ctr-encrypted-hls", "preset": "aac_160k", "duration": 148821, "snipped": false, "quality": "sq", "is_legacy_transcoding": false, "format": { "protocol": "ctr-encrypted-hls", "mime_type": "audio/mp4; codecs=\"mp4a.40.2\"" } },
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/31935ff7-e765-4086-8771-431fe2306b83/stream/cbc-encrypted-hls", "preset": "aac_96k", "duration": 148821, "snipped": false, "quality": "lq", "is_legacy_transcoding": false, "format": { "protocol": "cbc-encrypted-hls", "mime_type": "audio/mp4; codecs=\"mp4a.40.2\"" } },
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/31935ff7-e765-4086-8771-431fe2306b83/stream/ctr-encrypted-hls", "preset": "aac_96k", "duration": 148821, "snipped": false, "quality": "lq", "is_legacy_transcoding": false, "format": { "protocol": "ctr-encrypted-hls", "mime_type": "audio/mp4; codecs=\"mp4a.40.2\"" } },
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/66fd47a6-5e9f-4eb5-ad45-e2a5e6caa04d/stream/cbc-encrypted-hls", "preset": "abr_sq", "duration": 148821, "snipped": false, "quality": "sq", "is_legacy_transcoding": false, "format": { "protocol": "cbc-encrypted-hls", "mime_type": "audio/mpegurl" } },
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/66fd47a6-5e9f-4eb5-ad45-e2a5e6caa04d/stream/ctr-encrypted-hls", "preset": "abr_sq", "duration": 148821, "snipped": false, "quality": "sq", "is_legacy_transcoding": false, "format": { "protocol": "ctr-encrypted-hls", "mime_type": "audio/mpegurl" } },
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/1dc4586b-cb41-46d1-89c9-5aed528f6620/stream/hls", "preset": "mp3_1_0", "duration": 148846, "snipped": false, "quality": "sq", "is_legacy_transcoding": true, "format": { "protocol": "hls", "mime_type": "audio/mpeg" } },
+            { "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2028682452/1dc4586b-cb41-46d1-89c9-5aed528f6620/stream/progressive", "preset": "mp3_1_0", "duration": 148846, "snipped": false, "quality": "sq", "is_legacy_transcoding": true, "format": { "protocol": "progressive", "mime_type": "audio/mpeg" } }
+        ]
+    }"#;
+
+    fn protocol(t: &Transcoding) -> &str {
+        t.format
+            .as_ref()
+            .and_then(|f| f.protocol.as_deref())
+            .unwrap_or("")
+    }
+
+    #[test]
+    fn anon_picks_mp3_progressive_first_when_others_encrypted() {
+        let media: TrackMedia = serde_json::from_str(SAMPLE_MEDIA).unwrap();
+        let transcodings = media.transcodings.expect("transcodings present");
+
+        let ranked = ranked_transcodings(&transcodings);
+
+        // Encrypted (cbc/ctr) variants are filtered out entirely: only the
+        // two legacy mp3_1_0 entries survive.
+        assert_eq!(
+            ranked.len(),
+            2,
+            "only non-encrypted mp3_1_0 transcodings should remain"
+        );
+        assert!(
+            ranked.iter().all(|t| !protocol(t).contains("encrypted")),
+            "no encrypted transcoding may survive the filter"
+        );
+
+        // First attempt: progressive mp3_1_0 (single GET, safest).
+        let first = ranked[0];
+        assert_eq!(protocol(first), "progressive");
+        assert_eq!(first.preset.as_deref(), Some("mp3_1_0"));
+        assert_eq!(
+            first.format.as_ref().and_then(|f| f.mime_type.as_deref()),
+            Some("audio/mpeg")
+        );
+
+        // Fallback: the mp3_1_0 HLS variant.
+        let second = ranked[1];
+        assert_eq!(protocol(second), "hls");
+        assert_eq!(second.preset.as_deref(), Some("mp3_1_0"));
+    }
 }

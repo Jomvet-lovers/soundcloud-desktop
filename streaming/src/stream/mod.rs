@@ -6,3 +6,4 @@ pub mod internal;
 pub mod oauth;
 pub mod proxy;
 pub mod storage;
+pub mod validate;

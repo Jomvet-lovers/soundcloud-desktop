@@ -9,7 +9,12 @@ use tracing::debug;
 
 const MAX_RETRIES: usize = 3;
 const RETRY_DELAYS: [u64; 3] = [300, 800, 2000];
-const RACE_BOUNDED_GRACE: Duration = Duration::from_secs(8);
+/// How long the loser of the race is still awaited after the first source
+/// fails. Generous on purpose: under bans the surviving path (often relay)
+/// can be slow, and dropping it early is exactly the "релей не жду" bug.
+const RACE_BOUNDED_GRACE: Duration = Duration::from_secs(15);
+/// Relay is the expensive path — retry it far fewer times than proxy.
+const RELAY_MAX_RETRIES: usize = 1;
 
 static RELAY: OnceLock<Arc<call_relay::Client>> = OnceLock::new();
 
@@ -17,7 +22,19 @@ pub fn install_relay(relay: Arc<call_relay::Client>) {
     let _ = RELAY.set(relay);
 }
 
-type FetchResult = Result<(Bytes, HashMap<String, String>), Box<dyn std::error::Error + Send + Sync>>;
+type BoxErr = Box<dyn std::error::Error + Send + Sync>;
+type FetchResult = Result<(Bytes, HashMap<String, String>), BoxErr>;
+
+/// Decides whether a fetched body is a valid *logical* result. Returning
+/// `false` is treated exactly like a transport failure: the attempt is
+/// discarded, the source retries (a new upstream proxy from the pool), and
+/// the racing source is still awaited. Winner = first source whose body
+/// passes this — never merely "first 2xx".
+pub type BodyValidator = Arc<dyn Fn(&[u8], &HashMap<String, String>) -> bool + Send + Sync>;
+
+fn accept_non_empty() -> BodyValidator {
+    Arc::new(|b: &[u8], _: &HashMap<String, String>| !b.is_empty())
+}
 
 fn proxy_target(
     proxy_url: &str,
@@ -43,8 +60,9 @@ async fn http_get_bytes(
     client: &Client,
     url: &str,
     headers: &HashMap<String, String>,
+    validate: &BodyValidator,
 ) -> FetchResult {
-    let mut last_err: Option<reqwest::Error> = None;
+    let mut last_err: Option<BoxErr> = None;
     for attempt in 0..=MAX_RETRIES {
         let mut req = client.get(url);
         for (k, v) in headers {
@@ -60,44 +78,35 @@ async fn http_get_bytes(
                         .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                         .collect();
                     match resp.bytes().await {
-                        Ok(body) => return Ok((body, resp_headers)),
-                        Err(e) => {
-                            last_err = Some(e);
-                            if attempt < MAX_RETRIES {
-                                tokio::time::sleep(Duration::from_millis(
-                                    RETRY_DELAYS.get(attempt).copied().unwrap_or(2000),
-                                ))
-                                .await;
-                                continue;
+                        Ok(body) => {
+                            if validate(&body, &resp_headers) {
+                                return Ok((body, resp_headers));
                             }
-                            break;
+                            // 2xx but body is a block-page / error doc / empty.
+                            // Same handling as a transport failure: retry on a
+                            // fresh upstream proxy.
+                            debug!("GET {url} → {status} but body rejected by validator, attempt {attempt}");
+                            last_err = Some("invalid response body".into());
                         }
+                        Err(e) => last_err = Some(Box::new(e)),
                     }
-                }
-                if is_retryable_status(status) && attempt < MAX_RETRIES {
+                } else if is_retryable_status(status) {
                     debug!("GET {url} → {status}, attempt {attempt}");
-                    tokio::time::sleep(Duration::from_millis(
-                        RETRY_DELAYS.get(attempt).copied().unwrap_or(2000),
-                    ))
-                    .await;
-                    continue;
-                }
-                return Err(format!("status {status}").into());
-            }
-            Err(e) => {
-                last_err = Some(e);
-                if attempt < MAX_RETRIES {
-                    tokio::time::sleep(Duration::from_millis(
-                        RETRY_DELAYS.get(attempt).copied().unwrap_or(2000),
-                    ))
-                    .await;
+                    last_err = Some(format!("status {status}").into());
+                } else {
+                    return Err(format!("status {status}").into());
                 }
             }
+            Err(e) => last_err = Some(Box::new(e)),
+        }
+        if attempt < MAX_RETRIES {
+            tokio::time::sleep(Duration::from_millis(
+                RETRY_DELAYS.get(attempt).copied().unwrap_or(2000),
+            ))
+            .await;
         }
     }
-    Err(last_err
-        .map(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-        .unwrap_or_else(|| "fetch failed".into()))
+    Err(last_err.unwrap_or_else(|| "fetch failed".into()))
 }
 
 async fn via_proxy(
@@ -105,35 +114,53 @@ async fn via_proxy(
     proxy_url: &str,
     target_url: &str,
     extra: HashMap<String, String>,
+    validate: &BodyValidator,
 ) -> FetchResult {
     let (url, headers) = proxy_target(proxy_url, target_url, extra);
-    http_get_bytes(client, &url, &headers).await
+    http_get_bytes(client, &url, &headers, validate).await
 }
 
 async fn via_direct(
     client: &Client,
     target_url: &str,
     extra: HashMap<String, String>,
+    validate: &BodyValidator,
 ) -> FetchResult {
-    http_get_bytes(client, target_url, &extra).await
+    http_get_bytes(client, target_url, &extra, validate).await
 }
 
 async fn via_relay(
     relay: Arc<call_relay::Client>,
     target_url: String,
     extra: HashMap<String, String>,
+    validate: &BodyValidator,
 ) -> FetchResult {
-    let req = call_relay::Request {
-        url: target_url,
-        method: "GET".to_string(),
-        headers: extra,
-        body: Bytes::new(),
-    };
-    match relay.fetch(&req).await {
-        Ok(resp) if (200..400).contains(&resp.status) => Ok((resp.body, resp.headers)),
-        Ok(resp) => Err(format!("relay status {}", resp.status).into()),
-        Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+    let mut last_err: BoxErr = "relay failed".into();
+    for attempt in 0..=RELAY_MAX_RETRIES {
+        let req = call_relay::Request {
+            url: target_url.clone(),
+            method: "GET".to_string(),
+            headers: extra.clone(),
+            body: Bytes::new(),
+        };
+        match relay.fetch(&req).await {
+            Ok(resp) if (200..400).contains(&resp.status) => {
+                if validate(&resp.body, &resp.headers) {
+                    return Ok((resp.body, resp.headers));
+                }
+                debug!("relay {target_url} → {} but body rejected, attempt {attempt}", resp.status);
+                last_err = "relay invalid response body".into();
+            }
+            Ok(resp) => {
+                last_err = format!("relay status {}", resp.status).into();
+            }
+            Err(e) => last_err = Box::new(e),
+        }
+        if attempt < RELAY_MAX_RETRIES {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
     }
+    Err(last_err)
 }
 
 async fn race_relay_proxy(
@@ -142,9 +169,10 @@ async fn race_relay_proxy(
     proxy_url: &str,
     target_url: &str,
     extra: HashMap<String, String>,
+    validate: BodyValidator,
 ) -> FetchResult {
-    let relay_fut = via_relay(relay, target_url.to_string(), extra.clone());
-    let proxy_fut = via_proxy(client, proxy_url, target_url, extra);
+    let relay_fut = via_relay(relay, target_url.to_string(), extra.clone(), &validate);
+    let proxy_fut = via_proxy(client, proxy_url, target_url, extra, &validate);
     tokio::pin!(relay_fut);
     tokio::pin!(proxy_fut);
 
@@ -175,7 +203,7 @@ async fn race_relay_proxy(
 async fn await_other_with_grace<F>(
     other: F,
     grace: Duration,
-    original_err: Box<dyn std::error::Error + Send + Sync>,
+    original_err: BoxErr,
 ) -> FetchResult
 where
     F: std::future::Future<Output = FetchResult>,
@@ -186,33 +214,33 @@ where
     }
 }
 
-/// GET через proxy&relay. Direct никогда не задействуется при `allow_direct=false`.
-/// При `allow_direct=true` direct запускается только если proxy_url пуст:
-/// сначала direct, при неудаче — relay.
-pub async fn fetch_get_bytes(
+/// Validated GET through proxy&relay. The body must pass `validate` before a
+/// source is declared the winner; otherwise it keeps racing/retrying. Direct
+/// is only used when `allow_direct=true` and no proxy is configured.
+pub async fn fetch_get_validated(
     client: &Client,
     proxy_url: &str,
     target_url: &str,
     extra: HashMap<String, String>,
     allow_direct: bool,
+    validate: BodyValidator,
 ) -> FetchResult {
     let relay = RELAY.get().cloned();
     let proxy_set = !proxy_url.is_empty();
 
     if proxy_set {
         if let Some(r) = relay {
-            return race_relay_proxy(client, r, proxy_url, target_url, extra).await;
+            return race_relay_proxy(client, r, proxy_url, target_url, extra, validate).await;
         }
-        return via_proxy(client, proxy_url, target_url, extra).await;
+        return via_proxy(client, proxy_url, target_url, extra, &validate).await;
     }
 
-    // proxy пуст
     if allow_direct {
-        match via_direct(client, target_url, extra.clone()).await {
+        match via_direct(client, target_url, extra.clone(), &validate).await {
             Ok(v) => return Ok(v),
             Err(e) => {
                 if let Some(r) = relay {
-                    return via_relay(r, target_url.to_string(), extra).await;
+                    return via_relay(r, target_url.to_string(), extra, &validate).await;
                 }
                 return Err(e);
             }
@@ -220,18 +248,38 @@ pub async fn fetch_get_bytes(
     }
 
     if let Some(r) = relay {
-        return via_relay(r, target_url.to_string(), extra).await;
+        return via_relay(r, target_url.to_string(), extra, &validate).await;
     }
     Err("no proxy/relay available and direct disallowed".into())
 }
 
-/// GET только напрямую (без proxy и relay).
-pub async fn fetch_direct_bytes(
+/// GET through proxy&relay, accepting any non-empty body.
+pub async fn fetch_get_bytes(
+    client: &Client,
+    proxy_url: &str,
+    target_url: &str,
+    extra: HashMap<String, String>,
+    allow_direct: bool,
+) -> FetchResult {
+    fetch_get_validated(
+        client,
+        proxy_url,
+        target_url,
+        extra,
+        allow_direct,
+        accept_non_empty(),
+    )
+    .await
+}
+
+/// Validated GET directly (no proxy, no relay) with retries.
+pub async fn fetch_direct_validated(
     client: &Client,
     target_url: &str,
     extra: HashMap<String, String>,
+    validate: BodyValidator,
 ) -> FetchResult {
-    via_direct(client, target_url, extra).await
+    via_direct(client, target_url, extra, &validate).await
 }
 
 pub async fn fetch_get_text(
@@ -240,19 +288,26 @@ pub async fn fetch_get_text(
     target_url: &str,
     extra: HashMap<String, String>,
     allow_direct: bool,
-) -> Result<(String, HashMap<String, String>), Box<dyn std::error::Error + Send + Sync>> {
-    let (bytes, headers) = fetch_get_bytes(client, proxy_url, target_url, extra, allow_direct).await?;
+) -> Result<(String, HashMap<String, String>), BoxErr> {
+    let (bytes, headers) =
+        fetch_get_bytes(client, proxy_url, target_url, extra, allow_direct).await?;
     Ok((String::from_utf8_lossy(&bytes).into_owned(), headers))
 }
 
-pub async fn fetch_get_json<T: serde::de::DeserializeOwned>(
+/// GET + JSON. The "winner" is the first source whose body actually
+/// deserializes into `T` — a 200 HTML block-page from a banned proxy is
+/// rejected and the relay is still awaited.
+pub async fn fetch_get_json<T: serde::de::DeserializeOwned + 'static>(
     client: &Client,
     proxy_url: &str,
     target_url: &str,
     extra: HashMap<String, String>,
     allow_direct: bool,
-) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
-    let (bytes, _) = fetch_get_bytes(client, proxy_url, target_url, extra, allow_direct).await?;
+) -> Result<T, BoxErr> {
+    let validate: BodyValidator =
+        Arc::new(|b: &[u8], _: &HashMap<String, String>| serde_json::from_slice::<T>(b).is_ok());
+    let (bytes, _) =
+        fetch_get_validated(client, proxy_url, target_url, extra, allow_direct, validate).await?;
     let val = serde_json::from_slice(&bytes)?;
     Ok(val)
 }
