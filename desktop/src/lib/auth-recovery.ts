@@ -5,24 +5,32 @@ import { queryClient } from './query-client';
 /**
  * Оркестратор восстановления сессии.
  *
- * Единая точка реакции на auth-recoverable ошибки (rate-limit, протухший
- * access-токен, пустой сайдбар). Стратегия:
+ * Триггеры (из api-client):
+ *   - `noteRateLimit()` — rate-limit. НЕ реагируем на одиночный: накопитель,
+ *     модалка только при устойчивом троттлинге (THRESHOLD за WINDOW).
+ *   - `noteAuthGap()`   — протухший токен (401) ИЛИ юзер пропал из сайдбара.
+ *     Это сильный сигнал → silent renew сразу.
+ *   - `noteSuccess()`   — любой успешный ответ: чистит накопитель и, если
+ *     всё само починилось, гасит pending-recovery / закрывает модалку.
  *
- *   1. Первая попытка — silent renew (POST /auth/refresh + /me). Без модалки.
- *   2. Не помогло → модалка: ручной retry renew ИЛИ полный re-login (OAuth).
- *
- * Single-flight: параллельные failing-запросы (а их при пустом сайдбаре
- * пачка) не плодят повторные renew — все, кроме первого, отскакивают по
- * `phase !== 'idle'` и по `inFlight`.
+ * Стратегия: первая попытка — silent renew (без UI). Не помогло → модалка
+ * (ручной retry / re-login). Single-flight по `inFlight` + `phase`.
  */
 
+const RL_WINDOW_MS = 15_000;
+const RL_THRESHOLD = 3;
 const RECOVERED_COOLDOWN_MS = 5000;
 
+let rlHits: number[] = [];
 let inFlight: Promise<void> | null = null;
+/** Поколение текущей silent-попытки — для отмены при само-восстановлении. */
+let gen = 0;
+let cancelledGen = -1;
 
 async function runRenew(manual: boolean): Promise<void> {
   if (inFlight) return inFlight;
 
+  const myGen = ++gen;
   const store = useAuthRecoveryStore.getState();
   if (manual) {
     store.setBusy(true);
@@ -33,11 +41,11 @@ async function runRenew(manual: boolean): Promise<void> {
   inFlight = (async () => {
     try {
       await useAuthStore.getState().renewSession();
-      // renew прошёл и /me снова ответил — гасим всё, рефетчим данные.
       useAuthRecoveryStore.getState().markRecovered();
       queryClient.invalidateQueries();
     } catch {
-      // renew не помог → показываем модалку (ручной retry / re-login).
+      // Само-восстановилось параллельным успешным запросом — модалку не лепим.
+      if (cancelledGen === myGen) return;
       const s = useAuthRecoveryStore.getState();
       s.setPhase('modal');
       s.setBusy(false);
@@ -49,15 +57,40 @@ async function runRenew(manual: boolean): Promise<void> {
   return inFlight;
 }
 
-/**
- * Вызывается из api-client при auth-recoverable ошибке. Идемпотентно:
- * запускает silent-renew только из состояния `idle` и вне cooldown.
- */
-export function recoverSession(): void {
+function startRecovery(): void {
   const s = useAuthRecoveryStore.getState();
   if (s.phase !== 'idle') return;
   if (Date.now() - s.recoveredAt < RECOVERED_COOLDOWN_MS) return;
   void runRenew(false);
+}
+
+/** Rate-limit: накапливаем, эскалируем только при устойчивом троттлинге. */
+export function noteRateLimit(): void {
+  const now = Date.now();
+  rlHits.push(now);
+  rlHits = rlHits.filter((t) => now - t < RL_WINDOW_MS);
+  if (rlHits.length >= RL_THRESHOLD) {
+    rlHits = [];
+    startRecovery();
+  }
+}
+
+/** Протухший токен / юзер пропал из сайдбара — реагируем сразу. */
+export function noteAuthGap(): void {
+  startRecovery();
+}
+
+/**
+ * Успешный ответ: чистим накопитель и, если всё ожило само, снимаем
+ * pending-recovery или авто-закрываем модалку (но не во время ручного
+ * renew / OAuth — там юзер сам рулит).
+ */
+export function noteSuccess(): void {
+  if (rlHits.length) rlHits = [];
+  const s = useAuthRecoveryStore.getState();
+  if (s.phase === 'idle' || s.busy || s.oauthActive) return;
+  cancelledGen = gen;
+  s.markRecovered();
 }
 
 /** Ручной повтор renew из модалки. */
@@ -65,9 +98,7 @@ export function retryRenew(): Promise<void> {
   return runRenew(true);
 }
 
-/**
- * Успешный полный re-login (OAuth). Прокидывает сессию и гасит модалку.
- */
+/** Успешный полный re-login (OAuth). */
 export function completeReauth(sessionId: string): void {
   const auth = useAuthStore.getState();
   auth.setSession(sessionId);

@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { completeReauth, retryRenew } from '../lib/auth-recovery';
 import { Check, ClipboardCopy, Lock, Power, RefreshCw, X } from '../lib/icons';
@@ -12,10 +12,17 @@ export const SessionRecoveryModal = React.memo(() => {
   const phase = useAuthRecoveryStore((s) => s.phase);
   const busy = useAuthRecoveryStore((s) => s.busy);
   const reset = useAuthRecoveryStore((s) => s.reset);
+  const setOauthActive = useAuthRecoveryStore((s) => s.setOauthActive);
   const logout = useAuthStore((s) => s.logout);
   const [copied, setCopied] = useState(false);
 
   const { startLogin, authUrl, isPolling, step } = useOAuthFlow(completeReauth);
+
+  // Пока идёт OAuth-поллинг — фоновый успех не должен авто-закрывать модалку.
+  useEffect(() => {
+    setOauthActive(isPolling);
+    return () => setOauthActive(false);
+  }, [isPolling, setOauthActive]);
 
   const open = phase === 'modal';
   // Пока крутится renew или идёт OAuth-поллинг — модалку не закрываем.

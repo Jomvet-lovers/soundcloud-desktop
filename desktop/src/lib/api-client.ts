@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { useAppStatusStore } from '../stores/app-status';
 import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
-import { recoverSession } from './auth-recovery';
+import { noteAuthGap, noteRateLimit, noteSuccess } from './auth-recovery';
 import { API_BASE, BYPASS_API_BASE } from './constants';
 import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
 import { isHealthy, markHealthy, markUnhealthy } from './host-health';
@@ -136,15 +136,17 @@ export async function apiRequest<T = unknown>(
           continue;
         }
 
-        // Auth-recoverable: rate-limit (вкл. 401 "rate-limited the refresh"),
-        // протухший токен (401) либо пустой сайдбар (юзер не загружен).
-        // Восстановление едино: сначала silent renew, потом — модалка.
-        if (
-          isRateLimitError(res.status, body) ||
-          res.status === 401 ||
-          useAuthStore.getState().user == null
-        ) {
-          recoverSession();
+        // Rate-limit — копим, одиночный не дёргает recovery.
+        if (isRateLimitError(res.status, body)) {
+          noteRateLimit();
+          console.error(`HTTP ERROR: url: ${path}, `, err);
+          throw err;
+        }
+
+        // Протухший токен (401) либо юзер пропал из сайдбара — сильный
+        // сигнал, silent renew сразу.
+        if (res.status === 401 || useAuthStore.getState().user == null) {
+          noteAuthGap();
           console.error(`HTTP ERROR: url: ${path}, `, err);
           throw err;
         }
@@ -153,6 +155,10 @@ export async function apiRequest<T = unknown>(
         console.error(`HTTP ERROR: url: ${path}, `, err);
         throw err;
       }
+
+      // Успешный ответ — чистит rate-limit накопитель и само-гасит recovery,
+      // если всё ожило само.
+      noteSuccess();
 
       const ct = res.headers.get('content-type');
       const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
