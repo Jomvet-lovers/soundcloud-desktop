@@ -1,29 +1,25 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, ClipboardCopy, Lock, Power, X } from '../lib/icons';
-import { queryClient } from '../lib/query-client';
+import { completeReauth, retryRenew } from '../lib/auth-recovery';
+import { Check, ClipboardCopy, Lock, Power, RefreshCw, X } from '../lib/icons';
 import { useOAuthFlow } from '../lib/use-oauth-flow';
 import { useAuthStore } from '../stores/auth';
-import { useSessionExpiryStore } from '../stores/session-expiry';
+import { useAuthRecoveryStore } from '../stores/auth-recovery';
 
-export const ReAuthOverlay = React.memo(() => {
+export const SessionRecoveryModal = React.memo(() => {
   const { t } = useTranslation();
-  const sessionExpired = useSessionExpiryStore((s) => s.sessionExpired);
-  const setSessionExpired = useSessionExpiryStore((s) => s.setSessionExpired);
-  const markReAuthed = useSessionExpiryStore((s) => s.markReAuthed);
-  const setSession = useAuthStore((s) => s.setSession);
-  const fetchUser = useAuthStore((s) => s.fetchUser);
+  const phase = useAuthRecoveryStore((s) => s.phase);
+  const busy = useAuthRecoveryStore((s) => s.busy);
+  const reset = useAuthRecoveryStore((s) => s.reset);
   const logout = useAuthStore((s) => s.logout);
   const [copied, setCopied] = useState(false);
 
-  const { startLogin, authUrl, isPolling, step } = useOAuthFlow((sessionId) => {
-    markReAuthed();
-    setSession(sessionId);
-    setSessionExpired(false);
-    fetchUser().catch(() => {});
-    queryClient.invalidateQueries();
-  });
+  const { startLogin, authUrl, isPolling, step } = useOAuthFlow(completeReauth);
+
+  const open = phase === 'modal';
+  // Пока крутится renew или идёт OAuth-поллинг — модалку не закрываем.
+  const locked = busy || isPolling;
 
   const stepLabel =
     step === 'token'
@@ -32,9 +28,9 @@ export const ReAuthOverlay = React.memo(() => {
         ? t('auth.stepProfile')
         : step === 'session'
           ? t('auth.stepSession')
-          : t('reauth.signingIn');
+          : t('recovery.signingIn');
 
-  const handleLogin = async () => {
+  const handleSignIn = async () => {
     try {
       await startLogin();
     } catch (e) {
@@ -43,12 +39,17 @@ export const ReAuthOverlay = React.memo(() => {
   };
 
   const handleLogout = () => {
-    setSessionExpired(false);
+    reset();
     logout();
   };
 
+  let bodyState: 'oauth' | 'renewing' | 'actions';
+  if (isPolling) bodyState = 'oauth';
+  else if (busy) bodyState = 'renewing';
+  else bodyState = 'actions';
+
   return (
-    <Dialog.Root open={sessionExpired} onOpenChange={(open) => !open && setSessionExpired(false)}>
+    <Dialog.Root open={open} onOpenChange={(o) => !o && !locked && reset()}>
       <Dialog.Portal>
         <Dialog.Overlay
           className="fixed inset-0 z-[100] animate-in fade-in duration-200"
@@ -82,11 +83,14 @@ export const ReAuthOverlay = React.memo(() => {
 
           <div className="relative p-7" style={{ isolation: 'isolate' }}>
             {/* Close */}
-            <Dialog.Close className="absolute top-4 right-4 p-1.5 rounded-lg text-white/20 hover:text-white/60 hover:bg-white/[0.06] transition-colors cursor-pointer">
+            <Dialog.Close
+              disabled={locked}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-white/20 hover:text-white/60 hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-default"
+            >
               <X size={14} />
             </Dialog.Close>
 
-            {/* Icon */}
+            {/* Icon + title */}
             <div className="flex flex-col items-center text-center mb-6">
               <div
                 className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
@@ -100,16 +104,16 @@ export const ReAuthOverlay = React.memo(() => {
                 <Lock size={24} className="text-white/60" />
               </div>
               <Dialog.Title className="text-lg font-bold text-white/90 tracking-tight">
-                {t('reauth.title')}
+                {t('recovery.title')}
               </Dialog.Title>
               <p className="text-[12.5px] text-white/35 mt-1.5 leading-relaxed max-w-[280px]">
-                {t('reauth.description')}
+                {t('recovery.description')}
               </p>
             </div>
 
-            {/* Actions */}
+            {/* Body */}
             <div className="space-y-2.5">
-              {isPolling ? (
+              {bodyState === 'oauth' && (
                 <div className="flex flex-col items-center gap-3 py-2">
                   <div className="w-8 h-8 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
                   <p className="text-[11.5px] text-white/45">{stepLabel}</p>
@@ -126,36 +130,53 @@ export const ReAuthOverlay = React.memo(() => {
                       {copied ? (
                         <>
                           <Check size={11} />
-                          {t('reauth.copied')}
+                          {t('recovery.copied')}
                         </>
                       ) : (
                         <>
                           <ClipboardCopy size={11} />
-                          {t('reauth.copyLink')}
+                          {t('recovery.copyLink')}
                         </>
                       )}
                     </button>
                   )}
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleLogin}
-                  className="w-full py-3 rounded-xl bg-accent text-accent-contrast font-semibold text-[13px] hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 cursor-pointer shadow-[0_0_30px_var(--color-accent-glow),0_2px_8px_rgba(0,0,0,0.3)]"
-                >
-                  {t('reauth.signIn')}
-                </button>
               )}
 
-              {/* Logout secondary */}
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] text-white/25 hover:text-white/45 hover:bg-white/[0.03] transition-all cursor-pointer"
-              >
-                <Power size={12} />
-                {t('reauth.logout')}
-              </button>
+              {bodyState === 'renewing' && (
+                <div className="flex flex-col items-center gap-3 py-2">
+                  <div className="w-8 h-8 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
+                  <p className="text-[11.5px] text-white/45">{t('recovery.renewing')}</p>
+                </div>
+              )}
+
+              {bodyState === 'actions' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void retryRenew()}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-accent text-accent-contrast font-semibold text-[13px] hover:bg-accent-hover active:scale-[0.97] transition-all duration-200 cursor-pointer shadow-[0_0_30px_var(--color-accent-glow),0_2px_8px_rgba(0,0,0,0.3)]"
+                  >
+                    <RefreshCw size={14} />
+                    {t('recovery.retry')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSignIn}
+                    className="w-full py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] text-[12.5px] text-white/55 hover:text-white/80 transition-all cursor-pointer"
+                  >
+                    {t('recovery.signIn')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] text-white/25 hover:text-white/45 hover:bg-white/[0.03] transition-all cursor-pointer"
+                  >
+                    <Power size={12} />
+                    {t('recovery.logout')}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </Dialog.Content>

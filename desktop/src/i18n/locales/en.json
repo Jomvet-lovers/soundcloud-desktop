@@ -53,10 +53,12 @@
     "continueOffline": "Continue without signing in",
     "continueOfflineDesc": "Listen to downloaded tracks and likes from your local library"
   },
-  "reauth": {
-    "title": "Session Expired",
-    "description": "Your session has expired. Sign in to continue.",
-    "signIn": "Sign In",
+  "recovery": {
+    "title": "Session Interrupted",
+    "description": "We couldn't refresh your session automatically. Retry, or sign in again.",
+    "retry": "Try again",
+    "renewing": "Renewing session...",
+    "signIn": "Sign in again",
     "signingIn": "Signing in...",
     "copyLink": "Copy link",
     "copied": "Copied!",

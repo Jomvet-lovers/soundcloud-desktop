@@ -1,8 +1,9 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { toast } from 'sonner';
 import { useAppStatusStore } from '../stores/app-status';
-import { useSessionExpiryStore } from '../stores/session-expiry';
+import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
+import { recoverSession } from './auth-recovery';
 import { API_BASE, BYPASS_API_BASE } from './constants';
 import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
 import { isHealthy, markHealthy, markUnhealthy } from './host-health';
@@ -30,6 +31,12 @@ export class ApiError extends Error {
     super(`API ${status}: ${body}`);
     this.name = 'ApiError';
   }
+}
+
+function isRateLimitError(status: number, body: string): boolean {
+  if (status === 429) return true;
+  const b = body.toLowerCase();
+  return b.includes('rate limit') || b.includes('rate-limited') || b.includes('too many requests');
 }
 
 // ─── Host resolution ────────────────────────────────────────
@@ -122,24 +129,24 @@ export async function apiRequest<T = unknown>(
         const err = new ApiError(res.status, body);
         logHttpError(label, res.status, url, body);
 
-        // 401: only show re-auth modal for actual session expiry, not missing headers
-        if (res.status === 401) {
-          const isSessionExpiry =
-            body.includes('Session not found') ||
-            body.includes('Refresh token expired') ||
-            body.includes('re-authenticate');
-          if (isSessionExpiry) {
-            useSessionExpiryStore.getState().setSessionExpired(true);
-          }
-          console.error(`HTTP ERROR: url: ${path}, `, err);
-          throw err;
-        }
-
         // 5xx with more bases to try → mark unhealthy, continue
         if (res.status >= 500 && i < bases.length - 1) {
           markUnhealthy(base);
           lastError = err;
           continue;
+        }
+
+        // Auth-recoverable: rate-limit (вкл. 401 "rate-limited the refresh"),
+        // протухший токен (401) либо пустой сайдбар (юзер не загружен).
+        // Восстановление едино: сначала silent renew, потом — модалка.
+        if (
+          isRateLimitError(res.status, body) ||
+          res.status === 401 ||
+          useAuthStore.getState().user == null
+        ) {
+          recoverSession();
+          console.error(`HTTP ERROR: url: ${path}, `, err);
+          throw err;
         }
 
         handleApiError(err);

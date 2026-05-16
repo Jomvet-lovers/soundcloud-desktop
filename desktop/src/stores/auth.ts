@@ -22,6 +22,7 @@ interface AuthState {
   isAuthenticated: boolean;
   setSession: (sessionId: string) => void;
   fetchUser: () => Promise<void>;
+  renewSession: () => Promise<void>;
   logout: () => void;
 }
 
@@ -43,6 +44,11 @@ export const useAuthStore = create<AuthState>()(
         setSessionId(sessionId);
         const user = await fetchWithAuthFallback<User>('/me');
         set({ user, isAuthenticated: true });
+      },
+
+      renewSession: async () => {
+        await fetchWithAuthFallback('/auth/refresh', { method: 'POST' });
+        await get().fetchUser();
       },
 
       logout: () => {
