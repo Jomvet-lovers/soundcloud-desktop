@@ -3,12 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { QrLinkSheet } from '../components/auth/QrLinkSheet';
 import {
+  AlertCircle,
   Check,
   ChevronRight,
   ClipboardCopy,
   Disc3,
   Download,
   Globe,
+  RefreshCw,
   Smartphone,
 } from '../lib/icons';
 import { queryClient } from '../lib/query-client';
@@ -36,7 +38,7 @@ export function Login() {
     queryClient.invalidateQueries();
   };
 
-  const { startLogin, authUrl, isPolling, step } = useOAuthFlow(onLoginSuccess);
+  const { startLogin, authUrl, isPolling, step, error } = useOAuthFlow(onLoginSuccess);
 
   const handleLogin = async () => {
     try {
@@ -45,6 +47,16 @@ export function Login() {
       console.error('Login failed:', e);
     }
   };
+
+  const errorTitle = !error
+    ? ''
+    : error.kind === 'unreachable'
+      ? t('auth.errorServerTitle')
+      : error.kind === 'expired'
+        ? t('auth.errorExpiredTitle')
+        : t('auth.errorFailedTitle');
+  const errorDesc =
+    error?.kind === 'unreachable' ? t('auth.errorServerDesc') : (error?.message ?? '');
 
   const stepLabel =
     step === 'token'
@@ -84,7 +96,30 @@ export function Login() {
           </p>
         </div>
 
-        {isPolling ? (
+        {error ? (
+          <div className="flex flex-col items-stretch gap-4 w-full">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] px-5 py-5 text-center">
+              <div className="flex size-11 items-center justify-center rounded-full border border-red-500/25 bg-red-500/10">
+                <AlertCircle size={20} className="text-red-400" strokeWidth={1.8} />
+              </div>
+              <div>
+                <p className="text-[14px] font-semibold text-white/90">{errorTitle}</p>
+                <p className="mt-1 text-[12px] leading-snug text-white/45 break-words">
+                  {errorDesc}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogin}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-3.5 text-sm font-semibold text-accent-contrast transition-all duration-200 ease-[var(--ease-apple)] hover:bg-accent-hover active:scale-[0.97] cursor-pointer shadow-[0_0_40px_var(--color-accent-glow),0_4px_12px_rgba(0,0,0,0.3)]"
+            >
+              <RefreshCw size={15} strokeWidth={2} />
+              {t('auth.retry')}
+            </button>
+            <OfflineEntryCard onClick={handleEnterOffline} />
+          </div>
+        ) : isPolling ? (
           <div className="flex flex-col items-center gap-4">
             <div className="w-10 h-10 rounded-full border-2 border-white/[0.06] border-t-accent animate-spin" />
             <p className="text-[12px] text-white/40">{stepLabel}</p>

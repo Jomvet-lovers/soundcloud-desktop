@@ -18,9 +18,15 @@ interface LoginStatusResponse {
 }
 
 export type OAuthStep = 'waiting' | 'token' | 'profile' | 'session';
-export type OAuthFlowError = { kind: 'failed' | 'expired'; message: string };
+export type OAuthFlowError = {
+  kind: 'failed' | 'expired' | 'unreachable';
+  message: string;
+};
 
 const POLL_INTERVAL_MS = 700;
+// Бэк может временно не отвечать (рестарт, сеть моргнула) — не вываливаем
+// ошибку с первого промаха, но и не крутим спиннер вечно.
+const UNREACHABLE_AFTER_MS = 15_000;
 
 export function useOAuthFlow(
   onSuccess: (sessionId: string) => void,
@@ -29,6 +35,7 @@ export function useOAuthFlow(
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [step, setStep] = useState<OAuthStep>('waiting');
+  const [error, setError] = useState<OAuthFlowError | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSuccessRef = useRef(onSuccess);
   const onFailureRef = useRef(onFailure);
@@ -47,16 +54,38 @@ export function useOAuthFlow(
 
   useEffect(() => cancel, [cancel]);
 
+  const fail = useCallback(
+    (err: OAuthFlowError) => {
+      cancel();
+      setError(err);
+      onFailureRef.current?.(err);
+    },
+    [cancel],
+  );
+
   const startLogin = useCallback(async () => {
     cancel();
+    setError(null);
     setIsPolling(true);
     setStep('waiting');
 
     // x-session-id (если есть) автоматически уйдёт через apiRequest — тогда бэк
     // привяжет результат к существующей сессии и sessionId не сменится.
-    const { url, loginRequestId } = await fetchWithAuthFallback<LoginResponse>('/auth/login');
+    let login: LoginResponse;
+    try {
+      login = await fetchWithAuthFallback<LoginResponse>('/auth/login');
+    } catch (e) {
+      fail({
+        kind: 'unreachable',
+        message: e instanceof Error ? e.message : 'Backend unreachable',
+      });
+      return;
+    }
+    const { url, loginRequestId } = login;
     setAuthUrl(url);
     await openUrl(url);
+
+    let failingSince: number | null = null;
 
     const tryPoll = async (base: string): Promise<LoginStatusResponse | null> => {
       const controller = new AbortController();
@@ -84,9 +113,16 @@ export function useOAuthFlow(
       }
 
       if (!data) {
+        const now = Date.now();
+        if (failingSince == null) failingSince = now;
+        if (now - failingSince >= UNREACHABLE_AFTER_MS) {
+          fail({ kind: 'unreachable', message: 'Backend unreachable' });
+          return;
+        }
         pollRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
         return;
       }
+      failingSince = null;
 
       if (data.step) setStep(data.step);
 
@@ -96,15 +132,14 @@ export function useOAuthFlow(
         return;
       }
       if (data.status === 'failed' || data.status === 'expired') {
-        cancel();
-        onFailureRef.current?.({ kind: data.status, message: data.error ?? 'Login failed' });
+        fail({ kind: data.status, message: data.error ?? 'Login failed' });
         return;
       }
       pollRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
     };
 
     pollRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
-  }, [cancel]);
+  }, [cancel, fail]);
 
-  return { startLogin, authUrl, isPolling, step, cancel };
+  return { startLogin, authUrl, isPolling, step, cancel, error };
 }
