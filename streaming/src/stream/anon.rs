@@ -278,6 +278,9 @@ impl AnonClient {
         }
 
         let mut last_err: Option<Box<dyn std::error::Error + Send + Sync>> = None;
+        // 404 on every transcoding = monetized/DRM-only track, not stale
+        // client_id: bail to oauth/cookies instead of refreshing+looping.
+        let mut only_resource_gone = true;
         for t in ranked {
             let mime = t
                 .format
@@ -300,6 +303,9 @@ impl AnonClient {
                         "[anon] resolve {} failed: {e}",
                         t.preset.as_deref().unwrap_or("?")
                     );
+                    if !looks_like_resource_gone(&e.to_string()) {
+                        only_resource_gone = false;
+                    }
                     last_err = Some(e);
                     continue;
                 }
@@ -365,12 +371,19 @@ impl AnonClient {
                         t.preset.as_deref().unwrap_or("?"),
                         if is_progressive { "progressive" } else { "hls" },
                     );
+                    if !looks_like_resource_gone(&e.to_string()) {
+                        only_resource_gone = false;
+                    }
                     last_err = Some(e);
                 }
             }
         }
 
-        // All failed — return Err to trigger client_id refresh retry
+        if only_resource_gone {
+            warn!("[anon] no usable non-DRM transcoding for track");
+            return Ok(None);
+        }
+
         Err(last_err.unwrap_or_else(|| "all anon transcodings failed".into()))
     }
 
@@ -378,18 +391,12 @@ impl AnonClient {
         self.coalesced_refresh().await
     }
 
-    /// Force a fresh client_id (called when a request failed with the current
-    /// one). Coalesced exactly like a cold refresh: many concurrent failures
-    /// using the same stale id collapse into a single scrape.
     async fn invalidate_and_refresh(
         &self,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         self.coalesced_refresh().await
     }
 
-    /// Single-flight + cooldown refresh. The first caller through the gate
-    /// scrapes the homepage; everyone arriving within `CLIENT_ID_MIN_REFRESH`
-    /// reuses the id it just stored.
     async fn coalesced_refresh(
         &self,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -505,10 +512,6 @@ fn build_resolve_target(url: &str, client_id: &str) -> String {
     format!("{SC_API_V2}/resolve?{query}")
 }
 
-/// Build the media-resolve URL. Policy-gated tracks (e.g. ones whose only AAC
-/// tiers are `*-encrypted-hls`) require `track_authorization` here — without
-/// it SoundCloud answers `404`, which is exactly the anon failure observed for
-/// `soundcloud:tracks:2028682452` (`psychosis90270/faded`).
 fn build_transcoding_target(
     transcoding_url: &str,
     client_id: &str,
@@ -525,6 +528,10 @@ fn build_transcoding_target(
         target.push_str(auth);
     }
     target
+}
+
+fn looks_like_resource_gone(err: &str) -> bool {
+    err.contains("404")
 }
 
 #[cfg(test)]
@@ -585,10 +592,6 @@ mod tests {
         assert_eq!(second.preset.as_deref(), Some("mp3_1_0"));
     }
 
-    /// Regression for the `psychosis90270/faded` (track 2028682452) anon 404:
-    /// the media-resolve must carry `track_authorization` for policy-gated
-    /// tracks, otherwise SoundCloud returns 404 and the whole cascade ends in
-    /// "no stream available".
     #[test]
     fn transcoding_target_includes_track_authorization() {
         let media: TrackMedia = serde_json::from_str(SAMPLE_MEDIA).unwrap();
@@ -607,18 +610,15 @@ mod tests {
             "policy-gated track must send track_authorization"
         );
 
-        // No authorization → previous (404-causing) shape, still well-formed.
         let without_auth = build_transcoding_target(&progressive.url, "CID", None);
         assert_eq!(
             without_auth,
             format!("{}?client_id=CID", progressive.url)
         );
 
-        // Empty authorization is treated as absent (no dangling param).
         let empty_auth = build_transcoding_target(&progressive.url, "CID", Some(""));
         assert_eq!(empty_auth, without_auth);
 
-        // Correct separator when the transcoding URL already has a query.
         let pre_query = build_transcoding_target(
             "https://api-v2.soundcloud.com/media/x/stream/progressive?foo=1",
             "CID",
@@ -627,6 +627,89 @@ mod tests {
         assert_eq!(
             pre_query,
             "https://api-v2.soundcloud.com/media/x/stream/progressive?foo=1&client_id=CID&track_authorization=AUTH"
+        );
+    }
+
+    #[test]
+    fn resource_gone_classifier() {
+        assert!(looks_like_resource_gone("status 404"));
+        assert!(looks_like_resource_gone("HTTP 404 Not Found"));
+        assert!(!looks_like_resource_gone("status 401"));
+        assert!(!looks_like_resource_gone("status 403"));
+        assert!(!looks_like_resource_gone("status 502"));
+        assert!(!looks_like_resource_gone("connection reset"));
+    }
+
+    #[tokio::test]
+    #[ignore = "hits live SoundCloud; run with --ignored"]
+    async fn faded_is_drm_only_for_anon() {
+        let http = Client::new();
+        let ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36";
+
+        let html = http
+            .get(SC_BASE_URL)
+            .header("User-Agent", ua)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let client_id =
+            extract_client_id_from_hydration(&html).expect("scrape client_id from homepage");
+
+        let track: ResolvedTrack = http
+            .get(format!("{SC_API_V2}/tracks/2028682452?client_id={client_id}"))
+            .header("User-Agent", ua)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        let track_auth = track
+            .track_authorization
+            .clone()
+            .expect("api-v2 /tracks returns track_authorization");
+        let transcodings = track.media.unwrap().transcodings.unwrap();
+
+        let ranked = ranked_transcodings(&transcodings);
+        assert_eq!(ranked.len(), 2, "only the two mp3_1_0 entries survive");
+        for t in &ranked {
+            let target = build_transcoding_target(&t.url, &client_id, Some(&track_auth));
+            let status = http
+                .get(&target)
+                .header("User-Agent", ua)
+                .send()
+                .await
+                .unwrap()
+                .status();
+            assert!(
+                status.is_client_error(),
+                "expected plain mp3 transcoding to be gone, got {status}"
+            );
+        }
+
+        let enc = transcodings
+            .iter()
+            .find(|t| {
+                t.format
+                    .as_ref()
+                    .and_then(|f| f.protocol.as_deref())
+                    .is_some_and(|p| p.contains("encrypted"))
+            })
+            .expect("DRM transcoding present");
+        let enc_status = http
+            .get(build_transcoding_target(&enc.url, &client_id, Some(&track_auth)))
+            .header("User-Agent", ua)
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert!(
+            enc_status.is_success(),
+            "DRM transcoding should resolve, got {enc_status}"
         );
     }
 }

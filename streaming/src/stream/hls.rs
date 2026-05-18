@@ -14,18 +14,12 @@ use super::validate::{is_valid_audio, is_valid_m3u8};
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 
 const HLS_CONCURRENCY: usize = 3;
-/// How many times a stalled HLS download may re-resolve a fresh playlist
-/// (expired segment token / rotated CDN signature) before giving up.
 const MAX_M3U8_REFRESH: usize = 2;
 
-/// A resolved playlist: optional fMP4 init segment + ordered media segments.
+// (optional fMP4 init, ordered media segments).
 pub type SegmentSource = (Option<String>, Vec<String>);
 
-/// Re-resolves a *fresh* `SegmentSource` for the same track when segment URLs
-/// expire mid-download. Each stream source (anon / oauth / cookies) builds one
-/// that repeats its own resolve path. Segment ordering/count must stay stable
-/// for the same preset, so the download resumes from the failed index instead
-/// of restarting.
+// Re-resolves a fresh playlist when segment tokens expire mid-download.
 pub type M3u8Refresher =
     Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<SegmentSource, BoxErr>> + Send>> + Send + Sync>;
 
@@ -53,7 +47,6 @@ async fn fetch_validated(
     Ok(data)
 }
 
-/// Parse m3u8 playlist → (init_url, segment_urls).
 pub fn parse_m3u8(content: &str, base_url: &str) -> SegmentSource {
     let base = Url::parse(base_url).unwrap_or_else(|_| Url::parse("https://localhost").unwrap());
     let mut init_url = None;
@@ -86,7 +79,6 @@ fn resolve_url(url: &str, base: &Url) -> String {
         .unwrap_or_else(|_| url.to_string())
 }
 
-/// Map SC mime type to a content-type header.
 pub fn mime_to_content_type(mime: &str) -> &'static str {
     match mime {
         "audio/mpeg" | "audio/mpegurl" => "audio/mpeg",
@@ -96,8 +88,6 @@ pub fn mime_to_content_type(mime: &str) -> &'static str {
     }
 }
 
-/// Fetch + parse an m3u8 into a `SegmentSource`. Used both for the initial
-/// download and inside refreshers, so the validation is identical everywhere.
 pub async fn fetch_m3u8_source(
     client: &Client,
     proxy_url: &str,
@@ -122,8 +112,6 @@ pub async fn fetch_m3u8_source(
     Ok(source)
 }
 
-/// Download a progressive (single-file) stream. One validated GET — a banned
-/// proxy serving a 200 block-page is rejected, not accepted as audio.
 pub async fn download_progressive(
     client: &Client,
     proxy_url: &str,
@@ -144,13 +132,8 @@ pub async fn download_progressive(
     Ok((data, mime_to_content_type(mime_type)))
 }
 
-/// Download a full HLS stream into one buffer.
-///
-/// Each segment independently races proxy↔relay with validation, so a batch
-/// where every proxy is banned can still be served by relay (and vice-versa).
-/// If a segment can't be fetched by any source and a `refresher` is provided,
-/// the playlist is re-resolved (expired token) and the download resumes from
-/// the failed index — the buffer is never thrown away.
+// Per-segment proxy↔relay race; on terminal segment failure re-resolve via
+// refresher and resume from the failed index without dropping the buffer.
 pub async fn download_hls(
     client: &Client,
     proxy_url: &str,
@@ -175,6 +158,7 @@ pub async fn download_hls(
             audio_validator(),
         )
         .await?;
+        // `enca` box in the init = CENC-encrypted (DRM) — we can't decrypt it.
         if data.windows(4).any(|w| w == b"enca") {
             return Err("stream is CENC encrypted".into());
         }
@@ -209,8 +193,6 @@ pub async fn download_hls(
             continue;
         }
 
-        // Every source failed on these segments — most likely an expired
-        // playlist token. Re-resolve a fresh one and retry the same indices.
         let Some(ref refresher) = refresher else {
             return Err(format!("hls: {} segment(s) unrecoverable", failed.len()).into());
         };
@@ -239,9 +221,6 @@ pub async fn download_hls(
     Ok((buf.freeze(), mime_to_content_type(mime_type)))
 }
 
-/// Fetch the given segment indices with bounded concurrency, writing each
-/// successful body into `results`. Returns the indices that no source could
-/// deliver a valid body for.
 async fn fetch_segment_batch(
     client: &Client,
     proxy_url: &str,

@@ -1,26 +1,13 @@
-//! Body validators — used to decide whether a fetched response is a *valid
-//! logical result* (parsed track / playlist / real audio bytes), not just an
-//! HTTP 2xx. A banned proxy frequently answers 200 with an HTML block page or
-//! a tiny JSON error; accepting that as "the winner" is the main source of
-//! flaky streams. The race only treats a source as having won once its body
-//! passes the relevant validator here.
-
-/// Leading bytes of an HTML/JSON/XML document. Real audio (MP3 `ID3`/frame
-/// sync, MP4 `ftyp`, fMP4 segments, MPEG-TS `0x47`) never starts with these,
-/// so this reliably rejects proxy block-pages and JSON error payloads served
-/// in place of media.
+// Rejects 200-but-HTML/JSON proxy block-pages: real audio never starts {/[/<.
 pub fn looks_like_error_doc(bytes: &[u8]) -> bool {
     let trimmed = trim_ascii_start(bytes);
     matches!(trimmed.first(), Some(b'{') | Some(b'[') | Some(b'<'))
 }
 
-/// Valid media payload: non-empty and not an error document.
 pub fn is_valid_audio(bytes: &[u8]) -> bool {
     !bytes.is_empty() && !looks_like_error_doc(bytes)
 }
 
-/// Valid HLS playlist: must carry the `#EXTM3U` tag. A block-page or JSON
-/// error never does.
 pub fn is_valid_m3u8(bytes: &[u8]) -> bool {
     if bytes.is_empty() {
         return false;

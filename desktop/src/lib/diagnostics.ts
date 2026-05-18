@@ -60,6 +60,32 @@ function truncate(value: string, max = 500) {
   return value.length > max ? `${value.slice(0, max)}...[+${value.length - max}]` : value;
 }
 
+// Транспортные ошибки (@tauri-apps/plugin-http → reqwest) приходят одним
+// плоским Error: верхний Display вида "error sending request for url (...)",
+// а реальная причина (timeout / dns / connection refused / tcp connect)
+// спрятана в source()-цепочке, которую плагин частично прокидывает в .cause.
+// String(error) её теряет — поэтому разворачиваем имя + всю cause-цепочку.
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return truncate(String(error));
+
+  const parts: string[] = [];
+  let cur: unknown = error;
+  const seen = new Set<unknown>();
+  while (cur instanceof Error && !seen.has(cur)) {
+    seen.add(cur);
+    const name = cur.name && cur.name !== 'Error' ? `${cur.name}: ` : '';
+    parts.push(`${name}${cur.message || '(no message)'}`);
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  if (cur != null && !(cur instanceof Error)) parts.push(String(cur));
+
+  // AbortError = сработал наш клиентский таймаут (см. fetchWithTimeout),
+  // а не отказ сети. Это меняет диагноз, поэтому помечаем явно.
+  if (error.name === 'AbortError') parts.push('(client-timeout: our AbortController fired)');
+
+  return truncate(parts.join(' -> '));
+}
+
 export function logHttpError(
   label: string,
   status: number,
@@ -69,12 +95,15 @@ export function logHttpError(
 ) {
   const parts = [`[Perf] HTTP ${status} ${label} ${url}`];
   if (body) parts.push(`body=${truncate(body)}`);
-  if (error !== undefined) parts.push(`error=${String(error)}`);
+  if (error !== undefined) parts.push(`error=${describeError(error)}`);
   logError(parts.join(' | '));
 }
 
-export function logHttpFailure(label: string, url: string, error: unknown) {
-  logError(`[Perf] HTTP FAIL ${label} ${url} | error=${String(error)}`);
+export function logHttpFailure(label: string, url: string, error: unknown, elapsedMs?: number) {
+  const parts = [`[Perf] HTTP FAIL ${label} ${url}`];
+  if (elapsedMs !== undefined) parts.push(`after=${roundMs(elapsedMs)}ms`);
+  parts.push(`error=${describeError(error)}`);
+  logError(parts.join(' | '));
 }
 
 export async function trackAsync<T>(
@@ -90,7 +119,8 @@ export async function trackAsync<T>(
   try {
     return await promise;
   } catch (error) {
-    logError(`[Perf] Task failed: ${label}: ${String(error)}`);
+    const elapsed = performance.now() - startedAt;
+    logError(`[Perf] Task failed: ${label} (after ${roundMs(elapsed)}ms): ${describeError(error)}`);
     throw error;
   } finally {
     window.clearTimeout(slowTimer);

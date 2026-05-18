@@ -1,0 +1,66 @@
+name: Publish to AUR
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish-to-aur:
+    runs-on: ubuntu-latest
+    # Используем контейнер Arch Linux, чтобы у нас была команда makepkg
+    container: archlinux:base-devel
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm git openssh wget sudo awk
+
+      - name: Setup SSH keys
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Update PKGBUILD and Push
+        run: |
+          # Настраиваем Git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory /__w/SoundCloud-Desktop/SoundCloud-Desktop
+          
+          # Клонируем наш AUR-пакет
+          git clone ssh://aur@aur.archlinux.org/soundcloud-bin.git aur-repo
+          cd aur-repo
+          
+          # Получаем новую версию из тега релиза (например, v7.4.1 превращаем в 7.4.1)
+          TAG="${{ github.event.release.tag_name }}"
+          NEW_VER="${TAG#v}"
+          
+          # Скачиваем новые .deb файлы для вычисления хэшей
+          URL="https://github.com/zxcloli666/SoundCloud-Desktop/releases/download/${TAG}"
+          wget -q "${URL}/soundcloud-desktop_${NEW_VER}_amd64.deb"
+          wget -q "${URL}/soundcloud-desktop_${NEW_VER}_arm64.deb"
+          
+          # Вычисляем SHA256
+          SHA_AMD=$(sha256sum soundcloud-desktop_${NEW_VER}_amd64.deb | awk '{print $1}')
+          SHA_ARM=$(sha256sum soundcloud-desktop_${NEW_VER}_arm64.deb | awk '{print $1}')
+          
+          # Удаляем скачанные файлы (они не нужны в Git)
+          rm *.deb
+          
+          # Обновляем значения в PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${NEW_VER}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${SHA_AMD}')/" PKGBUILD
+          sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${SHA_ARM}')/" PKGBUILD
+          
+          # makepkg не работает от рута, создаем временного юзера
+          useradd -m builder
+          chown -R builder:builder .
+          
+          # Генерируем новый .SRCINFO
+          su builder -c "makepkg --printsrcinfo > .SRCINFO"
+          
+          # Отправляем изменения в AUR
+          git add PKGBUILD .SRCINFO
+          git commit -m "Auto-update to version ${NEW_VER}"
+          git push

@@ -32,9 +32,6 @@ const PRESET_ORDER: &[&str] = &["mp3_1_0", "aac_160k", "opus_0_0", "abr_sq"];
 /// behind a regulator that blocks SC don't pay 1.5s connect-timeout per track.
 const FAIL_THRESHOLD: u8 = 3;
 const COOLDOWN_SECS: u64 = 300;
-/// A public `client_id` rotates on the order of hours. Coalesce every refresh
-/// inside this window onto a single homepage scrape so concurrent or failing
-/// requests don't stampede soundcloud.com and spam "refreshed client_id".
 const CLIENT_ID_MIN_REFRESH: Duration = Duration::from_secs(30);
 
 fn now_secs() -> u64 {
@@ -247,6 +244,9 @@ impl AnonClient {
         }
 
         let mut last_err: Option<String> = None;
+        // 404 on every transcoding = monetized/DRM-only track, not stale
+        // client_id: return None so the caller stops refreshing+retrying.
+        let mut only_resource_gone = true;
         for t in ranked {
             let is_progressive = t
                 .format
@@ -260,6 +260,9 @@ impl AnonClient {
             {
                 Ok(u) => u,
                 Err(e) => {
+                    if !looks_like_resource_gone(&e) {
+                        only_resource_gone = false;
+                    }
                     last_err = Some(format!(
                         "resolve {} failed: {e}",
                         t.preset.as_deref().unwrap_or("?")
@@ -277,6 +280,9 @@ impl AnonClient {
             match result {
                 Ok(data) => return Ok(Some(AnonStreamResult { data })),
                 Err(e) => {
+                    if !looks_like_resource_gone(&e) {
+                        only_resource_gone = false;
+                    }
                     last_err = Some(format!(
                         "{} ({}) failed: {e}",
                         t.preset.as_deref().unwrap_or("?"),
@@ -286,6 +292,9 @@ impl AnonClient {
             }
         }
 
+        if only_resource_gone {
+            return Ok(None);
+        }
         Err(last_err.unwrap_or_else(|| "all anon transcodings failed".into()))
     }
 
@@ -299,8 +308,6 @@ impl AnonClient {
         self.refresh_client_id().await
     }
 
-    /// Force a fresh client_id (current one failed). Coalesced like a cold
-    /// refresh: many concurrent failures collapse into a single scrape.
     async fn invalidate_and_refresh(&self) -> Result<String, String> {
         self.coalesced_refresh().await
     }
@@ -309,9 +316,6 @@ impl AnonClient {
         self.coalesced_refresh().await
     }
 
-    /// Single-flight + cooldown. The first caller through the gate scrapes the
-    /// homepage; everyone arriving within `CLIENT_ID_MIN_REFRESH` reuses the
-    /// id it just stored instead of scraping again.
     async fn coalesced_refresh(&self) -> Result<String, String> {
         let mut gate = self.refresh_gate.lock().await;
 
@@ -469,9 +473,10 @@ fn extract_client_id_from_hydration(html: &str) -> Option<String> {
     caps.get(1).map(|m| m.as_str().to_string())
 }
 
-/// Build the media-resolve URL. Policy-gated tracks require
-/// `track_authorization` here — without it SoundCloud answers `404` and the
-/// whole anon path dies (mirrors the streaming server fix).
+fn looks_like_resource_gone(err: &str) -> bool {
+    err.contains("404")
+}
+
 fn build_transcoding_target(
     transcoding_url: &str,
     client_id: &str,
@@ -499,7 +504,6 @@ mod tests {
             build_transcoding_target(PROGRESSIVE_URL, "CID", Some("AUTH")),
             format!("{PROGRESSIVE_URL}?client_id=CID&track_authorization=AUTH"),
         );
-        // No / empty auth → previous (404-causing) shape, still well-formed.
         assert_eq!(
             build_transcoding_target(PROGRESSIVE_URL, "CID", None),
             format!("{PROGRESSIVE_URL}?client_id=CID"),

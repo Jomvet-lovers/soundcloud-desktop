@@ -9,11 +9,8 @@ use tracing::debug;
 
 const MAX_RETRIES: usize = 3;
 const RETRY_DELAYS: [u64; 3] = [300, 800, 2000];
-/// How long the loser of the race is still awaited after the first source
-/// fails. Generous on purpose: under bans the surviving path (often relay)
-/// can be slow, and dropping it early is exactly the "релей не жду" bug.
+// Loser of the race still awaited this long (don't drop slow relay early).
 const RACE_BOUNDED_GRACE: Duration = Duration::from_secs(15);
-/// Relay is the expensive path — retry it far fewer times than proxy.
 const RELAY_MAX_RETRIES: usize = 1;
 
 static RELAY: OnceLock<Arc<call_relay::Client>> = OnceLock::new();
@@ -25,11 +22,7 @@ pub fn install_relay(relay: Arc<call_relay::Client>) {
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 type FetchResult = Result<(Bytes, HashMap<String, String>), BoxErr>;
 
-/// Decides whether a fetched body is a valid *logical* result. Returning
-/// `false` is treated exactly like a transport failure: the attempt is
-/// discarded, the source retries (a new upstream proxy from the pool), and
-/// the racing source is still awaited. Winner = first source whose body
-/// passes this — never merely "first 2xx".
+// false => treat like transport failure (retry/keep racing), not the winner.
 pub type BodyValidator = Arc<dyn Fn(&[u8], &HashMap<String, String>) -> bool + Send + Sync>;
 
 fn accept_non_empty() -> BodyValidator {
@@ -82,9 +75,6 @@ async fn http_get_bytes(
                             if validate(&body, &resp_headers) {
                                 return Ok((body, resp_headers));
                             }
-                            // 2xx but body is a block-page / error doc / empty.
-                            // Same handling as a transport failure: retry on a
-                            // fresh upstream proxy.
                             debug!("GET {url} → {status} but body rejected by validator, attempt {attempt}");
                             last_err = Some("invalid response body".into());
                         }
@@ -186,6 +176,7 @@ async fn race_relay_proxy(
         proxy_res = proxy_fut.as_mut() => match proxy_res {
             Ok(v) => Ok(v),
             Err(proxy_err) => {
+                // 502 = proxy front-end down (not a ban): wait relay unbounded.
                 let unbounded = proxy_err.to_string() == "status 502";
                 if unbounded {
                     match relay_fut.await {
@@ -214,9 +205,6 @@ where
     }
 }
 
-/// Validated GET through proxy&relay. The body must pass `validate` before a
-/// source is declared the winner; otherwise it keeps racing/retrying. Direct
-/// is only used when `allow_direct=true` and no proxy is configured.
 pub async fn fetch_get_validated(
     client: &Client,
     proxy_url: &str,
@@ -253,7 +241,6 @@ pub async fn fetch_get_validated(
     Err("no proxy/relay available and direct disallowed".into())
 }
 
-/// GET through proxy&relay, accepting any non-empty body.
 pub async fn fetch_get_bytes(
     client: &Client,
     proxy_url: &str,
@@ -272,7 +259,6 @@ pub async fn fetch_get_bytes(
     .await
 }
 
-/// Validated GET directly (no proxy, no relay) with retries.
 pub async fn fetch_direct_validated(
     client: &Client,
     target_url: &str,
@@ -294,9 +280,6 @@ pub async fn fetch_get_text(
     Ok((String::from_utf8_lossy(&bytes).into_owned(), headers))
 }
 
-/// GET + JSON. The "winner" is the first source whose body actually
-/// deserializes into `T` — a 200 HTML block-page from a banned proxy is
-/// rejected and the relay is still awaited.
 pub async fn fetch_get_json<T: serde::de::DeserializeOwned + 'static>(
     client: &Client,
     proxy_url: &str,

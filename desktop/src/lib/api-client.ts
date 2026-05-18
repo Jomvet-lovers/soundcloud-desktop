@@ -115,6 +115,7 @@ export async function apiRequest<T = unknown>(
   for (let i = 0; i < bases.length; i++) {
     const base = bases[i];
     const url = `${base}${path}`;
+    const attemptStart = performance.now();
     try {
       const res = await trackAsync(
         `http:${label}`,
@@ -174,7 +175,7 @@ export async function apiRequest<T = unknown>(
       // Already handled ApiError — rethrow
       if (error instanceof ApiError) throw error;
       // Network error — mark unhealthy, try next
-      logHttpFailure(label, url, error);
+      logHttpFailure(label, url, error, performance.now() - attemptStart);
       markUnhealthy(base);
       lastError = error;
     }
