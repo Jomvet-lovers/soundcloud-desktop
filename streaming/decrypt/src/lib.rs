@@ -1,16 +1,35 @@
 use bytes::Bytes;
+use futures::future::BoxFuture;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("disabled")]
     Disabled,
+    #[error("fetch: {0}")]
+    Fetch(String),
 }
 
 impl Error {
     pub fn is_disabled(&self) -> bool {
         matches!(self, Error::Disabled)
     }
+}
+
+pub trait Fetcher: Send + Sync {
+    fn get(
+        &self,
+        url: String,
+        headers: Vec<(String, String)>,
+    ) -> BoxFuture<'static, Result<Bytes, Error>>;
+
+    fn post(
+        &self,
+        url: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) -> BoxFuture<'static, Result<Bytes, Error>>;
 }
 
 pub struct Engine {}
@@ -28,7 +47,7 @@ impl Engine {
         &self,
         _manifest: &str,
         _token: &str,
-        _http: &reqwest::Client,
+        _fetcher: &dyn Fetcher,
     ) -> Result<Bytes, Error> {
         Err(Error::Disabled)
     }
@@ -37,7 +56,7 @@ impl Engine {
         &self,
         _manifest: &str,
         _token: &str,
-        _http: &reqwest::Client,
+        _fetcher: Arc<dyn Fetcher>,
     ) -> Result<futures::stream::BoxStream<'static, Result<Bytes, Error>>, Error> {
         Err(Error::Disabled)
     }

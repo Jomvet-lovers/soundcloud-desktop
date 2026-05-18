@@ -273,8 +273,13 @@ async fn restricted_source(
 async fn try_restricted(state: &AppState, track_urn: &str, tag: &str) -> Option<Response> {
     let engine = state.decryptor.as_ref()?;
     let src = restricted_source(state, track_urn, tag).await?;
+    let fetcher: std::sync::Arc<dyn decrypt::Fetcher> =
+        std::sync::Arc::new(crate::stream::decrypt_fetch::ProxyFetcher {
+            client: state.http_client.clone(),
+            proxy_url: state.config.sc_proxy_url.clone(),
+        });
     let stream = match engine
-        .process_stream(&src.manifest, &src.token, &state.http_client)
+        .process_stream(&src.manifest, &src.token, fetcher)
         .await
     {
         Ok(s) => s,

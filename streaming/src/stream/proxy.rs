@@ -240,6 +240,111 @@ pub async fn fetch_get_validated(
     Err("no proxy/relay available and direct disallowed".into())
 }
 
+async fn via_relay_post(
+    relay: Arc<call_relay::Client>,
+    target_url: String,
+    extra: HashMap<String, String>,
+    body: Vec<u8>,
+    validate: &BodyValidator,
+) -> FetchResult {
+    let mut last_err: BoxErr = "relay failed".into();
+    for attempt in 0..=RELAY_MAX_RETRIES {
+        let req = call_relay::Request {
+            url: target_url.clone(),
+            method: "POST".to_string(),
+            headers: extra.clone(),
+            body: Bytes::from(body.clone()),
+        };
+        match relay.fetch(&req).await {
+            Ok(resp) if (200..400).contains(&resp.status) => {
+                if validate(&resp.body, &resp.headers) {
+                    return Ok((resp.body, resp.headers));
+                }
+                last_err = "relay invalid response body".into();
+            }
+            Ok(resp) => last_err = format!("relay status {}", resp.status).into(),
+            Err(e) => last_err = Box::new(e),
+        }
+        if attempt < RELAY_MAX_RETRIES {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
+    Err(last_err)
+}
+
+async fn http_post_bytes(
+    client: &Client,
+    url: &str,
+    headers: &HashMap<String, String>,
+    body: &[u8],
+    validate: &BodyValidator,
+) -> FetchResult {
+    let mut last_err: Option<BoxErr> = None;
+    for attempt in 0..=MAX_RETRIES {
+        let mut req = client.post(url).body(body.to_vec());
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                if (200..400).contains(&status) {
+                    let resp_headers: HashMap<String, String> = resp
+                        .headers()
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                        .collect();
+                    match resp.bytes().await {
+                        Ok(b) if validate(&b, &resp_headers) => return Ok((b, resp_headers)),
+                        Ok(_) => last_err = Some("invalid response body".into()),
+                        Err(e) => last_err = Some(Box::new(e)),
+                    }
+                } else if is_retryable_status(status) {
+                    last_err = Some(format!("status {status}").into());
+                } else {
+                    return Err(format!("status {status}").into());
+                }
+            }
+            Err(e) => last_err = Some(Box::new(e)),
+        }
+        if attempt < MAX_RETRIES {
+            tokio::time::sleep(Duration::from_millis(
+                RETRY_DELAYS.get(attempt).copied().unwrap_or(2000),
+            ))
+            .await;
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "post failed".into()))
+}
+
+pub async fn fetch_post_bytes(
+    client: &Client,
+    proxy_url: &str,
+    target_url: &str,
+    extra: HashMap<String, String>,
+    body: Vec<u8>,
+) -> FetchResult {
+    let validate = accept_non_empty();
+    let relay = RELAY.get().cloned();
+    if let Some(r) = relay {
+        match via_relay_post(r, target_url.to_string(), extra.clone(), body.clone(), &validate)
+            .await
+        {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                if proxy_url.is_empty() {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    if !proxy_url.is_empty() {
+        let (url, headers) = proxy_target(proxy_url, target_url, extra);
+        return http_post_bytes(client, &url, &headers, &body, &validate).await;
+    }
+    Err("no proxy/relay available for POST".into())
+}
+
 pub async fn fetch_get_bytes(
     client: &Client,
     proxy_url: &str,
