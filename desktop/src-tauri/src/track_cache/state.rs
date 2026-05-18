@@ -322,8 +322,7 @@ fn clear_audio_dir(dir: &Path) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if entry.metadata().map(|m| m.is_file()).unwrap_or(false)
-                && is_audio_cache_file(&path)
+            if entry.metadata().map(|m| m.is_file()).unwrap_or(false) && is_audio_cache_file(&path)
             {
                 std::fs::remove_file(&path).ok();
                 remove_cache_metadata(&path);
@@ -527,7 +526,10 @@ async fn write_response_to_cache(
         return Err(DownloadError::Fatal("Invalid audio data".into()));
     }
 
-    let cache_meta = TrackCacheMetadata { quality, source: Some(source) };
+    let cache_meta = TrackCacheMetadata {
+        quality,
+        source: Some(source),
+    };
 
     if let Ok(meta) = tokio::fs::metadata(&final_path).await {
         if meta.len() >= MIN_AUDIO_SIZE {
@@ -599,7 +601,10 @@ async fn write_bytes_to_cache(
     }
     drop(writer);
 
-    let cache_meta = TrackCacheMetadata { quality, source: Some(source) };
+    let cache_meta = TrackCacheMetadata {
+        quality,
+        source: Some(source),
+    };
 
     if let Ok(meta) = tokio::fs::metadata(&final_path).await {
         if meta.len() >= MIN_AUDIO_SIZE {
@@ -662,7 +667,12 @@ async fn download_api(
     if status.is_success() {
         let quality = quality_from_url(url);
         return write_response_to_cache(
-            target_dir, urn, response, quality, DownloadSource::Api, app_handle,
+            target_dir,
+            urn,
+            response,
+            quality,
+            DownloadSource::Api,
+            app_handle,
         )
         .await;
     }
@@ -782,7 +792,11 @@ impl TrackCacheState {
             return Ok(entry);
         }
 
-        let target_dir = if liked { &self.liked_dir } else { &self.audio_dir };
+        let target_dir = if liked {
+            &self.liked_dir
+        } else {
+            &self.audio_dir
+        };
 
         // Coalesce concurrent requests for the same URN
         let mut active = self.active.lock().await;
@@ -847,7 +861,11 @@ impl TrackCacheState {
             let healthy = host_of(url)
                 .map(|h| self.storage_host_available(&h))
                 .unwrap_or(true);
-            if healthy { 0 } else { 1 }
+            if healthy {
+                0
+            } else {
+                1
+            }
         });
 
         // 1. Try storage `/redirect/...` URLs — fast 307 to presigned S3 / public Drive.
@@ -927,9 +945,8 @@ impl TrackCacheState {
                             .map(|m| m.len() / 1024)
                             .unwrap_or(0);
                         let ms = start.elapsed().as_millis();
-                        let line = format!(
-                            "[TrackCache] downloaded {urn} via anon — {kb} KB in {ms}ms"
-                        );
+                        let line =
+                            format!("[TrackCache] downloaded {urn} via anon — {kb} KB in {ms}ms");
                         println!("{line}");
                         self.diag("INFO", line);
                         return Ok(res.path);
@@ -1004,7 +1021,10 @@ impl TrackCacheState {
                 }
                 Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 410 => {}
                 Ok(resp) => {
-                    eprintln!("[TrackCache] storage HTTP {} for {urn} ({host})", resp.status());
+                    eprintln!(
+                        "[TrackCache] storage HTTP {} for {urn} ({host})",
+                        resp.status()
+                    );
                     self.mark_storage_host_failed(&host);
                 }
                 Err(err) => {
@@ -1032,7 +1052,10 @@ impl TrackCacheState {
                 }
                 Err(err) => {
                     if i + 1 < urls.len() {
-                        eprintln!("[TrackCache] {urn} URL #{} failed, trying next: {err}", i + 1);
+                        eprintln!(
+                            "[TrackCache] {urn} URL #{} failed, trying next: {err}",
+                            i + 1
+                        );
                     }
                     last_err = err;
                 }
@@ -1220,18 +1243,20 @@ impl TrackCacheState {
 
             let handle = tokio::spawn(async move {
                 let _permit = permit;
-                if state.likes_cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                if state
+                    .likes_cancel
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                {
                     return;
                 }
-                let LikeCacheEntry { urn, urls, storage_urls, session_id } = entry;
+                let LikeCacheEntry {
+                    urn,
+                    urls,
+                    storage_urls,
+                    session_id,
+                } = entry;
                 let result = state
-                    .ensure_cached(
-                        &urn,
-                        &urls,
-                        &storage_urls,
-                        session_id.as_deref(),
-                        true,
-                    )
+                    .ensure_cached(&urn, &urls, &storage_urls, session_id.as_deref(), true)
                     .await;
                 if result.is_err() {
                     failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

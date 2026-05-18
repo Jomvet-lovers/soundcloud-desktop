@@ -140,11 +140,17 @@ jobs:
           token: ${{ secrets.INTERNAL_PAT }}
           path: _internal
 
-      - name: Replace mock call/ with real
+      - name: Replace mock crates with real
         if: ${{ env.HAS_INTERNAL_PAT == 'true' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
+        env:
+          MATRIX_NAME: ${{ matrix.name }}
         run: |
           rm -rf call
           cp -r _internal/call ./call
+          if [ "$MATRIX_NAME" = "streaming" ]; then
+            rm -rf streaming/decrypt
+            cp -r _internal/decrypt streaming/decrypt
+          fi
 
       # GPU-образ воркера съедает ~20 GB (CUDA base + torch CUDA wheels + bitsandbytes).
       # Стандартный runner даёт ~14 GB free — без этого шага падает на ENOSPC.

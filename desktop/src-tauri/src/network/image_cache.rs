@@ -224,7 +224,9 @@ async fn dir_size(path: &Path) -> u64 {
             Err(_) => continue,
         };
         while let Ok(Some(entry)) = entries.next_entry().await {
-            let Ok(ft) = entry.file_type().await else { continue };
+            let Ok(ft) = entry.file_type().await else {
+                continue;
+            };
             if ft.is_dir() {
                 stack.push(entry.path());
             } else if ft.is_file() {

@@ -84,9 +84,8 @@ impl GdriveBackend {
     pub async fn new(cfg: &GdriveConfig) -> Result<Self, BackendError> {
         let auth = match &cfg.auth {
             GdriveAuth::ServiceAccount(json) => {
-                let sa: ServiceAccount = serde_json::from_str(json).map_err(|e| {
-                    BackendError::Other(format!("parse service account JSON: {e}"))
-                })?;
+                let sa: ServiceAccount = serde_json::from_str(json)
+                    .map_err(|e| BackendError::Other(format!("parse service account JSON: {e}")))?;
                 AuthState::ServiceAccount(sa)
             }
             GdriveAuth::UserOAuth {
@@ -178,10 +177,7 @@ impl GdriveBackend {
         }))
     }
 
-    pub async fn stream(
-        &self,
-        key: &str,
-    ) -> Result<(ObjectInfo, ByteStream), BackendError> {
+    pub async fn stream(&self, key: &str) -> Result<(ObjectInfo, ByteStream), BackendError> {
         let Some(file) = self.find_in_folder(&self.cfg.root_folder_id, key).await? else {
             return Err(BackendError::NotFound);
         };
@@ -356,9 +352,7 @@ impl GdriveBackend {
             .get(reqwest::header::LOCATION)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string())
-            .ok_or_else(|| {
-                BackendError::Other("init resumable: missing Location header".into())
-            })?;
+            .ok_or_else(|| BackendError::Other("init resumable: missing Location header".into()))?;
 
         let file = tokio::fs::File::open(src).await?;
         let stream = tokio_util::io::ReaderStream::new(file);
@@ -398,9 +392,10 @@ impl GdriveBackend {
                 client_id,
                 client_secret,
                 refresh_token,
-            } => self
-                .exchange_refresh(client_id, client_secret, refresh_token)
-                .await?,
+            } => {
+                self.exchange_refresh(client_id, client_secret, refresh_token)
+                    .await?
+            }
         };
         let value = new.value.clone();
         *g = Some(new);

@@ -138,8 +138,8 @@ fn run_fft_loop(app: AppHandle, buffer: Arc<AnalyserBuffer>) {
     // Pre-compute Hann window once.
     let mut window = vec![0.0f32; FFT_SIZE];
     for i in 0..FFT_SIZE {
-        window[i] = 0.5
-            * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos());
+        window[i] =
+            0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos());
     }
 
     let mut fft_buf = vec![Complex::new(0.0f32, 0.0); FFT_SIZE];

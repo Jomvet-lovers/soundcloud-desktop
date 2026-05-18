@@ -198,9 +198,13 @@ async fn get_streams(
                             );
                         }
                         Ok(_) => {
-                            warn!("[oauth] no valid random sessions available, falling back to proxy");
+                            warn!(
+                                "[oauth] no valid random sessions available, falling back to proxy"
+                            );
                         }
-                        Err(e) => warn!("[oauth] failed to fetch random sessions: {e}, falling back to proxy"),
+                        Err(e) => warn!(
+                            "[oauth] failed to fetch random sessions: {e}, falling back to proxy"
+                        ),
                     }
                 }
             }

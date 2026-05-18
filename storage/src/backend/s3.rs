@@ -106,16 +106,15 @@ impl S3Backend {
                     Ok(None)
                 } else {
                     warn!("[s3] head_object {key} failed: {service_err}");
-                    Err(BackendError::Other(format!("head_object {key}: {service_err}")))
+                    Err(BackendError::Other(format!(
+                        "head_object {key}: {service_err}"
+                    )))
                 }
             }
         }
     }
 
-    pub async fn stream(
-        &self,
-        key: &str,
-    ) -> Result<(ObjectInfo, ByteStream), BackendError> {
+    pub async fn stream(&self, key: &str) -> Result<(ObjectInfo, ByteStream), BackendError> {
         let out = self
             .client
             .get_object()

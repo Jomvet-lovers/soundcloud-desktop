@@ -51,7 +51,11 @@ fn sniff_content_type(data: &[u8]) -> &'static str {
 }
 
 async fn write_cached_asset(cache_path: PathBuf, data: Vec<u8>) {
-    let tmp = PathBuf::from(format!("{}.tmp-{}", cache_path.display(), std::process::id()));
+    let tmp = PathBuf::from(format!(
+        "{}.tmp-{}",
+        cache_path.display(),
+        std::process::id()
+    ));
     if fs::write(&tmp, &data).await.is_err() {
         let _ = fs::remove_file(&tmp).await;
         return;
@@ -182,9 +186,7 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         String::new()
     };
 
-    let is_cacheable = status == 200
-        && !data.is_empty()
-        && content_type.starts_with("image/");
+    let is_cacheable = status == 200 && !data.is_empty() && content_type.starts_with("image/");
     if is_cacheable {
         let data_clone = data.clone();
         let path = cache_path.clone();

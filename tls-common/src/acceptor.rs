@@ -45,7 +45,10 @@ where
             } else {
                 stream.peer_addr()?
             };
-            let svc = ConnectInfoService { inner: service, addr: real_addr };
+            let svc = ConnectInfoService {
+                inner: service,
+                addr: real_addr,
+            };
             inner.accept(stream, svc).await
         })
     }

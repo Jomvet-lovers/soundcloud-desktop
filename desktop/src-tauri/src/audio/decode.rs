@@ -23,7 +23,9 @@ pub fn is_ogg_opus(bytes: &[u8]) -> bool {
     // OpusHead appears at byte 28 in a standard OGG Opus header page
     bytes.len() >= 36
         && &bytes[0..4] == b"OggS"
-        && bytes[..bytes.len().min(64)].windows(8).any(|w| w == b"OpusHead")
+        && bytes[..bytes.len().min(64)]
+            .windows(8)
+            .any(|w| w == b"OpusHead")
 }
 
 struct OpusSource<R: std::io::Read + std::io::Seek> {

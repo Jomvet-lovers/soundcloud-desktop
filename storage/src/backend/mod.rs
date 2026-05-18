@@ -12,8 +12,7 @@ pub use gdrive::GdriveBackend;
 pub use local::LocalBackend;
 pub use s3::S3Backend;
 
-pub type ByteStream =
-    Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static>>;
+pub type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static>>;
 
 pub struct ObjectInfo {
     pub size: u64,
@@ -72,10 +71,7 @@ impl Backend {
         }
     }
 
-    pub async fn stream(
-        &self,
-        key: &str,
-    ) -> Result<(ObjectInfo, ByteStream), BackendError> {
+    pub async fn stream(&self, key: &str) -> Result<(ObjectInfo, ByteStream), BackendError> {
         match self {
             Backend::Local(b) => b.stream(key).await,
             Backend::S3(b) => b.stream(key).await,

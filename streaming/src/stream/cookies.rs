@@ -6,9 +6,10 @@ use tracing::{debug, info, warn};
 
 use std::sync::Arc;
 
-use super::anon::{AnonClient, Transcoding};
+use super::anon::AnonClient;
 use super::hls::{download_hls, download_progressive, fetch_m3u8_source, M3u8Refresher};
 use super::proxy::{fetch_get_json, fetch_get_text};
+use super::restricted::Transcoding;
 
 const FAILURE_THRESHOLD: u32 = 3;
 
@@ -41,6 +42,11 @@ struct CookieHydrationMedia {
 #[derive(serde::Deserialize)]
 struct ResolveResp {
     url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct AuthedTrack {
+    permalink_url: Option<String>,
 }
 
 impl CookiesClient {
@@ -109,7 +115,7 @@ impl CookiesClient {
             return Ok(None);
         }
 
-        // Sort: progressive before HLS within each tier, non-encrypted before encrypted
+        // Sort: progressive before HLS within each tier, plain before restricted
         let is_encrypted = |t: &&Transcoding| {
             t.format
                 .as_ref()
@@ -118,10 +124,7 @@ impl CookiesClient {
                 .contains("encrypted")
         };
         let is_progressive = |t: &&Transcoding| {
-            t.format
-                .as_ref()
-                .and_then(|f| f.protocol.as_deref())
-                == Some("progressive")
+            t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive")
         };
         let is_hq = |t: &&Transcoding| t.quality.as_deref() == Some("hq");
 
@@ -174,6 +177,61 @@ impl CookiesClient {
         Ok(None)
     }
 
+    fn auth_headers(&self) -> HashMap<String, String> {
+        let mut h = HashMap::new();
+        h.insert("Accept".into(), "*/*".into());
+        h.insert(
+            "Authorization".into(),
+            format!("OAuth {}", self.oauth_token),
+        );
+        h.insert("Origin".into(), "https://soundcloud.com".into());
+        h.insert("Referer".into(), "https://soundcloud.com/".into());
+        h.insert(
+            "User-Agent".into(),
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36".into(),
+        );
+        h
+    }
+
+    /// Authenticated resolve of the `ctr` transcoding (cookies session may
+    /// succeed where anon is region-blocked / 404s).
+    pub(crate) async fn resolve_restricted(
+        &self,
+        track_urn: &str,
+    ) -> Result<Option<super::restricted::RestrictedSource>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
+        let track: AuthedTrack = fetch_get_json(
+            &self.client,
+            &self.proxy_url,
+            &format!("https://api-v2.soundcloud.com/tracks/{track_id}"),
+            self.auth_headers(),
+            false,
+        )
+        .await?;
+        let permalink = match track.permalink_url {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        let (sound, client_id) = match self.fetch_hydration(&permalink).await {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+        let tcs = match sound.media.and_then(|m| m.transcodings) {
+            Some(t) if !t.is_empty() => t,
+            _ => return Ok(None),
+        };
+        super::restricted::resolve(
+            &self.client,
+            &self.proxy_url,
+            &tcs,
+            &client_id,
+            sound.track_authorization.as_deref(),
+            self.auth_headers(),
+        )
+        .await
+    }
+
     async fn try_transcoding(
         &self,
         transcoding: &Transcoding,
@@ -189,21 +247,16 @@ impl CookiesClient {
         let target =
             format!("{transcoding_url}{sep}client_id={client_id}&track_authorization={track_auth}");
 
-        let mut headers = HashMap::new();
-        headers.insert("Accept".into(), "*/*".into());
-        headers.insert(
-            "Authorization".into(),
-            format!("OAuth {}", self.oauth_token),
-        );
-        headers.insert("Origin".into(), "https://soundcloud.com".into());
-        headers.insert("Referer".into(), "https://soundcloud.com/".into());
-        headers.insert(
-            "User-Agent".into(),
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36".into(),
-        );
+        let headers = self.auth_headers();
 
-        let resp: ResolveResp =
-            fetch_get_json(&self.client, &self.proxy_url, &target, headers.clone(), false).await?;
+        let resp: ResolveResp = fetch_get_json(
+            &self.client,
+            &self.proxy_url,
+            &target,
+            headers.clone(),
+            false,
+        )
+        .await?;
 
         let mime = transcoding
             .format
@@ -242,14 +295,8 @@ impl CookiesClient {
                     Box::pin(async move {
                         let resp: ResolveResp =
                             fetch_get_json(&client, &proxy_url, &target, headers, false).await?;
-                        fetch_m3u8_source(
-                            &client,
-                            &proxy_url,
-                            &resp.url,
-                            HashMap::new(),
-                            false,
-                        )
-                        .await
+                        fetch_m3u8_source(&client, &proxy_url, &resp.url, HashMap::new(), false)
+                            .await
                     })
                 })
             };

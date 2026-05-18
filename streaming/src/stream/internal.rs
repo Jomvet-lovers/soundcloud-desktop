@@ -62,7 +62,9 @@ pub async fn transcode_upload(
         Some(d) => d,
         None => {
             if head_ok(&state.http_client, &head_url).await {
-                info!("[internal/transcode-upload] {track_urn} appeared in storage after fetch fail");
+                info!(
+                    "[internal/transcode-upload] {track_urn} appeared in storage after fetch fail"
+                );
                 return Ok(Json(TranscodeUploadResponse {
                     url: redirect_url,
                     size_bytes: 0,
@@ -86,9 +88,7 @@ pub async fn transcode_upload(
     .await
     {
         if head_ok(&state.http_client, &head_url).await {
-            info!(
-                "[internal/transcode-upload] {track_urn} upload failed ({e}) but file present"
-            );
+            info!("[internal/transcode-upload] {track_urn} upload failed ({e}) but file present");
             return Ok(Json(TranscodeUploadResponse {
                 url: redirect_url,
                 size_bytes: 0,

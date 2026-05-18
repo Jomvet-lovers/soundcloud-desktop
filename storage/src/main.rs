@@ -77,7 +77,9 @@ async fn main() {
     purge_dir(&result_dir).await;
 
     let tmp_used_initial = if config.tmp_max_bytes.is_some() {
-        routes::upload::dir_size_bytes(&source_dir).await.unwrap_or(0)
+        routes::upload::dir_size_bytes(&source_dir)
+            .await
+            .unwrap_or(0)
     } else {
         0
     };

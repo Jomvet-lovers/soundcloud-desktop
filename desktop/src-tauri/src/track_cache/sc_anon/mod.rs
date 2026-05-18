@@ -9,9 +9,9 @@ mod hls;
 
 use bytes::Bytes;
 use reqwest::Client;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tokio::sync::{Mutex, RwLock};
@@ -244,20 +244,14 @@ impl AnonClient {
         }
 
         let mut last_err: Option<String> = None;
-        // 404 on every transcoding = monetized/DRM-only track, not stale
-        // client_id: return None so the caller stops refreshing+retrying.
+        // 404 on every transcoding = restricted track, not stale client_id:
+        // return None so the caller stops refreshing+retrying.
         let mut only_resource_gone = true;
         for t in ranked {
-            let is_progressive = t
-                .format
-                .as_ref()
-                .and_then(|f| f.protocol.as_deref())
-                == Some("progressive");
+            let is_progressive =
+                t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive");
 
-            let media_url = match self
-                .resolve_transcoding_url(&t.url, None, track_auth)
-                .await
-            {
+            let media_url = match self.resolve_transcoding_url(&t.url, None, track_auth).await {
                 Ok(u) => u,
                 Err(e) => {
                     if !looks_like_resource_gone(&e) {
@@ -406,7 +400,7 @@ impl AnonClient {
     }
 }
 
-/// Drop previews/snipped/encrypted, then rank: progressive first, then HLS,
+/// Drop previews/snipped/restricted, then rank: progressive first, then HLS,
 /// each ordered by preset preference.
 fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
     let candidates: Vec<&Transcoding> = transcodings
@@ -427,10 +421,7 @@ fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
     }
 
     let is_progressive = |t: &&Transcoding| {
-        t.format
-            .as_ref()
-            .and_then(|f| f.protocol.as_deref())
-            == Some("progressive")
+        t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive")
     };
 
     let mut ordered: Vec<&Transcoding> = Vec::with_capacity(candidates.len());
@@ -482,7 +473,11 @@ fn build_transcoding_target(
     client_id: &str,
     track_authorization: Option<&str>,
 ) -> String {
-    let sep = if transcoding_url.contains('?') { "&" } else { "?" };
+    let sep = if transcoding_url.contains('?') {
+        "&"
+    } else {
+        "?"
+    };
     let mut target = format!("{transcoding_url}{sep}client_id={client_id}");
     if let Some(auth) = track_authorization.filter(|a| !a.is_empty()) {
         target.push_str("&track_authorization=");

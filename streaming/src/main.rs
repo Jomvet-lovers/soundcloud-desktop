@@ -26,6 +26,7 @@ pub struct AppState {
     pub anon: Arc<AnonClient>,
     pub cookies: Option<Arc<CookiesClient>>,
     pub storage: Arc<StorageClient>,
+    pub decryptor: Option<Arc<decrypt::Engine>>,
 }
 
 #[tokio::main]
@@ -38,7 +39,6 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
-
 
     if let Some(r) = build_call_relay("streaming").await {
         crate::stream::proxy::install_relay(r);
@@ -79,11 +79,7 @@ async fn main() {
         None
     };
 
-    let storage = Arc::new(StorageClient::new(
-        http_client.clone(),
-        &config,
-        pg.clone(),
-    ));
+    let storage = Arc::new(StorageClient::new(http_client.clone(), &config, pg.clone()));
 
     if storage.enabled() {
         if config.storage_public_url != config.storage_url {
@@ -98,6 +94,19 @@ async fn main() {
         info!("Storage disabled");
     }
 
+    let decryptor = config
+        .decrypt_device
+        .as_ref()
+        .and_then(|p| decrypt::Engine::load(std::path::Path::new(p)).ok())
+        .map(Arc::new);
+    info!(
+        "Decoder engine: {}",
+        decryptor
+            .as_ref()
+            .map(|e| format!("on ({} devices)", e.devices()))
+            .unwrap_or_else(|| "off".into())
+    );
+
     let config = Arc::new(config);
 
     cleanup::task::spawn_cleanup_task((*config).clone(), pg.clone(), storage.clone());
@@ -109,6 +118,7 @@ async fn main() {
         anon,
         cookies,
         storage,
+        decryptor,
     };
 
     let cors = CorsLayer::new()
@@ -159,7 +169,6 @@ async fn main() {
     }
 }
 
-
 async fn build_call_relay(role: &str) -> Option<std::sync::Arc<call_relay::Client>> {
     let endpoint = std::env::var("CALL_CONTROL_ENDPOINT").ok()?;
     if endpoint.is_empty() {
@@ -167,7 +176,10 @@ async fn build_call_relay(role: &str) -> Option<std::sync::Arc<call_relay::Clien
     }
     let relay_secret = std::env::var("CALL_RELAY_SECRET").unwrap_or_default();
     if relay_secret.is_empty() {
-        tracing::warn!(role, "CALL_RELAY_SECRET empty; relay will be rejected by server");
+        tracing::warn!(
+            role,
+            "CALL_RELAY_SECRET empty; relay will be rejected by server"
+        );
     }
     let cfg = call_relay::Config {
         control_endpoint: Some(endpoint),

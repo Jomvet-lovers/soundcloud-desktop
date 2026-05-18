@@ -25,6 +25,7 @@ thiserror = "2"
 regex = "1.12.3"
 tls-common = { path = "../tls-common" }
 call-relay = { path = "../call/relay" }
+decrypt = { path = "decrypt" }
 once_cell = "1"
 
 [profile.release]

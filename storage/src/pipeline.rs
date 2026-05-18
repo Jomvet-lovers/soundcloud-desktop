@@ -157,7 +157,10 @@ async fn run_batch(
 
     // 2. ffmpeg: try multi-input batch first; on failure, fall back per-file.
     let started = Instant::now();
-    let inputs: Vec<&Path> = accepted.iter().map(|(j, _, _)| j.source.as_path()).collect();
+    let inputs: Vec<&Path> = accepted
+        .iter()
+        .map(|(j, _, _)| j.source.as_path())
+        .collect();
     let outputs: Vec<PathBuf> = accepted.iter().map(|(_, _, o)| o.clone()).collect();
 
     let batch_res = transcode::run_ffmpeg_batch(&config.ffmpeg_bin, &inputs, &outputs).await;
@@ -228,7 +231,9 @@ fn spawn_commit(
         if res.is_ok() {
             publish_uploaded(&bs, &cfg, &job.filename);
         }
-        let _ = job.reply.send(res.map(|()| PipelineOutput { duration_secs }));
+        let _ = job
+            .reply
+            .send(res.map(|()| PipelineOutput { duration_secs }));
     });
 }
 

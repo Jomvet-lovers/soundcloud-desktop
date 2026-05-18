@@ -35,7 +35,7 @@ pub async fn download_hls_full(client: &Client, m3u8_url: &str) -> Result<Bytes,
     if let Some(ref init) = init_url {
         let data = fetch_bytes(client, init).await?;
         if data.windows(4).any(|w| w == b"enca") {
-            return Err("Stream is CENC encrypted".into());
+            return Err("unsupported stream".into());
         }
         buf.extend_from_slice(&data);
     }

@@ -4,6 +4,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Json;
 use bytes::Bytes;
+use futures::StreamExt;
 use tracing::{info, warn};
 
 use crate::error::AppError;
@@ -73,6 +74,11 @@ pub async fn stream_normal(
     if let Some(resp) = try_anon(&state, &track_urn, "[stream]").await {
         info!("[stream] {track_urn} → anon");
         return respond_with_data(&state, &track_urn, resp.0, resp.1);
+    }
+
+    if let Some(r) = try_restricted(&state, &track_urn, "[stream]").await {
+        info!("[stream] {track_urn} → restricted");
+        return Ok(r);
     }
 
     warn!("[stream] {track_urn} → no stream available");
@@ -190,6 +196,11 @@ pub async fn stream_premium(
         }
     }
 
+    if let Some(r) = try_restricted(&state, &track_urn, tag).await {
+        info!("{tag} {track_urn} → restricted");
+        return Ok(r);
+    }
+
     warn!("{tag} {track_urn} → no stream available");
     Err(AppError::NoStream)
 }
@@ -236,6 +247,70 @@ async fn try_cookies(
             None
         }
     }
+}
+
+async fn restricted_source(
+    state: &AppState,
+    track_urn: &str,
+    tag: &str,
+) -> Option<crate::stream::restricted::RestrictedSource> {
+    match state.anon.resolve_restricted(track_urn).await {
+        Ok(Some(v)) => return Some(v),
+        Ok(None) => {}
+        Err(e) => warn!("{tag} {track_urn} restricted(anon) failed: {e}"),
+    }
+    let cookies = state.cookies.as_ref()?;
+    match cookies.resolve_restricted(track_urn).await {
+        Ok(Some(v)) => Some(v),
+        Ok(None) => None,
+        Err(e) => {
+            warn!("{tag} {track_urn} restricted(cookies) failed: {e}");
+            None
+        }
+    }
+}
+
+async fn try_restricted(state: &AppState, track_urn: &str, tag: &str) -> Option<Response> {
+    let engine = state.decryptor.as_ref()?;
+    let src = restricted_source(state, track_urn, tag).await?;
+    let stream = match engine
+        .process_stream(&src.manifest, &src.token, &state.http_client)
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("{tag} {track_urn} restricted decode failed: {e}");
+            return None;
+        }
+    };
+
+    // Стримим клиенту чанками + копим, по завершении кэшируем в storage.
+    let acc = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let acc_w = acc.clone();
+    let storage = state.storage.clone();
+    let urn = track_urn.to_string();
+    let teed = stream
+        .map(move |chunk| {
+            if let Ok(b) = &chunk {
+                acc_w.lock().unwrap().extend_from_slice(b);
+            }
+            chunk
+        })
+        .chain(futures::stream::once(async move {
+            let data = std::mem::take(&mut *acc.lock().unwrap());
+            if data.len() > 8192 {
+                storage.upload_in_background(urn, Bytes::from(data));
+            }
+            Ok::<_, decrypt::Error>(Bytes::new())
+        }));
+
+    Some(
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", src.content_type)
+            .body(Body::from_stream(teed))
+            .unwrap(),
+    )
 }
 
 async fn try_anon(state: &AppState, track_urn: &str, tag: &str) -> Option<(Bytes, &'static str)> {

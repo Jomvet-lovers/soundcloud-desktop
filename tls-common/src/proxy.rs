@@ -10,11 +10,17 @@ pub(crate) async fn read_proxy_v1<S: AsyncRead + Unpin>(stream: &mut S) -> io::R
     let mut pos = 0;
     loop {
         if pos >= buf.len() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "PROXY v1 line too long"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "PROXY v1 line too long",
+            ));
         }
         let n = stream.read(&mut buf[pos..pos + 1]).await?;
         if n == 0 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "EOF before PROXY v1 CRLF"));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "EOF before PROXY v1 CRLF",
+            ));
         }
         pos += 1;
         if pos >= 2 && &buf[pos - 2..pos] == b"\r\n" {
@@ -26,11 +32,17 @@ pub(crate) async fn read_proxy_v1<S: AsyncRead + Unpin>(stream: &mut S) -> io::R
 
     let mut parts = line.split_ascii_whitespace();
     if parts.next() != Some("PROXY") {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "missing PROXY signature"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "missing PROXY signature",
+        ));
     }
     let proto = parts.next().unwrap_or("");
     if proto == "UNKNOWN" {
-        return Err(io::Error::new(io::ErrorKind::Other, "PROXY v1 UNKNOWN proto"));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "PROXY v1 UNKNOWN proto",
+        ));
     }
     let src_ip = parts
         .next()

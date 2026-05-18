@@ -24,8 +24,7 @@ impl TlsConfig {
             panic!("TLS_ENABLED=true but DOMAINS is empty (expected comma-separated domain list)");
         }
 
-        let email =
-            std::env::var("ACME_EMAIL").unwrap_or_else(|_| format!("admin@{}", domains[0]));
+        let email = std::env::var("ACME_EMAIL").unwrap_or_else(|_| format!("admin@{}", domains[0]));
         let cache_dir = PathBuf::from(
             std::env::var("ACME_CACHE_DIR").unwrap_or_else(|_| "/var/cache/acme".to_string()),
         );

@@ -8,25 +8,11 @@ use tracing::{info, warn};
 
 use super::hls::{download_hls, download_progressive, fetch_m3u8_source, M3u8Refresher};
 use super::proxy::{fetch_get_json, fetch_get_text};
+pub(crate) use super::restricted::{build_transcoding_target, Transcoding};
 
 const SC_BASE_URL: &str = "https://soundcloud.com";
 const SC_API_V2: &str = "https://api-v2.soundcloud.com";
 const CLIENT_ID_MIN_REFRESH: Duration = Duration::from_secs(30);
-
-#[derive(Debug, serde::Deserialize)]
-pub struct TranscodingFormat {
-    pub protocol: Option<String>,
-    pub mime_type: Option<String>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct Transcoding {
-    pub url: String,
-    pub preset: Option<String>,
-    pub snipped: Option<bool>,
-    pub quality: Option<String>,
-    pub format: Option<TranscodingFormat>,
-}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct TrackMedia {
@@ -220,10 +206,7 @@ impl AnonClient {
                     Some(t) if !t.is_empty() => {
                         // Return immediately from the retry path
                         return self
-                            .stream_from_transcodings(
-                                t,
-                                retry_track.track_authorization.as_deref(),
-                            )
+                            .stream_from_transcodings(t, retry_track.track_authorization.as_deref())
                             .await;
                     }
                     _ => {
@@ -235,7 +218,10 @@ impl AnonClient {
         };
 
         let track_auth = track.track_authorization.as_deref();
-        match self.stream_from_transcodings(transcodings, track_auth).await {
+        match self
+            .stream_from_transcodings(transcodings, track_auth)
+            .await
+        {
             Ok(Some(r)) => Ok(Some(r)),
             Ok(None) => Ok(None),
             Err(e) => {
@@ -255,11 +241,8 @@ impl AnonClient {
                     .and_then(|m| m.transcodings.as_ref())
                 {
                     Some(t) if !t.is_empty() => {
-                        self.stream_from_transcodings(
-                            t,
-                            retry_track.track_authorization.as_deref(),
-                        )
-                        .await
+                        self.stream_from_transcodings(t, retry_track.track_authorization.as_deref())
+                            .await
                     }
                     _ => Ok(None),
                 }
@@ -278,8 +261,8 @@ impl AnonClient {
         }
 
         let mut last_err: Option<Box<dyn std::error::Error + Send + Sync>> = None;
-        // 404 on every transcoding = monetized/DRM-only track, not stale
-        // client_id: bail to oauth/cookies instead of refreshing+looping.
+        // 404 on every transcoding = restricted track, not stale client_id:
+        // bail to oauth/cookies instead of refreshing+looping.
         let mut only_resource_gone = true;
         for t in ranked {
             let mime = t
@@ -287,16 +270,10 @@ impl AnonClient {
                 .as_ref()
                 .and_then(|f| f.mime_type.as_deref())
                 .unwrap_or("audio/mpeg");
-            let is_progressive = t
-                .format
-                .as_ref()
-                .and_then(|f| f.protocol.as_deref())
-                == Some("progressive");
+            let is_progressive =
+                t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive");
 
-            let media_url = match self
-                .resolve_transcoding_url(&t.url, None, track_auth)
-                .await
-            {
+            let media_url = match self.resolve_transcoding_url(&t.url, None, track_auth).await {
                 Ok(u) => u,
                 Err(e) => {
                     warn!(
@@ -380,11 +357,34 @@ impl AnonClient {
         }
 
         if only_resource_gone {
-            warn!("[anon] no usable non-DRM transcoding for track");
+            warn!("[anon] no usable transcoding for track");
             return Ok(None);
         }
 
         Err(last_err.unwrap_or_else(|| "all anon transcodings failed".into()))
+    }
+
+    pub(crate) async fn resolve_restricted(
+        &self,
+        track_urn: &str,
+    ) -> Result<Option<super::restricted::RestrictedSource>, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
+        let track = self.get_track_by_id(track_id).await?;
+        let tcs = match track.media.as_ref().and_then(|m| m.transcodings.as_ref()) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+        let cid = self.get_client_id().await?;
+        super::restricted::resolve(
+            &self.client,
+            &self.proxy_url,
+            tcs,
+            &cid,
+            track.track_authorization.as_deref(),
+            HashMap::new(),
+        )
+        .await
     }
 
     async fn refresh_client_id(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -397,9 +397,7 @@ impl AnonClient {
         self.coalesced_refresh().await
     }
 
-    async fn coalesced_refresh(
-        &self,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn coalesced_refresh(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let mut gate = self.refresh_gate.lock().await;
 
         if let Some(last) = *gate {
@@ -453,10 +451,7 @@ fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
     }
 
     let is_progressive = |t: &&Transcoding| {
-        t.format
-            .as_ref()
-            .and_then(|f| f.protocol.as_deref())
-            == Some("progressive")
+        t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive")
     };
 
     const PRESET_ORDER: &[&str] = &["mp3_1_0", "aac_160k", "opus_0_0", "abr_sq"];
@@ -512,24 +507,6 @@ fn build_resolve_target(url: &str, client_id: &str) -> String {
     format!("{SC_API_V2}/resolve?{query}")
 }
 
-fn build_transcoding_target(
-    transcoding_url: &str,
-    client_id: &str,
-    track_authorization: Option<&str>,
-) -> String {
-    let sep = if transcoding_url.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    let mut target = format!("{transcoding_url}{sep}client_id={client_id}");
-    if let Some(auth) = track_authorization.filter(|a| !a.is_empty()) {
-        target.push_str("&track_authorization=");
-        target.push_str(auth);
-    }
-    target
-}
-
 fn looks_like_resource_gone(err: &str) -> bool {
     err.contains("404")
 }
@@ -565,7 +542,7 @@ mod tests {
 
         let ranked = ranked_transcodings(&transcodings);
 
-        // Encrypted (cbc/ctr) variants are filtered out entirely: only the
+        // Restricted (cbc/ctr) variants are filtered out entirely: only the
         // two legacy mp3_1_0 entries survive.
         assert_eq!(
             ranked.len(),
@@ -599,8 +576,7 @@ mod tests {
         let ranked = ranked_transcodings(&transcodings);
         let progressive = ranked[0];
 
-        let with_auth =
-            build_transcoding_target(&progressive.url, "CID", Some("TRACK_AUTH_JWT"));
+        let with_auth = build_transcoding_target(&progressive.url, "CID", Some("TRACK_AUTH_JWT"));
         assert_eq!(
             with_auth,
             format!(
@@ -611,10 +587,7 @@ mod tests {
         );
 
         let without_auth = build_transcoding_target(&progressive.url, "CID", None);
-        assert_eq!(
-            without_auth,
-            format!("{}?client_id=CID", progressive.url)
-        );
+        assert_eq!(without_auth, format!("{}?client_id=CID", progressive.url));
 
         let empty_auth = build_transcoding_target(&progressive.url, "CID", Some(""));
         assert_eq!(empty_auth, without_auth);
@@ -642,7 +615,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "hits live SoundCloud; run with --ignored"]
-    async fn faded_is_drm_only_for_anon() {
+    async fn restricted_track_has_no_plain_transcoding() {
         let http = Client::new();
         let ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36";
 
@@ -659,7 +632,9 @@ mod tests {
             extract_client_id_from_hydration(&html).expect("scrape client_id from homepage");
 
         let track: ResolvedTrack = http
-            .get(format!("{SC_API_V2}/tracks/2028682452?client_id={client_id}"))
+            .get(format!(
+                "{SC_API_V2}/tracks/2028682452?client_id={client_id}"
+            ))
             .header("User-Agent", ua)
             .send()
             .await
@@ -699,9 +674,13 @@ mod tests {
                     .and_then(|f| f.protocol.as_deref())
                     .is_some_and(|p| p.contains("encrypted"))
             })
-            .expect("DRM transcoding present");
+            .expect("restricted transcoding present");
         let enc_status = http
-            .get(build_transcoding_target(&enc.url, &client_id, Some(&track_auth)))
+            .get(build_transcoding_target(
+                &enc.url,
+                &client_id,
+                Some(&track_auth),
+            ))
             .header("User-Agent", ua)
             .send()
             .await
@@ -709,7 +688,7 @@ mod tests {
             .status();
         assert!(
             enc_status.is_success(),
-            "DRM transcoding should resolve, got {enc_status}"
+            "restricted transcoding should resolve, got {enc_status}"
         );
     }
 }

@@ -503,6 +503,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "decrypt"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "reqwest",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "der-parser"
 version = "9.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2052,6 +2062,7 @@ dependencies = [
  "call-relay",
  "chrono",
  "deadpool-postgres",
+ "decrypt",
  "futures",
  "once_cell",
  "regex",

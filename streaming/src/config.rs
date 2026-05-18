@@ -22,6 +22,7 @@ pub struct Config {
     pub storage_max_size_bytes: u64,
     pub storage_cleanup_interval_secs: u64,
     pub internal_token: String,
+    pub decrypt_device: Option<String>,
 }
 
 impl Config {
@@ -85,6 +86,7 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(3600),
             internal_token: env::var("INTERNAL_TOKEN").unwrap_or_default(),
+            decrypt_device: env::var("SC_DECRYPT_DEVICE").ok().filter(|s| !s.is_empty()),
         }
     }
 

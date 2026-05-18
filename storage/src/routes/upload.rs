@@ -80,9 +80,7 @@ async fn rescan_tmp_usage(state: &AppState) {
     };
     if pre > disk {
         let recovered = pre - disk;
-        state
-            .tmp_used_bytes
-            .fetch_sub(recovered, Ordering::AcqRel);
+        state.tmp_used_bytes.fetch_sub(recovered, Ordering::AcqRel);
         info!(
             "[tmp-rescan] recovered {:.2} MiB (counter {} → ~{} bytes)",
             recovered as f64 / (1024.0 * 1024.0),
@@ -138,8 +136,7 @@ pub async fn upload(
             }
             "file" => {
                 let id = uuid::Uuid::new_v4();
-                let tmp_path =
-                    std::path::PathBuf::from(&source_dir).join(format!("{id}.input"));
+                let tmp_path = std::path::PathBuf::from(&source_dir).join(format!("{id}.input"));
 
                 let mut file = tokio::fs::File::create(&tmp_path).await.map_err(|e| {
                     (
@@ -227,7 +224,10 @@ pub async fn upload(
         }
         Err(PipelineError::Ffmpeg(msg)) => {
             warn!("[upload] ffmpeg failed for {filename}: {msg}");
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("transcode: {msg}")));
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("transcode: {msg}"),
+            ));
         }
         Err(PipelineError::Backend(msg)) => {
             warn!("[upload] backend failed for {filename}: {msg}");
@@ -235,7 +235,10 @@ pub async fn upload(
         }
         Err(PipelineError::Internal(msg)) => {
             warn!("[upload] internal failure for {filename}: {msg}");
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("internal: {msg}")));
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("internal: {msg}"),
+            ));
         }
     };
 

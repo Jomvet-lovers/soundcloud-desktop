@@ -83,10 +83,7 @@ impl LocalBackend {
         }
     }
 
-    pub async fn stream(
-        &self,
-        key: &str,
-    ) -> Result<(ObjectInfo, ByteStream), BackendError> {
+    pub async fn stream(&self, key: &str) -> Result<(ObjectInfo, ByteStream), BackendError> {
         let path = self.path_for(key);
         let file = match tokio::fs::File::open(&path).await {
             Ok(f) => f,

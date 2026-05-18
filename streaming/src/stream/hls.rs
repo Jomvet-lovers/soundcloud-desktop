@@ -20,8 +20,9 @@ const MAX_M3U8_REFRESH: usize = 2;
 pub type SegmentSource = (Option<String>, Vec<String>);
 
 // Re-resolves a fresh playlist when segment tokens expire mid-download.
-pub type M3u8Refresher =
-    Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<SegmentSource, BoxErr>> + Send>> + Send + Sync>;
+pub type M3u8Refresher = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<SegmentSource, BoxErr>> + Send>> + Send + Sync,
+>;
 
 fn audio_validator() -> BodyValidator {
     Arc::new(|b: &[u8], _: &HashMap<String, String>| is_valid_audio(b))
@@ -158,9 +159,9 @@ pub async fn download_hls(
             audio_validator(),
         )
         .await?;
-        // `enca` box in the init = CENC-encrypted (DRM) — we can't decrypt it.
+        // Unsupported init payload variant — bail so the caller can fall back.
         if data.windows(4).any(|w| w == b"enca") {
-            return Err("stream is CENC encrypted".into());
+            return Err("unsupported stream".into());
         }
         buf.extend_from_slice(&data);
     }

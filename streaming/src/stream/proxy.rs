@@ -138,7 +138,10 @@ async fn via_relay(
                 if validate(&resp.body, &resp.headers) {
                     return Ok((resp.body, resp.headers));
                 }
-                debug!("relay {target_url} → {} but body rejected, attempt {attempt}", resp.status);
+                debug!(
+                    "relay {target_url} → {} but body rejected, attempt {attempt}",
+                    resp.status
+                );
                 last_err = "relay invalid response body".into();
             }
             Ok(resp) => {
@@ -191,11 +194,7 @@ async fn race_relay_proxy(
     }
 }
 
-async fn await_other_with_grace<F>(
-    other: F,
-    grace: Duration,
-    original_err: BoxErr,
-) -> FetchResult
+async fn await_other_with_grace<F>(other: F, grace: Duration, original_err: BoxErr) -> FetchResult
 where
     F: std::future::Future<Output = FetchResult>,
 {

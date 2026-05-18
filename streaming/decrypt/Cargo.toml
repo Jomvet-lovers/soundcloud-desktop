@@ -1,0 +1,10 @@
+[package]
+name = "decrypt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytes = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+thiserror = "2"
+futures = "0.3"

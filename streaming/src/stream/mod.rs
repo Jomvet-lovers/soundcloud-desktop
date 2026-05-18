@@ -5,5 +5,6 @@ pub mod hls;
 pub mod internal;
 pub mod oauth;
 pub mod proxy;
+pub mod restricted;
 pub mod storage;
 pub mod validate;

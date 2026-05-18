@@ -98,7 +98,10 @@ impl Config {
 }
 
 fn parse_bool(v: &str) -> bool {
-    matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+    matches!(
+        v.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn parse_env_usize(name: &str, default: usize) -> usize {
@@ -126,9 +129,9 @@ impl Config {
             "s3" => BackendKind::S3,
             "gdrive" => BackendKind::Gdrive,
             "local" | "" => BackendKind::Local,
-            other => panic!(
-                "unknown STORAGE_BACKEND: {other} (expected 'local', 's3' or 'gdrive')"
-            ),
+            other => {
+                panic!("unknown STORAGE_BACKEND: {other} (expected 'local', 's3' or 'gdrive')")
+            }
         };
 
         let s3 = if backend == BackendKind::S3 {

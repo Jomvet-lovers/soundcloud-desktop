@@ -97,10 +97,7 @@ impl StorageClient {
         tokio::spawn(async move {
             let cdn_path = Self::track_path(&track_urn);
 
-            let id = match pg
-                .insert_cdn_track(&track_urn, &cdn_path, "pending")
-                .await
-            {
+            let id = match pg.insert_cdn_track(&track_urn, &cdn_path, "pending").await {
                 Ok(id) => id,
                 Err(e) => {
                     warn!("[storage] insert pending failed: {e}");
@@ -126,7 +123,10 @@ impl StorageClient {
                     let cur_until = until.load(Ordering::Relaxed);
                     if prev + 1 >= UNAVAILABLE_THRESHOLD && now_ms() >= cur_until {
                         until.store(now_ms() + UNAVAILABLE_COOLDOWN_MS, Ordering::Relaxed);
-                        warn!("[storage] breaker opened after {} upload failures", prev + 1);
+                        warn!(
+                            "[storage] breaker opened after {} upload failures",
+                            prev + 1
+                        );
                     }
                     warn!("[storage] upload failed for {filename}: {e}");
                     let _ = pg.update_cdn_track_status(&id, "error").await;
