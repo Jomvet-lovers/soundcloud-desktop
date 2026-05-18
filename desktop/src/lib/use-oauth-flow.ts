@@ -15,6 +15,7 @@ interface LoginStatusResponse {
   sessionId?: string;
   username?: string;
   error?: string;
+  redirectUrl?: string;
 }
 
 export type OAuthStep = 'waiting' | 'token' | 'profile' | 'session';
@@ -86,6 +87,7 @@ export function useOAuthFlow(
     await openUrl(url);
 
     let failingSince: number | null = null;
+    let lastRedirect: string | null = null;
 
     const tryPoll = async (base: string): Promise<LoginStatusResponse | null> => {
       const controller = new AbortController();
@@ -123,6 +125,13 @@ export function useOAuthFlow(
         return;
       }
       failingSince = null;
+
+      if (data.redirectUrl && data.redirectUrl !== lastRedirect) {
+        lastRedirect = data.redirectUrl;
+        setStep('waiting');
+        pollRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
+        return;
+      }
 
       if (data.step) setStep(data.step);
 

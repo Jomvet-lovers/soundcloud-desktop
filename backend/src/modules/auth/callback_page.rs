@@ -349,6 +349,18 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     var pollAttempts = 0;
     var MAX_ATTEMPTS = 100;
     var INTERVAL_MS = 300;
+    var redirecting = false;
+
+    function reconnect(url) {
+      redirecting = true;
+      icon.classList.remove('error', 'success');
+      icon.classList.add('loading');
+      title.textContent = 'Reconnecting…';
+      subtitle.textContent = 'Switching to a backup connection.';
+      stepsBox.style.display = 'none';
+      errorBox.replaceChildren();
+      window.location.replace(url);
+    }
 
     function poll() {
       pollAttempts += 1;
@@ -356,6 +368,8 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (s) {
           if (!s) { schedule(); return; }
+          if (redirecting) return;
+          if (s.redirectUrl) { reconnect(s.redirectUrl); return; }
           if (s.step) setStep(s.step);
           if (s.status === 'completed') {
             showSuccess(s.username || null);

@@ -22,6 +22,7 @@ use crate::sc::{self, OAuthCredentials, ScClient, ScMe};
 pub const REFRESH_BUFFER: Duration = Duration::from_secs(60);
 
 const LOGIN_REQUEST_TTL_SECS: i64 = 15 * 60;
+const MAX_AUTH_RETRIES: i32 = 3;
 const REFRESH_LOCK_CAPACITY: u64 = 8192;
 const REFRESH_LOCK_TTL: Duration = Duration::from_secs(10 * 60);
 
@@ -51,6 +52,8 @@ pub struct LoginStatusResult {
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(rename = "redirectUrl", skip_serializing_if = "Option::is_none")]
+    pub redirect_url: Option<String>,
 }
 
 pub struct AuthService {
@@ -245,30 +248,7 @@ impl AuthService {
         let code_challenge = base64_url(Sha256::digest(code_verifier.as_bytes()).as_slice());
         let state = hex::encode(random_bytes(16));
 
-        let (creds, oauth_app_id) = match self.pick_healthy_app().await {
-            Ok(app) => {
-                info!(app_name = %app.name, app_id = %app.id, "Login initiated with app");
-                let id = app.id;
-                (
-                    OAuthCredentials {
-                        client_id: app.client_id,
-                        client_secret: app.client_secret,
-                        redirect_uri: app.redirect_uri,
-                    },
-                    Some(id.to_string()),
-                )
-            }
-            Err(_) => {
-                let env_creds = self.env_credentials();
-                if env_creds.client_id.is_empty() || env_creds.client_secret.is_empty() {
-                    return Err(AppError::not_found(
-                        "No active OAuth apps available and env fallback is not configured",
-                    ));
-                }
-                warn!("No active OAuth apps available, using env OAuth fallback");
-                (env_creds, None)
-            }
-        };
+        let (creds, oauth_app_id) = self.pick_credentials(None).await?;
 
         let target_session_id = match existing_session_id {
             Some(sid) => {
@@ -302,17 +282,7 @@ impl AuthService {
         .execute(&self.pool)
         .await?;
 
-        let qs = serde_urlencoded::to_string([
-            ("client_id", creds.client_id.as_str()),
-            ("redirect_uri", creds.redirect_uri.as_str()),
-            ("response_type", "code"),
-            ("code_challenge", code_challenge.as_str()),
-            ("code_challenge_method", "S256"),
-            ("state", state.as_str()),
-        ])
-        .map_err(|e| AppError::internal(format!("urlencode: {e}")))?;
-
-        let url = format!("{}/authorize?{qs}", self.sc.auth_base_url());
+        let url = self.build_authorize_url(&creds, &state, &code_challenge)?;
         Ok(LoginInitResult {
             url,
             login_request_id,
@@ -328,7 +298,8 @@ impl AuthService {
         info!(state_prefix = %&state[..prefix_len], "Callback received");
 
         let claimed: Option<LoginRequest> = sqlx::query_as(
-            "UPDATE login_requests SET status = 'processing', step = 'token' \
+            "UPDATE login_requests SET status = 'processing', step = 'token', \
+                redirect_url = NULL \
              WHERE state = $1 AND status = 'pending' RETURNING *",
         )
         .bind(state)
@@ -428,12 +399,9 @@ impl AuthService {
                 t
             }
             Err(err) => {
-                if let Some(app_id) = lr.oauth_app_id.as_deref() {
-                    let _ = self.health.record_app_failure(app_id).await;
-                }
                 warn!(request = %lr.id, error = %err, "Token exchange failed");
                 let msg = public_error_message(&err, "Token exchange failed");
-                self.mark_request_failed(lr.id, &msg).await?;
+                self.retry_with_new_app(&lr, &msg).await?;
                 return Ok(());
             }
         };
@@ -449,7 +417,7 @@ impl AuthService {
         let me = match self.fetch_sc_me_with_retries(&token.access_token).await {
             Some(me) => me,
             None => {
-                self.mark_request_failed(lr.id, "Failed to fetch SoundCloud user info")
+                self.retry_with_new_app(&lr, "Failed to fetch SoundCloud user info")
                     .await?;
                 return Ok(());
             }
@@ -588,6 +556,7 @@ impl AuthService {
                 session_id: None,
                 username: None,
                 error: Some("Unknown login request".into()),
+                redirect_url: None,
             });
         };
 
@@ -599,6 +568,7 @@ impl AuthService {
                 session_id: None,
                 username: None,
                 error: Some("Login request expired".into()),
+                redirect_url: None,
             });
         }
 
@@ -614,6 +584,7 @@ impl AuthService {
             session_id: lr.result_session_id,
             username: lr.username,
             error: lr.error,
+            redirect_url: lr.redirect_url,
         })
     }
 
@@ -650,41 +621,146 @@ impl AuthService {
         Ok(())
     }
 
-    /// Подбирает наименее давно использованную **здоровую** аппку. Аппки с
-    /// большой долей ошибок за последние 5 мин исключаются, чтобы новый
-    /// пользователь не попал на сломанный пайплайн. Если все апки нездоровы —
-    /// возвращаем LRU (всё равно надо попробовать, иначе блокировка не
-    /// разморозится).
-    async fn pick_healthy_app(&self) -> AppResult<OAuthApp> {
+    async fn pick_healthy_app(&self, exclude: Option<Uuid>) -> AppResult<OAuthApp> {
         let all = self.oauth_apps.find_all().await?;
-        let active: Vec<OAuthApp> = all.into_iter().filter(|a| a.active).collect();
+        let active: Vec<OAuthApp> = all
+            .into_iter()
+            .filter(|a| a.active && Some(a.id) != exclude)
+            .collect();
         if active.is_empty() {
             return Err(AppError::not_found("No active OAuth apps available"));
         }
 
-        // Один pipeline на все apps вместо N последовательных round-trip
-        // в Redis (на login-флоу — критичный путь).
         let ids: Vec<String> = active.iter().map(|a| a.id.to_string()).collect();
         let healths = self.health.app_healths(&ids).await.unwrap_or_default();
-        let healthy: Vec<OAuthApp> = active
+        let penalties = self.health.app_penalties(&ids).await.unwrap_or_default();
+
+        let preferred: Vec<Uuid> = active
             .iter()
             .filter(|a| {
-                healths
-                    .get(&a.id.to_string())
-                    .map(|h| !h.unhealthy())
-                    .unwrap_or(true)
+                let key = a.id.to_string();
+                let healthy = healths.get(&key).map(|h| !h.unhealthy()).unwrap_or(true);
+                healthy && !penalties.contains_key(&key)
             })
-            .cloned()
+            .map(|a| a.id)
             .collect();
-        if healthy.is_empty() {
-            warn!("All OAuth apps marked unhealthy; falling back to LRU pick");
-            return self.oauth_apps.pick_least_recently_used_app().await;
+        if !preferred.is_empty() {
+            return self.oauth_apps.pick_lru_from(&preferred).await;
         }
-        // pick_least_recently_used_app делает FOR UPDATE SKIP LOCKED + updates
-        // last_used_at. Здоровых может быть много — пусть LRU выбирает между
-        // ними. Передаём в Postgres ids healthy-подмножества.
-        let ids: Vec<Uuid> = healthy.iter().map(|a| a.id).collect();
+
+        warn!("No clean OAuth app available; degrading to least-penalized pick");
+        let mut by_penalty: Vec<&OAuthApp> = active.iter().collect();
+        by_penalty.sort_by_key(|a| penalties.get(&a.id.to_string()).copied().unwrap_or(0));
+        let ids: Vec<Uuid> = by_penalty.iter().map(|a| a.id).collect();
         self.oauth_apps.pick_lru_from(&ids).await
+    }
+
+    async fn pick_credentials(
+        &self,
+        exclude: Option<Uuid>,
+    ) -> AppResult<(OAuthCredentials, Option<String>)> {
+        match self.pick_healthy_app(exclude).await {
+            Ok(app) => {
+                info!(app_name = %app.name, app_id = %app.id, "Auth flow using app");
+                let id = app.id;
+                Ok((
+                    OAuthCredentials {
+                        client_id: app.client_id,
+                        client_secret: app.client_secret,
+                        redirect_uri: app.redirect_uri,
+                    },
+                    Some(id.to_string()),
+                ))
+            }
+            Err(_) => {
+                let env_creds = self.env_credentials();
+                if env_creds.client_id.is_empty() || env_creds.client_secret.is_empty() {
+                    return Err(AppError::not_found(
+                        "No active OAuth apps available and env fallback is not configured",
+                    ));
+                }
+                warn!("No active OAuth apps available, using env OAuth fallback");
+                Ok((env_creds, None))
+            }
+        }
+    }
+
+    fn build_authorize_url(
+        &self,
+        creds: &OAuthCredentials,
+        state: &str,
+        code_challenge: &str,
+    ) -> AppResult<String> {
+        let qs = serde_urlencoded::to_string([
+            ("client_id", creds.client_id.as_str()),
+            ("redirect_uri", creds.redirect_uri.as_str()),
+            ("response_type", "code"),
+            ("code_challenge", code_challenge),
+            ("code_challenge_method", "S256"),
+            ("state", state),
+        ])
+        .map_err(|e| AppError::internal(format!("urlencode: {e}")))?;
+        Ok(format!("{}/authorize?{qs}", self.sc.auth_base_url()))
+    }
+
+    async fn retry_with_new_app(&self, lr: &LoginRequest, reason: &str) -> AppResult<()> {
+        if let Some(app_id) = lr.oauth_app_id.as_deref() {
+            let _ = self.health.record_app_failure(app_id).await;
+            match self.health.penalize_app(app_id).await {
+                Ok(cd) => warn!(app_id, cooldown_sec = cd, %reason, "OAuth app penalized"),
+                Err(e) => warn!(app_id, error = %e, "Failed to penalize app"),
+            }
+        }
+
+        if lr.retry_count >= MAX_AUTH_RETRIES {
+            warn!(request = %lr.id, retries = lr.retry_count, "Auth retries exhausted");
+            self.mark_request_failed(lr.id, reason).await?;
+            return Ok(());
+        }
+
+        let exclude = lr
+            .oauth_app_id
+            .as_deref()
+            .and_then(|s| Uuid::parse_str(s).ok());
+        let (creds, new_app_id) = match self.pick_credentials(exclude).await {
+            Ok(v) => v,
+            Err(_) => {
+                self.mark_request_failed(lr.id, reason).await?;
+                return Ok(());
+            }
+        };
+
+        let code_verifier = base64_url(&random_bytes(32));
+        let code_challenge = base64_url(Sha256::digest(code_verifier.as_bytes()).as_slice());
+        let state = hex::encode(random_bytes(16));
+        let url = self.build_authorize_url(&creds, &state, &code_challenge)?;
+        let expires_at =
+            (Utc::now() + chrono::Duration::seconds(LOGIN_REQUEST_TTL_SECS)).naive_utc();
+
+        sqlx::query(
+            "UPDATE login_requests SET \
+                status = 'pending', step = NULL, error = NULL, \
+                state = $2, code_verifier = $3, oauth_app_id = $4, \
+                redirect_url = $5, retry_count = retry_count + 1, \
+                expires_at = $6 \
+             WHERE id = $1",
+        )
+        .bind(lr.id)
+        .bind(&state)
+        .bind(&code_verifier)
+        .bind(&new_app_id)
+        .bind(&url)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+
+        info!(
+            request = %lr.id,
+            attempt = lr.retry_count + 1,
+            new_app = ?new_app_id,
+            "Auth retried with a different OAuth app"
+        );
+        Ok(())
     }
 
     pub async fn get_credentials_for_app(

@@ -28,6 +28,8 @@ pub struct LoginRequest {
     pub username: Option<String>,
     pub result_session_id: Option<Uuid>,
     pub error: Option<String>,
+    pub retry_count: i32,
+    pub redirect_url: Option<String>,
     pub expires_at: NaiveDateTime,
 }
 

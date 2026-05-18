@@ -20,6 +20,9 @@ const REFRESH_FAIL_TTL_SEC: u64 = 60;
 const RATE_LIMIT_FAIL_TTL_SEC: u64 = 5 * 60;
 const MIN_SAMPLES: i64 = 10;
 const UNHEALTHY_RATIO: f64 = 0.5;
+const PENALTY_BASE_SEC: u64 = 60;
+const PENALTY_MAX_SEC: u64 = 30 * 60;
+const PENALTY_STRIKE_TTL_SEC: i64 = 60 * 60;
 
 #[derive(Debug, Clone, Default)]
 pub struct AppHealth {
@@ -54,7 +57,49 @@ impl AuthHealthService {
         let key = format!("auth:app:{app_id}:success");
         let _: i64 = conn.incr(&key, 1).await?;
         let _: () = conn.expire(&key, WINDOW_SEC as i64).await?;
+        let _: () = conn
+            .del(&[
+                format!("auth:app:{app_id}:penalty"),
+                format!("auth:app:{app_id}:strikes"),
+            ])
+            .await?;
         Ok(())
+    }
+
+    pub async fn penalize_app(&self, app_id: &str) -> AppResult<u64> {
+        let mut conn = self.redis.get().await?;
+        let strikes_key = format!("auth:app:{app_id}:strikes");
+        let strikes: i64 = conn.incr(&strikes_key, 1).await?;
+        let _: () = conn.expire(&strikes_key, PENALTY_STRIKE_TTL_SEC).await?;
+        let exp = (strikes.max(1) - 1).clamp(0, 20) as u32;
+        let cooldown = PENALTY_BASE_SEC
+            .saturating_mul(2u64.saturating_pow(exp))
+            .min(PENALTY_MAX_SEC);
+        let _: () = conn
+            .set_ex(format!("auth:app:{app_id}:penalty"), strikes, cooldown)
+            .await?;
+        Ok(cooldown)
+    }
+
+    pub async fn app_penalties(&self, app_ids: &[String]) -> AppResult<HashMap<String, i64>> {
+        if app_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut conn = self.redis.get().await?;
+        let mut pipe = deadpool_redis::redis::pipe();
+        for id in app_ids {
+            pipe.pttl(format!("auth:app:{id}:penalty"));
+        }
+        let ttls: Vec<i64> = pipe.query_async(&mut conn).await?;
+        let mut out = HashMap::new();
+        for (i, id) in app_ids.iter().enumerate() {
+            if let Some(&ms) = ttls.get(i) {
+                if ms > 0 {
+                    out.insert(id.clone(), (ms / 1000).max(1));
+                }
+            }
+        }
+        Ok(out)
     }
 
     pub async fn record_app_failure(&self, app_id: &str) -> AppResult<()> {

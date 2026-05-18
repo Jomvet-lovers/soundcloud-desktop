@@ -58,46 +58,20 @@ impl OAuthAppsService {
         Ok(n)
     }
 
-    /// Выбирает активное приложение с `last_used_at NULLS FIRST, created_at ASC`
-    /// под `FOR UPDATE SKIP LOCKED` и обновляет `last_used_at`.
-    pub async fn pick_least_recently_used_app(&self) -> AppResult<OAuthApp> {
-        self.pick_lru_internal(None).await
-    }
-
-    /// То же что `pick_least_recently_used_app`, но из подмножества id'шников
-    /// (например, из health-фильтрованных аппок).
     pub async fn pick_lru_from(&self, ids: &[Uuid]) -> AppResult<OAuthApp> {
         if ids.is_empty() {
             return Err(AppError::not_found("No OAuth apps in filter set"));
         }
-        self.pick_lru_internal(Some(ids)).await
-    }
-
-    async fn pick_lru_internal(&self, ids: Option<&[Uuid]>) -> AppResult<OAuthApp> {
         let mut tx = self.pool.begin().await?;
-        let app: Option<OAuthApp> = match ids {
-            None => {
-                sqlx::query_as(
-                    "SELECT * FROM oauth_apps \
-                 WHERE active = true \
-                 ORDER BY last_used_at ASC NULLS FIRST, created_at ASC \
-                 LIMIT 1 FOR UPDATE SKIP LOCKED",
-                )
-                .fetch_optional(&mut *tx)
-                .await?
-            }
-            Some(set) => {
-                sqlx::query_as(
-                    "SELECT * FROM oauth_apps \
-                 WHERE active = true AND id = ANY($1) \
-                 ORDER BY last_used_at ASC NULLS FIRST, created_at ASC \
-                 LIMIT 1 FOR UPDATE SKIP LOCKED",
-                )
-                .bind(set)
-                .fetch_optional(&mut *tx)
-                .await?
-            }
-        };
+        let app: Option<OAuthApp> = sqlx::query_as(
+            "SELECT * FROM oauth_apps \
+             WHERE active = true AND id = ANY($1) \
+             ORDER BY last_used_at ASC NULLS FIRST, created_at ASC \
+             LIMIT 1 FOR UPDATE SKIP LOCKED",
+        )
+        .bind(ids)
+        .fetch_optional(&mut *tx)
+        .await?;
 
         let app = app.ok_or_else(|| AppError::not_found("No active OAuth apps available"))?;
 
