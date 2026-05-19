@@ -8,8 +8,6 @@ const WHITELIST = [
   '127.0.0.1',
   'tauri.localhost',
   'scproxy.localhost',
-  'images.soundcloud.su',
-  'api.soundcloud.su',
   'images.scdinternal.site',
   'api.scdinternal.site',
   'white.api.scdinternal.site',

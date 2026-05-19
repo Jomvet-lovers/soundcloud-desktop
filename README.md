@@ -4,7 +4,7 @@
 </a>
 </p>
 
-<h1 align="center"><a href="https://soundcloud.su/">SoundCloud Desktop</a></h1>
+<h1 align="center"><a href="https://soundcloud-desktop.fun/">SoundCloud Desktop</a></h1>
 
 <p align="center">
 <b>Нативное десктопное приложение для SoundCloud</b><br>
