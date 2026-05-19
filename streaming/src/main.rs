@@ -190,7 +190,7 @@ async fn build_call_relay(role: &str) -> Option<std::sync::Arc<call_relay::Clien
         policy: call_relay::tiers::Policy {
             // Только client-тир — direct/proxy выполняет вызывающая сторона.
             order: vec![call_relay::Tier::Client],
-            timeout_ms: 15_000,
+            timeout_ms: 180_000,
             fallback_on_status_5xx: true,
         },
     };

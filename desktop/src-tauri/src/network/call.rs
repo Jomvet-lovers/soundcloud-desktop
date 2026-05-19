@@ -133,7 +133,6 @@ async fn run_call_loop(_app: AppHandle, state: Arc<CallState>) -> Result<(), Str
 
     let http = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| fmt_chain(&e))?;
 
