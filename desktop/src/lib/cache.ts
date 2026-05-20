@@ -40,16 +40,22 @@ export async function ensureTrackCached(
     return cached;
   }
 
-  const { buildStorageUrls, streamFallbackUrls, getSessionId } = await import('./api');
+  const { buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId } =
+    await import('./api');
   const sessionId = getSessionId();
   const urls = streamFallbackUrls(urn, highQualityStreaming);
+  const downloadUrls = downloadFallbackUrls(urn, highQualityStreaming);
   const storageUrls = buildStorageUrls(urn);
 
   return invoke<TrackCacheInfo>('track_ensure_cached', {
-    urn,
-    urls,
-    storageUrls,
-    sessionId,
+    request: {
+      urn,
+      urls,
+      downloadUrls,
+      storageUrls,
+      sessionId,
+      hq: highQualityStreaming,
+    },
   });
 }
 
@@ -80,8 +86,10 @@ export function listCachedUrns(): Promise<string[]> {
 export interface LikeCacheEntry {
   urn: string;
   urls: string[];
+  downloadUrls: string[];
   storageUrls: string[];
   sessionId: string | null;
+  hq: boolean;
 }
 
 export function cacheLikedTracks(entries: LikeCacheEntry[]): Promise<void> {

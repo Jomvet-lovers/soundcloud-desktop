@@ -1,6 +1,7 @@
 pub mod anon;
 pub mod cookies;
 pub mod decrypt_fetch;
+pub mod download;
 pub mod handler;
 pub mod hls;
 pub mod internal;

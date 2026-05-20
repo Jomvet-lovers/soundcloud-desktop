@@ -32,6 +32,16 @@ pub trait Fetcher: Send + Sync {
     ) -> BoxFuture<'static, Result<Bytes, Error>>;
 }
 
+/// Всё, что нужно клиенту, чтобы самостоятельно собрать восстановленный
+/// поток: переписанный init-сегмент, URL'ы сегментов и ключ.
+/// Сервер не качает сами сегменты — только manifest, init и license challenge.
+pub struct ClientPrep {
+    pub content_type: String,
+    pub init: Bytes,
+    pub segment_urls: Vec<String>,
+    pub key: [u8; 16],
+}
+
 pub struct Engine {}
 
 impl Engine {
@@ -58,6 +68,15 @@ impl Engine {
         _token: &str,
         _fetcher: Arc<dyn Fetcher>,
     ) -> Result<futures::stream::BoxStream<'static, Result<Bytes, Error>>, Error> {
+        Err(Error::Disabled)
+    }
+
+    pub async fn prepare_for_client(
+        &self,
+        _manifest: &str,
+        _token: &str,
+        _fetcher: Arc<dyn Fetcher>,
+    ) -> Result<ClientPrep, Error> {
         Err(Error::Disabled)
     }
 }

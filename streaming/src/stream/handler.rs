@@ -7,6 +7,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use tracing::{info, warn};
 
+use crate::db::postgres::SessionInfo;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -35,8 +36,14 @@ pub async fn resolve_track(
     }
 }
 
-/// GET /stream/:track_urn — normal stream (OAuth → anon)
-pub async fn stream_normal(
+/// GET /stream/:track_urn — единый endpoint.
+///
+/// * `premium_only` хост и не-премиум юзер → 403.
+/// * `hq=true` без премиум → 403 (HQ требует подписки).
+/// * Дальше каскад по `hq`:
+///   - HQ: oauth(hq) → cookies(hq) → restricted(hq) → oauth(sq) → anon → cookies(sq) → restricted(sq).
+///   - SQ: oauth → anon → cookies (если премиум) → restricted(sq).
+pub async fn stream(
     State(state): State<AppState>,
     Path(track_urn): Path<String>,
     headers: HeaderMap,
@@ -49,160 +56,90 @@ pub async fn stream_normal(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    let secret_token = query.secret_token.as_deref();
-
-    // 1. Try CDN
-    if let Some(cdn_url) = state.storage.try_serve(&track_urn).await {
-        info!("[stream] {track_urn} → CDN redirect");
-        return Ok(Redirect::temporary(&cdn_url).into_response());
-    }
-
-    // 2. OAuth(all) → anon
-    if let Some(resp) = try_oauth(
-        &state,
-        &session.access_token,
-        &track_urn,
-        secret_token,
-        false,
-    )
-    .await
-    {
-        info!("[stream] {track_urn} → oauth");
-        return respond_with_data(&state, &track_urn, resp.0, resp.1);
-    }
-
-    if let Some(resp) = try_anon(&state, &track_urn, "[stream]").await {
-        info!("[stream] {track_urn} → anon");
-        return respond_with_data(&state, &track_urn, resp.0, resp.1);
-    }
-
-    if let Some(r) = try_restricted(&state, &track_urn, "[stream]").await {
-        info!("[stream] {track_urn} → restricted");
-        return Ok(r);
-    }
-
-    warn!("[stream] {track_urn} → no stream available");
-    Err(AppError::NoStream)
-}
-
-/// GET /stream/:track_urn/premium — premium stream (subscription check, cookies HQ → OAuth → anon)
-pub async fn stream_premium(
-    State(state): State<AppState>,
-    Path(track_urn): Path<String>,
-    headers: HeaderMap,
-    Query(query): Query<StreamQuery>,
-) -> Result<Response, AppError> {
-    let session_id = extract_session_id(&headers, &query)?;
-    let session = state
-        .pg
-        .get_session(&session_id)
-        .await?
-        .ok_or(AppError::Unauthorized)?;
-
+    let is_premium = check_is_premium(&state, &session).await;
     let hq = query.hq.as_deref() == Some("true");
     let secret_token = query.secret_token.as_deref();
 
-    // Check subscription
-    let user_urn = session
-        .soundcloud_user_id
-        .as_deref()
-        .ok_or(AppError::Forbidden)?;
-
-    let user_urn_full = if user_urn.contains(':') {
-        user_urn.to_string()
-    } else {
-        format!("soundcloud:users:{user_urn}")
-    };
-
-    let is_premium = state.pg.is_premium(&user_urn_full).await?;
-
-    if !is_premium {
+    if state.config.premium_only && !is_premium {
+        return Err(AppError::Forbidden);
+    }
+    if hq && !is_premium {
         return Err(AppError::Forbidden);
     }
 
-    // 1. Try CDN
+    let tag = "[stream]";
+
+    // CDN first
     if let Some(cdn_url) = state.storage.try_serve(&track_urn).await {
-        info!("[stream/premium] {track_urn} → CDN redirect");
+        info!("{tag} {track_urn} → CDN redirect");
         return Ok(Redirect::temporary(&cdn_url).into_response());
     }
 
-    let tag = "[stream/premium]";
+    let access = &session.access_token;
 
     if hq {
-        // HQ cascade: cookies(HQ) → oauth(HQ) → oauth(all) → cookies(all) → anon
-        if let Some(resp) = try_cookies(&state, &track_urn, tag, true).await {
-            info!("{tag} {track_urn} → cookies/hq");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
-        }
-
-        if let Some(resp) = try_oauth(
-            &state,
-            &session.access_token,
-            &track_urn,
-            secret_token,
-            true,
-        )
-        .await
-        {
+        if let Some(r) = try_oauth(&state, access, &track_urn, secret_token, true).await {
             info!("{tag} {track_urn} → oauth/hq");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
+            return respond_with_data(&state, &track_urn, r.0, r.1);
         }
-
-        if let Some(resp) = try_oauth(
-            &state,
-            &session.access_token,
-            &track_urn,
-            secret_token,
-            false,
-        )
-        .await
-        {
+        if let Some(r) = try_cookies(&state, &track_urn, tag, true).await {
+            info!("{tag} {track_urn} → cookies/hq");
+            return respond_with_data(&state, &track_urn, r.0, r.1);
+        }
+        if let Some(r) = try_restricted(&state, &track_urn, tag, true).await {
+            info!("{tag} {track_urn} → restricted/hq");
+            return Ok(r);
+        }
+        if let Some(r) = try_oauth(&state, access, &track_urn, secret_token, false).await {
             info!("{tag} {track_urn} → oauth/sq");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
+            return respond_with_data(&state, &track_urn, r.0, r.1);
         }
-
-        if let Some(resp) = try_cookies(&state, &track_urn, tag, false).await {
-            info!("{tag} {track_urn} → cookies/sq");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
-        }
-
-        if let Some(resp) = try_anon(&state, &track_urn, tag).await {
+        if let Some(r) = try_anon(&state, &track_urn, tag).await {
             info!("{tag} {track_urn} → anon");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
+            return respond_with_data(&state, &track_urn, r.0, r.1);
+        }
+        if let Some(r) = try_cookies(&state, &track_urn, tag, false).await {
+            info!("{tag} {track_urn} → cookies/sq");
+            return respond_with_data(&state, &track_urn, r.0, r.1);
         }
     } else {
-        // SQ cascade: oauth(all) → anon → cookies(all)
-        if let Some(resp) = try_oauth(
-            &state,
-            &session.access_token,
-            &track_urn,
-            secret_token,
-            false,
-        )
-        .await
-        {
+        if let Some(r) = try_oauth(&state, access, &track_urn, secret_token, false).await {
             info!("{tag} {track_urn} → oauth");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
+            return respond_with_data(&state, &track_urn, r.0, r.1);
         }
-
-        if let Some(resp) = try_anon(&state, &track_urn, tag).await {
+        if let Some(r) = try_anon(&state, &track_urn, tag).await {
             info!("{tag} {track_urn} → anon");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
+            return respond_with_data(&state, &track_urn, r.0, r.1);
         }
-
-        if let Some(resp) = try_cookies(&state, &track_urn, tag, false).await {
-            info!("{tag} {track_urn} → cookies");
-            return respond_with_data(&state, &track_urn, resp.0, resp.1);
+        if is_premium {
+            if let Some(r) = try_cookies(&state, &track_urn, tag, false).await {
+                info!("{tag} {track_urn} → cookies");
+                return respond_with_data(&state, &track_urn, r.0, r.1);
+            }
         }
     }
 
-    if let Some(r) = try_restricted(&state, &track_urn, tag).await {
+    if let Some(r) = try_restricted(&state, &track_urn, tag, false).await {
         info!("{tag} {track_urn} → restricted");
         return Ok(r);
     }
 
     warn!("{tag} {track_urn} → no stream available");
     Err(AppError::NoStream)
+}
+
+// ── Premium check ─────────────────────────────────────────────
+
+pub(crate) async fn check_is_premium(state: &AppState, session: &SessionInfo) -> bool {
+    let Some(user) = session.soundcloud_user_id.as_deref() else {
+        return false;
+    };
+    let user_urn = if user.contains(':') {
+        user.to_string()
+    } else {
+        format!("soundcloud:users:{user}")
+    };
+    state.pg.is_premium(&user_urn).await.unwrap_or(false)
 }
 
 // ── Fallback helpers ──────────────────────────────────────────
@@ -249,18 +186,33 @@ async fn try_cookies(
     }
 }
 
+async fn try_anon(state: &AppState, track_urn: &str, tag: &str) -> Option<(Bytes, &'static str)> {
+    match state.anon.get_stream(track_urn).await {
+        Ok(Some(result)) => Some((result.data, result.content_type)),
+        Ok(None) => {
+            warn!("{tag} {track_urn} anon returned nothing");
+            None
+        }
+        Err(e) => {
+            warn!("{tag} {track_urn} anon failed: {e}");
+            None
+        }
+    }
+}
+
 async fn restricted_source(
     state: &AppState,
     track_urn: &str,
     tag: &str,
+    hq_first: bool,
 ) -> Option<crate::stream::restricted::RestrictedSource> {
-    match state.anon.resolve_restricted(track_urn).await {
+    match state.anon.resolve_restricted(track_urn, hq_first).await {
         Ok(Some(v)) => return Some(v),
         Ok(None) => {}
         Err(e) => warn!("{tag} {track_urn} restricted(anon) failed: {e}"),
     }
     let cookies = state.cookies.as_ref()?;
-    match cookies.resolve_restricted(track_urn).await {
+    match cookies.resolve_restricted(track_urn, hq_first).await {
         Ok(Some(v)) => Some(v),
         Ok(None) => None,
         Err(e) => {
@@ -270,9 +222,14 @@ async fn restricted_source(
     }
 }
 
-async fn try_restricted(state: &AppState, track_urn: &str, tag: &str) -> Option<Response> {
+async fn try_restricted(
+    state: &AppState,
+    track_urn: &str,
+    tag: &str,
+    hq_first: bool,
+) -> Option<Response> {
     let engine = state.decryptor.as_ref()?;
-    let src = restricted_source(state, track_urn, tag).await?;
+    let src = restricted_source(state, track_urn, tag, hq_first).await?;
     let fetcher: std::sync::Arc<dyn decrypt::Fetcher> =
         std::sync::Arc::new(crate::stream::decrypt_fetch::ProxyFetcher {
             client: state.http_client.clone(),
@@ -318,23 +275,12 @@ async fn try_restricted(state: &AppState, track_urn: &str, tag: &str) -> Option<
     )
 }
 
-async fn try_anon(state: &AppState, track_urn: &str, tag: &str) -> Option<(Bytes, &'static str)> {
-    match state.anon.get_stream(track_urn).await {
-        Ok(Some(result)) => Some((result.data, result.content_type)),
-        Ok(None) => {
-            warn!("{tag} {track_urn} anon returned nothing");
-            None
-        }
-        Err(e) => {
-            warn!("{tag} {track_urn} anon failed: {e}");
-            None
-        }
-    }
-}
-
 // ── Shared ────────────────────────────────────────────────────
 
-fn extract_session_id(headers: &HeaderMap, query: &StreamQuery) -> Result<String, AppError> {
+pub(crate) fn extract_session_id(
+    headers: &HeaderMap,
+    query: &StreamQuery,
+) -> Result<String, AppError> {
     if let Some(val) = headers.get("x-session-id") {
         return val
             .to_str()

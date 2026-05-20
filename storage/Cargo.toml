@@ -24,7 +24,7 @@ async-nats = "0.46"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart"] }
 jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
 url = "2"
-tls-common = { path = "../tls-common" }
+tls-common = { path = "../utils/tls-common" }
 
 [profile.release]
 lto = true

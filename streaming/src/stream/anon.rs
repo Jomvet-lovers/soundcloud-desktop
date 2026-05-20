@@ -367,6 +367,7 @@ impl AnonClient {
     pub(crate) async fn resolve_restricted(
         &self,
         track_urn: &str,
+        hq_first: bool,
     ) -> Result<Option<super::restricted::RestrictedSource>, Box<dyn std::error::Error + Send + Sync>>
     {
         let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
@@ -383,8 +384,26 @@ impl AnonClient {
             &cid,
             track.track_authorization.as_deref(),
             HashMap::new(),
+            hq_first,
         )
         .await
+    }
+
+    /// `(transcodings, track_authorization, client_id)` — собрано из anon API v2.
+    /// Пустые поля выкидываются ошибкой, чтобы вызывающий мог упасть на fallback.
+    pub(crate) async fn fetch_track_meta(
+        &self,
+        track_urn: &str,
+    ) -> Result<(Vec<Transcoding>, Option<String>, String), Box<dyn std::error::Error + Send + Sync>>
+    {
+        let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
+        let track = self.get_track_by_id(track_id).await?;
+        let cid = self.get_client_id().await?;
+        let tcs = track
+            .media
+            .and_then(|m| m.transcodings)
+            .ok_or("anon: no transcodings")?;
+        Ok((tcs, track.track_authorization, cid))
     }
 
     async fn refresh_client_id(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {

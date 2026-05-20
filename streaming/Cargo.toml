@@ -23,9 +23,9 @@ bytes = "1"
 tokio-util = { version = "0.7", features = ["io"] }
 thiserror = "2"
 regex = "1.12.3"
-tls-common = { path = "../tls-common" }
-call-relay = { path = "../call/relay" }
-decrypt = { path = "decrypt" }
+tls-common = { path = "../utils/tls-common" }
+call-relay = { path = "../utils/call/relay" }
+decrypt = { path = "../utils/decrypt" }
 once_cell = "1"
 
 [profile.release]

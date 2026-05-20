@@ -58,7 +58,7 @@ jobs:
         with:
           context: storage
           build-contexts: |
-            tls-common=tls-common
+            tls-common=utils/tls-common
           push: false
           load: true
           tags: soundcloud-desktop-storage:ci
@@ -77,8 +77,10 @@ jobs:
         with:
           context: streaming
           build-contexts: |
-            tls-common=tls-common
-            call=call
+            tls-common=utils/tls-common
+            call=utils/call
+            decrypt=utils/decrypt
+            decrypt-client=utils/decrypt-client
           push: false
           load: true
           tags: soundcloud-desktop-streaming:ci
@@ -287,10 +289,12 @@ jobs:
           token: ${{ secrets.INTERNAL_PAT }}
           path: _internal
 
-      - name: Replace mock call/ with real
+      - name: Replace mock utils/call + utils/decrypt* with real
         run: |
-          rm -rf call
-          cp -r _internal/call ./call
+          rm -rf utils/call utils/decrypt utils/decrypt-client
+          cp -r _internal/call ./utils/call
+          cp -r _internal/decrypt ./utils/decrypt
+          cp -r _internal/decrypt-client ./utils/decrypt-client
 
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get install -y --no-install-recommends protobuf-compiler
@@ -300,12 +304,12 @@ jobs:
           workspaces: |
             backend -> target
             streaming -> target
-            call -> target
+            utils/call -> target
           key: prod-rust
 
       - run: cargo build --release --manifest-path backend/Cargo.toml
       - run: cargo build --release --manifest-path streaming/Cargo.toml
-      - run: cargo build --release --manifest-path call/server/Cargo.toml
+      - run: cargo build --release --manifest-path utils/call/server/Cargo.toml
 
   prod-desktop:
     name: Prod / Desktop (real call)
@@ -333,17 +337,20 @@ jobs:
           token: ${{ secrets.INTERNAL_PAT }}
           path: _internal
 
-      - name: Replace mock call/ with real (unix)
+      - name: Replace mock utils/call + utils/decrypt-client with real (unix)
         if: runner.os != 'Windows'
         run: |
-          rm -rf call
-          cp -r _internal/call ./call
-      - name: Replace mock call/ with real (windows)
+          rm -rf utils/call utils/decrypt-client
+          cp -r _internal/call ./utils/call
+          cp -r _internal/decrypt-client ./utils/decrypt-client
+      - name: Replace mock utils/call + utils/decrypt-client with real (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Remove-Item -Recurse -Force call
-          Copy-Item -Recurse _internal/call ./call
+          Remove-Item -Recurse -Force utils/call
+          Remove-Item -Recurse -Force utils/decrypt-client
+          Copy-Item -Recurse _internal/call ./utils/call
+          Copy-Item -Recurse _internal/decrypt-client ./utils/decrypt-client
 
       - if: matrix.platform == 'ubuntu-22.04'
         run: |

@@ -91,8 +91,8 @@ jobs:
             cache_type: gha
             free_disk: false
             build_contexts: |
-              tls-common=tls-common
-              call=call
+              tls-common=utils/tls-common
+              call=utils/call
           - name: streaming
             context: streaming
             file: ""
@@ -100,15 +100,17 @@ jobs:
             cache_type: gha
             free_disk: false
             build_contexts: |
-              tls-common=tls-common
-              call=call
+              tls-common=utils/tls-common
+              call=utils/call
+              decrypt=utils/decrypt
+              decrypt-client=utils/decrypt-client
           - name: storage
             context: storage
             file: ""
             extra_tags: ""
             cache_type: gha
             free_disk: false
-            build_contexts: "tls-common=tls-common"
+            build_contexts: "tls-common=utils/tls-common"
           - name: worker
             context: worker
             file: worker/Dockerfile
@@ -145,11 +147,12 @@ jobs:
         env:
           MATRIX_NAME: ${{ matrix.name }}
         run: |
-          rm -rf call
-          cp -r _internal/call ./call
+          rm -rf utils/call
+          cp -r _internal/call ./utils/call
           if [ "$MATRIX_NAME" = "streaming" ]; then
-            rm -rf streaming/decrypt
-            cp -r _internal/decrypt streaming/decrypt
+            rm -rf utils/decrypt utils/decrypt-client
+            cp -r _internal/decrypt ./utils/decrypt
+            cp -r _internal/decrypt-client ./utils/decrypt-client
           fi
 
       # GPU-образ воркера съедает ~20 GB (CUDA base + torch CUDA wheels + bitsandbytes).
@@ -282,18 +285,21 @@ jobs:
           token: ${{ secrets.INTERNAL_PAT }}
           path: _internal
 
-      - name: Replace mock call/ with real (unix)
+      - name: Replace mock crates with real (unix)
         if: ${{ env.HAS_INTERNAL_PAT == 'true' && runner.os != 'Windows' }}
         run: |
-          rm -rf call
-          cp -r _internal/call ./call
+          rm -rf utils/call utils/decrypt-client
+          cp -r _internal/call ./utils/call
+          cp -r _internal/decrypt-client ./utils/decrypt-client
 
-      - name: Replace mock call/ with real (windows)
+      - name: Replace mock crates with real (windows)
         if: ${{ env.HAS_INTERNAL_PAT == 'true' && runner.os == 'Windows' }}
         shell: pwsh
         run: |
-          Remove-Item -Recurse -Force call
-          Copy-Item -Recurse _internal/call ./call
+          Remove-Item -Recurse -Force utils/call
+          Remove-Item -Recurse -Force utils/decrypt-client
+          Copy-Item -Recurse _internal/call ./utils/call
+          Copy-Item -Recurse _internal/decrypt-client ./utils/decrypt-client
 
       - name: Set cross-compilation environment for macOS x86_64
         if: matrix.job_name == 'macos-amd64'

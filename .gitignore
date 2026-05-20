@@ -10,13 +10,8 @@ Thumbs.db
 .flatpak-builder
 .claude
 
-# Tauri build output
-src-tauri/target/
-streaming/target
-storage/target
-tls-common/target
-backend/target
-dpi-desync/target
+# Rust build output
+target
 
 storage/data
 streaming/data

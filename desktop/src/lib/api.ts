@@ -7,4 +7,9 @@ export {
   setSessionId,
 } from './api-client';
 export type { ResolvedStreamingTrack } from './streaming';
-export { buildStorageUrls, resolveTrackFromStreaming, streamFallbackUrls } from './streaming';
+export {
+  buildStorageUrls,
+  downloadFallbackUrls,
+  resolveTrackFromStreaming,
+  streamFallbackUrls,
+} from './streaming';

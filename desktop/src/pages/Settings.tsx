@@ -265,16 +265,20 @@ const CacheSection = React.memo(function CacheSection() {
   const handleCacheLikes = useCallback(async () => {
     setCachingLikes(true);
     try {
-      const [{ fetchAllLikedTracks }, { buildStorageUrls, streamFallbackUrls, getSessionId }] =
-        await Promise.all([import('../lib/hooks'), import('../lib/api')]);
+      const [
+        { fetchAllLikedTracks },
+        { buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId },
+      ] = await Promise.all([import('../lib/hooks'), import('../lib/api')]);
       const hq = useSettingsStore.getState().highQualityStreaming;
       const sessionId = getSessionId();
       const tracks = await fetchAllLikedTracks(200);
       const entries: LikeCacheEntry[] = tracks.map((track) => ({
         urn: track.urn,
         urls: streamFallbackUrls(track.urn, hq),
+        downloadUrls: downloadFallbackUrls(track.urn, hq),
         storageUrls: buildStorageUrls(track.urn),
         sessionId,
+        hq,
       }));
       if (entries.length === 0) {
         setCachingLikes(false);

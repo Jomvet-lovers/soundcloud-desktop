@@ -5,7 +5,7 @@ services:
     build:
       context: .
       additional_contexts:
-        tls-common: ../tls-common
+        tls-common: ../utils/tls-common
     profiles: ["local"]
     restart: always
     ports:
@@ -41,7 +41,7 @@ services:
     build:
       context: .
       additional_contexts:
-        tls-common: ../tls-common
+        tls-common: ../utils/tls-common
     profiles: ["s3"]
     restart: always
     ports:

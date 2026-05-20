@@ -7,6 +7,7 @@ import { useSettingsStore } from '../stores/settings';
 import {
   api,
   buildStorageUrls,
+  downloadFallbackUrls,
   getSessionId,
   resolveTrackFromStreaming,
   streamFallbackUrls,
@@ -618,9 +619,17 @@ export function preloadTrack(urn: string) {
   if (preloadTimer) clearTimeout(preloadTimer);
   preloadTimer = setTimeout(() => {
     const sessionId = getSessionId();
+    const hq = useSettingsStore.getState().highQualityStreaming;
     invoke('track_preload', {
       entries: [
-        { urn, urls: streamFallbackUrls(urn), storageUrls: buildStorageUrls(urn), sessionId },
+        {
+          urn,
+          urls: streamFallbackUrls(urn, hq),
+          downloadUrls: downloadFallbackUrls(urn, hq),
+          storageUrls: buildStorageUrls(urn),
+          sessionId,
+          hq,
+        },
       ],
     }).catch(console.error);
   }, 500);
@@ -631,19 +640,24 @@ export function preloadQueue() {
   const entries: Array<{
     urn: string;
     urls: string[];
+    downloadUrls: string[];
     storageUrls: string[];
     sessionId: string | null;
+    hq: boolean;
   }> = [];
   const sessionId = getSessionId();
+  const hq = useSettingsStore.getState().highQualityStreaming;
 
   for (let i = 1; i <= 3; i++) {
     const idx = queueIndex + i;
     if (idx < queue.length) {
       entries.push({
         urn: queue[idx].urn,
-        urls: streamFallbackUrls(queue[idx].urn),
+        urls: streamFallbackUrls(queue[idx].urn, hq),
+        downloadUrls: downloadFallbackUrls(queue[idx].urn, hq),
         storageUrls: buildStorageUrls(queue[idx].urn),
         sessionId,
+        hq,
       });
     }
   }

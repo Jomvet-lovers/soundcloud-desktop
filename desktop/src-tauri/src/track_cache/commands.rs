@@ -1,39 +1,69 @@
 use tauri::State;
 
-use crate::track_cache::state::{LikeCacheEntry, TrackCacheEntry, TrackCacheState};
+use crate::track_cache::state::{CacheRequest, LikeCacheEntry, TrackCacheEntry, TrackCacheState};
+
+#[derive(serde::Deserialize)]
+pub struct EnsureCachedRequest {
+    pub urn: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub urls: Option<Vec<String>>,
+    #[serde(default)]
+    pub download_urls: Option<Vec<String>>,
+    #[serde(default)]
+    pub storage_urls: Option<Vec<String>>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub hq: bool,
+}
 
 #[derive(serde::Deserialize)]
 pub struct PreloadEntry {
     pub urn: String,
     pub url: Option<String>,
     pub urls: Option<Vec<String>>,
+    #[serde(default)]
+    pub download_urls: Option<Vec<String>>,
     pub storage_urls: Option<Vec<String>>,
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub hq: bool,
 }
 
 #[tauri::command]
 pub async fn track_ensure_cached(
-    urn: String,
-    url: Option<String>,
-    urls: Option<Vec<String>>,
-    storage_urls: Option<Vec<String>>,
-    session_id: Option<String>,
+    request: EnsureCachedRequest,
     state: State<'_, TrackCacheState>,
 ) -> Result<TrackCacheEntry, String> {
+    let EnsureCachedRequest {
+        urn,
+        url,
+        urls,
+        download_urls,
+        storage_urls,
+        session_id,
+        hq,
+    } = request;
+
     let fallback_urls: Vec<String> = match (urls, url) {
         (Some(u), _) if !u.is_empty() => u,
         (_, Some(u)) => vec![u],
         _ => return Err("no stream URL provided".into()),
     };
     let storage_urls = storage_urls.unwrap_or_default();
+    let download_urls = download_urls.unwrap_or_default();
     state
-        .ensure_cached(
-            &urn,
-            &fallback_urls,
-            &storage_urls,
-            session_id.as_deref(),
-            false,
-        )
+        .ensure_cached(CacheRequest {
+            urn: &urn,
+            urls: &fallback_urls,
+            download_urls: &download_urls,
+            storage_urls: &storage_urls,
+            session_id: session_id.as_deref(),
+            hq,
+            liked: false,
+        })
         .await
 }
 
@@ -79,19 +109,23 @@ pub async fn track_preload(
             _ => continue,
         };
         let storage_urls = entry.storage_urls.unwrap_or_default();
+        let download_urls = entry.download_urls.unwrap_or_default();
         let session_id = entry.session_id;
+        let hq = entry.hq;
 
         tokio::spawn(async move {
             let _permit = permit;
             println!("[TrackCache] preloading {urn}");
             if let Err(err) = state
-                .ensure_cached(
-                    &urn,
-                    &fallback_urls,
-                    &storage_urls,
-                    session_id.as_deref(),
-                    false,
-                )
+                .ensure_cached(CacheRequest {
+                    urn: &urn,
+                    urls: &fallback_urls,
+                    download_urls: &download_urls,
+                    storage_urls: &storage_urls,
+                    session_id: session_id.as_deref(),
+                    hq,
+                    liked: false,
+                })
                 .await
             {
                 eprintln!("[TrackCache] preload {urn}: {err}");

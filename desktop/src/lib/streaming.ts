@@ -93,13 +93,12 @@ export function resolveTrackFromStreaming(url: string) {
   return streamingJson<ResolvedStreamingTrack>(`/resolve?url=${encodeURIComponent(url)}`);
 }
 
-function buildStreamUrl(base: string, trackUrn: string, premium: boolean, hq: boolean) {
+function buildStreamUrl(base: string, trackUrn: string, hq: boolean) {
   const params = new URLSearchParams();
   if (hq) params.set('hq', 'true');
   const sid = getSessionId();
   if (sid) params.set('session_id', sid);
-  const path = premium ? '/premium' : '';
-  return `${base}/stream/${encodeURIComponent(trackUrn)}${path}?${params.toString()}`;
+  return `${base}/stream/${encodeURIComponent(trackUrn)}?${params.toString()}`;
 }
 
 export function buildStorageUrls(trackUrn: string): string[] {
@@ -118,13 +117,43 @@ export function streamFallbackUrls(
   const seen = new Set<string>();
 
   for (const base of bases) {
-    // premium endpoint first, then standard
-    for (const premium of [true, false]) {
-      const url = buildStreamUrl(base, trackUrn, premium, hq);
-      if (!seen.has(url)) {
-        seen.add(url);
-        urls.push(url);
-      }
+    const url = buildStreamUrl(base, trackUrn, hq);
+    if (!seen.has(url)) {
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+
+  return urls;
+}
+
+function buildDownloadUrl(base: string, trackUrn: string, hq: boolean) {
+  const params = new URLSearchParams();
+  if (hq) params.set('hq', 'true');
+  const sid = getSessionId();
+  if (sid) params.set('session_id', sid);
+  const qs = params.toString();
+  const suffix = qs ? `?${qs}` : '';
+  return `${base}/download/${encodeURIComponent(trackUrn)}${suffix}`;
+}
+
+/// URL'ы `/download/:urn` по всем валидным стриминг-базам.
+/// Клиент дергает их между anon и storage stream: сервер только резолвит
+/// SoundCloud-ссылки + (для encrypted) делает Widevine handshake, скачивание
+/// сегментов идёт прямо с SC.
+export function downloadFallbackUrls(
+  trackUrn: string,
+  hq = useSettingsStore.getState().highQualityStreaming,
+): string[] {
+  const bases = resolveStreamingBases();
+  const urls: string[] = [];
+  const seen = new Set<string>();
+
+  for (const base of bases) {
+    const url = buildDownloadUrl(base, trackUrn, hq);
+    if (!seen.has(url)) {
+      seen.add(url);
+      urls.push(url);
     }
   }
 

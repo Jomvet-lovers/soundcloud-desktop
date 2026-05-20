@@ -1,9 +1,9 @@
 FROM rust:1-bookworm AS builder
 
 # Shared tls-common crate is provided as a named build context.
-# `additional_contexts: tls-common: ../tls-common` in compose,
-# or `docker build --build-context tls-common=../tls-common ./storage`.
-COPY --from=tls-common . /build/tls-common
+# `additional_contexts: tls-common: ../utils/tls-common` in compose,
+# or `docker build --build-context tls-common=../utils/tls-common ./storage`.
+COPY --from=tls-common . /build/utils/tls-common
 
 WORKDIR /build/storage
 COPY Cargo.toml Cargo.lock ./

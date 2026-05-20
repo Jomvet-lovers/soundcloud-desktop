@@ -127,18 +127,10 @@ async fn main() {
         .allow_headers(Any)
         .max_age(std::time::Duration::from_secs(3600));
 
-    let mut app = Router::new();
-
-    if !config.premium_only {
-        app = app.route("/stream/{track_urn}", get(stream::handler::stream_normal));
-    }
-
-    let app = app
+    let app = Router::new()
         .route("/resolve", get(stream::handler::resolve_track))
-        .route(
-            "/stream/{track_urn}/premium",
-            get(stream::handler::stream_premium),
-        )
+        .route("/stream/{track_urn}", get(stream::handler::stream))
+        .route("/download/{track_urn}", get(stream::download::download))
         .route(
             "/internal/transcode-upload/{track_urn}",
             post(stream::internal::transcode_upload),
@@ -148,7 +140,7 @@ async fn main() {
         .with_state(state);
 
     if config.premium_only {
-        info!("Premium-only mode: standard endpoint disabled");
+        info!("Premium-only mode: non-premium requests are rejected");
     }
 
     if let Some(tls_cfg) = tls_common::TlsConfig::from_env() {

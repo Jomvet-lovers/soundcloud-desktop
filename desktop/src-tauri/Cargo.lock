@@ -913,6 +913,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "decrypt-client"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4266,6 +4273,7 @@ dependencies = [
  "call-client",
  "chrono",
  "cpal",
+ "decrypt-client",
  "discord-rich-presence",
  "dpi-desync",
  "futures-util",

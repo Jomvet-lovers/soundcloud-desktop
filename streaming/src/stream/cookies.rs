@@ -195,9 +195,42 @@ impl CookiesClient {
 
     /// Authenticated resolve of the `ctr` transcoding (cookies session may
     /// succeed where anon is region-blocked / 404s).
+    pub(crate) fn cookie_auth_headers(&self) -> HashMap<String, String> {
+        self.auth_headers()
+    }
+
+    /// `(transcodings, track_authorization, client_id)` — из cookies-сессии
+    /// (через permalink + hydration на soundcloud.com).
+    pub(crate) async fn fetch_track_meta(
+        &self,
+        track_urn: &str,
+    ) -> Result<(Vec<Transcoding>, Option<String>, String), Box<dyn std::error::Error + Send + Sync>>
+    {
+        let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
+        let track: AuthedTrack = fetch_get_json(
+            &self.client,
+            &self.proxy_url,
+            &format!("https://api-v2.soundcloud.com/tracks/{track_id}"),
+            self.auth_headers(),
+            false,
+        )
+        .await?;
+        let permalink = track.permalink_url.ok_or("cookies: no permalink")?;
+        let (sound, client_id) = self
+            .fetch_hydration(&permalink)
+            .await
+            .ok_or("cookies: hydration failed")?;
+        let tcs = sound
+            .media
+            .and_then(|m| m.transcodings)
+            .ok_or("cookies: no transcodings")?;
+        Ok((tcs, sound.track_authorization, client_id))
+    }
+
     pub(crate) async fn resolve_restricted(
         &self,
         track_urn: &str,
+        hq_first: bool,
     ) -> Result<Option<super::restricted::RestrictedSource>, Box<dyn std::error::Error + Send + Sync>>
     {
         let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
@@ -228,6 +261,7 @@ impl CookiesClient {
             &client_id,
             sound.track_authorization.as_deref(),
             self.auth_headers(),
+            hq_first,
         )
         .await
     }

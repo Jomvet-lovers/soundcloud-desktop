@@ -14,6 +14,7 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::app::diagnostics::log_native;
+use crate::track_cache::direct_download::try_download;
 use crate::track_cache::sc_anon::AnonClient;
 
 const MIN_AUDIO_SIZE: u64 = 8192;
@@ -224,6 +225,7 @@ struct ActiveDownload {
 pub enum DownloadSource {
     Storage,
     Anon,
+    Direct,
     Api,
 }
 
@@ -232,6 +234,7 @@ impl DownloadSource {
         match self {
             Self::Storage => "storage",
             Self::Anon => "anon",
+            Self::Direct => "direct",
             Self::Api => "api",
         }
     }
@@ -275,9 +278,33 @@ pub struct LikeCacheEntry {
     pub urn: String,
     pub urls: Vec<String>,
     #[serde(default)]
+    pub download_urls: Vec<String>,
+    #[serde(default)]
     pub storage_urls: Vec<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub hq: bool,
+}
+
+pub struct CacheRequest<'a> {
+    pub urn: &'a str,
+    pub urls: &'a [String],
+    pub download_urls: &'a [String],
+    pub storage_urls: &'a [String],
+    pub session_id: Option<&'a str>,
+    pub hq: bool,
+    pub liked: bool,
+}
+
+struct FallbackParams<'a> {
+    target_dir: &'a Path,
+    urn: &'a str,
+    urls: &'a [String],
+    download_urls: &'a [String],
+    storage_urls: &'a [String],
+    session_id: Option<&'a str>,
+    hq: bool,
 }
 
 fn now_secs() -> u64 {
@@ -789,14 +816,17 @@ impl TrackCacheState {
         }
     }
 
-    pub async fn ensure_cached(
-        &self,
-        urn: &str,
-        urls: &[String],
-        storage_urls: &[String],
-        session_id: Option<&str>,
-        liked: bool,
-    ) -> Result<TrackCacheEntry, String> {
+    pub async fn ensure_cached(&self, req: CacheRequest<'_>) -> Result<TrackCacheEntry, String> {
+        let CacheRequest {
+            urn,
+            urls,
+            download_urls,
+            storage_urls,
+            session_id,
+            hq,
+            liked,
+        } = req;
+
         if let Some(entry) = self.get_cache_entry(urn) {
             println!("[TrackCache] hit: {urn}");
             return Ok(entry);
@@ -839,7 +869,15 @@ impl TrackCacheState {
         drop(active);
 
         let download_result = self
-            .download_with_fallback(target_dir, urn, urls, storage_urls, session_id)
+            .download_with_fallback(FallbackParams {
+                target_dir,
+                urn,
+                urls,
+                download_urls,
+                storage_urls,
+                session_id,
+                hq,
+            })
             .await;
 
         {
@@ -856,12 +894,17 @@ impl TrackCacheState {
     /// Try each storage URL once (healthy hosts first), then API URLs with retries.
     async fn download_with_fallback(
         &self,
-        target_dir: &Path,
-        urn: &str,
-        urls: &[String],
-        storage_urls: &[String],
-        session_id: Option<&str>,
+        params: FallbackParams<'_>,
     ) -> Result<PathBuf, String> {
+        let FallbackParams {
+            target_dir,
+            urn,
+            urls,
+            download_urls,
+            storage_urls,
+            session_id,
+            hq,
+        } = params;
         let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
 
@@ -986,7 +1029,40 @@ impl TrackCacheState {
             }
         }
 
-        // 3. Storage stream fallback — proxies bytes through the storage server.
+        // /download endpoint: JSON-кандидаты SC, тянем напрямую с SC.
+        if !download_urls.is_empty() {
+            if let Some(result) = try_download(&self.client, download_urls, session_id, hq).await {
+                let quality = result.quality;
+                match write_bytes_to_cache(
+                    target_dir,
+                    urn,
+                    &result.data,
+                    quality,
+                    DownloadSource::Direct,
+                )
+                .await
+                {
+                    Ok(res) => {
+                        let kb = std::fs::metadata(&res.path)
+                            .map(|m| m.len() / 1024)
+                            .unwrap_or(0);
+                        let ms = start.elapsed().as_millis();
+                        let line =
+                            format!("[TrackCache] downloaded {urn} via direct — {kb} KB in {ms}ms");
+                        println!("{line}");
+                        self.diag("INFO", line);
+                        return Ok(res.path);
+                    }
+                    Err(DownloadError::Fatal(e)) | Err(DownloadError::Retryable(e)) => {
+                        let line = format!("[TrackCache] direct write failed for {urn}: {e}");
+                        eprintln!("{line}");
+                        self.diag("ERROR", line);
+                    }
+                }
+            }
+        }
+
+        // Storage stream fallback — proxies bytes through the storage server.
         //    Used when the user cannot reach the storage backend directly (e.g. region-blocked).
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
@@ -1262,11 +1338,21 @@ impl TrackCacheState {
                 let LikeCacheEntry {
                     urn,
                     urls,
+                    download_urls,
                     storage_urls,
                     session_id,
+                    hq,
                 } = entry;
                 let result = state
-                    .ensure_cached(&urn, &urls, &storage_urls, session_id.as_deref(), true)
+                    .ensure_cached(CacheRequest {
+                        urn: &urn,
+                        urls: &urls,
+                        download_urls: &download_urls,
+                        storage_urls: &storage_urls,
+                        session_id: session_id.as_deref(),
+                        hq,
+                        liked: true,
+                    })
                     .await;
                 if result.is_err() {
                     failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

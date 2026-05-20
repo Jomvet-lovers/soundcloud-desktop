@@ -59,9 +59,26 @@ fn content_type_from_mime(mime: Option<&str>) -> &'static str {
     }
 }
 
+fn is_encrypted(t: &Transcoding) -> bool {
+    t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("ctr-encrypted-hls")
+}
+
+fn pick_encrypted<'a>(transcodings: &'a [Transcoding], hq_first: bool) -> Option<&'a Transcoding> {
+    let want = |hq: bool| -> Option<&'a Transcoding> {
+        let tag = if hq { "hq" } else { "sq" };
+        transcodings
+            .iter()
+            .find(|t| is_encrypted(t) && t.quality.as_deref() == Some(tag))
+    };
+    want(hq_first)
+        .or_else(|| want(!hq_first))
+        .or_else(|| transcodings.iter().find(|t| is_encrypted(t)))
+}
+
 /// Pick the `ctr` transcoding, resolve it, return manifest + token.
 /// `headers` carries the caller's identity (empty = anon, OAuth = cookies);
 /// the same headers are reused for both the resolve and the manifest fetch.
+/// `hq_first=true` prefers the HQ encrypted variant when both qualities exist.
 pub(crate) async fn resolve(
     client: &Client,
     proxy_url: &str,
@@ -69,10 +86,9 @@ pub(crate) async fn resolve(
     client_id: &str,
     track_auth: Option<&str>,
     headers: HashMap<String, String>,
+    hq_first: bool,
 ) -> Result<Option<RestrictedSource>, BoxErr> {
-    let tc = match transcodings.iter().find(|t| {
-        t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("ctr-encrypted-hls")
-    }) {
+    let tc = match pick_encrypted(transcodings, hq_first) {
         Some(t) => t,
         None => return Ok(None),
     };

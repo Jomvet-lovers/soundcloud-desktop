@@ -4,8 +4,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 
-COPY --from=tls-common . /build/tls-common
-COPY --from=call . /build/call
+COPY --from=tls-common . /build/utils/tls-common
+COPY --from=call . /build/utils/call
 
 WORKDIR /build/backend
 COPY Cargo.toml ./
