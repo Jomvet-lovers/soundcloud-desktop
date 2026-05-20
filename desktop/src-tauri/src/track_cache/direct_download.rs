@@ -147,6 +147,16 @@ async fn try_one_endpoint(
         }
     };
     let sorted = sort_candidates(resp.candidates, hq_pref);
+    if sorted.is_empty() {
+        println!("[direct] {endpoint} returned no usable candidates");
+    } else {
+        let listing = sorted
+            .iter()
+            .map(|c| format!("{}/{}/{}", c.kind_label(), c.quality(), c.preset()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("[direct] {endpoint} candidates: [{listing}]");
+    }
     for cand in sorted {
         let q = cand.playback_quality();
         match consume(client, &cand).await {
@@ -194,13 +204,17 @@ async fn fetch_download(
         .map_err(|e| format!("decode: {e}"))
 }
 
-fn sort_candidates(mut cands: Vec<Candidate>, hq_pref: bool) -> Vec<Candidate> {
-    cands.sort_by_key(|c| {
+fn sort_candidates(cands: Vec<Candidate>, hq_pref: bool) -> Vec<Candidate> {
+    let mut filtered: Vec<Candidate> = cands
+        .into_iter()
+        .filter(|c| c.quality() != "lq")
+        .collect();
+    filtered.sort_by_key(|c| {
         let is_hq = c.quality() == "hq";
         let q_score = if hq_pref == is_hq { 0u32 } else { 1u32 };
         (q_score, c.kind_score())
     });
-    cands
+    filtered
 }
 
 async fn consume(client: &Client, cand: &Candidate) -> Result<Bytes, String> {

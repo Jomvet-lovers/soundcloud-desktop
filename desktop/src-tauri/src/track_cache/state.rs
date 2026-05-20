@@ -88,9 +88,15 @@ fn urn_to_filename(urn: &str) -> String {
     format!("{}.audio", urn.replace(':', "_"))
 }
 
+fn urn_to_hq_filename(urn: &str) -> String {
+    format!("{}.hq.audio", urn.replace(':', "_"))
+}
+
 fn filename_to_urn(filename: &str) -> Option<String> {
-    let stripped = filename.strip_suffix(".audio")?;
-    Some(stripped.replace('_', ":"))
+    let base = filename
+        .strip_suffix(".hq.audio")
+        .or_else(|| filename.strip_suffix(".audio"))?;
+    Some(base.replace('_', ":"))
 }
 
 fn is_audio_cache_file(path: &Path) -> bool {
@@ -266,13 +272,13 @@ impl TrackCacheEntry {
     }
 }
 
-enum DownloadError {
+pub(super) enum DownloadError {
     Fatal(String),
     Retryable(String),
 }
 
-struct DownloadResult {
-    path: PathBuf,
+pub(super) struct DownloadResult {
+    pub path: PathBuf,
 }
 
 #[derive(serde::Deserialize)]
@@ -404,6 +410,9 @@ pub struct TrackCacheState {
     /// Per-host storage circuit breaker: host -> epoch secs of last failure.
     storage_cooldowns: Arc<StdMutex<HashMap<String, u64>>>,
     anon: Arc<AnonClient>,
+    /// Pending hq-upgrade tasks (one per urn). Abort handle to cancel
+    /// when the user moves on or evicts the track.
+    pub(super) upgrades: Arc<StdMutex<HashMap<String, tokio::task::AbortHandle>>>,
 }
 
 pub fn init(audio_dir: PathBuf, liked_dir: PathBuf) -> TrackCacheState {
@@ -460,6 +469,7 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf) -> TrackCacheState {
         likes_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         storage_cooldowns: Arc::new(StdMutex::new(HashMap::new())),
         anon,
+        upgrades: Arc::new(StdMutex::new(HashMap::new())),
     }
 }
 
@@ -476,12 +486,19 @@ fn quality_from_url(url: &str) -> PlaybackQuality {
         .unwrap_or(PlaybackQuality::Sq)
 }
 
-fn temp_file_path(target_dir: &Path, urn: &str) -> PathBuf {
+pub(super) fn cache_filename(urn: &str, quality: PlaybackQuality) -> String {
+    match quality {
+        PlaybackQuality::Hq => urn_to_hq_filename(urn),
+        PlaybackQuality::Sq => urn_to_filename(urn),
+    }
+}
+
+fn temp_file_path(target_dir: &Path, urn: &str, quality: PlaybackQuality) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    target_dir.join(format!("{}.{}.part", urn_to_filename(urn), nonce))
+    target_dir.join(format!("{}.{}.part", cache_filename(urn, quality), nonce))
 }
 
 async fn cleanup_temp_file(path: &Path) {
@@ -519,8 +536,8 @@ async fn write_response_to_cache(
     source: DownloadSource,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<DownloadResult, DownloadError> {
-    let final_path = target_dir.join(urn_to_filename(urn));
-    let temp_path = temp_file_path(target_dir, urn);
+    let final_path = target_dir.join(cache_filename(urn, quality));
+    let temp_path = temp_file_path(target_dir, urn, quality);
     let file = File::create(&temp_path)
         .await
         .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
@@ -622,7 +639,7 @@ async fn write_response_to_cache(
 }
 
 /// Write a fully buffered audio payload (e.g. anon HLS download) to cache.
-async fn write_bytes_to_cache(
+pub(super) async fn write_bytes_to_cache(
     target_dir: &Path,
     urn: &str,
     data: &[u8],
@@ -635,8 +652,8 @@ async fn write_bytes_to_cache(
         return Err(DownloadError::Fatal("Invalid audio data".into()));
     }
 
-    let final_path = target_dir.join(urn_to_filename(urn));
-    let temp_path = temp_file_path(target_dir, urn);
+    let final_path = target_dir.join(cache_filename(urn, quality));
+    let temp_path = temp_file_path(target_dir, urn, quality);
 
     let file = File::create(&temp_path)
         .await
@@ -765,26 +782,32 @@ impl TrackCacheState {
         self.audio_dir.join(urn_to_filename(urn))
     }
 
+    fn hq_file_path(&self, urn: &str) -> PathBuf {
+        self.audio_dir.join(urn_to_hq_filename(urn))
+    }
+
     fn liked_file_path(&self, urn: &str) -> PathBuf {
         self.liked_dir.join(urn_to_filename(urn))
     }
 
-    /// Resolve the existing cached path (liked dir takes priority).
-    /// Returns `None` if the track is not cached in either directory.
+    fn liked_hq_file_path(&self, urn: &str) -> PathBuf {
+        self.liked_dir.join(urn_to_hq_filename(urn))
+    }
+
+    /// Look up a cached path. Priority: liked-hq → liked → audio-hq → audio.
     fn resolve_path(&self, urn: &str) -> Option<PathBuf> {
-        let liked = self.liked_file_path(urn);
-        if std::fs::metadata(&liked)
-            .map(|m| m.len() >= MIN_AUDIO_SIZE)
-            .unwrap_or(false)
-        {
-            return Some(liked);
-        }
-        let audio = self.file_path(urn);
-        if std::fs::metadata(&audio)
-            .map(|m| m.len() >= MIN_AUDIO_SIZE)
-            .unwrap_or(false)
-        {
-            return Some(audio);
+        for path in [
+            self.liked_hq_file_path(urn),
+            self.liked_file_path(urn),
+            self.hq_file_path(urn),
+            self.file_path(urn),
+        ] {
+            if std::fs::metadata(&path)
+                .map(|m| m.len() >= MIN_AUDIO_SIZE)
+                .unwrap_or(false)
+            {
+                return Some(path);
+            }
         }
         None
     }
@@ -901,8 +924,23 @@ impl TrackCacheState {
         notify.notify_waiters();
         self.active.lock().await.remove(urn);
 
-        download_result
-            .map(|path| TrackCacheEntry::from_path_and_meta(&path, read_cache_metadata(&path)))
+        let entry = download_result
+            .map(|path| TrackCacheEntry::from_path_and_meta(&path, read_cache_metadata(&path)));
+
+        if hq {
+            if let Ok(e) = &entry {
+                if e.quality.as_deref() != Some(PlaybackQuality::Hq.label()) {
+                    self.schedule_upgrade(super::upgrade::UpgradeRequest {
+                        urn: urn.to_string(),
+                        download_urls: download_urls.to_vec(),
+                        session_id: session_id.map(str::to_string),
+                        liked,
+                    });
+                }
+            }
+        }
+
+        entry
     }
 
     /// Try each storage URL once (healthy hosts first), then API URLs with retries.
@@ -1590,7 +1628,12 @@ impl TrackCacheState {
 
     pub fn remove_cached(&self, urn: &str) -> bool {
         let mut removed = false;
-        for path in [self.liked_file_path(urn), self.file_path(urn)] {
+        for path in [
+            self.liked_hq_file_path(urn),
+            self.liked_file_path(urn),
+            self.hq_file_path(urn),
+            self.file_path(urn),
+        ] {
             if std::fs::metadata(&path).is_ok() {
                 if std::fs::remove_file(&path).is_ok() {
                     removed = true;

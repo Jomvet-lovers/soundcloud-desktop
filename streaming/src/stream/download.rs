@@ -12,7 +12,7 @@ use reqwest::Client;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::handler::{check_is_premium, extract_session_id, StreamQuery, DOWNLOAD_DEADLINE};
 use super::proxy::{fetch_get_bytes, fetch_get_json, fetch_get_text};
@@ -135,11 +135,14 @@ async fn download_inner(
 async fn collect_entries(state: &AppState, track_urn: &str, is_premium: bool) -> Vec<Entry> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+    let mut anon_count = 0usize;
+    let mut cookies_count = 0usize;
 
     match state.anon.fetch_track_meta(track_urn).await {
         Ok((tcs, track_auth, cid)) => {
             for t in tcs {
                 if seen.insert(t.url.clone()) {
+                    anon_count += 1;
                     entries.push(Entry {
                         t,
                         client_id: cid.clone(),
@@ -149,16 +152,20 @@ async fn collect_entries(state: &AppState, track_urn: &str, is_premium: bool) ->
                 }
             }
         }
-        Err(e) => debug!("[download] anon meta failed for {track_urn}: {e}"),
+        Err(e) => warn!("[download] {track_urn} anon meta failed: {e}"),
     }
 
+    let mut cookies_status: &str = "skipped (not premium)";
     if is_premium {
-        if let Some(cookies) = state.cookies.as_ref() {
-            match cookies.fetch_track_meta(track_urn).await {
+        match state.cookies.as_ref() {
+            None => cookies_status = "skipped (cookies disabled on server)",
+            Some(cookies) => match cookies.fetch_track_meta(track_urn).await {
                 Ok((tcs, track_auth, cid)) => {
+                    cookies_status = "ok";
                     let h = cookies.cookie_auth_headers();
                     for t in tcs {
                         if seen.insert(t.url.clone()) {
+                            cookies_count += 1;
                             entries.push(Entry {
                                 t,
                                 client_id: cid.clone(),
@@ -168,11 +175,17 @@ async fn collect_entries(state: &AppState, track_urn: &str, is_premium: bool) ->
                         }
                     }
                 }
-                Err(e) => debug!("[download] cookies meta failed for {track_urn}: {e}"),
-            }
+                Err(e) => {
+                    warn!("[download] {track_urn} cookies meta failed: {e}");
+                    cookies_status = "failed";
+                }
+            },
         }
     }
 
+    info!(
+        "[download] {track_urn} sources: anon={anon_count}, cookies={cookies_count} ({cookies_status})"
+    );
     entries
 }
 
@@ -201,6 +214,11 @@ async fn resolve_entry(state: &AppState, entry: Entry) -> Option<Candidate> {
         .clone()
         .unwrap_or_else(|| "unknown".to_string());
     if entry.t.snipped.unwrap_or(false) || entry.t.url.contains("/preview") {
+        return None;
+    }
+    // SC выдаёт lq aac_96k для трека с DRM как «довесок» — оно хуже обычного sq,
+    // клиенту такое предлагать не нужно.
+    if quality == "lq" {
         return None;
     }
 

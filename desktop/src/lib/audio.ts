@@ -1,7 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import i18n from '../i18n';
-import type { Track } from '../stores/player';
+import type { PlaybackQuality, Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import {
@@ -241,9 +241,15 @@ async function resolveTrackMetadata(track: Track): Promise<Track> {
 
 async function loadTrack(track: Track) {
   const gen = ++loadGen;
+  const prevUrn = currentUrn;
   stopTrack();
   currentUrn = track.urn;
   const urn = track.urn;
+
+  // Юзер ушёл с предыдущего трека — фоновая hq-докачка ему больше не нужна.
+  if (prevUrn && prevUrn !== urn) {
+    invoke('track_cancel_upgrade', { urn: prevUrn }).catch(console.error);
+  }
 
   void hydrateTrackMetadata(track, gen);
 
@@ -408,6 +414,25 @@ listen<{ urn: string; progress: number }>('track:download-progress', (event) => 
     usePlayerStore.setState({ downloadProgress: progress });
   }
 });
+
+listen<{ urn: string; path: string; quality: PlaybackQuality }>(
+  'track:quality-upgraded',
+  async (event) => {
+    const { urn, path, quality } = event.payload;
+    if (urn !== currentUrn || !hasTrack) return;
+    try {
+      await invoke('audio_swap_source', {
+        path,
+        positionSecs: cachedTime,
+        cacheKey: urn,
+      });
+      usePlayerStore.getState().setPlaybackTransport(quality, 'direct');
+      console.log(`[Audio] swapped ${urn} → ${quality}`);
+    } catch (err) {
+      console.error('[Audio] swap_source failed:', err);
+    }
+  },
+);
 
 listen('audio:ended', () => {
   if (currentUrn) {
