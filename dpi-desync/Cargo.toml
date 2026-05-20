@@ -1,0 +1,13 @@
+[package]
+name = "dpi-desync"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync", "macros"] }
+reqwest = { version = "0.12", features = ["rustls-tls", "socks"], default-features = false }
+tracing = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

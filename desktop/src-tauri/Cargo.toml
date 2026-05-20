@@ -25,7 +25,7 @@ tauri-plugin-http = "2.5.7"
 base64 = "0.22"
 sha2 = "0.10"
 hex = "0.4"
-reqwest = { version = "0.12", features = ["rustls-tls", "stream", "json"], default-features = false }
+reqwest = { version = "0.12", features = ["rustls-tls", "stream", "json", "socks"], default-features = false }
 futures-util = "0.3"
 http = "1"
 urlencoding = "2"
@@ -45,6 +45,7 @@ url = "2"
 regex = { version = "1", default-features = false, features = ["std"] }
 bytes = "1"
 call-client = { path = "../../call/client" }
+dpi-desync = { path = "../../dpi-desync" }
 tracing = "0.1"
 
 [profile.release]

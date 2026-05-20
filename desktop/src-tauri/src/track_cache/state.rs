@@ -394,7 +394,17 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf) -> TrackCacheState {
         .build()
         .expect("failed to build storage client");
 
-    let anon = Arc::new(AnonClient::new(client.clone()));
+    let anon_client = crate::network::dpi::apply(
+        Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .tcp_nodelay(true)
+            .pool_max_idle_per_host(16)
+            .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
+            .read_timeout(Duration::from_secs(DOWNLOAD_READ_TIMEOUT_SECS)),
+    )
+    .build()
+    .expect("failed to build anon client");
+    let anon = Arc::new(AnonClient::new(anon_client));
 
     TrackCacheState {
         audio_dir,

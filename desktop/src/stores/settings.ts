@@ -68,6 +68,7 @@ export interface SettingsState {
   normalizeVolume: boolean;
   highQualityStreaming: boolean;
   bypassWhitelist: boolean;
+  dpiBypass: boolean;
   sidebarCollapsed: boolean;
   floatingComments: boolean;
   startupPage: StartupPage;
@@ -96,6 +97,7 @@ export interface SettingsState {
   setNormalizeVolume: (enabled: boolean) => void;
   setHighQualityStreaming: (enabled: boolean) => void;
   setBypassWhitelist: (enabled: boolean) => void;
+  setDpiBypass: (enabled: boolean) => void;
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   setStartupPage: (page: StartupPage) => void;
@@ -130,6 +132,7 @@ const DEFAULTS = {
   normalizeVolume: true,
   highQualityStreaming: false,
   bypassWhitelist: false,
+  dpiBypass: true,
   sidebarCollapsed: false,
   floatingComments: true,
   startupPage: 'home' as StartupPage,
@@ -176,6 +179,7 @@ export const useSettingsStore = create<SettingsState>()(
       setNormalizeVolume: (normalizeVolume) => set({ normalizeVolume }),
       setHighQualityStreaming: (highQualityStreaming) => set({ highQualityStreaming }),
       setBypassWhitelist: (bypassWhitelist) => set({ bypassWhitelist }),
+      setDpiBypass: (dpiBypass) => set({ dpiBypass }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setStartupPage: (startupPage) => set({ startupPage }),

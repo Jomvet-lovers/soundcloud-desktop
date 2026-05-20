@@ -16,6 +16,7 @@ streaming/target
 storage/target
 tls-common/target
 backend/target
+dpi-desync/target
 
 storage/data
 streaming/data

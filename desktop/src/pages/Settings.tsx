@@ -902,6 +902,8 @@ const PlaybackSection = React.memo(function PlaybackSection() {
   const setHighQualityStreaming = useSettingsStore((s) => s.setHighQualityStreaming);
   const bypassWhitelist = useSettingsStore((s) => s.bypassWhitelist);
   const setBypassWhitelist = useSettingsStore((s) => s.setBypassWhitelist);
+  const dpiBypass = useSettingsStore((s) => s.dpiBypass);
+  const setDpiBypass = useSettingsStore((s) => s.setDpiBypass);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const { data: isPremium } = useSubscription(isAuthenticated);
   const discordRpcEnabled = useSettingsStore((s) => s.discordRpcEnabled);
@@ -1053,6 +1055,26 @@ const PlaybackSection = React.memo(function PlaybackSection() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* DPI Bypass */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[13px] text-white/70 font-medium">{t('settings.dpiBypass')}</p>
+          <p className="text-[11px] text-white/30 mt-0.5">{t('settings.dpiBypassDesc')}</p>
+        </div>
+        <button
+          onClick={() => setDpiBypass(!dpiBypass)}
+          className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+            dpiBypass ? 'bg-accent' : 'bg-white/10'
+          }`}
+        >
+          <div
+            className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+              dpiBypass ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+            }`}
+          />
+        </button>
       </div>
 
       <div className="border-t border-white/[0.04]" />

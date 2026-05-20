@@ -9,6 +9,7 @@ import { SessionRecoveryModal } from './components/SessionRecoveryModal';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
 import { CHECK_UPDATES } from './lib/constants';
+import { initDpiSync } from './lib/dpi';
 import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
 import { getAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
@@ -89,6 +90,7 @@ export default function App() {
 
   useEffect(() => {
     useYmImportStore.getState().initBridge();
+    initDpiSync();
   }, []);
 
   useEffect(() => {

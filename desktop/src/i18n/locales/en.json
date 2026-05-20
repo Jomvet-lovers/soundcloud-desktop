@@ -365,6 +365,8 @@
     "highQualityStreamingDesc": "Prefer the highest available quality during playback",
     "bypassWhitelist": "Bypass whitelists",
     "bypassWhitelistDesc": "Alternative routing for network restrictions and outages (Russia)",
+    "dpiBypass": "Bypass DPI blocking",
+    "dpiBypassDesc": "Helps SoundCloud work when your provider blocks or throttles it.",
     "import": "Import",
     "importYandex": "Import from Yandex Music"
   },

@@ -131,10 +131,11 @@ async fn run_call_loop(_app: AppHandle, state: Arc<CallState>) -> Result<(), Str
 
     *state.status.lock().await = CallStatus::Connecting;
 
-    let http = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| fmt_chain(&e))?;
+    let http = crate::network::dpi::apply(
+        reqwest::Client::builder().connect_timeout(Duration::from_secs(5)),
+    )
+    .build()
+    .map_err(|e| fmt_chain(&e))?;
 
     *state.status.lock().await = CallStatus::Active;
     info!("call agent active");

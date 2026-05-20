@@ -88,6 +88,11 @@ pub fn run() {
             let (static_port, proxy_port) = rt.block_on(network::server::start_all(wallpapers_dir));
             let rt_handle = rt.handle().clone();
 
+            if let Ok(d) = rt.block_on(dpi_desync::Desync::spawn(true)) {
+                network::dpi::install(d);
+                rt.block_on(network::dpi::probe_in_background());
+            }
+
             std::thread::spawn(move || {
                 rt.block_on(std::future::pending::<()>());
             });
@@ -180,6 +185,9 @@ pub fn run() {
             network::call::call_set_enabled,
             network::call::call_is_enabled,
             network::call::call_status,
+            network::dpi::dpi_set_enabled,
+            network::dpi::dpi_is_enabled,
+            network::dpi::dpi_strategy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
