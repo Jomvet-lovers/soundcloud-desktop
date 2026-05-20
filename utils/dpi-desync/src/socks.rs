@@ -46,7 +46,8 @@ async fn handle(mut c: TcpStream, state: Arc<State>) -> std::io::Result<()> {
     let mut req = [0u8; 4];
     c.read_exact(&mut req).await?;
     if req[1] != 0x01 {
-        c.write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+        c.write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+            .await?;
         return Err(std::io::Error::other("cmd unsupported"));
     }
     let host: String = match req[3] {
@@ -76,21 +77,24 @@ async fn handle(mut c: TcpStream, state: Arc<State>) -> std::io::Result<()> {
     let addr = match resolve(&host, port).await {
         Ok(a) => a,
         Err(_) => {
-            c.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+            c.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await?;
             return Ok(());
         }
     };
     let mut up = match TcpStream::connect(addr).await {
         Ok(s) => s,
         Err(_) => {
-            c.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+            c.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await?;
             return Ok(());
         }
     };
     up.set_nodelay(true)?;
     set_mss(&up, 88);
 
-    c.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+    c.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+        .await?;
 
     let effective = if state.is_enabled() {
         state.strategy()

@@ -13,13 +13,14 @@ pub async fn run(state: &State, _proxy_url: &str, probe_url: &str) -> Strategy {
     let mut handles = Vec::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Strategy>(LADDER.len());
     for s in LADDER {
-        let listener = match tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await {
-            Ok(l) => l,
-            Err(e) => {
-                debug!(?e, "probe bind");
-                continue;
-            }
-        };
+        let listener =
+            match tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await {
+                Ok(l) => l,
+                Err(e) => {
+                    debug!(?e, "probe bind");
+                    continue;
+                }
+            };
         let addr = match listener.local_addr() {
             Ok(a) => a,
             Err(_) => continue,
@@ -74,4 +75,3 @@ pub async fn run(state: &State, _proxy_url: &str, probe_url: &str) -> Strategy {
     state.set_strategy(chosen);
     chosen
 }
-

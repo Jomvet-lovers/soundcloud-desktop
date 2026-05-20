@@ -92,7 +92,9 @@ fn split_points(buf: &[u8]) -> (usize, Vec<usize>) {
             (mid, dedup_sorted(multi))
         }
         None => {
-            let mid = (buf.len() / 2).max(1).min(buf.len().saturating_sub(1).max(1));
+            let mid = (buf.len() / 2)
+                .max(1)
+                .min(buf.len().saturating_sub(1).max(1));
             (mid, vec![mid])
         }
     }

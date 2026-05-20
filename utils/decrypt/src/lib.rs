@@ -32,9 +32,6 @@ pub trait Fetcher: Send + Sync {
     ) -> BoxFuture<'static, Result<Bytes, Error>>;
 }
 
-/// Всё, что нужно клиенту, чтобы самостоятельно собрать восстановленный
-/// поток: переписанный init-сегмент, URL'ы сегментов и ключ.
-/// Сервер не качает сами сегменты — только manifest, init и license challenge.
 pub struct ClientPrep {
     pub content_type: String,
     pub init: Bytes,
