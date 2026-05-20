@@ -15,7 +15,7 @@ mod stream;
 use config::Config;
 use db::postgres::PgPool;
 use stream::anon::AnonClient;
-use stream::cookies::CookiesClient;
+use stream::cookies_pool::CookiesPool;
 use stream::storage::StorageClient;
 
 #[derive(Clone)]
@@ -24,7 +24,7 @@ pub struct AppState {
     pub pg: PgPool,
     pub http_client: reqwest::Client,
     pub anon: Arc<AnonClient>,
-    pub cookies: Option<Arc<CookiesClient>>,
+    pub cookies: Option<Arc<CookiesPool>>,
     pub storage: Arc<StorageClient>,
     pub decryptor: Option<Arc<decrypt::Engine>>,
 }
@@ -65,17 +65,18 @@ async fn main() {
         config.sc_proxy_url.clone(),
     ));
 
-    // Cookies client (optional)
+    // Cookies pool (optional). Каждая строка SC_COOKIES — отдельная сессия;
+    // на 429 ротируется к следующей.
     let cookies = if config.cookies_enabled() {
-        Some(Arc::new(CookiesClient::new(
+        let pool = Arc::new(CookiesPool::new(
             http_client.clone(),
-            config.sc_proxy_url.clone(),
-            config.sc_cookies.clone(),
-            config.sc_oauth_token.clone().unwrap(),
-            AnonClient::new(http_client.clone(), config.sc_proxy_url.clone()),
-        )))
+            &config.sc_proxy_url,
+            &config.sc_cookies,
+        ));
+        pool.log_summary();
+        Some(pool)
     } else {
-        info!("Cookie-based streaming disabled (SC_COOKIES not set)");
+        info!("Cookie-based streaming disabled (no valid SC_COOKIES entries)");
         None
     };
 

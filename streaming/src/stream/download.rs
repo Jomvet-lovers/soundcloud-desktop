@@ -160,9 +160,8 @@ async fn collect_entries(state: &AppState, track_urn: &str, is_premium: bool) ->
         match state.cookies.as_ref() {
             None => cookies_status = "skipped (cookies disabled on server)",
             Some(cookies) => match cookies.fetch_track_meta(track_urn).await {
-                Ok((tcs, track_auth, cid)) => {
+                Ok((tcs, track_auth, cid, h)) => {
                     cookies_status = "ok";
-                    let h = cookies.cookie_auth_headers();
                     for t in tcs {
                         if seen.insert(t.url.clone()) {
                             cookies_count += 1;
@@ -216,8 +215,6 @@ async fn resolve_entry(state: &AppState, entry: Entry) -> Option<Candidate> {
     if entry.t.snipped.unwrap_or(false) || entry.t.url.contains("/preview") {
         return None;
     }
-    // SC выдаёт lq aac_96k для трека с DRM как «довесок» — оно хуже обычного sq,
-    // клиенту такое предлагать не нужно.
     if quality == "lq" {
         return None;
     }
