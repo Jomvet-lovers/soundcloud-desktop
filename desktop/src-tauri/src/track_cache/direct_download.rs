@@ -4,8 +4,12 @@
 //! Порядок: при `hq=true` сначала hq-группа, иначе sq. Внутри группы —
 //! progressive → hls → encrypted-hls.
 
+use std::future::Future;
+use std::pin::Pin;
+
 use base64::Engine as _;
 use bytes::Bytes;
+use futures_util::future::select_all;
 use reqwest::Client;
 
 use super::sc_anon::hls::{download_hls_full, download_progressive};
@@ -101,35 +105,67 @@ pub async fn try_download(
     session_id: Option<&str>,
     hq_pref: bool,
 ) -> Option<DirectResult> {
-    for endpoint in download_urls {
-        let resp = match fetch_download(client, endpoint, session_id).await {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("[direct] {endpoint} failed: {e}");
-                continue;
+    if download_urls.is_empty() {
+        return None;
+    }
+
+    let mut futures: Vec<Pin<Box<dyn Future<Output = Option<DirectResult>> + Send>>> =
+        download_urls
+            .iter()
+            .map(|url| {
+                let client = client.clone();
+                let endpoint = url.clone();
+                let session_id = session_id.map(str::to_string);
+                Box::pin(async move {
+                    try_one_endpoint(&client, &endpoint, session_id.as_deref(), hq_pref).await
+                })
+                    as Pin<Box<dyn Future<Output = Option<DirectResult>> + Send>>
+            })
+            .collect();
+
+    while !futures.is_empty() {
+        let (result, _idx, remaining) = select_all(futures).await;
+        if result.is_some() {
+            return result;
+        }
+        futures = remaining;
+    }
+    None
+}
+
+async fn try_one_endpoint(
+    client: &Client,
+    endpoint: &str,
+    session_id: Option<&str>,
+    hq_pref: bool,
+) -> Option<DirectResult> {
+    let resp = match fetch_download(client, endpoint, session_id).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[direct] {endpoint} failed: {e}");
+            return None;
+        }
+    };
+    let sorted = sort_candidates(resp.candidates, hq_pref);
+    for cand in sorted {
+        let q = cand.playback_quality();
+        match consume(client, &cand).await {
+            Ok(data) => {
+                println!(
+                    "[direct] hit {} ({} {})",
+                    cand.kind_label(),
+                    cand.quality(),
+                    cand.preset()
+                );
+                return Some(DirectResult { data, quality: q });
             }
-        };
-        let sorted = sort_candidates(resp.candidates, hq_pref);
-        for cand in sorted {
-            let q = cand.playback_quality();
-            match consume(client, &cand).await {
-                Ok(data) => {
-                    println!(
-                        "[direct] hit {} ({} {})",
-                        cand.kind_label(),
-                        cand.quality(),
-                        cand.preset()
-                    );
-                    return Some(DirectResult { data, quality: q });
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[direct] {} {} {} failed: {e}",
-                        cand.kind_label(),
-                        cand.quality(),
-                        cand.preset()
-                    );
-                }
+            Err(e) => {
+                eprintln!(
+                    "[direct] {} {} {} failed: {e}",
+                    cand.kind_label(),
+                    cand.quality(),
+                    cand.preset()
+                );
             }
         }
     }

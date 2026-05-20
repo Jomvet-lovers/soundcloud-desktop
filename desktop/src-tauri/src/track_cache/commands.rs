@@ -3,6 +3,7 @@ use tauri::State;
 use crate::track_cache::state::{CacheRequest, LikeCacheEntry, TrackCacheEntry, TrackCacheState};
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EnsureCachedRequest {
     pub urn: String,
     #[serde(default)]
@@ -20,6 +21,7 @@ pub struct EnsureCachedRequest {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PreloadEntry {
     pub urn: String,
     pub url: Option<String>,

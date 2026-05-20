@@ -23,8 +23,10 @@ const STREAM_WRITE_BUFFER_SIZE: usize = 256 * 1024;
 const STORAGE_CONNECT_TIMEOUT_MS: u64 = 800;
 const STORAGE_TIMEOUT_MS: u64 = 1200;
 const STORAGE_COOLDOWN_SECS: u64 = 60;
-const DOWNLOAD_CONNECT_TIMEOUT_MS: u64 = 1500;
-const DOWNLOAD_READ_TIMEOUT_SECS: u64 = 20;
+const DOWNLOAD_CONNECT_TIMEOUT_MS: u64 = 3_000;
+const DOWNLOAD_READ_TIMEOUT_SECS: u64 = 130;
+const DIRECT_CONNECT_TIMEOUT_MS: u64 = 5_000;
+const DIRECT_READ_TIMEOUT_SECS: u64 = 70;
 const RETRY_DELAYS_MS: [u64; 3] = [200, 600, 1500];
 const MAX_PARALLEL_PRELOADS: usize = 20;
 const MAX_PARALLEL_LIKES: usize = 4;
@@ -274,6 +276,7 @@ struct DownloadResult {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LikeCacheEntry {
     pub urn: String,
     pub urls: Vec<String>,
@@ -391,6 +394,7 @@ pub struct TrackCacheState {
     pub liked_dir: PathBuf,
     pub client: Client,
     pub storage_client: Client,
+    pub direct_client: Client,
     pub app_handle: Option<tauri::AppHandle>,
     active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
     preload_limiter: Arc<Semaphore>,
@@ -421,6 +425,15 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf) -> TrackCacheState {
         .build()
         .expect("failed to build storage client");
 
+    let direct_client = Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .tcp_nodelay(true)
+        .pool_max_idle_per_host(16)
+        .connect_timeout(Duration::from_millis(DIRECT_CONNECT_TIMEOUT_MS))
+        .read_timeout(Duration::from_secs(DIRECT_READ_TIMEOUT_SECS))
+        .build()
+        .expect("failed to build direct client");
+
     let anon_client = crate::network::dpi::apply(
         Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
@@ -438,6 +451,7 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf) -> TrackCacheState {
         liked_dir,
         client,
         storage_client,
+        direct_client,
         app_handle: None,
         active: Arc::new(Mutex::new(HashMap::new())),
         preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
@@ -1029,41 +1043,8 @@ impl TrackCacheState {
             }
         }
 
-        // /download endpoint: JSON-кандидаты SC, тянем напрямую с SC.
-        if !download_urls.is_empty() {
-            if let Some(result) = try_download(&self.client, download_urls, session_id, hq).await {
-                let quality = result.quality;
-                match write_bytes_to_cache(
-                    target_dir,
-                    urn,
-                    &result.data,
-                    quality,
-                    DownloadSource::Direct,
-                )
-                .await
-                {
-                    Ok(res) => {
-                        let kb = std::fs::metadata(&res.path)
-                            .map(|m| m.len() / 1024)
-                            .unwrap_or(0);
-                        let ms = start.elapsed().as_millis();
-                        let line =
-                            format!("[TrackCache] downloaded {urn} via direct — {kb} KB in {ms}ms");
-                        println!("{line}");
-                        self.diag("INFO", line);
-                        return Ok(res.path);
-                    }
-                    Err(DownloadError::Fatal(e)) | Err(DownloadError::Retryable(e)) => {
-                        let line = format!("[TrackCache] direct write failed for {urn}: {e}");
-                        eprintln!("{line}");
-                        self.diag("ERROR", line);
-                    }
-                }
-            }
-        }
-
-        // Storage stream fallback — proxies bytes through the storage server.
-        //    Used when the user cannot reach the storage backend directly (e.g. region-blocked).
+        // Storage stream — proxies bytes through our storage server when
+        // the upstream isn't reachable directly.
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
                 continue;
@@ -1120,14 +1101,131 @@ impl TrackCacheState {
             }
         }
 
-        // 4. Try each API URL in order
-        for (i, url) in urls.iter().enumerate() {
-            println!("[TrackCache] trying URL #{} for {urn} - {url}", i + 1);
-
+        // Race /download (direct from SC) vs /stream (proxy via streaming API).
+        // First success wins, the loser is dropped → reqwest cancels its connection.
+        if !download_urls.is_empty() || !urls.is_empty() {
             match self
-                .download_api_with_retries(target_dir, urn, url, session_id)
+                .race_direct_and_api(
+                    target_dir,
+                    urn,
+                    download_urls,
+                    urls,
+                    session_id,
+                    hq,
+                    start,
+                )
                 .await
             {
+                Ok(path) => return Ok(path),
+                Err(err) => {
+                    last_err = err;
+                }
+            }
+        }
+
+        eprintln!("[TrackCache] gave up on {urn}: {last_err}");
+        Err(last_err)
+    }
+
+    /// Resolve a `/download/:urn` endpoint into a cached file.
+    /// Returns `Ok(path)` on success, `Err(msg)` if every candidate failed.
+    async fn try_direct(
+        &self,
+        target_dir: &Path,
+        urn: &str,
+        download_urls: &[String],
+        session_id: Option<&str>,
+        hq: bool,
+        start: std::time::Instant,
+    ) -> Result<PathBuf, String> {
+        if download_urls.is_empty() {
+            return Err("no download_urls".into());
+        }
+        println!(
+            "[TrackCache] direct: trying {urn} via {} endpoint(s)",
+            download_urls.len()
+        );
+        let result = try_download(&self.direct_client, download_urls, session_id, hq)
+            .await
+            .ok_or_else(|| "direct: no candidate succeeded".to_string())?;
+        let quality = result.quality;
+        match write_bytes_to_cache(
+            target_dir,
+            urn,
+            &result.data,
+            quality,
+            DownloadSource::Direct,
+        )
+        .await
+        {
+            Ok(res) => {
+                let kb = std::fs::metadata(&res.path)
+                    .map(|m| m.len() / 1024)
+                    .unwrap_or(0);
+                let ms = start.elapsed().as_millis();
+                let line =
+                    format!("[TrackCache] downloaded {urn} via direct — {kb} KB in {ms}ms");
+                println!("{line}");
+                self.diag("INFO", line);
+                Ok(res.path)
+            }
+            Err(DownloadError::Fatal(e)) | Err(DownloadError::Retryable(e)) => {
+                let line = format!("[TrackCache] direct write failed for {urn}: {e}");
+                eprintln!("{line}");
+                self.diag("ERROR", line);
+                Err(e)
+            }
+        }
+    }
+
+    /// Race all `/stream` API URLs in parallel; first success wins, the
+    /// rest are dropped → reqwest cancels their connections.
+    async fn try_api(
+        &self,
+        target_dir: &Path,
+        urn: &str,
+        urls: &[String],
+        session_id: Option<&str>,
+        start: std::time::Instant,
+    ) -> Result<PathBuf, String> {
+        if urls.is_empty() {
+            return Err("no /stream URLs".into());
+        }
+
+        let mut futures: Vec<
+            std::pin::Pin<Box<dyn std::future::Future<Output = (usize, Result<PathBuf, String>)> + Send>>,
+        > = urls
+            .iter()
+            .enumerate()
+            .map(|(i, url)| {
+                let state = self.clone();
+                let target_dir = target_dir.to_path_buf();
+                let urn = urn.to_string();
+                let url = url.clone();
+                let session_id = session_id.map(str::to_string);
+                println!("[TrackCache] trying URL #{} for {urn} - {url}", i + 1);
+                Box::pin(async move {
+                    let res = state
+                        .download_api_with_retries(
+                            &target_dir,
+                            &urn,
+                            &url,
+                            session_id.as_deref(),
+                        )
+                        .await;
+                    (i, res)
+                })
+                    as std::pin::Pin<
+                        Box<dyn std::future::Future<Output = (usize, Result<PathBuf, String>)> + Send>,
+                    >
+            })
+            .collect();
+
+        let mut last_err = String::from("api: all URLs failed");
+        while !futures.is_empty() {
+            let ((idx, result), _select_idx, remaining) =
+                futures_util::future::select_all(futures).await;
+            match result {
                 Ok(path) => {
                     let kb = std::fs::metadata(&path)
                         .map(|meta| meta.len() / 1024)
@@ -1137,19 +1235,67 @@ impl TrackCacheState {
                     return Ok(path);
                 }
                 Err(err) => {
-                    if i + 1 < urls.len() {
-                        eprintln!(
-                            "[TrackCache] {urn} URL #{} failed, trying next: {err}",
-                            i + 1
-                        );
-                    }
+                    eprintln!("[TrackCache] {urn} URL #{} failed: {err}", idx + 1);
                     last_err = err;
+                    futures = remaining;
                 }
             }
         }
-
-        eprintln!("[TrackCache] gave up on {urn}: {last_err}");
         Err(last_err)
+    }
+
+    /// Run direct (`/download`) and api (`/stream`) in parallel; first success
+    /// returns its path, the loser is cancelled by being dropped.
+    async fn race_direct_and_api(
+        &self,
+        target_dir: &Path,
+        urn: &str,
+        download_urls: &[String],
+        urls: &[String],
+        session_id: Option<&str>,
+        hq: bool,
+        start: std::time::Instant,
+    ) -> Result<PathBuf, String> {
+        let direct_fut = self.try_direct(target_dir, urn, download_urls, session_id, hq, start);
+        let api_fut = self.try_api(target_dir, urn, urls, session_id, start);
+        tokio::pin!(direct_fut);
+        tokio::pin!(api_fut);
+
+        let mut direct_done = false;
+        let mut api_done = false;
+        let mut direct_err: Option<String> = None;
+        let mut api_err: Option<String> = None;
+
+        loop {
+            tokio::select! {
+                res = &mut direct_fut, if !direct_done => match res {
+                    Ok(path) => return Ok(path),
+                    Err(e) => {
+                        direct_done = true;
+                        direct_err = Some(e);
+                    }
+                },
+                res = &mut api_fut, if !api_done => match res {
+                    Ok(path) => return Ok(path),
+                    Err(e) => {
+                        api_done = true;
+                        api_err = Some(e);
+                    }
+                },
+            }
+            if direct_done && api_done {
+                break;
+            }
+        }
+
+        let mut parts = Vec::with_capacity(2);
+        if let Some(e) = direct_err {
+            parts.push(format!("direct: {e}"));
+        }
+        if let Some(e) = api_err {
+            parts.push(format!("api: {e}"));
+        }
+        Err(parts.join("; "))
     }
 
     /// Download from a single URL with retries for retryable errors.

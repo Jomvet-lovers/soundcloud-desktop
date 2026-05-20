@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -10,6 +12,14 @@ use tracing::{info, warn};
 use crate::db::postgres::SessionInfo;
 use crate::error::AppError;
 use crate::AppState;
+
+/// Верхняя граница на один запрос — не даём каскадам fallback'ов
+/// удерживать клиентское подключение бесконечно.
+/// `/stream` может долго гонять oauth ретраи + cookies + restricted, поэтому потолок выше.
+/// `/download` отдаёт только метаданные, ему хватает минуты.
+/// Оба чуть ниже клиентских read_timeout'ов, чтобы сервер успевал ответить первым.
+pub(crate) const STREAM_DEADLINE: Duration = Duration::from_secs(120);
+pub(crate) const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(60);
 
 #[derive(serde::Deserialize)]
 pub struct StreamQuery {
@@ -44,6 +54,24 @@ pub async fn resolve_track(
 ///   - HQ: oauth(hq) → cookies(hq) → restricted(hq) → oauth(sq) → anon → cookies(sq) → restricted(sq).
 ///   - SQ: oauth → anon → cookies (если премиум) → restricted(sq).
 pub async fn stream(
+    state: State<AppState>,
+    track_urn: Path<String>,
+    headers: HeaderMap,
+    query: Query<StreamQuery>,
+) -> Result<Response, AppError> {
+    let urn_for_log = track_urn.0.clone();
+    match tokio::time::timeout(STREAM_DEADLINE, stream_inner(state, track_urn, headers, query))
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => {
+            warn!("[stream] {urn_for_log} → deadline {STREAM_DEADLINE:?} exceeded");
+            Err(AppError::NoStream)
+        }
+    }
+}
+
+async fn stream_inner(
     State(state): State<AppState>,
     Path(track_urn): Path<String>,
     headers: HeaderMap,

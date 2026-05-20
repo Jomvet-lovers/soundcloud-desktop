@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use super::handler::{check_is_premium, extract_session_id, StreamQuery};
+use super::handler::{check_is_premium, extract_session_id, StreamQuery, DOWNLOAD_DEADLINE};
 use super::proxy::{fetch_get_bytes, fetch_get_json, fetch_get_text};
 use super::restricted::{build_transcoding_target, Transcoding};
 use crate::error::AppError;
@@ -69,6 +69,24 @@ struct ResolveResp {
 }
 
 pub async fn download(
+    state: State<AppState>,
+    track_urn: Path<String>,
+    headers: HeaderMap,
+    query: Query<StreamQuery>,
+) -> Result<Json<DownloadResponse>, AppError> {
+    let urn_for_log = track_urn.0.clone();
+    match tokio::time::timeout(DOWNLOAD_DEADLINE, download_inner(state, track_urn, headers, query))
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => {
+            warn!("[download] {urn_for_log} → deadline {DOWNLOAD_DEADLINE:?} exceeded");
+            Err(AppError::NoStream)
+        }
+    }
+}
+
+async fn download_inner(
     State(state): State<AppState>,
     Path(track_urn): Path<String>,
     headers: HeaderMap,
