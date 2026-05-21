@@ -24,52 +24,47 @@ jobs:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           set -eux
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
+          # ВАЖНО: OpenSSH 10.x резолвит ~ из /etc/passwd (pw_dir), а не из $HOME.
+          # В Github Actions с контейнером $HOME=/github/home, но для root
+          # pw_dir=/root, поэтому ssh всё ищет в /root/.ssh — кладём туда напрямую.
+          SSH_DIR=/root/.ssh
+          mkdir -p "$SSH_DIR"
+          chmod 700 "$SSH_DIR"
 
           # Приватный ключ — через env, чтобы не сломать переводы строк/спецсимволы
-          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$SSH_DIR/id_rsa"
+          chmod 600 "$SSH_DIR/id_rsa"
 
-          # Тянем host keys по одному типу — некоторые версии ssh-keyscan
-          # ломаются на comma-separated списке. stderr пишем отдельно, чтобы
-          # баннеры/ошибки не попадали в known_hosts.
-          : > ~/.ssh/known_hosts
+          # Тянем host keys по одному типу (comma-list иногда едят криво),
+          # stderr — отдельно, чтобы баннеры не попадали в known_hosts.
+          : > "$SSH_DIR/known_hosts"
           for kt in rsa ed25519 ecdsa; do
             ssh-keyscan -t "$kt" -T 30 aur.archlinux.org \
-              >> ~/.ssh/known_hosts 2>> /tmp/keyscan.err || true
+              >> "$SSH_DIR/known_hosts" 2>> /tmp/keyscan.err || true
           done
+          chmod 644 "$SSH_DIR/known_hosts"
 
-          echo "--- ssh-keyscan stderr ---"
-          cat /tmp/keyscan.err || true
-          echo "--- known_hosts ---"
-          cat ~/.ssh/known_hosts
-          echo "--- end ---"
-
-          # Проверяем что есть РЕАЛЬНАЯ запись для aur.archlinux.org,
-          # а не просто непустой файл (могли налиться комменты/ошибки).
-          if ! ssh-keygen -F aur.archlinux.org -f ~/.ssh/known_hosts >/dev/null; then
+          # Проверяем что есть валидная запись (не только баннеры/комменты)
+          if ! ssh-keygen -F aur.archlinux.org -f "$SSH_DIR/known_hosts" >/dev/null; then
             echo "ssh-keyscan не вернул валидных ключей для aur.archlinux.org"
-            echo "Падаем на StrictHostKeyChecking=accept-new (первый коннект примет ключ)"
-            STRICT="accept-new"
-          else
-            STRICT="yes"
+            cat /tmp/keyscan.err || true
+            exit 1
           fi
-          chmod 644 ~/.ssh/known_hosts
 
-          # SSH-конфиг: явно указываем юзера, ключ и known_hosts для AUR
-          cat > ~/.ssh/config <<EOF
+          # SSH-конфиг: абсолютные пути (~ в ssh_config тоже резолвится по pw_dir,
+          # но абсолютные пути работают одинаково независимо от того кто читает).
+          cat > "$SSH_DIR/config" <<EOF
           Host aur.archlinux.org
             User aur
-            IdentityFile ~/.ssh/id_rsa
+            IdentityFile $SSH_DIR/id_rsa
             IdentitiesOnly yes
-            UserKnownHostsFile ~/.ssh/known_hosts
-            StrictHostKeyChecking ${STRICT}
+            UserKnownHostsFile $SSH_DIR/known_hosts
+            StrictHostKeyChecking yes
           EOF
-          chmod 600 ~/.ssh/config
+          chmod 600 "$SSH_DIR/config"
 
-          # Сразу пробуем подключиться (verbose), чтобы видеть в логе что реально происходит.
-          ssh -vT -o BatchMode=yes aur@aur.archlinux.org || true
+          # Sanity-check соединения
+          ssh -T -o BatchMode=yes aur@aur.archlinux.org || true
 
       - name: Update PKGBUILD and Push
         env:
