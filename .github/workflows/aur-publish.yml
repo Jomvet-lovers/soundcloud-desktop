@@ -74,7 +74,9 @@ jobs:
           # Настраиваем Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory /__w/SoundCloud-Desktop/SoundCloud-Desktop
+          # "*" — чтобы покрыть и aur-repo, и момент после chown -R builder
+          # (когда git снова используется от root для add/commit/push)
+          git config --global --add safe.directory '*'
 
           # Клонируем наш AUR-пакет
           git clone ssh://aur@aur.archlinux.org/soundcloud-bin.git aur-repo
