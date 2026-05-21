@@ -76,7 +76,6 @@ function TabDockImpl<T extends string>({ tabs, active, onChange, aura }: TabDock
   const endDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag.active) return;
-    const wasMoved = drag.moved;
     drag.active = false;
     drag.moved = false;
     const dock = dockRef.current;
