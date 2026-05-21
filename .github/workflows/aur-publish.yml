@@ -3,6 +3,12 @@ name: Publish to AUR
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза (например 7.5.0). Пусто = взять из release event."
+        required: false
+        default: ""
 
 jobs:
   publish-to-aur:
@@ -14,25 +20,54 @@ jobs:
         run: pacman -Syu --noconfirm git openssh wget sudo awk
 
       - name: Setup SSH keys
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 700 ~/.ssh
+
+          # Приватный ключ — через env, чтобы не сломать переводы строк/спецсимволы
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+          # Явно тянем host keys (rsa, ed25519, ecdsa) с таймаутом — без этого
+          # ssh-keyscan мог тихо отдать пусто и git падал с "Host key verification failed"
+          ssh-keyscan -t rsa,ed25519,ecdsa -T 30 aur.archlinux.org > ~/.ssh/known_hosts
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "ssh-keyscan failed: ~/.ssh/known_hosts is empty"
+            exit 1
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+          # SSH-конфиг: явно указываем юзера и ключ для AUR
+          cat > ~/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            User aur
+            IdentityFile ~/.ssh/id_rsa
+            IdentitiesOnly yes
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Update PKGBUILD and Push
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           # Настраиваем Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory /__w/SoundCloud-Desktop/SoundCloud-Desktop
-          
+
           # Клонируем наш AUR-пакет
           git clone ssh://aur@aur.archlinux.org/soundcloud-bin.git aur-repo
           cd aur-repo
-          
-          # Получаем новую версию из тега релиза (например, v7.4.1 превращаем в 7.4.1)
-          TAG="${{ github.event.release.tag_name }}"
+
+          # Тег: при ручном запуске берём из inputs.tag, иначе из release event
+          TAG="${INPUT_TAG:-$RELEASE_TAG}"
+          if [ -z "$TAG" ]; then
+            echo "Tag is empty: ни release.tag_name, ни inputs.tag не заданы"
+            exit 1
+          fi
           NEW_VER="${TAG#v}"
           
           # Скачиваем новые .deb файлы для вычисления хэшей
