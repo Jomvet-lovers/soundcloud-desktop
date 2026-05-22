@@ -75,7 +75,7 @@ export interface Track {
 
 type RepeatMode = 'off' | 'one' | 'all';
 export type PlaybackQuality = 'hq' | 'sq';
-export type PlaybackSource = 'storage' | 'api' | 'direct' | 'anon';
+export type PlaybackSource = 'storage' | 'api';
 
 export const PLAYBACK_RATE_MIN = 0.5;
 export const PLAYBACK_RATE_MAX = 2.0;

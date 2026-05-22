@@ -30,22 +30,6 @@ pub async fn audio_load_file(
 }
 
 #[tauri::command]
-pub async fn audio_swap_source(
-    path: String,
-    position_secs: f64,
-    cache_key: Option<String>,
-    app: AppHandle,
-    state: State<'_, AudioState>,
-) -> Result<AudioLoadResult, String> {
-    let normalization_cache_dir = app
-        .path()
-        .app_cache_dir()
-        .ok()
-        .map(|dir| dir.join("audio-normalization"));
-    engine::swap_source(path, position_secs, normalization_cache_dir, cache_key, state).await
-}
-
-#[tauri::command]
 pub async fn audio_load_url(
     url: String,
     session_id: Option<String>,
