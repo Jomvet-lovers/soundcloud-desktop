@@ -244,6 +244,8 @@ body,
     filter 0.45s var(--ease-apple);
   -webkit-font-smoothing: antialiased;
   filter: drop-shadow(0 0 0 transparent);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .lyric-line[data-state="active"] {

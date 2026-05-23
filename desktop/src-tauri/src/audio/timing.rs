@@ -40,7 +40,7 @@ pub fn process_lyrics_timeline(handle: &tauri::AppHandle, state: &AudioState, po
 
     let mut next_active = None;
     for (index, line) in timeline.lines.iter().enumerate().rev() {
-        if line.time_secs <= pos_secs + 0.3 {
+        if line.time_secs <= pos_secs {
             next_active = Some(index);
             break;
         }
