@@ -2,21 +2,6 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WaveMode {
-    Similar,
-    Diverse,
-}
-
-impl WaveMode {
-    pub fn parse(raw: Option<&str>) -> Self {
-        match raw {
-            Some("diverse") => Self::Diverse,
-            _ => Self::Similar,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct RecommendResult {
     pub id: Value,

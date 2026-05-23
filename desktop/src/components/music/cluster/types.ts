@@ -1,6 +1,7 @@
 import type { Track } from '../../../stores/player';
 
 export type ClusterId =
+  | 'wave'
   | 'essence'
   | 'vibe'
   | 'neighbors'

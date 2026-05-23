@@ -7,5 +7,4 @@ pub mod response;
 pub mod sc_ids;
 pub mod session;
 pub mod throttle;
-pub mod user_id;
 pub mod uuid;

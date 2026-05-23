@@ -2,11 +2,14 @@ use qdrant_client::qdrant::SearchPointsBuilder;
 use tracing::debug;
 
 use crate::error::AppResult;
-use crate::modules::ltr::LTR_FEATURE_COUNT;
 use crate::qdrant::collections;
 
 use super::service::util::{payload_to_map, point_id_to_value, value_to_u64};
 use super::service::{RecommendResult, RecommendationsService};
+
+/// Длина LTR-features schema (исторически 8). Сейчас LTR-инференса нет, но
+/// схема рассинхрона с rec_impressions ломает аналитику — держим как было.
+const FEATURE_LEN: usize = 8;
 
 impl RecommendationsService {
     pub async fn search_by_text(
@@ -50,7 +53,7 @@ impl RecommendationsService {
                     id,
                     score: p.score,
                     payload: Some(payload_to_map(p.payload)),
-                    features: vec![0.0; LTR_FEATURE_COUNT],
+                    features: vec![0.0; FEATURE_LEN],
                 })
             })
             .collect();

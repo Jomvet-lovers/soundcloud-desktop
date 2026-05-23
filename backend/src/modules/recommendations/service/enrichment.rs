@@ -3,11 +3,15 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
 use crate::error::AppResult;
-use crate::modules::ltr::LTR_FEATURE_COUNT;
 
 use super::types::{RecommendResult, ScoredCandidate};
 use super::util::value_id_to_string;
 use super::RecommendationsService;
+
+/// Длина вектора фичей в impressions. Совпадает с тем, что писали при живом
+/// LTR-пайплайне; держим стабильным, чтобы аналитика по rec_impressions не
+/// сломалась. См. docs/ltr-future-graph-features.md перед изменением.
+const IMPRESSION_FEATURE_LEN: usize = 8;
 
 impl RecommendationsService {
     pub(crate) async fn enrich_and_boost(
@@ -63,7 +67,7 @@ impl RecommendationsService {
                     .unwrap_or(0);
                 let bonus = ((playback_count.max(0) as f64).ln_1p() as f32) * boost;
                 let mut features = it.features.clone();
-                if features.len() >= LTR_FEATURE_COUNT {
+                if features.len() >= IMPRESSION_FEATURE_LEN {
                     features[4] = (playback_count.max(0) as f64).ln_1p() as f32;
                     features[5] = match language.as_deref() {
                         Some(l) if user_lang_set.contains(l) => 1.0,

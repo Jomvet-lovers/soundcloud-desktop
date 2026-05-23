@@ -15,7 +15,6 @@ use crate::modules::featured::FeaturedService;
 use crate::modules::history::HistoryService;
 use crate::modules::indexing::IndexingService;
 use crate::modules::likes::LikesService;
-use crate::modules::ltr::LtrTrainerService;
 use crate::modules::lyrics::LyricsService;
 use crate::modules::me::MeService;
 use crate::modules::oauth_apps::OAuthAppsService;
@@ -51,7 +50,6 @@ pub struct AppState {
     pub lyrics: Arc<LyricsService>,
     pub collab_vector: Arc<CollabVectorService>,
     pub collab_trainer: Arc<CollabTrainerService>,
-    pub ltr_trainer: Arc<LtrTrainerService>,
     pub indexing: Arc<IndexingService>,
     pub recommendations: Arc<RecommendationsService>,
     pub enrich: Arc<EnrichService>,

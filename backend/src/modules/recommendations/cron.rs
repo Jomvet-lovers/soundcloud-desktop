@@ -1,12 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::bus::nats::NatsService;
-use crate::qdrant::QdrantService;
 
 use super::quality_scorer;
 use super::service::RecommendationsService;
@@ -18,8 +16,6 @@ const QUALITY_BACKFILL_SECS: u64 = 600;
 pub fn spawn_cron_loops(
     service: Arc<RecommendationsService>,
     nats: Arc<NatsService>,
-    qdrant: Arc<QdrantService>,
-    pg: PgPool,
     shutdown: CancellationToken,
 ) {
     let trainer_secs = std::env::var("RECS_TRAINER_CRON_SECS")
@@ -40,26 +36,14 @@ pub fn spawn_cron_loops(
     );
 
     {
-        let pg = pg.clone();
         let nats = nats.clone();
-        let qdrant = qdrant.clone();
         let service_inner = service.clone();
         let shutdown_clone = shutdown.clone();
         tokio::spawn(async move {
             tick_with_shutdown(Duration::from_secs(trainer_secs), shutdown_clone, |_| {
-                let pg = pg.clone();
                 let nats = nats.clone();
-                let qdrant = qdrant.clone();
                 let svc = service_inner.clone();
                 async move {
-                    if let Err(e) = trainer::kick_off_two_tower(&pg, nats.clone()).await {
-                        warn!(error = %e, "trainer cron: two_tower failed");
-                    }
-                    if let Err(e) =
-                        trainer::kick_off_sequential(&pg, qdrant.clone(), nats.clone()).await
-                    {
-                        warn!(error = %e, "trainer cron: sequential failed");
-                    }
                     if let Err(e) = trainer::kick_off_quality(svc, nats.clone()).await {
                         warn!(error = %e, "trainer cron: quality failed");
                     }

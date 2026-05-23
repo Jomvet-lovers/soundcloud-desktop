@@ -13,9 +13,6 @@ pub mod collections {
     pub const TRACKS_CLAP: &str = "tracks_clap";
     pub const TRACKS_LYRICS: &str = "tracks_lyrics";
     pub const TRACKS_COLLAB: &str = "tracks_collab";
-    pub const USER_TASTE_MERT: &str = "user_taste_mert";
-    pub const USER_TASTE_CLAP: &str = "user_taste_clap";
-    pub const USER_TASTE_LYRICS: &str = "user_taste_lyrics";
 }
 
 pub struct QdrantService {
@@ -55,9 +52,6 @@ impl QdrantService {
             (collections::TRACKS_MERT, 1024u64),
             (collections::TRACKS_CLAP, 512),
             (collections::TRACKS_LYRICS, 1024),
-            (collections::USER_TASTE_MERT, 1024),
-            (collections::USER_TASTE_CLAP, 512),
-            (collections::USER_TASTE_LYRICS, 1024),
         ] {
             if existing.contains(name) {
                 continue;

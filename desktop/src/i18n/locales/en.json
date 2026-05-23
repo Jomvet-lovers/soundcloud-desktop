@@ -247,6 +247,8 @@
       "waveTitle": "Wave",
       "waveDesc": "Infinite mix from your taste graph — picks, neighbours, fresh drops, anti-skips.",
       "cluster": {
+        "wave": "Wave",
+        "waveDesc": "Infinite mix — recent likes, artist graph and AI-recs from tracks. Gets sharper the more you listen.",
         "for_you": "For you",
         "for_youDesc": "Best matches for your taste.",
         "top_artists": "Your favourites",
@@ -268,6 +270,8 @@
       "empty": "Nothing yet",
       "emptyDesc": "No similar tracks found — try again later.",
       "cluster": {
+        "wave": "Wave from track",
+        "waveDesc": "Infinite lane around this track — close sound, themes, and artist graph.",
         "same_artist": "This artist",
         "same_artistDesc": "Other tracks in the same key.",
         "same_vibe": "Same vibe",
@@ -509,6 +513,8 @@
       "empty": "The wave is empty",
       "emptyDesc": "When more of this artist's catalogue gets analysed, the grid will start to hum.",
       "cluster": {
+        "wave": "Wave from artist",
+        "waveDesc": "Infinite lane — the artist's tracks, their nearest graph and thematic neighbours.",
         "essence": "Essence",
         "essenceDesc": "What gets played the most from this artist.",
         "vibe": "Same vibe",

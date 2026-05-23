@@ -1,7 +1,6 @@
 use qdrant_client::qdrant::{
     point_id::PointIdOptions, vector_output::Vector as VectorVariant,
-    vectors_output::VectorsOptions, Filter, GetPointsBuilder, PointId, RecommendPointsBuilder,
-    RecommendStrategy, SearchPointsBuilder,
+    vectors_output::VectorsOptions, Filter, GetPointsBuilder, PointId, SearchPointsBuilder,
 };
 use std::collections::HashMap;
 use tracing::debug;
@@ -39,93 +38,6 @@ impl RecommendationsService {
                 .collect(),
             Err(e) => {
                 debug!(collection, error = %e, "searchByVector failed");
-                Vec::new()
-            }
-        }
-    }
-
-    pub(crate) async fn recommend_by_positive(
-        &self,
-        collection: &str,
-        positive: &[u64],
-        filter: Option<&Filter>,
-        limit: usize,
-        negative: &[u64],
-    ) -> Vec<RecommendResult> {
-        let mut req = RecommendPointsBuilder::new(collection.to_string(), limit as u64)
-            .with_payload(true)
-            .strategy(RecommendStrategy::BestScore);
-        for id in positive {
-            req = req.add_positive(numeric_id(*id));
-        }
-        for id in negative {
-            req = req.add_negative(numeric_id(*id));
-        }
-        if let Some(f) = filter {
-            req = req.filter(f.clone());
-        }
-        match self.qdrant.raw().recommend(req).await {
-            Ok(r) => r
-                .result
-                .into_iter()
-                .map(|p| RecommendResult {
-                    id: point_id_to_value(p.id),
-                    score: Some(p.score),
-                    payload: Some(payload_to_map(p.payload)),
-                    artist: None,
-                    genre: None,
-                    playback_count: None,
-                    features: None,
-                })
-                .collect(),
-            Err(e) => {
-                debug!(collection, error = %e, "recommendByPositive failed");
-                Vec::new()
-            }
-        }
-    }
-
-    pub(crate) async fn recommend_by_lookup(
-        &self,
-        collection: &str,
-        positive: &[u64],
-        negative: &[u64],
-        lookup_from: &str,
-        filter: Option<&Filter>,
-        limit: usize,
-    ) -> Vec<RecommendResult> {
-        let mut req = RecommendPointsBuilder::new(collection.to_string(), limit as u64)
-            .with_payload(true)
-            .strategy(RecommendStrategy::BestScore)
-            .lookup_from(qdrant_client::qdrant::LookupLocation {
-                collection_name: lookup_from.to_string(),
-                ..Default::default()
-            });
-        for id in positive {
-            req = req.add_positive(numeric_id(*id));
-        }
-        for id in negative {
-            req = req.add_negative(numeric_id(*id));
-        }
-        if let Some(f) = filter {
-            req = req.filter(f.clone());
-        }
-        match self.qdrant.raw().recommend(req).await {
-            Ok(r) => r
-                .result
-                .into_iter()
-                .map(|p| RecommendResult {
-                    id: point_id_to_value(p.id),
-                    score: Some(p.score),
-                    payload: Some(payload_to_map(p.payload)),
-                    artist: None,
-                    genre: None,
-                    playback_count: None,
-                    features: None,
-                })
-                .collect(),
-            Err(e) => {
-                debug!(collection, error = %e, "recommendByLookup failed");
                 Vec::new()
             }
         }
@@ -187,40 +99,4 @@ impl RecommendationsService {
         out
     }
 
-    pub(crate) async fn retrieve_payloads(
-        &self,
-        collection: &str,
-        ids: &[u64],
-    ) -> HashMap<String, HashMap<String, serde_json::Value>> {
-        let mut out = HashMap::new();
-        if ids.is_empty() {
-            return out;
-        }
-        let pids: Vec<PointId> = ids.iter().copied().map(numeric_id).collect();
-        match self
-            .qdrant
-            .raw()
-            .get_points(
-                GetPointsBuilder::new(collection, pids)
-                    .with_payload(true)
-                    .with_vectors(false),
-            )
-            .await
-        {
-            Ok(r) => {
-                for p in r.result {
-                    let id_str = match p.id.and_then(|id| id.point_id_options) {
-                        Some(PointIdOptions::Num(n)) => n.to_string(),
-                        Some(PointIdOptions::Uuid(u)) => u,
-                        None => continue,
-                    };
-                    out.insert(id_str, payload_to_map(p.payload));
-                }
-            }
-            Err(e) => {
-                debug!(collection, error = %e, "retrievePayloads failed");
-            }
-        }
-        out
-    }
 }

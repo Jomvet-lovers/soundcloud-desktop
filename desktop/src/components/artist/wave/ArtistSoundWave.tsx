@@ -24,6 +24,7 @@ import {
   useClusterWave,
 } from '../../music/cluster';
 import { AmbientLayer } from '../../music/soundwave/ambient';
+import { useInfiniteWave } from '../../music/soundwave/use-infinite-wave';
 
 interface Props {
   artistId: string;
@@ -31,9 +32,10 @@ interface Props {
   aura: Aura;
 }
 
-const CLUSTER_ORDER: ClusterId[] = ['essence', 'vibe', 'neighbors', 'deep'];
+const CLUSTER_ORDER: ClusterId[] = ['wave', 'essence', 'vibe', 'neighbors', 'deep'];
 
 const CLUSTER_ICON: Partial<Record<ClusterId, React.ReactNode>> = {
+  wave: <AudioLines size={14} />,
   essence: <Disc3 size={14} />,
   vibe: <AudioLines size={14} />,
   neighbors: <Compass size={14} />,
@@ -101,6 +103,19 @@ export const ArtistSoundWave = React.memo(function ArtistSoundWave({
     const byId = new Map(clusters.map((c) => [c.id, c]));
     return CLUSTER_ORDER.map((id) => byId.get(id)).filter((c): c is NonNullable<typeof c> => !!c);
   }, [clusters]);
+
+  const waveCluster = useMemo(
+    () => orderedClusters.find((c) => c.id === 'wave') ?? null,
+    [orderedClusters],
+  );
+
+  useInfiniteWave({
+    enabled: !!artistId,
+    seedKind: 'artist',
+    seedId: artistId,
+    initialTracks: waveCluster?.tracks ?? [],
+    initialCursor: null,
+  });
 
   const handlePlay = useCallback(() => {
     if (allTracks.length === 0) return;

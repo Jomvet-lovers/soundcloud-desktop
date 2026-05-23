@@ -46,7 +46,6 @@ pub fn build(state: AppState) -> Router {
         .merge(modules::featured::router())
         .merge(modules::lyrics::router())
         .merge(modules::collab::router())
-        .merge(modules::ltr::router())
         .merge(modules::indexing::router())
         .merge(modules::recommendations::router())
         .merge(modules::enrich::router())

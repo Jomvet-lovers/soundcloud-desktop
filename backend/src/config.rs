@@ -16,7 +16,6 @@ pub struct AppConfig {
     pub subscriptions: SubscriptionsCfg,
     pub soundwave: SoundwaveCfg,
     pub collab: CollabCfg,
-    pub ltr: LtrCfg,
     pub lyrics: LyricsCfg,
     pub netease: NeteaseCfg,
     pub mxm: MxmCfg,
@@ -109,13 +108,11 @@ pub struct SubscriptionsCfg {
 
 #[derive(Clone, Debug)]
 pub struct SoundwaveCfg {
-    pub collab_weight: f64,
-    pub audio_weight: f64,
-    pub clap_weight: f64,
-    pub lyrics_weight: f64,
+    /// Бонус к score за популярность трека (log(playback_count) * boost).
+    /// Применяется в `enrich_and_boost` для search.
     pub popularity_boost: f64,
+    /// Сколько треков одного артиста максимум помещается в выдачу (anti-spam).
     pub artist_cap: usize,
-    pub score_threshold: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -126,12 +123,6 @@ pub struct CollabCfg {
     pub dim: u32,
     pub min_count: u32,
     pub min_sessions: u32,
-}
-
-#[derive(Clone, Debug)]
-pub struct LtrCfg {
-    pub auto_train: bool,
-    pub rerank_enabled: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -240,13 +231,8 @@ impl AppConfig {
             },
 
             soundwave: SoundwaveCfg {
-                collab_weight: env_f64("SOUNDWAVE_COLLAB_WEIGHT", 0.55),
-                audio_weight: env_f64("SOUNDWAVE_AUDIO_WEIGHT", 0.20),
-                clap_weight: env_f64("SOUNDWAVE_CLAP_WEIGHT", 0.10),
-                lyrics_weight: env_f64("SOUNDWAVE_LYRICS_WEIGHT", 0.15),
                 popularity_boost: env_f64("SOUNDWAVE_POPULARITY_BOOST", 0.0),
                 artist_cap: env_usize("SOUNDWAVE_ARTIST_CAP", 2),
-                score_threshold: env_f64("SOUNDWAVE_SCORE_THRESHOLD", 0.05),
             },
 
             collab: CollabCfg {
@@ -256,11 +242,6 @@ impl AppConfig {
                 dim: env_u32("COLLAB_DIM", 128),
                 min_count: env_u32("COLLAB_MIN_COUNT", 3),
                 min_sessions: env_u32("COLLAB_MIN_SESSIONS", 20),
-            },
-
-            ltr: LtrCfg {
-                auto_train: env_str("LTR_AUTO_TRAIN", "true") != "false",
-                rerank_enabled: env_str("LTR_RERANK_ENABLED", "true") != "false",
             },
 
             lyrics: LyricsCfg {

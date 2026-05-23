@@ -8,6 +8,7 @@ const STALE_MS = 30_000;
 const GC_MS = 5 * 60_000;
 
 const KNOWN_IDS: ReadonlyArray<ClusterId> = [
+  'wave',
   'essence',
   'vibe',
   'neighbors',

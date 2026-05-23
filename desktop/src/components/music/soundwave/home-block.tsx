@@ -12,7 +12,7 @@ import {
   Star,
 } from '../../../lib/icons';
 import { isUrnLiked } from '../../../lib/likes';
-import { fetchWaveTailFromSeed, hydrateByIds, useSoundWaveSearch } from '../../../lib/soundwave';
+import { useSoundWaveSearch } from '../../../lib/soundwave';
 import { useAuthStore } from '../../../stores/auth';
 import type { Track } from '../../../stores/player';
 import { usePlayerStore } from '../../../stores/player';
@@ -36,7 +36,9 @@ import { useInfiniteWave } from './use-infinite-wave';
 import { VibeSearchBar, type VibeSearchBarHandle } from './vibe-search-bar';
 import { LiveWaveform } from './waveform';
 
+// `wave` всегда первый. Остальные — стандартный набор для home-страницы.
 const CLUSTER_ORDER: ClusterId[] = [
+  'wave',
   'for_you',
   'top_artists',
   'adjacent',
@@ -46,6 +48,7 @@ const CLUSTER_ORDER: ClusterId[] = [
 ];
 
 const CLUSTER_ICON: Partial<Record<ClusterId, React.ReactNode>> = {
+  wave: <AudioLines size={14} />,
   for_you: <Sparkles size={14} />,
   top_artists: <Headphones size={14} />,
   adjacent: <Compass size={14} />,
@@ -53,8 +56,6 @@ const CLUSTER_ICON: Partial<Record<ClusterId, React.ReactNode>> = {
   same_vibe: <AudioLines size={14} />,
   deep_cuts: <Star size={14} />,
 };
-
-const WAVE_ICON = <AudioLines size={14} />;
 
 export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
   const { t } = useTranslation();
@@ -96,17 +97,19 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
   const rawClusters = useMemo(() => data?.clusters ?? [], [data]);
   const rawAllTracks = useMemo(() => data?.allTracks ?? [], [data]);
 
+  const hideLikedFilter = useCallback((tr: Track) => !tr.user_favorite && !isUrnLiked(tr.urn), []);
+
   const filteredAllTracks = useMemo(() => {
     if (!hideLiked) return rawAllTracks;
-    return rawAllTracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn));
-  }, [rawAllTracks, hideLiked]);
+    return rawAllTracks.filter(hideLikedFilter);
+  }, [rawAllTracks, hideLiked, hideLikedFilter]);
 
   const filteredClusters = useMemo(() => {
     if (!hideLiked) return rawClusters;
     return rawClusters
       .map((c) => ({
         ...c,
-        tracks: c.tracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn)),
+        tracks: c.tracks.filter(hideLikedFilter),
         neighbors: c.neighbors?.filter((n) => {
           const matchTrack = c.tracks.find((tr) => tr.urn.endsWith(`:${n.track_id}`));
           if (!matchTrack) return true;
@@ -114,12 +117,17 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
         }),
       }))
       .filter((c) => c.tracks.length > 0) as ClusterHydrated[];
-  }, [rawClusters, hideLiked]);
+  }, [rawClusters, hideLiked, hideLikedFilter]);
 
   const orderedClusters = useMemo(() => {
     const byId = new Map(filteredClusters.map((c) => [c.id, c]));
     return CLUSTER_ORDER.map((id) => byId.get(id)).filter((c): c is NonNullable<typeof c> => !!c);
   }, [filteredClusters]);
+
+  const waveCluster = useMemo(
+    () => orderedClusters.find((c) => c.id === 'wave') ?? null,
+    [orderedClusters],
+  );
 
   const searchTracks = useMemo(() => searchData?.tracks ?? [], [searchData]);
   const isSearchMode = activeQuery.length >= 2;
@@ -128,15 +136,13 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
   const waveTrack = currentTrack ?? filteredAllTracks[0] ?? null;
   const isCurrent = !!currentTrack && waveTrack?.urn === currentTrack.urn;
 
-  const fetchMore = useCallback(
-    async () => fetchTail(stableLanguages, hideLiked),
-    [stableLanguages, hideLiked],
-  );
-
   useInfiniteWave({
     enabled: isAuthenticated && !isSearchMode,
-    tracks: filteredAllTracks,
-    fetchMore,
+    seedKind: 'user',
+    initialTracks: waveCluster?.tracks ?? [],
+    initialCursor: null,
+    languages: stableLanguages,
+    filterTrack: hideLiked ? hideLikedFilter : undefined,
   });
 
   const handleSubmitSearch = useCallback((q: string) => setActiveQuery(q), []);
@@ -308,17 +314,6 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
             />
           ) : (
             <div className="flex flex-col gap-6">
-              {filteredAllTracks.length > 0 && (
-                <ClusterRow
-                  clusterId="wave"
-                  title={t('soundwave.home.waveTitle')}
-                  description={t('soundwave.home.waveDesc')}
-                  icon={WAVE_ICON}
-                  index={0}
-                  tracks={filteredAllTracks}
-                  queue={filteredAllTracks}
-                />
-              )}
               {orderedClusters.map((c, idx) =>
                 (c.id === 'top_artists' || c.id === 'adjacent') && c.neighbors ? (
                   <NeighborsRow
@@ -326,7 +321,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
                     title={t(`soundwave.home.cluster.${c.id}`)}
                     description={t(`soundwave.home.cluster.${c.id}Desc`)}
                     icon={CLUSTER_ICON[c.id]}
-                    index={idx + 1}
+                    index={idx}
                     cluster={c}
                     queue={filteredAllTracks}
                   />
@@ -337,7 +332,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
                     title={t(`soundwave.home.cluster.${c.id}`)}
                     description={t(`soundwave.home.cluster.${c.id}Desc`)}
                     icon={CLUSTER_ICON[c.id]}
-                    index={idx + 1}
+                    index={idx}
                     tracks={c.tracks}
                     queue={filteredAllTracks}
                   />
@@ -386,15 +381,3 @@ const SearchSection = React.memo(function SearchSection({
     </div>
   );
 });
-
-async function fetchTail(languages: string[], hideLiked: boolean): Promise<Track[]> {
-  const q = usePlayerStore.getState().queue;
-  const last = q.length > 0 ? q[q.length - 1] : null;
-  if (!last) return [];
-  const trackId = String(last.urn.split(':').pop() ?? '');
-  if (!trackId) return [];
-  const recs = await fetchWaveTailFromSeed(trackId, { languages, mode: 'similar' });
-  if (!recs.length) return [];
-  const tracks = await hydrateByIds(recs);
-  return hideLiked ? tracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn)) : tracks;
-}

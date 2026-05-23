@@ -13,7 +13,6 @@ pub mod featured;
 pub mod history;
 pub mod indexing;
 pub mod likes;
-pub mod ltr;
 pub mod lyrics;
 pub mod me;
 pub mod oauth_apps;
@@ -24,7 +23,6 @@ pub mod subscriptions;
 pub mod sync_queue;
 pub mod tracks;
 pub mod transcode;
-pub mod user_taste;
 pub mod users;
 
 pub mod admin;

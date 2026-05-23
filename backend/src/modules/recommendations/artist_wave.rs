@@ -8,13 +8,17 @@ use crate::modules::centroids::{cosine, normalize};
 use crate::qdrant::collections;
 
 use super::clusters::{ClusterBuilder, ClusterNeighbor, ClusterResponse};
+use super::home_wave::merge_audio_pools;
 use super::mmr::{greedy_pick, max_cosine_to_selected};
 use super::service::RecommendationsService;
+use super::smart_wave::{self, SmartWaveSeed};
 
-const RELATED_LIMIT: i64 = 12;
-const PER_NEIGHBOR_PROBE: i64 = 6;
-const POOL_FOR_VIBE: usize = 64;
-const POOL_FOR_DEEP: usize = 160;
+const RELATED_LIMIT: i64 = 20;
+const PER_NEIGHBOR_PROBE: i64 = 8;
+const POOL_FOR_VIBE: usize = 120;
+const POOL_FOR_DEEP: usize = 240;
+const ARTIST_TOP_TRACKS: i64 = 30;
+const WAVE_LIMIT: usize = 24;
 
 #[derive(Debug, sqlx::FromRow)]
 struct RelatedArtistRow {
@@ -33,11 +37,14 @@ impl RecommendationsService {
     pub async fn artist_wave(
         &self,
         artist_id: Uuid,
+        sc_user_id: &str,
         per_cluster: usize,
     ) -> AppResult<ClusterResponse> {
         let per_cluster = per_cluster.clamp(4, 24);
 
-        let top_tracks = self.load_artist_top_tracks(artist_id, 25).await?;
+        let top_tracks = self
+            .load_artist_top_tracks(artist_id, ARTIST_TOP_TRACKS)
+            .await?;
         if top_tracks.is_empty() {
             return Ok(ClusterBuilder::new().finish());
         }
@@ -49,50 +56,117 @@ impl RecommendationsService {
         let mert_map = self
             .retrieve_vectors(collections::TRACKS_MERT, &top_ids)
             .await;
+        let clap_map = self
+            .retrieve_vectors(collections::TRACKS_CLAP, &top_ids)
+            .await;
+        let lyrics_map = self
+            .retrieve_vectors(collections::TRACKS_LYRICS, &top_ids)
+            .await;
         let centroid = compute_centroid(&top_ids, &mert_map);
+        let clap_centroid = compute_centroid(&top_ids, &clap_map);
+        let lyrics_centroid = compute_centroid(&top_ids, &lyrics_map);
 
         let related = self.load_related_artists(artist_id, RELATED_LIMIT).await?;
 
         let exclude_artist: Vec<String> = top_tracks.iter().cloned().collect();
         let filter = self.build_filter(&exclude_artist, None);
 
+        let wave_fut = smart_wave::cluster_track_ids(
+            self,
+            sc_user_id,
+            None,
+            SmartWaveSeed::Artist(artist_id, &top_ids),
+            WAVE_LIMIT,
+        );
+
         let vibe_fut = async {
-            match &centroid {
-                Some(c) => {
+            let mert_fut = async {
+                if let Some(c) = &centroid {
+                    self.search_by_vector(collections::TRACKS_MERT, c, filter.as_ref(), POOL_FOR_VIBE)
+                        .await
+                } else {
+                    Vec::new()
+                }
+            };
+            let clap_fut = async {
+                if let Some(c) = &clap_centroid {
                     self.search_by_vector(
-                        collections::TRACKS_MERT,
+                        collections::TRACKS_CLAP,
                         c,
                         filter.as_ref(),
-                        POOL_FOR_VIBE,
+                        POOL_FOR_VIBE / 2,
                     )
                     .await
+                } else {
+                    Vec::new()
                 }
-                None => Vec::new(),
-            }
+            };
+            let lyrics_fut = async {
+                if let Some(c) = &lyrics_centroid {
+                    self.search_by_vector(
+                        collections::TRACKS_LYRICS,
+                        c,
+                        filter.as_ref(),
+                        POOL_FOR_VIBE / 2,
+                    )
+                    .await
+                } else {
+                    Vec::new()
+                }
+            };
+            let (mert_pool, clap_pool, lyrics_pool) = tokio::join!(mert_fut, clap_fut, lyrics_fut);
+            merge_audio_pools(&mert_pool, &clap_pool, &lyrics_pool)
         };
 
         let neighbors_fut = self.build_neighbors_cluster(&related, centroid.as_deref());
 
         let deep_fut = async {
-            match &centroid {
-                Some(c) => {
+            let mert_fut = async {
+                if let Some(c) = &centroid {
+                    self.search_by_vector(collections::TRACKS_MERT, c, filter.as_ref(), POOL_FOR_DEEP)
+                        .await
+                } else {
+                    Vec::new()
+                }
+            };
+            let clap_fut = async {
+                if let Some(c) = &clap_centroid {
                     self.search_by_vector(
-                        collections::TRACKS_MERT,
+                        collections::TRACKS_CLAP,
                         c,
                         filter.as_ref(),
-                        POOL_FOR_DEEP,
+                        POOL_FOR_DEEP / 2,
                     )
                     .await
+                } else {
+                    Vec::new()
                 }
-                None => Vec::new(),
-            }
+            };
+            let lyrics_fut = async {
+                if let Some(c) = &lyrics_centroid {
+                    self.search_by_vector(
+                        collections::TRACKS_LYRICS,
+                        c,
+                        filter.as_ref(),
+                        POOL_FOR_DEEP / 2,
+                    )
+                    .await
+                } else {
+                    Vec::new()
+                }
+            };
+            let (mert_pool, clap_pool, lyrics_pool) = tokio::join!(mert_fut, clap_fut, lyrics_fut);
+            merge_audio_pools(&mert_pool, &clap_pool, &lyrics_pool)
         };
 
-        let (vibe_pool, neighbors_raw, deep_pool) = tokio::join!(vibe_fut, neighbors_fut, deep_fut);
+        let (wave_ids, vibe_pool, neighbors_raw, deep_pool) =
+            tokio::join!(wave_fut, vibe_fut, neighbors_fut, deep_fut);
 
         let mut builder = ClusterBuilder::new();
-        let essence_ids: Vec<String> = top_tracks.iter().take(per_cluster).cloned().collect();
         builder.reserve(top_tracks.iter().cloned());
+        builder.push("wave", wave_ids);
+
+        let essence_ids: Vec<String> = top_tracks.iter().take(per_cluster).cloned().collect();
         builder.push("essence", essence_ids);
 
         let vibe_ids = super::clusters::pick_unique_ids(&vibe_pool, builder.taken(), per_cluster);
@@ -130,7 +204,7 @@ impl RecommendationsService {
         let response = builder.finish();
         super::impressions::log_clusters_async(
             self.pg.clone(),
-            String::new(),
+            sc_user_id.to_string(),
             super::impressions::ImpressionSource::Artist,
             &response.clusters,
             &std::collections::HashMap::new(),
@@ -140,14 +214,14 @@ impl RecommendationsService {
 
     async fn load_artist_top_tracks(&self, artist_id: Uuid, limit: i64) -> AppResult<Vec<String>> {
         let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT it.sc_track_id
-             FROM track_artists ta
-             JOIN indexed_tracks it ON it.id = ta.indexed_track_id
-             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-             WHERE ta.artist_id = $1
-               AND ta.role = 'primary'
-               AND it.indexed_at IS NOT NULL
-             ORDER BY COALESCE(c.play_count, 0) DESC, it.created_at DESC
+            "SELECT it.sc_track_id \
+             FROM track_artists ta \
+             JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
+             WHERE ta.artist_id = $1 \
+               AND ta.role = 'primary' \
+               AND it.indexed_at IS NOT NULL \
+             ORDER BY COALESCE(c.play_count, 0) DESC, it.created_at DESC \
              LIMIT $2",
         )
         .bind(artist_id)
@@ -155,6 +229,13 @@ impl RecommendationsService {
         .fetch_all(&self.pg)
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Публичный helper для handlers::wave_artist — нужен seed-список треков
+    /// артиста чтобы стартовать SmartWave прямо от него.
+    pub async fn load_artist_top_track_ids(&self, artist_id: Uuid, limit: i64) -> AppResult<Vec<u64>> {
+        let rows = self.load_artist_top_tracks(artist_id, limit).await?;
+        Ok(rows.into_iter().filter_map(|s| s.parse::<u64>().ok()).collect())
     }
 
     async fn load_related_artists(

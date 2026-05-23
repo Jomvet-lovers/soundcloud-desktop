@@ -73,12 +73,6 @@ impl NatsService {
             .await?;
         svc.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60))
             .await?;
-        svc.ensure_stream(&streams::TRAIN_LTR, true, Some(24 * 60 * 60))
-            .await?;
-        svc.ensure_stream(&streams::TRAIN_TWO_TOWER, true, Some(24 * 60 * 60))
-            .await?;
-        svc.ensure_stream(&streams::TRAIN_SEQUENTIAL, true, Some(24 * 60 * 60))
-            .await?;
         svc.ensure_stream(&streams::TRAIN_QUALITY, true, Some(24 * 60 * 60))
             .await?;
         svc.ensure_stream(&streams::ENRICH, true, Some(7 * 24 * 60 * 60))

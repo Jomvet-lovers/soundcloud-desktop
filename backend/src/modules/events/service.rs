@@ -1,19 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use mini_moka::sync::Cache;
-use sqlx::{FromRow, PgPool};
+use sqlx::PgPool;
 use tokio::sync::{Mutex as AsyncMutex, OnceCell};
 use tracing::{error, warn};
-use uuid::Uuid;
 
 use crate::common::sc_ids::normalize_sc_track_id;
 use crate::error::AppResult;
 use crate::modules::collab::{CollabTrainerService, CollabVectorService};
 use crate::modules::dislikes::DislikesService;
 use crate::modules::indexing::IndexingService;
-use crate::modules::user_taste::UserTasteService;
 
 const LIKE_WEIGHT: f64 = 1.0;
 const PLAYLIST_ADD_WEIGHT: f64 = 0.9;
@@ -77,18 +75,9 @@ fn skip_weight_from_position(position_pct: Option<f32>) -> f64 {
     }
 }
 
-#[derive(Debug, Clone, FromRow)]
-pub struct UserEventRow {
-    pub id: Uuid,
-    pub sc_user_id: String,
-    pub sc_track_id: String,
-    pub event_type: String,
-}
-
 pub struct EventsService {
     pg: PgPool,
     user_locks: Cache<String, Arc<AsyncMutex<()>>>,
-    user_taste: OnceCell<Arc<UserTasteService>>,
     indexing: OnceCell<Arc<IndexingService>>,
     dislikes: OnceCell<Arc<DislikesService>>,
     collab: OnceCell<Arc<CollabVectorService>>,
@@ -103,7 +92,6 @@ impl EventsService {
                 .max_capacity(USER_LOCK_CAPACITY)
                 .time_to_idle(USER_LOCK_TTL)
                 .build(),
-            user_taste: OnceCell::new(),
             indexing: OnceCell::new(),
             dislikes: OnceCell::new(),
             collab: OnceCell::new(),
@@ -113,13 +101,11 @@ impl EventsService {
 
     pub fn install_deps(
         &self,
-        user_taste: Arc<UserTasteService>,
         indexing: Arc<IndexingService>,
         dislikes: Arc<DislikesService>,
         collab: Arc<CollabVectorService>,
         collab_trainer: Arc<CollabTrainerService>,
     ) {
-        let _ = self.user_taste.set(user_taste);
         let _ = self.indexing.set(indexing);
         let _ = self.dislikes.set(dislikes);
         let _ = self.collab.set(collab);
@@ -135,49 +121,24 @@ impl EventsService {
         lock
     }
 
-    async fn mark_applied(&self, id: Uuid) -> AppResult<()> {
-        sqlx::query("UPDATE user_events SET taste_applied_at = now() WHERE id = $1")
-            .bind(id)
-            .execute(&self.pg)
-            .await?;
-        Ok(())
+    fn enqueue_indexing(&self, sc_track_id: &str) {
+        let Some(indexing) = self.indexing.get() else {
+            return;
+        };
+        let svc = indexing.clone();
+        let id = sc_track_id.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = svc.ensure_track_queued_by_id(&id).await {
+                error!(track = %id, error = %e, "Failed to enqueue");
+            }
+        });
     }
 
-    async fn try_apply(&self, event: &UserEventRow) -> AppResult<bool> {
-        let dislikes = self.dislikes.get();
-        let user_taste = self.user_taste.get();
-        let is_positive = POSITIVE_EVENTS.contains(&event.event_type.as_str());
-
-        let is_disliked = match dislikes {
-            Some(d) => d
-                .is_disliked_by_user_id(&event.sc_user_id, &event.sc_track_id)
-                .await
-                .unwrap_or(false),
-            None => false,
-        };
-
-        if is_positive && is_disliked {
-            self.mark_applied(event.id).await?;
-            return Ok(true);
-        }
-        if !is_positive {
-            self.mark_applied(event.id).await?;
-            return Ok(true);
-        }
-
-        let Some(user_taste) = user_taste else {
-            return Ok(false);
-        };
-        let applied = user_taste
-            .on_user_event(&event.sc_user_id, &event.sc_track_id, &event.event_type)
-            .await?;
-        if applied {
-            self.mark_applied(event.id).await?;
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
+    /// Записать событие юзера. Положительные события на disliked-трек тихо
+    /// игнорятся — мы их не складываем в user_events. Любое новое событие
+    /// триггерит indexing-очередь (idempotent), коллаб-инвалидацию и nudge
+    /// тренера. SmartWave читает события напрямую из `user_events`, поэтому
+    /// никаких "apply"/"taste" follow-up'ов больше нет.
     pub async fn record(
         self: &Arc<Self>,
         sc_user_id: &str,
@@ -193,6 +154,19 @@ impl EventsService {
             warn!(sc_track_id, "Invalid scTrackId");
             return Ok(());
         };
+
+        let is_positive = POSITIVE_EVENTS.contains(&event_type);
+        if is_positive {
+            if let Some(d) = self.dislikes.get() {
+                if d.is_disliked_by_user_id(sc_user_id, &normalized)
+                    .await
+                    .unwrap_or(false)
+                {
+                    // Лайк на трек в дизах — игнор, не загрязняем сигналы.
+                    return Ok(());
+                }
+            }
+        }
 
         if event_type == "skip" {
             weight = skip_weight_from_position(position_pct);
@@ -214,31 +188,21 @@ impl EventsService {
         let lock = self.lock_for(&lock_key);
         let _g = lock.lock().await;
 
-        let event: UserEventRow = sqlx::query_as(
-            "INSERT INTO user_events (sc_user_id, sc_track_id, event_type, weight, position_pct, seeded) \
-             VALUES ($1, $2, $3, $4, $5, false) RETURNING id, sc_user_id, sc_track_id, event_type",
+        sqlx::query(
+            "INSERT INTO user_events (sc_user_id, sc_track_id, event_type, weight, position_pct) \
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(sc_user_id)
         .bind(&normalized)
         .bind(event_type)
         .bind(weight)
         .bind(position_pct)
-        .fetch_one(&self.pg)
+        .execute(&self.pg)
         .await?;
 
-        let applied = self.try_apply(&event).await?;
-        if !applied {
-            if let Some(indexing) = self.indexing.get() {
-                let svc = indexing.clone();
-                let id = normalized.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = svc.ensure_track_queued_by_id(&id).await {
-                        error!(track = %id, error = %e, "Failed to enqueue");
-                    }
-                });
-            }
-        }
-        if POSITIVE_EVENTS.contains(&event_type) {
+        self.enqueue_indexing(&normalized);
+
+        if is_positive {
             if let Some(c) = self.collab.get() {
                 c.invalidate(sc_user_id);
             }
@@ -251,6 +215,9 @@ impl EventsService {
         Ok(())
     }
 
+    /// Догнать `user_events` лайками из зеркала, у которых ещё нет события.
+    /// Источник истины — `user_likes_tracks`; здесь только обеспечиваем, что
+    /// каждый лайк виден как сигнал и затриггерил индексацию.
     pub async fn ensure_likes_recorded(
         self: &Arc<Self>,
         sc_user_id: &str,
@@ -295,151 +262,22 @@ impl EventsService {
         let user_ids = vec![sc_user_id.to_string(); n];
         let types = vec!["like".to_string(); n];
         let weights = vec![LIKE_WEIGHT; n];
-        let seeded = vec![true; n];
 
-        let saved: Vec<UserEventRow> = sqlx::query_as(
-            "INSERT INTO user_events (sc_user_id, sc_track_id, event_type, weight, seeded) \
-             SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::float8[], $5::bool[]) \
-             RETURNING id, sc_user_id, sc_track_id, event_type",
+        sqlx::query(
+            "INSERT INTO user_events (sc_user_id, sc_track_id, event_type, weight) \
+             SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::float8[])",
         )
         .bind(&user_ids)
         .bind(&missing)
         .bind(&types)
         .bind(&weights)
-        .bind(&seeded)
-        .fetch_all(&self.pg)
+        .execute(&self.pg)
         .await?;
 
-        for event in saved {
-            let applied = self.try_apply(&event).await.unwrap_or(false);
-            if !applied {
-                if let Some(indexing) = self.indexing.get() {
-                    let svc = indexing.clone();
-                    let id = event.sc_track_id.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = svc.ensure_track_queued_by_id(&id).await {
-                            error!(track = %id, error = %e, "Failed to enqueue");
-                        }
-                    });
-                }
-            }
+        for id in &missing {
+            self.enqueue_indexing(id);
         }
         Ok(())
     }
 
-    pub async fn apply_pending_events_for_track(
-        self: &Arc<Self>,
-        sc_track_id: &str,
-    ) -> AppResult<()> {
-        let pending: Vec<UserEventRow> = sqlx::query_as(
-            "SELECT id, sc_user_id, sc_track_id, event_type \
-             FROM user_events WHERE sc_track_id = $1 AND taste_applied_at IS NULL \
-             ORDER BY created_at ASC",
-        )
-        .bind(sc_track_id)
-        .fetch_all(&self.pg)
-        .await?;
-        if pending.is_empty() {
-            return Ok(());
-        }
-
-        let mut by_user: HashMap<String, Vec<UserEventRow>> = HashMap::new();
-        for e in pending {
-            by_user.entry(e.sc_user_id.clone()).or_default().push(e);
-        }
-
-        let mut tasks = Vec::new();
-        for (user_id, events) in by_user {
-            let svc = self.clone();
-            tasks.push(tokio::spawn(async move {
-                let lock_key = format!("events:{user_id}");
-                let lock = svc.lock_for(&lock_key);
-                let _g = lock.lock().await;
-                for event in events {
-                    if let Err(e) = svc.try_apply(&event).await {
-                        error!(event_id = %event.id, error = %e, "tryApply failed");
-                    }
-                }
-            }));
-        }
-        for t in tasks {
-            let _ = t.await;
-        }
-        Ok(())
-    }
-
-    pub async fn get_recent_liked(&self, sc_user_id: &str, limit: i64) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM user_events \
-             WHERE sc_user_id = $1 AND event_type = 'like' \
-             ORDER BY created_at DESC LIMIT $2",
-        )
-        .bind(sc_user_id)
-        .bind(limit)
-        .fetch_all(&self.pg)
-        .await?;
-        Ok(rows.into_iter().map(|(s,)| s).collect())
-    }
-
-    pub async fn get_recent_skipped(&self, sc_user_id: &str, limit: i64) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM user_events \
-             WHERE sc_user_id = $1 AND event_type = 'skip' \
-             ORDER BY created_at DESC LIMIT $2",
-        )
-        .bind(sc_user_id)
-        .bind(limit)
-        .fetch_all(&self.pg)
-        .await?;
-        Ok(rows.into_iter().map(|(s,)| s).collect())
-    }
-
-    pub async fn get_recent_played(&self, sc_user_id: &str, limit: i64) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM user_events \
-             WHERE sc_user_id = $1 \
-             ORDER BY created_at DESC LIMIT $2",
-        )
-        .bind(sc_user_id)
-        .bind(limit)
-        .fetch_all(&self.pg)
-        .await?;
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut out: Vec<String> = Vec::new();
-        for (id,) in rows {
-            if seen.insert(id.clone()) {
-                out.push(id);
-            }
-        }
-        Ok(out)
-    }
-
-    pub fn spawn_indexing_queue_consumer(
-        self: &Arc<Self>,
-        nats: Arc<crate::bus::nats::NatsService>,
-    ) {
-        let svc = self.clone();
-        nats.consume(
-            crate::bus::subjects::streams::DONE.name,
-            "backend-events-done",
-            None,
-            move |data| {
-                let svc = svc.clone();
-                async move {
-                    let sc_track_id = match data.get("sc_track_id") {
-                        Some(v) if v.is_string() => v.as_str().unwrap_or("").to_string(),
-                        Some(v) if v.is_number() => v.to_string(),
-                        _ => String::new(),
-                    };
-                    if sc_track_id.is_empty() {
-                        return Ok(());
-                    }
-                    if let Err(e) = svc.apply_pending_events_for_track(&sc_track_id).await {
-                        error!(track = %sc_track_id, error = %e, "apply pending failed");
-                    }
-                    Ok(())
-                }
-            },
-        );
-    }
 }

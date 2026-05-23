@@ -9,20 +9,19 @@ use crate::error::AppResult;
 use crate::qdrant::collections;
 
 use super::bandits;
-use super::clusters::{
-    recommend_id_str, Cluster, ClusterBuilder, ClusterNeighbor, ClusterResponse,
-};
+use super::clusters::{recommend_id_str, Cluster, ClusterBuilder, ClusterNeighbor, ClusterResponse};
 use super::debias::ips_debias;
 use super::impressions::{log_clusters_async, ImpressionSource};
 use super::quality;
 use super::rerank_multi::RerankOptions;
-use super::service::util::value_to_u64;
 use super::service::{RecommendResult, RecommendationsService};
 use super::sessions::mix_centroids;
 use super::signal::{load_user_signals, SeedKind};
+use super::smart_wave::{self, SmartWaveSeed};
 use super::taste_modes::TasteMode;
 
 const ALL_CLUSTERS: &[&str] = &[
+    "wave",
     "for_you",
     "top_artists",
     "adjacent",
@@ -31,10 +30,12 @@ const ALL_CLUSTERS: &[&str] = &[
     "deep_cuts",
 ];
 
-const POOL_FOR_VIBE_DEEP: usize = 320;
-const NEIGHBORS_TOP_LIMIT: i64 = 8;
-const NEIGHBORS_ADJ_LIMIT: i64 = 10;
-const FRESH_DROP_LIMIT: i64 = 14;
+const WAVE_LIMIT: usize = 24;
+const POOL_FOR_VIBE_DEEP: usize = 500;
+const NEIGHBORS_TOP_LIMIT: i64 = 16;
+const NEIGHBORS_ADJ_LIMIT: i64 = 20;
+const FRESH_DROP_LIMIT: i64 = 24;
+const RECENT_ARTISTS_LIMIT: i64 = 60;
 
 pub struct HomeRequest {
     pub sc_user_id: String,
@@ -52,7 +53,7 @@ struct ArtistTrackRow {
 
 impl RecommendationsService {
     pub async fn home_wave(&self, req: HomeRequest) -> AppResult<ClusterResponse> {
-        let per_cluster = req.per_cluster.clamp(4, 24);
+        let per_cluster = req.per_cluster.clamp(4, 28);
         let sc_user_id = req.sc_user_id.clone();
         let languages_vec = req.languages.clone();
         let languages = languages_vec.as_deref();
@@ -79,23 +80,27 @@ impl RecommendationsService {
         let hour_fut = self.hour_context(&sc_user_id, Utc::now());
         let anti_fut = self.build_anti_centroid_from_negatives(&signals.negatives);
         let bandits_fut = bandits::load_stats(&self.pg, &sc_user_id);
+        let wave_fut = smart_wave::cluster_track_ids(
+            self,
+            &sc_user_id,
+            languages,
+            SmartWaveSeed::User,
+            WAVE_LIMIT,
+        );
 
-        let (taste_modes, session_ctx, hour_ctx, anti_centroid, bandit_stats) = tokio::join!(
+        let (taste_modes, session_ctx, hour_ctx, anti_centroid, bandit_stats, wave_ids) = tokio::join!(
             taste_modes_fut,
             session_fut,
             hour_fut,
             anti_fut,
             bandits_fut,
+            wave_fut,
         );
         let session_ctx = session_ctx.unwrap_or(None);
         let hour_ctx = hour_ctx.unwrap_or(None);
         let bandit_stats = bandit_stats.unwrap_or_default();
 
-        let overall_centroid = if let Some(first) = taste_modes.first() {
-            Some(first.centroid.clone())
-        } else {
-            None
-        };
+        let overall_centroid = taste_modes.first().map(|m| m.centroid.clone());
         let mixed_for_search = mix_centroids(
             overall_centroid.as_deref(),
             session_ctx.as_ref().map(|s| s.centroid.as_slice()),
@@ -103,12 +108,13 @@ impl RecommendationsService {
         );
 
         let recent_artists = self
-            .recent_artists(&sc_user_id, 40)
+            .recent_artists(&sc_user_id, RECENT_ARTISTS_LIMIT)
             .await
             .unwrap_or_default();
 
         let mut builder = ClusterBuilder::new();
         builder.reserve(exclude_vec.iter().cloned());
+        builder.push("wave", wave_ids);
 
         let (for_you_ids, for_you_features) = self
             .build_for_you_cluster(
@@ -259,7 +265,7 @@ impl RecommendationsService {
         }
         let filter = self.build_filter(exclude, languages);
         let per_mode = (per_cluster.div_ceil(modes.len())) + 2;
-        let pool_per_mode = (per_mode * 6).max(40);
+        let pool_per_mode = (per_mode * 8).max(60);
 
         let mut futures = Vec::new();
         for mode in modes {
@@ -324,6 +330,9 @@ impl RecommendationsService {
         (out, features)
     }
 
+    /// Vibe = центральный микс audio-вкуса; deep = более разнообразный
+    /// дозор за горизонт. Под обоими — пул из ТРЁХ коллекций (mert+clap+lyrics)
+    /// со взвешенным слиянием, не одна mert как раньше.
     async fn build_vibe_and_deep(
         &self,
         centroid: &[f32],
@@ -336,14 +345,22 @@ impl RecommendationsService {
         user_centroid: Option<&[f32]>,
     ) -> (Vec<String>, Vec<String>) {
         let filter = self.build_filter(exclude, languages);
-        let mut pool = self
-            .search_by_vector(
-                collections::TRACKS_MERT,
-                centroid,
-                filter.as_ref(),
-                POOL_FOR_VIBE_DEEP,
-            )
-            .await;
+        let mert_fut =
+            self.search_by_vector(collections::TRACKS_MERT, centroid, filter.as_ref(), POOL_FOR_VIBE_DEEP);
+        let clap_fut = self.search_by_vector(
+            collections::TRACKS_CLAP,
+            centroid,
+            filter.as_ref(),
+            POOL_FOR_VIBE_DEEP / 2,
+        );
+        let lyrics_fut = self.search_by_vector(
+            collections::TRACKS_LYRICS,
+            centroid,
+            filter.as_ref(),
+            POOL_FOR_VIBE_DEEP / 2,
+        );
+        let (mert_pool, clap_pool, lyrics_pool) = tokio::join!(mert_fut, clap_fut, lyrics_fut);
+        let mut pool = merge_audio_pools(&mert_pool, &clap_pool, &lyrics_pool);
         if pool.is_empty() {
             return (Vec::new(), Vec::new());
         }
@@ -413,7 +430,10 @@ impl RecommendationsService {
         pool: &[RecommendResult],
         anti: &[f32],
     ) -> Vec<RecommendResult> {
-        let numeric: Vec<u64> = pool.iter().filter_map(|r| value_to_u64(&r.id)).collect();
+        let numeric: Vec<u64> = pool
+            .iter()
+            .filter_map(|r| super::service::util::value_to_u64(&r.id))
+            .collect();
         if numeric.is_empty() {
             return pool.to_vec();
         }
@@ -422,7 +442,7 @@ impl RecommendationsService {
             .await;
         pool.iter()
             .filter(|r| {
-                let Some(n) = value_to_u64(&r.id) else {
+                let Some(n) = super::service::util::value_to_u64(&r.id) else {
                     return true;
                 };
                 match vec_map.get(&n.to_string()) {
@@ -460,14 +480,14 @@ impl RecommendationsService {
 
     async fn recent_artists(&self, sc_user_id: &str, limit: i64) -> AppResult<HashSet<String>> {
         let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT LOWER(a.name)
-             FROM user_events ue
-             JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
-             JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
-             JOIN artists a ON a.id = ta.artist_id
-             WHERE ue.sc_user_id = $1
-               AND ue.created_at > NOW() - INTERVAL '7 days'
-             ORDER BY ue.created_at DESC
+            "SELECT LOWER(a.name) \
+             FROM user_events ue \
+             JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id \
+             JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+             JOIN artists a ON a.id = ta.artist_id \
+             WHERE ue.sc_user_id = $1 \
+               AND ue.created_at > NOW() - INTERVAL '14 days' \
+             ORDER BY ue.created_at DESC \
              LIMIT $2",
         )
         .bind(sc_user_id)
@@ -484,36 +504,43 @@ impl RecommendationsService {
         limit: i64,
     ) -> Vec<ClusterNeighbor> {
         let exclude_vec: Vec<String> = exclude.iter().cloned().collect();
+        // Источник лайков — `user_likes_tracks`, сортируем по свежести (created_at DESC,
+        // ctid DESC). Старые лайки годовой давности не должны портить волну.
         let rows: Vec<ArtistTrackRow> = match sqlx::query_as::<_, ArtistTrackRow>(
-            "WITH top_artists AS (
-                 SELECT ta.artist_id, COUNT(*) AS cnt
-                 FROM user_events ue
-                 JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
-                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
-                 WHERE ue.sc_user_id = $1
-                   AND ue.event_type IN ('like', 'playlist_add')
-                 GROUP BY ta.artist_id
-                 ORDER BY cnt DESC
-                 LIMIT $2
-             ),
-             ranked AS (
-                 SELECT
-                     ta.artist_id, it.sc_track_id,
-                     ROW_NUMBER() OVER (
-                         PARTITION BY ta.artist_id
-                         ORDER BY
-                             CASE WHEN it.sc_track_id = ANY($3) THEN 1 ELSE 0 END,
-                             COALESCE(c.play_count, 0) DESC
-                     ) AS rn
-                 FROM top_artists tau
-                 JOIN track_artists ta ON ta.artist_id = tau.artist_id AND ta.role = 'primary'
-                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id
-                 LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.indexed_at IS NOT NULL
-             )
-             SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id
-             FROM ranked r
-             JOIN artists a ON a.id = r.artist_id
+            "WITH recent_likes AS ( \
+                 SELECT sc_track_id FROM user_likes_tracks \
+                 WHERE user_id = $1 AND wanted_state = true \
+                   AND created_at > NOW() - INTERVAL '180 days' \
+                 ORDER BY created_at DESC, ctid DESC \
+                 LIMIT 200 \
+             ), \
+             top_artists AS ( \
+                 SELECT ta.artist_id, COUNT(*) AS cnt \
+                 FROM recent_likes rl \
+                 JOIN indexed_tracks it ON it.sc_track_id = rl.sc_track_id \
+                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+                 GROUP BY ta.artist_id \
+                 ORDER BY cnt DESC \
+                 LIMIT $2 \
+             ), \
+             ranked AS ( \
+                 SELECT \
+                     ta.artist_id, it.sc_track_id, \
+                     ROW_NUMBER() OVER ( \
+                         PARTITION BY ta.artist_id \
+                         ORDER BY \
+                             CASE WHEN it.sc_track_id = ANY($3) THEN 1 ELSE 0 END, \
+                             COALESCE(c.play_count, 0) DESC \
+                     ) AS rn \
+                 FROM top_artists tau \
+                 JOIN track_artists ta ON ta.artist_id = tau.artist_id AND ta.role = 'primary' \
+                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+                 LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
+                 WHERE it.indexed_at IS NOT NULL \
+             ) \
+             SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
+             FROM ranked r \
+             JOIN artists a ON a.id = r.artist_id \
              WHERE r.rn = 1 AND a.merged_into IS NULL",
         )
         .bind(sc_user_id)
@@ -543,51 +570,56 @@ impl RecommendationsService {
     ) -> Vec<ClusterNeighbor> {
         let exclude_vec: Vec<String> = exclude.iter().cloned().collect();
         let rows: Vec<ArtistTrackRow> = match sqlx::query_as::<_, ArtistTrackRow>(
-            "WITH user_artists AS (
-                 SELECT DISTINCT ta.artist_id
-                 FROM user_events ue
-                 JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
-                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
-                 WHERE ue.sc_user_id = $1
-                   AND ue.event_type IN ('like', 'playlist_add')
-                 LIMIT 80
-             ),
-             co AS (
-                 SELECT
-                     (CASE WHEN ac.a_id IN (SELECT artist_id FROM user_artists)
-                           THEN ac.b_id ELSE ac.a_id END) AS co_id,
-                     MAX(ac.weight) AS w
-                 FROM artist_coplay ac
-                 WHERE (ac.a_id IN (SELECT artist_id FROM user_artists)
-                     OR ac.b_id IN (SELECT artist_id FROM user_artists))
-                   AND NOT (
-                       ac.a_id IN (SELECT artist_id FROM user_artists)
-                       AND ac.b_id IN (SELECT artist_id FROM user_artists)
-                   )
-                 GROUP BY co_id
-                 ORDER BY w DESC
-                 LIMIT $2
-             ),
-             ranked AS (
-                 SELECT
-                     ta.artist_id, it.sc_track_id,
-                     ROW_NUMBER() OVER (
-                         PARTITION BY ta.artist_id
-                         ORDER BY
-                             CASE WHEN it.sc_track_id = ANY($3) THEN 1 ELSE 0 END,
-                             COALESCE(c.play_count, 0) DESC
-                     ) AS rn,
-                     co.w
-                 FROM co
-                 JOIN track_artists ta ON ta.artist_id = co.co_id AND ta.role = 'primary'
-                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id
-                 LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.indexed_at IS NOT NULL
-             )
-             SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id
-             FROM ranked r
-             JOIN artists a ON a.id = r.artist_id
-             WHERE r.rn = 1 AND a.merged_into IS NULL
+            "WITH recent_likes AS ( \
+                 SELECT sc_track_id FROM user_likes_tracks \
+                 WHERE user_id = $1 AND wanted_state = true \
+                   AND created_at > NOW() - INTERVAL '180 days' \
+                 ORDER BY created_at DESC, ctid DESC \
+                 LIMIT 200 \
+             ), \
+             user_artists AS ( \
+                 SELECT DISTINCT ta.artist_id \
+                 FROM recent_likes rl \
+                 JOIN indexed_tracks it ON it.sc_track_id = rl.sc_track_id \
+                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+                 LIMIT 100 \
+             ), \
+             co AS ( \
+                 SELECT \
+                     (CASE WHEN ac.a_id IN (SELECT artist_id FROM user_artists) \
+                           THEN ac.b_id ELSE ac.a_id END) AS co_id, \
+                     MAX(ac.weight) AS w \
+                 FROM artist_coplay ac \
+                 WHERE (ac.a_id IN (SELECT artist_id FROM user_artists) \
+                     OR ac.b_id IN (SELECT artist_id FROM user_artists)) \
+                   AND NOT ( \
+                       ac.a_id IN (SELECT artist_id FROM user_artists) \
+                       AND ac.b_id IN (SELECT artist_id FROM user_artists) \
+                   ) \
+                 GROUP BY co_id \
+                 ORDER BY w DESC \
+                 LIMIT $2 \
+             ), \
+             ranked AS ( \
+                 SELECT \
+                     ta.artist_id, it.sc_track_id, \
+                     ROW_NUMBER() OVER ( \
+                         PARTITION BY ta.artist_id \
+                         ORDER BY \
+                             CASE WHEN it.sc_track_id = ANY($3) THEN 1 ELSE 0 END, \
+                             COALESCE(c.play_count, 0) DESC \
+                     ) AS rn, \
+                     co.w \
+                 FROM co \
+                 JOIN track_artists ta ON ta.artist_id = co.co_id AND ta.role = 'primary' \
+                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+                 LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
+                 WHERE it.indexed_at IS NOT NULL \
+             ) \
+             SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
+             FROM ranked r \
+             JOIN artists a ON a.id = r.artist_id \
+             WHERE r.rn = 1 AND a.merged_into IS NULL \
              ORDER BY r.w DESC NULLS LAST",
         )
         .bind(sc_user_id)
@@ -617,24 +649,28 @@ impl RecommendationsService {
     ) -> Vec<String> {
         let exclude_vec: Vec<String> = exclude.iter().cloned().collect();
         let rows: Vec<(String,)> = match sqlx::query_as(
-            "WITH user_artists AS (
-                 SELECT DISTINCT ta.artist_id
-                 FROM user_events ue
-                 JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
-                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
-                 WHERE ue.sc_user_id = $1
-                   AND ue.event_type = 'like'
-                   AND ue.created_at > NOW() - INTERVAL '120 days'
-             )
-             SELECT it.sc_track_id
-             FROM track_artists ta
-             JOIN indexed_tracks it ON it.id = ta.indexed_track_id
-             WHERE ta.artist_id IN (SELECT artist_id FROM user_artists)
-               AND ta.role = 'primary'
-               AND it.indexed_at IS NOT NULL
-               AND it.indexed_at > NOW() - INTERVAL '30 days'
-               AND NOT (it.sc_track_id = ANY($2))
-             ORDER BY it.indexed_at DESC
+            "WITH recent_likes AS ( \
+                 SELECT sc_track_id FROM user_likes_tracks \
+                 WHERE user_id = $1 AND wanted_state = true \
+                   AND created_at > NOW() - INTERVAL '120 days' \
+                 ORDER BY created_at DESC, ctid DESC \
+                 LIMIT 150 \
+             ), \
+             user_artists AS ( \
+                 SELECT DISTINCT ta.artist_id \
+                 FROM recent_likes rl \
+                 JOIN indexed_tracks it ON it.sc_track_id = rl.sc_track_id \
+                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+             ) \
+             SELECT it.sc_track_id \
+             FROM track_artists ta \
+             JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+             WHERE ta.artist_id IN (SELECT artist_id FROM user_artists) \
+               AND ta.role = 'primary' \
+               AND it.indexed_at IS NOT NULL \
+               AND it.indexed_at > NOW() - INTERVAL '30 days' \
+               AND NOT (it.sc_track_id = ANY($2)) \
+             ORDER BY it.indexed_at DESC \
              LIMIT $3",
         )
         .bind(sc_user_id)
@@ -656,9 +692,9 @@ impl RecommendationsService {
             return;
         }
         let rows: Vec<(String, Option<Value>, Option<i64>, Option<f32>)> = sqlx::query_as(
-            "SELECT it.sc_track_id, it.raw_sc_data, c.play_count, it.quality_score
-             FROM indexed_tracks it
-             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
+            "SELECT it.sc_track_id, it.raw_sc_data, c.play_count, it.quality_score \
+             FROM indexed_tracks it \
+             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
              WHERE it.sc_track_id = ANY($1)",
         )
         .bind(&all_ids)
@@ -684,6 +720,37 @@ impl RecommendationsService {
             })
             .collect();
         builder.drop_missing(&to_drop);
+    }
+
+    pub(crate) async fn attach_playback_counts(&self, pool: &mut [RecommendResult]) {
+        if pool.is_empty() {
+            return;
+        }
+        let ids: Vec<String> = pool
+            .iter()
+            .map(|r| recommend_id_str(&r.id))
+            .filter(|s| !s.is_empty())
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let rows: Vec<(String, Option<i64>)> = sqlx::query_as(
+            "SELECT sc_track_id, play_count FROM sc_track_counters WHERE sc_track_id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_all(&self.pg)
+        .await
+        .unwrap_or_default();
+        let by_id: HashMap<String, i64> = rows
+            .into_iter()
+            .map(|(id, p)| (id, p.unwrap_or(0)))
+            .collect();
+        for r in pool.iter_mut() {
+            let id = recommend_id_str(&r.id);
+            if let Some(p) = by_id.get(&id) {
+                r.playback_count = Some(*p);
+            }
+        }
     }
 }
 
@@ -731,41 +798,77 @@ fn reorder_by_bandits(clusters: &mut Vec<Cluster>, stats: &HashMap<String, bandi
     if clusters.len() <= 1 {
         return;
     }
-    let order: Vec<&str> = bandits::order_by_thompson(ALL_CLUSTERS, stats);
-    let priority: HashMap<&str, usize> =
-        order.into_iter().enumerate().map(|(i, c)| (c, i)).collect();
+    // `wave` всегда первый — это главная дорожка, бандиты её не таскают.
+    let order: Vec<&str> = bandits::order_by_thompson(&ALL_CLUSTERS[1..], stats);
+    let mut priority: HashMap<&str, usize> = HashMap::new();
+    priority.insert("wave", 0);
+    for (i, c) in order.into_iter().enumerate() {
+        priority.insert(c, i + 1);
+    }
     clusters.sort_by_key(|c| priority.get(c.id).copied().unwrap_or(usize::MAX));
 }
 
-impl RecommendationsService {
-    async fn attach_playback_counts(&self, pool: &mut [RecommendResult]) {
-        if pool.is_empty() {
+/// Слить 3 audio-пула (mert/clap/lyrics) в один взвешенный score-order.
+/// Используется в same_vibe/deep_cuts и аналогах для similar/artist.
+/// Каждый пул z-нормализуется внутри себя, чтобы коллекции с разным
+/// распределением score не подавляли друг друга. Финальный score —
+/// взвешенная сумма z-score'ов (mert главный, lyrics доводит до 1.0).
+pub(crate) fn merge_audio_pools(
+    mert: &[RecommendResult],
+    clap: &[RecommendResult],
+    lyrics: &[RecommendResult],
+) -> Vec<RecommendResult> {
+    const W_MERT: f32 = 0.5;
+    const W_CLAP: f32 = 0.3;
+    const W_LYRICS: f32 = 0.2;
+
+    fn add(
+        acc: &mut HashMap<String, (f32, RecommendResult)>,
+        pool: &[RecommendResult],
+        weight: f32,
+    ) {
+        let n = pool.len();
+        if n == 0 {
             return;
         }
-        let ids: Vec<String> = pool
+        let mean: f32 = pool.iter().map(|r| r.score.unwrap_or(0.0)).sum::<f32>() / n as f32;
+        let var: f32 = pool
             .iter()
-            .map(|r| recommend_id_str(&r.id))
-            .filter(|s| !s.is_empty())
-            .collect();
-        if ids.is_empty() {
-            return;
-        }
-        let rows: Vec<(String, Option<i64>)> = sqlx::query_as(
-            "SELECT sc_track_id, play_count FROM sc_track_counters WHERE sc_track_id = ANY($1)",
-        )
-        .bind(&ids)
-        .fetch_all(&self.pg)
-        .await
-        .unwrap_or_default();
-        let by_id: HashMap<String, i64> = rows
-            .into_iter()
-            .map(|(id, p)| (id, p.unwrap_or(0)))
-            .collect();
-        for r in pool.iter_mut() {
+            .map(|r| {
+                let s = r.score.unwrap_or(0.0);
+                (s - mean) * (s - mean)
+            })
+            .sum::<f32>()
+            / n as f32;
+        let std = var.sqrt().max(1e-6);
+        for r in pool {
             let id = recommend_id_str(&r.id);
-            if let Some(p) = by_id.get(&id) {
-                r.playback_count = Some(*p);
+            if id.is_empty() {
+                continue;
             }
+            let z = (r.score.unwrap_or(0.0) - mean) / std;
+            let entry = acc.entry(id).or_insert_with(|| (0.0, r.clone()));
+            entry.0 += z * weight;
         }
     }
+
+    let mut acc: HashMap<String, (f32, RecommendResult)> = HashMap::new();
+    add(&mut acc, mert, W_MERT);
+    add(&mut acc, clap, W_CLAP);
+    add(&mut acc, lyrics, W_LYRICS);
+
+    let mut out: Vec<RecommendResult> = acc
+        .into_iter()
+        .map(|(_, (score, mut r))| {
+            r.score = Some(score);
+            r
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.score
+            .unwrap_or(0.0)
+            .partial_cmp(&a.score.unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out
 }

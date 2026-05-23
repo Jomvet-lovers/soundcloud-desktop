@@ -46,8 +46,6 @@ export async function hydrateByIds(recs: RecommendResult[]): Promise<Track[]> {
   return results.filter((t): t is Track => t !== null);
 }
 
-export type SoundWaveMode = 'similar' | 'diverse';
-
 /**
  * Free-form vibe search. Returns hydrated tracks in Qdrant score order.
  * Kept flat (not cluster-grouped) — search is a single-intent query.
@@ -79,23 +77,122 @@ export function useSoundWaveSearch(opts: { q: string; languages?: string[]; limi
   });
 }
 
+export type SmartWaveSeedKind = 'user' | 'track' | 'artist';
+
+export interface SmartWaveBatch {
+  tracks: Track[];
+  cursor: string;
+}
+
+interface SmartWavePayload {
+  tracks: RecommendResult[];
+  cursor: string;
+}
+
+function smartWaveUrl(
+  seedKind: SmartWaveSeedKind,
+  seedId: string | undefined,
+  qs: URLSearchParams,
+): string {
+  switch (seedKind) {
+    case 'user':
+      return `/recommendations/wave${qs.toString() ? `?${qs}` : ''}`;
+    case 'track':
+      return `/recommendations/wave/from-track/${encodeURIComponent(seedId!)}${qs.toString() ? `?${qs}` : ''}`;
+    case 'artist':
+      return `/recommendations/wave/from-artist/${encodeURIComponent(seedId!)}${qs.toString() ? `?${qs}` : ''}`;
+  }
+}
+
 /**
- * Continuation tail seeded by the last queued track. Used by the infinite scroll
- * extension of the home wave's deep_cuts cluster.
+ * Запрос порции бесконечной волны. Сервер держит state по cursor'у
+ * (Redis, TTL 30 мин) — клиент эхает токен и получает свежие треки без
+ * повторов. Если cursor отсутствует или Redis грохнули — сервер начнёт
+ * новую сессию волны, для UX это незаметно.
  */
-export async function fetchWaveTailFromSeed(
-  seedTrackId: string,
-  opts: { languages?: string[]; mode: SoundWaveMode; limit?: number },
-): Promise<RecommendResult[]> {
-  const qs = new URLSearchParams({
-    limit: String(opts.limit ?? 20),
-    mode: opts.mode,
-  });
+export async function fetchSmartWave(opts: {
+  seedKind: SmartWaveSeedKind;
+  seedId?: string;
+  cursor?: string;
+  limit?: number;
+  languages?: string[];
+}): Promise<SmartWaveBatch> {
+  const qs = new URLSearchParams();
+  qs.set('limit', String(opts.limit ?? 20));
+  if (opts.cursor) qs.set('cursor', opts.cursor);
   const languages = normLanguages(opts.languages);
   if (languages) qs.set('languages', languages);
-  return api<RecommendResult[]>(
-    `/recommendations/tail/${encodeURIComponent(seedTrackId)}?${qs}`,
-  ).catch(() => [] as RecommendResult[]);
+
+  const payload = await api<SmartWavePayload>(smartWaveUrl(opts.seedKind, opts.seedId, qs)).catch(
+    () => ({ tracks: [], cursor: '' }) as SmartWavePayload,
+  );
+
+  if (!payload.tracks.length) {
+    return { tracks: [], cursor: payload.cursor };
+  }
+  const tracks = await hydrateByIds(payload.tracks);
+  return { tracks, cursor: payload.cursor };
+}
+
+/**
+ * Сообщить серверу о dis/pos исходах в недавнем окне волны.
+ * Cursor обновится на сервере и следующий fetchSmartWave получит выдачу
+ * с адаптированными весами arm'ов.
+ */
+export async function sendWaveFeedback(opts: {
+  cursor: string;
+  negatives: number;
+  positives: number;
+}): Promise<string | null> {
+  if (!opts.cursor) return null;
+  try {
+    const res = await api<{ ok: boolean; cursor?: string | null }>(
+      '/recommendations/wave/feedback',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opts),
+      },
+    );
+    return res?.cursor ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * React-Query обёртка для первой порции волны. Дальше работает в паре с
+ * `useInfiniteWave`, который сам шлёт `fetchSmartWave({ cursor })`.
+ */
+export function useSmartWave(opts: {
+  seedKind: SmartWaveSeedKind;
+  seedId?: string;
+  languages?: string[];
+  enabled?: boolean;
+  limit?: number;
+}) {
+  const enabled = opts.enabled !== false && (opts.seedKind === 'user' || !!opts.seedId);
+  const languages = normLanguages(opts.languages);
+
+  return useQuery<SmartWaveBatch>({
+    queryKey: [
+      'smartwave',
+      opts.seedKind,
+      opts.seedId ?? 'self',
+      languages ?? 'all',
+      opts.limit ?? 20,
+    ],
+    enabled,
+    staleTime: SW_STALE_MS,
+    gcTime: SW_GC_MS,
+    queryFn: () =>
+      fetchSmartWave({
+        seedKind: opts.seedKind,
+        seedId: opts.seedId,
+        languages: opts.languages,
+        limit: opts.limit,
+      }),
+  });
 }
 
 /** Optional lightweight poll of indexing stats. Fails silently if endpoint absent. */

@@ -27,7 +27,6 @@ use crate::cache::{CacheService, ListCacheService};
 use crate::config::AppConfig;
 use crate::modules::auras::AurasService;
 use crate::modules::auth::{AuthService, LinkService};
-use crate::modules::centroids::CentroidService;
 use crate::modules::cold_refresh::ColdRefreshService;
 use crate::modules::collab::{CollabTrainerService, CollabVectorService};
 use crate::modules::discover::DiscoverService;
@@ -40,7 +39,6 @@ use crate::modules::featured::FeaturedService;
 use crate::modules::history::HistoryService;
 use crate::modules::indexing::IndexingService;
 use crate::modules::likes::LikesService;
-use crate::modules::ltr::{LtrService, LtrTrainerService};
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::lyrics::lrclib::LrclibService;
 use crate::modules::lyrics::musixmatch::MusixmatchService;
@@ -55,7 +53,6 @@ use crate::modules::subscriptions::SubscriptionsService;
 use crate::modules::sync_queue::SyncQueueService;
 use crate::modules::tracks::TracksService;
 use crate::modules::transcode::TranscodeTriggerService;
-use crate::modules::user_taste::UserTasteService;
 use crate::modules::users::UsersService;
 use crate::qdrant::QdrantService;
 use crate::sc::ScClient;
@@ -188,8 +185,6 @@ async fn main() {
     let resolve = ResolveService::new(sc.clone(), pg.clone());
     let history = HistoryService::new(pg.clone());
     let featured = FeaturedService::new(pg.clone(), sc.clone(), auth.clone());
-    let centroids = CentroidService::new(qdrant.clone());
-    let user_taste = UserTasteService::new(qdrant.clone());
     let transcode = TranscodeTriggerService::new(http_client.clone(), config.clone(), nats.clone());
     let worker = WorkerClient::new(nats.clone());
     let lrclib = LrclibService::new(external_fetcher.clone());
@@ -210,8 +205,6 @@ async fn main() {
     lyrics.spawn_consumers();
     lyrics.spawn_reap_loops(shutdown.clone());
 
-    centroids.spawn_refresh_loop(shutdown.clone());
-
     let collab_vector = CollabVectorService::new(qdrant.clone(), pg.clone());
     let collab_trainer = CollabTrainerService::new(
         pg.clone(),
@@ -220,17 +213,6 @@ async fn main() {
         config.collab.clone(),
     );
     collab_trainer.spawn_bootstrap_and_cron(shutdown.clone());
-
-    let ltr = LtrService::new(nats.clone(), config.ltr.clone());
-    let ltr_trainer = LtrTrainerService::new(
-        pg.clone(),
-        qdrant.clone(),
-        collab_vector.clone(),
-        centroids.clone(),
-        ltr.clone(),
-        config.ltr.clone(),
-    );
-    ltr_trainer.spawn_bootstrap_and_cron(shutdown.clone());
 
     let indexing =
         IndexingService::new(pg.clone(), nats.clone(), lyrics.clone(), transcode.clone());
@@ -317,28 +299,23 @@ async fn main() {
     let recommendations = RecommendationsService::new(
         qdrant.clone(),
         pg.clone(),
+        redis_pool.clone(),
         worker.clone(),
         s3_verifier.clone(),
-        centroids.clone(),
         collab_vector.clone(),
-        ltr.clone(),
         config.soundwave.clone(),
     );
 
     events.install_deps(
-        user_taste.clone(),
         indexing.clone(),
         dislikes.clone(),
         collab_vector.clone(),
         collab_trainer.clone(),
     );
-    events.spawn_indexing_queue_consumer(nats.clone());
 
     crate::modules::recommendations::cron::spawn_cron_loops(
         recommendations.clone(),
         nats.clone(),
-        qdrant.clone(),
-        pg.clone(),
         shutdown.clone(),
     );
 
@@ -422,7 +399,6 @@ async fn main() {
         lyrics,
         collab_vector,
         collab_trainer,
-        ltr_trainer,
         indexing,
         recommendations,
         enrich,

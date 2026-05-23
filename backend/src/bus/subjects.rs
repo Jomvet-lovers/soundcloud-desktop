@@ -4,20 +4,14 @@ pub mod subjects {
     pub const AI_RANK_LYRICS: &str = "ai.rpc.rank_lyrics";
     pub const AI_TRANSCRIBE: &str = "ai.rpc.transcribe";
     pub const AI_ENCODE_TEXT_MULAN: &str = "ai.rpc.encode_text_mulan";
-    pub const AI_LTR_SCORE: &str = "ai.rpc.ltr_score";
     pub const AI_RESOLVE_ARTIST: &str = "ai.rpc.resolve_artist";
     pub const AI_VERIFY_EXISTENCE: &str = "ai.rpc.verify_existence";
     pub const AI_MATCH_TRACK: &str = "ai.rpc.match_track";
-    pub const AI_TWO_TOWER_SCORE: &str = "ai.rpc.two_tower_score";
-    pub const AI_SEQUENTIAL_PREDICT: &str = "ai.rpc.sequential_predict";
     pub const AI_QUALITY_SCORE: &str = "ai.rpc.quality_score";
 
     pub const INDEX_AUDIO: &str = "index.audio.new";
     pub const EMBED_LYRICS: &str = "embed.lyrics.new";
     pub const TRAIN_COLLAB: &str = "train.collab.new";
-    pub const TRAIN_LTR: &str = "train.ltr.new";
-    pub const TRAIN_TWO_TOWER: &str = "train.two_tower.new";
-    pub const TRAIN_SEQUENTIAL: &str = "train.sequential.new";
     pub const TRAIN_QUALITY: &str = "train.quality.new";
 
     pub const ENRICH_TRACK: &str = "enrich.track.new";
@@ -51,18 +45,6 @@ pub mod streams {
     pub const TRAIN_COLLAB: StreamCfg = StreamCfg {
         name: "TRAIN_COLLAB",
         subjects: &["train.collab.>"],
-    };
-    pub const TRAIN_LTR: StreamCfg = StreamCfg {
-        name: "TRAIN_LTR",
-        subjects: &["train.ltr.>"],
-    };
-    pub const TRAIN_TWO_TOWER: StreamCfg = StreamCfg {
-        name: "TRAIN_TWO_TOWER",
-        subjects: &["train.two_tower.>"],
-    };
-    pub const TRAIN_SEQUENTIAL: StreamCfg = StreamCfg {
-        name: "TRAIN_SEQUENTIAL",
-        subjects: &["train.sequential.>"],
     };
     pub const TRAIN_QUALITY: StreamCfg = StreamCfg {
         name: "TRAIN_QUALITY",
