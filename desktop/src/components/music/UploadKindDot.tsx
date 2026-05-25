@@ -10,6 +10,7 @@ const COLORS: Record<string, string> = {
   original: 'bg-emerald-400',
   demo: 'bg-sky-400',
   reupload: 'bg-amber-400',
+  cover: 'bg-fuchsia-400',
 };
 
 export const UploadKindDot = React.memo(function UploadKindDot({

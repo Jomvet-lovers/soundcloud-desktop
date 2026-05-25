@@ -26,17 +26,22 @@ pub struct ListPageResult<T> {
     pub has_more: bool,
 }
 
+/// Результат одного chunk-fetch'а. `next_href` — абсолютный URL следующей
+/// страницы, как SC отдал в response.next_href. Передаётся обратно в fetcher
+/// для следующего chunk'а как есть, без переразбора query (это ломало
+/// `/playlists/{id}/tracks` — SC ждёт `offset=`, реконструкция клала `cursor=`
+/// и страница циклилась на первых 200 треках).
 #[derive(Debug, Clone)]
 pub struct FetchChunkResult<T> {
     pub items: Vec<T>,
-    pub next_cursor: Option<String>,
+    pub next_href: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ListState<T> {
     items: Vec<T>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    next_cursor: Option<String>,
+    next_href: Option<String>,
     exhausted: bool,
 }
 
@@ -44,7 +49,7 @@ impl<T> Default for ListState<T> {
     fn default() -> Self {
         Self {
             items: Vec::new(),
-            next_cursor: None,
+            next_href: None,
             exhausted: false,
         }
     }
@@ -252,11 +257,11 @@ impl ListCacheService {
 
         let mut chunks = 0usize;
         while state.items.len() < need && !state.exhausted && chunks < MAX_CHUNKS_PER_REQUEST {
-            let fetched = fetcher(state.next_cursor.clone(), chunk_size).await?;
+            let fetched = fetcher(state.next_href.clone(), chunk_size).await?;
             let items_len = fetched.items.len();
             state.items.extend(fetched.items);
-            state.next_cursor = fetched.next_cursor;
-            state.exhausted = state.next_cursor.is_none() || items_len == 0;
+            state.next_href = fetched.next_href;
+            state.exhausted = state.next_href.is_none() || items_len == 0;
             chunks += 1;
         }
 
@@ -286,16 +291,6 @@ fn slice_page<T: Clone>(state: ListState<T>, page: i64, limit: i64) -> ListPageR
     }
 }
 
-pub fn extract_sc_cursor(next_href: Option<&str>) -> Option<String> {
-    let href = next_href?;
-    let url = url::Url::parse(href).ok()?;
-    for (k, v) in url.query_pairs() {
-        if k == "cursor" || k == "offset" {
-            return Some(v.into_owned());
-        }
-    }
-    None
-}
 
 pub fn build_list_cache_key(prefix: &str, params: &[(&str, String)]) -> String {
     let mut parts: Vec<String> = params

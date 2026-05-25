@@ -2,28 +2,32 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
-    build_list_cache_key, extract_sc_cursor, FetchChunkResult, GetPageOptions, ListCacheService,
-    ListPageResult,
+    build_list_cache_key, sc_list_page, ListCacheService, ListPageResult, ScListPageArgs,
 };
-use crate::error::{AppError, AppResult};
-use crate::modules::cold_refresh::ColdRefreshService;
+use crate::error::AppResult;
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
+use crate::modules::cold_refresh::{
+    read_collection_page, ColdRefreshService, FOLLOWINGS, LIKED_PLAYLISTS, LIKED_TRACKS,
+    OWNED_PLAYLISTS, OWNED_TRACKS,
+};
+use crate::modules::events::EventsService;
 use crate::modules::likes::cold as likes_cold;
 use crate::sc::ScClient;
 
 const TTL_SEARCH: u64 = 300;
-const TTL_FOLLOWS: u64 = 600;
-const TTL_USER_TRACKS: u64 = 600;
-const TTL_USER_PLAYLISTS: u64 = 600;
-const TTL_USER_LIKES: u64 = 600;
+const TTL_FOLLOWERS: u64 = 600;
 
 pub struct UsersService {
     sc: ScClient,
     pg: PgPool,
     list_cache: Arc<ListCacheService>,
     cold_refresh: Arc<ColdRefreshService>,
+    tokens: Arc<TokenProvider>,
+    events: Arc<EventsService>,
 }
 
 impl UsersService {
@@ -32,309 +36,337 @@ impl UsersService {
         pg: PgPool,
         list_cache: Arc<ListCacheService>,
         cold_refresh: Arc<ColdRefreshService>,
+        tokens: Arc<TokenProvider>,
+        events: Arc<EventsService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
             pg,
             list_cache,
             cold_refresh,
+            tokens,
+            events,
         })
     }
 
-    async fn list_page(
-        &self,
-        cache_key: &str,
+    /// Какой токен использовать под коллекцию `target` юзера. Свои данные —
+    /// User (видим private items). Чужие — UserFirst (личный токен лучше
+    /// квотируется на юзера, fallback на app-pool).
+    fn kind_for_target(&self, viewer_sc_user_id: &str, target_sc_user_id: &str, session_id: Uuid) -> TokenKind {
+        if viewer_sc_user_id == target_sc_user_id {
+            TokenKind::User(session_id)
+        } else {
+            TokenKind::UserFirst(session_id)
+        }
+    }
+
+    fn list_args<'a>(
+        &'a self,
+        cache_key: &'a str,
         ttl: u64,
         page: i64,
         limit: i64,
         path: String,
-        token: String,
+        kind: TokenKind,
         extra_params: Vec<(String, String)>,
-    ) -> AppResult<ListPageResult<Value>> {
-        let sc = self.sc.clone();
-        self.list_cache
-            .get_page::<Value, _, _>(
-                GetPageOptions {
-                    key: cache_key,
-                    scope: CacheScope::Shared,
-                    session_id: None,
-                    ttl_sec: ttl,
-                    page,
-                    limit,
-                    chunk_size: None,
-                },
-                |cursor, chunk_size| {
-                    let sc = sc.clone();
-                    let path = path.clone();
-                    let token = token.clone();
-                    let extra = extra_params.clone();
-                    async move {
-                        let mut params: Vec<(String, String)> = extra;
-                        params.push(("limit".into(), chunk_size.to_string()));
-                        params.push(("linked_partitioning".into(), "true".into()));
-                        if let Some(c) = cursor {
-                            params.push(("cursor".into(), c));
-                        }
-                        let resp: Value = sc.api_get_value(&path, &token, Some(&params)).await?;
-                        let items = resp
-                            .get("collection")
-                            .and_then(|v| v.as_array().cloned())
-                            .unwrap_or_default();
-                        let next_cursor = resp
-                            .get("next_href")
-                            .and_then(|v| v.as_str())
-                            .and_then(|h| extract_sc_cursor(Some(h)));
-                        Ok::<_, AppError>(FetchChunkResult { items, next_cursor })
-                    }
-                },
-            )
-            .await
+    ) -> ScListPageArgs<'a> {
+        ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind,
+            cache_key,
+            ttl,
+            scope: CacheScope::Shared,
+            session_id: None,
+            page,
+            limit,
+            path,
+            extra_params,
+        }
     }
 
     pub async fn search(
         &self,
-        token: &str,
+        session_id: Uuid,
         page: i64,
         limit: i64,
         q: Option<String>,
         ids: Option<String>,
     ) -> AppResult<ListPageResult<Value>> {
         let mut extra: Vec<(String, String)> = Vec::new();
-        if let Some(v) = q.clone() {
+        if let Some(v) = q {
             extra.push(("q".into(), v));
         }
-        if let Some(v) = ids.clone() {
+        if let Some(v) = ids {
             extra.push(("ids".into(), v));
         }
         let key = build_list_cache_key("users-search", &as_pairs(&extra));
-        self.list_page(
+        sc_list_page(self.list_args(
             &key,
             TTL_SEARCH,
             page,
             limit,
             "/users".into(),
-            token.to_string(),
+            TokenKind::UserFirst(session_id),
             extra,
-        )
+        ))
         .await
     }
 
-    /// Cold-read /users/{urn}: cached_users → miss → SC + upsert.
+    /// Cold-read /users/{urn}: проекция из `users` → miss → SC + upsert.
     /// На stale hit спавним фоновой refresh (Redis SETNX дедупит дубликаты).
-    pub async fn get_by_id(&self, token: &str, user_urn: &str) -> AppResult<Value> {
-        let cached: Option<(
-            sqlx::types::Json<Value>,
-            Option<chrono::DateTime<chrono::Utc>>,
-        )> = sqlx::query_as("SELECT payload, synced_at FROM cached_users WHERE user_urn = $1")
-            .bind(user_urn)
-            .fetch_optional(&self.pg)
-            .await?;
-        if let Some((j, synced_at)) = cached {
-            let pg = self.pg.clone();
-            let urn = user_urn.to_string();
-            tokio::spawn(async move {
-                let _ = sqlx::query(
-                    "UPDATE cached_users SET last_read_at = now() \
-                     WHERE user_urn = $1 \
-                       AND (last_read_at IS NULL \
-                            OR last_read_at < now() - INTERVAL '5 minutes')",
-                )
-                .bind(&urn)
-                .execute(&pg)
-                .await;
-            });
-            if self.cold_refresh.is_user_stale(synced_at) {
-                let refresh = self.cold_refresh.clone();
+    pub async fn get_by_id(&self, session_id: Uuid, user_urn: &str) -> AppResult<Value> {
+        let repo = crate::modules::users::UserRepository::new(self.pg.clone());
+        if let Some(row) = repo.find_by_urn(user_urn).await? {
+            let synced_at = row.sc_synced_at;
+            {
+                let repo2 = crate::modules::users::UserRepository::new(self.pg.clone());
                 let urn = user_urn.to_string();
-                let tok = token.to_string();
                 tokio::spawn(async move {
-                    if let Err(e) = refresh.refresh_user(&urn, &tok).await {
+                    let _ = repo2.touch_last_read(&urn).await;
+                });
+            }
+            if self.cold_refresh.is_user_stale(Some(synced_at)) {
+                let refresh = self.cold_refresh.clone();
+                let tokens = self.tokens.clone();
+                let urn = user_urn.to_string();
+                tokio::spawn(async move {
+                    let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
+                    if let Err(e) = refresh.refresh_user(&urn, &chain).await {
                         tracing::debug!(error = %e, urn = %urn, "user refresh failed");
                     }
                 });
             }
-            return Ok(j.0);
+            return Ok(crate::modules::users::project_to_sc_shape(&row));
         }
-        let fetched: Value = self
-            .sc
-            .api_get_value(&format!("/users/{user_urn}"), token, None)
-            .await?;
-        sqlx::query(
-            "INSERT INTO cached_users (user_urn, payload, synced_at, last_read_at) \
-             VALUES ($1, $2, now(), now()) \
-             ON CONFLICT (user_urn) DO UPDATE SET \
-                 payload = EXCLUDED.payload, synced_at = now(), last_read_at = now()",
-        )
-        .bind(user_urn)
-        .bind(&fetched)
-        .execute(&self.pg)
+        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+        let fetched: Value = try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/users/{user_urn}");
+            async move { sc.api_get_value(&path, &tok, None).await }
+        })
         .await?;
+        repo.upsert_from_sc(&fetched).await?;
         Ok(fetched)
     }
 
+    /// `/users/{urn}/followers` — единственный per-user list, который не
+    /// храним cold: входящие подписчики нам бизнес-неинтересны (мы пишем
+    /// followings, а не followers). Горячий TTL-кеш с user-first chain'ом.
     pub async fn get_followers(
         &self,
-        token: &str,
+        session_id: Uuid,
         user_urn: &str,
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        self.list_page(
-            &format!("user-followers:{user_urn}"),
-            TTL_FOLLOWS,
+        let key = format!("user-followers:{user_urn}");
+        sc_list_page(self.list_args(
+            &key,
+            TTL_FOLLOWERS,
             page,
             limit,
             format!("/users/{user_urn}/followers"),
-            token.to_string(),
+            TokenKind::UserFirst(session_id),
             vec![],
-        )
-        .await
-    }
-
-    pub async fn get_followings(
-        &self,
-        token: &str,
-        user_urn: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
-        self.list_page(
-            &format!("user-followings:{user_urn}"),
-            TTL_FOLLOWS,
-            page,
-            limit,
-            format!("/users/{user_urn}/followings"),
-            token.to_string(),
-            vec![],
-        )
+        ))
         .await
     }
 
     pub async fn get_is_following(
         &self,
-        token: &str,
+        session_id: Uuid,
         user_urn: &str,
         following_urn: &str,
     ) -> AppResult<bool> {
-        match self
-            .sc
-            .api_get_value(
-                &format!("/users/{user_urn}/followings/{following_urn}"),
-                token,
-                None,
-            )
-            .await
-        {
-            Ok(v) => Ok(v.get("urn").and_then(|x| x.as_str()) == Some(following_urn)),
-            Err(_) => Ok(false),
-        }
+        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+        let res = try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/users/{user_urn}/followings/{following_urn}");
+            async move { sc.api_get_value(&path, &tok, None).await }
+        })
+        .await;
+        Ok(match res {
+            Ok(v) => v.get("urn").and_then(|x| x.as_str()) == Some(following_urn),
+            Err(_) => false,
+        })
     }
 
-    pub async fn get_tracks(
+    /// Cold-read OWNED_TRACKS для любого юзера (своего или чужого).
+    /// `viewer_sc_user_id` — кто запрашивает (нужен для favorite-флага +
+    /// выбора /me/* vs /users/{id}/* path и токена).
+    pub async fn get_owned_tracks(
         &self,
-        token: &str,
-        sc_user_id: &str,
-        user_urn: &str,
+        session_id: Uuid,
+        viewer_sc_user_id: &str,
+        target_sc_user_id: &str,
         page: i64,
         limit: i64,
-        access: &str,
     ) -> AppResult<ListPageResult<Value>> {
-        let key = build_list_cache_key(
-            &format!("user-tracks:{user_urn}"),
-            &[("access", access.to_string())],
-        );
-        let mut result = self
-            .list_page(
-                &key,
-                TTL_USER_TRACKS,
-                page,
-                limit,
-                format!("/users/{user_urn}/tracks"),
-                token.to_string(),
-                vec![("access".into(), access.to_string())],
-            )
+        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let chain = self
+            .tokens
+            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
             .await?;
-        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
+        self.cold_refresh
+            .ensure_collection(OWNED_TRACKS, target_sc_user_id, is_self, &chain, &[])
+            .await?;
+        let mut result =
+            read_collection_page(&self.pg, &OWNED_TRACKS, target_sc_user_id, page, limit).await?;
+        likes_cold::apply_user_favorite_flag(&self.pg, viewer_sc_user_id, &mut result.collection)
+            .await?;
         Ok(result)
     }
 
-    pub async fn get_playlists(
+    /// Cold-read OWNED_PLAYLISTS для любого юзера.
+    pub async fn get_owned_playlists(
         &self,
-        token: &str,
-        user_urn: &str,
+        session_id: Uuid,
+        viewer_sc_user_id: &str,
+        target_sc_user_id: &str,
         page: i64,
         limit: i64,
-        access: &str,
-        show_tracks: Option<String>,
     ) -> AppResult<ListPageResult<Value>> {
-        let mut extra: Vec<(String, String)> = vec![("access".into(), access.to_string())];
-        if let Some(v) = show_tracks {
-            extra.push(("show_tracks".into(), v));
-        }
-        let key = build_list_cache_key(&format!("user-playlists:{user_urn}"), &as_pairs(&extra));
-        self.list_page(
-            &key,
-            TTL_USER_PLAYLISTS,
-            page,
-            limit,
-            format!("/users/{user_urn}/playlists"),
-            token.to_string(),
-            extra,
+        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let chain = self
+            .tokens
+            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
+            .await?;
+        self.cold_refresh
+            .ensure_collection(OWNED_PLAYLISTS, target_sc_user_id, is_self, &chain, &[])
+            .await?;
+        let mut result =
+            read_collection_page(&self.pg, &OWNED_PLAYLISTS, target_sc_user_id, page, limit)
+                .await?;
+        likes_cold::apply_user_favorite_flag_to_playlists(
+            &self.pg,
+            viewer_sc_user_id,
+            &mut result.collection,
         )
-        .await
+        .await?;
+        Ok(result)
     }
 
+    /// Cold-read LIKED_TRACKS для любого юзера. Для своего юзера —
+    /// дополнительно сидируем events training-poll (`ensure_likes_recorded`).
     pub async fn get_liked_tracks(
-        &self,
-        token: &str,
-        sc_user_id: &str,
-        user_urn: &str,
+        self: &Arc<Self>,
+        session_id: Uuid,
+        viewer_sc_user_id: &str,
+        target_sc_user_id: &str,
         page: i64,
         limit: i64,
         access: &str,
     ) -> AppResult<ListPageResult<Value>> {
-        let key = build_list_cache_key(
-            &format!("user-liked-tracks:{user_urn}"),
-            &[("access", access.to_string())],
-        );
-        let mut result = self
-            .list_page(
-                &key,
-                TTL_USER_LIKES,
-                page,
-                limit,
-                format!("/users/{user_urn}/likes/tracks"),
-                token.to_string(),
-                vec![("access".into(), access.to_string())],
+        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let chain = self
+            .tokens
+            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
+            .await?;
+        self.cold_refresh
+            .ensure_collection(
+                LIKED_TRACKS,
+                target_sc_user_id,
+                is_self,
+                &chain,
+                &[("access".into(), access.to_string())],
             )
             .await?;
-        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
+        let mut result =
+            read_collection_page(&self.pg, &LIKED_TRACKS, target_sc_user_id, page, limit).await?;
+
+        // Если смотрим свои лайки — каждый item автоматически user_favorite.
+        // Если чужие — флаг показывает, лайкнул ли это ВЬЮВЕР (другой юзер).
+        if is_self {
+            for t in result.collection.iter_mut() {
+                if let Some(obj) = t.as_object_mut() {
+                    obj.insert("user_favorite".into(), Value::Bool(true));
+                }
+            }
+            let events = self.events.clone();
+            let user_id = viewer_sc_user_id.to_string();
+            let urns: Vec<String> = result
+                .collection
+                .iter()
+                .filter_map(|t| t.get("urn").and_then(|v| v.as_str()).map(String::from))
+                .collect();
+            tokio::spawn(async move {
+                if let Err(e) = events.ensure_likes_recorded(&user_id, &urns).await {
+                    tracing::debug!(error = %e, "seedLikesTaste failed");
+                }
+            });
+        } else {
+            likes_cold::apply_user_favorite_flag(
+                &self.pg,
+                viewer_sc_user_id,
+                &mut result.collection,
+            )
+            .await?;
+        }
         Ok(result)
     }
 
+    /// Cold-read LIKED_PLAYLISTS для любого юзера.
     pub async fn get_liked_playlists(
         &self,
-        token: &str,
-        user_urn: &str,
+        session_id: Uuid,
+        viewer_sc_user_id: &str,
+        target_sc_user_id: &str,
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        self.list_page(
-            &format!("user-liked-playlists:{user_urn}"),
-            TTL_USER_LIKES,
-            page,
-            limit,
-            format!("/users/{user_urn}/likes/playlists"),
-            token.to_string(),
-            vec![],
+        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let chain = self
+            .tokens
+            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
+            .await?;
+        self.cold_refresh
+            .ensure_collection(LIKED_PLAYLISTS, target_sc_user_id, is_self, &chain, &[])
+            .await?;
+        let mut result =
+            read_collection_page(&self.pg, &LIKED_PLAYLISTS, target_sc_user_id, page, limit)
+                .await?;
+        likes_cold::apply_user_favorite_flag_to_playlists(
+            &self.pg,
+            viewer_sc_user_id,
+            &mut result.collection,
         )
-        .await
+        .await?;
+        Ok(result)
     }
 
-    pub async fn get_web_profiles(&self, token: &str, user_urn: &str) -> AppResult<Value> {
-        self.sc
-            .api_get_value(&format!("/users/{user_urn}/web-profiles"), token, None)
-            .await
+    /// Cold-read FOLLOWINGS для любого юзера.
+    pub async fn get_followings(
+        &self,
+        session_id: Uuid,
+        viewer_sc_user_id: &str,
+        target_sc_user_id: &str,
+        page: i64,
+        limit: i64,
+    ) -> AppResult<ListPageResult<Value>> {
+        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let chain = self
+            .tokens
+            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
+            .await?;
+        self.cold_refresh
+            .ensure_collection(FOLLOWINGS, target_sc_user_id, is_self, &chain, &[])
+            .await?;
+        read_collection_page(&self.pg, &FOLLOWINGS, target_sc_user_id, page, limit).await
+    }
+
+    pub async fn get_web_profiles(&self, session_id: Uuid, user_urn: &str) -> AppResult<Value> {
+        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+        try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/users/{user_urn}/web-profiles");
+            async move { sc.api_get_value(&path, &tok, None).await }
+        })
+        .await
     }
 }
 

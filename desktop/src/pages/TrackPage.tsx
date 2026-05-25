@@ -614,25 +614,27 @@ export const TrackPage = React.memo(() => {
                     )}
                   </div>
                   {(artistDisplay.uploader || participants) && (
-                    <div className="ml-8 mt-1 text-[12px] text-white/35">
-                      {participants && (
+                    <div className="ml-8 mt-1 text-[12px] text-white/35 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      {participants?.featured && participants.featured.length > 0 && (
                         <span>
-                          {participants.featured.length > 0 && (
-                            <>
-                              feat. <ArtistLinks artists={participants.featured} />
-                            </>
-                          )}
-                          {participants.featured.length > 0 &&
-                            participants.remixers.length > 0 &&
-                            ' · '}
-                          {participants.remixers.length > 0 && (
-                            <>
-                              <ArtistLinks artists={participants.remixers} /> Remix
-                            </>
-                          )}
+                          feat. <ArtistLinks artists={participants.featured} />
                         </span>
                       )}
-                      {participants && artistDisplay.uploader && <span> · </span>}
+                      {participants?.remixers && participants.remixers.length > 0 && (
+                        <span>
+                          {(participants.featured.length > 0) && '· '}
+                          <ArtistLinks artists={participants.remixers} /> Remix
+                        </span>
+                      )}
+                      {participants?.producers && participants.producers.length > 0 && (
+                        <span>
+                          {(participants.featured.length > 0 ||
+                            participants.remixers.length > 0) &&
+                            '· '}
+                          prod. <ArtistLinks artists={participants.producers} />
+                        </span>
+                      )}
+                      {participants && artistDisplay.uploader && <span>·</span>}
                       {artistDisplay.uploader && (
                         <span>
                           <Trans

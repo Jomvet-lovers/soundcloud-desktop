@@ -2,18 +2,10 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tracing::debug;
 
 use crate::cache::cache_service::CacheScope;
-use crate::cache::{
-    extract_sc_cursor, FetchChunkResult, GetPageOptions, ListCacheService, ListPageResult,
-};
+use crate::cache::{FetchChunkResult, GetPageOptions, ListCacheService, ListPageResult};
 use crate::error::AppResult;
-use crate::modules::cold_refresh::{
-    read_collection_page, ColdRefreshService, FOLLOWINGS, LIKED_PLAYLISTS, LIKED_TRACKS,
-    OWNED_PLAYLISTS, OWNED_TRACKS,
-};
-use crate::modules::events::EventsService;
 use crate::modules::likes::cold as likes_cold;
 use crate::modules::sync_queue::mirror::{self, FOLLOWINGS as FOLLOWINGS_MIRROR};
 use crate::modules::sync_queue::SyncQueueService;
@@ -23,13 +15,17 @@ const TTL_FEED: u64 = 60;
 const TTL_FOLLOWINGS_TRACKS: u64 = 60;
 const TTL_FOLLOWERS: u64 = 600;
 
+/// MeService держит только то, что у нас **нет** как отдельной коллекции:
+/// SC-фид (`/me/feed`, `/me/feed/tracks`, `/me/followings/tracks`),
+/// followers (входящие подписчики бизнесу не нужны cold), follow/unfollow
+/// мутации и `/me` профиль. Tracks/playlists/likes/followings того же юзера
+/// ходят через [`UsersService`] с `target == ctx.sc_user_id` — общие mirror
+/// таблицы (`user_owned_*`, `user_likes_*`, `user_followings`).
 pub struct MeService {
     sc: ScClient,
     pg: PgPool,
     list_cache: Arc<ListCacheService>,
     sync_queue: Arc<SyncQueueService>,
-    cold_refresh: Arc<ColdRefreshService>,
-    events: Arc<EventsService>,
 }
 
 impl MeService {
@@ -38,16 +34,12 @@ impl MeService {
         pg: PgPool,
         list_cache: Arc<ListCacheService>,
         sync_queue: Arc<SyncQueueService>,
-        cold_refresh: Arc<ColdRefreshService>,
-        events: Arc<EventsService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
             pg,
             list_cache,
             sync_queue,
-            cold_refresh,
-            events,
         })
     }
 
@@ -78,28 +70,31 @@ impl MeService {
                     limit,
                     chunk_size: None,
                 },
-                |cursor, chunk_size| {
+                |next_href, chunk_size| {
                     let sc = sc.clone();
                     let path = path.clone();
                     let token = token.clone();
                     let extra = extra_params.clone();
                     async move {
-                        let mut params: Vec<(String, String)> = extra;
-                        params.push(("limit".into(), chunk_size.to_string()));
-                        params.push(("linked_partitioning".into(), "true".into()));
-                        if let Some(c) = cursor {
-                            params.push(("cursor".into(), c));
-                        }
-                        let resp: Value = sc.api_get_value(&path, &token, Some(&params)).await?;
+                        let resp: Value = match next_href {
+                            Some(href) => sc.api_get_absolute_value(&href, &token).await?,
+                            None => {
+                                let mut params: Vec<(String, String)> = extra;
+                                params.push(("limit".into(), chunk_size.to_string()));
+                                params.push(("linked_partitioning".into(), "true".into()));
+                                sc.api_get_value(&path, &token, Some(&params)).await?
+                            }
+                        };
                         let items: Vec<Value> = resp
                             .get("collection")
                             .and_then(|v| v.as_array().cloned())
                             .unwrap_or_default();
-                        let next_cursor = resp
+                        let next_href = resp
                             .get("next_href")
                             .and_then(|v| v.as_str())
-                            .and_then(|h| extract_sc_cursor(Some(h)));
-                        Ok::<_, crate::error::AppError>(FetchChunkResult { items, next_cursor })
+                            .map(String::from)
+                            .filter(|s| !s.is_empty());
+                        Ok::<_, crate::error::AppError>(FetchChunkResult { items, next_href })
                     }
                 },
             )
@@ -164,72 +159,6 @@ impl MeService {
         Ok(result)
     }
 
-    pub async fn get_liked_tracks(
-        &self,
-        token: &str,
-        sc_user_id: &str,
-        page: i64,
-        limit: i64,
-        access: &str,
-    ) -> AppResult<ListPageResult<Value>> {
-        self.cold_refresh
-            .ensure_collection(
-                LIKED_TRACKS,
-                sc_user_id,
-                token,
-                &[("access".into(), access.to_string())],
-            )
-            .await?;
-        let mut result =
-            read_collection_page(&self.pg, &LIKED_TRACKS, sc_user_id, page, limit).await?;
-        for t in result.collection.iter_mut() {
-            if let Some(obj) = t.as_object_mut() {
-                obj.insert("user_favorite".into(), Value::Bool(true));
-            }
-        }
-
-        let events = self.events.clone();
-        let user_id = sc_user_id.to_string();
-        let urns: Vec<String> = result
-            .collection
-            .iter()
-            .filter_map(|t| t.get("urn").and_then(|v| v.as_str()).map(String::from))
-            .collect();
-        tokio::spawn(async move {
-            if let Err(e) = events.ensure_likes_recorded(&user_id, &urns).await {
-                debug!(error = %e, "seedLikesTaste failed");
-            }
-        });
-
-        Ok(result)
-    }
-
-    pub async fn get_liked_playlists(
-        &self,
-        token: &str,
-        sc_user_id: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
-        self.cold_refresh
-            .ensure_collection(LIKED_PLAYLISTS, sc_user_id, token, &[])
-            .await?;
-        read_collection_page(&self.pg, &LIKED_PLAYLISTS, sc_user_id, page, limit).await
-    }
-
-    pub async fn get_followings(
-        &self,
-        token: &str,
-        sc_user_id: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
-        self.cold_refresh
-            .ensure_collection(FOLLOWINGS, sc_user_id, token, &[])
-            .await?;
-        read_collection_page(&self.pg, &FOLLOWINGS, sc_user_id, page, limit).await
-    }
-
     pub async fn get_followings_tracks(
         &self,
         token: &str,
@@ -290,38 +219,6 @@ impl MeService {
         .await
     }
 
-    /// Owned playlists юзера, ВКЛЮЧАЯ приватные. Payload хранится в самом
-    /// user_owned_playlists.payload (а не в cached_playlists), потому что
-    /// приватный subset не должен утекать через shared cache.
-    pub async fn get_playlists(
-        &self,
-        token: &str,
-        sc_user_id: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
-        self.cold_refresh
-            .ensure_collection(OWNED_PLAYLISTS, sc_user_id, token, &[])
-            .await?;
-        read_collection_page(&self.pg, &OWNED_PLAYLISTS, sc_user_id, page, limit).await
-    }
-
-    /// Owned tracks юзера, ВКЛЮЧАЯ приватные. См. комментарий к get_playlists.
-    pub async fn get_tracks(
-        &self,
-        token: &str,
-        sc_user_id: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
-        self.cold_refresh
-            .ensure_collection(OWNED_TRACKS, sc_user_id, token, &[])
-            .await?;
-        let mut result =
-            read_collection_page(&self.pg, &OWNED_TRACKS, sc_user_id, page, limit).await?;
-        likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
-        Ok(result)
-    }
 }
 
 /// `{ premium: bool }` — ответ `/me/subscription`.

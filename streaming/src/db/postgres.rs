@@ -186,23 +186,66 @@ impl PgPool {
         Ok(())
     }
 
-    /// Get random valid (non-expired) access tokens, excluding the given one.
-    pub async fn get_random_valid_sessions(
+    /// Client-credentials токены из oauth_app_tokens (без user-сессий).
+    /// Streaming юзает их как fallback, когда user-токен зарезан SC. Без
+    /// FOR UPDATE — обычный SELECT, никаких lock'ов на hot-path streaming.
+    pub async fn get_app_tokens(&self, exclude_token: &str) -> Result<Vec<String>, PgError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                r#"SELECT access_token FROM oauth_app_tokens
+                   WHERE expires_at > NOW() + INTERVAL '30 seconds'
+                     AND access_token <> ''
+                     AND access_token <> $1"#,
+                &[&exclude_token],
+            )
+            .await?;
+        let mut tokens: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+        use rand::seq::SliceRandom;
+        tokens.shuffle(&mut rand::thread_rng());
+        Ok(tokens)
+    }
+
+    /// Pickup кандидатов на HQ-upgrade. FOR UPDATE SKIP LOCKED + UPDATE
+    /// hq_upgrade_last_at + attempts++ — два стриминга не возьмут одинаковый
+    /// набор треков. retry_cooldown_sec задаёт паузу между попытками для
+    /// одного и того же трека (защита от спама при недоступности hq).
+    pub async fn pick_hq_upgrade_candidates(
         &self,
         limit: i64,
-        exclude_token: &str,
+        retry_cooldown_sec: i64,
     ) -> Result<Vec<String>, PgError> {
         let client = self.pool.get().await?;
         let rows = client
             .query(
-                r#"SELECT access_token FROM sessions
-                   WHERE expires_at > NOW() AND access_token <> $1
-                   ORDER BY RANDOM()
-                   LIMIT $2"#,
-                &[&exclude_token, &limit],
+                r#"UPDATE tracks SET hq_upgrade_last_at = now(),
+                       hq_upgrade_attempts = hq_upgrade_attempts + 1, updated_at = now()
+                   WHERE id IN (
+                       SELECT id FROM tracks
+                       WHERE hq_upgrade_pending = true
+                         AND (hq_upgrade_last_at IS NULL
+                              OR hq_upgrade_last_at < now() - make_interval(secs => $2))
+                       ORDER BY hq_upgrade_last_at NULLS FIRST, hq_upgrade_attempts
+                       FOR UPDATE SKIP LOCKED
+                       LIMIT $1
+                   )
+                   RETURNING urn"#,
+                &[&limit, &(retry_cooldown_sec as f64)],
             )
             .await?;
         Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
+    pub async fn mark_hq_upgrade_failed(&self, urn: &str) -> Result<(), PgError> {
+        let client = self.pool.get().await?;
+        client
+            .execute(
+                "UPDATE tracks SET hq_upgrade_last_at = now(), updated_at = now() \
+                 WHERE urn = $1",
+                &[&urn],
+            )
+            .await?;
+        Ok(())
     }
 
     /// Check if user has an active subscription

@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use chrono::Datelike;
+
 use crate::error::AppResult;
 use crate::modules::enrich::normalize::normalize_name;
 use crate::modules::enrich::resolver::{
@@ -57,14 +59,21 @@ pub async fn search(
     let Some((score, meta)) = scored else {
         return Ok(None);
     };
-    let album = match meta.genius_song_id {
-        Some(id) => genius
-            .lookup_song(id)
-            .await
-            .and_then(|details| details.album.map(|a| (a, details.year))),
+    let details = match meta.genius_song_id {
+        Some(id) => genius.lookup_song(id).await,
         None => None,
     };
-    Ok(Some(into_result(meta, score, ctx.isrc.clone(), album)))
+    let song_year = details.as_ref().and_then(|d| d.year);
+    let song_date = details.as_ref().and_then(|d| d.release_date);
+    let album_pair = details.and_then(|d| d.album.map(|a| (a, song_year)));
+    Ok(Some(into_result(
+        meta,
+        score,
+        ctx.isrc.clone(),
+        album_pair,
+        song_date,
+        song_year,
+    )))
 }
 
 fn into_result(
@@ -72,11 +81,21 @@ fn into_result(
     score: f32,
     isrc: Option<String>,
     album: Option<(crate::modules::lyrics::genius::GeniusAlbumRef, Option<i16>)>,
+    song_release_date: Option<chrono::NaiveDate>,
+    song_release_year: Option<i16>,
 ) -> ResolveResult {
     let primary_meta = meta.primary_artist.clone();
     let primary = meta.primary_artist.into_iter().map(map_ref).collect();
     let featured = meta.featured.into_iter().map(map_ref).collect();
     let confidence = (score * 0.85).clamp(0.5, 0.85);
+    // Если у song нет даты — берём из альбома (часто там точнее, особенно
+    // у синглов, где Genius даёт точный day у release, но у song только year).
+    let album_date = album.as_ref().and_then(|(a, _)| a.release_date);
+    let album_year = album.as_ref().and_then(|(a, sy)| a.year.or(*sy));
+    let release_date = song_release_date.or(album_date);
+    let release_year = song_release_year
+        .or(album_year)
+        .or_else(|| release_date.and_then(|d| i16::try_from(d.year()).ok()));
     let album = album.map(|(a, song_year)| AlbumCandidate {
         title: a.name,
         year: a.year.or(song_year),
@@ -95,6 +114,9 @@ fn into_result(
         remixers: Vec::new(),
         album,
         isrc,
+        release_date,
+        release_year,
+        is_cover: false,
     }
 }
 

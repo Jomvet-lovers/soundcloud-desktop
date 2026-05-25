@@ -10,6 +10,7 @@ use crate::cache::cache_service::CacheScope;
 use crate::common::response::json_response;
 use crate::common::session::OptionalSession;
 use crate::error::{AppError, AppResult};
+use crate::modules::auth::TokenKind;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -34,8 +35,11 @@ async fn resolve(
         return Ok(json_response(StatusCode::OK, raw));
     }
 
-    let user_token = session.as_ref().map(|s| s.access_token.as_str());
-    let v: Value = st.resolve.resolve(user_token, &q.url).await?;
+    let kind = match session.as_ref() {
+        Some(s) => TokenKind::UserFirst(s.session_id),
+        None => TokenKind::PublicPool,
+    };
+    let v: Value = st.resolve.resolve(kind, &q.url).await?;
     let payload =
         serde_json::to_string(&v).map_err(|e| AppError::internal(format!("json encode: {e}")))?;
     let _ = st

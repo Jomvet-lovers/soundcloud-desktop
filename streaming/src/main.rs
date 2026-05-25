@@ -111,6 +111,15 @@ async fn main() {
     let config = Arc::new(config);
 
     cleanup::task::spawn_cleanup_task((*config).clone(), pg.clone(), storage.clone());
+    cleanup::hq_upgrade::spawn_hq_upgrade_task(
+        pg.clone(),
+        anon.clone(),
+        cookies.clone(),
+        storage.clone(),
+        decryptor.clone(),
+        http_client.clone(),
+        config.sc_proxy_url.clone(),
+    );
 
     let state = AppState {
         config: config.clone(),

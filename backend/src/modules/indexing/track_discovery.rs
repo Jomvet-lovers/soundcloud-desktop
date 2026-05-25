@@ -9,6 +9,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::debug;
 
 use crate::modules::indexing::IndexingService;
+use crate::modules::tracks::TrackPriority;
 use crate::sc::{ScClient, TrackObserver};
 
 static URN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"soundcloud:tracks:(\d+)").unwrap());
@@ -67,8 +68,12 @@ impl TrackDiscoveryService {
             .await
         {
             Ok(track) => {
-                if let Err(e) = self.indexing.ensure_track_indexed(&track).await {
-                    debug!(track = %sc_track_id, error = %e, "ensure_track_indexed failed");
+                if let Err(e) = self
+                    .indexing
+                    .ingest_track_from_sc(&track, TrackPriority::Discovery)
+                    .await
+                {
+                    debug!(track = %sc_track_id, error = %e, "ingest_track_from_sc failed");
                 }
             }
             Err(e) => {

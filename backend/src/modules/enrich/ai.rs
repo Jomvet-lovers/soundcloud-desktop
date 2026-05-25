@@ -4,7 +4,6 @@ use std::time::Duration;
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::Pool as RedisPool;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::debug;
 
@@ -21,6 +20,8 @@ const CACHE_PREFIX: &str = "ai:resolve:";
 const VERIFY_CACHE_PREFIX: &str = "ai:verify:";
 const BUDGET_PREFIX: &str = "ai:resolve:budget:";
 
+/// Запрос к AI-резолверу артиста. Только нормализованные поля из `tracks` —
+/// если worker'у нужен доп. контекст, добавляйте явные поля.
 #[derive(Debug, Serialize)]
 pub struct AiResolveRequest<'a> {
     pub title: &'a str,
@@ -29,7 +30,6 @@ pub struct AiResolveRequest<'a> {
     pub isrc: Option<&'a str>,
     pub metadata_artist: Option<&'a str>,
     pub description: Option<&'a str>,
-    pub raw: &'a Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,11 +93,7 @@ impl AiResolverClient {
         })
     }
 
-    pub async fn resolve(
-        &self,
-        ctx: &TrackContext,
-        raw: &Value,
-    ) -> AppResult<Option<ResolveResult>> {
+    pub async fn resolve(&self, ctx: &TrackContext) -> AppResult<Option<ResolveResult>> {
         let cache_key = format!("{CACHE_PREFIX}{}", context_hash(ctx));
         if let Some(reply) = self.cache_get(&cache_key).await {
             return Ok(self.build_result(reply, ctx));
@@ -113,7 +109,6 @@ impl AiResolverClient {
             isrc: ctx.isrc.as_deref(),
             metadata_artist: ctx.metadata_artist.as_deref(),
             description: ctx.description.as_deref(),
-            raw,
         };
         let reply: Option<AiResolveReply> = self
             .nats
@@ -176,6 +171,9 @@ impl AiResolverClient {
             remixers,
             album,
             isrc: ctx.isrc.clone(),
+            release_date: None,
+            release_year: None,
+            is_cover: false,
         })
     }
 

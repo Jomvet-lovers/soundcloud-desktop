@@ -232,11 +232,14 @@ fn artist_sort_kind(s: Option<&str>) -> &'static str {
 }
 
 fn album_sort_kind(s: Option<&str>) -> &'static str {
-    match s.unwrap_or("recent") {
-        "popular" => "popular",
+    // Default: popular — recently дискавер альбомов отдавал почти-random микс
+    // (release_year + наскоро залитые альбомы с фейковым годом). Top-popular
+    // даёт что-то осмысленное на холодной странице.
+    match s.unwrap_or("popular") {
+        "recent" => "recent",
         "tracks" => "tracks",
         "az" => "az",
-        _ => "recent",
+        _ => "popular",
     }
 }
 
@@ -450,6 +453,8 @@ async fn fetch_albums(
         _ => "COALESCE(al.release_date, make_date(COALESCE(al.release_year::int, 1970), 1, 1)) DESC, al.normalized_title ASC, al.id ASC",
     };
 
+    // release_year > текущий год отсекаем — встречаются «умники» с 2027-м.
+    // NULL release_year оставляем (часть треков просто без даты).
     let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         "SELECT al.id, al.title, al.normalized_title, al.type AS kind, al.release_year, \
                 al.release_date, al.cover_url, al.confidence, \
@@ -459,7 +464,9 @@ async fn fetch_albums(
                 a.avatar_url AS primary_artist_avatar \
          FROM albums al \
          LEFT JOIN artists a ON a.id = al.primary_artist_id AND a.merged_into IS NULL \
-         WHERE al.track_count > 0",
+         WHERE al.track_count > 0 \
+           AND (al.release_year IS NULL \
+                OR al.release_year <= EXTRACT(YEAR FROM CURRENT_DATE)::smallint)",
     );
 
     if let Some(k) = kind {
@@ -690,9 +697,15 @@ async fn albums_by_year(
     let per_year = q.per_year.unwrap_or(20).clamp(1, 40);
     let kind = album_kind_filter(q.kind.as_deref());
 
+    // max_y клампим текущим годом — иначе альбом с release_year=2027 (а они в
+    // базе есть, см. бриф) сдвигает всю шкалу buckets вперёд.
     let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         "WITH max_y AS ( \
-             SELECT MAX(release_year) AS year FROM albums \
+             SELECT LEAST( \
+                 MAX(release_year), \
+                 EXTRACT(YEAR FROM CURRENT_DATE)::smallint \
+             ) AS year \
+             FROM albums \
              WHERE track_count > 0 AND release_year IS NOT NULL \
          ), years AS ( \
              SELECT generate_series( \

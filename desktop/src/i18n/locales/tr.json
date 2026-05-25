@@ -67,7 +67,8 @@
       "original": "orijinal",
       "demo": "demo",
       "alt": "alt",
-      "reupload": "yeniden yukleme"
+      "reupload": "yeniden yukleme",
+      "cover": "cover"
     },
     "notFoundOnSc": "SoundCloud'da bulunamadi",
     "wantedHint": "Sarki biliniyor ama henuz yuklenmedi",
@@ -417,6 +418,8 @@
   "artist": {
     "tracks": "Parçalar",
     "appearsOn": "Konuk olduğu",
+    "covers": "Cover'lar",
+    "noCovers": "Henüz cover yok",
     "albums": "Albümler",
     "related": "Benzer",
     "about": "Hakkında",

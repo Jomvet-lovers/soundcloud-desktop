@@ -91,7 +91,7 @@ async fn search(
     }
     let mut result = st
         .tracks
-        .search(&ctx.access_token, &ctx.sc_user_id, page, limit, extra)
+        .search(ctx.session_id, &ctx.sc_user_id, page, limit, extra)
         .await?;
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))
@@ -109,7 +109,7 @@ async fn get_by_id(
     }
     let mut track = st
         .tracks
-        .get_by_id(&ctx.access_token, &ctx.sc_user_id, &track_urn, &params)
+        .get_by_id(ctx.session_id, &ctx.sc_user_id, &track_urn, &params)
         .await?;
     enrich_dto::apply_to_track(&st.pg, &mut track).await?;
     Ok(Json(track))
@@ -122,9 +122,7 @@ async fn update_track(
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
     Ok(Json(
-        st.tracks
-            .update(&ctx.access_token, &track_urn, &body)
-            .await?,
+        st.tracks.update(ctx.session_id, &track_urn, &body).await?,
     ))
 }
 
@@ -133,7 +131,7 @@ async fn delete_track(
     ctx: SessionCtx,
     Path(track_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(st.tracks.delete(&ctx.access_token, &track_urn).await?))
+    Ok(Json(st.tracks.delete(ctx.session_id, &track_urn).await?))
 }
 
 async fn get_streams(
@@ -157,7 +155,7 @@ async fn get_streams(
         None,
         || async {
             st.tracks
-                .get_streams(&ctx.access_token, &track_urn, &params)
+                .get_streams(ctx.session_id, &track_urn, &params)
                 .await
         },
     )
@@ -195,7 +193,7 @@ async fn get_comments(
     let (page, limit) = p.resolved();
     Ok(Json(
         st.tracks
-            .get_comments(&ctx.access_token, &track_urn, page, limit)
+            .get_comments(ctx.session_id, &track_urn, page, limit)
             .await?,
     ))
 }
@@ -230,7 +228,7 @@ async fn get_favoriters(
     let (page, limit) = p.resolved();
     Ok(Json(
         st.tracks
-            .get_favoriters(&ctx.access_token, &track_urn, page, limit)
+            .get_favoriters(ctx.session_id, &track_urn, page, limit)
             .await?,
     ))
 }
@@ -244,7 +242,7 @@ async fn get_reposters(
     let (page, limit) = p.resolved();
     Ok(Json(
         st.tracks
-            .get_reposters(&ctx.access_token, &track_urn, page, limit)
+            .get_reposters(ctx.session_id, &track_urn, page, limit)
             .await?,
     ))
 }
@@ -263,7 +261,7 @@ async fn get_related(
     let mut result = st
         .tracks
         .get_related(
-            &ctx.access_token,
+            ctx.session_id,
             &ctx.sc_user_id,
             &track_urn,
             page,

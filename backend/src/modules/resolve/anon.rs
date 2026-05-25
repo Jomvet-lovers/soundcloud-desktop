@@ -43,6 +43,22 @@ impl AnonResolveClient {
         }
     }
 
+    /// apiv2 /tracks/{id} — anon (через scraped client_id). Используется для
+    /// добычи реального `full_duration` под `needs_duration_resolve = true`,
+    /// когда apiv1 отдал sentinel 30000.
+    pub async fn fetch_track(&self, sc_track_id: &str) -> AppResult<Value> {
+        let cid = self.get_client_id().await?;
+        let target = build_track_url(sc_track_id, &cid);
+        match self.fetch_json(&target).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let new_cid = self.refresh_client_id().await?;
+                let retry = build_track_url(sc_track_id, &new_cid);
+                self.fetch_json(&retry).await
+            }
+        }
+    }
+
     async fn get_client_id(&self) -> AppResult<String> {
         if let Some(cid) = self.client_id.read().await.clone() {
             return Ok(cid);
@@ -78,6 +94,10 @@ fn build_resolve_url(url: &str, client_id: &str) -> String {
         .append_pair("client_id", client_id)
         .finish();
     format!("{SC_API_V2}/resolve?{q}")
+}
+
+fn build_track_url(sc_track_id: &str, client_id: &str) -> String {
+    format!("{SC_API_V2}/tracks/{sc_track_id}?client_id={client_id}")
 }
 
 fn extract_client_id(html: &str) -> Option<String> {

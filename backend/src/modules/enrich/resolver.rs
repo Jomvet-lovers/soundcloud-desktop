@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use serde_json::Value;
 use tracing::debug;
 
 use crate::error::AppResult;
@@ -10,8 +9,9 @@ use crate::modules::enrich::mb::{MbArtist, MbClient, MbRecording};
 use crate::modules::enrich::normalize::{normalize_name, parse_sc_title, ParsedTitle};
 use crate::modules::lyrics::genius::GeniusService;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ResolveSource {
+    #[default]
     Heuristic,
     Ai,
     Genius,
@@ -75,7 +75,7 @@ pub struct AlbumCandidate {
     pub primary_artist: Option<ArtistCandidate>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResolveResult {
     pub source: ResolveSource,
     pub confidence: f32,
@@ -85,6 +85,12 @@ pub struct ResolveResult {
     pub remixers: Vec<ArtistCandidate>,
     pub album: Option<AlbumCandidate>,
     pub isrc: Option<String>,
+    /// Релиз-дата трека (Genius song / fallback album). Если есть — persist
+    /// перезапишет `tracks.release_date` + `release_year`. Когда None —
+    /// fallback на `sc_created_at` (заливка на SC).
+    pub release_date: Option<chrono::NaiveDate>,
+    pub release_year: Option<i16>,
+    pub is_cover: bool,
 }
 
 pub struct TrackContext {
@@ -98,80 +104,17 @@ pub struct TrackContext {
 }
 
 impl TrackContext {
-    pub fn from_indexed(raw: &Value) -> Self {
-        let title = raw
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let user = raw.get("user");
-        let uploader_username = user
-            .and_then(|u| u.get("username"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let uploader_sc_user_id = user
-            .and_then(|u| u.get("urn"))
-            .and_then(|v| v.as_str())
-            .and_then(|urn| urn.rsplit(':').next())
-            .map(|s| s.to_string())
-            .or_else(|| {
-                user.and_then(|u| u.get("id"))
-                    .and_then(|v| v.as_i64())
-                    .map(|i| i.to_string())
-            });
-        let duration_ms = raw
-            .get("full_duration")
-            .or_else(|| raw.get("duration"))
-            .and_then(|v| v.as_i64())
-            .map(|v| v as i32);
-        let isrc = extract_isrc(raw);
-        let metadata_artist = raw
-            .get("metadata_artist")
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let description = raw
-            .get("description")
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
+    pub fn from_row(row: &crate::modules::tracks::TrackRow) -> Self {
         Self {
-            title,
-            uploader_username,
-            uploader_sc_user_id,
-            duration_ms,
-            isrc,
-            metadata_artist,
-            description,
+            title: row.title.clone(),
+            uploader_username: row.uploader_username.clone(),
+            uploader_sc_user_id: row.uploader_sc_user_id.clone(),
+            duration_ms: Some(row.duration_ms),
+            isrc: row.isrc.clone(),
+            metadata_artist: row.metadata_artist.clone(),
+            description: row.description.clone(),
         }
     }
-}
-
-fn extract_isrc(raw: &Value) -> Option<String> {
-    let candidates = [
-        raw.pointer("/publisher_metadata/isrc"),
-        raw.pointer("/publisher_metadata/iswc"),
-        raw.get("isrc"),
-    ];
-    for c in candidates.into_iter().flatten() {
-        if let Some(s) = c.as_str() {
-            let s = s.trim();
-            if is_valid_isrc(s) {
-                return Some(s.to_uppercase());
-            }
-        }
-    }
-    None
-}
-
-fn is_valid_isrc(s: &str) -> bool {
-    if s.len() != 12 {
-        return false;
-    }
-    let bytes = s.as_bytes();
-    bytes[0..2].iter().all(|b| b.is_ascii_alphabetic())
-        && bytes[2..5].iter().all(|b| b.is_ascii_alphanumeric())
-        && bytes[5..12].iter().all(|b| b.is_ascii_alphanumeric())
 }
 
 pub struct ResolverDeps {
@@ -180,13 +123,16 @@ pub struct ResolverDeps {
     pub ai: Option<Arc<AiResolverClient>>,
 }
 
-pub async fn resolve(
-    ctx: &TrackContext,
-    raw: &Value,
-    deps: &ResolverDeps,
-) -> AppResult<ResolveResult> {
+pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<ResolveResult> {
     let parsed = parse_sc_title(&ctx.title, ctx.uploader_username.as_deref());
     let heuristic = heuristic_result(ctx, &parsed);
+
+    // `(cover)` в title → uploader сделал кавер. Полноценно резолвим
+    // в MB/Genius чтобы найти ОРИГИНАЛЬНОГО артиста, но дальше persist
+    // запишет его в `cover_of_artist_id`, primary_artist_id у трека
+    // останется NULL (uploader не равен оригиналу), upload_kind = 'cover'.
+    // Страница оригинала получит вкладку "Covers" одним SQL.
+    // `is_cover` уже прокинут в heuristic.is_cover (см. heuristic_result).
 
     if let Some(isrc) = ctx.isrc.as_ref() {
         match deps.mb.lookup_by_isrc(isrc).await {
@@ -308,7 +254,7 @@ pub async fn resolve(
     }
 
     if let Some(ai) = deps.ai.as_ref() {
-        match ai.resolve(ctx, raw).await {
+        match ai.resolve(ctx).await {
             Ok(Some(res)) => return Ok(merge_with(heuristic, res, ctx)),
             Ok(None) => debug!("AI resolve empty"),
             Err(e) => debug!(error = %e, "AI resolve failed"),
@@ -380,6 +326,9 @@ fn heuristic_result(ctx: &TrackContext, parsed: &ParsedTitle) -> ResolveResult {
         remixers,
         album: None,
         isrc: ctx.isrc.clone(),
+        release_date: None,
+        release_year: None,
+        is_cover: parsed.is_cover,
     }
 }
 
@@ -425,6 +374,9 @@ fn from_mb(
         remixers: Vec::new(),
         album,
         isrc,
+        release_date: None,
+        release_year: None,
+        is_cover: false,
     }
 }
 

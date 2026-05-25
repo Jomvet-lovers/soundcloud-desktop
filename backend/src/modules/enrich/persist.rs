@@ -15,7 +15,7 @@ pub struct PersistOutcome {
 
 pub async fn apply(
     pg: &PgPool,
-    indexed_track_id: Uuid,
+    track_id: Uuid,
     res: &ResolveResult,
     uploader_sc_user_id: Option<&str>,
     uploader_username: Option<&str>,
@@ -29,59 +29,75 @@ pub async fn apply(
     let remixer_ids = upsert_artists(&mut tx, &res.remixers, ResolveSource::Heuristic, 0.4).await?;
 
     let prior_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::int8 FROM track_artists WHERE indexed_track_id = $1")
-            .bind(indexed_track_id)
+        sqlx::query_scalar("SELECT COUNT(*)::int8 FROM track_artists WHERE track_id = $1")
+            .bind(track_id)
             .fetch_one(&mut *tx)
             .await?;
 
-    sqlx::query("DELETE FROM track_artists WHERE indexed_track_id = $1")
-        .bind(indexed_track_id)
+    sqlx::query("DELETE FROM track_artists WHERE track_id = $1")
+        .bind(track_id)
         .execute(&mut *tx)
         .await?;
 
     let mut all_artist_ids: Vec<Uuid> = Vec::new();
-    insert_track_artists(
-        &mut tx,
-        indexed_track_id,
-        &primary_ids,
-        "primary",
-        res.source,
-        res.confidence,
-        &mut all_artist_ids,
-    )
-    .await?;
-    insert_track_artists(
-        &mut tx,
-        indexed_track_id,
-        &featured_ids,
-        "featured",
-        res.source,
-        res.confidence,
-        &mut all_artist_ids,
-    )
-    .await?;
-    insert_track_artists(
-        &mut tx,
-        indexed_track_id,
-        &producer_ids,
-        "producer",
-        ResolveSource::Heuristic,
-        0.3,
-        &mut all_artist_ids,
-    )
-    .await?;
-    insert_track_artists(
-        &mut tx,
-        indexed_track_id,
-        &remixer_ids,
-        "remixer",
-        ResolveSource::Heuristic,
-        0.4,
-        &mut all_artist_ids,
-    )
-    .await?;
+    // Для cover'а track_artists НЕ заполняем — primary это original
+    // (uploader != original), featured/prod/remix относятся к оригиналу,
+    // не к этой записи uploader'а. Original связан через cover_of_artist_id.
+    if !res.is_cover {
+        insert_track_artists(
+            &mut tx,
+            track_id,
+            &primary_ids,
+            "primary",
+            res.source,
+            res.confidence,
+            &mut all_artist_ids,
+        )
+        .await?;
+        insert_track_artists(
+            &mut tx,
+            track_id,
+            &featured_ids,
+            "featured",
+            res.source,
+            res.confidence,
+            &mut all_artist_ids,
+        )
+        .await?;
+        insert_track_artists(
+            &mut tx,
+            track_id,
+            &producer_ids,
+            "producer",
+            ResolveSource::Heuristic,
+            0.3,
+            &mut all_artist_ids,
+        )
+        .await?;
+        insert_track_artists(
+            &mut tx,
+            track_id,
+            &remixer_ids,
+            "remixer",
+            ResolveSource::Heuristic,
+            0.4,
+            &mut all_artist_ids,
+        )
+        .await?;
+    } else {
+        // suppress unused warning
+        let _ = (&featured_ids, &producer_ids, &remixer_ids);
+    }
 
-    let primary_artist_id = primary_ids.first().copied();
+    // Кавер: найденный по title в MB/Genius артист — это ОРИГИНАЛ. Кладём
+    // в cover_of_artist_id; primary_artist_id остаётся NULL (uploader не
+    // равен оригиналу). track_artists для cover'а тоже не нужны (мы выше уже
+    // удалили — INSERT'ов не делаем).
+    let (primary_artist_id, cover_of_artist_id) = if res.is_cover {
+        (None, primary_ids.first().copied())
+    } else {
+        (primary_ids.first().copied(), None)
+    };
 
     let album_id = if let Some(album) = res.album.as_ref() {
         Some(upsert_album(&mut tx, album, res.source, res.confidence).await?)
@@ -90,24 +106,24 @@ pub async fn apply(
     };
 
     if let (Some(album_id), Some(_)) = (album_id, primary_artist_id) {
-        link_album_track(&mut tx, album_id, indexed_track_id).await?;
+        link_album_track(&mut tx, album_id, track_id).await?;
     }
 
     let canonical_id = match res.isrc.as_deref() {
         Some(isrc) if !isrc.is_empty() => {
-            Some(resolve_canonical_for_isrc(&mut tx, indexed_track_id, isrc).await?)
+            Some(resolve_canonical_for_isrc(&mut tx, track_id, isrc).await?)
         }
         _ => None,
     };
 
     if let (Some(artist_id), Some(sc_id)) = (primary_artist_id, uploader_sc_user_id) {
-        // Сохраняем uploader_sc_user_id в indexed_tracks, чтобы reupload-pattern
+        // Сохраняем uploader_sc_user_id в tracks, чтобы reupload-pattern
         // увидел текущий трек в счётчике сразу.
         sqlx::query(
-            "UPDATE indexed_tracks SET uploader_sc_user_id = COALESCE(uploader_sc_user_id, $2)
+            "UPDATE tracks SET uploader_sc_user_id = COALESCE(uploader_sc_user_id, $2)
              WHERE id = $1",
         )
-        .bind(indexed_track_id)
+        .bind(track_id)
         .bind(sc_id)
         .execute(&mut *tx)
         .await?;
@@ -125,33 +141,53 @@ pub async fn apply(
         maybe_attach_reupload_account(&mut tx, artist_id, sc_id).await?;
     }
 
-    let upload_kind =
-        compute_upload_kind(&mut tx, primary_artist_id, uploader_sc_user_id, res.source).await?;
+    let upload_kind = if res.is_cover {
+        "cover"
+    } else {
+        compute_upload_kind(&mut tx, primary_artist_id, uploader_sc_user_id, res.source).await?
+    };
 
     let source = res.source.as_str();
     let confidence = calibrate_confidence(&mut tx, source, res.confidence).await?;
+    // release_date пишем по приоритету:
+    //   1. свежий Genius song/album.release_date — он знает реальный релиз,
+    //   2. ранее сохранённое значение — не теряем дату, найденную прошлым enrich'ем,
+    //   3. fallback на sc_created_at::date — дата заливки на SoundCloud.
+    // release_year — синхронно через тот же приоритет. Используется в sort
+    // "новые" и в group-by-year на странице артиста.
     sqlx::query(
-        "UPDATE indexed_tracks
+        "UPDATE tracks
          SET primary_artist_id = $2,
              album_id = $3,
              isrc = $4,
              canonical_track_id = COALESCE($5, canonical_track_id),
+             cover_of_artist_id = $6,
+             release_date = COALESCE($10, release_date, sc_created_at::date),
+             release_year = COALESCE(
+                 $11,
+                 EXTRACT(YEAR FROM $10::date)::smallint,
+                 release_year,
+                 EXTRACT(YEAR FROM sc_created_at)::smallint
+             ),
              enrich_state = 'done',
-             enrich_source = $6,
-             enrich_confidence = $7,
+             enrich_source = $7,
+             enrich_confidence = $8,
              enrich_attempts = enrich_attempts + 1,
              enriched_at = now(),
-             upload_kind = $8
+             upload_kind = $9
          WHERE id = $1",
     )
-    .bind(indexed_track_id)
+    .bind(track_id)
     .bind(primary_artist_id)
     .bind(album_id)
     .bind(res.isrc.as_deref())
     .bind(canonical_id)
+    .bind(cover_of_artist_id)
     .bind(source)
     .bind(confidence)
     .bind(upload_kind)
+    .bind(res.release_date)
+    .bind(res.release_year)
     .execute(&mut *tx)
     .await?;
 
@@ -268,8 +304,8 @@ async fn maybe_attach_reupload_account(
     }
     let count: (i64,) = sqlx::query_as(
         "SELECT COUNT(DISTINCT it.id)::int8
-         FROM indexed_tracks it
-         JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary'
+         FROM tracks it
+         JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary'
          WHERE it.uploader_sc_user_id = $1 AND ta.artist_id = $2",
     )
     .bind(sc_user_id)
@@ -331,17 +367,17 @@ async fn compute_upload_kind(
     })
 }
 
-pub async fn mark_failed(pg: &PgPool, indexed_track_id: Uuid, error: &str) -> AppResult<()> {
+pub async fn mark_failed(pg: &PgPool, track_id: Uuid, error: &str) -> AppResult<()> {
     let truncated: String = error.chars().take(200).collect();
     sqlx::query(
-        "UPDATE indexed_tracks
+        "UPDATE tracks
          SET enrich_state = 'failed',
              enrich_attempts = enrich_attempts + 1,
              enriched_at = now(),
              enrich_source = $2
          WHERE id = $1",
     )
-    .bind(indexed_track_id)
+    .bind(track_id)
     .bind(truncated)
     .execute(pg)
     .await?;
@@ -498,7 +534,7 @@ async fn resolve_merged(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> AppResu
 
 async fn insert_track_artists(
     tx: &mut Transaction<'_, Postgres>,
-    indexed_track_id: Uuid,
+    track_id: Uuid,
     artist_ids: &[Uuid],
     role: &str,
     source: ResolveSource,
@@ -507,14 +543,14 @@ async fn insert_track_artists(
 ) -> AppResult<()> {
     for (pos, id) in artist_ids.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO track_artists (indexed_track_id, artist_id, role, position, source, confidence)
+            "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence)
              VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (indexed_track_id, artist_id, role) DO UPDATE
+             ON CONFLICT (track_id, artist_id, role) DO UPDATE
              SET position = EXCLUDED.position,
                  source = EXCLUDED.source,
                  confidence = EXCLUDED.confidence",
         )
-        .bind(indexed_track_id)
+        .bind(track_id)
         .bind(id)
         .bind(role)
         .bind(pos as i16)
@@ -635,14 +671,14 @@ async fn upsert_album(
 async fn link_album_track(
     tx: &mut Transaction<'_, Postgres>,
     album_id: Uuid,
-    indexed_track_id: Uuid,
+    track_id: Uuid,
 ) -> AppResult<()> {
     sqlx::query(
-        "INSERT INTO album_tracks (album_id, indexed_track_id) VALUES ($1, $2)
+        "INSERT INTO album_tracks (album_id, track_id) VALUES ($1, $2)
          ON CONFLICT DO NOTHING",
     )
     .bind(album_id)
-    .bind(indexed_track_id)
+    .bind(track_id)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -650,16 +686,16 @@ async fn link_album_track(
 
 async fn resolve_canonical_for_isrc(
     tx: &mut Transaction<'_, Postgres>,
-    indexed_track_id: Uuid,
+    track_id: Uuid,
     isrc: &str,
 ) -> AppResult<Uuid> {
     let existing: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT canonical_track_id FROM indexed_tracks
+        "SELECT canonical_track_id FROM tracks
          WHERE isrc = $1 AND canonical_track_id IS NOT NULL AND id <> $2
          LIMIT 1",
     )
     .bind(isrc)
-    .bind(indexed_track_id)
+    .bind(track_id)
     .fetch_optional(&mut **tx)
     .await?;
     match existing {
@@ -667,7 +703,7 @@ async fn resolve_canonical_for_isrc(
         None => {
             let new_id = Uuid::new_v4();
             sqlx::query(
-                "UPDATE indexed_tracks
+                "UPDATE tracks
                  SET canonical_track_id = $1
                  WHERE isrc = $2 AND canonical_track_id IS NULL",
             )

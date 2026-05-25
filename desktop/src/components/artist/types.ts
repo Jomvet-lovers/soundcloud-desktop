@@ -50,5 +50,5 @@ export interface ArtistAlbum {
   role: string;
 }
 
-export type ArtistTabId = 'tracks' | 'appears' | 'albums' | 'related' | 'about';
+export type ArtistTabId = 'tracks' | 'appears' | 'covers' | 'albums' | 'related' | 'about';
 export type TracksSort = 'popular' | 'recent';

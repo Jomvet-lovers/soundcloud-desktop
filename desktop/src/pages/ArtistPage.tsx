@@ -3,11 +3,16 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { ArtistAboutTab } from '../components/artist/ArtistAboutTab';
 import { ArtistAlbumsTab } from '../components/artist/ArtistAlbumsTab';
+import { ArtistCoversTab } from '../components/artist/ArtistCoversTab';
 import { ArtistHero } from '../components/artist/ArtistHero';
 import { ArtistRelatedTab } from '../components/artist/ArtistRelatedTab';
 import { ArtistTracksTab, type TracksView } from '../components/artist/ArtistTracksTab';
 import type { ArtistTabId, TracksSort } from '../components/artist/types';
-import { useArtistDetail, useArtistStar } from '../components/artist/useArtistData';
+import {
+  useArtistCovers,
+  useArtistDetail,
+  useArtistStar,
+} from '../components/artist/useArtistData';
 import { ArtistSoundWave } from '../components/artist/wave';
 import { AuraField } from '../components/user/AuraField';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
@@ -29,6 +34,9 @@ export function ArtistPage() {
   const [primaryView, setPrimaryView] = useState<TracksView>('list');
   const [featuredView, setFeaturedView] = useState<TracksView>('list');
 
+  const coversQuery = useArtistCovers(id);
+  const coversCount = coversQuery.data?.length ?? 0;
+
   const tabs = useMemo<ReadonlyArray<TabDescriptor<ArtistTabId>>>(() => {
     if (!artist) return [];
     const out: TabDescriptor<ArtistTabId>[] = [
@@ -41,6 +49,9 @@ export function ArtistPage() {
         count: artist.track_count_featured,
       });
     }
+    if (coversCount > 0) {
+      out.push({ id: 'covers', label: t('artist.covers', 'Covers'), count: coversCount });
+    }
     out.push({ id: 'albums', label: t('artist.albums'), count: artist.album_count });
     out.push({
       id: 'related',
@@ -49,7 +60,7 @@ export function ArtistPage() {
     });
     out.push({ id: 'about', label: t('artist.about'), count: undefined });
     return out;
-  }, [artist, t]);
+  }, [artist, t, coversCount]);
 
   if (detail.isLoading || (!artist && !detail.error)) {
     return (
@@ -120,6 +131,7 @@ export function ArtistPage() {
                 onViewChange={setFeaturedView}
               />
             )}
+            {tab === 'covers' && <ArtistCoversTab artistId={artist.id} aura={aura} />}
             {tab === 'albums' && <ArtistAlbumsTab artistId={artist.id} aura={aura} />}
             {tab === 'related' && <ArtistRelatedTab related={artist.related_artists} aura={aura} />}
             {tab === 'about' && <ArtistAboutTab artist={artist} aura={aura} />}

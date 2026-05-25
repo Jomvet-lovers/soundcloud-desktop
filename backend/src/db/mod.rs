@@ -7,6 +7,8 @@ use tracing::log::LevelFilter;
 
 use crate::config::AppConfig;
 
+pub mod advisory_locks;
+
 pub async fn connect(cfg: &AppConfig) -> Result<PgPool, sqlx::Error> {
     let opts = PgConnectOptions::from_str(&cfg.database.url)?
         .log_statements(LevelFilter::Debug)
@@ -23,18 +25,16 @@ pub async fn connect(cfg: &AppConfig) -> Result<PgPool, sqlx::Error> {
 }
 
 pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::Error> {
-    const LOCK_KEY: i64 = 0x5343445F4D49_i64;
-
     let mut conn = pool.acquire().await?;
     sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(LOCK_KEY)
+        .bind(advisory_locks::MIGRATIONS)
         .execute(&mut *conn)
         .await?;
 
     let result = sqlx::migrate!("./migrations").run(&mut *conn).await;
 
     sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(LOCK_KEY)
+        .bind(advisory_locks::MIGRATIONS)
         .execute(&mut *conn)
         .await?;
 

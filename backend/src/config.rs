@@ -25,10 +25,8 @@ pub struct AppConfig {
     pub cold: ColdCfg,
 }
 
-/// TTL'и для cold-cache. Если synced_at старше TTL — на чтении спавним
-/// фоновый refresh (с Redis SETNX-дедупом). evict_after_sec — для cron'а,
-/// который удаляет давно нечитанные shared-entity-строки из cached_users/
-/// cached_playlists/indexed_tracks.
+/// TTL'и для cold-cache. Если sc_synced_at старше TTL — на чтении спавним
+/// фоновый refresh (с Redis SETNX-дедупом).
 #[derive(Clone, Debug)]
 pub struct ColdCfg {
     pub track_ttl_sec: u64,
@@ -38,6 +36,7 @@ pub struct ColdCfg {
     pub liked_playlists_ttl_sec: u64,
     pub followings_ttl_sec: u64,
     pub owned_ttl_sec: u64,
+    #[allow(dead_code)]
     pub evict_after_sec: u64,
     pub refresh_concurrency: usize,
     pub refresh_lock_ttl_sec: u64,

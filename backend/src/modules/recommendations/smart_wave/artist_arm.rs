@@ -44,11 +44,10 @@ pub async fn pick_tracks(
                      ORDER BY COALESCE(c.play_count, 0) DESC \
                  ) AS rn \
              FROM track_artists ta \
-             JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+             JOIN tracks it ON it.id = ta.track_id \
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
              WHERE ta.artist_id = ANY($1) \
                AND ta.role = 'primary' \
-               AND it.indexed_at IS NOT NULL \
                AND NOT (it.sc_track_id = ANY($2)) \
          ) \
          SELECT artist_id, sc_track_id, play_count, rn FROM ranked WHERE rn <= $3",

@@ -126,6 +126,45 @@ impl ScClient {
         decode_json(&bytes)
     }
 
+    /// Client Credentials grant: app-only токен под public-операции (search,
+    /// resolve, public reads). Креды передаются ТОЛЬКО через HTTP Basic
+    /// (Authorization: Basic Base64(client_id:client_secret)) — SC отвергает
+    /// body-кредентиалы для этого grant'а. Возвращённый access_token переиспользуется
+    /// в пуле; ratelimit: 50 токенов/12h/app, 30/1h/IP — управляется в
+    /// OAuthAppTokenService.
+    pub async fn exchange_client_credentials_for_token(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+    ) -> AppResult<ScTokenResponse> {
+        let body = serde_urlencoded::to_string([("grant_type", "client_credentials")])
+            .map_err(|e| AppError::internal(format!("urlencode: {e}")))?;
+
+        let basic = base64::engine::general_purpose::STANDARD
+            .encode(format!("{client_id}:{client_secret}"));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/json; charset=utf-8"),
+        );
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Basic {basic}"))
+                .map_err(|e| AppError::internal(format!("basic header: {e}")))?,
+        );
+
+        let url = format!("{AUTH_BASE}/oauth/token");
+        let bytes = self
+            .with_fallback(Method::POST, &url, headers, Some(Bytes::from(body)), false)
+            .await?;
+        decode_json(&bytes)
+    }
+
     pub async fn refresh_access_token(
         &self,
         refresh_token: &str,
@@ -199,6 +238,23 @@ impl ScClient {
         params: Option<&[(String, String)]>,
     ) -> AppResult<Value> {
         self.api_get::<Value>(path, access_token, params).await
+    }
+
+    /// GET по абсолютному URL (без префикса API_BASE). Используется для
+    /// продолжения SC pagination через `next_href`, который приходит как
+    /// полный URL — пересборка из cursor/offset роняла пагинацию плейлистов
+    /// (SC ждёт `offset=`, а мы клали `cursor=`).
+    pub async fn api_get_absolute_value(
+        &self,
+        absolute_url: &str,
+        access_token: &str,
+    ) -> AppResult<Value> {
+        let headers = auth_headers(access_token, false);
+        let bytes = self
+            .with_fallback(Method::GET, absolute_url, headers, None, true)
+            .await?;
+        self.observe(&bytes, access_token);
+        decode_json(&bytes)
     }
 
     pub async fn api_get_value_direct(

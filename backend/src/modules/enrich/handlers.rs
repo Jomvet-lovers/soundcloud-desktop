@@ -93,7 +93,7 @@ async fn post_retry(
         let sc = normalize_sc_track_id(raw)
             .ok_or_else(|| AppError::bad_request("invalid sc_track_id"))?;
         let r = sqlx::query(
-            "UPDATE indexed_tracks
+            "UPDATE tracks
              SET enrich_state = 'pending', enrich_attempts = 0, enriched_at = NULL,
                  enrich_source = NULL, enrich_confidence = NULL
              WHERE sc_track_id = $1",
@@ -105,7 +105,7 @@ async fn post_retry(
     }
     if req.all_failed {
         let r = sqlx::query(
-            "UPDATE indexed_tracks
+            "UPDATE tracks
              SET enrich_state = 'pending', enrich_attempts = 0, enriched_at = NULL,
                  enrich_source = NULL, enrich_confidence = NULL
              WHERE enrich_state = 'failed'",
@@ -194,8 +194,8 @@ async fn merge_artists(
     .await?;
 
     sqlx::query(
-        "INSERT INTO track_artists (indexed_track_id, artist_id, role, position, source, confidence)
-         SELECT indexed_track_id, $1, role, position, source, confidence
+        "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence)
+         SELECT track_id, $1, role, position, source, confidence
          FROM track_artists WHERE artist_id = $2
          ON CONFLICT DO NOTHING",
     )
@@ -229,7 +229,7 @@ async fn merge_artists(
         .bind(src)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("UPDATE indexed_tracks SET primary_artist_id = $1 WHERE primary_artist_id = $2")
+    sqlx::query("UPDATE tracks SET primary_artist_id = $1 WHERE primary_artist_id = $2")
         .bind(dst)
         .bind(src)
         .execute(&mut *tx)

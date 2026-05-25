@@ -15,7 +15,7 @@ const BATCH: i64 = 100;
 
 pub async fn backfill_missing_scores(service: Arc<RecommendationsService>) -> AppResult<usize> {
     let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM indexed_tracks
+        "SELECT sc_track_id FROM tracks
          WHERE indexed_at IS NOT NULL
            AND quality_score IS NULL
          ORDER BY indexed_at DESC
@@ -81,7 +81,7 @@ async fn persist_scores(pg: &PgPool, ids: &[String], scores: &[f32]) -> AppResul
         return Ok(());
     }
     sqlx::query(
-        "UPDATE indexed_tracks AS it
+        "UPDATE tracks AS it
          SET quality_score = data.score
          FROM (SELECT * FROM UNNEST($1::text[], $2::real[]) AS t(sc_track_id, score)) AS data
          WHERE it.sc_track_id = data.sc_track_id",

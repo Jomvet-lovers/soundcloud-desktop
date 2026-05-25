@@ -112,7 +112,7 @@ impl DiscoverService {
                 GROUP BY artist_id
             ),
             featured_counts AS (
-                SELECT artist_id, COUNT(DISTINCT indexed_track_id)::int AS n
+                SELECT artist_id, COUNT(DISTINCT track_id)::int AS n
                 FROM track_artists WHERE role IN ('featured', 'remixer')
                 GROUP BY artist_id
             ),
@@ -163,7 +163,7 @@ impl DiscoverService {
                 SELECT it.primary_artist_id AS artist_id,
                        COUNT(DISTINCT ue.sc_user_id)::bigint AS listeners
                 FROM user_events ue
-                JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
+                JOIN tracks it ON it.sc_track_id = ue.sc_track_id
                 WHERE ue.event_type IN ('full_play', 'like', 'playlist_add')
                   AND ue.created_at > NOW() - INTERVAL '30 days'
                   AND it.primary_artist_id IS NOT NULL
@@ -172,7 +172,7 @@ impl DiscoverService {
             p7_count AS (
                 SELECT it.primary_artist_id AS artist_id, COUNT(*)::bigint AS plays
                 FROM user_events ue
-                JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
+                JOIN tracks it ON it.sc_track_id = ue.sc_track_id
                 WHERE ue.event_type = 'full_play'
                   AND ue.created_at > NOW() - INTERVAL '7 days'
                   AND it.primary_artist_id IS NOT NULL
@@ -181,7 +181,7 @@ impl DiscoverService {
             p30_count AS (
                 SELECT it.primary_artist_id AS artist_id, COUNT(*)::bigint AS plays
                 FROM user_events ue
-                JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
+                JOIN tracks it ON it.sc_track_id = ue.sc_track_id
                 WHERE ue.event_type = 'full_play'
                   AND ue.created_at > NOW() - INTERVAL '30 days'
                   AND it.primary_artist_id IS NOT NULL
@@ -227,7 +227,7 @@ impl DiscoverService {
                 SELECT primary_artist_id AS artist_id,
                        LOWER(TRIM(genre)) AS g,
                        COUNT(*) AS cnt
-                FROM indexed_tracks
+                FROM tracks
                 WHERE primary_artist_id IS NOT NULL
                   AND genre IS NOT NULL
                   AND TRIM(genre) <> ''
@@ -355,7 +355,7 @@ impl DiscoverService {
                        COALESCE(SUM(it.duration_ms), 0)::bigint AS total_ms,
                        MIN(it.release_date) AS earliest_release
                 FROM album_tracks at
-                JOIN indexed_tracks it ON it.id = at.indexed_track_id
+                JOIN tracks it ON it.id = at.track_id
                 GROUP BY at.album_id
             ),
             affected AS (
@@ -385,7 +385,7 @@ impl DiscoverService {
             WITH album_plays AS (
                 SELECT at.album_id, SUM(COALESCE(c.play_count, 0))::bigint AS plays
                 FROM album_tracks at
-                JOIN indexed_tracks it ON it.id = at.indexed_track_id
+                JOIN tracks it ON it.id = at.track_id
                 LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
                 GROUP BY at.album_id
             ),

@@ -16,10 +16,11 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::error::AppResult;
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::enrich::ai_matcher::{AiMatcherClient, MatchCandidate, MatchTarget};
 use crate::modules::enrich::matcher::{evaluate_sc_candidate, sc_track_id_from_urn, TrackMatch};
-use crate::modules::enrich::token_pool::TokenPool;
 use crate::modules::indexing::IndexingService;
+use crate::modules::tracks::TrackPriority;
 use crate::sc::ScClient;
 
 /// Минимальный композитный score, при котором мы линкуем wanted ↔ SC-кандидат
@@ -34,9 +35,8 @@ const BORDERLINE_LOW: f32 = 0.45;
 /// максимум обходить, чтобы не залипнуть на гигантском канале.
 const PAGE_SIZE: i64 = 100;
 const MAX_PAGES: usize = 20;
-
-/// Сколько SC-токенов запросить из пула.
-const TOKEN_BACKGROUND_LIMIT: usize = 2;
+/// Лёгкий троттл между страницами одного аккаунта — не сжигаем токен на одном артисте.
+const PAGE_GAP: Duration = Duration::from_millis(150);
 
 #[derive(Debug, Clone)]
 pub struct WantedRow {
@@ -55,7 +55,7 @@ pub struct LinkedTrack {
 pub struct ScAccountScanner {
     pg: PgPool,
     sc: ScClient,
-    tokens: Arc<TokenPool>,
+    tokens: Arc<TokenProvider>,
     indexing: Arc<IndexingService>,
     ai_matcher: Option<Arc<AiMatcherClient>>,
 }
@@ -64,7 +64,7 @@ impl ScAccountScanner {
     pub fn new(
         pg: PgPool,
         sc: ScClient,
-        tokens: Arc<TokenPool>,
+        tokens: Arc<TokenProvider>,
         indexing: Arc<IndexingService>,
         ai_matcher: Option<Arc<AiMatcherClient>>,
     ) -> Arc<Self> {
@@ -91,10 +91,10 @@ impl ScAccountScanner {
         if accounts.is_empty() {
             return Ok(Vec::new());
         }
-        let token = match self.pick_token().await {
-            Some(t) => t,
-            None => {
-                debug!(%artist_id, "sc_account_scan: no SC tokens available");
+        let chain = match self.tokens.chain(TokenKind::PublicPool).await {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(%artist_id, error = %e, "sc_account_scan: token pool unavailable");
                 return Ok(Vec::new());
             }
         };
@@ -106,7 +106,7 @@ impl ScAccountScanner {
             if remaining.is_empty() {
                 break;
             }
-            let tracks = self.fetch_account_tracks(&account.sc_user_id, &token).await;
+            let tracks = self.fetch_account_tracks(&account.sc_user_id, &chain).await;
             if tracks.is_empty() {
                 continue;
             }
@@ -130,8 +130,12 @@ impl ScAccountScanner {
                 else {
                     continue;
                 };
-                if let Err(e) = self.indexing.ensure_track_indexed(cand).await {
-                    warn!(error = %e, sc_track_id, "sc_account_scan: ensure_track_indexed failed");
+                if let Err(e) = self
+                    .indexing
+                    .ingest_track_from_sc(cand, TrackPriority::Discovery)
+                    .await
+                {
+                    warn!(error = %e, sc_track_id, "sc_account_scan: ingest_track_from_sc failed");
                     continue;
                 }
                 if let Err(e) = self.persist_link(wid, &sc_track_id).await {
@@ -229,8 +233,12 @@ impl ScAccountScanner {
                 else {
                     continue;
                 };
-                if let Err(e) = self.indexing.ensure_track_indexed(chosen).await {
-                    warn!(error = %e, sc_track_id, "sc_account_scan: ensure_track_indexed failed (ai)");
+                if let Err(e) = self
+                    .indexing
+                    .ingest_track_from_sc(chosen, TrackPriority::Discovery)
+                    .await
+                {
+                    warn!(error = %e, sc_track_id, "sc_account_scan: ingest_track_from_sc failed (ai)");
                     continue;
                 }
                 if let Err(e) = self.persist_link(w.id, &sc_track_id).await {
@@ -286,20 +294,6 @@ impl ScAccountScanner {
         Some((wid, sc_track_id, score))
     }
 
-    async fn pick_token(&self) -> Option<String> {
-        match self
-            .tokens
-            .pick_for_background(TOKEN_BACKGROUND_LIMIT)
-            .await
-        {
-            Ok(v) => v.into_iter().next(),
-            Err(e) => {
-                debug!(error = %e, "sc_account_scan: token pool error");
-                None
-            }
-        }
-    }
-
     async fn fetch_accounts(&self, artist_id: Uuid) -> AppResult<Vec<AttachedAccount>> {
         let rows: Vec<(String, String, String)> = sqlx::query_as(
             "SELECT sc_user_id, role, source
@@ -327,22 +321,45 @@ impl ScAccountScanner {
             .collect())
     }
 
-    async fn fetch_account_tracks(&self, sc_user_id: &str, token: &str) -> Vec<Value> {
+    /// Идём по `/users/{urn}/tracks` через `next_href` (SC docs), ротируя
+    /// chain на ban/rate-limit. Возвращаем накопленный список треков.
+    async fn fetch_account_tracks(&self, sc_user_id: &str, chain: &[String]) -> Vec<Value> {
         let user_urn = format!("soundcloud:users:{sc_user_id}");
         let mut out: Vec<Value> = Vec::new();
-        let mut offset: i64 = 0;
-        for _ in 0..MAX_PAGES {
-            let path = format!("/users/{user_urn}/tracks");
-            let params = [
-                ("limit".to_string(), PAGE_SIZE.to_string()),
-                ("offset".to_string(), offset.to_string()),
-                ("access".to_string(), "playable,preview,blocked".to_string()),
-                ("linked_partitioning".to_string(), "1".to_string()),
-            ];
-            let value = match self.sc.api_get_value(&path, token, Some(&params)).await {
+        let mut next: Option<String> = None;
+        for page_idx in 0..MAX_PAGES {
+            if page_idx > 0 {
+                tokio::time::sleep(PAGE_GAP).await;
+            }
+            let fetched: AppResult<Value> = match &next {
+                Some(href) => {
+                    try_with_chain(chain, |t| {
+                        let sc = self.sc.clone();
+                        let href = href.clone();
+                        async move { sc.api_get_absolute_value(&href, &t).await }
+                    })
+                    .await
+                }
+                None => {
+                    let path = format!("/users/{user_urn}/tracks");
+                    let params = [
+                        ("limit".to_string(), PAGE_SIZE.to_string()),
+                        ("access".to_string(), "playable,preview,blocked".to_string()),
+                        ("linked_partitioning".to_string(), "true".to_string()),
+                    ];
+                    try_with_chain(chain, |t| {
+                        let sc = self.sc.clone();
+                        let path = path.clone();
+                        let params = params.clone();
+                        async move { sc.api_get_value(&path, &t, Some(&params)).await }
+                    })
+                    .await
+                }
+            };
+            let value = match fetched {
                 Ok(v) => v,
                 Err(e) => {
-                    debug!(sc_user_id, offset, error = %e, "sc_account_scan: list tracks failed");
+                    debug!(sc_user_id, error = %e, "sc_account_scan: page fetch failed");
                     break;
                 }
             };
@@ -356,20 +373,15 @@ impl ScAccountScanner {
             if collection.is_empty() {
                 break;
             }
-            let count = collection.len() as i64;
             out.extend(collection);
 
-            let has_next = value
-                .get("next_href")
-                .and_then(|v| v.as_str())
-                .map(|s| !s.is_empty())
-                .unwrap_or(false);
-            if !has_next || count < PAGE_SIZE {
+            let Some(href) = value.get("next_href").and_then(|v| v.as_str()) else {
+                break;
+            };
+            if href.is_empty() || Some(href) == next.as_deref() {
                 break;
             }
-            offset += count;
-            // лёгкий троттл, чтобы не сжечь токен на одном артисте
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            next = Some(href.to_string());
         }
         out
     }

@@ -72,7 +72,7 @@ pub struct AlbumDto {
 #[derive(sqlx::FromRow)]
 struct TrackJoinRow {
     sc_track_id: String,
-    indexed_track_id: Uuid,
+    track_id: Uuid,
     enrich_state: String,
     enrich_source: Option<String>,
     enrich_confidence: Option<f32>,
@@ -100,7 +100,7 @@ struct TrackJoinRow {
 
 #[derive(sqlx::FromRow)]
 struct ParticipantJoinRow {
-    indexed_track_id: Uuid,
+    track_id: Uuid,
     role: String,
     ta_confidence: f32,
     artist_id: Uuid,
@@ -123,7 +123,7 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
     let rows: Vec<TrackJoinRow> = sqlx::query_as(
         "SELECT
              it.sc_track_id            AS sc_track_id,
-             it.id                     AS indexed_track_id,
+             it.id                     AS track_id,
              it.enrich_state           AS enrich_state,
              it.enrich_source          AS enrich_source,
              it.enrich_confidence      AS enrich_confidence,
@@ -147,7 +147,7 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
              aa.sc_user_id             AS aa_sc_user_id,
              aa.source                 AS aa_source,
              aa.confidence             AS aa_confidence
-         FROM indexed_tracks it
+         FROM tracks it
          LEFT JOIN artists a  ON a.id  = it.primary_artist_id
          LEFT JOIN albums  al ON al.id = it.album_id
          LEFT JOIN artists aa ON aa.id = al.primary_artist_id
@@ -161,10 +161,10 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
         return Ok(HashMap::new());
     }
 
-    let track_ids: Vec<Uuid> = rows.iter().map(|r| r.indexed_track_id).collect();
+    let track_ids: Vec<Uuid> = rows.iter().map(|r| r.track_id).collect();
     let participants: Vec<ParticipantJoinRow> = sqlx::query_as(
         "SELECT
-             ta.indexed_track_id  AS indexed_track_id,
+             ta.track_id  AS track_id,
              ta.role              AS role,
              ta.confidence        AS ta_confidence,
              a.id                 AS artist_id,
@@ -175,9 +175,9 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
              a.confidence         AS artist_confidence
          FROM track_artists ta
          JOIN artists a ON a.id = ta.artist_id
-         WHERE ta.indexed_track_id = ANY($1)
+         WHERE ta.track_id = ANY($1)
            AND ta.role <> 'primary'
-         ORDER BY ta.indexed_track_id,
+         ORDER BY ta.track_id,
                   CASE ta.role
                       WHEN 'featured' THEN 1
                       WHEN 'remixer'  THEN 2
@@ -196,7 +196,7 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
     for p in participants {
         let verified = artist_verified(&p.artist_source, p.artist_sc_user_id.as_deref());
         by_track
-            .entry(p.indexed_track_id)
+            .entry(p.track_id)
             .or_default()
             .push(ParticipantDto {
                 artist: ArtistDto {
@@ -257,7 +257,7 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
             }),
             _ => None,
         };
-        let participants = by_track.remove(&r.indexed_track_id).unwrap_or_default();
+        let participants = by_track.remove(&r.track_id).unwrap_or_default();
         let (release_year, release_date, release_source) = if let Some(date) = r.it_release_date {
             (
                 r.it_release_year

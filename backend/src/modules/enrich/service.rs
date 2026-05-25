@@ -30,12 +30,6 @@ const FRESH_AFTER_DONE: chrono::Duration = chrono::Duration::hours(24);
 const ALBUM_INGEST_CAPACITY: u64 = 4096;
 const ALBUM_INGEST_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
-type TrackRow = (
-    Uuid,
-    String,
-    sqlx::types::Json<Value>,
-    Option<chrono::DateTime<chrono::Utc>>,
-);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnrichJob {
@@ -113,7 +107,7 @@ impl EnrichService {
                COUNT(*) FILTER (WHERE enrich_state = 'pending')::int8,
                COUNT(*) FILTER (WHERE enrich_state = 'done')::int8,
                COUNT(*) FILTER (WHERE enrich_state = 'failed')::int8
-             FROM indexed_tracks",
+             FROM tracks",
         )
         .fetch_one(&self.pg)
         .await?;
@@ -231,12 +225,15 @@ impl EnrichService {
             remixers: Vec::new(),
             album: None,
             isrc: ctx.isrc.clone(),
+            release_date: None,
+            release_year: None,
+            is_cover: false,
         }))
     }
 
     async fn fetch_indexed_id(&self, sc_track_id: &str) -> AppResult<Option<Uuid>> {
         let row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM indexed_tracks WHERE sc_track_id = $1")
+            sqlx::query_as("SELECT id FROM tracks WHERE sc_track_id = $1")
                 .bind(sc_track_id)
                 .fetch_optional(&self.pg)
                 .await?;
@@ -244,16 +241,17 @@ impl EnrichService {
     }
 
     async fn process(&self, sc_track_id: &str) -> AppResult<()> {
-        let row: Option<TrackRow> = sqlx::query_as(
-            "SELECT id, enrich_state, COALESCE(raw_sc_data, '{}'::jsonb), enriched_at
-             FROM indexed_tracks WHERE sc_track_id = $1",
-        )
-        .bind(sc_track_id)
-        .fetch_optional(&self.pg)
-        .await?;
-        let Some((id, state, raw, enriched_at)) = row else {
+        let track_row: Option<crate::modules::tracks::TrackRow> =
+            sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = $1")
+                .bind(sc_track_id)
+                .fetch_optional(&self.pg)
+                .await?;
+        let Some(track) = track_row else {
             return Ok(());
         };
+        let id = track.id;
+        let state = track.enrich_state.clone();
+        let enriched_at = track.enriched_at;
 
         let now = chrono::Utc::now();
         if state == "done" {
@@ -280,12 +278,12 @@ impl EnrichService {
         }
         let _guard = AdvisoryLockGuard::new(lock_conn, sc_track_id.to_string());
 
-        let ctx = TrackContext::from_indexed(&raw.0);
+        let ctx = TrackContext::from_row(&track);
 
         let mut result = if let Some(fast) = self.try_sc_verified(&ctx).await? {
             fast
         } else {
-            resolve(&ctx, &raw.0, &self.deps).await?
+            resolve(&ctx, &self.deps).await?
         };
 
         if result.primary.is_empty() {
@@ -454,7 +452,7 @@ impl EnrichService {
         let rows: Vec<(String,)> = sqlx::query_as(
             "WITH picked AS (
                  SELECT id
-                 FROM indexed_tracks
+                 FROM tracks
                  WHERE enrich_state IN ('pending', 'failed')
                    AND enrich_attempts < $1
                    AND (enriched_at IS NULL
@@ -463,7 +461,7 @@ impl EnrichService {
                  LIMIT $2
                  FOR UPDATE SKIP LOCKED
              )
-             UPDATE indexed_tracks t
+             UPDATE tracks t
              SET enriched_at = now()
              FROM picked
              WHERE t.id = picked.id

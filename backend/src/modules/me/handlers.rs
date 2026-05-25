@@ -90,8 +90,15 @@ async fn get_liked_tracks(
         .access
         .unwrap_or_else(|| "playable,preview,blocked".into());
     let mut result = st
-        .me
-        .get_liked_tracks(&ctx.access_token, &ctx.sc_user_id, page, limit, &access)
+        .users
+        .get_liked_tracks(
+            ctx.session_id,
+            &ctx.sc_user_id,
+            &ctx.sc_user_id,
+            page,
+            limit,
+            &access,
+        )
         .await?;
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))
@@ -104,8 +111,8 @@ async fn get_liked_playlists(
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = q.resolved();
     Ok(Json(
-        st.me
-            .get_liked_playlists(&ctx.access_token, &ctx.sc_user_id, page, limit)
+        st.users
+            .get_liked_playlists(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
             .await?,
     ))
 }
@@ -117,8 +124,8 @@ async fn get_followings(
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = q.resolved();
     Ok(Json(
-        st.me
-            .get_followings(&ctx.access_token, &ctx.sc_user_id, page, limit)
+        st.users
+            .get_followings(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
             .await?,
     ))
 }
@@ -196,8 +203,8 @@ async fn get_playlists(
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = q.resolved();
     Ok(Json(
-        st.me
-            .get_playlists(&ctx.access_token, &ctx.sc_user_id, page, limit)
+        st.users
+            .get_owned_playlists(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
             .await?,
     ))
 }
@@ -209,8 +216,8 @@ async fn get_tracks(
 ) -> AppResult<Json<ListPageResult<Value>>> {
     let (page, limit) = q.resolved();
     let mut result = st
-        .me
-        .get_tracks(&ctx.access_token, &ctx.sc_user_id, page, limit)
+        .users
+        .get_owned_tracks(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
         .await?;
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))

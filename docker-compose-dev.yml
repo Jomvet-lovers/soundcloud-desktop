@@ -138,7 +138,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       NATS_URL: nats://nats:4222
-      EVENT_BASE_URL: ${STORAGE_PUBLIC_URL:-http://localhost:3002}
+      EVENT_BASE_URL: ${EVENT_BASE_URL:-http://storage:3000}
     volumes:
       - storage_data:/data/storage
       - storage_tmp:/tmp/storage

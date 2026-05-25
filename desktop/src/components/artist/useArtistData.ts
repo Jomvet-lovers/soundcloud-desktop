@@ -37,6 +37,19 @@ export function useArtistTracks(
   });
 }
 
+export function useArtistCovers(id: string | undefined) {
+  return useQuery({
+    queryKey: ['artist', id, 'covers'],
+    queryFn: () =>
+      api<{ collection: Track[] }>(
+        `/artists/${encodeURIComponent(id!)}/covers?limit=80`,
+      ),
+    enabled: !!id,
+    staleTime: STALE_TRACKS,
+    select: (d) => d.collection,
+  });
+}
+
 export function useArtistAlbums(id: string | undefined) {
   return useQuery({
     queryKey: ['artist', id, 'albums'],

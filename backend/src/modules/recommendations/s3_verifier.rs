@@ -39,7 +39,7 @@ impl S3VerifierService {
         let ttl_cutoff = Utc::now() - chrono::Duration::from_std(MISS_TTL).unwrap();
 
         let rows: Vec<(String, Option<DateTime<Utc>>, Option<DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT sc_track_id, s3_verified_at, s3_missing_at FROM indexed_tracks \
+            "SELECT sc_track_id, s3_verified_at, s3_missing_at FROM tracks \
              WHERE sc_track_id = ANY($1)",
         )
         .bind(sc_track_ids)
@@ -94,7 +94,10 @@ impl S3VerifierService {
 
         if !ok_ids.is_empty() {
             sqlx::query(
-                "UPDATE indexed_tracks SET s3_verified_at = now(), s3_missing_at = NULL \
+                "UPDATE tracks SET \
+                     storage_state = 'ok', \
+                     s3_verified_at = now(), \
+                     s3_missing_at = NULL \
                  WHERE sc_track_id = ANY($1)",
             )
             .bind(&ok_ids)
@@ -103,7 +106,13 @@ impl S3VerifierService {
         }
         if !miss_ids.is_empty() {
             sqlx::query(
-                "UPDATE indexed_tracks SET s3_missing_at = now() WHERE sc_track_id = ANY($1)",
+                "UPDATE tracks SET \
+                     storage_state = CASE \
+                         WHEN storage_state = 'pending' THEN 'pending' \
+                         ELSE 'missing' \
+                     END, \
+                     s3_missing_at = now() \
+                 WHERE sc_track_id = ANY($1)",
             )
             .bind(&miss_ids)
             .execute(&self.pg)

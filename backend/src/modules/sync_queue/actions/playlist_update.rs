@@ -12,13 +12,14 @@ pub async fn execute(ctx: &ActionCtx<'_>) -> AppResult<()> {
             ctx.payload,
         )
         .await?;
-    // Инвалидируем cached_playlists, чтобы следующее чтение принесло свежие
-    // данные из SC. Делаем после SC-ack — до этого момента читать стейл OK.
-    sqlx::query("DELETE FROM cached_playlists WHERE playlist_urn = $1")
+    // Инвалидируем нормализованную playlists-строку: следующее чтение
+    // принесёт свежие данные из SC. Делаем после SC-ack — до этого момента
+    // читать стейл OK.
+    sqlx::query("DELETE FROM playlists WHERE urn = $1")
         .bind(ctx.target_urn)
         .execute(ctx.pg)
         .await?;
-    sqlx::query("DELETE FROM cached_playlist_tracks WHERE playlist_urn = $1")
+    sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
         .bind(ctx.target_urn)
         .execute(ctx.pg)
         .await?;

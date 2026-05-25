@@ -8,12 +8,14 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::config::EnrichCrawlCfg;
+use crate::db::advisory_locks;
 use crate::error::AppResult;
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::enrich::ai_matcher::{AiMatcherClient, MatchCandidate, MatchTarget};
 use crate::modules::enrich::matcher::{evaluate_sc_candidate, sc_track_id_from_urn};
 use crate::modules::enrich::sc_account_scan::{ScAccountScanner, WantedRow};
-use crate::modules::enrich::token_pool::TokenPool;
 use crate::modules::indexing::IndexingService;
+use crate::modules::tracks::TrackPriority;
 use crate::sc::ScClient;
 
 const BATCH_SIZE: i64 = 30;
@@ -23,14 +25,11 @@ const SEARCH_LIMIT: usize = 10;
 const SEARCH_LINK_THRESHOLD: f32 = 0.7;
 /// Нижняя граница «borderline»-зоны: ниже — сразу отбрасываем как mismatch.
 const BORDERLINE_LOW: f32 = 0.45;
-/// pg_advisory_xact_lock id — гарантирует, что в кластере одновременно тикает
-/// только один инстанс backend'а. Освобождается на коммите/откате транзакции.
-const ADVISORY_LOCK_ID: i64 = 0x77AED5_E50_4EE0;
 
 pub struct WantedResolverService {
     pg: PgPool,
     sc: ScClient,
-    tokens: Arc<TokenPool>,
+    tokens: Arc<TokenProvider>,
     indexing: Arc<IndexingService>,
     scanner: Arc<ScAccountScanner>,
     ai_matcher: Option<Arc<AiMatcherClient>>,
@@ -41,7 +40,7 @@ impl WantedResolverService {
     pub fn new(
         pg: PgPool,
         sc: ScClient,
-        tokens: Arc<TokenPool>,
+        tokens: Arc<TokenProvider>,
         indexing: Arc<IndexingService>,
         scanner: Arc<ScAccountScanner>,
         ai_matcher: Option<Arc<AiMatcherClient>>,
@@ -87,7 +86,7 @@ impl WantedResolverService {
         // run_tick'а идёт через свободные коннекты из пула.
         let mut lock_conn = self.pg.acquire().await?;
         let acquired: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
-            .bind(ADVISORY_LOCK_ID)
+            .bind(advisory_locks::WANTED_RESOLVER_TICK)
             .fetch_one(&mut *lock_conn)
             .await?;
         if !acquired.0 {
@@ -96,7 +95,7 @@ impl WantedResolverService {
         }
         let outcome = self.run_tick().await;
         let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
-            .bind(ADVISORY_LOCK_ID)
+            .bind(advisory_locks::WANTED_RESOLVER_TICK)
             .execute(&mut *lock_conn)
             .await;
         outcome
@@ -109,7 +108,7 @@ impl WantedResolverService {
                  FROM wanted_tracks wt
                  LEFT JOIN artists a ON a.id = wt.primary_artist_id
                  WHERE wt.status = 'wanted'
-                   AND wt.indexed_track_id IS NULL
+                   AND wt.track_id IS NULL
                  ORDER BY wt.updated_at NULLS FIRST
                  LIMIT $1",
                 BATCH_SIZE,
@@ -126,7 +125,7 @@ impl WantedResolverService {
                  FROM wanted_tracks wt
                  LEFT JOIN artists a ON a.id = wt.primary_artist_id
                  WHERE wt.status = 'wanted'
-                   AND wt.indexed_track_id IS NULL
+                   AND wt.track_id IS NULL
                    AND wt.primary_artist_id = $2
                  ORDER BY wt.updated_at NULLS FIRST
                  LIMIT $1",
@@ -185,12 +184,13 @@ impl WantedResolverService {
         }
         info!(batch = rows.len(), ?ctx_artist, "wanted-resolver tick");
 
-        let tokens = self.tokens.pick_for_background(2).await?;
-        if tokens.is_empty() {
-            debug!("wanted-resolver: no SC tokens available");
-            return Ok(());
-        }
-        let token = tokens.first().cloned().unwrap_or_default();
+        let chain = match self.tokens.chain(TokenKind::PublicPool).await {
+            Ok(c) => c,
+            Err(e) => {
+                debug!(error = %e, "wanted-resolver: token pool unavailable");
+                return Ok(());
+            }
+        };
 
         let mut linked_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
 
@@ -224,13 +224,13 @@ impl WantedResolverService {
             }
         }
 
-        // Stage 2 — для остальных пробуем найти в уже indexed_tracks этого артиста
+        // Stage 2 — для остальных пробуем найти в уже tracks этого артиста
         // и общий SC search.
         for r in &rows {
             if linked_ids.contains(&r.id) {
                 continue;
             }
-            let outcome = self.resolve_one(r, &token).await;
+            let outcome = self.resolve_one(r, &chain).await;
             match outcome {
                 Ok(true) => {
                     linked_ids.insert(r.id);
@@ -248,8 +248,8 @@ impl WantedResolverService {
         Ok(())
     }
 
-    async fn resolve_one(&self, w: &WantedRecord, token: &str) -> AppResult<bool> {
-        // Stage A — пробуем найти трек среди уже indexed_tracks этого артиста
+    async fn resolve_one(&self, w: &WantedRecord, chain: &[String]) -> AppResult<bool> {
+        // Stage A — пробуем найти трек среди уже tracks этого артиста
         // (без сетевых запросов).
         if let Some(sc_id) = self
             .try_link_via_existing(w.id, &w.title, &w.artist_name)
@@ -261,7 +261,7 @@ impl WantedResolverService {
         }
 
         // Stage B — общий SC search по двум вариантам query.
-        let candidates = self.sc_search(w, token).await;
+        let candidates = self.sc_search(w, chain).await;
         if candidates.is_empty() {
             return Ok(false);
         }
@@ -364,13 +364,15 @@ impl WantedResolverService {
         else {
             return Ok(false);
         };
-        self.indexing.ensure_track_indexed(candidate).await?;
+        self.indexing
+            .ingest_track_from_sc(candidate, TrackPriority::Discovery)
+            .await?;
         link_wanted_to_sc(&self.pg, w.id, &sc_track_id).await?;
         info!(%w.id, score, sc_track_id, via, "wanted-resolver: linked");
         Ok(true)
     }
 
-    async fn sc_search(&self, w: &WantedRecord, token: &str) -> Vec<Value> {
+    async fn sc_search(&self, w: &WantedRecord, chain: &[String]) -> Vec<Value> {
         let queries: Vec<String> = if w.artist_name.is_empty() {
             vec![w.title.clone()]
         } else {
@@ -383,7 +385,13 @@ impl WantedResolverService {
                 urlencoding::encode(&q),
                 SEARCH_LIMIT
             );
-            let resp: Value = match self.sc.api_get_value(&path, token, None).await {
+            let resp: Value = match try_with_chain(chain, |t| {
+                let sc = self.sc.clone();
+                let path = path.clone();
+                async move { sc.api_get_value(&path, &t, None).await }
+            })
+            .await
+            {
                 Ok(v) => v,
                 Err(e) => {
                     debug!(error = %e, %w.id, "SC search failed");
@@ -436,7 +444,7 @@ pub const INDEXED_TITLE_THRESHOLD: f32 = 0.85;
 
 #[derive(Debug, Clone)]
 pub struct IndexedMatch {
-    pub indexed_track_id: Uuid,
+    pub track_id: Uuid,
     pub sc_track_id: String,
     pub score: f32,
 }
@@ -444,25 +452,42 @@ pub struct IndexedMatch {
 /// Ищет лучший indexed_track этого артиста по title через `matcher::title_score`.
 /// Используется и artist_crawl, и wanted_resolver. Чистый pg-запрос + scoring,
 /// без сетевых вызовов.
+///
+/// Предфильтр через `title_normalized` использует индекс `tracks_title_norm_idx`
+/// и режет full-scan по тысячам треков артиста: сначала equal-match, затем
+/// prefix-LIKE на первое токенное слово (по нему всё ещё gist-приемлемый
+/// LIKE), и только остаток score'ится через дорогой Levenshtein.
 pub async fn find_best_indexed_for_artist_title(
     pg: &PgPool,
     artist_id: Uuid,
     target_title: &str,
 ) -> AppResult<Option<IndexedMatch>> {
-    if target_title.trim().is_empty() {
+    let normalized = crate::modules::enrich::normalize::normalize_title(target_title);
+    if normalized.is_empty() {
         return Ok(None);
     }
+    let first_word_prefix = normalized
+        .split_whitespace()
+        .next()
+        .map(|w| format!("{w}%"))
+        .unwrap_or_else(|| format!("{normalized}%"));
+
     let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT it.id, it.sc_track_id, COALESCE(it.title, '')
-         FROM indexed_tracks it
-         JOIN track_artists ta ON ta.indexed_track_id = it.id
-         WHERE ta.artist_id = $1 AND ta.role = 'primary'",
+         FROM tracks it
+         JOIN track_artists ta ON ta.track_id = it.id
+         WHERE ta.artist_id = $1
+           AND ta.role = 'primary'
+           AND (it.title_normalized = $2 OR it.title_normalized LIKE $3)",
     )
     .bind(artist_id)
+    .bind(&normalized)
+    .bind(&first_word_prefix)
     .fetch_all(pg)
     .await?;
+
     let mut best: Option<IndexedMatch> = None;
-    for (indexed_track_id, sc_track_id, raw_title) in rows {
+    for (track_id, sc_track_id, raw_title) in rows {
         if raw_title.is_empty() {
             continue;
         }
@@ -472,7 +497,7 @@ pub async fn find_best_indexed_for_artist_title(
         }
         if best.as_ref().map(|b| s > b.score).unwrap_or(true) {
             best = Some(IndexedMatch {
-                indexed_track_id,
+                track_id,
                 sc_track_id,
                 score: s,
             });
@@ -487,11 +512,11 @@ pub async fn find_best_indexed_for_artist_title(
 pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) -> AppResult<()> {
     let row: Option<(Option<Uuid>,)> = sqlx::query_as(
         "UPDATE wanted_tracks
-         SET indexed_track_id = (SELECT id FROM indexed_tracks WHERE sc_track_id = $2 LIMIT 1),
+         SET track_id = (SELECT id FROM tracks WHERE sc_track_id = $2 LIMIT 1),
              status = 'linked',
              updated_at = now()
          WHERE id = $1
-         RETURNING indexed_track_id",
+         RETURNING track_id",
     )
     .bind(wanted_id)
     .bind(sc_track_id)
@@ -508,7 +533,7 @@ pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) 
     .await?;
     for (album_id, position) in albums {
         sqlx::query(
-            "UPDATE indexed_tracks
+            "UPDATE tracks
              SET album_id = COALESCE(album_id, $2),
                  album_position = COALESCE(album_position, $3)
              WHERE id = $1",
@@ -519,7 +544,7 @@ pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) 
         .execute(pg)
         .await?;
         sqlx::query(
-            "INSERT INTO album_tracks (album_id, indexed_track_id, position)
+            "INSERT INTO album_tracks (album_id, track_id, position)
              VALUES ($1, $2, $3)
              ON CONFLICT DO NOTHING",
         )

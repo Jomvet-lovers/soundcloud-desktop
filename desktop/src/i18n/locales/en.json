@@ -108,7 +108,8 @@
       "original": "original",
       "demo": "demo",
       "alt": "alt",
-      "reupload": "re-upload"
+      "reupload": "re-upload",
+      "cover": "cover"
     },
     "notFoundOnSc": "not found on SoundCloud",
     "wantedHint": "Track is known but not uploaded yet",
@@ -493,6 +494,8 @@
     "title": "Artist",
     "tracks": "Tracks",
     "appearsOn": "Appears on",
+    "covers": "Covers",
+    "noCovers": "No covers yet",
     "albums": "Albums",
     "related": "Related",
     "about": "About",

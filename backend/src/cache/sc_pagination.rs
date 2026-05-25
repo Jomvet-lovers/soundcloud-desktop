@@ -1,0 +1,90 @@
+//! Общий `list_page` для SC GET-листинг эндпоинтов.
+//!
+//! Был трижды продублирован в `tracks/users/playlists::service::list_page_with_kind`
+//! (идентичные реализации, только с разными `scope`/`session_id`). Вынесли сюда,
+//! чтобы изменения в SC pagination/token rotation шли в одном месте.
+
+use serde_json::Value;
+use std::sync::Arc;
+
+use crate::cache::cache_service::CacheScope;
+use crate::cache::{FetchChunkResult, GetPageOptions, ListCacheService, ListPageResult};
+use crate::error::{AppError, AppResult};
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
+use crate::sc::ScClient;
+
+/// Параметры одного chunk-fetch'а через SC pagination.
+pub struct ScListPageArgs<'a> {
+    pub list_cache: &'a ListCacheService,
+    pub sc: &'a ScClient,
+    pub tokens: &'a TokenProvider,
+    pub kind: TokenKind,
+    pub cache_key: &'a str,
+    pub ttl: u64,
+    pub scope: CacheScope,
+    pub session_id: Option<&'a str>,
+    pub page: i64,
+    pub limit: i64,
+    pub path: String,
+    pub extra_params: Vec<(String, String)>,
+}
+
+/// Вытащить страницу из SC-списка. Берёт chain один раз через
+/// `TokenProvider::chain(kind)` и ротирует через [`try_with_chain`] на каждый
+/// chunk-fetch до первого Ok или истощения chain'а.
+pub async fn list_page(args: ScListPageArgs<'_>) -> AppResult<ListPageResult<Value>> {
+    let chain = args.tokens.chain(args.kind).await?;
+    let sc = args.sc.clone();
+    let chain = Arc::new(chain);
+    let path = Arc::new(args.path);
+    let extra = Arc::new(args.extra_params);
+    args.list_cache
+        .get_page::<Value, _, _>(
+            GetPageOptions {
+                key: args.cache_key,
+                scope: args.scope,
+                session_id: args.session_id,
+                ttl_sec: args.ttl,
+                page: args.page,
+                limit: args.limit,
+                chunk_size: None,
+            },
+            |next_href, chunk_size| {
+                let sc = sc.clone();
+                let chain = Arc::clone(&chain);
+                let path = Arc::clone(&path);
+                let extra = Arc::clone(&extra);
+                async move {
+                    let resp: Value = try_with_chain(&chain, |tok| {
+                        let sc = sc.clone();
+                        let path = Arc::clone(&path);
+                        let extra = Arc::clone(&extra);
+                        let next_href = next_href.clone();
+                        async move {
+                            match next_href {
+                                Some(href) => sc.api_get_absolute_value(&href, &tok).await,
+                                None => {
+                                    let mut params: Vec<(String, String)> = (*extra).clone();
+                                    params.push(("limit".into(), chunk_size.to_string()));
+                                    params.push(("linked_partitioning".into(), "true".into()));
+                                    sc.api_get_value(&path, &tok, Some(&params)).await
+                                }
+                            }
+                        }
+                    })
+                    .await?;
+                    let items: Vec<Value> = resp
+                        .get("collection")
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_default();
+                    let next_href = resp
+                        .get("next_href")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .filter(|s| !s.is_empty());
+                    Ok::<_, AppError>(FetchChunkResult { items, next_href })
+                }
+            },
+        )
+        .await
+}

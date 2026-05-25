@@ -46,7 +46,7 @@ pub async fn kick_off_quality(
 async fn build_quality_dataset(service: &RecommendationsService) -> AppResult<Vec<QualityExample>> {
     let pos_rows: Vec<(String,)> = sqlx::query_as(
         "SELECT it.sc_track_id
-         FROM indexed_tracks it
+         FROM tracks it
          JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
          WHERE it.indexed_at IS NOT NULL
            AND COALESCE(c.play_count, 0) >= $1
@@ -63,7 +63,7 @@ async fn build_quality_dataset(service: &RecommendationsService) -> AppResult<Ve
     let neg_rows: Vec<(String,)> = sqlx::query_as(
         "SELECT DISTINCT d.sc_track_id
          FROM disliked_tracks d
-         JOIN indexed_tracks it ON it.sc_track_id = d.sc_track_id
+         JOIN tracks it ON it.sc_track_id = d.sc_track_id
          WHERE it.indexed_at IS NOT NULL
          LIMIT $1",
     )

@@ -54,6 +54,7 @@ export interface Comment {
 }
 
 export interface Playlist {
+  kind?: 'playlist' | 'album' | 'ep' | 'single' | 'compilation';
   id: number;
   urn: string;
   title: string;
@@ -64,8 +65,11 @@ export interface Playlist {
   genre: string;
   tag_list: string;
   track_count: number;
-  likes_count: number;
-  repost_count: number;
+  likes_count?: number;
+  repost_count?: number;
+  release_year?: number;
+  release_date?: string;
+  label_name?: string;
   created_at: string;
   last_modified: string;
   sharing: string;
@@ -77,7 +81,7 @@ export interface Playlist {
     urn: string;
     username: string;
     avatar_url: string;
-    permalink_url: string;
+    permalink_url?: string;
     followers_count?: number;
     track_count?: number;
   };
@@ -88,11 +92,14 @@ export interface SCUser {
   urn: string;
   username: string;
   avatar_url: string;
-  permalink_url: string;
+  permalink_url?: string;
   followers_count?: number;
   followings_count?: number;
   track_count?: number;
   city?: string | null;
+  /// Backend now emits `country_code` (ISO-2). Legacy `country` оставляем
+  /// для совместимости со старыми payload'ами SC.
+  country_code?: string | null;
   country?: string | null;
 }
 
@@ -129,6 +136,15 @@ const SHORT_CACHE_MS = 1000 * 60 * 2;
 const MEDIUM_CACHE_MS = 1000 * 60 * 5;
 const SEARCH_CACHE_MS = 1000 * 60 * 2;
 const INFINITE_GC_MS = 1000 * 60 * 3;
+
+/**
+ * Cold-эндпоинты (треки/плейлисты/лайки/фолловинги юзеров, /me/*) живут в
+ * нашей БД и обновляются бэком SWR-cron'ом без участия фронта. tanstack-query
+ * не должен сам дёргать refetch на каждый mount — бэк всё равно отдаст cold
+ * копию мгновенно. Полагаемся на явные invalidate'ы из мутаций
+ * (like/unlike/follow/playlist updates).
+ */
+const COLD_CACHE_MS = Number.POSITIVE_INFINITY;
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
@@ -301,7 +317,7 @@ export function useLikedTracks(limit = 30) {
     queryKey: ['me', 'likes', 'tracks', limit],
     url: (page, l) => pagedUrl('/me/likes/tracks', page, l),
     limit,
-    staleTime: SHORT_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
   });
 
   const tracks = query.items;
@@ -432,19 +448,19 @@ export function useTrackFavoriters(trackUrn: string | undefined, limit = 12) {
   });
 }
 
-/* ── Playlist Detail ──────────────────────────────────────────── */
+/* ── Playlist Detail (cold) ───────────────────────────────────── */
 
 export function usePlaylist(playlistUrn: string | undefined) {
   return useQuery({
     queryKey: ['playlist', playlistUrn],
     queryFn: () => api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn!)}`),
     enabled: !!playlistUrn,
-    staleTime: MEDIUM_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     gcTime: INFINITE_GC_MS,
   });
 }
 
-/* ── Playlist Tracks ──────────────────────────────────────────── */
+/* ── Playlist Tracks (cold) ───────────────────────────────────── */
 
 export function usePlaylistTracks(playlistUrn: string | undefined) {
   const query = usePagedQuery<Track>({
@@ -452,7 +468,7 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
     url: (page, limit) =>
       pagedUrl(`/playlists/${encodeURIComponent(playlistUrn!)}/tracks`, page, limit),
     limit: 200,
-    staleTime: MEDIUM_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     enabled: !!playlistUrn,
     autoFetchAll: true,
   });
@@ -460,14 +476,14 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
   return { tracks: query.items, ...query };
 }
 
-/* ── User Profile ─────────────────────────────────────────────── */
+/* ── User Profile (cold) ──────────────────────────────────────── */
 
 export function useUser(userUrn: string | undefined) {
   return useQuery({
     queryKey: ['user', userUrn],
     queryFn: () => api<UserProfile>(`/users/${encodeURIComponent(userUrn!)}`),
     enabled: !!userUrn,
-    staleTime: MEDIUM_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     gcTime: INFINITE_GC_MS,
   });
 }
@@ -475,15 +491,9 @@ export function useUser(userUrn: string | undefined) {
 export function useUserTracks(userUrn: string | undefined) {
   const query = usePagedQuery<Track>({
     queryKey: ['user', userUrn, 'tracks'],
-    url: (page, limit) =>
-      pagedUrl(
-        `/users/${encodeURIComponent(userUrn!)}/tracks`,
-        page,
-        limit,
-        'access=playable,preview,blocked',
-      ),
+    url: (page, limit) => pagedUrl(`/users/${encodeURIComponent(userUrn!)}/tracks`, page, limit),
     limit: 30,
-    staleTime: SHORT_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     maxPages: 8,
     enabled: !!userUrn,
     dedupe: (t) => t.urn,
@@ -497,15 +507,10 @@ export function useUserPopularTracks(userUrn: string | undefined) {
     queryKey: ['user', userUrn, 'tracks', 'popular'],
     queryFn: async () => {
       const all: Track[] = [];
-      const pageSize = 50;
+      const pageSize = 100;
       for (let page = 0; ; page++) {
         const data = await api<TrackPage>(
-          pagedUrl(
-            `/users/${encodeURIComponent(userUrn!)}/tracks`,
-            page,
-            pageSize,
-            'access=playable,preview,blocked',
-          ),
+          pagedUrl(`/users/${encodeURIComponent(userUrn!)}/tracks`, page, pageSize),
         );
         for (const t of data.collection) all.push(t);
         if (!data.has_more) break;
@@ -514,7 +519,7 @@ export function useUserPopularTracks(userUrn: string | undefined) {
       return all;
     },
     enabled: !!userUrn,
-    staleTime: SHORT_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     gcTime: INFINITE_GC_MS,
   });
 }
@@ -524,7 +529,7 @@ export function useUserPlaylists(userUrn: string | undefined) {
     queryKey: ['user', userUrn, 'playlists'],
     url: (page, limit) => pagedUrl(`/users/${encodeURIComponent(userUrn!)}/playlists`, page, limit),
     limit: 30,
-    staleTime: SHORT_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     maxPages: 8,
     enabled: !!userUrn,
     dedupe: (p) => p.urn,
@@ -537,14 +542,9 @@ export function useUserLikedTracks(userUrn: string | undefined) {
   const query = usePagedQuery<Track>({
     queryKey: ['user', userUrn, 'likes', 'tracks'],
     url: (page, limit) =>
-      pagedUrl(
-        `/users/${encodeURIComponent(userUrn!)}/likes/tracks`,
-        page,
-        limit,
-        'access=playable,preview,blocked',
-      ),
+      pagedUrl(`/users/${encodeURIComponent(userUrn!)}/likes/tracks`, page, limit),
     limit: 30,
-    staleTime: SHORT_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     maxPages: 8,
     enabled: !!userUrn,
     dedupe: (t) => t.urn,
@@ -559,7 +559,7 @@ export function useUserFollowings(userUrn: string | undefined) {
     url: (page, limit) =>
       pagedUrl(`/users/${encodeURIComponent(userUrn!)}/followings`, page, limit),
     limit: 30,
-    staleTime: SHORT_CACHE_MS,
+    staleTime: COLD_CACHE_MS,
     maxPages: 8,
     enabled: !!userUrn,
     dedupe: (u) => u.urn,
@@ -568,6 +568,8 @@ export function useUserFollowings(userUrn: string | undefined) {
   return { users: query.items, ...query };
 }
 
+/* `/users/{urn}/followers` остался горячим на бэке (входящих подписчиков мы не
+ * храним как сущность) — короткий staleTime, как раньше. */
 export function useUserFollowers(userUrn: string | undefined) {
   const query = usePagedQuery<SCUser>({
     queryKey: ['user', userUrn, 'followers'],
@@ -603,13 +605,14 @@ export function useUserSubscription(userUrn: string | undefined) {
   });
 }
 
-/* ── My Library ────────────────────────────────────────────────── */
+/* ── My Library (cold) ─────────────────────────────────────────── */
 
 export function useMyFollowings(limit = 30) {
   const query = usePagedQuery<SCUser>({
     queryKey: ['me', 'followings', limit],
     url: (page, l) => pagedUrl('/me/followings', page, l),
     limit,
+    staleTime: COLD_CACHE_MS,
   });
 
   return { users: query.items, ...query };
@@ -620,6 +623,7 @@ export function useMyLikedPlaylists(limit = 30) {
     queryKey: ['me', 'likes', 'playlists', limit],
     url: (page, l) => pagedUrl('/me/likes/playlists', page, l),
     limit,
+    staleTime: COLD_CACHE_MS,
   });
 
   return { playlists: query.items, ...query };
@@ -630,6 +634,7 @@ export function useMyPlaylists(limit = 30) {
     queryKey: ['me', 'playlists', limit],
     url: (page, l) => pagedUrl('/me/playlists', page, l),
     limit,
+    staleTime: COLD_CACHE_MS,
   });
 
   return { playlists: query.items, ...query };

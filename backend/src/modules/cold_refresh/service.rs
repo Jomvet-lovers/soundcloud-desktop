@@ -1,153 +1,191 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::PgPool;
-use tokio::sync::Semaphore;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tokio::sync::{OnceCell, Semaphore};
+use tracing::{debug, warn};
 
-use crate::cache::extract_sc_cursor;
 use crate::cache::{CacheService, ListPageResult};
 use crate::common::sc_ids::extract_sc_id;
 use crate::config::ColdCfg;
 use crate::error::AppResult;
+use crate::modules::auth::try_with_chain;
+use crate::modules::indexing::IndexingService;
+use crate::modules::playlists::PlaylistRepository;
+use crate::modules::tracks::{TrackPriority, TrackRepository};
+use crate::modules::users::{project_to_sc_shape as project_user, UserRepository};
 use crate::sc::ScClient;
 
-const EVICT_TICK: Duration = Duration::from_secs(3600);
-const REFRESH_BATCH_SIZE: usize = 500;
-const EVICT_CHUNK_SIZE: i64 = 10_000;
-const EVICT_BETWEEN_MS: u64 = 100;
+const REFRESH_PAGE_LIMIT: u64 = 200;
 
-/// Какую SC-коллекцию синхронизируем + куда писать данные.
+/// Per-user коллекция из SC, которую мы зеркалируем в свою БД.
+///
+/// `mirror_table` хранит "что юзер хочет" — like/follow/own state, с
+/// семантикой wanted/progress (см. sync_queue::mirror). `entity_kind` —
+/// какие нормализованные сущности дополнительно UPSERT'ить из payload'ов
+/// (треки → `tracks` + кик пайплайна; плейлисты → `playlists`;
+/// юзеры → `users`).
 #[derive(Debug, Clone, Copy)]
 pub struct UserCollection {
-    /// SC-эндпоинт без query-параметров (`/me/likes/tracks`, `/me/followings`, …).
-    pub sc_path: &'static str,
-    /// Lock-ключ в Redis. Без юзера — добавится в `key_for`.
+    /// Путь для `/me/*` — приватный, требует user-токен (отдаёт private items).
+    pub sc_path_self: &'static str,
+    /// Шаблон для `/users/{}/*` — public-вьюха, доступна любому токену.
+    /// `{}` подставляется на sc_user_id владельца.
+    pub sc_path_other: &'static str,
     pub lock_kind: &'static str,
-    /// Зеркало состояния юзера в PG.
     pub mirror_table: &'static str,
-    /// Имя колонки-ключа в `mirror_table`: `sc_track_id` | `playlist_urn` | `target_user_urn`.
     pub mirror_key_col: &'static str,
-    /// Тип общедоступного кеша для public-сущностей. Owned-коллекции пишут
-    /// payload только в mirror (`mirror_payload_col`), потому что приватные
-    /// поля владельца нельзя класть в shared cache, который читают все.
-    /// Public-копию owned-сущностей всё равно зеркалируем в shared cache,
-    /// чтобы read-path по `/tracks/{urn}` / `/playlists/{urn}` для других
-    /// юзеров находил трек без обращения к SC.
-    pub shared_cache: SharedCache,
-    /// Если задано — payload юзера пишется в эту колонку зеркала (`payload`
-    /// для owned-коллекций). Иначе payload идёт только в shared cache.
+    pub entity_kind: EntityKind,
+    /// Owned-коллекции пишут публичный payload в свой `payload`-столбец
+    /// (приватные поля владельца не могут лежать в shared `tracks`/`playlists`).
     pub mirror_payload_col: Option<&'static str>,
-    /// Если задано — payload пишется в shared cache **только** когда у объекта
-    /// `sharing == "public"`. None — пишем всегда (likes/follows: мы видим
-    /// чужие public-объекты, приватных там по определению быть не может).
-    pub public_only_to_shared: bool,
-    /// `true` — у строк есть `wanted_state` (likes/follows). `false` — owned, без отмены.
+    /// true для owned-коллекций — нет inverse-операции (delete симметрична).
     pub has_wanted_state: bool,
-    /// Если задано — INSERT в mirror'е скипается при наличии pending-удаления
-    /// в sync_queue (нужно owned_playlists, чтобы refresh не воскресил
-    /// удалённый плейлист до flush'а).
+    /// Owned-плейлисты: не воскрешать строку из refresh'а, если
+    /// `sync_queue` уже содержит pending `playlist_delete` на этот URN.
     pub guard_pending_delete_action: Option<&'static str>,
+    /// Priority пайплайна для треков, попадающих в коллекцию (irrelevant
+    /// для не-track коллекций).
+    pub track_priority: TrackPriority,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SharedCache {
-    /// `indexed_tracks` (sc_track_id, raw_sc_data). Извлекаем sc_track_id из urn.
-    Tracks,
-    /// `cached_playlists` (playlist_urn, payload). Ключ — целый urn.
-    Playlists,
-    /// `cached_users` (user_urn, payload). Ключ — целый urn.
-    Users,
+pub enum EntityKind {
+    Track,
+    Playlist,
+    User,
 }
 
 pub const LIKED_TRACKS: UserCollection = UserCollection {
-    sc_path: "/me/likes/tracks",
+    sc_path_self: "/me/likes/tracks",
+    sc_path_other: "/users/{}/likes/tracks",
     lock_kind: "liked-tracks",
     mirror_table: "user_likes_tracks",
     mirror_key_col: "sc_track_id",
-    shared_cache: SharedCache::Tracks,
+    entity_kind: EntityKind::Track,
     mirror_payload_col: None,
-    public_only_to_shared: false,
     has_wanted_state: true,
     guard_pending_delete_action: None,
+    track_priority: TrackPriority::Like,
 };
 
 pub const LIKED_PLAYLISTS: UserCollection = UserCollection {
-    sc_path: "/me/likes/playlists",
+    sc_path_self: "/me/likes/playlists",
+    sc_path_other: "/users/{}/likes/playlists",
     lock_kind: "liked-playlists",
     mirror_table: "user_likes_playlists",
     mirror_key_col: "playlist_urn",
-    shared_cache: SharedCache::Playlists,
+    entity_kind: EntityKind::Playlist,
     mirror_payload_col: None,
-    public_only_to_shared: false,
     has_wanted_state: true,
     guard_pending_delete_action: None,
+    track_priority: TrackPriority::Playlist,
 };
 
 pub const FOLLOWINGS: UserCollection = UserCollection {
-    sc_path: "/me/followings",
+    sc_path_self: "/me/followings",
+    sc_path_other: "/users/{}/followings",
     lock_kind: "followings",
     mirror_table: "user_followings",
     mirror_key_col: "target_user_urn",
-    shared_cache: SharedCache::Users,
+    entity_kind: EntityKind::User,
     mirror_payload_col: None,
-    public_only_to_shared: false,
     has_wanted_state: true,
     guard_pending_delete_action: None,
+    track_priority: TrackPriority::Discovery,
 };
 
 pub const OWNED_PLAYLISTS: UserCollection = UserCollection {
-    sc_path: "/me/playlists",
+    sc_path_self: "/me/playlists",
+    sc_path_other: "/users/{}/playlists",
     lock_kind: "owned-playlists",
     mirror_table: "user_owned_playlists",
     mirror_key_col: "playlist_urn",
-    shared_cache: SharedCache::Playlists,
-    mirror_payload_col: Some("payload"),
-    public_only_to_shared: true,
+    entity_kind: EntityKind::Playlist,
+    mirror_payload_col: None,
     has_wanted_state: false,
     guard_pending_delete_action: Some("playlist_delete"),
+    track_priority: TrackPriority::Playlist,
 };
 
 pub const OWNED_TRACKS: UserCollection = UserCollection {
-    sc_path: "/me/tracks",
+    sc_path_self: "/me/tracks",
+    sc_path_other: "/users/{}/tracks",
     lock_kind: "owned-tracks",
     mirror_table: "user_owned_tracks",
     mirror_key_col: "sc_track_id",
-    shared_cache: SharedCache::Tracks,
-    mirror_payload_col: Some("payload"),
-    public_only_to_shared: true,
+    entity_kind: EntityKind::Track,
+    mirror_payload_col: None,
     has_wanted_state: false,
     guard_pending_delete_action: None,
+    track_priority: TrackPriority::Like,
 };
 
-/// Сервис фоновых refresh'ей cold-cache.
-/// - Дедуп параллельных обновлений: Redis SETNX-лок на ключ ресурса с TTL
-///   (`COLD_REFRESH_LOCK_TTL_SEC`). Другой воркер, видя занятый лок, тихо
-///   отваливается.
-/// - Bounded concurrency: глобальный `Semaphore` ограничивает число живых
-///   SC-fetch'ей (`COLD_REFRESH_CONCURRENCY`), чтобы при пике reads не
-///   выжечь токены SC.
+fn resolve_sc_path(coll: &UserCollection, sc_user_id: &str, viewer_is_owner: bool) -> String {
+    if viewer_is_owner {
+        coll.sc_path_self.to_string()
+    } else {
+        coll.sc_path_other.replace("{}", sc_user_id)
+    }
+}
+
+/// Сервис фоновых refresh-задач cold-storage.
+///
+/// * SC pagination — следуем `next_href` URL целиком (а не реконструируем
+///   query из извлечённого cursor/offset). Этим лечится зацикливание
+///   `/playlists/{urn}/tracks` на первых 200 треках (SC ожидает `offset=`,
+///   мы клали `cursor=`).
+/// * Lock'и через Redis SETNX — параллельные refresh'и одного ресурса
+///   тихо отваливаются вторым.
+/// * Bounded concurrency — `Semaphore` ограничивает живые SC-fetch'ы,
+///   чтобы пики reads не выжигали public-token пул.
+/// * На каждый трек из коллекции → [`IndexingService::ingest_track_from_sc`]
+///   с приоритетом коллекции; на каждого юзера → `users` UPSERT;
+///   на каждый плейлист → `playlists` UPSERT.
 pub struct ColdRefreshService {
     sc: ScClient,
     pg: PgPool,
     cache: Arc<CacheService>,
     cfg: ColdCfg,
     sem: Arc<Semaphore>,
+    tracks: TrackRepository,
+    users: UserRepository,
+    playlists: PlaylistRepository,
+    indexing: OnceCell<Arc<IndexingService>>,
 }
 
 impl ColdRefreshService {
     pub fn new(sc: ScClient, pg: PgPool, cache: Arc<CacheService>, cfg: ColdCfg) -> Arc<Self> {
         let sem = Arc::new(Semaphore::new(cfg.refresh_concurrency));
+        let tracks = TrackRepository::new(pg.clone());
+        let users = UserRepository::new(pg.clone());
+        let playlists = PlaylistRepository::new(pg.clone());
         Arc::new(Self {
             sc,
             pg,
             cache,
             cfg,
             sem,
+            tracks,
+            users,
+            playlists,
+            indexing: OnceCell::new(),
         })
+    }
+
+    /// Поздняя инъекция IndexingService — в main.rs он создаётся позже из-за
+    /// transcode/lyrics-зависимостей. Без него track-ingestion не кикает
+    /// пайплайн (но UPSERT всё равно работает — это safe degrade).
+    pub fn install_indexing(&self, indexing: Arc<IndexingService>) {
+        let _ = self.indexing.set(indexing);
+    }
+
+    /// Доступ к привязанному IndexingService для callers, которым нужно
+    /// прокинуть свежий SC payload через ingest-pipeline (например, tracks/
+    /// service::get_by_id при cache-miss).
+    pub fn indexing_for_ingest(&self) -> Option<&Arc<IndexingService>> {
+        self.indexing.get()
     }
 
     pub fn is_track_stale(&self, synced_at: Option<DateTime<Utc>>) -> bool {
@@ -163,24 +201,28 @@ impl ColdRefreshService {
     }
 
     fn ttl_for(&self, coll: &UserCollection) -> u64 {
-        match coll.sc_path {
-            p if p == LIKED_TRACKS.sc_path => self.cfg.liked_tracks_ttl_sec,
-            p if p == LIKED_PLAYLISTS.sc_path => self.cfg.liked_playlists_ttl_sec,
-            p if p == FOLLOWINGS.sc_path => self.cfg.followings_ttl_sec,
+        match coll.lock_kind {
+            k if k == LIKED_TRACKS.lock_kind => self.cfg.liked_tracks_ttl_sec,
+            k if k == LIKED_PLAYLISTS.lock_kind => self.cfg.liked_playlists_ttl_sec,
+            k if k == FOLLOWINGS.lock_kind => self.cfg.followings_ttl_sec,
             _ => self.cfg.owned_ttl_sec,
         }
     }
 
-    /// Гарантирует, что зеркало `mirror_table` для данного юзера достаточно
-    /// свежо. На пустом зеркале — синхронно тянет всё из SC (seed). На stale —
-    /// спавнит фоновую задачу: первый клиент после TTL заплатит за refresh,
-    /// остальные читают параллельно текущий снапшот. На свежем — no-op.
-    /// `extra_params` прокидываются в SC (например `access` для liked tracks).
+    /// Гарантирует, что mirror юзера для коллекции достаточно свежий.
+    /// Пустое зеркало — синхронный seed. Stale — фоновый refresh
+    /// (первый клиент после TTL заплатит, остальные читают текущий снапшот).
+    /// Свежее — no-op.
+    ///
+    /// `viewer_is_owner` определяет path: `true` → `/me/*` (видит private),
+    /// `false` → `/users/{id}/*` (public-вьюха). Одна и та же mirror-таблица
+    /// для обоих случаев — `target_sc_user_id` индексирует строки.
     pub async fn ensure_collection(
         self: &Arc<Self>,
         coll: UserCollection,
         sc_user_id: &str,
-        token: &str,
+        viewer_is_owner: bool,
+        chain: &[String],
         extra_params: &[(String, String)],
     ) -> AppResult<()> {
         let max_synced: Option<DateTime<Utc>> = sqlx::query_scalar(&format!(
@@ -192,36 +234,37 @@ impl ColdRefreshService {
         .await?;
 
         if max_synced.is_none() {
-            self.refresh_collection(coll, sc_user_id, token, extra_params)
+            self.refresh_collection(coll, sc_user_id, viewer_is_owner, chain, extra_params)
                 .await?;
             return Ok(());
         }
-
         if !is_stale(max_synced, self.ttl_for(&coll)) {
             return Ok(());
         }
 
         let me = Arc::clone(self);
         let user = sc_user_id.to_string();
-        let tok = token.to_string();
+        let chain = chain.to_vec();
         let extra = extra_params.to_vec();
         tokio::spawn(async move {
-            if let Err(e) = me.refresh_collection(coll, &user, &tok, &extra).await {
-                debug!(error = %e, user = %user, path = %coll.sc_path, "background refresh failed");
+            if let Err(e) = me
+                .refresh_collection(coll, &user, viewer_is_owner, &chain, &extra)
+                .await
+            {
+                debug!(error = %e, user = %user, kind = coll.lock_kind, "background refresh failed");
             }
         });
         Ok(())
     }
 
-    /// Полный refresh per-user коллекции из SC. Тянет все страницы, UPSERT'ит
-    /// shared cache + mirror'ы. Локальные строки, которых нет в SC и которые
-    /// не pending — удаляются (SC побеждает). Pending строки (progress=true
-    /// или wanted_state=false) — не трогаем: пусть sync_queue разберётся.
+    /// Полный refresh per-user коллекции из SC. Тянет все страницы
+    /// (через `next_href`), UPSERT'ит сущности и mirror, удаляет orphan'ы.
     pub async fn refresh_collection(
         &self,
         coll: UserCollection,
         sc_user_id: &str,
-        token: &str,
+        viewer_is_owner: bool,
+        chain: &[String],
         extra_params: &[(String, String)],
     ) -> AppResult<()> {
         let key = format!("refresh:{}:{sc_user_id}", coll.lock_kind);
@@ -229,134 +272,224 @@ impl ColdRefreshService {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let items = self
-            .fetch_all_pages(coll.sc_path, token, extra_params)
-            .await?;
+        let path = resolve_sc_path(&coll, sc_user_id, viewer_is_owner);
+        let items = self.fetch_all_pages(&path, chain, extra_params).await?;
 
-        // SC отдаёт новые записи первыми; разворачиваем в (старые→новые) порядок,
-        // чтобы `created_at` рос в нашем порядке и `ORDER BY created_at DESC`
-        // потом отдавал новые сверху.
-        let mut ordered: Vec<(String, &Value)> = Vec::with_capacity(items.len());
-        for item in items.iter().rev() {
-            let Some(urn) = item.get("urn").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            if urn.is_empty() {
-                continue;
+        // SC отдаёт новые сверху; разворачиваем под наш ORDER BY created_at DESC.
+        let ordered: Vec<(String, &Value)> = items
+            .iter()
+            .rev()
+            .filter_map(|item| {
+                let urn = item.get("urn").and_then(|v| v.as_str()).unwrap_or("");
+                if urn.is_empty() {
+                    return None;
+                }
+                let key_value = match coll.entity_kind {
+                    EntityKind::Track => extract_sc_id(urn).to_string(),
+                    EntityKind::Playlist | EntityKind::User => urn.to_string(),
+                };
+                Some((key_value, item))
+            })
+            .collect();
+
+        // Сначала — все entity UPSERT'ы (ingest_track кикает пайплайн).
+        // Параллелизм отсутствует намеренно: на коллекции в 10к треков
+        // создавать 10к тасок и одновременно дёргать transcode/enrich — это
+        // pile-up. Sequential UPSERT держит pressure под semaphore'ом.
+        for (_, item) in &ordered {
+            if let Err(e) = self.ingest_entity(coll, item).await {
+                warn!(error = %e, kind = coll.lock_kind, "entity ingest failed");
             }
-            let key_value = match coll.shared_cache {
-                SharedCache::Tracks => extract_sc_id(urn).to_string(),
-                SharedCache::Playlists | SharedCache::Users => urn.to_string(),
-            };
-            ordered.push((key_value, item));
         }
 
-        let seen: Vec<String> = ordered.iter().map(|(k, _)| k.clone()).collect();
+        // Затем — bulk UPSERT mirror-таблицы.
+        let mirror_keys: Vec<String> = ordered.iter().map(|(k, _)| k.clone()).collect();
+        let mirror_payloads: Vec<Value> = if coll.mirror_payload_col.is_some() {
+            ordered.iter().map(|(_, item)| (*item).clone()).collect()
+        } else {
+            Vec::new()
+        };
 
-        // Чанковые bulk UPSERT'ы: на юзере с 10к лайков это 10к/REFRESH_BATCH_SIZE
-        // транзакций вместо 10к. fsync per-commit, lock contention в shared
-        // таблицах — минимальные.
-        for chunk in ordered.chunks(REFRESH_BATCH_SIZE) {
-            let mut shared_keys: Vec<String> = Vec::with_capacity(chunk.len());
-            let mut shared_payloads: Vec<Value> = Vec::with_capacity(chunk.len());
-            let mut mirror_keys: Vec<String> = Vec::with_capacity(chunk.len());
-            let mut mirror_payloads: Vec<Value> = Vec::with_capacity(chunk.len());
-
-            for (k, item) in chunk {
-                if !coll.public_only_to_shared || is_public(item) {
-                    shared_keys.push(k.clone());
-                    shared_payloads.push((*item).clone());
-                }
-                mirror_keys.push(k.clone());
-                mirror_payloads.push((*item).clone());
-            }
-
+        if !mirror_keys.is_empty() {
             let mut tx = self.pg.begin().await?;
-            if !shared_keys.is_empty() {
-                batch_upsert_shared_cache(
-                    &mut tx,
-                    coll.shared_cache,
-                    &shared_keys,
-                    &shared_payloads,
-                )
-                .await?;
-            }
-            if !mirror_keys.is_empty() {
-                batch_upsert_mirror(&mut tx, &coll, sc_user_id, &mirror_keys, &mirror_payloads)
-                    .await?;
-            }
+            batch_upsert_mirror(&mut tx, &coll, sc_user_id, &mirror_keys, &mirror_payloads).await?;
             tx.commit().await?;
         }
 
         if !items.is_empty() {
-            delete_orphans(&self.pg, &coll, sc_user_id, &seen).await?;
+            delete_orphans(&self.pg, &coll, sc_user_id, &mirror_keys).await?;
         }
         Ok(())
     }
 
-    pub async fn refresh_track(&self, track_urn: &str, token: &str) -> AppResult<()> {
+    async fn ingest_entity(&self, coll: UserCollection, item: &Value) -> AppResult<()> {
+        match coll.entity_kind {
+            EntityKind::Track => {
+                if let Some(indexing) = self.indexing.get() {
+                    indexing
+                        .ingest_track_from_sc(item, coll.track_priority)
+                        .await?;
+                } else {
+                    // Indexing ещё не подключён (раннее spawn'ение) —
+                    // делаем хотя бы UPSERT в tracks без kick'а пайплайна.
+                    if let Some(fields) = crate::modules::tracks::normalize::ScTrackFields::from_sc(item) {
+                        self.tracks
+                            .upsert_from_sc(&fields, coll.track_priority, coll.track_priority)
+                            .await?;
+                    }
+                }
+            }
+            EntityKind::Playlist => {
+                self.playlists.upsert_from_sc(item).await?;
+            }
+            EntityKind::User => {
+                self.users.upsert_from_sc(item).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn refresh_track(
+        self: &Arc<Self>,
+        track_urn: &str,
+        chain: &[String],
+    ) -> AppResult<()> {
         let key = format!("refresh:track:{track_urn}");
         let Some(_lock) = self.try_lock(&key).await? else {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let fetched: Value = self
-            .sc
-            .api_get_value(&format!("/tracks/{track_urn}"), token, None)
-            .await?;
-        let sc_track_id = extract_sc_id(track_urn);
-        upsert_track_cache(&self.pg, sc_track_id, &fetched).await?;
+        let fetched: Value = try_with_chain(chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/tracks/{track_urn}");
+            async move { sc.api_get_value(&path, &tok, None).await }
+        })
+        .await?;
+        if let Some(indexing) = self.indexing.get() {
+            indexing
+                .ingest_track_from_sc(&fetched, TrackPriority::Discovery)
+                .await?;
+        } else if let Some(fields) =
+            crate::modules::tracks::normalize::ScTrackFields::from_sc(&fetched)
+        {
+            self.tracks
+                .upsert_from_sc(&fields, TrackPriority::Discovery, TrackPriority::Discovery)
+                .await?;
+        }
         debug!(urn = %track_urn, "track refreshed");
         Ok(())
     }
 
-    pub async fn refresh_user(&self, user_urn: &str, token: &str) -> AppResult<()> {
+    pub async fn refresh_user(&self, user_urn: &str, chain: &[String]) -> AppResult<()> {
         let key = format!("refresh:user:{user_urn}");
         let Some(_lock) = self.try_lock(&key).await? else {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let fetched: Value = self
-            .sc
-            .api_get_value(&format!("/users/{user_urn}"), token, None)
-            .await?;
-        upsert_user_cache(&self.pg, user_urn, &fetched).await?;
+        let fetched: Value = try_with_chain(chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/users/{user_urn}");
+            async move { sc.api_get_value(&path, &tok, None).await }
+        })
+        .await?;
+        self.users.upsert_from_sc(&fetched).await?;
         debug!(urn = %user_urn, "user refreshed");
         Ok(())
     }
 
-    pub async fn refresh_playlist(&self, playlist_urn: &str, token: &str) -> AppResult<()> {
+    pub async fn refresh_playlist(&self, playlist_urn: &str, chain: &[String]) -> AppResult<()> {
         let key = format!("refresh:playlist:{playlist_urn}");
         let Some(_lock) = self.try_lock(&key).await? else {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let fetched: Value = self
-            .sc
-            .api_get_value(&format!("/playlists/{playlist_urn}"), token, None)
-            .await?;
-        upsert_playlist_cache(&self.pg, playlist_urn, &fetched).await?;
+        let fetched: Value = try_with_chain(chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/playlists/{playlist_urn}");
+            async move { sc.api_get_value(&path, &tok, None).await }
+        })
+        .await?;
+        self.playlists.upsert_from_sc(&fetched).await?;
         debug!(urn = %playlist_urn, "playlist refreshed");
         Ok(())
     }
 
+    /// Полный refresh tracks-list плейлиста (для отдельной SWR-цепочки на
+    /// /playlists/{urn}/tracks). Идёт по next_href, ingest'ит каждый трек,
+    /// атомарно подменяет playlist_tracks через replace_tracks.
+    pub async fn refresh_playlist_tracks(
+        self: &Arc<Self>,
+        playlist_urn: &str,
+        chain: &[String],
+    ) -> AppResult<()> {
+        let key = format!("refresh:playlist-tracks:{playlist_urn}");
+        let Some(_lock) = self.try_lock(&key).await? else {
+            return Ok(());
+        };
+        let _permit = self.sem.acquire().await.ok();
+        let items = self
+            .fetch_all_pages(&format!("/playlists/{playlist_urn}/tracks"), chain, &[])
+            .await?;
+
+        let mut ordered_ids: Vec<String> = Vec::with_capacity(items.len());
+        for item in &items {
+            let Some(urn) = item.get("urn").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            ordered_ids.push(extract_sc_id(urn).to_string());
+            if let Some(indexing) = self.indexing.get() {
+                if let Err(e) = indexing
+                    .ingest_track_from_sc(item, TrackPriority::Playlist)
+                    .await
+                {
+                    debug!(error = %e, "playlist track ingest failed");
+                }
+            }
+        }
+        self.playlists
+            .replace_tracks(playlist_urn, &ordered_ids)
+            .await?;
+        Ok(())
+    }
+
+    /// Идёт по SC pagination через `next_href` URL целиком (а не пересобирая
+    /// query из cursor/offset — этим лечится баг с зацикливанием
+    /// `/playlists/{urn}/tracks` на первых 200 треках). На первой странице
+    /// формируем params сами; дальше SC отдаёт абсолютный URL, на который
+    /// идём как есть.
     async fn fetch_all_pages(
         &self,
         path: &str,
-        token: &str,
+        chain: &[String],
         extra_params: &[(String, String)],
     ) -> AppResult<Vec<Value>> {
-        let mut cursor: Option<String> = None;
         let mut acc: Vec<Value> = Vec::new();
+        let mut next: Option<String> = None;
         loop {
-            let mut params: Vec<(String, String)> = Vec::with_capacity(2 + extra_params.len());
-            params.extend(extra_params.iter().cloned());
-            params.push(("limit".into(), "200".into()));
-            params.push(("linked_partitioning".into(), "true".into()));
-            if let Some(c) = &cursor {
-                params.push(("cursor".into(), c.clone()));
-            }
-            let resp: Value = self.sc.api_get_value(path, token, Some(&params)).await?;
+            let resp: Value = match &next {
+                None => {
+                    let mut params: Vec<(String, String)> =
+                        Vec::with_capacity(2 + extra_params.len());
+                    params.extend(extra_params.iter().cloned());
+                    params.push(("limit".into(), REFRESH_PAGE_LIMIT.to_string()));
+                    params.push(("linked_partitioning".into(), "true".into()));
+                    try_with_chain(chain, |tok| {
+                        let sc = self.sc.clone();
+                        let path = path.to_string();
+                        let params = params.clone();
+                        async move { sc.api_get_value(&path, &tok, Some(&params)).await }
+                    })
+                    .await?
+                }
+                Some(href) => {
+                    try_with_chain(chain, |tok| {
+                        let sc = self.sc.clone();
+                        let href = href.clone();
+                        async move { sc.api_get_absolute_value(&href, &tok).await }
+                    })
+                    .await?
+                }
+            };
             let items: Vec<Value> = resp
                 .get("collection")
                 .and_then(|v| v.as_array().cloned())
@@ -365,17 +498,13 @@ impl ColdRefreshService {
                 break;
             }
             acc.extend(items);
-            let Some(next) = resp
-                .get("next_href")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-            else {
+            let Some(next_href) = resp.get("next_href").and_then(|v| v.as_str()) else {
                 break;
             };
-            match extract_sc_cursor(Some(&next)) {
-                Some(c) if Some(&c) != cursor.as_ref() => cursor = Some(c),
-                _ => break,
+            if next_href.is_empty() || Some(next_href) == next.as_deref() {
+                break;
             }
+            next = Some(next_href.to_string());
         }
         Ok(acc)
     }
@@ -387,108 +516,6 @@ impl ColdRefreshService {
             .await?;
         Ok(if acquired { Some(()) } else { None })
     }
-
-    /// Cron-петля очистки давно нечитанных shared-entity-кешей: cached_users
-    /// и cached_playlists. indexed_tracks НЕ трогаем — на ней живёт enrich
-    /// pipeline + наши собственные сущности (artists/albums).
-    pub fn spawn_evict_loop(self: Arc<Self>, shutdown: CancellationToken) {
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(EVICT_TICK);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    _ = ticker.tick() => {
-                        if let Err(e) = self.evict_once().await {
-                            warn!(error = %e, "cold_refresh evict failed");
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    async fn evict_once(&self) -> AppResult<()> {
-        let cutoff = Utc::now() - chrono::Duration::seconds(self.cfg.evict_after_sec as i64);
-        let users_n = evict_chunked(
-            &self.pg,
-            "DELETE FROM cached_users WHERE user_urn IN ( \
-                 SELECT user_urn FROM cached_users \
-                 WHERE last_read_at IS NOT NULL AND last_read_at < $1 \
-                 LIMIT $2 \
-             )",
-            cutoff,
-        )
-        .await?;
-        let playlists_n = evict_chunked(
-            &self.pg,
-            "DELETE FROM cached_playlists WHERE playlist_urn IN ( \
-                 SELECT playlist_urn FROM cached_playlists \
-                 WHERE last_read_at IS NOT NULL AND last_read_at < $1 \
-                 LIMIT $2 \
-             )",
-            cutoff,
-        )
-        .await?;
-        // cached_playlist_tracks — справочник позиций. После эвикции родителей
-        // подбираем оставшихся «сирот» теми же чанками: ANTI JOIN дешевле
-        // NOT IN на больших наборах.
-        let tracks_n = evict_orphan_playlist_tracks(&self.pg).await?;
-        if users_n > 0 || playlists_n > 0 || tracks_n > 0 {
-            info!(
-                users = users_n,
-                playlists = playlists_n,
-                playlist_tracks = tracks_n,
-                "cold_refresh evicted stale cache rows"
-            );
-        }
-        Ok(())
-    }
-}
-
-/// Chunked-DELETE с короткой паузой между итерациями. Защита от длинных
-/// эксклюзивных блокировок на cached_*-таблицах при большом cutoff'е.
-async fn evict_chunked(pg: &PgPool, sql: &str, cutoff: DateTime<Utc>) -> AppResult<u64> {
-    let mut total: u64 = 0;
-    loop {
-        let n = sqlx::query(sql)
-            .bind(cutoff)
-            .bind(EVICT_CHUNK_SIZE)
-            .execute(pg)
-            .await?
-            .rows_affected();
-        total += n;
-        if (n as i64) < EVICT_CHUNK_SIZE {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(EVICT_BETWEEN_MS)).await;
-    }
-    Ok(total)
-}
-
-async fn evict_orphan_playlist_tracks(pg: &PgPool) -> AppResult<u64> {
-    let mut total: u64 = 0;
-    loop {
-        let n = sqlx::query(
-            "DELETE FROM cached_playlist_tracks \
-             WHERE (playlist_urn, position) IN ( \
-                 SELECT cpt.playlist_urn, cpt.position FROM cached_playlist_tracks cpt \
-                 LEFT JOIN cached_playlists cp ON cp.playlist_urn = cpt.playlist_urn \
-                 WHERE cp.playlist_urn IS NULL \
-                 LIMIT $1 \
-             )",
-        )
-        .bind(EVICT_CHUNK_SIZE)
-        .execute(pg)
-        .await?
-        .rows_affected();
-        total += n;
-        if (n as i64) < EVICT_CHUNK_SIZE {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(EVICT_BETWEEN_MS)).await;
-    }
-    Ok(total)
 }
 
 fn is_stale(synced_at: Option<DateTime<Utc>>, ttl_sec: u64) -> bool {
@@ -501,43 +528,6 @@ fn is_stale(synced_at: Option<DateTime<Utc>>, ttl_sec: u64) -> bool {
     }
 }
 
-async fn batch_upsert_shared_cache(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    kind: SharedCache,
-    keys: &[String],
-    payloads: &[Value],
-) -> AppResult<()> {
-    let sql = match kind {
-        SharedCache::Tracks => {
-            "INSERT INTO indexed_tracks (sc_track_id, raw_sc_data, synced_at) \
-             SELECT k, p, now() \
-             FROM UNNEST($1::text[], $2::jsonb[]) AS t(k, p) \
-             ON CONFLICT (sc_track_id) DO UPDATE SET \
-                 raw_sc_data = EXCLUDED.raw_sc_data, synced_at = now()"
-        }
-        SharedCache::Playlists => {
-            "INSERT INTO cached_playlists (playlist_urn, payload, synced_at) \
-             SELECT k, p, now() \
-             FROM UNNEST($1::text[], $2::jsonb[]) AS t(k, p) \
-             ON CONFLICT (playlist_urn) DO UPDATE SET \
-                 payload = EXCLUDED.payload, synced_at = now()"
-        }
-        SharedCache::Users => {
-            "INSERT INTO cached_users (user_urn, payload, synced_at) \
-             SELECT k, p, now() \
-             FROM UNNEST($1::text[], $2::jsonb[]) AS t(k, p) \
-             ON CONFLICT (user_urn) DO UPDATE SET \
-                 payload = EXCLUDED.payload, synced_at = now()"
-        }
-    };
-    sqlx::query(sql)
-        .bind(keys)
-        .bind(payloads)
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
-}
-
 async fn batch_upsert_mirror(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     coll: &UserCollection,
@@ -548,16 +538,9 @@ async fn batch_upsert_mirror(
     let key_col = coll.mirror_key_col;
     let table = coll.mirror_table;
 
-    // Источники значений в SELECT-проекции и блок ON CONFLICT — три варианта
-    // mirror-форм (owned-с-payload, likes/followings, плейн-owned). Имена
-    // подставляются через format!() из &'static str — user-input в SQL не
-    // попадает.
-    //
-    // `created_at = clock_timestamp()` (volatile per-row), а не дефолтный
-    // `now()` (transaction-time, одинаков на весь батч): без этого 500 строк
-    // refresh-батча получают идентичный ts и ORDER BY теряет SC-порядок.
-    // ON CONFLICT updates НЕ переписывают created_at — сохраняем initial seed
-    // позицию между refresh'ами.
+    // Используем clock_timestamp() (volatile per-row) для created_at, чтобы
+    // refresh-батчи получали разные ts и ORDER BY (created_at DESC, key DESC)
+    // сохранял SC-порядок. ON CONFLICT updates НЕ переписывают created_at.
     let (select_cols, update_set) = if let Some(p) = coll.mirror_payload_col {
         (
             "$1, t.k, t.p, false, now(), clock_timestamp()".to_string(),
@@ -593,8 +576,6 @@ async fn batch_upsert_mirror(
     };
 
     let guard_clause = if let Some(g) = coll.guard_pending_delete_action {
-        // owned + pending delete защита: не воскрешаем строку, которую юзер
-        // уже удалил, но воркер sync_queue ещё не отправил в SC.
         format!(
             "WHERE NOT EXISTS ( \
                  SELECT 1 FROM sync_queue \
@@ -618,10 +599,6 @@ async fn batch_upsert_mirror(
         q.execute(&mut **tx).await?;
     }
     Ok(())
-}
-
-fn is_public(item: &Value) -> bool {
-    item.get("sharing").and_then(|v| v.as_str()) == Some("public")
 }
 
 async fn delete_orphans(
@@ -650,13 +627,11 @@ async fn delete_orphans(
     Ok(())
 }
 
-/// Чтение страницы из mirror-таблицы юзера. Payload берётся либо из самой
-/// mirror-колонки (`mirror_payload_col`, owned-сущности), либо JOIN'ом
-/// в shared cache по ключу коллекции.
-///
-/// Tie-breaker по key-колонке обязателен: batched refresh пишет 500 строк
-/// одной транзакцией с общим `created_at`, без второго ключа сортировки
-/// порядок внутри батча неопределён.
+/// Чтение страницы из mirror-таблицы юзера. JOIN на нормализованную сущность
+/// (`tracks`/`users`/`playlists`) + проекция в SC-shape JSON. Owned-коллекции
+/// проектируются так же — приватные строки лежат в shared `tracks`/`playlists`
+/// с `sharing='private'`, доступ контролируется на уровне callers'а
+/// (`/me/*` пропускает; public endpoints фильтруют).
 pub async fn read_collection_page(
     pg: &PgPool,
     coll: &UserCollection,
@@ -673,92 +648,67 @@ pub async fn read_collection_page(
         ""
     };
 
-    let sql = if let Some(payload_col) = coll.mirror_payload_col {
-        format!(
-            "SELECT m.{payload_col} \
-             FROM {table} m \
-             WHERE m.user_id = $1 {wanted_filter} AND m.{payload_col} IS NOT NULL \
-             ORDER BY m.created_at DESC, m.{key_col} DESC \
-             LIMIT $2 OFFSET $3"
-        )
-    } else {
-        let (cache_table, cache_key_col, cache_payload_col) = match coll.shared_cache {
-            SharedCache::Tracks => ("indexed_tracks", "sc_track_id", "raw_sc_data"),
-            SharedCache::Playlists => ("cached_playlists", "playlist_urn", "payload"),
-            SharedCache::Users => ("cached_users", "user_urn", "payload"),
-        };
-        format!(
-            "SELECT c.{cache_payload_col} \
-             FROM {table} m \
-             LEFT JOIN {cache_table} c ON c.{cache_key_col} = m.{key_col} \
-             WHERE m.user_id = $1 {wanted_filter} \
-             ORDER BY m.created_at DESC, m.{key_col} DESC \
-             LIMIT $2 OFFSET $3"
-        )
-    };
-
-    let rows: Vec<(Option<sqlx::types::Json<Value>>,)> = sqlx::query_as(&sql)
+    // Берём ключи постранично, дальше bulk-проекция через shared таблицы.
+    let key_sql = format!(
+        "SELECT m.{key_col} FROM {table} m \
+         WHERE m.user_id = $1 {wanted_filter} \
+         ORDER BY m.created_at DESC, m.{key_col} DESC \
+         LIMIT $2 OFFSET $3"
+    );
+    let keys: Vec<(String,)> = sqlx::query_as(&key_sql)
         .bind(sc_user_id)
         .bind(limit + 1)
         .bind(offset)
         .fetch_all(pg)
         .await?;
-    let has_more = rows.len() as i64 > limit;
-    let collection: Vec<Value> = rows
+    let has_more = keys.len() as i64 > limit;
+    let page_keys: Vec<String> = keys
         .into_iter()
         .take(limit as usize)
-        .filter_map(|(raw,)| raw.map(|j| j.0))
+        .map(|(k,)| k)
         .collect();
+
+    let collection: Vec<Value> = match coll.entity_kind {
+        EntityKind::Track => {
+            crate::modules::tracks::project_many(pg, &page_keys)
+                .await?
+                .into_iter()
+                .flatten()
+                .collect()
+        }
+        EntityKind::User => {
+            let rows: Vec<crate::modules::users::UserRow> =
+                sqlx::query_as("SELECT * FROM users WHERE urn = ANY($1)")
+                    .bind(&page_keys)
+                    .fetch_all(pg)
+                    .await?;
+            let map: std::collections::HashMap<String, crate::modules::users::UserRow> =
+                rows.into_iter().map(|u| (u.urn.clone(), u)).collect();
+            page_keys
+                .iter()
+                .filter_map(|urn| map.get(urn).map(project_user))
+                .collect()
+        }
+        EntityKind::Playlist => {
+            let rows: Vec<crate::modules::playlists::PlaylistRow> =
+                sqlx::query_as("SELECT * FROM playlists WHERE urn = ANY($1)")
+                    .bind(&page_keys)
+                    .fetch_all(pg)
+                    .await?;
+            let map: std::collections::HashMap<String, crate::modules::playlists::PlaylistRow> =
+                rows.into_iter().map(|p| (p.urn.clone(), p)).collect();
+            page_keys
+                .iter()
+                .filter_map(|urn| map.get(urn))
+                .map(|p| crate::modules::playlists::project_to_sc_shape(p, None))
+                .collect()
+        }
+    };
+
     Ok(ListPageResult {
         collection,
         page,
         page_size: limit,
         has_more,
     })
-}
-
-pub async fn upsert_track_cache(pg: &PgPool, sc_track_id: &str, raw: &Value) -> AppResult<()> {
-    sqlx::query(
-        "INSERT INTO indexed_tracks (sc_track_id, raw_sc_data, synced_at, last_read_at) \
-         VALUES ($1, $2, now(), now()) \
-         ON CONFLICT (sc_track_id) DO UPDATE SET \
-             raw_sc_data = EXCLUDED.raw_sc_data, synced_at = now(), last_read_at = now()",
-    )
-    .bind(sc_track_id)
-    .bind(raw)
-    .execute(pg)
-    .await?;
-    Ok(())
-}
-
-pub async fn upsert_playlist_cache(
-    pg: &PgPool,
-    playlist_urn: &str,
-    payload: &Value,
-) -> AppResult<()> {
-    sqlx::query(
-        "INSERT INTO cached_playlists (playlist_urn, payload, synced_at, last_read_at) \
-         VALUES ($1, $2, now(), now()) \
-         ON CONFLICT (playlist_urn) DO UPDATE SET \
-             payload = EXCLUDED.payload, synced_at = now(), last_read_at = now()",
-    )
-    .bind(playlist_urn)
-    .bind(payload)
-    .execute(pg)
-    .await?;
-    Ok(())
-}
-
-pub async fn upsert_user_cache(pg: &PgPool, user_urn: &str, payload: &Value) -> AppResult<()> {
-    sqlx::query(
-        "INSERT INTO cached_users (user_urn, payload, synced_at, last_read_at) \
-         VALUES ($1, $2, now(), now()) \
-         ON CONFLICT (user_urn) DO UPDATE SET \
-             payload = EXCLUDED.payload, synced_at = now(), last_read_at = now()",
-    )
-    .bind(user_urn)
-    .bind(payload)
-    .execute(pg)
-    .await?;
-    Ok(())
 }

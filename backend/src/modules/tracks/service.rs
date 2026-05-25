@@ -5,11 +5,11 @@ use sqlx::PgPool;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
-    build_list_cache_key, extract_sc_cursor, FetchChunkResult, GetPageOptions, ListCacheService,
-    ListPageResult,
+    build_list_cache_key, sc_list_page, ListCacheService, ListPageResult, ScListPageArgs,
 };
 use crate::common::sc_ids::extract_sc_id;
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::cold_refresh::ColdRefreshService;
 use crate::modules::likes::cold as likes_cold;
 use crate::modules::sync_queue::SyncQueueService;
@@ -27,6 +27,7 @@ pub struct TracksService {
     list_cache: Arc<ListCacheService>,
     sync_queue: Arc<SyncQueueService>,
     cold_refresh: Arc<ColdRefreshService>,
+    tokens: Arc<TokenProvider>,
 }
 
 impl TracksService {
@@ -36,6 +37,7 @@ impl TracksService {
         list_cache: Arc<ListCacheService>,
         sync_queue: Arc<SyncQueueService>,
         cold_refresh: Arc<ColdRefreshService>,
+        tokens: Arc<TokenProvider>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
@@ -43,92 +45,45 @@ impl TracksService {
             list_cache,
             sync_queue,
             cold_refresh,
+            tokens,
         })
     }
 
-    async fn list_page(
-        &self,
-        cache_key: &str,
-        ttl: u64,
-        scope: CacheScope,
-        session_id: Option<&str>,
-        page: i64,
-        limit: i64,
-        path: String,
-        token: String,
-        extra_params: Vec<(String, String)>,
-    ) -> AppResult<ListPageResult<Value>> {
-        let sc = self.sc.clone();
-        self.list_cache
-            .get_page::<Value, _, _>(
-                GetPageOptions {
-                    key: cache_key,
-                    scope,
-                    session_id,
-                    ttl_sec: ttl,
-                    page,
-                    limit,
-                    chunk_size: None,
-                },
-                |cursor, chunk_size| {
-                    let sc = sc.clone();
-                    let path = path.clone();
-                    let token = token.clone();
-                    let extra = extra_params.clone();
-                    async move {
-                        let mut params: Vec<(String, String)> = extra;
-                        params.push(("limit".into(), chunk_size.to_string()));
-                        params.push(("linked_partitioning".into(), "true".into()));
-                        if let Some(c) = cursor {
-                            params.push(("cursor".into(), c));
-                        }
-                        let resp: Value = sc.api_get_value(&path, &token, Some(&params)).await?;
-                        let items: Vec<Value> = resp
-                            .get("collection")
-                            .and_then(|v| v.as_array().cloned())
-                            .unwrap_or_default();
-                        let next_cursor = resp
-                            .get("next_href")
-                            .and_then(|v| v.as_str())
-                            .and_then(|h| extract_sc_cursor(Some(h)));
-                        Ok::<_, AppError>(FetchChunkResult { items, next_cursor })
-                    }
-                },
-            )
-            .await
-    }
-
+    /// Поиск треков. Сначала через user-token (точные результаты), потом —
+    /// через весь app-pool в перемешанном порядке. Без рандомных юзер-сессий.
     pub async fn search(
         &self,
-        token: &str,
+        session_id: uuid::Uuid,
         sc_user_id: &str,
         page: i64,
         limit: i64,
         extra: Vec<(String, String)>,
     ) -> AppResult<ListPageResult<Value>> {
         let cache_key = build_list_cache_key("tracks-search", &as_pairs(&extra));
-        let mut result = self
-            .list_page(
-                &cache_key,
-                TTL_SEARCH,
-                CacheScope::Shared,
-                None,
-                page,
-                limit,
-                "/tracks".into(),
-                token.to_string(),
-                extra,
-            )
-            .await?;
+        let mut result = sc_list_page(ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind: TokenKind::UserFirst(session_id),
+            cache_key: &cache_key,
+            ttl: TTL_SEARCH,
+            scope: CacheScope::Shared,
+            session_id: None,
+            page,
+            limit,
+            path: "/tracks".into(),
+            extra_params: extra,
+        })
+        .await?;
         likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
         Ok(result)
     }
 
-    /// Cold read /tracks/{urn}: сначала indexed_tracks, на miss — SC + upsert.
+    /// Cold read /tracks/{urn}: сначала `tracks`, на miss — SC + ingest.
     /// secret_token-запросы (приватные треки) идут мимо кеша.
     pub async fn get_by_id(
         &self,
-        token: &str,
+        session_id: uuid::Uuid,
         sc_user_id: &str,
         track_urn: &str,
         params: &[(String, String)],
@@ -137,28 +92,40 @@ impl TracksService {
         let sc_track_id = extract_sc_id(track_urn).to_string();
 
         let mut track: Value = if has_secret {
-            self.sc
-                .api_get_value(&format!("/tracks/{track_urn}"), token, Some(params))
-                .await?
+            let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+            try_with_chain(&chain, |tok| {
+                let sc = self.sc.clone();
+                let path = format!("/tracks/{track_urn}");
+                let params = params.to_vec();
+                async move { sc.api_get_value(&path, &tok, Some(&params)).await }
+            })
+            .await?
         } else {
-            let cached: Option<(
-                sqlx::types::Json<Value>,
-                Option<chrono::DateTime<chrono::Utc>>,
-            )> = sqlx::query_as(
-                "SELECT raw_sc_data, synced_at FROM indexed_tracks WHERE sc_track_id = $1",
-            )
-            .bind(&sc_track_id)
-            .fetch_optional(&self.pg)
-            .await?;
-            if let Some((j, synced_at)) = cached {
+            let row: Option<crate::modules::tracks::TrackRow> =
+                sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = $1")
+                    .bind(&sc_track_id)
+                    .fetch_optional(&self.pg)
+                    .await?;
+            if let Some(track_row) = row {
+                // Sharing-guard: приватные треки видит только uploader. Owner
+                // зайдёт сюда же — мы не отдаём `/me/track-by-id` отдельным
+                // эндпоинтом, /tracks/{urn} один на всех.
+                if track_row.sharing != "public" {
+                    let is_owner = track_row
+                        .uploader_sc_user_id
+                        .as_deref()
+                        .map(|u| u == sc_user_id)
+                        .unwrap_or(false);
+                    if !is_owner {
+                        return Err(crate::error::AppError::not_found("Track not found"));
+                    }
+                }
+                let synced_at = track_row.sc_synced_at;
                 let pg = self.pg.clone();
                 let id = sc_track_id.clone();
-                // Условный UPDATE: на горячих треках (тысячи rps на топ-100)
-                // переписывать строку каждый раз — лишний нагруз. Достаточно
-                // обновлять раз в 5 минут, eviction-cutoff гораздо длиннее.
                 tokio::spawn(async move {
                     let _ = sqlx::query(
-                        "UPDATE indexed_tracks SET last_read_at = now() \
+                        "UPDATE tracks SET last_read_at = now() \
                          WHERE sc_track_id = $1 \
                            AND (last_read_at IS NULL \
                                 OR last_read_at < now() - INTERVAL '5 minutes')",
@@ -167,32 +134,42 @@ impl TracksService {
                     .execute(&pg)
                     .await;
                 });
-                if self.cold_refresh.is_track_stale(synced_at) {
+                if self.cold_refresh.is_track_stale(Some(synced_at)) {
                     let refresh = self.cold_refresh.clone();
+                    let tokens = self.tokens.clone();
                     let urn = track_urn.to_string();
-                    let tok = token.to_string();
                     tokio::spawn(async move {
-                        if let Err(e) = refresh.refresh_track(&urn, &tok).await {
+                        let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
+                            Ok(c) => c,
+                            Err(_) => return,
+                        };
+                        if let Err(e) = refresh.refresh_track(&urn, &chain).await {
                             tracing::debug!(error = %e, urn = %urn, "track refresh failed");
                         }
                     });
                 }
-                j.0
+                let projected =
+                    crate::modules::tracks::project_many(&self.pg, &[sc_track_id.to_string()])
+                        .await?;
+                projected
+                    .into_iter()
+                    .flatten()
+                    .next()
+                    .unwrap_or_else(|| crate::modules::tracks::project_to_sc_shape(&track_row, None))
             } else {
-                let fetched: Value = self
-                    .sc
-                    .api_get_value(&format!("/tracks/{track_urn}"), token, Some(params))
-                    .await?;
-                sqlx::query(
-                    "INSERT INTO indexed_tracks (sc_track_id, raw_sc_data, synced_at, last_read_at) \
-                     VALUES ($1, $2, now(), now()) \
-                     ON CONFLICT (sc_track_id) DO UPDATE SET \
-                         raw_sc_data = EXCLUDED.raw_sc_data, synced_at = now(), last_read_at = now()",
-                )
-                .bind(&sc_track_id)
-                .bind(&fetched)
-                .execute(&self.pg)
+                let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+                let fetched: Value = try_with_chain(&chain, |tok| {
+                    let sc = self.sc.clone();
+                    let path = format!("/tracks/{track_urn}");
+                    let params = params.to_vec();
+                    async move { sc.api_get_value(&path, &tok, Some(&params)).await }
+                })
                 .await?;
+                if let Some(refresh_indexing) = self.cold_refresh.indexing_for_ingest() {
+                    refresh_indexing
+                        .ingest_track_from_sc(&fetched, crate::modules::tracks::TrackPriority::Discovery)
+                        .await?;
+                }
                 fetched
             }
         };
@@ -203,48 +180,71 @@ impl TracksService {
         Ok(track)
     }
 
-    pub async fn update(&self, token: &str, track_urn: &str, body: &Value) -> AppResult<Value> {
-        self.sc
-            .api_put_value(&format!("/tracks/{track_urn}"), token, Some(body))
-            .await
+    pub async fn update(
+        &self,
+        session_id: uuid::Uuid,
+        track_urn: &str,
+        body: &Value,
+    ) -> AppResult<Value> {
+        // Мутация на треке владельца — только user-token, без public-fallback.
+        let chain = self.tokens.chain(TokenKind::User(session_id)).await?;
+        try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/tracks/{track_urn}");
+            let body = body.clone();
+            async move { sc.api_put_value(&path, &tok, Some(&body)).await }
+        })
+        .await
     }
 
-    pub async fn delete(&self, token: &str, track_urn: &str) -> AppResult<Value> {
-        self.sc
-            .api_delete(&format!("/tracks/{track_urn}"), token)
-            .await
+    pub async fn delete(&self, session_id: uuid::Uuid, track_urn: &str) -> AppResult<Value> {
+        let chain = self.tokens.chain(TokenKind::User(session_id)).await?;
+        try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/tracks/{track_urn}");
+            async move { sc.api_delete(&path, &tok).await }
+        })
+        .await
     }
 
     pub async fn get_streams(
         &self,
-        token: &str,
+        session_id: uuid::Uuid,
         track_urn: &str,
         params: &[(String, String)],
     ) -> AppResult<Value> {
-        self.sc
-            .api_get_value(&format!("/tracks/{track_urn}/streams"), token, Some(params))
-            .await
+        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+        try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/tracks/{track_urn}/streams");
+            let params = params.to_vec();
+            async move { sc.api_get_value(&path, &tok, Some(&params)).await }
+        })
+        .await
     }
 
     pub async fn get_comments(
         &self,
-        token: &str,
+        session_id: uuid::Uuid,
         track_urn: &str,
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
         let cache_key = format!("track-comments:{track_urn}");
-        self.list_page(
-            &cache_key,
-            TTL_COMMENTS,
-            CacheScope::Shared,
-            None,
+        sc_list_page(ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind: TokenKind::UserFirst(session_id),
+            cache_key: &cache_key,
+            ttl: TTL_COMMENTS,
+            scope: CacheScope::Shared,
+            session_id: None,
             page,
             limit,
-            format!("/tracks/{track_urn}/comments"),
-            token.to_string(),
-            vec![],
-        )
+            path: format!("/tracks/{track_urn}/comments"),
+            extra_params: vec![],
+        })
         .await
     }
 
@@ -264,49 +264,55 @@ impl TracksService {
 
     pub async fn get_favoriters(
         &self,
-        token: &str,
+        session_id: uuid::Uuid,
         track_urn: &str,
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        self.list_page(
-            &format!("track-favoriters:{track_urn}"),
-            TTL_FAVORITERS,
-            CacheScope::Shared,
-            None,
+        sc_list_page(ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind: TokenKind::UserFirst(session_id),
+            cache_key: &format!("track-favoriters:{track_urn}"),
+            ttl: TTL_FAVORITERS,
+            scope: CacheScope::Shared,
+            session_id: None,
             page,
             limit,
-            format!("/tracks/{track_urn}/favoriters"),
-            token.to_string(),
-            vec![],
-        )
+            path: format!("/tracks/{track_urn}/favoriters"),
+            extra_params: vec![],
+        })
         .await
     }
 
     pub async fn get_reposters(
         &self,
-        token: &str,
+        session_id: uuid::Uuid,
         track_urn: &str,
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        self.list_page(
-            &format!("track-reposters:{track_urn}"),
-            TTL_REPOSTERS,
-            CacheScope::Shared,
-            None,
+        sc_list_page(ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind: TokenKind::UserFirst(session_id),
+            cache_key: &format!("track-reposters:{track_urn}"),
+            ttl: TTL_REPOSTERS,
+            scope: CacheScope::Shared,
+            session_id: None,
             page,
             limit,
-            format!("/tracks/{track_urn}/reposters"),
-            token.to_string(),
-            vec![],
-        )
+            path: format!("/tracks/{track_urn}/reposters"),
+            extra_params: vec![],
+        })
         .await
     }
 
     pub async fn get_related(
         &self,
-        token: &str,
+        session_id: uuid::Uuid,
         sc_user_id: &str,
         track_urn: &str,
         page: i64,
@@ -317,19 +323,21 @@ impl TracksService {
             &format!("track-related:{track_urn}"),
             &[("access", access.to_string())],
         );
-        let mut result = self
-            .list_page(
-                &cache_key,
-                TTL_RELATED,
-                CacheScope::Shared,
-                None,
-                page,
-                limit,
-                format!("/tracks/{track_urn}/related"),
-                token.to_string(),
-                vec![("access".into(), access.to_string())],
-            )
-            .await?;
+        let mut result = sc_list_page(ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind: TokenKind::UserFirst(session_id),
+            cache_key: &cache_key,
+            ttl: TTL_RELATED,
+            scope: CacheScope::Shared,
+            session_id: None,
+            page,
+            limit,
+            path: format!("/tracks/{track_urn}/related"),
+            extra_params: vec![("access".into(), access.to_string())],
+        })
+        .await?;
         likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
         Ok(result)
     }

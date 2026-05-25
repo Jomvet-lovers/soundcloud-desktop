@@ -1,59 +1,41 @@
 use std::sync::Arc;
 
-use chrono::Utc;
 use serde_json::Value;
-use sqlx::PgPool;
 use tracing::debug;
 
 use super::anon::{normalize_v2_to_v1, AnonResolveClient};
 use crate::error::{AppError, AppResult};
+use crate::modules::auth::{TokenKind, TokenProvider};
 use crate::sc::ScClient;
-
-const MAX_DIRECT_ATTEMPTS: usize = 5;
 
 pub struct ResolveService {
     sc: ScClient,
-    pg: PgPool,
+    tokens: Arc<TokenProvider>,
     anon: AnonResolveClient,
 }
 
 impl ResolveService {
-    pub fn new(sc: ScClient, pg: PgPool) -> Arc<Self> {
+    pub fn new(sc: ScClient, tokens: Arc<TokenProvider>) -> Arc<Self> {
         let anon = AnonResolveClient::new(sc.clone());
-        Arc::new(Self { sc, pg, anon })
+        Arc::new(Self { sc, tokens, anon })
     }
 
-    pub async fn resolve(&self, user_token: Option<&str>, url: &str) -> AppResult<Value> {
-        let tokens = self.collect_direct_tokens(user_token).await?;
-
-        let direct_err = match self.try_direct(&tokens, url).await {
-            Ok(v) => return Ok(v),
-            Err(e) => e,
-        };
-
-        match self.anon.resolve(url).await {
-            Ok(mut v) => {
-                normalize_v2_to_v1(&mut v);
-                return Ok(v);
-            }
-            Err(e) => debug!(error = %e, "[resolve] anon v2 failed"),
-        }
-
-        if let Some(token) = tokens.first() {
-            let params = [("url".to_string(), url.to_string())];
-            return self
-                .sc
-                .api_get_value_via_relay_proxy("/resolve", token, Some(&params))
-                .await;
-        }
-
-        Err(direct_err)
+    /// apiv2 /tracks/{id} через scraped anon client_id — для добычи реального
+    /// `full_duration` cron'ом duration_resolver'а.
+    pub async fn fetch_track_v2(&self, sc_track_id: &str) -> AppResult<Value> {
+        self.anon.fetch_track(sc_track_id).await
     }
 
-    async fn try_direct(&self, tokens: &[String], url: &str) -> AppResult<Value> {
+    /// `/resolve` для public URL'ов. `kind` определяет, откуда брать токены:
+    /// `UserFirst(session)` если запрос инициировал юзер, `PublicPool` для cron'ов.
+    /// На anti-bot 403 от SC падаем на анонимный apiv2 (`anon.resolve`); если и
+    /// он не сработал — relay-proxy с одним из доступных токенов.
+    pub async fn resolve(&self, kind: TokenKind, url: &str) -> AppResult<Value> {
+        let chain = self.tokens.chain(kind).await?;
         let params = [("url".to_string(), url.to_string())];
-        let mut last_err: AppError = AppError::internal("no tokens for direct resolve");
-        for token in tokens.iter().take(MAX_DIRECT_ATTEMPTS) {
+
+        let mut last_err: AppError = AppError::internal("resolve: no tokens");
+        for token in &chain {
             match self
                 .sc
                 .api_get_value_direct("/resolve", token, Some(&params))
@@ -66,33 +48,21 @@ impl ResolveService {
                 }
             }
         }
+
+        match self.anon.resolve(url).await {
+            Ok(mut v) => {
+                normalize_v2_to_v1(&mut v);
+                return Ok(v);
+            }
+            Err(e) => debug!(error = %e, "[resolve] anon v2 failed"),
+        }
+
+        if let Some(token) = chain.first() {
+            return self
+                .sc
+                .api_get_value_via_relay_proxy("/resolve", token, Some(&params))
+                .await;
+        }
         Err(last_err)
-    }
-
-    async fn collect_direct_tokens(&self, user_token: Option<&str>) -> AppResult<Vec<String>> {
-        let now = Utc::now().naive_utc();
-        let limit = MAX_DIRECT_ATTEMPTS as i64;
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT access_token FROM sessions \
-             WHERE access_token <> '' AND expires_at > $1 \
-             ORDER BY created_at DESC LIMIT $2",
-        )
-        .bind(now)
-        .bind(limit)
-        .fetch_all(&self.pg)
-        .await?;
-
-        let mut tokens: Vec<String> = Vec::with_capacity(MAX_DIRECT_ATTEMPTS);
-        if let Some(t) = user_token {
-            if !t.is_empty() {
-                tokens.push(t.to_string());
-            }
-        }
-        for (t,) in rows {
-            if !tokens.iter().any(|x| x == &t) {
-                tokens.push(t);
-            }
-        }
-        Ok(tokens)
     }
 }

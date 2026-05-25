@@ -215,6 +215,19 @@ struct AlbumPayload {
 struct ReleaseDate {
     #[serde(default)]
     year: Option<i32>,
+    #[serde(default)]
+    month: Option<u32>,
+    #[serde(default)]
+    day: Option<u32>,
+}
+
+impl ReleaseDate {
+    fn full_date(&self) -> Option<chrono::NaiveDate> {
+        let y = self.year?;
+        let m = self.month?.max(1).min(12);
+        let d = self.day?.max(1).min(31);
+        chrono::NaiveDate::from_ymd_opt(y, m, d)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +258,7 @@ pub struct GeniusAlbumRef {
     pub genius_album_id: i64,
     pub name: String,
     pub year: Option<i16>,
+    pub release_date: Option<chrono::NaiveDate>,
     pub cover_url: Option<String>,
 }
 
@@ -252,6 +266,7 @@ pub struct GeniusAlbumRef {
 pub struct GeniusSongDetails {
     pub album: Option<GeniusAlbumRef>,
     pub year: Option<i16>,
+    pub release_date: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug, Clone)]
@@ -425,14 +440,14 @@ impl GeniusService {
                     .name
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())?;
-                let year = a
-                    .release_date_components
-                    .and_then(|d| d.year)
-                    .and_then(|y| i16::try_from(y).ok());
+                let rd = a.release_date_components;
+                let year = rd.as_ref().and_then(|d| d.year).and_then(|y| i16::try_from(y).ok());
+                let release_date = rd.as_ref().and_then(ReleaseDate::full_date);
                 Some(GeniusAlbumRef {
                     genius_album_id: id,
                     name,
                     year,
+                    release_date,
                     cover_url: a.cover_art_url.filter(|s| !s.is_empty()),
                 })
             })
@@ -498,30 +513,33 @@ impl GeniusService {
         };
         let parsed: SongResp = self.fetch_json(&url, "song").await?;
         let song = parsed.response.and_then(|r| r.song)?;
-        let song_year = song
-            .release_date_components
+        let song_rd = song.release_date_components;
+        let song_year = song_rd
+            .as_ref()
             .and_then(|d| d.year)
             .and_then(|y| i16::try_from(y).ok());
+        let song_date = song_rd.as_ref().and_then(ReleaseDate::full_date);
         let album = song.album.and_then(|a| {
             let id = a.id?;
             let name = a
                 .name
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())?;
-            let year = a
-                .release_date_components
-                .and_then(|d| d.year)
-                .and_then(|y| i16::try_from(y).ok());
+            let rd = a.release_date_components;
+            let year = rd.as_ref().and_then(|d| d.year).and_then(|y| i16::try_from(y).ok());
+            let release_date = rd.as_ref().and_then(ReleaseDate::full_date);
             Some(GeniusAlbumRef {
                 genius_album_id: id,
                 name,
                 year,
+                release_date,
                 cover_url: a.cover_art_url,
             })
         });
         Some(GeniusSongDetails {
             album,
             year: song_year,
+            release_date: song_date,
         })
     }
 

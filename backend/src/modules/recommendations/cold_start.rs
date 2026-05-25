@@ -51,11 +51,10 @@ async fn load_fresh(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<
     let rows: Vec<(String,)> = if let Some(langs) = languages {
         if !langs.is_empty() {
             sqlx::query_as(
-                "SELECT sc_track_id FROM indexed_tracks
-                 WHERE indexed_at IS NOT NULL
-                   AND indexed_at > NOW() - make_interval(days => $2::int)
+                "SELECT sc_track_id FROM tracks
+                 WHERE sc_synced_at > NOW() - make_interval(days => $2::int)
                    AND language = ANY($1)
-                 ORDER BY indexed_at DESC
+                 ORDER BY sc_synced_at DESC
                  LIMIT $3",
             )
             .bind(langs)
@@ -65,10 +64,9 @@ async fn load_fresh(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<
             .await?
         } else {
             sqlx::query_as(
-                "SELECT sc_track_id FROM indexed_tracks
-                 WHERE indexed_at IS NOT NULL
-                   AND indexed_at > NOW() - make_interval(days => $1::int)
-                 ORDER BY indexed_at DESC
+                "SELECT sc_track_id FROM tracks
+                 WHERE sc_synced_at > NOW() - make_interval(days => $1::int)
+                 ORDER BY sc_synced_at DESC
                  LIMIT $2",
             )
             .bind(FRESH_DAYS)
@@ -78,10 +76,9 @@ async fn load_fresh(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<
         }
     } else {
         sqlx::query_as(
-            "SELECT sc_track_id FROM indexed_tracks
-             WHERE indexed_at IS NOT NULL
-               AND indexed_at > NOW() - make_interval(days => $1::int)
-             ORDER BY indexed_at DESC
+            "SELECT sc_track_id FROM tracks
+             WHERE sc_synced_at > NOW() - make_interval(days => $1::int)
+             ORDER BY sc_synced_at DESC
              LIMIT $2",
         )
         .bind(FRESH_DAYS)
@@ -97,9 +94,9 @@ async fn load_popular(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Ve
         if !langs.is_empty() {
             sqlx::query_as(
                 "SELECT it.sc_track_id
-                 FROM indexed_tracks it
+                 FROM tracks it
                  JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.indexed_at IS NOT NULL AND it.language = ANY($1)
+                 WHERE it.language = ANY($1)
                  ORDER BY COALESCE(c.play_count, 0) DESC
                  LIMIT $2",
             )
@@ -110,9 +107,8 @@ async fn load_popular(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Ve
         } else {
             sqlx::query_as(
                 "SELECT it.sc_track_id
-                 FROM indexed_tracks it
+                 FROM tracks it
                  JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.indexed_at IS NOT NULL
                  ORDER BY COALESCE(c.play_count, 0) DESC
                  LIMIT $1",
             )
@@ -123,9 +119,8 @@ async fn load_popular(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Ve
     } else {
         sqlx::query_as(
             "SELECT it.sc_track_id
-             FROM indexed_tracks it
+             FROM tracks it
              JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-             WHERE it.indexed_at IS NOT NULL
              ORDER BY COALESCE(c.play_count, 0) DESC
              LIMIT $1",
         )

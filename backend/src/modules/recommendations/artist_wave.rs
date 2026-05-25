@@ -216,11 +216,10 @@ impl RecommendationsService {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT it.sc_track_id \
              FROM track_artists ta \
-             JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+             JOIN tracks it ON it.id = ta.track_id \
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
              WHERE ta.artist_id = $1 \
                AND ta.role = 'primary' \
-               AND it.indexed_at IS NOT NULL \
              ORDER BY COALESCE(c.play_count, 0) DESC, it.created_at DESC \
              LIMIT $2",
         )
@@ -275,11 +274,10 @@ impl RecommendationsService {
             "SELECT DISTINCT ON (ta.artist_id, it.sc_track_id)
                     ta.artist_id, it.sc_track_id
              FROM track_artists ta
-             JOIN indexed_tracks it ON it.id = ta.indexed_track_id
+             JOIN tracks it ON it.id = ta.track_id
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
              WHERE ta.artist_id = ANY($1)
                AND ta.role = 'primary'
-               AND it.indexed_at IS NOT NULL
              ORDER BY ta.artist_id, it.sc_track_id, COALESCE(c.play_count, 0) DESC
              LIMIT $2",
         )

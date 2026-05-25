@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use mini_moka::sync::Cache;
 use serde::Serialize;
-use serde_json::Value;
 use sqlx::{FromRow, PgPool};
 use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -369,33 +368,26 @@ impl LyricsService {
     }
 
     async fn load_hints_from_db(&self, sc_track_id: &str) -> AppResult<LyricsHints> {
-        let row: Option<(Option<String>, Option<i32>, Option<Value>)> = sqlx::query_as(
-            "SELECT title, duration_ms, raw_sc_data FROM indexed_tracks WHERE sc_track_id = $1",
+        // Источники artist для лирики, в порядке предпочтения:
+        // 1. metadata_artist из SC payload (наиболее каноничный для лейбловых
+        //    upload'ов; раньше брался из publisher_metadata.artist);
+        // 2. uploader_username (= user.username).
+        let row: Option<(String, i32, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT title, duration_ms, metadata_artist, uploader_username \
+             FROM tracks WHERE sc_track_id = $1",
         )
         .bind(sc_track_id)
         .fetch_optional(&self.pg)
         .await?;
-        let (title_db, duration_ms_db, raw_db) = row.unwrap_or((None, None, None));
-        let raw = raw_db.unwrap_or(Value::Null);
-        let title_raw = raw.get("title").and_then(|v| v.as_str()).map(String::from);
-        let duration_raw = raw.get("duration").and_then(|v| v.as_i64());
-        let artist_pub = raw
-            .get("publisher_metadata")
-            .and_then(|v| v.get("artist"))
-            .and_then(|v| v.as_str())
-            .map(String::from);
-        let artist_user = raw
-            .get("user")
-            .and_then(|v| v.get("username"))
-            .and_then(|v| v.as_str())
-            .map(String::from);
-
-        let title = title_db.or(title_raw).unwrap_or_default();
-        let artist = artist_pub.or(artist_user).unwrap_or_default();
-        let dur_ms = duration_ms_db
-            .map(|v| v as i64)
-            .or(duration_raw)
-            .unwrap_or(0);
+        let (title, dur_ms, artist) = match row {
+            Some((t, d, meta, uploader)) => {
+                let artist = meta
+                    .or(uploader)
+                    .unwrap_or_default();
+                (t, d as i64, artist)
+            }
+            None => (String::new(), 0i64, String::new()),
+        };
         Ok(LyricsHints {
             title,
             artist,
@@ -887,7 +879,7 @@ impl LyricsService {
             .execute(&self.pg)
             .await?;
             sqlx::query(
-                "UPDATE indexed_tracks SET language = $2, language_confidence = $3 WHERE sc_track_id = $1",
+                "UPDATE tracks SET language = $2, language_confidence = $3 WHERE sc_track_id = $1",
             )
             .bind(&entity.sc_track_id)
             .bind(&l.language)
@@ -922,9 +914,9 @@ impl LyricsService {
         .await?;
 
         let need_full: Vec<(String,)> = sqlx::query_as(
-            "SELECT it.sc_track_id FROM indexed_tracks it \
+            "SELECT it.sc_track_id FROM tracks it \
              LEFT JOIN lyrics_cache lc ON lc.sc_track_id = it.sc_track_id \
-             WHERE it.indexed_at IS NOT NULL AND lc.sc_track_id IS NULL AND it.created_at < $1 \
+             WHERE it.storage_state IN ('sq','hq') AND lc.sc_track_id IS NULL AND it.created_at < $1 \
              ORDER BY it.created_at ASC LIMIT $2",
         )
         .bind(cutoff)

@@ -41,7 +41,13 @@ export interface TrackEnrichment {
   release_year?: number;
   release_date?: string;
   release_source?: string;
-  isrc?: string;
+}
+
+export interface TrackScdMeta {
+  storage_state: 'pending' | 'sq' | 'hq' | 'failed';
+  storage_quality?: 'sq' | 'hq';
+  index_state: 'pending' | 'indexed' | 'failed';
+  enrich_state: 'pending' | 'done' | 'failed';
 }
 
 export interface Track {
@@ -49,13 +55,19 @@ export interface Track {
   urn: string;
   title: string;
   duration: number;
+  full_duration?: number;
   artwork_url: string | null;
   permalink_url?: string;
   waveform_url?: string;
   genre?: string;
   tag_list?: string;
   description?: string;
+  language?: string;
+  release_year?: number;
+  release_date?: string;
   created_at?: string;
+  last_modified?: string;
+  sharing?: 'public' | 'private';
   comment_count?: number;
   playback_count?: number;
   likes_count?: number;
@@ -63,14 +75,25 @@ export interface Track {
   reposts_count?: number;
   user_favorite?: boolean;
   access?: 'playable' | 'preview' | 'blocked';
+  publisher_metadata?: {
+    isrc?: string;
+  };
   user: {
     id: number;
     urn: string;
     username: string;
     avatar_url: string;
-    permalink_url: string;
+    permalink_url?: string;
+    verified?: boolean;
+    country_code?: string;
+    city?: string;
+    description?: string;
+    followers_count?: number;
+    followings_count?: number;
+    track_count?: number;
   };
   enrichment?: TrackEnrichment;
+  _scd_meta?: TrackScdMeta;
 }
 
 type RepeatMode = 'off' | 'one' | 'all';

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use serde_json::Value;
 use sqlx::PgPool;
 
 #[derive(Debug, Clone, Default)]
@@ -17,39 +16,29 @@ pub async fn load_track_meta(pg: &PgPool, ids: &[String]) -> HashMap<String, Tra
     if ids.is_empty() {
         return HashMap::new();
     }
-    let rows: Vec<(String, Option<Value>, Option<i64>, Option<i64>)> = sqlx::query_as(
-        "SELECT it.sc_track_id, it.raw_sc_data, c.play_count, c.likes_count
-         FROM indexed_tracks it
-         LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-         WHERE it.sc_track_id = ANY($1)",
-    )
-    .bind(ids)
-    .fetch_all(pg)
-    .await
-    .unwrap_or_default();
+    let rows: Vec<(String, String, Option<String>, i32, Option<i64>, Option<i64>)> =
+        sqlx::query_as(
+            "SELECT it.sc_track_id, it.title, it.genre, it.duration_ms, c.play_count, c.likes_count
+             FROM tracks it
+             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
+             WHERE it.sc_track_id = ANY($1)",
+        )
+        .bind(ids)
+        .fetch_all(pg)
+        .await
+        .unwrap_or_default();
 
     let mut out = HashMap::with_capacity(rows.len());
-    for (id, raw, plays, likes) in rows {
-        let raw = raw.unwrap_or(Value::Null);
-        let title = raw
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+    for (id, title, genre, duration_ms, plays, likes) in rows {
         let lower = title.to_lowercase();
-        let duration_ms = raw.get("duration").and_then(|v| v.as_i64()).unwrap_or(0);
-        let has_genre = raw
-            .get("genre")
-            .and_then(|v| v.as_str())
-            .map(|s| !s.is_empty())
-            .unwrap_or(false);
+        let has_genre = genre.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
         let is_preview = lower.contains("preview") || lower.contains("teaser");
         out.insert(
             id,
             TrackMeta {
                 plays: plays.unwrap_or(0),
                 likes: likes.unwrap_or(0),
-                duration_ms,
+                duration_ms: duration_ms as i64,
                 title,
                 has_genre,
                 is_preview,

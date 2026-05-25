@@ -24,6 +24,10 @@ pub(crate) struct RestrictedSource {
     pub manifest: String,
     pub token: String,
     pub content_type: &'static str,
+    /// true → выбранный transcoding quality=="hq". HQ-upgrade cron этим
+    /// фильтрует, чтобы не залить sq → sq (тогда мы зря бы тратили апи и
+    /// флаг hq_upgrade_pending не двигался).
+    pub is_hq: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -94,6 +98,7 @@ pub(crate) async fn resolve(
     };
     let content_type =
         content_type_from_mime(tc.format.as_ref().and_then(|f| f.mime_type.as_deref()));
+    let is_hq = tc.quality.as_deref() == Some("hq");
 
     let target = build_transcoding_target(&tc.url, client_id, track_auth);
     let r: ResolveResp = fetch_get_json(client, proxy_url, &target, headers.clone(), false).await?;
@@ -107,5 +112,6 @@ pub(crate) async fn resolve(
         manifest,
         token,
         content_type,
+        is_hq,
     }))
 }

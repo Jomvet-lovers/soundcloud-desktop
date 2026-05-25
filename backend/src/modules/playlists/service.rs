@@ -6,16 +6,15 @@ use uuid::Uuid;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
-    build_list_cache_key, extract_sc_cursor, FetchChunkResult, GetPageOptions, ListCacheService,
-    ListPageResult,
+    build_list_cache_key, sc_list_page, ListCacheService, ListPageResult, ScListPageArgs,
 };
 use crate::error::{AppError, AppResult};
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::cold_refresh::ColdRefreshService;
 use crate::modules::sync_queue::SyncQueueService;
 use crate::sc::{self, ScClient};
 
 const TTL_SEARCH: u64 = 300;
-const TTL_TRACKS: u64 = 1800;
 const TTL_REPOSTERS: u64 = 600;
 
 pub struct PlaylistsService {
@@ -24,6 +23,7 @@ pub struct PlaylistsService {
     list_cache: Arc<ListCacheService>,
     sync_queue: Arc<SyncQueueService>,
     cold_refresh: Arc<ColdRefreshService>,
+    tokens: Arc<TokenProvider>,
 }
 
 impl PlaylistsService {
@@ -33,6 +33,7 @@ impl PlaylistsService {
         list_cache: Arc<ListCacheService>,
         sync_queue: Arc<SyncQueueService>,
         cold_refresh: Arc<ColdRefreshService>,
+        tokens: Arc<TokenProvider>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
@@ -40,76 +41,32 @@ impl PlaylistsService {
             list_cache,
             sync_queue,
             cold_refresh,
+            tokens,
         })
-    }
-
-    async fn list_page(
-        &self,
-        cache_key: &str,
-        ttl: u64,
-        page: i64,
-        limit: i64,
-        path: String,
-        token: String,
-        extra_params: Vec<(String, String)>,
-    ) -> AppResult<ListPageResult<Value>> {
-        let sc = self.sc.clone();
-        self.list_cache
-            .get_page::<Value, _, _>(
-                GetPageOptions {
-                    key: cache_key,
-                    scope: CacheScope::Shared,
-                    session_id: None,
-                    ttl_sec: ttl,
-                    page,
-                    limit,
-                    chunk_size: None,
-                },
-                |cursor, chunk_size| {
-                    let sc = sc.clone();
-                    let path = path.clone();
-                    let token = token.clone();
-                    let extra = extra_params.clone();
-                    async move {
-                        let mut params: Vec<(String, String)> = extra;
-                        params.push(("limit".into(), chunk_size.to_string()));
-                        params.push(("linked_partitioning".into(), "true".into()));
-                        if let Some(c) = cursor {
-                            params.push(("cursor".into(), c));
-                        }
-                        let resp: Value = sc.api_get_value(&path, &token, Some(&params)).await?;
-                        let items = resp
-                            .get("collection")
-                            .and_then(|v| v.as_array().cloned())
-                            .unwrap_or_default();
-                        let next_cursor = resp
-                            .get("next_href")
-                            .and_then(|v| v.as_str())
-                            .and_then(|h| extract_sc_cursor(Some(h)));
-                        Ok::<_, AppError>(FetchChunkResult { items, next_cursor })
-                    }
-                },
-            )
-            .await
     }
 
     pub async fn search(
         &self,
-        token: &str,
+        session_id: Uuid,
         page: i64,
         limit: i64,
         extra: Vec<(String, String)>,
     ) -> AppResult<ListPageResult<Value>> {
         let key = build_list_cache_key("playlists-search", &as_pairs(&extra));
-        self.list_page(
-            &key,
-            TTL_SEARCH,
+        sc_list_page(ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind: TokenKind::UserFirst(session_id),
+            cache_key: &key,
+            ttl: TTL_SEARCH,
+            scope: CacheScope::Shared,
+            session_id: None,
             page,
             limit,
-            "/playlists".into(),
-            token.to_string(),
-            extra,
-        )
+            path: "/playlists".into(),
+            extra_params: extra,
+        })
         .await
     }
 
@@ -117,12 +74,21 @@ impl PlaylistsService {
     /// ban-ответ кладём в sync_queue с nonce-URN (несколько параллельных
     /// create'ов одного юзера не должны дедупиться друг с другом). cached_*
     /// заполнит refresh_owned_playlists по следующему чтению /me/playlists.
-    pub async fn create(&self, token: &str, sc_user_id: &str, body: &Value) -> AppResult<Value> {
-        match self
-            .sc
-            .api_post_value("/playlists", token, Some(body))
-            .await
-        {
+    pub async fn create(
+        &self,
+        session_id: Uuid,
+        sc_user_id: &str,
+        body: &Value,
+    ) -> AppResult<Value> {
+        let chain = self.tokens.chain(TokenKind::User(session_id)).await?;
+        let res = try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let body = body.clone();
+            async move { sc.api_post_value("/playlists", &tok, Some(&body)).await }
+        })
+        .await;
+
+        match res {
             Ok(v) => Ok(v),
             Err(e) if sc::is_ban_error(&e) => {
                 let nonce = format!("new:{}", Uuid::new_v4());
@@ -139,76 +105,77 @@ impl PlaylistsService {
         }
     }
 
-    /// Cold-read /playlists/{urn}: cached_playlists → miss → SC + upsert.
-    /// Query-params (access/show_tracks/secret_token) учитываются только при
-    /// miss — кеш на URN-уровне общий. secret_token-запросы идут мимо кеша.
+    /// Cold-read /playlists/{urn}: проекция из `playlists` → miss → SC + upsert.
+    /// secret_token-запросы идут мимо кеша.
     pub async fn get_by_id(
         &self,
-        token: &str,
+        session_id: Uuid,
+        sc_user_id: &str,
         playlist_urn: &str,
         params: &[(String, String)],
     ) -> AppResult<Value> {
         let has_secret = params.iter().any(|(k, _)| k == "secret_token");
         if has_secret {
-            return self
-                .sc
-                .api_get_value(&format!("/playlists/{playlist_urn}"), token, Some(params))
-                .await;
+            let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+            return try_with_chain(&chain, |tok| {
+                let sc = self.sc.clone();
+                let path = format!("/playlists/{playlist_urn}");
+                let params = params.to_vec();
+                async move { sc.api_get_value(&path, &tok, Some(&params)).await }
+            })
+            .await;
         }
-        let cached: Option<(
-            sqlx::types::Json<Value>,
-            Option<chrono::DateTime<chrono::Utc>>,
-        )> = sqlx::query_as(
-            "SELECT payload, synced_at FROM cached_playlists WHERE playlist_urn = $1",
-        )
-        .bind(playlist_urn)
-        .fetch_optional(&self.pg)
-        .await?;
-        if let Some((j, synced_at)) = cached {
-            let pg = self.pg.clone();
-            let urn = playlist_urn.to_string();
-            tokio::spawn(async move {
-                let _ = sqlx::query(
-                    "UPDATE cached_playlists SET last_read_at = now() \
-                     WHERE playlist_urn = $1 \
-                       AND (last_read_at IS NULL \
-                            OR last_read_at < now() - INTERVAL '5 minutes')",
-                )
-                .bind(&urn)
-                .execute(&pg)
-                .await;
-            });
-            if self.cold_refresh.is_playlist_stale(synced_at) {
-                let refresh = self.cold_refresh.clone();
+        let repo = crate::modules::playlists::PlaylistRepository::new(self.pg.clone());
+        if let Some(row) = repo.find_by_urn(playlist_urn).await? {
+            // Sharing-guard для приватных плейлистов.
+            if row.sharing != "public" {
+                let is_owner = row
+                    .owner_sc_user_id
+                    .as_deref()
+                    .map(|u| u == sc_user_id)
+                    .unwrap_or(false);
+                if !is_owner {
+                    return Err(AppError::not_found("Playlist not found"));
+                }
+            }
+            let synced_at = row.sc_synced_at;
+            {
+                let repo2 = crate::modules::playlists::PlaylistRepository::new(self.pg.clone());
                 let urn = playlist_urn.to_string();
-                let tok = token.to_string();
                 tokio::spawn(async move {
-                    if let Err(e) = refresh.refresh_playlist(&urn, &tok).await {
+                    let _ = repo2.touch_last_read(&urn).await;
+                });
+            }
+            if self.cold_refresh.is_playlist_stale(Some(synced_at)) {
+                let refresh = self.cold_refresh.clone();
+                let tokens = self.tokens.clone();
+                let urn = playlist_urn.to_string();
+                tokio::spawn(async move {
+                    let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
+                    if let Err(e) = refresh.refresh_playlist(&urn, &chain).await {
                         tracing::debug!(error = %e, urn = %urn, "playlist refresh failed");
                     }
                 });
             }
-            return Ok(j.0);
+            return Ok(crate::modules::playlists::project_to_sc_shape(&row, None));
         }
-        let fetched: Value = self
-            .sc
-            .api_get_value(&format!("/playlists/{playlist_urn}"), token, Some(params))
-            .await?;
-        sqlx::query(
-            "INSERT INTO cached_playlists (playlist_urn, payload, synced_at, last_read_at) \
-             VALUES ($1, $2, now(), now()) \
-             ON CONFLICT (playlist_urn) DO UPDATE SET \
-                 payload = EXCLUDED.payload, synced_at = now(), last_read_at = now()",
-        )
-        .bind(playlist_urn)
-        .bind(&fetched)
-        .execute(&self.pg)
+        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+        let fetched: Value = try_with_chain(&chain, |tok| {
+            let sc = self.sc.clone();
+            let path = format!("/playlists/{playlist_urn}");
+            let params = params.to_vec();
+            async move { sc.api_get_value(&path, &tok, Some(&params)).await }
+        })
         .await?;
+        repo.upsert_from_sc(&fetched).await?;
         Ok(fetched)
     }
 
     /// Оптимистичный update: только enqueue. SC-вызов и инвалидация
-    /// cached_playlists произойдут в action handler'е.
+    /// нормализованной `playlists`-строки произойдут в action handler'е.
     pub async fn update(
         &self,
         sc_user_id: &str,
@@ -226,8 +193,8 @@ impl PlaylistsService {
     }
 
     /// Оптимистичный delete: убираем строку из user_owned_playlists (UI сразу
-    /// перестаёт показывать плейлист в /me/playlists), очищаем cached_playlists
-    /// и его tracks-mirror. SC delete — фоном через worker.
+    /// перестаёт показывать плейлист в /me/playlists), сносим playlists +
+    /// playlist_tracks. SC delete — фоном через worker.
     pub async fn delete(&self, sc_user_id: &str, playlist_urn: &str) -> AppResult<Value> {
         let mut tx = self.pg.begin().await?;
         sqlx::query("DELETE FROM user_owned_playlists WHERE user_id = $1 AND playlist_urn = $2")
@@ -235,11 +202,11 @@ impl PlaylistsService {
             .bind(playlist_urn)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM cached_playlists WHERE playlist_urn = $1")
+        sqlx::query("DELETE FROM playlists WHERE urn = $1")
             .bind(playlist_urn)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM cached_playlist_tracks WHERE playlist_urn = $1")
+        sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
             .bind(playlist_urn)
             .execute(&mut *tx)
             .await?;
@@ -254,46 +221,111 @@ impl PlaylistsService {
         }))
     }
 
+    /// Cold-read /playlists/{urn}/tracks: проекция из `playlist_tracks` ∪ `tracks`.
+    /// На пустую строку или stale `tracks_synced_at` — синхронный seed (нужно
+    /// что-то отдать клиенту), либо фоновой refresh (стандартный SWR). Это лечит
+    /// 200-track loop старой ListCacheService-схемы: следуем `next_href` целиком
+    /// в `refresh_playlist_tracks` и атомарно подменяем replay-storage.
     pub async fn get_tracks(
         &self,
-        token: &str,
+        session_id: Uuid,
+        sc_user_id: &str,
         playlist_urn: &str,
         page: i64,
         limit: i64,
-        extra: Vec<(String, String)>,
     ) -> AppResult<ListPageResult<Value>> {
-        let key = build_list_cache_key(
-            &format!("playlist-tracks:{playlist_urn}"),
-            &as_pairs(&extra),
-        );
-        self.list_page(
-            &key,
-            TTL_TRACKS,
+        let repo = crate::modules::playlists::PlaylistRepository::new(self.pg.clone());
+
+        let playlist_row = repo.find_by_urn(playlist_urn).await?;
+        if let Some(row) = &playlist_row {
+            if row.sharing != "public" {
+                let is_owner = row
+                    .owner_sc_user_id
+                    .as_deref()
+                    .map(|u| u == sc_user_id)
+                    .unwrap_or(false);
+                if !is_owner {
+                    return Err(AppError::not_found("Playlist not found"));
+                }
+            }
+        }
+        let needs_seed = match &playlist_row {
+            None => true,
+            Some(r) => r.tracks_synced_at.is_none(),
+        };
+
+        if needs_seed {
+            let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+            // Если плейлиста ещё нет в `playlists` — UPSERT meta перед track-list.
+            if playlist_row.is_none() {
+                let fetched: Value = try_with_chain(&chain, |tok| {
+                    let sc = self.sc.clone();
+                    let path = format!("/playlists/{playlist_urn}");
+                    async move { sc.api_get_value(&path, &tok, None).await }
+                })
+                .await?;
+                repo.upsert_from_sc(&fetched).await?;
+            }
+            self.cold_refresh
+                .refresh_playlist_tracks(playlist_urn, &chain)
+                .await?;
+        } else if let Some(row) = &playlist_row {
+            if self.cold_refresh.is_playlist_stale(row.tracks_synced_at) {
+                let refresh = self.cold_refresh.clone();
+                let tokens = self.tokens.clone();
+                let urn = playlist_urn.to_string();
+                tokio::spawn(async move {
+                    let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
+                    if let Err(e) = refresh.refresh_playlist_tracks(&urn, &chain).await {
+                        tracing::debug!(error = %e, urn = %urn, "playlist tracks refresh failed");
+                    }
+                });
+            }
+        }
+
+        let offset = page.max(0) * limit;
+        let ids = repo
+            .page_track_ids(playlist_urn, offset, limit + 1)
+            .await?;
+        let has_more = ids.len() as i64 > limit;
+        let page_ids: Vec<String> = ids.into_iter().take(limit as usize).collect();
+        let collection: Vec<Value> = crate::modules::tracks::project_many(&self.pg, &page_ids)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
+        Ok(ListPageResult {
+            collection,
             page,
-            limit,
-            format!("/playlists/{playlist_urn}/tracks"),
-            token.to_string(),
-            extra,
-        )
-        .await
+            page_size: limit,
+            has_more,
+        })
     }
 
     pub async fn get_reposters(
         &self,
-        token: &str,
+        session_id: Uuid,
         playlist_urn: &str,
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        self.list_page(
-            &format!("playlist-reposters:{playlist_urn}"),
-            TTL_REPOSTERS,
+        sc_list_page(ScListPageArgs {
+            list_cache: &self.list_cache,
+            sc: &self.sc,
+            tokens: &self.tokens,
+            kind: TokenKind::UserFirst(session_id),
+            cache_key: &format!("playlist-reposters:{playlist_urn}"),
+            ttl: TTL_REPOSTERS,
+            scope: CacheScope::Shared,
+            session_id: None,
             page,
             limit,
-            format!("/playlists/{playlist_urn}/reposters"),
-            token.to_string(),
-            vec![],
-        )
+            path: format!("/playlists/{playlist_urn}/reposters"),
+            extra_params: vec![],
+        })
         .await
     }
 }

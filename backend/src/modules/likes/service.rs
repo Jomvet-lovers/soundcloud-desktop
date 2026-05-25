@@ -5,23 +5,35 @@ use sqlx::PgPool;
 
 use crate::common::sc_ids::extract_sc_id;
 use crate::error::AppResult;
-use crate::modules::cold_refresh::upsert_track_cache;
+use crate::modules::indexing::IndexingService;
 use crate::modules::sync_queue::mirror::{self, LIKES_PLAYLISTS, LIKES_TRACKS};
 use crate::modules::sync_queue::SyncQueueService;
+use crate::modules::tracks::TrackPriority;
 
 pub struct LikesService {
     pg: PgPool,
     sync_queue: Arc<SyncQueueService>,
+    indexing: Arc<IndexingService>,
 }
 
 impl LikesService {
-    pub fn new(pg: PgPool, sync_queue: Arc<SyncQueueService>) -> Arc<Self> {
-        Arc::new(Self { pg, sync_queue })
+    pub fn new(
+        pg: PgPool,
+        sync_queue: Arc<SyncQueueService>,
+        indexing: Arc<IndexingService>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            pg,
+            sync_queue,
+            indexing,
+        })
     }
 
-    /// Оптимистичный лайк трека. Если в body приехал track_data — заодно
-    /// прогреваем indexed_tracks, чтобы холодное чтение /me/likes/tracks имело
-    /// payload без захода в SC.
+    /// Оптимистичный лайк трека. Если в body приехал track_data — ingest'им
+    /// его через индексинг с priority=Like: UPSERT в `tracks` + kick пайплайна
+    /// (transcode → S3 → qdrant). Это снимает SC-roundtrip на первом
+    /// холодном чтении `/me/likes/tracks` и одновременно ставит трек в
+    /// очередь приоритетного индексирования — обычно его юзер слушает первым.
     pub async fn like_track(
         &self,
         sc_user_id: &str,
@@ -30,7 +42,9 @@ impl LikesService {
     ) -> AppResult<Value> {
         let sc_track_id = extract_sc_id(track_urn);
         if let Some(td) = track_data {
-            upsert_track_cache(&self.pg, sc_track_id, td).await?;
+            self.indexing
+                .ingest_track_from_sc(td, TrackPriority::Like)
+                .await?;
         }
         mirror::set_wanted(&self.pg, LIKES_TRACKS, sc_user_id, sc_track_id).await?;
         self.sync_queue

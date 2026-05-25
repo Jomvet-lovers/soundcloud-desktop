@@ -298,7 +298,7 @@ async fn load_artist_by_track(
     }
     let ids: Vec<String> = blended.iter().map(|c| c.sc_track_id.to_string()).collect();
     let rows: Vec<(String, Option<Uuid>)> = match sqlx::query_as(
-        "SELECT sc_track_id, primary_artist_id FROM indexed_tracks \
+        "SELECT sc_track_id, primary_artist_id FROM tracks \
          WHERE sc_track_id = ANY($1)",
     )
     .bind(&ids)

@@ -9,12 +9,12 @@ use uuid::Uuid;
 
 use crate::config::EnrichCrawlCfg;
 use crate::error::AppResult;
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::enrich::mb::{MbArtistUrl, MbClient, MbRecordingBrief};
 use crate::modules::enrich::normalize::{normalize_name, normalize_title};
 use crate::modules::enrich::sc_accounts::{
     self, extract_sc_user_id_from_resolve, is_soundcloud_url, AccountRole,
 };
-use crate::modules::enrich::token_pool::TokenPool;
 use crate::modules::lyrics::genius::{
     GeniusAlbumTrack, GeniusArtistDetails, GeniusService, GeniusSongMeta,
 };
@@ -23,14 +23,13 @@ use crate::sc::ScClient;
 
 const MB_PAGE_SIZE: u32 = 100;
 const GENIUS_PAGE_SIZE: u32 = 50;
-const SC_TOKEN_EXTRA: usize = 2;
 
 pub struct ArtistCrawlService {
     pg: PgPool,
     mb: Arc<MbClient>,
     genius: Arc<GeniusService>,
     sc: ScClient,
-    tokens: Arc<TokenPool>,
+    tokens: Arc<TokenProvider>,
     resolve: Arc<ResolveService>,
     cfg: EnrichCrawlCfg,
 }
@@ -56,7 +55,7 @@ impl ArtistCrawlService {
         mb: Arc<MbClient>,
         genius: Arc<GeniusService>,
         sc: ScClient,
-        tokens: Arc<TokenPool>,
+        tokens: Arc<TokenProvider>,
         resolve: Arc<ResolveService>,
         cfg: EnrichCrawlCfg,
     ) -> Arc<Self> {
@@ -106,8 +105,8 @@ impl ArtistCrawlService {
             "WITH activity AS (
                  SELECT ta.artist_id, COUNT(*)::int8 AS event_count
                  FROM user_events ue
-                 JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id
-                 JOIN track_artists ta ON ta.indexed_track_id = it.id
+                 JOIN tracks it ON it.sc_track_id = ue.sc_track_id
+                 JOIN track_artists ta ON ta.track_id = it.id
                  WHERE ue.created_at > now() - interval '30 days'
                  GROUP BY ta.artist_id
              ),
@@ -343,7 +342,7 @@ impl ArtistCrawlService {
             if kind != "soundcloud" || !is_soundcloud_url(url) {
                 continue;
             }
-            let value = match self.resolve.resolve(None, url).await {
+            let value = match self.resolve.resolve(TokenKind::PublicPool, url).await {
                 Ok(v) => v,
                 Err(e) => {
                     debug!(url, error = %e, "resolve sc url failed");
@@ -550,24 +549,24 @@ impl ArtistCrawlService {
 
     async fn link_indexed_album_with_position(
         &self,
-        indexed_track_id: Uuid,
+        track_id: Uuid,
         album_id: Uuid,
         position: i16,
     ) -> AppResult<()> {
         sqlx::query(
-            "UPDATE indexed_tracks SET album_id = COALESCE(album_id, $2), album_position = COALESCE(album_position, $3) WHERE id = $1",
+            "UPDATE tracks SET album_id = COALESCE(album_id, $2), album_position = COALESCE(album_position, $3) WHERE id = $1",
         )
-        .bind(indexed_track_id)
+        .bind(track_id)
         .bind(album_id)
         .bind(position)
         .execute(&self.pg)
         .await?;
         sqlx::query(
-            "INSERT INTO album_tracks (album_id, indexed_track_id, position) VALUES ($1, $2, $3)
+            "INSERT INTO album_tracks (album_id, track_id, position) VALUES ($1, $2, $3)
              ON CONFLICT DO NOTHING",
         )
         .bind(album_id)
-        .bind(indexed_track_id)
+        .bind(track_id)
         .bind(position)
         .execute(&self.pg)
         .await?;
@@ -1037,7 +1036,7 @@ impl ArtistCrawlService {
 
     async fn indexed_track_has_isrc(&self, isrc: &str) -> AppResult<bool> {
         let row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM indexed_tracks WHERE isrc = $1 LIMIT 1")
+            sqlx::query_as("SELECT id FROM tracks WHERE isrc = $1 LIMIT 1")
                 .bind(isrc)
                 .fetch_optional(&self.pg)
                 .await?;
@@ -1056,46 +1055,47 @@ impl ArtistCrawlService {
                 target_title,
             )
             .await?
-            .map(|m| m.indexed_track_id),
+            .map(|m| m.track_id),
         )
     }
 
-    async fn link_indexed_album(&self, indexed_track_id: Uuid, album_id: Uuid) -> AppResult<()> {
-        sqlx::query("UPDATE indexed_tracks SET album_id = COALESCE(album_id, $2) WHERE id = $1")
-            .bind(indexed_track_id)
+    async fn link_indexed_album(&self, track_id: Uuid, album_id: Uuid) -> AppResult<()> {
+        sqlx::query("UPDATE tracks SET album_id = COALESCE(album_id, $2) WHERE id = $1")
+            .bind(track_id)
             .bind(album_id)
             .execute(&self.pg)
             .await?;
         sqlx::query(
-            "INSERT INTO album_tracks (album_id, indexed_track_id) VALUES ($1, $2)
+            "INSERT INTO album_tracks (album_id, track_id) VALUES ($1, $2)
              ON CONFLICT DO NOTHING",
         )
         .bind(album_id)
-        .bind(indexed_track_id)
+        .bind(track_id)
         .execute(&self.pg)
         .await?;
         Ok(())
     }
 
     async fn fetch_sc_web_profiles(&self, artist_id: Uuid, sc_user_id: &str) -> AppResult<()> {
-        let tokens = self.tokens.pick_for_background(SC_TOKEN_EXTRA).await?;
-        if tokens.is_empty() {
-            return Ok(());
-        }
+        let chain = match self.tokens.chain(TokenKind::PublicPool).await {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
+        };
         let path = format!("/users/soundcloud:users:{sc_user_id}/web-profiles");
-        for token in tokens {
-            match self.sc.api_get_value(&path, &token, None).await {
-                Ok(value) => {
-                    let socials = parse_sc_web_profiles(&value);
-                    if !socials.is_empty() {
-                        self.upsert_socials(artist_id, &socials).await?;
-                    }
-                    return Ok(());
-                }
-                Err(e) => {
-                    debug!(artist = %artist_id, error = %e, "SC web-profiles attempt failed");
+        match try_with_chain(&chain, |t| {
+            let sc = self.sc.clone();
+            let path = path.clone();
+            async move { sc.api_get_value(&path, &t, None).await }
+        })
+        .await
+        {
+            Ok(value) => {
+                let socials = parse_sc_web_profiles(&value);
+                if !socials.is_empty() {
+                    self.upsert_socials(artist_id, &socials).await?;
                 }
             }
+            Err(e) => debug!(artist = %artist_id, error = %e, "SC web-profiles failed"),
         }
         Ok(())
     }

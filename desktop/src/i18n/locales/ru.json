@@ -108,7 +108,8 @@
       "original": "оригинал",
       "demo": "демо",
       "alt": "alt",
-      "reupload": "перезалив"
+      "reupload": "перезалив",
+      "cover": "кавер"
     },
     "notFoundOnSc": "не найдено на SoundCloud",
     "wantedHint": "Трек известен, но ещё не залит на SC",
@@ -499,6 +500,8 @@
     "title": "Артист",
     "tracks": "Треки",
     "appearsOn": "Где участвовал",
+    "covers": "Каверы",
+    "noCovers": "Каверов пока нет",
     "albums": "Альбомы",
     "related": "Похожие",
     "about": "Об артисте",

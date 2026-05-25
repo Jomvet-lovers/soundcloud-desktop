@@ -37,9 +37,16 @@ export function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-/** Relative time: "2026-01-01T00:00:00Z" → "2mo" */
-export function ago(dateStr: string): string {
+function parseScDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr) return null;
   const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Relative time: "2026-01-01T00:00:00Z" → "2mo". Пустой/невалидный → ''. */
+export function ago(dateStr: string | null | undefined): string {
+  const d = parseScDate(dateStr);
+  if (!d) return '';
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
   if (s < 60) return 'now';
   const m = Math.floor(s / 60);
@@ -55,9 +62,10 @@ export function ago(dateStr: string): string {
   return `${Math.floor(dd / 365)}y`;
 }
 
-/** Formatted date: "2026-01-01" → "Jan 1, 2026" */
-export function dateFormatted(dateStr: string): string {
-  const d = new Date(dateStr.replace(/\//g, '-').replace(' +0000', 'Z'));
+/** Formatted date: "2026-01-01" → "Jan 1, 2026". Пустой/невалидный → ''. */
+export function dateFormatted(dateStr: string | null | undefined): string {
+  const d = parseScDate(dateStr);
+  if (!d) return '';
   return d.toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'short',

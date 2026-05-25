@@ -157,7 +157,8 @@ async fn get_streams(
         target.push_str(&format!("?secret_token={st}"));
     }
 
-    // 1) direct with original token (only when proxy_fallback enabled & proxy is set)
+    // 1) direct с original токеном (только когда включён proxy_fallback и
+    //    задан proxy). На retryable error падаем на пул oauth_app_tokens.
     if proxy_fallback && !proxy_url.is_empty() {
         match fetch_streams_direct_once(client, &target, access_token).await {
             FetchOutcome::Ok(s) => return Some(s),
@@ -166,44 +167,39 @@ async fn get_streams(
                 return None;
             }
             FetchOutcome::Retryable(reason) => {
-                warn!("[oauth] direct streams failed ({reason}) for {track_urn}, trying random sessions");
+                warn!(
+                    "[oauth] direct streams failed ({reason}) for {track_urn}, trying app-token pool"
+                );
 
-                // 2) try N random valid sessions, direct (no proxy)
                 if fallback_session_count > 0 {
-                    match pg
-                        .get_random_valid_sessions(fallback_session_count as i64, access_token)
-                        .await
-                    {
+                    match pg.get_app_tokens(access_token).await {
                         Ok(tokens) if !tokens.is_empty() => {
-                            for (i, token) in tokens.iter().enumerate() {
+                            let limit = fallback_session_count.min(tokens.len());
+                            for (i, token) in tokens.iter().take(limit).enumerate() {
                                 match fetch_streams_direct_once(client, &target, token).await {
                                     FetchOutcome::Ok(s) => {
                                         info!(
-                                            "[oauth] {track_urn} → random session direct ({}/{})",
+                                            "[oauth] {track_urn} → app-token direct ({}/{limit})",
                                             i + 1,
-                                            tokens.len()
                                         );
                                         return Some(s);
                                     }
                                     FetchOutcome::NotFound => {
-                                        warn!("[oauth] streams 404 for {track_urn} (random)");
+                                        warn!("[oauth] streams 404 for {track_urn} (app-token)");
                                         return None;
                                     }
                                     FetchOutcome::Retryable(_) => continue,
                                 }
                             }
                             warn!(
-                                "[oauth] all {} random sessions failed for {track_urn}, falling back to proxy",
-                                tokens.len()
+                                "[oauth] all {limit} app-tokens failed for {track_urn}, falling back to proxy",
                             );
                         }
                         Ok(_) => {
-                            warn!(
-                                "[oauth] no valid random sessions available, falling back to proxy"
-                            );
+                            warn!("[oauth] app-token pool empty, falling back to proxy");
                         }
                         Err(e) => warn!(
-                            "[oauth] failed to fetch random sessions: {e}, falling back to proxy"
+                            "[oauth] failed to fetch app-tokens: {e}, falling back to proxy"
                         ),
                     }
                 }

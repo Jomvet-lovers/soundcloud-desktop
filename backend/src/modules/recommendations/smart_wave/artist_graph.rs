@@ -188,8 +188,8 @@ async fn load_seed_artists(pg: &PgPool, sc_user_id: &str) -> AppResult<Vec<SeedR
          ) \
          SELECT a.id AS artist_id, SUM(s.w)::real AS weight \
          FROM signals s \
-         JOIN indexed_tracks it ON it.sc_track_id = s.sc_track_id \
-         JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+         JOIN tracks it ON it.sc_track_id = s.sc_track_id \
+         JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
          JOIN artists a ON a.id = ta.artist_id \
          WHERE a.merged_into IS NULL \
          GROUP BY a.id \

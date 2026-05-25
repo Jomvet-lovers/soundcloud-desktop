@@ -191,7 +191,7 @@ impl RecommendationsService {
 
     async fn load_primary_artist_id(&self, sc_track_id: &str) -> Option<Uuid> {
         sqlx::query_as::<_, PrimaryArtistRow>(
-            "SELECT primary_artist_id FROM indexed_tracks
+            "SELECT primary_artist_id FROM tracks
              WHERE sc_track_id = $1 AND primary_artist_id IS NOT NULL
              LIMIT 1",
         )
@@ -213,11 +213,10 @@ impl RecommendationsService {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT it.sc_track_id
              FROM track_artists ta
-             JOIN indexed_tracks it ON it.id = ta.indexed_track_id
+             JOIN tracks it ON it.id = ta.track_id
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
              WHERE ta.artist_id = $1
                AND ta.role = 'primary'
-               AND it.indexed_at IS NOT NULL
                AND it.sc_track_id <> $2
              ORDER BY COALESCE(c.play_count, 0) DESC
              LIMIT $3",
@@ -255,16 +254,16 @@ impl RecommendationsService {
         let rows: Vec<ArtistTrackRow> = sqlx::query_as::<_, ArtistTrackRow>(
             "WITH anchor_artists AS (
                  SELECT artist_id FROM track_artists ta
-                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id
+                 JOIN tracks it ON it.id = ta.track_id
                  WHERE it.sc_track_id = $1
              ),
              feat_artists AS (
                  SELECT DISTINCT ta.artist_id
                  FROM track_artists ta
-                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id
+                 JOIN tracks it ON it.id = ta.track_id
                  WHERE ta.role IN ('featured', 'remixer')
                    AND it.id IN (
-                       SELECT indexed_track_id FROM track_artists
+                       SELECT track_id FROM track_artists
                        WHERE artist_id IN (SELECT artist_id FROM anchor_artists)
                    )
                    AND ta.artist_id NOT IN (SELECT artist_id FROM anchor_artists)
@@ -278,10 +277,9 @@ impl RecommendationsService {
                      ) AS rn
                  FROM feat_artists fa
                  JOIN track_artists ta ON ta.artist_id = fa.artist_id AND ta.role = 'primary'
-                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id
+                 JOIN tracks it ON it.id = ta.track_id
                  LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.indexed_at IS NOT NULL
-                   AND it.sc_track_id <> $1
+                 WHERE it.sc_track_id <> $1
              )
              SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id
              FROM ranked r

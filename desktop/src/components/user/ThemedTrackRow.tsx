@@ -15,6 +15,7 @@ import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
+import { TrackStatusBadges } from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
 import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 
@@ -99,6 +100,10 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
       </div>
 
       <TrackTitleArtist track={track} highlight={isThis} size="md" className="flex-1 min-w-0" />
+
+      <div className="hidden md:flex shrink-0">
+        <TrackStatusBadges meta={track._scd_meta} />
+      </div>
 
       <div className="hidden md:flex items-center gap-5 shrink-0 pr-2 text-[11px] text-white/35">
         {track.playback_count != null && (

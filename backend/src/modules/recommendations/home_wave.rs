@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
-use serde_json::Value;
 use tracing::info;
 use uuid::Uuid;
 
@@ -482,8 +481,8 @@ impl RecommendationsService {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT LOWER(a.name) \
              FROM user_events ue \
-             JOIN indexed_tracks it ON it.sc_track_id = ue.sc_track_id \
-             JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+             JOIN tracks it ON it.sc_track_id = ue.sc_track_id \
+             JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
              JOIN artists a ON a.id = ta.artist_id \
              WHERE ue.sc_user_id = $1 \
                AND ue.created_at > NOW() - INTERVAL '14 days' \
@@ -517,8 +516,8 @@ impl RecommendationsService {
              top_artists AS ( \
                  SELECT ta.artist_id, COUNT(*) AS cnt \
                  FROM recent_likes rl \
-                 JOIN indexed_tracks it ON it.sc_track_id = rl.sc_track_id \
-                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+                 JOIN tracks it ON it.sc_track_id = rl.sc_track_id \
+                 JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
                  GROUP BY ta.artist_id \
                  ORDER BY cnt DESC \
                  LIMIT $2 \
@@ -534,9 +533,8 @@ impl RecommendationsService {
                      ) AS rn \
                  FROM top_artists tau \
                  JOIN track_artists ta ON ta.artist_id = tau.artist_id AND ta.role = 'primary' \
-                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+                 JOIN tracks it ON it.id = ta.track_id \
                  LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
-                 WHERE it.indexed_at IS NOT NULL \
              ) \
              SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
              FROM ranked r \
@@ -580,8 +578,8 @@ impl RecommendationsService {
              user_artists AS ( \
                  SELECT DISTINCT ta.artist_id \
                  FROM recent_likes rl \
-                 JOIN indexed_tracks it ON it.sc_track_id = rl.sc_track_id \
-                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+                 JOIN tracks it ON it.sc_track_id = rl.sc_track_id \
+                 JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
                  LIMIT 100 \
              ), \
              co AS ( \
@@ -612,9 +610,8 @@ impl RecommendationsService {
                      co.w \
                  FROM co \
                  JOIN track_artists ta ON ta.artist_id = co.co_id AND ta.role = 'primary' \
-                 JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+                 JOIN tracks it ON it.id = ta.track_id \
                  LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
-                 WHERE it.indexed_at IS NOT NULL \
              ) \
              SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
              FROM ranked r \
@@ -659,18 +656,17 @@ impl RecommendationsService {
              user_artists AS ( \
                  SELECT DISTINCT ta.artist_id \
                  FROM recent_likes rl \
-                 JOIN indexed_tracks it ON it.sc_track_id = rl.sc_track_id \
-                 JOIN track_artists ta ON ta.indexed_track_id = it.id AND ta.role = 'primary' \
+                 JOIN tracks it ON it.sc_track_id = rl.sc_track_id \
+                 JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
              ) \
              SELECT it.sc_track_id \
              FROM track_artists ta \
-             JOIN indexed_tracks it ON it.id = ta.indexed_track_id \
+             JOIN tracks it ON it.id = ta.track_id \
              WHERE ta.artist_id IN (SELECT artist_id FROM user_artists) \
                AND ta.role = 'primary' \
-               AND it.indexed_at IS NOT NULL \
-               AND it.indexed_at > NOW() - INTERVAL '30 days' \
+               AND it.sc_synced_at > NOW() - INTERVAL '30 days' \
                AND NOT (it.sc_track_id = ANY($2)) \
-             ORDER BY it.indexed_at DESC \
+             ORDER BY it.sc_synced_at DESC \
              LIMIT $3",
         )
         .bind(sc_user_id)
@@ -691,9 +687,9 @@ impl RecommendationsService {
         if all_ids.is_empty() {
             return;
         }
-        let rows: Vec<(String, Option<Value>, Option<i64>, Option<f32>)> = sqlx::query_as(
-            "SELECT it.sc_track_id, it.raw_sc_data, c.play_count, it.quality_score \
-             FROM indexed_tracks it \
+        let rows: Vec<(String, i32, String, Option<i64>, Option<f32>)> = sqlx::query_as(
+            "SELECT it.sc_track_id, it.duration_ms, it.title, c.play_count, it.quality_score \
+             FROM tracks it \
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
              WHERE it.sc_track_id = ANY($1)",
         )
@@ -702,21 +698,28 @@ impl RecommendationsService {
         .await
         .unwrap_or_default();
 
-        let by_id: HashMap<String, (Option<Value>, i64, Option<f32>)> = rows
+        let by_id: HashMap<String, (i32, String, i64, Option<f32>)> = rows
             .into_iter()
-            .map(|(id, raw, plays, q)| (id, (raw, plays.unwrap_or(0), q)))
+            .map(|(id, dur, title, plays, q)| (id, (dur, title, plays.unwrap_or(0), q)))
             .collect();
 
         let to_drop: HashSet<String> = all_ids
             .into_iter()
             .filter(|id| {
-                let Some((raw, plays, quality)) = by_id.get(id) else {
+                let Some((dur, title, plays, quality)) = by_id.get(id) else {
                     return true;
                 };
                 if let Some(q) = quality {
                     return *q < QUALITY_THRESHOLD;
                 }
-                !quality::passes(raw.as_ref(), *plays, quality::MIN_PLAYS_DEFAULT)
+                !quality::passes(
+                    quality::QualityCheck {
+                        duration_ms: *dur,
+                        title,
+                        plays: *plays,
+                    },
+                    quality::MIN_PLAYS_DEFAULT,
+                )
             })
             .collect();
         builder.drop_missing(&to_drop);

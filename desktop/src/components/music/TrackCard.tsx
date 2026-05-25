@@ -12,6 +12,7 @@ import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
 import { LikeButton } from './LikeButton';
+import { TrackStatusBadges } from './TrackStatusBadges';
 import { UploadKindDot } from './UploadKindDot';
 
 interface TrackCardProps {
@@ -103,6 +104,11 @@ export const TrackCard = React.memo(
             </div>
           </div>
 
+          {/* Cache / analysis badges — bottom left */}
+          <div className="absolute bottom-2 left-2 flex">
+            <TrackStatusBadges meta={track._scd_meta} variant="overlay" />
+          </div>
+
           {/* Like button — top left */}
           <LikeButton track={track} variant="overlay" />
 
@@ -168,5 +174,8 @@ export const TrackCard = React.memo(
     prev.track.user_favorite === next.track.user_favorite &&
     prev.track.enrichment?.primary_artist?.name === next.track.enrichment?.primary_artist?.name &&
     prev.track.enrichment?.upload_kind === next.track.enrichment?.upload_kind &&
-    prev.track.enrichment?.availability === next.track.enrichment?.availability,
+    prev.track.enrichment?.availability === next.track.enrichment?.availability &&
+    prev.track._scd_meta?.storage_state === next.track._scd_meta?.storage_state &&
+    prev.track._scd_meta?.storage_quality === next.track._scd_meta?.storage_quality &&
+    prev.track._scd_meta?.index_state === next.track._scd_meta?.index_state,
 );

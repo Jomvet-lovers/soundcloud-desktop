@@ -3,15 +3,15 @@ use uuid::Uuid;
 
 use crate::error::AppResult;
 
-pub async fn recompute_for_track(pg: &PgPool, indexed_track_id: Uuid) -> AppResult<()> {
+pub async fn recompute_for_track(pg: &PgPool, track_id: Uuid) -> AppResult<()> {
     sqlx::query(
         "WITH pairs AS (
            SELECT a.artist_id AS aid, b.artist_id AS bid
            FROM track_artists a
            JOIN track_artists b
-             ON a.indexed_track_id = b.indexed_track_id
+             ON a.track_id = b.track_id
             AND a.artist_id <> b.artist_id
-           WHERE a.indexed_track_id = $1
+           WHERE a.track_id = $1
          ),
          normalized AS (
            SELECT LEAST(aid, bid) AS a, GREATEST(aid, bid) AS b
@@ -26,7 +26,7 @@ pub async fn recompute_for_track(pg: &PgPool, indexed_track_id: Uuid) -> AppResu
             SET weight = artist_coplay.weight + 1,
                 last_seen = now()",
     )
-    .bind(indexed_track_id)
+    .bind(track_id)
     .execute(pg)
     .await?;
     Ok(())

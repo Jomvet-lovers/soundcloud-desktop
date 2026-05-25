@@ -5,7 +5,7 @@ use std::time::Duration;
 use mini_moka::sync::Cache;
 use sqlx::PgPool;
 use tokio::sync::{Mutex as AsyncMutex, OnceCell};
-use tracing::{error, warn};
+use tracing::warn;
 
 use crate::common::sc_ids::normalize_sc_track_id;
 use crate::error::AppResult;
@@ -128,9 +128,7 @@ impl EventsService {
         let svc = indexing.clone();
         let id = sc_track_id.to_string();
         tokio::spawn(async move {
-            if let Err(e) = svc.ensure_track_queued_by_id(&id).await {
-                error!(track = %id, error = %e, "Failed to enqueue");
-            }
+            svc.trigger_indexing(&id).await;
         });
     }
 

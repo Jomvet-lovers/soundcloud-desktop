@@ -6,13 +6,14 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 
 use crate::bus::nats::NatsService;
 use crate::bus::subjects::{streams, subjects};
 use crate::common::sc_ids::normalize_sc_track_id;
 use crate::error::AppResult;
 use crate::modules::lyrics::LyricsService;
+use crate::modules::tracks::normalize::ScTrackFields;
+use crate::modules::tracks::{TrackPriority, TrackRepository};
 use crate::modules::transcode::TranscodeTriggerService;
 
 const REAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
@@ -25,11 +26,33 @@ pub struct IndexingStats {
     pub pending: i64,
 }
 
+/// IndexingService = (а) приёмная для каждого трека, который мы хотим иметь
+/// в `tracks`, и (б) единая точка кикинга пайплайна транскод → S3 → qdrant.
+///
+/// Поток для нового трека:
+/// 1. [`ingest_track_from_sc`] нормализует SC payload и UPSERT'ит строку в
+///    `tracks`. Если строка только что создана → запускается пайплайн:
+///    * `transcode.trigger` — заливка в S3 через streaming;
+///    * `nats.publish(ENRICH_TRACK)` — поднимает artist/album linkage в
+///      `enrich`-сервисе;
+///    * `lyrics.ensure_lyrics_for_indexing` — поиск/прикрепление лирики.
+/// 2. После заливки S3 приходит [`subjects::STORAGE_TRACK_UPLOADED`];
+///    [`subscribe_storage_uploaded`] помечает storage_state и публикует
+///    [`subjects::INDEX_AUDIO`] (если index_state ещё pending).
+/// 3. Worker считает embedding'и и публикует [`subjects::DONE_INDEX_AUDIO`];
+///    [`subscribe_done`] выставляет `tracks.indexed_at`/`index_state='indexed'`
+///    и при наличии fingerprint — канонизирует дубли.
+///
+/// Cold-refresh новых лайков/плейлистов идёт ровно через `ingest_track_from_sc`
+/// → отсюда же кикается пайплайн. После rework'а нет ни одной точки, где
+/// трек попадает в БД без пайплайн-кика — это лечит регрессию, при которой
+/// после перехода на cold-cache treки переставали индексироваться.
 pub struct IndexingService {
     pg: PgPool,
     nats: Arc<NatsService>,
     lyrics: Arc<LyricsService>,
     trigger: Arc<TranscodeTriggerService>,
+    tracks: TrackRepository,
 }
 
 impl IndexingService {
@@ -39,11 +62,13 @@ impl IndexingService {
         lyrics: Arc<LyricsService>,
         trigger: Arc<TranscodeTriggerService>,
     ) -> Arc<Self> {
+        let tracks = TrackRepository::new(pg.clone());
         Arc::new(Self {
             pg,
             nats,
             lyrics,
             trigger,
+            tracks,
         })
     }
 
@@ -53,108 +78,65 @@ impl IndexingService {
         self.spawn_reap_loop(shutdown);
     }
 
-    pub async fn ensure_track_indexed(self: &Arc<Self>, sc_track: &Value) -> AppResult<()> {
-        let urn = sc_track.get("urn").and_then(|v| v.as_str()).unwrap_or("");
-        if urn.is_empty() {
+    /// Принимает SC payload и проводит трек через ingest + pipeline-kick.
+    /// `priority` определяет позицию в pickup-очередях индексации/storage'а
+    /// (likes — раньше discovery, см. [`TrackPriority`]).
+    pub async fn ingest_track_from_sc(
+        self: &Arc<Self>,
+        payload: &Value,
+        priority: TrackPriority,
+    ) -> AppResult<()> {
+        let Some(fields) = ScTrackFields::from_sc(payload) else {
+            debug!(
+                urn = payload.get("urn").and_then(|v| v.as_str()).unwrap_or(""),
+                title = payload.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                "ingest skipped: ScTrackFields::from_sc returned None"
+            );
             return Ok(());
-        }
-        let sc_track_id = match urn.rsplit_once(':') {
-            Some((_, id)) => id.to_string(),
-            None => urn.to_string(),
         };
-
-        let existing: Option<(Uuid, Option<chrono::DateTime<chrono::Utc>>)> =
-            sqlx::query_as("SELECT id, indexed_at FROM indexed_tracks WHERE sc_track_id = $1")
-                .bind(&sc_track_id)
-                .fetch_optional(&self.pg)
-                .await?;
-        if let Some((_, Some(_))) = existing {
-            return Ok(());
-        }
-
-        if existing.is_none() {
-            let title = sc_track.get("title").and_then(|v| v.as_str()).unwrap_or("");
-            let genre = sc_track.get("genre").and_then(|v| v.as_str());
-            let tag_list = sc_track
-                .get("tag_list")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let tags: Vec<String> = tag_list
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            let duration_ms = sc_track
-                .get("duration")
-                .and_then(|v| v.as_i64())
-                .map(|v| v as i32);
-            let artwork_url = sc_track.get("artwork_url").and_then(|v| v.as_str());
-            let stream_url = sc_track.get("stream_url").and_then(|v| v.as_str());
-            let uploader_sc_user_id = extract_uploader_sc_user_id(sc_track);
-            let (release_year, release_date) = crate::common::release_date::extract(sc_track);
-
-            let inserted: Option<(Uuid,)> = sqlx::query_as(
-                "INSERT INTO indexed_tracks (sc_track_id, title, genre, tags, duration_ms, artwork_url, stream_url, raw_sc_data, uploader_sc_user_id, release_year, release_date, indexed_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL) \
-                 ON CONFLICT (sc_track_id) DO NOTHING \
-                 RETURNING id",
-            )
-            .bind(&sc_track_id)
-            .bind(title)
-            .bind(genre)
-            .bind(&tags)
-            .bind(duration_ms)
-            .bind(artwork_url)
-            .bind(stream_url)
-            .bind(sc_track)
-            .bind(uploader_sc_user_id.as_deref())
-            .bind(release_year)
-            .bind(release_date)
-            .fetch_optional(&self.pg)
+        let result = self
+            .tracks
+            .upsert_from_sc(&fields, priority, priority)
             .await?;
-            if inserted.is_none() {
-                return Ok(());
-            }
+        if result.was_new {
+            self.kick_pipeline(&fields.sc_track_id);
         }
-
-        self.trigger.trigger(&sc_track_id);
-        if let Err(e) = crate::modules::enrich::publish_enrich(&self.nats, &sc_track_id).await {
-            debug!(track = %sc_track_id, error = %e, "enrich publish failed");
-        }
-        let lyrics = self.lyrics.clone();
-        let id = sc_track_id.clone();
-        tokio::spawn(async move {
-            if let Err(e) = lyrics.ensure_lyrics_for_indexing(&id).await {
-                debug!(track = %id, error = %e, "ensureLyricsForIndexing failed");
-            }
-        });
         Ok(())
     }
 
-    pub async fn ensure_track_queued_by_id(&self, sc_track_id: &str) -> AppResult<()> {
-        let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-            "SELECT sc_track_id, indexed_at FROM indexed_tracks WHERE sc_track_id = $1",
-        )
-        .bind(sc_track_id)
-        .fetch_optional(&self.pg)
-        .await?;
-        let Some((id, indexed_at)) = row else {
-            warn!(sc_track_id, "Cannot queue: not in indexed_tracks");
-            return Ok(());
-        };
-        if indexed_at.is_some() {
-            return Ok(());
-        }
-        self.trigger.trigger(&id);
-        Ok(())
+    /// Перекикнуть пайплайн для существующего трека (используется events
+    /// при play и reap'ом «зависших» треков).
+    pub async fn trigger_indexing(&self, sc_track_id: &str) {
+        self.trigger.trigger(sc_track_id);
+    }
+
+    /// Внутренний хелпер: stradge → transcode + enrich + lyrics ensure.
+    /// Lyrics — в spawn'е, чтобы не блокировать caller; остальные синхронны
+    /// (но дёшевы — это NATS publish и in-memory trigger).
+    fn kick_pipeline(self: &Arc<Self>, sc_track_id: &str) {
+        self.trigger.trigger(sc_track_id);
+        let nats = self.nats.clone();
+        let id_for_enrich = sc_track_id.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = crate::modules::enrich::publish_enrich(&nats, &id_for_enrich).await {
+                debug!(track = %id_for_enrich, error = %e, "enrich publish failed");
+            }
+        });
+        let lyrics = self.lyrics.clone();
+        let id_for_lyrics = sc_track_id.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = lyrics.ensure_lyrics_for_indexing(&id_for_lyrics).await {
+                debug!(track = %id_for_lyrics, error = %e, "ensureLyricsForIndexing failed");
+            }
+        });
     }
 
     pub async fn get_stats(&self) -> AppResult<IndexingStats> {
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*)::int8 FROM indexed_tracks")
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*)::int8 FROM tracks")
             .fetch_one(&self.pg)
             .await?;
         let indexed: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*)::int8 FROM indexed_tracks WHERE indexed_at IS NOT NULL",
+            "SELECT COUNT(*)::int8 FROM tracks WHERE index_state = 'indexed'",
         )
         .fetch_one(&self.pg)
         .await?;
@@ -173,81 +155,47 @@ impl IndexingService {
             move |data| {
                 let svc = svc.clone();
                 async move {
-                    let sc_track_id_raw = data.get("sc_track_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let raw_id = data.get("sc_track_id").and_then(|v| v.as_str()).unwrap_or("");
                     let storage_url = data
                         .get("storage_url")
                         .and_then(|v| v.as_str())
                         .map(String::from)
                         .unwrap_or_default();
-                    let Some(sc_track_id) = normalize_sc_track_id(sc_track_id_raw) else {
+                    let quality = data
+                        .get("quality")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("sq");
+                    let Some(sc_track_id) = normalize_sc_track_id(raw_id) else {
                         return Ok(());
                     };
                     if storage_url.is_empty() {
                         return Ok(());
                     }
 
-                    let existing: Option<(Uuid, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-                        "SELECT id, indexed_at FROM indexed_tracks WHERE sc_track_id = $1",
-                    )
-                    .bind(&sc_track_id)
-                    .fetch_optional(&svc.pg)
-                    .await?;
-
-                    if let Some((_, Some(_))) = existing {
-                        sqlx::query(
-                            "UPDATE indexed_tracks SET s3_verified_at = now(), s3_missing_at = NULL \
-                             WHERE sc_track_id = $1",
-                        )
-                        .bind(&sc_track_id)
-                        .execute(&svc.pg)
-                        .await?;
+                    let existing = svc.tracks.find_by_sc_track_id(&sc_track_id).await?;
+                    let Some(row) = existing else {
+                        // Orphan upload — нет родительской tracks-строки.
+                        // Это либо backfill-расхождение, либо storage сам по
+                        // себе уехал. Не создаём фантомных треков; storage
+                        // событие игнорируем.
+                        debug!(track = %sc_track_id, "storage uploaded for unknown track — skipping");
                         return Ok(());
+                    };
+
+                    svc.tracks.mark_storage_done(&sc_track_id, quality).await?;
+
+                    // Публикуем INDEX_AUDIO только если индексация ещё не
+                    // завершена. Re-upload индексированного трека не нужен.
+                    if row.index_state != "indexed" {
+                        svc.nats
+                            .publish(
+                                subjects::INDEX_AUDIO,
+                                &json!({ "sc_track_id": sc_track_id, "s3_url": storage_url }),
+                            )
+                            .await?;
+                        info!(track = %sc_track_id, "[storage→index] published to NATS");
                     }
 
-                    if existing.is_none() {
-                        let inserted: Option<(Uuid,)> = sqlx::query_as(
-                            "INSERT INTO indexed_tracks (sc_track_id, indexed_at, s3_verified_at, s3_missing_at) \
-                             VALUES ($1, NULL, now(), NULL) \
-                             ON CONFLICT (sc_track_id) DO NOTHING \
-                             RETURNING id",
-                        )
-                        .bind(&sc_track_id)
-                        .fetch_optional(&svc.pg)
-                        .await?;
-                        if inserted.is_none() {
-                            let post: Option<(Option<chrono::DateTime<chrono::Utc>>,)> =
-                                sqlx::query_as(
-                                    "SELECT indexed_at FROM indexed_tracks WHERE sc_track_id = $1",
-                                )
-                                .bind(&sc_track_id)
-                                .fetch_optional(&svc.pg)
-                                .await?;
-                            if matches!(post, Some((Some(_),))) {
-                                sqlx::query(
-                                    "UPDATE indexed_tracks SET s3_verified_at = now(), s3_missing_at = NULL WHERE sc_track_id = $1",
-                                )
-                                .bind(&sc_track_id)
-                                .execute(&svc.pg)
-                                .await?;
-                                return Ok(());
-                            }
-                        }
-                    } else {
-                        sqlx::query(
-                            "UPDATE indexed_tracks SET s3_verified_at = now(), s3_missing_at = NULL WHERE sc_track_id = $1",
-                        )
-                        .bind(&sc_track_id)
-                        .execute(&svc.pg)
-                        .await?;
-                    }
-
-                    svc.nats
-                        .publish(
-                            subjects::INDEX_AUDIO,
-                            &json!({ "sc_track_id": sc_track_id, "s3_url": storage_url }),
-                        )
-                        .await?;
-                    info!(track = %sc_track_id, "[storage→index] published to NATS");
                     let lyrics = svc.lyrics.clone();
                     let id = sc_track_id.clone();
                     let url = storage_url;
@@ -272,75 +220,20 @@ impl IndexingService {
                     let Some(sc_track_id) = data.get("sc_track_id").and_then(|v| v.as_str()) else {
                         return Ok(());
                     };
-                    sqlx::query(
-                        "UPDATE indexed_tracks SET indexed_at = now() \
-                         WHERE sc_track_id = $1 AND indexed_at IS NULL",
-                    )
-                    .bind(sc_track_id)
-                    .execute(&svc.pg)
-                    .await?;
+                    svc.tracks.mark_indexed(sc_track_id).await?;
                     debug!(track = %sc_track_id, "indexed_at set");
                     if let Some(fp) = data.get("fingerprint").and_then(|v| v.as_str()) {
                         if !fp.is_empty() {
-                            svc.apply_fingerprint(sc_track_id, fp).await?;
+                            let canonical = svc.tracks.apply_fingerprint(sc_track_id, fp).await?;
+                            if let Some(c) = canonical {
+                                debug!(track = %sc_track_id, canonical = %c, "fingerprint canonicalized");
+                            }
                         }
                     }
                     Ok(())
                 }
             },
         );
-    }
-
-    async fn apply_fingerprint(
-        self: &Arc<Self>,
-        sc_track_id: &str,
-        fingerprint: &str,
-    ) -> AppResult<()> {
-        let row: Option<(uuid::Uuid, Option<uuid::Uuid>)> = sqlx::query_as(
-            "SELECT id, canonical_track_id FROM indexed_tracks WHERE sc_track_id = $1",
-        )
-        .bind(sc_track_id)
-        .fetch_optional(&self.pg)
-        .await?;
-        let Some((track_id, canonical)) = row else {
-            return Ok(());
-        };
-
-        sqlx::query("UPDATE indexed_tracks SET audio_fingerprint = $2 WHERE id = $1")
-            .bind(track_id)
-            .bind(fingerprint)
-            .execute(&self.pg)
-            .await?;
-
-        let prefix: String = fingerprint.chars().take(64).collect();
-        let neighbour: Option<(uuid::Uuid, Option<uuid::Uuid>)> = sqlx::query_as(
-            "SELECT id, canonical_track_id FROM indexed_tracks
-             WHERE substr(audio_fingerprint, 1, 64) = $1
-               AND id <> $2
-             LIMIT 1",
-        )
-        .bind(&prefix)
-        .bind(track_id)
-        .fetch_optional(&self.pg)
-        .await?;
-        let Some((other_id, other_canonical)) = neighbour else {
-            return Ok(());
-        };
-
-        let canonical_id = canonical
-            .or(other_canonical)
-            .unwrap_or_else(uuid::Uuid::new_v4);
-        sqlx::query(
-            "UPDATE indexed_tracks SET canonical_track_id = $1
-             WHERE id IN ($2, $3) AND (canonical_track_id IS NULL OR canonical_track_id <> $1)",
-        )
-        .bind(canonical_id)
-        .bind(track_id)
-        .bind(other_id)
-        .execute(&self.pg)
-        .await?;
-        debug!(track = %sc_track_id, %canonical_id, "fingerprint canonicalized");
-        Ok(())
     }
 
     fn spawn_reap_loop(self: &Arc<Self>, shutdown: CancellationToken) {
@@ -362,11 +255,28 @@ impl IndexingService {
         });
     }
 
+    /// Реап «зависших» треков. Два сценария:
+    /// * `storage_state='pending'` дольше REAP_AGE — transcode-trigger не дошёл
+    ///   (streaming был занят / упал HTTP) или storage не ответил. Триггерим
+    ///   повторно — TranscodeTriggerService сам дедупит inflight.
+    /// * `storage_state='ok'` + `index_state='pending'` — файл уже в S3, но
+    ///   qdrant не доехал. Повторно kick'аем transcode (storage ответит
+    ///   cached → fanout STORAGE_TRACK_UPLOADED → backend опубликует
+    ///   INDEX_AUDIO заново).
     async fn reap(self: &Arc<Self>) -> AppResult<()> {
-        let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_AGE).unwrap();
+        let cutoff =
+            chrono::Utc::now() - chrono::Duration::from_std(REAP_AGE).unwrap_or_default();
         let stuck: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM indexed_tracks \
-             WHERE indexed_at IS NULL AND created_at < $1 LIMIT $2",
+            "SELECT sc_track_id FROM tracks \
+             WHERE created_at < $1 \
+               AND ( \
+                   storage_state = 'pending' \
+                   OR (index_state = 'pending' \
+                       AND storage_state = 'ok' \
+                       AND s3_verified_at IS NOT NULL) \
+               ) \
+             ORDER BY index_priority, created_at \
+             LIMIT $2",
         )
         .bind(cutoff)
         .bind(REAP_BATCH)
@@ -384,25 +294,4 @@ impl IndexingService {
         }
         Ok(())
     }
-}
-
-fn extract_uploader_sc_user_id(sc_track: &Value) -> Option<String> {
-    let user = sc_track.get("user")?;
-    if let Some(id) = user.get("id") {
-        if let Some(s) = id.as_str() {
-            if !s.is_empty() {
-                return Some(s.to_string());
-            }
-        }
-        if let Some(n) = id.as_i64() {
-            return Some(n.to_string());
-        }
-    }
-    if let Some(urn) = user.get("urn").and_then(|v| v.as_str()) {
-        let tail = urn.rsplit(':').next().unwrap_or("");
-        if !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) {
-            return Some(tail.to_string());
-        }
-    }
-    None
 }

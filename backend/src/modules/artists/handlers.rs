@@ -18,6 +18,7 @@ pub fn router() -> Router<AppState> {
         .route("/artists/by-name/{normalized}", get(by_name))
         .route("/artists/{id}", get(detail))
         .route("/artists/{id}/tracks", get(tracks))
+        .route("/artists/{id}/covers", get(covers))
         .route("/artists/{id}/albums", get(albums))
         .route("/artists/{id}/star", get(star))
 }
@@ -137,7 +138,7 @@ async fn detail(
         "SELECT
             (SELECT COUNT(*)::bigint FROM track_artists
               WHERE artist_id = $1 AND role = 'primary'),
-            (SELECT COUNT(DISTINCT indexed_track_id)::bigint FROM track_artists
+            (SELECT COUNT(DISTINCT track_id)::bigint FROM track_artists
               WHERE artist_id = $1 AND role IN ('featured', 'remixer'))",
     )
     .bind(id)
@@ -210,6 +211,41 @@ async fn tracks(
         let wanted = fetch_wanted_stubs(&st.pg, id, 200).await?;
         items.extend(wanted);
     }
+    Ok(Json(serde_json::json!({
+        "collection": items,
+        "page": page,
+        "page_size": limit,
+    })))
+}
+
+/// Все треки где этот артист — `cover_of_artist_id`. То есть кавера
+/// сторонних uploader'ов на оригинал этого артиста.
+async fn covers(
+    State(st): State<AppState>,
+    _ctx: SessionCtx,
+    Path(id): Path<Uuid>,
+    Query(p): Query<PaginationQuery>,
+) -> AppResult<Json<Value>> {
+    let (page, limit) = p.resolved();
+    let offset = page.max(0) * limit;
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT sc_track_id FROM tracks \
+         WHERE cover_of_artist_id = $1 AND upload_kind = 'cover' \
+         ORDER BY COALESCE(play_count_sc, 0) DESC, sc_synced_at DESC \
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&st.pg)
+    .await?;
+    let ids: Vec<String> = rows.into_iter().map(|(t,)| t).collect();
+    let mut items: Vec<Value> = crate::modules::tracks::project_many(&st.pg, &ids)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
+    enrich_dto::apply_to_tracks(&st.pg, &mut items).await?;
     Ok(Json(serde_json::json!({
         "collection": items,
         "page": page,
@@ -361,7 +397,7 @@ async fn fetch_wanted_stubs(pg: &PgPool, artist_id: Uuid, limit: i64) -> AppResu
              FROM wanted_tracks wt
              LEFT JOIN artists a ON a.id = wt.primary_artist_id
              WHERE wt.primary_artist_id = $1
-               AND wt.indexed_track_id IS NULL
+               AND wt.track_id IS NULL
                AND wt.status = 'wanted'
              ORDER BY wt.discovered_at DESC
              LIMIT $2",
@@ -421,28 +457,26 @@ async fn fetch_artist_tracks(
         _ => "TRUE",
     };
     let order_clause = match sort {
-        "recent" => "it.release_date DESC NULLS LAST, it.release_year DESC NULLS LAST, it.created_at DESC, it.id DESC",
-        _ => "COALESCE(c.play_count, 0) DESC, it.created_at DESC",
+        "recent" => "t.release_date DESC NULLS LAST, t.release_year DESC NULLS LAST, t.created_at DESC, t.id DESC",
+        _ => "COALESCE(c.play_count, 0) DESC, t.created_at DESC",
     };
     let sql = format!(
-        "SELECT it.raw_sc_data
+        "SELECT t.sc_track_id
          FROM track_artists ta
-         JOIN indexed_tracks it ON it.id = ta.indexed_track_id
-         LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
+         JOIN tracks t ON t.id = ta.track_id
+         LEFT JOIN sc_track_counters c ON c.sc_track_id = t.sc_track_id
          WHERE ta.artist_id = $1
            AND {role_filter}
-           AND it.raw_sc_data IS NOT NULL
          ORDER BY {order_clause}
          LIMIT $2 OFFSET $3"
     );
-    let rows: Vec<(Option<sqlx::types::Json<Value>>,)> = sqlx::query_as(&sql)
+    let rows: Vec<(String,)> = sqlx::query_as(&sql)
         .bind(artist_id)
         .bind(limit)
         .bind(offset)
         .fetch_all(pg)
         .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|(raw,)| raw.map(|j| j.0))
-        .collect())
+    let ids: Vec<String> = rows.into_iter().map(|(t,)| t).collect();
+    let projected = crate::modules::tracks::project_many(pg, &ids).await?;
+    Ok(projected.into_iter().flatten().collect())
 }

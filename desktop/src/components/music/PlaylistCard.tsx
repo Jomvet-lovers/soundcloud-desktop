@@ -125,10 +125,10 @@ export const PlaylistCard = React.memo(
               <span className="text-[10px] font-bold text-white/30 uppercase tracking-wider bg-white/[0.05] px-1.5 py-0.5 rounded-md">
                 {playlist.playlist_type || 'Playlist'}
               </span>
-              {playlist.likes_count > 0 && (
+              {(playlist.likes_count ?? 0) > 0 && (
                 <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1">
                   <Heart size={10} className="text-white/20" />
-                  {fc(playlist.likes_count)}
+                  {fc(playlist.likes_count ?? 0)}
                 </span>
               )}
             </div>

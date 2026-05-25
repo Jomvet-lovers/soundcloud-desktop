@@ -1,5 +1,5 @@
 use qdrant_client::qdrant::{Condition, Filter};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 
 use crate::error::AppResult;
@@ -23,17 +23,23 @@ impl RecommendationsService {
             return Ok(Vec::new());
         }
         let ids: Vec<String> = items.iter().map(|it| it.id.to_string()).collect();
-        let tracks: Vec<(String, Option<Value>, Option<String>)> = sqlx::query_as(
-            "SELECT sc_track_id, raw_sc_data, language FROM indexed_tracks \
-             WHERE sc_track_id = ANY($1)",
-        )
-        .bind(&ids)
-        .fetch_all(&self.pg)
-        .await?;
-        let by_id: HashMap<String, (Option<Value>, Option<String>)> = tracks
-            .into_iter()
-            .map(|(id, raw, lang)| (id, (raw, lang)))
-            .collect();
+        // Берём normalised поля из `tracks` (artist берём из uploader_username,
+        // т.к. publisher_metadata/artist у нас уже нет: эту инфу теперь
+        // выводит enrich-pipeline через track_artists; для denorm-минимума
+        // достаточно uploader_username).
+        let tracks: Vec<(String, Option<String>, Option<String>, Option<String>, Option<i64>)> =
+            sqlx::query_as(
+                "SELECT sc_track_id, uploader_username, genre, language, play_count_sc \
+                 FROM tracks WHERE sc_track_id = ANY($1)",
+            )
+            .bind(&ids)
+            .fetch_all(&self.pg)
+            .await?;
+        let by_id: HashMap<String, (Option<String>, Option<String>, Option<String>, Option<i64>)> =
+            tracks
+                .into_iter()
+                .map(|(id, uploader, genre, lang, plays)| (id, (uploader, genre, lang, plays)))
+                .collect();
         let boost = self.cfg.popularity_boost as f32;
         let user_lang_set: HashSet<String> = user_languages
             .map(|l| l.iter().cloned().collect())
@@ -44,27 +50,10 @@ impl RecommendationsService {
             .map(|it| {
                 let key = it.id.to_string();
                 let entry = by_id.get(&key);
-                let raw = entry
-                    .and_then(|(r, _)| r.as_ref())
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let language = entry.and_then(|(_, l)| l.clone());
-                let artist_pub = raw
-                    .get("publisher_metadata")
-                    .and_then(|v| v.get("artist"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                let artist_user = raw
-                    .get("user")
-                    .and_then(|v| v.get("username"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                let artist = artist_pub.or(artist_user);
-                let genre = raw.get("genre").and_then(|v| v.as_str()).map(String::from);
-                let playback_count = raw
-                    .get("playback_count")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                let artist = entry.and_then(|(u, _, _, _)| u.clone());
+                let genre = entry.and_then(|(_, g, _, _)| g.clone());
+                let language = entry.and_then(|(_, _, l, _)| l.clone());
+                let playback_count = entry.and_then(|(_, _, _, p)| *p).unwrap_or(0);
                 let bonus = ((playback_count.max(0) as f64).ln_1p() as f32) * boost;
                 let mut features = it.features.clone();
                 if features.len() >= IMPRESSION_FEATURE_LEN {

@@ -87,22 +87,23 @@ async fn detail(
         None
     };
 
-    let track_rows: Vec<(Option<sqlx::types::Json<Value>>, Option<i16>)> = sqlx::query_as(
-        "SELECT it.raw_sc_data, at.position
+    let track_id_rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT t.sc_track_id
          FROM album_tracks at
-         JOIN indexed_tracks it ON it.id = at.indexed_track_id
-         WHERE at.album_id = $1 AND it.raw_sc_data IS NOT NULL
-         ORDER BY COALESCE(at.position, 32767), it.created_at",
+         JOIN tracks t ON t.id = at.track_id
+         WHERE at.album_id = $1
+         ORDER BY COALESCE(at.position, 32767), t.created_at",
     )
     .bind(id)
     .fetch_all(&st.pg)
     .await?;
-    let mut tracks: Vec<Value> = Vec::with_capacity(track_rows.len());
-    for (raw, _pos) in track_rows {
-        if let Some(j) = raw {
-            tracks.push(j.0);
-        }
-    }
+    let track_ids: Vec<String> = track_id_rows.into_iter().map(|(t,)| t).collect();
+    let mut tracks: Vec<Value> =
+        crate::modules::tracks::project_many(&st.pg, &track_ids)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
     enrich_dto::apply_to_tracks(&st.pg, &mut tracks).await?;
 
     let wanted_rows: Vec<(Uuid, String, Option<i32>, Option<i16>, Option<Uuid>, Option<String>, i16)> =
@@ -112,7 +113,7 @@ async fn detail(
              JOIN wanted_tracks wt ON wt.id = wta.wanted_track_id
              LEFT JOIN artists a ON a.id = wt.primary_artist_id
              WHERE wta.album_id = $1
-               AND wt.indexed_track_id IS NULL
+               AND wt.track_id IS NULL
                AND wt.status = 'wanted'
              ORDER BY wta.position, wt.title",
         )
