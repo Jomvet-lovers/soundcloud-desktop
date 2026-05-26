@@ -287,9 +287,7 @@ impl PlaylistsService {
         }
 
         let offset = page.max(0) * limit;
-        let ids = repo
-            .page_track_ids(playlist_urn, offset, limit + 1)
-            .await?;
+        let ids = repo.page_track_ids(playlist_urn, offset, limit + 1).await?;
         let has_more = ids.len() as i64 > limit;
         let page_ids: Vec<String> = ids.into_iter().take(limit as usize).collect();
         let collection: Vec<Value> = crate::modules::tracks::project_many(&self.pg, &page_ids)

@@ -85,7 +85,9 @@ impl OAuthAppTokenService {
         self.reload_snapshot().await?;
         let cur = self.load_current();
         if cur.is_empty() {
-            return Err(AppError::internal("public-token pool empty after bootstrap"));
+            return Err(AppError::internal(
+                "public-token pool empty after bootstrap",
+            ));
         }
         Ok(shuffled(&cur))
     }

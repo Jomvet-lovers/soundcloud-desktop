@@ -16,17 +16,23 @@ pub async fn load_track_meta(pg: &PgPool, ids: &[String]) -> HashMap<String, Tra
     if ids.is_empty() {
         return HashMap::new();
     }
-    let rows: Vec<(String, String, Option<String>, i32, Option<i64>, Option<i64>)> =
-        sqlx::query_as(
-            "SELECT it.sc_track_id, it.title, it.genre, it.duration_ms, c.play_count, c.likes_count
+    let rows: Vec<(
+        String,
+        String,
+        Option<String>,
+        i32,
+        Option<i64>,
+        Option<i64>,
+    )> = sqlx::query_as(
+        "SELECT it.sc_track_id, it.title, it.genre, it.duration_ms, c.play_count, c.likes_count
              FROM tracks it
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
              WHERE it.sc_track_id = ANY($1)",
-        )
-        .bind(ids)
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default();
+    )
+    .bind(ids)
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
 
     let mut out = HashMap::with_capacity(rows.len());
     for (id, title, genre, duration_ms, plays, likes) in rows {

@@ -48,7 +48,12 @@ impl UsersService {
     /// Какой токен использовать под коллекцию `target` юзера. Свои данные —
     /// User (видим private items). Чужие — UserFirst (личный токен лучше
     /// квотируется на юзера, fallback на app-pool).
-    fn kind_for_target(&self, viewer_sc_user_id: &str, target_sc_user_id: &str, session_id: Uuid) -> TokenKind {
+    fn kind_for_target(
+        &self,
+        viewer_sc_user_id: &str,
+        target_sc_user_id: &str,
+        session_id: Uuid,
+    ) -> TokenKind {
         if viewer_sc_user_id == target_sc_user_id {
             TokenKind::User(session_id)
         } else {

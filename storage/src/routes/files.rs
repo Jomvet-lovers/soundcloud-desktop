@@ -5,6 +5,7 @@ use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
+use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
 use crate::backend::{Backend, BackendError};
@@ -126,7 +127,13 @@ pub async fn delete(
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or((StatusCode::UNAUTHORIZED, "missing token".into()))?;
 
-    if token != state.config.admin_token {
+    if state.config.admin_token.is_empty()
+        || token
+            .as_bytes()
+            .ct_eq(state.config.admin_token.as_bytes())
+            .unwrap_u8()
+            != 1
+    {
         return Err((StatusCode::FORBIDDEN, "invalid token".into()));
     }
 

@@ -40,7 +40,7 @@ async fn login(
     }))
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 async fn login_status(
     State(state): State<AppState>,
     Query(q): Query<LoginStatusQuery>,
@@ -57,7 +57,7 @@ async fn login_status(
     })?))
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 async fn callback(State(state): State<AppState>, Query(q): Query<CallbackQuery>) -> Response {
     let html = match state.auth.handle_callback(&q.code, &q.state).await {
         Ok(result) => {
@@ -240,7 +240,7 @@ async fn link_claim(
     }))
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all)]
 async fn link_status(
     State(state): State<AppState>,
     Query(q): Query<LinkStatusQuery>,

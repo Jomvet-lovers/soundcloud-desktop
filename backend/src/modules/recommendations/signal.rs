@@ -111,8 +111,7 @@ pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserS
     .unwrap_or_default();
     let disliked_set: HashSet<String> = disliked_ids.iter().cloned().collect();
 
-    let strong_positives =
-        load_strong_positives(pg, sc_user_id, &disliked_set).await;
+    let strong_positives = load_strong_positives(pg, sc_user_id, &disliked_set).await;
 
     let event_rows: Vec<EventRow> = sqlx::query_as(
         "SELECT sc_track_id, event_type, weight, position_pct, \

@@ -291,7 +291,6 @@ fn slice_page<T: Clone>(state: ListState<T>, page: i64, limit: i64) -> ListPageR
     }
 }
 
-
 pub fn build_list_cache_key(prefix: &str, params: &[(&str, String)]) -> String {
     let mut parts: Vec<String> = params
         .iter()

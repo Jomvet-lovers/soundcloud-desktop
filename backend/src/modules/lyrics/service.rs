@@ -381,9 +381,7 @@ impl LyricsService {
         .await?;
         let (title, dur_ms, artist) = match row {
             Some((t, d, meta, uploader)) => {
-                let artist = meta
-                    .or(uploader)
-                    .unwrap_or_default();
+                let artist = meta.or(uploader).unwrap_or_default();
                 (t, d as i64, artist)
             }
             None => (String::new(), 0i64, String::new()),

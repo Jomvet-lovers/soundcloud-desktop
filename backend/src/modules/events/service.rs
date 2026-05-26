@@ -211,5 +211,4 @@ impl EventsService {
         }
         Ok(())
     }
-
 }

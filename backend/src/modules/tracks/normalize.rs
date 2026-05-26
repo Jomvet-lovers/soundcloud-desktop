@@ -54,10 +54,7 @@ impl ScTrackFields {
         }
         let sc_track_id = crate::common::sc_ids::extract_sc_id(&urn).to_string();
 
-        let raw_title = payload
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let raw_title = payload.get("title").and_then(|v| v.as_str()).unwrap_or("");
         if raw_title.is_empty() {
             return None;
         }
@@ -84,8 +81,7 @@ impl ScTrackFields {
         let full = payload.get("full_duration").and_then(|v| v.as_i64());
         let dur = payload.get("duration").and_then(|v| v.as_i64());
         let duration_ms = full.or(dur).unwrap_or(0) as i32;
-        let needs_duration_resolve = duration_ms <= 0
-            || (duration_ms == 30000 && full.is_none());
+        let needs_duration_resolve = duration_ms <= 0 || (duration_ms == 30000 && full.is_none());
 
         let artwork_url = string_field(payload, "artwork_url");
         let permalink_url = string_field(payload, "permalink_url");

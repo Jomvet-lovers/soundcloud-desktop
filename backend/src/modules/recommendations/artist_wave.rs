@@ -82,8 +82,13 @@ impl RecommendationsService {
         let vibe_fut = async {
             let mert_fut = async {
                 if let Some(c) = &centroid {
-                    self.search_by_vector(collections::TRACKS_MERT, c, filter.as_ref(), POOL_FOR_VIBE)
-                        .await
+                    self.search_by_vector(
+                        collections::TRACKS_MERT,
+                        c,
+                        filter.as_ref(),
+                        POOL_FOR_VIBE,
+                    )
+                    .await
                 } else {
                     Vec::new()
                 }
@@ -123,8 +128,13 @@ impl RecommendationsService {
         let deep_fut = async {
             let mert_fut = async {
                 if let Some(c) = &centroid {
-                    self.search_by_vector(collections::TRACKS_MERT, c, filter.as_ref(), POOL_FOR_DEEP)
-                        .await
+                    self.search_by_vector(
+                        collections::TRACKS_MERT,
+                        c,
+                        filter.as_ref(),
+                        POOL_FOR_DEEP,
+                    )
+                    .await
                 } else {
                     Vec::new()
                 }
@@ -232,9 +242,16 @@ impl RecommendationsService {
 
     /// Публичный helper для handlers::wave_artist — нужен seed-список треков
     /// артиста чтобы стартовать SmartWave прямо от него.
-    pub async fn load_artist_top_track_ids(&self, artist_id: Uuid, limit: i64) -> AppResult<Vec<u64>> {
+    pub async fn load_artist_top_track_ids(
+        &self,
+        artist_id: Uuid,
+        limit: i64,
+    ) -> AppResult<Vec<u64>> {
         let rows = self.load_artist_top_tracks(artist_id, limit).await?;
-        Ok(rows.into_iter().filter_map(|s| s.parse::<u64>().ok()).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|s| s.parse::<u64>().ok())
+            .collect())
     }
 
     async fn load_related_artists(

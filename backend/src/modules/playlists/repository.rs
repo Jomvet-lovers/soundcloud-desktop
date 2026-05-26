@@ -54,11 +54,10 @@ impl PlaylistRepository {
     }
 
     pub async fn find_by_urn(&self, urn: &str) -> AppResult<Option<PlaylistRow>> {
-        let row: Option<PlaylistRow> =
-            sqlx::query_as("SELECT * FROM playlists WHERE urn = $1")
-                .bind(urn)
-                .fetch_optional(&self.pg)
-                .await?;
+        let row: Option<PlaylistRow> = sqlx::query_as("SELECT * FROM playlists WHERE urn = $1")
+            .bind(urn)
+            .fetch_optional(&self.pg)
+            .await?;
         Ok(row)
     }
 
@@ -172,8 +171,9 @@ impl PlaylistRepository {
             .await?;
         if !ordered_sc_track_ids.is_empty() {
             let positions: Vec<i32> = (0..ordered_sc_track_ids.len() as i32).collect();
-            let playlist_urns: Vec<&str> =
-                (0..ordered_sc_track_ids.len()).map(|_| playlist_urn).collect();
+            let playlist_urns: Vec<&str> = (0..ordered_sc_track_ids.len())
+                .map(|_| playlist_urn)
+                .collect();
             sqlx::query(
                 "INSERT INTO playlist_tracks (playlist_urn, position, sc_track_id) \
                  SELECT p, pos, t FROM UNNEST($1::text[], $2::int[], $3::text[]) AS u(p, pos, t)",
@@ -341,7 +341,6 @@ impl ScPlaylistFields {
     }
 }
 
-
 /// Проекция в SC-shape v1 playlist payload. owner — опциональный объект user
 /// (заполняется JOIN'ом users; иначе из денорма колонок).
 pub fn project_to_sc_shape(row: &PlaylistRow, owner: Option<&Value>) -> Value {
@@ -376,7 +375,9 @@ pub fn project_to_sc_shape(row: &PlaylistRow, owner: Option<&Value>) -> Value {
     );
     obj.insert(
         "reposts_count".into(),
-        row.reposts_count_sc.map(|v| json!(v)).unwrap_or(Value::Null),
+        row.reposts_count_sc
+            .map(|v| json!(v))
+            .unwrap_or(Value::Null),
     );
     if let Some(p) = &row.playlist_type {
         obj.insert("playlist_type".into(), Value::String(p.clone()));

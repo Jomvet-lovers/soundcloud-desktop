@@ -8,7 +8,9 @@ use crate::error::AppResult;
 use crate::qdrant::collections;
 
 use super::bandits;
-use super::clusters::{recommend_id_str, Cluster, ClusterBuilder, ClusterNeighbor, ClusterResponse};
+use super::clusters::{
+    recommend_id_str, Cluster, ClusterBuilder, ClusterNeighbor, ClusterResponse,
+};
 use super::debias::ips_debias;
 use super::impressions::{log_clusters_async, ImpressionSource};
 use super::quality;
@@ -344,8 +346,12 @@ impl RecommendationsService {
         user_centroid: Option<&[f32]>,
     ) -> (Vec<String>, Vec<String>) {
         let filter = self.build_filter(exclude, languages);
-        let mert_fut =
-            self.search_by_vector(collections::TRACKS_MERT, centroid, filter.as_ref(), POOL_FOR_VIBE_DEEP);
+        let mert_fut = self.search_by_vector(
+            collections::TRACKS_MERT,
+            centroid,
+            filter.as_ref(),
+            POOL_FOR_VIBE_DEEP,
+        );
         let clap_fut = self.search_by_vector(
             collections::TRACKS_CLAP,
             centroid,

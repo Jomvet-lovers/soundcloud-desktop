@@ -30,7 +30,6 @@ const FRESH_AFTER_DONE: chrono::Duration = chrono::Duration::hours(24);
 const ALBUM_INGEST_CAPACITY: u64 = 4096;
 const ALBUM_INGEST_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnrichJob {
     pub sc_track_id: String,
@@ -232,11 +231,10 @@ impl EnrichService {
     }
 
     async fn fetch_indexed_id(&self, sc_track_id: &str) -> AppResult<Option<Uuid>> {
-        let row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM tracks WHERE sc_track_id = $1")
-                .bind(sc_track_id)
-                .fetch_optional(&self.pg)
-                .await?;
+        let row: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM tracks WHERE sc_track_id = $1")
+            .bind(sc_track_id)
+            .fetch_optional(&self.pg)
+            .await?;
         Ok(row.map(|(id,)| id))
     }
 

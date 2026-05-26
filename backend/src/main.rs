@@ -133,7 +133,9 @@ async fn main() {
     let link = LinkService::new(pg.clone(), auth.clone());
 
     let oauth_app_tokens = OAuthAppTokenService::new(pg.clone(), sc.clone(), oauth_apps.clone());
-    oauth_app_tokens.clone().spawn_refresh_loop(shutdown.clone());
+    oauth_app_tokens
+        .clone()
+        .spawn_refresh_loop(shutdown.clone());
     let tokens = TokenProvider::new(auth.clone(), oauth_app_tokens.clone());
 
     let cache = CacheService::new(redis_pool.clone());

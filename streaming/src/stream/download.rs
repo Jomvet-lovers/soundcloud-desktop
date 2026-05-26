@@ -75,8 +75,11 @@ pub async fn download(
     query: Query<StreamQuery>,
 ) -> Result<Json<DownloadResponse>, AppError> {
     let urn_for_log = track_urn.0.clone();
-    match tokio::time::timeout(DOWNLOAD_DEADLINE, download_inner(state, track_urn, headers, query))
-        .await
+    match tokio::time::timeout(
+        DOWNLOAD_DEADLINE,
+        download_inner(state, track_urn, headers, query),
+    )
+    .await
     {
         Ok(r) => r,
         Err(_) => {
@@ -202,11 +205,7 @@ async fn resolve_entry(state: &AppState, entry: Entry) -> Option<Candidate> {
         .and_then(|f| f.mime_type.as_deref())
         .unwrap_or("audio/mpeg")
         .to_string();
-    let quality = entry
-        .t
-        .quality
-        .clone()
-        .unwrap_or_else(|| "sq".to_string());
+    let quality = entry.t.quality.clone().unwrap_or_else(|| "sq".to_string());
     let preset = entry
         .t
         .preset
@@ -219,11 +218,8 @@ async fn resolve_entry(state: &AppState, entry: Entry) -> Option<Candidate> {
         return None;
     }
 
-    let target = build_transcoding_target(
-        &entry.t.url,
-        &entry.client_id,
-        entry.track_auth.as_deref(),
-    );
+    let target =
+        build_transcoding_target(&entry.t.url, &entry.client_id, entry.track_auth.as_deref());
 
     let resp: ResolveResp = match fetch_get_json(
         &state.http_client,
@@ -256,16 +252,7 @@ async fn resolve_entry(state: &AppState, entry: Entry) -> Option<Candidate> {
         }),
         "ctr-encrypted-hls" => {
             let token = resp.auth_token?;
-            prepare_encrypted(
-                state,
-                quality,
-                preset,
-                mime,
-                resp.url,
-                token,
-                entry.headers,
-            )
-            .await
+            prepare_encrypted(state, quality, preset, mime, resp.url, token, entry.headers).await
         }
         _ => None,
     }

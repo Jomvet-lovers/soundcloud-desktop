@@ -112,7 +112,13 @@ async fn get_liked_playlists(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.users
-            .get_liked_playlists(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
+            .get_liked_playlists(
+                ctx.session_id,
+                &ctx.sc_user_id,
+                &ctx.sc_user_id,
+                page,
+                limit,
+            )
             .await?,
     ))
 }
@@ -125,7 +131,13 @@ async fn get_followings(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.users
-            .get_followings(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
+            .get_followings(
+                ctx.session_id,
+                &ctx.sc_user_id,
+                &ctx.sc_user_id,
+                page,
+                limit,
+            )
             .await?,
     ))
 }
@@ -204,7 +216,13 @@ async fn get_playlists(
     let (page, limit) = q.resolved();
     Ok(Json(
         st.users
-            .get_owned_playlists(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
+            .get_owned_playlists(
+                ctx.session_id,
+                &ctx.sc_user_id,
+                &ctx.sc_user_id,
+                page,
+                limit,
+            )
             .await?,
     ))
 }
@@ -217,7 +235,13 @@ async fn get_tracks(
     let (page, limit) = q.resolved();
     let mut result = st
         .users
-        .get_owned_tracks(ctx.session_id, &ctx.sc_user_id, &ctx.sc_user_id, page, limit)
+        .get_owned_tracks(
+            ctx.session_id,
+            &ctx.sc_user_id,
+            &ctx.sc_user_id,
+            page,
+            limit,
+        )
         .await?;
     enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
     Ok(Json(result))

@@ -441,7 +441,10 @@ impl GeniusService {
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())?;
                 let rd = a.release_date_components;
-                let year = rd.as_ref().and_then(|d| d.year).and_then(|y| i16::try_from(y).ok());
+                let year = rd
+                    .as_ref()
+                    .and_then(|d| d.year)
+                    .and_then(|y| i16::try_from(y).ok());
                 let release_date = rd.as_ref().and_then(ReleaseDate::full_date);
                 Some(GeniusAlbumRef {
                     genius_album_id: id,
@@ -526,7 +529,10 @@ impl GeniusService {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())?;
             let rd = a.release_date_components;
-            let year = rd.as_ref().and_then(|d| d.year).and_then(|y| i16::try_from(y).ok());
+            let year = rd
+                .as_ref()
+                .and_then(|d| d.year)
+                .and_then(|y| i16::try_from(y).ok());
             let release_date = rd.as_ref().and_then(ReleaseDate::full_date);
             Some(GeniusAlbumRef {
                 genius_album_id: id,

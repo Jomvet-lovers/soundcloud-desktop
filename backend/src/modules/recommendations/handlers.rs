@@ -22,8 +22,14 @@ pub fn router() -> Router<AppState> {
         .route("/recommendations/search", get(search))
         .route("/recommendations/feedback", post(feedback))
         .route("/recommendations/wave", get(wave_user))
-        .route("/recommendations/wave/from-track/{seed_track_id}", get(wave_track))
-        .route("/recommendations/wave/from-artist/{artist_id}", get(wave_artist))
+        .route(
+            "/recommendations/wave/from-track/{seed_track_id}",
+            get(wave_track),
+        )
+        .route(
+            "/recommendations/wave/from-artist/{artist_id}",
+            get(wave_artist),
+        )
         .route("/recommendations/wave/feedback", post(wave_feedback))
 }
 
@@ -94,7 +100,12 @@ async fn similar(
     let languages = parse_languages(q.languages.as_deref());
     let out = st
         .recommendations
-        .similar_wave(&track_id, &ctx.sc_user_id, languages.as_deref(), per_cluster)
+        .similar_wave(
+            &track_id,
+            &ctx.sc_user_id,
+            languages.as_deref(),
+            per_cluster,
+        )
         .await?;
     Ok(Json(out))
 }
@@ -210,8 +221,7 @@ async fn wave_user(
         cursor_token: q.cursor.as_deref(),
         seed: SmartWaveSeed::User,
     };
-    let SmartWaveResponse { tracks, cursor } =
-        smart_wave::build(&st.recommendations, req).await?;
+    let SmartWaveResponse { tracks, cursor } = smart_wave::build(&st.recommendations, req).await?;
     Ok(Json(WavePayload { tracks, cursor }))
 }
 
@@ -236,8 +246,7 @@ async fn wave_track(
         cursor_token: q.cursor.as_deref(),
         seed: SmartWaveSeed::Track(seed),
     };
-    let SmartWaveResponse { tracks, cursor } =
-        smart_wave::build(&st.recommendations, req).await?;
+    let SmartWaveResponse { tracks, cursor } = smart_wave::build(&st.recommendations, req).await?;
     Ok(Json(WavePayload { tracks, cursor }))
 }
 
@@ -261,8 +270,7 @@ async fn wave_artist(
         cursor_token: q.cursor.as_deref(),
         seed: SmartWaveSeed::Artist(artist_id, &top_tracks),
     };
-    let SmartWaveResponse { tracks, cursor } =
-        smart_wave::build(&st.recommendations, req).await?;
+    let SmartWaveResponse { tracks, cursor } = smart_wave::build(&st.recommendations, req).await?;
     Ok(Json(WavePayload { tracks, cursor }))
 }
 

@@ -37,9 +37,27 @@ pub async fn recommend_from_track(
     limit: usize,
 ) -> Vec<TrackArmCandidate> {
     let (mert, clap, lyrics) = tokio::join!(
-        recommend_one(svc, collections::TRACKS_MERT, seed_track_id, negative_ids, filter),
-        recommend_one(svc, collections::TRACKS_CLAP, seed_track_id, negative_ids, filter),
-        recommend_one(svc, collections::TRACKS_LYRICS, seed_track_id, negative_ids, filter),
+        recommend_one(
+            svc,
+            collections::TRACKS_MERT,
+            seed_track_id,
+            negative_ids,
+            filter
+        ),
+        recommend_one(
+            svc,
+            collections::TRACKS_CLAP,
+            seed_track_id,
+            negative_ids,
+            filter
+        ),
+        recommend_one(
+            svc,
+            collections::TRACKS_LYRICS,
+            seed_track_id,
+            negative_ids,
+            filter
+        ),
     );
     let mut blended: HashMap<u64, f32> = HashMap::new();
     blend_in(&mut blended, &mert, MERT_WEIGHT);
@@ -160,14 +178,14 @@ async fn recommend_one(
 fn z_normalize(mut scored: Vec<(u64, f32)>) -> Vec<(u64, f32)> {
     let n = scored.len();
     if n < 2 {
-        return scored
-            .into_iter()
-            .map(|(id, _)| (id, 1.0))
-            .collect();
+        return scored.into_iter().map(|(id, _)| (id, 1.0)).collect();
     }
     let mean: f32 = scored.iter().map(|(_, s)| *s).sum::<f32>() / n as f32;
-    let var: f32 =
-        scored.iter().map(|(_, s)| (*s - mean) * (*s - mean)).sum::<f32>() / n as f32;
+    let var: f32 = scored
+        .iter()
+        .map(|(_, s)| (*s - mean) * (*s - mean))
+        .sum::<f32>()
+        / n as f32;
     let std = var.sqrt().max(1e-6);
     for (_, s) in scored.iter_mut() {
         *s = (*s - mean) / std;

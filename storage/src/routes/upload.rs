@@ -6,6 +6,7 @@ use axum::extract::{Multipart, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use subtle::ConstantTimeEq;
 use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
@@ -109,7 +110,13 @@ pub async fn upload(
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or((StatusCode::UNAUTHORIZED, "missing token".into()))?;
 
-    if token != state.config.admin_token {
+    if state.config.admin_token.is_empty()
+        || token
+            .as_bytes()
+            .ct_eq(state.config.admin_token.as_bytes())
+            .unwrap_u8()
+            != 1
+    {
         return Err((StatusCode::FORBIDDEN, "invalid token".into()));
     }
 

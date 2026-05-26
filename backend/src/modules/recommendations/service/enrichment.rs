@@ -27,14 +27,19 @@ impl RecommendationsService {
         // т.к. publisher_metadata/artist у нас уже нет: эту инфу теперь
         // выводит enrich-pipeline через track_artists; для denorm-минимума
         // достаточно uploader_username).
-        let tracks: Vec<(String, Option<String>, Option<String>, Option<String>, Option<i64>)> =
-            sqlx::query_as(
-                "SELECT sc_track_id, uploader_username, genre, language, play_count_sc \
+        let tracks: Vec<(
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+        )> = sqlx::query_as(
+            "SELECT sc_track_id, uploader_username, genre, language, play_count_sc \
                  FROM tracks WHERE sc_track_id = ANY($1)",
-            )
-            .bind(&ids)
-            .fetch_all(&self.pg)
-            .await?;
+        )
+        .bind(&ids)
+        .fetch_all(&self.pg)
+        .await?;
         let by_id: HashMap<String, (Option<String>, Option<String>, Option<String>, Option<i64>)> =
             tracks
                 .into_iter()

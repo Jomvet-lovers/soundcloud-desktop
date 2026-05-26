@@ -101,5 +101,4 @@ impl RecommendationsService {
         }
         out
     }
-
 }

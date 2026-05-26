@@ -151,11 +151,9 @@ impl TracksService {
                 let projected =
                     crate::modules::tracks::project_many(&self.pg, &[sc_track_id.to_string()])
                         .await?;
-                projected
-                    .into_iter()
-                    .flatten()
-                    .next()
-                    .unwrap_or_else(|| crate::modules::tracks::project_to_sc_shape(&track_row, None))
+                projected.into_iter().flatten().next().unwrap_or_else(|| {
+                    crate::modules::tracks::project_to_sc_shape(&track_row, None)
+                })
             } else {
                 let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
                 let fetched: Value = try_with_chain(&chain, |tok| {
@@ -167,7 +165,10 @@ impl TracksService {
                 .await?;
                 if let Some(refresh_indexing) = self.cold_refresh.indexing_for_ingest() {
                     refresh_indexing
-                        .ingest_track_from_sc(&fetched, crate::modules::tracks::TrackPriority::Discovery)
+                        .ingest_track_from_sc(
+                            &fetched,
+                            crate::modules::tracks::TrackPriority::Discovery,
+                        )
                         .await?;
                 }
                 fetched

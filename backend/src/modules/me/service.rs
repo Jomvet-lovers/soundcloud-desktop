@@ -218,7 +218,6 @@ impl MeService {
         )
         .await
     }
-
 }
 
 /// `{ premium: bool }` — ответ `/me/subscription`.

@@ -106,4 +106,3 @@ async fn build_quality_dataset(service: &RecommendationsService) -> AppResult<Ve
     }
     Ok(examples)
 }
-

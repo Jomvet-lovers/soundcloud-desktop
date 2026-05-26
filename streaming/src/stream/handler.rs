@@ -60,8 +60,11 @@ pub async fn stream(
     query: Query<StreamQuery>,
 ) -> Result<Response, AppError> {
     let urn_for_log = track_urn.0.clone();
-    match tokio::time::timeout(STREAM_DEADLINE, stream_inner(state, track_urn, headers, query))
-        .await
+    match tokio::time::timeout(
+        STREAM_DEADLINE,
+        stream_inner(state, track_urn, headers, query),
+    )
+    .await
     {
         Ok(r) => r,
         Err(_) => {

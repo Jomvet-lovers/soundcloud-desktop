@@ -98,8 +98,7 @@ impl CookiesPool {
                     let msg = e.to_string();
                     if is_rate_limited(&msg) {
                         warn!("[cookies-pool] client #{idx} rate-limited: {msg}");
-                        *entry.rate_limited_until.lock().await =
-                            Some(now + RATE_LIMIT_COOLDOWN);
+                        *entry.rate_limited_until.lock().await = Some(now + RATE_LIMIT_COOLDOWN);
                         last_err = Some(e);
                     } else {
                         return Err(e);
@@ -123,7 +122,15 @@ impl CookiesPool {
     pub async fn fetch_track_meta(
         self: &Arc<Self>,
         track_urn: &str,
-    ) -> Result<(Vec<Transcoding>, Option<String>, String, HashMap<String, String>), BoxErr> {
+    ) -> Result<
+        (
+            Vec<Transcoding>,
+            Option<String>,
+            String,
+            HashMap<String, String>,
+        ),
+        BoxErr,
+    > {
         self.try_rotate(|client| async move {
             let (tcs, auth, cid) = client.fetch_track_meta(track_urn).await?;
             Ok((tcs, auth, cid, client.cookie_auth_headers()))

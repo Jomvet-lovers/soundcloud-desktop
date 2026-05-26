@@ -332,7 +332,9 @@ impl ColdRefreshService {
                 } else {
                     // Indexing ещё не подключён (раннее spawn'ение) —
                     // делаем хотя бы UPSERT в tracks без kick'а пайплайна.
-                    if let Some(fields) = crate::modules::tracks::normalize::ScTrackFields::from_sc(item) {
+                    if let Some(fields) =
+                        crate::modules::tracks::normalize::ScTrackFields::from_sc(item)
+                    {
                         self.tracks
                             .upsert_from_sc(&fields, coll.track_priority, coll.track_priority)
                             .await?;
@@ -669,13 +671,11 @@ pub async fn read_collection_page(
         .collect();
 
     let collection: Vec<Value> = match coll.entity_kind {
-        EntityKind::Track => {
-            crate::modules::tracks::project_many(pg, &page_keys)
-                .await?
-                .into_iter()
-                .flatten()
-                .collect()
-        }
+        EntityKind::Track => crate::modules::tracks::project_many(pg, &page_keys)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect(),
         EntityKind::User => {
             let rows: Vec<crate::modules::users::UserRow> =
                 sqlx::query_as("SELECT * FROM users WHERE urn = ANY($1)")

@@ -98,12 +98,11 @@ async fn detail(
     .fetch_all(&st.pg)
     .await?;
     let track_ids: Vec<String> = track_id_rows.into_iter().map(|(t,)| t).collect();
-    let mut tracks: Vec<Value> =
-        crate::modules::tracks::project_many(&st.pg, &track_ids)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+    let mut tracks: Vec<Value> = crate::modules::tracks::project_many(&st.pg, &track_ids)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
     enrich_dto::apply_to_tracks(&st.pg, &mut tracks).await?;
 
     let wanted_rows: Vec<(Uuid, String, Option<i32>, Option<i16>, Option<Uuid>, Option<String>, i16)> =

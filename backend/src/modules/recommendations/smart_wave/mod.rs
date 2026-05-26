@@ -78,14 +78,8 @@ pub async fn build(
     } else {
         req.sc_user_id
     };
-    let mut wave_cursor = cursor::load_or_new(
-        &svc.redis,
-        owner,
-        req.cursor_token,
-        seed_kind,
-        &seed_key,
-    )
-    .await;
+    let mut wave_cursor =
+        cursor::load_or_new(&svc.redis, owner, req.cursor_token, seed_kind, &seed_key).await;
 
     let exclude = build_exclude(&signals, &wave_cursor, &req.seed);
 
@@ -104,21 +98,24 @@ pub async fn build(
     let filter = svc.build_filter(&exclude, req.languages);
     let exclude_set: HashSet<String> = exclude.iter().cloned().collect();
 
-    let track_arm_fut =
-        track_arm::recommend_from_many(svc, &seeds_for_track_arm, &negative_ids, filter.as_ref(), 80);
+    let track_arm_fut = track_arm::recommend_from_many(
+        svc,
+        &seeds_for_track_arm,
+        &negative_ids,
+        filter.as_ref(),
+        80,
+    );
     let collab_arm_fut = blender::collab_for_user(svc, req.sc_user_id, &exclude_set, 80);
 
     let (affinity, track_cands, collab_cands) =
         tokio::join!(affinity_fut, track_arm_fut, collab_arm_fut);
 
-    let artist_cands =
-        artist_arm::pick_tracks(&svc.pg, &affinity, &exclude_set, 80).await;
+    let artist_cands = artist_arm::pick_tracks(&svc.pg, &affinity, &exclude_set, 80).await;
 
     let weights = pick_weights(&req.seed, wave_cursor.neg_rate());
     let blended = blender::blend(&track_cands, &artist_cands, &collab_cands, weights);
 
-    let artist_by_track =
-        load_artist_by_track(&svc.pg, &blended).await;
+    let artist_by_track = load_artist_by_track(&svc.pg, &blended).await;
 
     let picked = blender::pick_with_cap(
         blended,
@@ -134,7 +131,11 @@ pub async fn build(
     let lang_allowed = svc
         .filter_tracks_by_language(&ids_after_cap, req.languages)
         .await;
-    let missing = svc.s3.find_missing(&ids_after_cap).await.unwrap_or_default();
+    let missing = svc
+        .s3
+        .find_missing(&ids_after_cap)
+        .await
+        .unwrap_or_default();
     let mut tracks: Vec<RecommendResult> = Vec::with_capacity(req.limit);
     for c in &picked {
         if tracks.len() >= req.limit {
@@ -206,11 +207,7 @@ pub async fn record_feedback(
     Some(handle)
 }
 
-fn build_exclude(
-    signals: &UserSignals,
-    cursor: &WaveCursor,
-    seed: &SmartWaveSeed,
-) -> Vec<String> {
+fn build_exclude(signals: &UserSignals, cursor: &WaveCursor, seed: &SmartWaveSeed) -> Vec<String> {
     let mut excl = signals.exclude_set();
     for t in cursor.seen_tracks.iter() {
         excl.push(t.to_string());
@@ -274,7 +271,11 @@ fn pick_track_seeds(seed: &SmartWaveSeed, signals: &UserSignals) -> Vec<u64> {
 
 fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
     let mut out: Vec<u64> = Vec::new();
-    for id in signals.disliked_ids.iter().chain(signals.recent_skips.iter()) {
+    for id in signals
+        .disliked_ids
+        .iter()
+        .chain(signals.recent_skips.iter())
+    {
         if let Ok(n) = id.parse::<u64>() {
             out.push(n);
         }
@@ -295,10 +296,7 @@ fn pick_weights(seed: &SmartWaveSeed, neg_rate: f32) -> BlendWeights {
     base.adapt_to_negative(neg_rate)
 }
 
-async fn load_artist_by_track(
-    pg: &PgPool,
-    blended: &[BlendedCandidate],
-) -> HashMap<u64, Uuid> {
+async fn load_artist_by_track(pg: &PgPool, blended: &[BlendedCandidate]) -> HashMap<u64, Uuid> {
     if blended.is_empty() {
         return HashMap::new();
     }

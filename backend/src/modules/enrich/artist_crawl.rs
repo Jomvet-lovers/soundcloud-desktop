@@ -1035,11 +1035,10 @@ impl ArtistCrawlService {
     }
 
     async fn indexed_track_has_isrc(&self, isrc: &str) -> AppResult<bool> {
-        let row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM tracks WHERE isrc = $1 LIMIT 1")
-                .bind(isrc)
-                .fetch_optional(&self.pg)
-                .await?;
+        let row: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM tracks WHERE isrc = $1 LIMIT 1")
+            .bind(isrc)
+            .fetch_optional(&self.pg)
+            .await?;
         Ok(row.is_some())
     }
 

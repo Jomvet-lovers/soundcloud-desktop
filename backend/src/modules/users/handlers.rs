@@ -54,7 +54,6 @@ struct AccessQuery {
     access: Option<String>,
 }
 
-
 async fn search(
     State(st): State<AppState>,
     ctx: SessionCtx,
@@ -241,11 +240,7 @@ async fn get_web_profiles(
         None,
         86400,
         None,
-        || async {
-            st.users
-                .get_web_profiles(ctx.session_id, &user_urn)
-                .await
-        },
+        || async { st.users.get_web_profiles(ctx.session_id, &user_urn).await },
     )
     .await
 }

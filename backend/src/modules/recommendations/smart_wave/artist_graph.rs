@@ -95,7 +95,11 @@ async fn compute(pg: &PgPool, sc_user_id: &str) -> AppResult<Vec<ArtistAffinity>
     let direct = load_direct_neighbors(pg, &seed_ids).await?;
 
     // direct max edge для нормализации.
-    let max_edge = direct.iter().map(|e| e.weight).fold(0f32, f32::max).max(1.0);
+    let max_edge = direct
+        .iter()
+        .map(|e| e.weight)
+        .fold(0f32, f32::max)
+        .max(1.0);
 
     // Собираем известные узлы: seeds + direct.
     let mut known: HashMap<Uuid, ArtistAffinity> = HashMap::new();
@@ -139,10 +143,7 @@ async fn compute(pg: &PgPool, sc_user_id: &str) -> AppResult<Vec<ArtistAffinity>
         }
     }
 
-    let mut out: Vec<ArtistAffinity> = known
-        .into_values()
-        .filter(|a| a.weight > 0.001)
-        .collect();
+    let mut out: Vec<ArtistAffinity> = known.into_values().filter(|a| a.weight > 0.001).collect();
     out.sort_by(|a, b| {
         b.weight
             .partial_cmp(&a.weight)

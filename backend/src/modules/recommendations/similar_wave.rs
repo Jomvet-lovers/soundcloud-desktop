@@ -83,8 +83,13 @@ impl RecommendationsService {
             let filter = self.build_filter(&exclude, languages);
             let mert_fut = async {
                 if let Some(v) = &mert_seed {
-                    self.search_by_vector(collections::TRACKS_MERT, v, filter.as_ref(), SAME_VIBE_POOL)
-                        .await
+                    self.search_by_vector(
+                        collections::TRACKS_MERT,
+                        v,
+                        filter.as_ref(),
+                        SAME_VIBE_POOL,
+                    )
+                    .await
                 } else {
                     Vec::new()
                 }

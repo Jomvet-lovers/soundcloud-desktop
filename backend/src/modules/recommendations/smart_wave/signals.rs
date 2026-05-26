@@ -93,13 +93,12 @@ async fn load_fresh_likes(pg: &PgPool, sc_user_id: &str) -> AppResult<Vec<String
 }
 
 async fn load_dislikes(pg: &PgPool, sc_user_id: &str) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM disliked_tracks WHERE sc_user_id = $1 LIMIT $2",
-    )
-    .bind(sc_user_id)
-    .bind(DISLIKES_LIMIT)
-    .fetch_all(pg)
-    .await?;
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT sc_track_id FROM disliked_tracks WHERE sc_user_id = $1 LIMIT $2")
+            .bind(sc_user_id)
+            .bind(DISLIKES_LIMIT)
+            .fetch_all(pg)
+            .await?;
     Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
@@ -150,4 +149,3 @@ async fn load_played_dedupe(pg: &PgPool, sc_user_id: &str) -> AppResult<Vec<Stri
     .await?;
     Ok(rows.into_iter().map(|(id,)| id).collect())
 }
-

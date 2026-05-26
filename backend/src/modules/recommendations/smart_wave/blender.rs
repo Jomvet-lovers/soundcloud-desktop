@@ -81,9 +81,21 @@ pub fn blend(
     collab_arm: &[(u64, f32)],
     weights: BlendWeights,
 ) -> Vec<BlendedCandidate> {
-    let track_max = track_arm.iter().map(|c| c.score).fold(0f32, f32::max).max(1e-6);
-    let artist_max = artist_arm.iter().map(|c| c.score).fold(0f32, f32::max).max(1e-6);
-    let collab_max = collab_arm.iter().map(|(_, s)| *s).fold(0f32, f32::max).max(1e-6);
+    let track_max = track_arm
+        .iter()
+        .map(|c| c.score)
+        .fold(0f32, f32::max)
+        .max(1e-6);
+    let artist_max = artist_arm
+        .iter()
+        .map(|c| c.score)
+        .fold(0f32, f32::max)
+        .max(1e-6);
+    let collab_max = collab_arm
+        .iter()
+        .map(|(_, s)| *s)
+        .fold(0f32, f32::max)
+        .max(1e-6);
 
     let mut by_id: HashMap<u64, f32> = HashMap::new();
     for c in track_arm {
@@ -171,8 +183,7 @@ pub async fn collab_for_user(
         .await;
     raw.into_iter()
         .filter_map(|r| {
-            let id =
-                crate::modules::recommendations::service::util::value_to_u64(&r.id)?;
+            let id = crate::modules::recommendations::service::util::value_to_u64(&r.id)?;
             Some((id, r.score.unwrap_or(0.0)))
         })
         .collect()

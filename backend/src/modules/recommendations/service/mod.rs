@@ -5,8 +5,8 @@ mod types;
 pub(crate) mod util;
 mod verify;
 
-pub(crate) use types::ScoredCandidate;
 pub use types::RecommendResult;
+pub(crate) use types::ScoredCandidate;
 
 use std::sync::Arc;
 

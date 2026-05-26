@@ -481,10 +481,7 @@ pub fn project_to_sc_shape(row: &TrackRow, uploader_user: Option<&Value>) -> Val
     if let Some(q) = &row.storage_quality {
         meta.insert("storage_quality".into(), Value::String(q.clone()));
     }
-    meta.insert(
-        "index_state".into(),
-        Value::String(row.index_state.clone()),
-    );
+    meta.insert("index_state".into(), Value::String(row.index_state.clone()));
     meta.insert(
         "enrich_state".into(),
         Value::String(row.enrich_state.clone()),
@@ -497,18 +494,14 @@ pub fn project_to_sc_shape(row: &TrackRow, uploader_user: Option<&Value>) -> Val
 /// Bulk-load с проекцией. Возвращает упорядоченный по входному порядку
 /// массив. Отсутствующие в БД sc_track_id заменяются Value::Null (caller
 /// решает что с ними делать — обычно фильтрует).
-pub async fn project_many(
-    pg: &PgPool,
-    sc_track_ids: &[String],
-) -> AppResult<Vec<Option<Value>>> {
+pub async fn project_many(pg: &PgPool, sc_track_ids: &[String]) -> AppResult<Vec<Option<Value>>> {
     if sc_track_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<TrackRow> =
-        sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = ANY($1)")
-            .bind(sc_track_ids)
-            .fetch_all(pg)
-            .await?;
+    let rows: Vec<TrackRow> = sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = ANY($1)")
+        .bind(sc_track_ids)
+        .fetch_all(pg)
+        .await?;
     let by_id: std::collections::HashMap<String, TrackRow> = rows
         .into_iter()
         .map(|r| (r.sc_track_id.clone(), r))

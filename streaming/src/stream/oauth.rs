@@ -198,9 +198,9 @@ async fn get_streams(
                         Ok(_) => {
                             warn!("[oauth] app-token pool empty, falling back to proxy");
                         }
-                        Err(e) => warn!(
-                            "[oauth] failed to fetch app-tokens: {e}, falling back to proxy"
-                        ),
+                        Err(e) => {
+                            warn!("[oauth] failed to fetch app-tokens: {e}, falling back to proxy")
+                        }
                     }
                 }
             }

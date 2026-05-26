@@ -135,11 +135,10 @@ impl IndexingService {
         let total: (i64,) = sqlx::query_as("SELECT COUNT(*)::int8 FROM tracks")
             .fetch_one(&self.pg)
             .await?;
-        let indexed: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*)::int8 FROM tracks WHERE index_state = 'indexed'",
-        )
-        .fetch_one(&self.pg)
-        .await?;
+        let indexed: (i64,) =
+            sqlx::query_as("SELECT COUNT(*)::int8 FROM tracks WHERE index_state = 'indexed'")
+                .fetch_one(&self.pg)
+                .await?;
         Ok(IndexingStats {
             indexed: indexed.0,
             pending: total.0 - indexed.0,
@@ -264,8 +263,7 @@ impl IndexingService {
     ///   cached → fanout STORAGE_TRACK_UPLOADED → backend опубликует
     ///   INDEX_AUDIO заново).
     async fn reap(self: &Arc<Self>) -> AppResult<()> {
-        let cutoff =
-            chrono::Utc::now() - chrono::Duration::from_std(REAP_AGE).unwrap_or_default();
+        let cutoff = chrono::Utc::now() - chrono::Duration::from_std(REAP_AGE).unwrap_or_default();
         let stuck: Vec<(String,)> = sqlx::query_as(
             "SELECT sc_track_id FROM tracks \
              WHERE created_at < $1 \

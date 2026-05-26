@@ -109,7 +109,10 @@ impl WaveCursor {
     }
 
     pub fn artist_count_in_window(&self, artist_id: Uuid) -> usize {
-        self.seen_artists.iter().filter(|a| **a == artist_id).count()
+        self.seen_artists
+            .iter()
+            .filter(|a| **a == artist_id)
+            .count()
     }
 
     pub fn contains(&self, sc_track_id: u64) -> bool {

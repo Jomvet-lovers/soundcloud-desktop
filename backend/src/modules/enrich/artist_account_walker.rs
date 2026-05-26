@@ -174,11 +174,7 @@ impl ArtistAccountWalker {
         Ok(())
     }
 
-    async fn fetch_user_tracks(
-        &self,
-        sc_user_id: &str,
-        chain: &[String],
-    ) -> AppResult<Vec<Value>> {
+    async fn fetch_user_tracks(&self, sc_user_id: &str, chain: &[String]) -> AppResult<Vec<Value>> {
         let mut acc: Vec<Value> = Vec::new();
         let mut next: Option<String> = None;
         for _ in 0..PER_ARTIST_PAGES {

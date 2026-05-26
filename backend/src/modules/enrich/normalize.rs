@@ -17,8 +17,7 @@ static RE_SPLIT_ARTISTS: Lazy<Regex> = Lazy::new(|| {
 /// явной точкой после числа; голые цифры ловит `looks_like_track_number`.
 /// Не трогаем имена вида "M.O.S.T." (там нет ведущих цифр) или "112" /
 /// "21 Savage" (нет точки после числа).
-static RE_TRACK_NUM_PREFIX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^\s*\d{1,3}\s*\.\s+").unwrap());
+static RE_TRACK_NUM_PREFIX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*\d{1,3}\s*\.\s+").unwrap());
 
 /// Срезает префиксы-маркеры роли ("prod. by", "feat.", "remix by" и т.п.),
 /// которые могут просочиться в имя артиста из внешних источников (AI, Genius,
@@ -87,7 +86,9 @@ pub fn strip_translit_parens(s: &str) -> String {
     // Не-латиница: всё ВНЕ Basic Latin + Latin-1 + Latin Extended + IPA
     // (≤ U+02AF). "Beyoncé" / "café" — latin-1 с диакритикой, не транслит,
     // НЕ должны триггерить. Кириллица / греческий / CJK / арабский — да.
-    let outer_has_nonlatin = outer.chars().any(|c| c.is_alphabetic() && (c as u32) > 0x02AF);
+    let outer_has_nonlatin = outer
+        .chars()
+        .any(|c| c.is_alphabetic() && (c as u32) > 0x02AF);
     let inner_chars_ok = inner
         .chars()
         .all(|c| c.is_ascii_alphabetic() || matches!(c, ' ' | '-' | '\'' | '.' | '`'));
@@ -107,17 +108,56 @@ fn looks_like_role_tag(inner: &str) -> bool {
     let tail = lower.split_whitespace().last().unwrap_or("");
     matches!(
         head,
-        "cover" | "covers" | "remix" | "rmx" | "edit" | "version" | "mix"
-            | "feat" | "feat." | "ft" | "ft." | "featuring"
-            | "prod" | "prod." | "produced" | "with" | "vs" | "vs."
-            | "instrumental" | "acoustic" | "live" | "demo" | "bootleg"
-            | "flip" | "mashup" | "original" | "extended" | "radio" | "free"
-            | "official" | "premiere" | "exclusive" | "lyrics" | "lyric"
-            | "visualizer" | "hq" | "hd"
+        "cover"
+            | "covers"
+            | "remix"
+            | "rmx"
+            | "edit"
+            | "version"
+            | "mix"
+            | "feat"
+            | "feat."
+            | "ft"
+            | "ft."
+            | "featuring"
+            | "prod"
+            | "prod."
+            | "produced"
+            | "with"
+            | "vs"
+            | "vs."
+            | "instrumental"
+            | "acoustic"
+            | "live"
+            | "demo"
+            | "bootleg"
+            | "flip"
+            | "mashup"
+            | "original"
+            | "extended"
+            | "radio"
+            | "free"
+            | "official"
+            | "premiere"
+            | "exclusive"
+            | "lyrics"
+            | "lyric"
+            | "visualizer"
+            | "hq"
+            | "hd"
     ) || matches!(
         tail,
-        "remix" | "rmx" | "edit" | "mix" | "version" | "cover" | "bootleg"
-            | "flip" | "mashup" | "instrumental" | "acoustic"
+        "remix"
+            | "rmx"
+            | "edit"
+            | "mix"
+            | "version"
+            | "cover"
+            | "bootleg"
+            | "flip"
+            | "mashup"
+            | "instrumental"
+            | "acoustic"
     )
 }
 
@@ -577,7 +617,10 @@ mod tests {
         // Внутри скобок что-то нелатинское → не транслит → оставляем
         assert_eq!(clean_artist_name("Eminem (Эминем)"), "Eminem (Эминем)");
         // Транслит с пробелом / дефисом — срезаем
-        assert_eq!(clean_artist_name("Чёрный обелиск (cherny obelisk)"), "Чёрный обелиск");
+        assert_eq!(
+            clean_artist_name("Чёрный обелиск (cherny obelisk)"),
+            "Чёрный обелиск"
+        );
     }
 
     #[test]
@@ -588,7 +631,10 @@ mod tests {
         // для последующей обработки enrich-пайплайном.
         assert_eq!(strip_translit_parens("tainted (cover)"), "tainted (cover)");
         assert_eq!(strip_translit_parens("трек (cover)"), "трек (cover)");
-        assert_eq!(strip_translit_parens("трек (Cover Version)"), "трек (Cover Version)");
+        assert_eq!(
+            strip_translit_parens("трек (Cover Version)"),
+            "трек (Cover Version)"
+        );
         assert_eq!(strip_translit_parens("трек (remix)"), "трек (remix)");
         assert_eq!(
             strip_translit_parens("трек (someone remix)"),
@@ -596,7 +642,10 @@ mod tests {
         );
         assert_eq!(strip_translit_parens("трек (feat. X)"), "трек (feat. X)");
         assert_eq!(strip_translit_parens("трек (prod. X)"), "трек (prod. X)");
-        assert_eq!(strip_translit_parens("трек (instrumental)"), "трек (instrumental)");
+        assert_eq!(
+            strip_translit_parens("трек (instrumental)"),
+            "трек (instrumental)"
+        );
         assert_eq!(strip_translit_parens("трек (live)"), "трек (live)");
         // А вот translit без role-тега — срезаем (имя в скобках, не роль)
         assert_eq!(strip_translit_parens("трек (translit)"), "трек");

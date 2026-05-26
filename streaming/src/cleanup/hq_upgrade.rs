@@ -32,12 +32,19 @@ pub fn spawn_hq_upgrade_task(
         info!("[hq-upgrade] decryptor not configured, skipping");
         return;
     };
-    info!(tick_sec = TICK.as_secs(), batch = BATCH, "[hq-upgrade] starting");
+    info!(
+        tick_sec = TICK.as_secs(),
+        batch = BATCH,
+        "[hq-upgrade] starting"
+    );
 
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(TICK).await;
-            let urns = match pg.pick_hq_upgrade_candidates(BATCH, RETRY_COOLDOWN_SEC).await {
+            let urns = match pg
+                .pick_hq_upgrade_candidates(BATCH, RETRY_COOLDOWN_SEC)
+                .await
+            {
                 Ok(v) => v,
                 Err(e) => {
                     warn!("[hq-upgrade] pick failed: {e}");
@@ -112,11 +119,10 @@ async fn upgrade_one(
         return Ok(false);
     }
 
-    let fetcher: Arc<dyn decrypt::Fetcher> =
-        Arc::new(crate::stream::decrypt_fetch::ProxyFetcher {
-            client: http_client.clone(),
-            proxy_url: sc_proxy_url.to_string(),
-        });
+    let fetcher: Arc<dyn decrypt::Fetcher> = Arc::new(crate::stream::decrypt_fetch::ProxyFetcher {
+        client: http_client.clone(),
+        proxy_url: sc_proxy_url.to_string(),
+    });
     let mut stream = engine
         .process_stream(&src.manifest, &src.token, fetcher)
         .await?;

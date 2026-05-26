@@ -13,6 +13,7 @@ use bytes::Bytes;
 use reqwest::Client;
 use serde::Serialize;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
@@ -117,7 +118,7 @@ fn check_auth(headers: &HeaderMap, expected: &str) -> Result<(), (StatusCode, St
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or((StatusCode::UNAUTHORIZED, "missing token".into()))?;
-    if token != expected {
+    if token.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() != 1 {
         return Err((StatusCode::FORBIDDEN, "invalid token".into()));
     }
     Ok(())

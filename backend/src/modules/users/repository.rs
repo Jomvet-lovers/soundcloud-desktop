@@ -189,10 +189,14 @@ impl ScUserFields {
         let permalink = string_field(payload, "permalink");
         let permalink_url = string_field(payload, "permalink_url");
         let avatar_url = string_field(payload, "avatar_url");
-        let country = string_field(payload, "country_code").or_else(|| string_field(payload, "country"));
+        let country =
+            string_field(payload, "country_code").or_else(|| string_field(payload, "country"));
         let city = string_field(payload, "city");
         let description = string_field(payload, "description");
-        let verified = payload.get("verified").and_then(|v| v.as_bool()).unwrap_or(false);
+        let verified = payload
+            .get("verified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let kind = string_field(payload, "kind");
         let sc_created_at = parse_dt(payload.get("created_at"));
         let sc_last_modified = parse_dt(payload.get("last_modified"));
@@ -266,7 +270,9 @@ pub fn project_to_sc_shape(row: &UserRow) -> Value {
     );
     obj.insert(
         "followings_count".into(),
-        row.followings_count.map(|v| json!(v)).unwrap_or(Value::Null),
+        row.followings_count
+            .map(|v| json!(v))
+            .unwrap_or(Value::Null),
     );
     obj.insert(
         "track_count".into(),

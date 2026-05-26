@@ -327,8 +327,14 @@ pub async fn fetch_post_bytes(
     let validate = accept_non_empty();
     let relay = RELAY.get().cloned();
     if let Some(r) = relay {
-        match via_relay_post(r, target_url.to_string(), extra.clone(), body.clone(), &validate)
-            .await
+        match via_relay_post(
+            r,
+            target_url.to_string(),
+            extra.clone(),
+            body.clone(),
+            &validate,
+        )
+        .await
         {
             Ok(v) => return Ok(v),
             Err(e) => {
