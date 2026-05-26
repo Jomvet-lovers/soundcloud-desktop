@@ -560,11 +560,8 @@ async fn batch_upsert_mirror(
         )
     };
 
-    let insert_cols = if coll.mirror_payload_col.is_some() {
-        format!(
-            "user_id, {key_col}, {}, progress, synced_at, created_at",
-            coll.mirror_payload_col.unwrap()
-        )
+    let insert_cols = if let Some(col) = coll.mirror_payload_col {
+        format!("user_id, {key_col}, {col}, progress, synced_at, created_at")
     } else if coll.has_wanted_state {
         format!("user_id, {key_col}, wanted_state, progress, synced_at, created_at")
     } else {

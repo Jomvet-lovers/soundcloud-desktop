@@ -931,7 +931,7 @@ impl LyricsService {
             full = need_full.len(),
             "[lyrics-reap] retrying whisper"
         );
-        for (id,) in need_align.into_iter().chain(need_full.into_iter()) {
+        for (id,) in need_align.into_iter().chain(need_full) {
             self.trigger.trigger(&id);
         }
         Ok(())

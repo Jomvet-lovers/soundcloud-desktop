@@ -134,11 +134,10 @@ fn read_fd_snapshot() -> Result<FdSnapshot, String> {
 
 #[cfg(target_os = "linux")]
 fn format_fd_snapshot(snapshot: &FdSnapshot) -> String {
-    let pct = if snapshot.soft_limit > 0 {
-        (snapshot.open as u64).saturating_mul(100) / snapshot.soft_limit
-    } else {
-        0
-    };
+    let pct = (snapshot.open as u64)
+        .saturating_mul(100)
+        .checked_div(snapshot.soft_limit)
+        .unwrap_or(0);
 
     format!(
         "[FD] open={}/{} (hard={}) {}% sockets={} pipes={} anon_inode={} files={} other={}",
@@ -180,11 +179,10 @@ pub fn start_linux_fd_monitor(app: &AppHandle) {
                 }
             };
 
-            let usage_pct = if snapshot.soft_limit > 0 {
-                (snapshot.open as u64).saturating_mul(100) / snapshot.soft_limit
-            } else {
-                0
-            };
+            let usage_pct = (snapshot.open as u64)
+                .saturating_mul(100)
+                .checked_div(snapshot.soft_limit)
+                .unwrap_or(0);
 
             if high_water == 0 {
                 high_water = snapshot.open;

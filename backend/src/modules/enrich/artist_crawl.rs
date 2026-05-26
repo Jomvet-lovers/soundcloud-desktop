@@ -444,8 +444,7 @@ impl ArtistCrawlService {
         album_id: Uuid,
         genius_album_id: i64,
     ) -> AppResult<()> {
-        let mut page = 1u32;
-        for _ in 0..6 {
+        for page in 1u32..=6 {
             let (tracks, has_more) = self
                 .genius
                 .list_album_tracks(genius_album_id, page, 50)
@@ -464,7 +463,6 @@ impl ArtistCrawlService {
             if !has_more {
                 return Ok(());
             }
-            page += 1;
         }
         Ok(())
     }

@@ -44,7 +44,7 @@ export interface TrackEnrichment {
 }
 
 export interface TrackScdMeta {
-  storage_state: 'pending' | 'sq' | 'hq' | 'failed';
+  storage_state: 'pending' | 'ok' | 'failed' | 'missing';
   storage_quality?: 'sq' | 'hq';
   index_state: 'pending' | 'indexed' | 'failed';
   enrich_state: 'pending' | 'done' | 'failed';

@@ -1631,7 +1631,7 @@ impl TrackCacheState {
         }
 
         let before = total;
-        files.sort_by(|a, b| a.2.cmp(&b.2));
+        files.sort_by_key(|x| x.2);
 
         let mut removed = 0u32;
         for (path, size, _) in files {
