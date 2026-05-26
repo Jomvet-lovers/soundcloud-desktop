@@ -1,9 +1,15 @@
 """Воркер = только AI-слой. Shina — NATS (JetStream). HTTP/Redis не используются.
 
 - Все задачи идут через JetStream pull-consumer'ы.
-- Глобальный семафор `inference_sem(1)` гарантирует: один воркер = один инференс за раз.
-  Пока семафор занят, воркер НЕ делает fetch — сообщения остаются в стриме и подхватываются
-  другими воркерами (queue group через общий durable).
+- Параллелизм управляется ENV `WORKER_CONCURRENCY` (см. config.py):
+    - пусто / "1"          → один глобальный Semaphore(1) на все типы задач
+                              (дефолт = старое поведение, GPU-friendly).
+    - "N"                  → один глобальный Semaphore(N) на все типы.
+    - "ai=4,audio=1,…"     → отдельный семафор на каждый тип (CPU-friendly:
+                              лёгкие RPC не блокируются тяжёлым INDEX_AUDIO).
+  Пока семафор занят, воркер НЕ делает fetch по этому типу — сообщения
+  остаются в стриме и подхватываются другими воркерами (queue group через
+  общий durable).
 - Подтверждение "я работаю" раз в TASK_HEARTBEAT_SEC, жёсткий таймаут TASK_HARD_TIMEOUT_SEC.
 """
 import asyncio
@@ -14,6 +20,7 @@ import threading
 
 from . import subjects as subj
 from .bus import connect, ensure_consumer, run_rpc_msg, run_with_lifecycle
+from .config import WORKER_CONCURRENCY
 from .handlers import ai, audio, lyrics
 from .handlers import collab as collab_handler
 from .handlers import quality as quality_handler
@@ -26,6 +33,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 for noisy in ("httpx", "httpcore", "urllib3", "huggingface_hub", "filelock"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
+
+TAGS = ("ai", "audio", "lyrics", "collab", "quality")
+
+
+def _build_semaphores() -> dict[str, asyncio.Semaphore]:
+    """Строит {tag: Semaphore} по WORKER_CONCURRENCY. См. docstring модуля."""
+    cfg = WORKER_CONCURRENCY
+    if isinstance(cfg, int):
+        shared = asyncio.Semaphore(cfg)
+        log.info(f"WORKER_CONCURRENCY: global Semaphore({cfg}) shared across {list(TAGS)}")
+        return {tag: shared for tag in TAGS}
+    sems = {tag: asyncio.Semaphore(cfg.get(tag, 1)) for tag in TAGS}
+    log.info(
+        "WORKER_CONCURRENCY per-tag: "
+        + ", ".join(f"{t}={cfg.get(t, 1)}" for t in TAGS)
+    )
+    return sems
 
 
 async def _js_pull_loop(
@@ -41,7 +65,7 @@ async def _js_pull_loop(
     is_rpc: bool,
     nc=None,
 ) -> None:
-    """Пока inference_sem занят — не вызываем fetch, сообщения достаются другим воркерам.
+    """Пока семафор занят — не вызываем fetch, сообщения достаются другим воркерам.
 
     После N подряд ошибок fetch (обычно — обрыв NATS) пересоздаём подписку,
     иначе зомби-psub будет вечно отдавать ошибки даже после реконнекта коннекта.
@@ -157,7 +181,7 @@ async def main() -> None:
     )
 
     stop = asyncio.Event()
-    inference_sem = asyncio.Semaphore(1)
+    sems = _build_semaphores()
 
     def _signal(*_):
         if stop.is_set():
@@ -178,7 +202,7 @@ async def main() -> None:
 
     ai_task = asyncio.create_task(
         _js_pull_loop(
-            js, inference_sem, subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC,
+            js, sems["ai"], subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC,
             subj.SUBJECT_AI_RPC_FILTER,
             lambda subject, payload: _route_ai(models, subject, payload),
             "[ai]", stop, is_rpc=True, nc=nc,
@@ -186,7 +210,7 @@ async def main() -> None:
     )
     audio_task = asyncio.create_task(
         _js_pull_loop(
-            js, inference_sem, subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO,
+            js, sems["audio"], subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO,
             subj.SUBJECT_INDEX_AUDIO_NEW,
             lambda p: audio.handle(p, models, qdrant, nc),
             "[audio]", stop, is_rpc=False,
@@ -194,7 +218,7 @@ async def main() -> None:
     )
     lyrics_task = asyncio.create_task(
         _js_pull_loop(
-            js, inference_sem, subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS,
+            js, sems["lyrics"], subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS,
             subj.SUBJECT_EMBED_LYRICS_NEW,
             lambda p: lyrics.handle(p, models, qdrant, nc),
             "[lyrics]", stop, is_rpc=False,
@@ -202,7 +226,7 @@ async def main() -> None:
     )
     collab_task = asyncio.create_task(
         _js_pull_loop(
-            js, inference_sem, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB,
+            js, sems["collab"], subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB,
             subj.SUBJECT_TRAIN_COLLAB_NEW,
             lambda p: collab_handler.handle(p, models, qdrant, nc),
             "[collab]", stop, is_rpc=False,
@@ -210,7 +234,7 @@ async def main() -> None:
     )
     quality_task = asyncio.create_task(
         _js_pull_loop(
-            js, inference_sem, subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY,
+            js, sems["quality"], subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY,
             subj.SUBJECT_TRAIN_QUALITY_NEW,
             lambda p: quality_handler.handle(p, models, qdrant, nc),
             "[quality]", stop, is_rpc=False,
