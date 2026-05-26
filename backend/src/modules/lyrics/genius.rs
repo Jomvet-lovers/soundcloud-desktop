@@ -224,8 +224,8 @@ struct ReleaseDate {
 impl ReleaseDate {
     fn full_date(&self) -> Option<chrono::NaiveDate> {
         let y = self.year?;
-        let m = self.month?.max(1).min(12);
-        let d = self.day?.max(1).min(31);
+        let m = self.month?.clamp(1, 12);
+        let d = self.day?.clamp(1, 31);
         chrono::NaiveDate::from_ymd_opt(y, m, d)
     }
 }
@@ -800,10 +800,7 @@ fn extract_balanced_div_content(html: &str, start_pos: usize) -> Option<String> 
     while pos < len && depth > 0 {
         let next_open = find_subseq(bytes, pos, b"<div");
         let next_close = find_subseq(bytes, pos, b"</div");
-        let nc = match next_close {
-            Some(p) => p,
-            None => return None,
-        };
+        let nc = next_close?;
         match next_open {
             Some(no) if no < nc => {
                 let after_idx = no + 4;

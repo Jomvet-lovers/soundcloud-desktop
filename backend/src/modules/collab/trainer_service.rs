@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::bus::nats::NatsService;
-use crate::bus::subjects::subjects;
+use crate::bus::subjects;
 use crate::config::CollabCfg;
 use crate::error::AppResult;
 use crate::modules::collab::vector_service::CollabVectorService;

@@ -27,24 +27,25 @@ impl RecommendationsService {
         // т.к. publisher_metadata/artist у нас уже нет: эту инфу теперь
         // выводит enrich-pipeline через track_artists; для denorm-минимума
         // достаточно uploader_username).
-        let tracks: Vec<(
+        type TrackMetaRow = (
             String,
             Option<String>,
             Option<String>,
             Option<String>,
             Option<i64>,
-        )> = sqlx::query_as(
+        );
+        type TrackMeta = (Option<String>, Option<String>, Option<String>, Option<i64>);
+        let tracks: Vec<TrackMetaRow> = sqlx::query_as(
             "SELECT sc_track_id, uploader_username, genre, language, play_count_sc \
                  FROM tracks WHERE sc_track_id = ANY($1)",
         )
         .bind(&ids)
         .fetch_all(&self.pg)
         .await?;
-        let by_id: HashMap<String, (Option<String>, Option<String>, Option<String>, Option<i64>)> =
-            tracks
-                .into_iter()
-                .map(|(id, uploader, genre, lang, plays)| (id, (uploader, genre, lang, plays)))
-                .collect();
+        let by_id: HashMap<String, TrackMeta> = tracks
+            .into_iter()
+            .map(|(id, uploader, genre, lang, plays)| (id, (uploader, genre, lang, plays)))
+            .collect();
         let boost = self.cfg.popularity_boost as f32;
         let user_lang_set: HashSet<String> = user_languages
             .map(|l| l.iter().cloned().collect())
@@ -126,12 +127,13 @@ impl RecommendationsService {
         if exclude.is_empty() {
             return None;
         }
-        let mut filter = Filter::default();
-        filter.must_not = exclude
-            .iter()
-            .map(|id| Condition::matches("sc_track_id", id.clone()))
-            .collect();
-        Some(filter)
+        Some(Filter {
+            must_not: exclude
+                .iter()
+                .map(|id| Condition::matches("sc_track_id", id.clone()))
+                .collect(),
+            ..Default::default()
+        })
     }
 
     /// Если выбраны языки, оставляем только треки с `language IN (langs)` или

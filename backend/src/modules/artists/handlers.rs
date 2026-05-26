@@ -93,19 +93,20 @@ struct TracksQuery {
     sort: Option<String>,
 }
 
+type ArtistDetailRow = (String, Option<String>, Option<String>, Option<String>, f32);
+
 async fn detail(
     State(st): State<AppState>,
     _ctx: SessionCtx,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ArtistDetailDto>> {
-    let row: Option<(String, Option<String>, Option<String>, Option<String>, f32)> =
-        sqlx::query_as(
-            "SELECT name, country, bio, avatar_url, confidence
+    let row: Option<ArtistDetailRow> = sqlx::query_as(
+        "SELECT name, country, bio, avatar_url, confidence
          FROM artists WHERE id = $1 AND merged_into IS NULL",
-        )
-        .bind(id)
-        .fetch_optional(&st.pg)
-        .await?;
+    )
+    .bind(id)
+    .fetch_optional(&st.pg)
+    .await?;
     let Some((name, country, bio, avatar_url, confidence)) = row else {
         return Err(AppError::not_found("artist not found"));
     };
@@ -384,15 +385,17 @@ async fn by_name(
     }
 }
 
+type WantedStubRow = (
+    Uuid,
+    String,
+    Option<i32>,
+    Option<i16>,
+    Option<String>,
+    Option<String>,
+);
+
 async fn fetch_wanted_stubs(pg: &PgPool, artist_id: Uuid, limit: i64) -> AppResult<Vec<Value>> {
-    let rows: Vec<(
-        Uuid,
-        String,
-        Option<i32>,
-        Option<i16>,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(
+    let rows: Vec<WantedStubRow> = sqlx::query_as(
         "SELECT wt.id, wt.title, wt.duration_ms, wt.release_year, wt.isrc, a.name
              FROM wanted_tracks wt
              LEFT JOIN artists a ON a.id = wt.primary_artist_id

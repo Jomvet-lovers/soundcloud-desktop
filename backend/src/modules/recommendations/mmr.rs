@@ -23,8 +23,8 @@ where
     while selected.len() < want {
         let mut best_idx = usize::MAX;
         let mut best_val = f32::NEG_INFINITY;
-        for i in 0..pool_vecs.len() {
-            if taken[i] {
+        for (i, &t) in taken.iter().enumerate() {
+            if t {
                 continue;
             }
             let s = score(i, &selected, pool_vecs);

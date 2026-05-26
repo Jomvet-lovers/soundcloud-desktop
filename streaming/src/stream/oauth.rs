@@ -26,31 +26,27 @@ pub struct OAuthStreamResult {
     pub content_type: &'static str,
 }
 
+/// Shared per-call infrastructure ctx — HTTP client + DB pool + proxy config
+/// passed verbatim through the OAuth fallback chain.
+pub struct OauthCtx<'a> {
+    pub client: &'a Client,
+    pub pg: &'a PgPool,
+    pub proxy_url: &'a str,
+    pub proxy_fallback: bool,
+    pub fallback_session_count: usize,
+}
+
 /// Try OAuth API stream: /tracks/{urn}/streams → pick best format → download.
 /// `hq_only=true`  → only hls_aac_160 (HQ AAC 160k HLS)
 /// `hq_only=false` → all formats: hls_aac_160 → http_mp3_128 → hls_mp3_128
 pub async fn try_oauth_stream(
-    client: &Client,
-    pg: &PgPool,
-    proxy_url: &str,
-    proxy_fallback: bool,
-    fallback_session_count: usize,
+    ctx: &OauthCtx<'_>,
     access_token: &str,
     track_urn: &str,
     secret_token: Option<&str>,
     hq_only: bool,
 ) -> Option<OAuthStreamResult> {
-    let streams = get_streams(
-        client,
-        pg,
-        proxy_url,
-        proxy_fallback,
-        fallback_session_count,
-        access_token,
-        track_urn,
-        secret_token,
-    )
-    .await?;
+    let streams = get_streams(ctx, access_token, track_urn, secret_token).await?;
 
     // hq_only: only HLS AAC 160; otherwise hls_aac_160 first (API v1 path — stable),
     // then progressive mp3, then HLS mp3 fallback
@@ -82,9 +78,9 @@ pub async fn try_oauth_stream(
 
     for (url, proto, mime) in candidates {
         match try_format(
-            client,
-            proxy_url,
-            proxy_fallback,
+            ctx.client,
+            ctx.proxy_url,
+            ctx.proxy_fallback,
             access_token,
             url,
             proto,
@@ -143,11 +139,7 @@ async fn fetch_streams_direct_once(
 }
 
 async fn get_streams(
-    client: &Client,
-    pg: &PgPool,
-    proxy_url: &str,
-    proxy_fallback: bool,
-    fallback_session_count: usize,
+    ctx: &OauthCtx<'_>,
     access_token: &str,
     track_urn: &str,
     secret_token: Option<&str>,
@@ -159,8 +151,8 @@ async fn get_streams(
 
     // 1) direct с original токеном (только когда включён proxy_fallback и
     //    задан proxy). На retryable error падаем на пул oauth_app_tokens.
-    if proxy_fallback && !proxy_url.is_empty() {
-        match fetch_streams_direct_once(client, &target, access_token).await {
+    if ctx.proxy_fallback && !ctx.proxy_url.is_empty() {
+        match fetch_streams_direct_once(ctx.client, &target, access_token).await {
             FetchOutcome::Ok(s) => return Some(s),
             FetchOutcome::NotFound => {
                 warn!("[oauth] streams 404 for {track_urn}");
@@ -171,12 +163,12 @@ async fn get_streams(
                     "[oauth] direct streams failed ({reason}) for {track_urn}, trying app-token pool"
                 );
 
-                if fallback_session_count > 0 {
-                    match pg.get_app_tokens(access_token).await {
+                if ctx.fallback_session_count > 0 {
+                    match ctx.pg.get_app_tokens(access_token).await {
                         Ok(tokens) if !tokens.is_empty() => {
-                            let limit = fallback_session_count.min(tokens.len());
+                            let limit = ctx.fallback_session_count.min(tokens.len());
                             for (i, token) in tokens.iter().take(limit).enumerate() {
-                                match fetch_streams_direct_once(client, &target, token).await {
+                                match fetch_streams_direct_once(ctx.client, &target, token).await {
                                     FetchOutcome::Ok(s) => {
                                         info!(
                                             "[oauth] {track_urn} → app-token direct ({}/{limit})",
@@ -212,7 +204,7 @@ async fn get_streams(
     headers.insert("Authorization".into(), format!("OAuth {access_token}"));
     headers.insert("Accept".into(), "application/json; charset=utf-8".into());
 
-    match fetch_get_json::<ScStreams>(client, proxy_url, &target, headers, false).await {
+    match fetch_get_json::<ScStreams>(ctx.client, ctx.proxy_url, &target, headers, false).await {
         Ok(s) => Some(s),
         Err(e) => {
             warn!("[oauth] get streams failed: {e}");

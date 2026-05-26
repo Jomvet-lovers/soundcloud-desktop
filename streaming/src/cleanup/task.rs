@@ -54,23 +54,17 @@ async fn run_cleanup(config: &Config, pg: &PgPool, storage: &StorageClient) {
     }
 
     if config.storage_max_size_bytes > 0 {
-        loop {
-            match pg.get_cdn_tracks_oldest_first(100).await {
-                Ok(tracks) if !tracks.is_empty() => {
-                    for track in tracks {
-                        if let Err(e) = storage.delete_file(&track.track_urn).await {
-                            warn!(
-                                "[cleanup] size-cleanup failed to delete {}: {e}",
-                                track.track_urn
-                            );
-                            continue;
-                        }
-                        let _ = pg.delete_cdn_track(&track.id).await;
-                        deleted += 1;
-                    }
-                    break;
+        if let Ok(tracks) = pg.get_cdn_tracks_oldest_first(100).await {
+            for track in tracks {
+                if let Err(e) = storage.delete_file(&track.track_urn).await {
+                    warn!(
+                        "[cleanup] size-cleanup failed to delete {}: {e}",
+                        track.track_urn
+                    );
+                    continue;
                 }
-                _ => break,
+                let _ = pg.delete_cdn_track(&track.id).await;
+                deleted += 1;
             }
         }
     }

@@ -118,8 +118,7 @@ pub async fn try_download(
                 let session_id = session_id.map(str::to_string);
                 Box::pin(async move {
                     try_one_endpoint(&client, &endpoint, session_id.as_deref(), hq_pref).await
-                })
-                    as Pin<Box<dyn Future<Output = Option<DirectResult>> + Send>>
+                }) as Pin<Box<dyn Future<Output = Option<DirectResult>> + Send>>
             })
             .collect();
 
@@ -191,10 +190,7 @@ async fn fetch_download(
     if let Some(sid) = session_id {
         req = req.header("x-session-id", sid);
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("request: {e}"))?;
+    let resp = req.send().await.map_err(|e| format!("request: {e}"))?;
     let status = resp.status();
     if !status.is_success() {
         return Err(format!("HTTP {status}"));
@@ -205,10 +201,7 @@ async fn fetch_download(
 }
 
 fn sort_candidates(cands: Vec<Candidate>, hq_pref: bool) -> Vec<Candidate> {
-    let mut filtered: Vec<Candidate> = cands
-        .into_iter()
-        .filter(|c| c.quality() != "lq")
-        .collect();
+    let mut filtered: Vec<Candidate> = cands.into_iter().filter(|c| c.quality() != "lq").collect();
     filtered.sort_by_key(|c| {
         let is_hq = c.quality() == "hq";
         let q_score = if hq_pref == is_hq { 0u32 } else { 1u32 };
@@ -258,8 +251,7 @@ async fn consume_encrypted(
             return Err(format!("seg HTTP {}", resp.status()));
         }
         let bytes = resp.bytes().await.map_err(|e| format!("seg body: {e}"))?;
-        let plain = decrypt_client::decrypt_segment(&bytes, &key)
-            .map_err(|e| format!("{e}"))?;
+        let plain = decrypt_client::decrypt_segment(&bytes, &key).map_err(|e| format!("{e}"))?;
         buf.extend_from_slice(&plain);
     }
     Ok(Bytes::from(buf))

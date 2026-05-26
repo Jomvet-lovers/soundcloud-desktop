@@ -464,7 +464,7 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf) -> TrackCacheState {
 }
 
 fn quality_from_url(url: &str) -> PlaybackQuality {
-    Url::parse(url)
+    if Url::parse(url)
         .ok()
         .map(|parsed| {
             parsed
@@ -472,8 +472,11 @@ fn quality_from_url(url: &str) -> PlaybackQuality {
                 .any(|(key, value)| key == "hq" && value == "true")
         })
         .unwrap_or(false)
-        .then_some(PlaybackQuality::Hq)
-        .unwrap_or(PlaybackQuality::Sq)
+    {
+        PlaybackQuality::Hq
+    } else {
+        PlaybackQuality::Sq
+    }
 }
 
 fn temp_file_path(target_dir: &Path, urn: &str) -> PathBuf {
@@ -906,10 +909,7 @@ impl TrackCacheState {
     }
 
     /// Try each storage URL once (healthy hosts first), then API URLs with retries.
-    async fn download_with_fallback(
-        &self,
-        params: FallbackParams<'_>,
-    ) -> Result<PathBuf, String> {
+    async fn download_with_fallback(&self, params: FallbackParams<'_>) -> Result<PathBuf, String> {
         let FallbackParams {
             target_dir,
             urn,
@@ -1105,15 +1105,7 @@ impl TrackCacheState {
         // First success wins, the loser is dropped → reqwest cancels its connection.
         if !download_urls.is_empty() || !urls.is_empty() {
             match self
-                .race_direct_and_api(
-                    target_dir,
-                    urn,
-                    download_urls,
-                    urls,
-                    session_id,
-                    hq,
-                    start,
-                )
+                .race_direct_and_api(target_dir, urn, download_urls, urls, session_id, hq, start)
                 .await
             {
                 Ok(path) => return Ok(path),
@@ -1163,8 +1155,7 @@ impl TrackCacheState {
                     .map(|m| m.len() / 1024)
                     .unwrap_or(0);
                 let ms = start.elapsed().as_millis();
-                let line =
-                    format!("[TrackCache] downloaded {urn} via direct — {kb} KB in {ms}ms");
+                let line = format!("[TrackCache] downloaded {urn} via direct — {kb} KB in {ms}ms");
                 println!("{line}");
                 self.diag("INFO", line);
                 Ok(res.path)
@@ -1192,9 +1183,10 @@ impl TrackCacheState {
             return Err("no /stream URLs".into());
         }
 
-        let mut futures: Vec<
-            std::pin::Pin<Box<dyn std::future::Future<Output = (usize, Result<PathBuf, String>)> + Send>>,
-        > = urls
+        type DownloadFut = std::pin::Pin<
+            Box<dyn std::future::Future<Output = (usize, Result<PathBuf, String>)> + Send>,
+        >;
+        let mut futures: Vec<DownloadFut> = urls
             .iter()
             .enumerate()
             .map(|(i, url)| {
@@ -1206,18 +1198,10 @@ impl TrackCacheState {
                 println!("[TrackCache] trying URL #{} for {urn} - {url}", i + 1);
                 Box::pin(async move {
                     let res = state
-                        .download_api_with_retries(
-                            &target_dir,
-                            &urn,
-                            &url,
-                            session_id.as_deref(),
-                        )
+                        .download_api_with_retries(&target_dir, &urn, &url, session_id.as_deref())
                         .await;
                     (i, res)
-                })
-                    as std::pin::Pin<
-                        Box<dyn std::future::Future<Output = (usize, Result<PathBuf, String>)> + Send>,
-                    >
+                }) as DownloadFut
             })
             .collect();
 
@@ -1246,6 +1230,9 @@ impl TrackCacheState {
 
     /// Run direct (`/download`) and api (`/stream`) in parallel; first success
     /// returns its path, the loser is cancelled by being dropped.
+    // Bundling these into a struct would only push the same 8 args from one
+    // call site into a struct literal at the same call site.
+    #[allow(clippy::too_many_arguments)]
     async fn race_direct_and_api(
         &self,
         target_dir: &Path,

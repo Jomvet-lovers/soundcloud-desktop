@@ -232,6 +232,7 @@ impl ArtistAccountWalker {
 /// Артист считается «нашим» для этого трека если либо:
 /// * uploader.username нормализуется в target_n,
 /// * либо title содержит "<artist> -" префикс (классический reupload).
+///
 /// Этого достаточно — после ingest'а enrich-pipeline уточнит canonical.
 fn track_matches_artist(track: &Value, target_n: &str) -> bool {
     let uploader = track

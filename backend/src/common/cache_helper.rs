@@ -7,25 +7,31 @@ use crate::common::response::json_response;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
+pub struct CacheOpts<'a> {
+    pub method: &'a str,
+    pub url: &'a str,
+    pub scope: CacheScope,
+    pub session_id: Option<&'a str>,
+    pub ttl_sec: u64,
+    pub cache_key: Option<&'a str>,
+}
+
 /// Прозрачный read-through cache над любым endpoint'ом, возвращающим JSON.
 /// Промах кеша — выполняем `fetch`, кладём результат в Redis, возвращаем.
 /// `cache_key` — опциональный bucket для invalidate_by_cache_keys (например
 /// для invalidate'a при мутациях по target).
 pub async fn cached_or_fetch<F, Fut>(
     st: &AppState,
-    method: &str,
-    url: &str,
-    scope: CacheScope,
-    session_id: Option<&str>,
-    ttl_sec: u64,
-    cache_key: Option<&str>,
+    opts: CacheOpts<'_>,
     fetch: F,
 ) -> AppResult<Response>
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = AppResult<Value>>,
 {
-    let key = st.cache.build_key(method, url, scope, session_id);
+    let key = st
+        .cache
+        .build_key(opts.method, opts.url, opts.scope, opts.session_id);
     if let Ok(Some(raw)) = st.cache.get_raw(&key).await {
         return Ok(json_response(StatusCode::OK, raw));
     }
@@ -34,7 +40,14 @@ where
         serde_json::to_string(&v).map_err(|e| AppError::internal(format!("json encode: {e}")))?;
     let _ = st
         .cache
-        .set_raw(&key, &payload, ttl_sec, cache_key, scope, session_id)
+        .set_raw(
+            &key,
+            &payload,
+            opts.ttl_sec,
+            opts.cache_key,
+            opts.scope,
+            opts.session_id,
+        )
         .await;
     Ok(json_response(StatusCode::OK, payload))
 }

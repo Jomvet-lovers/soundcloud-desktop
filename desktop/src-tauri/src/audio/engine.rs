@@ -58,6 +58,10 @@ fn commit_loaded_track(
     state.device_error.store(false, Ordering::Relaxed);
 }
 
+// Все 9 параметров — это один build шаг плеера: mixer/volume/normalization-кеш
+// + eq + analyser идут в одну `spawn_blocking`-обертку. Заводить отдельную
+// структуру `BuildPlayerArgs` ради одной точки вызова — лишний слой.
+#[allow(clippy::too_many_arguments)]
 async fn build_player_from_bytes(
     bytes: Vec<u8>,
     mixer: rodio::mixer::Mixer,

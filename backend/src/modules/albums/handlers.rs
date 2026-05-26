@@ -40,19 +40,21 @@ struct AlbumArtist {
     avatar_url: Option<String>,
 }
 
+type AlbumDetailRow = (
+    String,
+    String,
+    Option<i16>,
+    Option<String>,
+    f32,
+    Option<Uuid>,
+);
+
 async fn detail(
     State(st): State<AppState>,
     _ctx: SessionCtx,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<AlbumDetailDto>> {
-    let row: Option<(
-        String,
-        String,
-        Option<i16>,
-        Option<String>,
-        f32,
-        Option<Uuid>,
-    )> = sqlx::query_as(
+    let row: Option<AlbumDetailRow> = sqlx::query_as(
         "SELECT title, type, release_year, cover_url, confidence, primary_artist_id
              FROM albums WHERE id = $1",
     )
@@ -105,8 +107,16 @@ async fn detail(
         .collect();
     enrich_dto::apply_to_tracks(&st.pg, &mut tracks).await?;
 
-    let wanted_rows: Vec<(Uuid, String, Option<i32>, Option<i16>, Option<Uuid>, Option<String>, i16)> =
-        sqlx::query_as(
+    type WantedRow = (
+        Uuid,
+        String,
+        Option<i32>,
+        Option<i16>,
+        Option<Uuid>,
+        Option<String>,
+        i16,
+    );
+    let wanted_rows: Vec<WantedRow> = sqlx::query_as(
             "SELECT wt.id, wt.title, wt.duration_ms, wt.release_year, wt.primary_artist_id, a.name, wta.position
              FROM wanted_track_albums wta
              JOIN wanted_tracks wt ON wt.id = wta.wanted_track_id

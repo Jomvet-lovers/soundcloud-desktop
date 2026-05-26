@@ -68,7 +68,7 @@ impl RecommendationsService {
 
         let related = self.load_related_artists(artist_id, RELATED_LIMIT).await?;
 
-        let exclude_artist: Vec<String> = top_tracks.iter().cloned().collect();
+        let exclude_artist: Vec<String> = top_tracks.to_vec();
         let filter = self.build_filter(&exclude_artist, None);
 
         let wave_fut = smart_wave::cluster_track_ids(

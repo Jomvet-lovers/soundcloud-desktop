@@ -147,12 +147,14 @@ async fn get_streams(
     let url = request_url(&format!("/tracks/{track_urn}/streams"), "", &params);
     cached_or_fetch(
         &st,
-        "GET",
-        &url,
-        CacheScope::Shared,
-        None,
-        3600,
-        None,
+        crate::common::cache_helper::CacheOpts {
+            method: "GET",
+            url: &url,
+            scope: CacheScope::Shared,
+            session_id: None,
+            ttl_sec: 3600,
+            cache_key: None,
+        },
         || async {
             st.tracks
                 .get_streams(ctx.session_id, &track_urn, &params)

@@ -61,6 +61,10 @@ impl UsersService {
         }
     }
 
+    // Internal helper — every arg ends up on ScListPageArgs verbatim. A wrapper
+    // struct around 7 fields would only shuffle the same args from call site
+    // into struct literal.
+    #[allow(clippy::too_many_arguments)]
     fn list_args<'a>(
         &'a self,
         cache_key: &'a str,
@@ -360,6 +364,6 @@ impl UsersService {
     }
 }
 
-fn as_pairs<'a>(v: &'a [(String, String)]) -> Vec<(&'a str, String)> {
+fn as_pairs(v: &[(String, String)]) -> Vec<(&str, String)> {
     v.iter().map(|(k, v)| (k.as_str(), v.clone())).collect()
 }

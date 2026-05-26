@@ -47,6 +47,10 @@ impl MeService {
         self.sc.api_get_value("/me", token, None).await
     }
 
+    // Internal helper — all 9 params used to build a single ListCache GetPageOptions
+    // call. Bundling them into a struct here would just add an extra layer of
+    // indirection for no clarity gain.
+    #[allow(clippy::too_many_arguments)]
     async fn list_page(
         &self,
         cache_key: &str,

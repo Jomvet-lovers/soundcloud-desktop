@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::bus::nats::NatsService;
-use crate::bus::subjects::subjects;
+use crate::bus::subjects;
 use crate::error::AppResult;
 
 #[derive(Debug, Clone, Serialize)]

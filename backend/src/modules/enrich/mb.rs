@@ -92,7 +92,7 @@ impl MbClient {
         }
         let bytes = match self.fetcher.get_api(url, headers, &self.throttle).await {
             Ok(b) => b,
-            Err(crate::error::AppError::ScApi { status, .. }) if status == 404 => return Ok(None),
+            Err(crate::error::AppError::ScApi { status: 404, .. }) => return Ok(None),
             Err(e) => {
                 debug!(url, error = %e, "MB fetch failed");
                 return Ok(None);

@@ -15,7 +15,7 @@ pub fn start_tick_emitter(app: &AppHandle) {
     let handle = app.clone();
     std::thread::Builder::new()
         .name("audio-tick".into())
-        .spawn(move || loop {
+        .spawn(move || {
             let mut last_pos_ms = 0u64;
             let mut last_progress_at = std::time::Instant::now();
             let mut stall_cooldown_until = std::time::Instant::now();

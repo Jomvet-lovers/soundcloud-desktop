@@ -468,6 +468,8 @@ async fn upsert_one_artist(
     Ok(inserted.0)
 }
 
+type ArtistPromoteRow = (String, f32, Option<String>, Option<String>, Option<String>);
+
 async fn maybe_promote(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
@@ -475,7 +477,7 @@ async fn maybe_promote(
     source: ResolveSource,
     confidence: f32,
 ) -> AppResult<()> {
-    let row: Option<(String, f32, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+    let row: Option<ArtistPromoteRow> = sqlx::query_as(
         "SELECT source, confidence, mb_artist_id, genius_artist_id, sc_user_id FROM artists WHERE id = $1",
     )
     .bind(id)

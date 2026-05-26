@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::bus::nats::NatsService;
-use crate::bus::subjects::{streams, subjects};
+use crate::bus::subjects::{self, streams};
 use crate::common::sc_ids::normalize_sc_track_id;
 use crate::config::EnrichCfg;
 use crate::error::{AppError, AppResult};
@@ -380,11 +380,12 @@ impl EnrichService {
     }
 
     async fn maybe_kick_followup(&self, artist_id: Uuid) {
-        let row: Option<(
+        type FollowupRow = (
             Option<String>,
             Option<String>,
             Option<chrono::DateTime<chrono::Utc>>,
-        )> = match sqlx::query_as(
+        );
+        let row: Option<FollowupRow> = match sqlx::query_as(
             "SELECT mb_artist_id, genius_artist_id, last_crawled_at
              FROM artists WHERE id = $1 AND merged_into IS NULL",
         )

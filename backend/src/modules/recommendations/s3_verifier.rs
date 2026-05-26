@@ -38,17 +38,17 @@ impl S3VerifierService {
 
         let ttl_cutoff = Utc::now() - chrono::Duration::from_std(MISS_TTL).unwrap();
 
-        let rows: Vec<(String, Option<DateTime<Utc>>, Option<DateTime<Utc>>)> = sqlx::query_as(
+        type VerifyRow = (String, Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+        type VerifyMap =
+            std::collections::HashMap<String, (Option<DateTime<Utc>>, Option<DateTime<Utc>>)>;
+        let rows: Vec<VerifyRow> = sqlx::query_as(
             "SELECT sc_track_id, s3_verified_at, s3_missing_at FROM tracks \
              WHERE sc_track_id = ANY($1)",
         )
         .bind(sc_track_ids)
         .fetch_all(&self.pg)
         .await?;
-        let mut by_id: std::collections::HashMap<
-            String,
-            (Option<DateTime<Utc>>, Option<DateTime<Utc>>),
-        > = std::collections::HashMap::new();
+        let mut by_id: VerifyMap = std::collections::HashMap::new();
         for (id, v, m) in rows {
             by_id.insert(id, (v, m));
         }

@@ -97,7 +97,7 @@ async fn main() {
                 .await
                 .expect("failed to init local backend");
             info!("backend=local storage_path={}", config.storage_path);
-            Backend::Local(b)
+            Backend::Local(Box::new(b))
         }
         BackendKind::S3 => {
             let s3_cfg = config.s3.as_ref().expect("S3 config missing");
@@ -106,7 +106,7 @@ async fn main() {
                 "backend=s3 bucket={} endpoint={:?} region={}",
                 s3_cfg.bucket, s3_cfg.endpoint, s3_cfg.region
             );
-            Backend::S3(b)
+            Backend::S3(Box::new(b))
         }
         BackendKind::Gdrive => {
             let gd_cfg = config.gdrive.as_ref().expect("Gdrive config missing");
@@ -117,7 +117,7 @@ async fn main() {
                 "backend=gdrive root_folder_id={} shared_drive_id={:?}",
                 gd_cfg.root_folder_id, gd_cfg.shared_drive_id
             );
-            Backend::Gdrive(b)
+            Backend::Gdrive(Box::new(b))
         }
     };
     let backend = Arc::new(backend);

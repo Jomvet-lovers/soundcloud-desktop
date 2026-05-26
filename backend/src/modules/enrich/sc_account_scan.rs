@@ -178,7 +178,9 @@ impl ScAccountScanner {
                             w.duration_ms,
                         );
                         let s = m.score();
-                        (s >= BORDERLINE_LOW && s < ACCOUNT_LINK_THRESHOLD).then_some(idx)
+                        (BORDERLINE_LOW..ACCOUNT_LINK_THRESHOLD)
+                            .contains(&s)
+                            .then_some(idx)
                     })
                     .collect();
                 if cand_indices.is_empty() {

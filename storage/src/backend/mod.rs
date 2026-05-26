@@ -30,9 +30,9 @@ pub enum BackendError {
 }
 
 pub enum Backend {
-    Local(LocalBackend),
-    S3(S3Backend),
-    Gdrive(GdriveBackend),
+    Local(Box<LocalBackend>),
+    S3(Box<S3Backend>),
+    Gdrive(Box<GdriveBackend>),
 }
 
 impl Backend {

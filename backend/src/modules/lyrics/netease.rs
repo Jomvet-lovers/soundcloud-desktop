@@ -73,7 +73,7 @@ impl NeteaseService {
     }
 
     pub async fn search_by_query(&self, q: &str, limit: usize) -> Vec<NeteaseResult> {
-        let limit = limit.max(1).min(SEARCH_LIMIT);
+        let limit = limit.clamp(1, SEARCH_LIMIT);
         let songs = self.search(q, limit).await;
         if songs.is_empty() {
             return Vec::new();

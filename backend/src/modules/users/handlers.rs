@@ -113,12 +113,14 @@ async fn get_is_following(
     let url = format!("/users/{user_urn}/followings/{following_urn}");
     cached_or_fetch(
         &st,
-        "GET",
-        &url,
-        CacheScope::Shared,
-        None,
-        30,
-        None,
+        crate::common::cache_helper::CacheOpts {
+            method: "GET",
+            url: &url,
+            scope: CacheScope::Shared,
+            session_id: None,
+            ttl_sec: 30,
+            cache_key: None,
+        },
         || async {
             let v = st
                 .users
@@ -212,12 +214,14 @@ async fn get_subscription(
     let url = format!("/users/{user_urn}/subscription");
     cached_or_fetch(
         &st,
-        "GET",
-        &url,
-        CacheScope::Shared,
-        None,
-        300,
-        None,
+        crate::common::cache_helper::CacheOpts {
+            method: "GET",
+            url: &url,
+            scope: CacheScope::Shared,
+            session_id: None,
+            ttl_sec: 300,
+            cache_key: None,
+        },
         || async {
             let premium = st.subscriptions.is_premium(&user_urn).await?;
             Ok(premium_response(premium))
@@ -234,12 +238,14 @@ async fn get_web_profiles(
     let url = format!("/users/{user_urn}/web-profiles");
     cached_or_fetch(
         &st,
-        "GET",
-        &url,
-        CacheScope::Shared,
-        None,
-        86400,
-        None,
+        crate::common::cache_helper::CacheOpts {
+            method: "GET",
+            url: &url,
+            scope: CacheScope::Shared,
+            session_id: None,
+            ttl_sec: 86400,
+            cache_key: None,
+        },
         || async { st.users.get_web_profiles(ctx.session_id, &user_urn).await },
     )
     .await

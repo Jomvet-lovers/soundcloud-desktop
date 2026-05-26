@@ -126,10 +126,10 @@ pub fn artist_score(
         return 0.5;
     }
     let parsed_n = cand_title_parsed_artist
-        .map(|s| normalize_name(s))
+        .map(normalize_name)
         .unwrap_or_default();
     let upl_n = cand_uploader_username
-        .map(|s| normalize_name(s))
+        .map(normalize_name)
         .unwrap_or_default();
     let candidates = [parsed_n.as_str(), upl_n.as_str()];
     let mut best = 0.0f32;
@@ -154,16 +154,17 @@ fn single_artist_score(target_n: &str, cand_n: &str) -> f32 {
     if target_compact == cand_compact {
         return 0.95;
     }
-    if target_compact.len() >= 4 && cand_compact.len() >= 4 {
-        if target_compact.contains(&cand_compact) || cand_compact.contains(&target_compact) {
-            // короче должно покрывать ≥ половину длинного, иначе слишком мягко
-            let short = target_compact.len().min(cand_compact.len());
-            let long = target_compact.len().max(cand_compact.len());
-            if short * 2 >= long {
-                return 0.85;
-            }
-            return 0.55;
+    if target_compact.len() >= 4
+        && cand_compact.len() >= 4
+        && (target_compact.contains(&cand_compact) || cand_compact.contains(&target_compact))
+    {
+        // короче должно покрывать ≥ половину длинного, иначе слишком мягко
+        let short = target_compact.len().min(cand_compact.len());
+        let long = target_compact.len().max(cand_compact.len());
+        if short * 2 >= long {
+            return 0.85;
         }
+        return 0.55;
     }
     let bigram = bigram_overlap(&target_compact, &cand_compact);
     if bigram >= 0.7 {

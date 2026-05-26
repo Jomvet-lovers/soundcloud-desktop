@@ -17,5 +17,5 @@ pub const DOMAIN_WHITELIST: &[&str] = &[
 ];
 
 pub fn is_domain_whitelisted(host: &str) -> bool {
-    DOMAIN_WHITELIST.iter().any(|&w| host == w)
+    DOMAIN_WHITELIST.contains(&host)
 }

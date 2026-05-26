@@ -328,6 +328,6 @@ impl PlaylistsService {
     }
 }
 
-fn as_pairs<'a>(v: &'a [(String, String)]) -> Vec<(&'a str, String)> {
+fn as_pairs(v: &[(String, String)]) -> Vec<(&str, String)> {
     v.iter().map(|(k, v)| (k.as_str(), v.clone())).collect()
 }

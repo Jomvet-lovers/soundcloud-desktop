@@ -188,7 +188,7 @@ async fn run_batch(
                     let single = transcode::run_ffmpeg_batch(
                         &cfg.ffmpeg_bin,
                         &[job.source.as_path()],
-                        &[out.clone()],
+                        std::slice::from_ref(&out),
                     )
                     .await;
                     match single {

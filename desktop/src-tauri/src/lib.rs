@@ -101,8 +101,8 @@ pub fn run() {
                 static_port,
                 proxy_port,
             }));
-            app::diagnostics::mark_session_started(&app.handle());
-            app::diagnostics::start_linux_fd_monitor(&app.handle());
+            app::diagnostics::mark_session_started(app.handle());
+            app::diagnostics::start_linux_fd_monitor(app.handle());
             app.manage(Arc::new(DiscordState {
                 client: Mutex::new(None),
             }));

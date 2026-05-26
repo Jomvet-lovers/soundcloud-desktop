@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use tracing::debug;
 
 use crate::bus::nats::NatsService;
-use crate::bus::subjects::subjects;
+use crate::bus::subjects;
 use crate::error::AppResult;
 use crate::modules::enrich::resolver::{
     AlbumCandidate, ArtistCandidate, ResolveResult, ResolveSource, TrackContext,

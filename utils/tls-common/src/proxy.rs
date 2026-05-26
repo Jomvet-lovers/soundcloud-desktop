@@ -39,10 +39,7 @@ pub(crate) async fn read_proxy_v1<S: AsyncRead + Unpin>(stream: &mut S) -> io::R
     }
     let proto = parts.next().unwrap_or("");
     if proto == "UNKNOWN" {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "PROXY v1 UNKNOWN proto",
-        ));
+        return Err(io::Error::other("PROXY v1 UNKNOWN proto"));
     }
     let src_ip = parts
         .next()

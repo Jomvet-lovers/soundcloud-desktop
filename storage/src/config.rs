@@ -23,10 +23,14 @@ pub enum GdriveAuth {
     /// JSON service-account ключа (как из GCP Console). Работает только с Shared Drive
     /// или domain-wide delegation — в личный My Drive Google запрещает с 2024.
     ServiceAccount(String),
-    /// OAuth user creds: client_id + client_secret (от Desktop OAuth-app в GCP)
-    /// + refresh_token живого Google-аккаунта (получается один раз через consent flow,
-    /// см. tools/get-refresh-token.sh). Файлы пишутся в My Drive этого юзера и
-    /// занимают его квоту (или его долю в Google One family pool).
+    /// OAuth user creds (Desktop OAuth-app в GCP):
+    ///
+    /// - `client_id` + `client_secret` (из GCP консоли),
+    /// - `refresh_token` живого Google-аккаунта (получается один раз через consent
+    ///   flow, см. `tools/get-refresh-token.sh`).
+    ///
+    /// Файлы пишутся в My Drive этого юзера и занимают его квоту (или его долю
+    /// в Google One family pool).
     UserOAuth {
         client_id: String,
         client_secret: String,

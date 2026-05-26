@@ -4,7 +4,7 @@ use serde::Serialize;
 use tracing::info;
 
 use crate::bus::nats::NatsService;
-use crate::bus::subjects::subjects;
+use crate::bus::subjects;
 use crate::error::AppResult;
 use crate::qdrant::collections;
 

@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::bus::nats::NatsService;
-use crate::bus::subjects::{streams, subjects};
+use crate::bus::subjects::{self, streams};
 use crate::error::AppResult;
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::lyrics::lrclib::LrclibService;

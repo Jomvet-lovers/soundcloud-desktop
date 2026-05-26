@@ -334,6 +334,11 @@ impl RecommendationsService {
     /// Vibe = центральный микс audio-вкуса; deep = более разнообразный
     /// дозор за горизонт. Под обоими — пул из ТРЁХ коллекций (mert+clap+lyrics)
     /// со взвешенным слиянием, не одна mert как раньше.
+    // Vibe+deep build is intrinsically coupled to the wave search context —
+    // grouping these args (centroid, anti_centroid, user_centroid, exclude,
+    // languages, taken, recent_artists, per_cluster) into a struct would only
+    // add a new type with no shared reuse anywhere else.
+    #[allow(clippy::too_many_arguments)]
     async fn build_vibe_and_deep(
         &self,
         centroid: &[f32],
@@ -693,7 +698,8 @@ impl RecommendationsService {
         if all_ids.is_empty() {
             return;
         }
-        let rows: Vec<(String, i32, String, Option<i64>, Option<f32>)> = sqlx::query_as(
+        type QualityRow = (String, i32, String, Option<i64>, Option<f32>);
+        let rows: Vec<QualityRow> = sqlx::query_as(
             "SELECT it.sc_track_id, it.duration_ms, it.title, c.play_count, it.quality_score \
              FROM tracks it \
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
@@ -803,7 +809,7 @@ fn dedupe_neighbors(
     out
 }
 
-fn reorder_by_bandits(clusters: &mut Vec<Cluster>, stats: &HashMap<String, bandits::ClusterStat>) {
+fn reorder_by_bandits(clusters: &mut [Cluster], stats: &HashMap<String, bandits::ClusterStat>) {
     if clusters.len() <= 1 {
         return;
     }
