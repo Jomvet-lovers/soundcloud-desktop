@@ -23,6 +23,7 @@ import {
   type ClusterId,
   ClusterRow,
   ClusterSkeletonState,
+  fetchAndHydrateClusters,
   NeighborsRow,
   useClusterWave,
 } from '../cluster';
@@ -151,6 +152,35 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
     setActiveQuery('');
   }, []);
 
+  // "От любимых": click on a top-artist card → fetch same_artist similar cluster
+  // and play that as the queue, so next/prev stays within the artist's adjacent tracks.
+  const resolveSameArtistQueue = useCallback(async (track: Track) => {
+    const trackId = track.urn.split(':').pop();
+    if (!trackId) return [track];
+    try {
+      const data = await fetchAndHydrateClusters(
+        `/recommendations/similar/${encodeURIComponent(trackId)}`,
+      );
+      const sameArtist = data.clusters.find((c) => c.id === 'same_artist');
+      const tracks = sameArtist?.tracks ?? [];
+      const seen = new Set<string>();
+      const ordered: Track[] = [];
+      if (!seen.has(track.urn)) {
+        seen.add(track.urn);
+        ordered.push(track);
+      }
+      for (const t of tracks) {
+        if (!seen.has(t.urn)) {
+          seen.add(t.urn);
+          ordered.push(t);
+        }
+      }
+      return ordered;
+    } catch {
+      return [track];
+    }
+  }, []);
+
   if (!isAuthenticated) return null;
 
   const handleRefresh = async () => {
@@ -266,7 +296,13 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
           {waveTrack ? (
             <WaveTrackHeader
               track={waveTrack}
-              queue={playableTracks.length ? playableTracks : [waveTrack]}
+              queue={
+                waveCluster?.tracks?.length
+                  ? waveCluster.tracks
+                  : playableTracks.length
+                    ? playableTracks
+                    : [waveTrack]
+              }
               isCurrent={isCurrent}
             />
           ) : (
@@ -323,7 +359,8 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
                     icon={CLUSTER_ICON[c.id]}
                     index={idx}
                     cluster={c}
-                    queue={filteredAllTracks}
+                    queue={c.tracks}
+                    resolveQueue={c.id === 'top_artists' ? resolveSameArtistQueue : undefined}
                   />
                 ) : (
                   <ClusterRow
@@ -334,7 +371,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
                     icon={CLUSTER_ICON[c.id]}
                     index={idx}
                     tracks={c.tracks}
-                    queue={filteredAllTracks}
+                    queue={c.tracks}
                   />
                 ),
               )}

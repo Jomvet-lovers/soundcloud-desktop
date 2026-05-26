@@ -381,17 +381,13 @@ function handleTrackEnd() {
   if (state.repeat === 'one') {
     // rodio sink is empty after track ends — must reload
     if (state.currentTrack) void loadTrack(state.currentTrack);
-  } else {
-    const { queue, queueIndex } = state;
-    const isLast = queueIndex >= queue.length - 1;
-    if (isLast && state.repeat === 'off' && queue.length > 0) {
-      void autoplayRelated(queue[queueIndex]);
-    } else {
-      // Clear currentUrn so subscriber detects change even if next track has same URN
-      currentUrn = null;
-      usePlayerStore.getState().next();
-    }
+    return;
   }
+  // Всегда через next(). Если упёрся в конец очереди — store сам позовёт
+  // autopilot (см. setEndOfQueueFallback в lib/queue-autopilot.ts).
+  // Clear currentUrn so subscriber detects change even if next track has same URN.
+  currentUrn = null;
+  usePlayerStore.getState().next();
 }
 
 /* ── Tauri event listeners ───────────────────────────────────── */
@@ -580,36 +576,6 @@ listen<number>('media:seek-relative', (e) => {
     seek(Math.max(getCurrentTime() + offset, 0));
   }
 });
-
-/* ── Autoplay ────────────────────────────────────────────────── */
-
-let autoplayLoading = false;
-
-async function autoplayRelated(lastTrack: Track) {
-  if (autoplayLoading) return;
-  autoplayLoading = true;
-
-  try {
-    const { queue } = usePlayerStore.getState();
-    const existingUrns = new Set(queue.map((t) => t.urn));
-    const res = await api<{ collection: Track[] }>(
-      `/tracks/${encodeURIComponent(lastTrack.urn)}/related?limit=20`,
-    );
-    const fresh = res.collection.filter((t) => !existingUrns.has(t.urn));
-    if (fresh.length === 0) {
-      usePlayerStore.getState().pause();
-      return;
-    }
-
-    usePlayerStore.getState().addToQueue(fresh);
-    usePlayerStore.getState().next();
-  } catch (e) {
-    console.error('Autoplay related failed:', e);
-    usePlayerStore.getState().pause();
-  } finally {
-    autoplayLoading = false;
-  }
-}
 
 /* ── Preloading ──────────────────────────────────────────────── */
 

@@ -2,12 +2,10 @@ import { fetch } from '@tauri-apps/plugin-http';
 import { toast } from 'sonner';
 import { useAppStatusStore } from '../stores/app-status';
 import { useAuthStore } from '../stores/auth';
-import { useSettingsStore } from '../stores/settings';
 import { noteAuthGap, noteRateLimit, noteSuccess } from './auth-recovery';
-import { API_BASE, BYPASS_API_BASE } from './constants';
+import { API_BASE } from './constants';
 import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
-import { isHealthy, markHealthy, markUnhealthy } from './host-health';
-import { getIsPremium } from './premium-cache';
+import { markHealthy, markUnhealthy } from './host-health';
 
 // ─── Session ────────────────────────────────────────────────
 
@@ -37,32 +35,6 @@ function isRateLimitError(status: number, body: string): boolean {
   if (status === 429) return true;
   const b = body.toLowerCase();
   return b.includes('rate limit') || b.includes('rate-limited') || b.includes('too many requests');
-}
-
-// ─── Host resolution ────────────────────────────────────────
-
-const AUTH_PATHS = ['/auth/', '/me/subscription'];
-
-function isAuthPath(path: string): boolean {
-  return AUTH_PATHS.some((p) => path.startsWith(p));
-}
-
-function resolveApiBases(path: string): string[] {
-  // Auth paths + subscription check: always try both hosts
-  if (isAuthPath(path)) {
-    return isHealthy(BYPASS_API_BASE) ? [BYPASS_API_BASE, API_BASE] : [API_BASE, BYPASS_API_BASE];
-  }
-
-  const bypass = useSettingsStore.getState().bypassWhitelist;
-  const premium = getIsPremium();
-
-  // Premium + bypass: white first, regular fallback
-  if (bypass && premium) {
-    return isHealthy(BYPASS_API_BASE) ? [BYPASS_API_BASE, API_BASE] : [API_BASE];
-  }
-
-  // Default: regular only
-  return [API_BASE];
 }
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -106,83 +78,66 @@ export async function apiRequest<T = unknown>(
   }
   if (!headers.has('Content-Type') && options.body) headers.set('Content-Type', 'application/json');
 
-  const bases = resolveApiBases(path);
   const method = options.method ?? 'GET';
-  let lastError: unknown = null;
-
   const label = `${method.toUpperCase()} ${path}`;
+  const url = `${API_BASE}${path}`;
+  const attemptStart = performance.now();
 
-  for (let i = 0; i < bases.length; i++) {
-    const base = bases[i];
-    const url = `${base}${path}`;
-    const attemptStart = performance.now();
-    try {
-      const res = await trackAsync(
-        `http:${label}`,
-        fetchWithTimeout(url, { ...options, headers }, timeoutMs),
-      );
+  try {
+    const res = await trackAsync(
+      `http:${label}`,
+      fetchWithTimeout(url, { ...options, headers }, timeoutMs),
+    );
 
-      markHealthy(base);
-      useAppStatusStore.getState().setBackendReachable(true);
+    markHealthy(API_BASE);
+    useAppStatusStore.getState().setBackendReachable(true);
 
-      if (!res.ok) {
-        const body = await res.text();
-        const err = new ApiError(res.status, body);
-        logHttpError(label, res.status, url, body);
+    if (!res.ok) {
+      const body = await res.text();
+      const err = new ApiError(res.status, body);
+      logHttpError(label, res.status, url, body);
 
-        // 5xx with more bases to try → mark unhealthy, continue
-        if (res.status >= 500 && i < bases.length - 1) {
-          markUnhealthy(base);
-          lastError = err;
-          continue;
-        }
-
-        // Rate-limit — копим, одиночный не дёргает recovery.
-        if (isRateLimitError(res.status, body)) {
-          noteRateLimit();
-          console.error(`HTTP ERROR: url: ${path}, `, err);
-          throw err;
-        }
-
-        // Протухший токен (401) либо юзер пропал из сайдбара — сильный
-        // сигнал, silent renew сразу.
-        if (res.status === 401 || useAuthStore.getState().user == null) {
-          noteAuthGap();
-          console.error(`HTTP ERROR: url: ${path}, `, err);
-          throw err;
-        }
-
-        handleApiError(err);
+      // Rate-limit — копим, одиночный не дёргает recovery.
+      if (isRateLimitError(res.status, body)) {
+        noteRateLimit();
         console.error(`HTTP ERROR: url: ${path}, `, err);
         throw err;
       }
 
-      // Успешный ответ — чистит rate-limit накопитель и само-гасит recovery,
-      // если всё ожило само.
-      noteSuccess();
-
-      const ct = res.headers.get('content-type');
-      const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
-
-      if (typeof reply === 'string') {
-        try {
-          return JSON.parse(reply) as T;
-        } catch {}
+      // Протухший токен (401) либо юзер пропал из сайдбара — сильный
+      // сигнал, silent renew сразу.
+      if (res.status === 401 || useAuthStore.getState().user == null) {
+        noteAuthGap();
+        console.error(`HTTP ERROR: url: ${path}, `, err);
+        throw err;
       }
 
-      return reply;
-    } catch (error) {
-      // Already handled ApiError — rethrow
-      if (error instanceof ApiError) throw error;
-      // Network error — mark unhealthy, try next
-      logHttpFailure(label, url, error, performance.now() - attemptStart);
-      markUnhealthy(base);
-      lastError = error;
+      handleApiError(err);
+      console.error(`HTTP ERROR: url: ${path}, `, err);
+      throw err;
     }
-  }
 
-  useAppStatusStore.getState().setBackendReachable(false);
-  throw lastError ?? new Error('All API hosts unreachable');
+    // Успешный ответ — чистит rate-limit накопитель и само-гасит recovery,
+    // если всё ожило само.
+    noteSuccess();
+
+    const ct = res.headers.get('content-type');
+    const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
+
+    if (typeof reply === 'string') {
+      try {
+        return JSON.parse(reply) as T;
+      } catch {}
+    }
+
+    return reply;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    logHttpFailure(label, url, error, performance.now() - attemptStart);
+    markUnhealthy(API_BASE);
+    useAppStatusStore.getState().setBackendReachable(false);
+    throw error;
+  }
 }
 
 // ─── Aliases ────────────────────────────────────────────────

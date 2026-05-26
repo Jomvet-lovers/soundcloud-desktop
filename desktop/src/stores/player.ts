@@ -98,6 +98,15 @@ export interface Track {
 
 type RepeatMode = 'off' | 'one' | 'all';
 export type PlaybackQuality = 'hq' | 'sq';
+
+/**
+ * Module-level slot для обработчика "очередь кончилась". Не часть PlayerState,
+ * чтобы persist его не сериализовал. Регистрирует lib/queue-autopilot.ts.
+ */
+let endOfQueueFallback: ((lastTrack: Track) => void) | null = null;
+export function setEndOfQueueFallback(fn: (lastTrack: Track) => void): void {
+  endOfQueueFallback = fn;
+}
 export type PlaybackSource = 'storage' | 'api';
 
 export const PLAYBACK_RATE_MIN = 0.5;
@@ -271,6 +280,14 @@ export const usePlayerStore = create<PlayerState>()(
         if (nextIdx >= queue.length) {
           if (repeat === 'all') nextIdx = 0;
           else {
+            // Конец очереди + repeat=off → отдаём управление autopilot'у
+            // (см. lib/queue-autopilot.ts). Если он зарегистрирован — он сам
+            // дозагрузит треки и пнёт next() ещё раз. Если нет — просто пауза.
+            const last = queue[queueIndex];
+            if (endOfQueueFallback && last) {
+              endOfQueueFallback(last);
+              return;
+            }
             set({ isPlaying: false });
             return;
           }

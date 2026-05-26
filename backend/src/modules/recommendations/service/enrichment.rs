@@ -112,30 +112,48 @@ impl RecommendationsService {
     pub(crate) fn build_filter(
         &self,
         exclude: &[String],
-        languages: Option<&[String]>,
+        _languages: Option<&[String]>,
     ) -> Option<Filter> {
+        // language пока живёт только в pg.tracks — qdrant payload его не
+        // несёт, фильтрация по языку идёт после возврата кандидатов через
+        // filter_tracks_by_language. Трек без выставленного language не
+        // режется, шанс на показ остаётся.
+        if exclude.is_empty() {
+            return None;
+        }
         let mut filter = Filter::default();
-        let mut populated = false;
+        filter.must_not = exclude
+            .iter()
+            .map(|id| Condition::matches("sc_track_id", id.clone()))
+            .collect();
+        Some(filter)
+    }
 
-        if !exclude.is_empty() {
-            let must_not: Vec<Condition> = exclude
-                .iter()
-                .map(|id| Condition::matches("sc_track_id", id.clone()))
-                .collect();
-            filter.must_not = must_not;
-            populated = true;
+    /// Если выбраны языки, оставляем только треки с `language IN (langs)` или
+    /// `language IS NULL` (трек ещё не классифицирован — даём шанс на показ).
+    /// Принимает sc_track_id'ы, возвращает множество разрешённых.
+    pub(crate) async fn filter_tracks_by_language(
+        &self,
+        sc_track_ids: &[String],
+        languages: Option<&[String]>,
+    ) -> std::collections::HashSet<String> {
+        let langs = match languages {
+            Some(l) if !l.is_empty() => l,
+            _ => return sc_track_ids.iter().cloned().collect(),
+        };
+        if sc_track_ids.is_empty() {
+            return std::collections::HashSet::new();
         }
-        if let Some(langs) = languages {
-            if !langs.is_empty() {
-                let must = vec![Condition::matches("language", langs.to_vec())];
-                filter.must = must;
-                populated = true;
-            }
-        }
-        if populated {
-            Some(filter)
-        } else {
-            None
-        }
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT sc_track_id FROM tracks \
+             WHERE sc_track_id = ANY($1) \
+               AND (language IS NULL OR language = ANY($2))",
+        )
+        .bind(sc_track_ids)
+        .bind(langs)
+        .fetch_all(&self.pg)
+        .await
+        .unwrap_or_default();
+        rows.into_iter().map(|(id,)| id).collect()
     }
 }

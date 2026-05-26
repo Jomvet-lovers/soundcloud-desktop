@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -209,71 +208,6 @@ impl EventsService {
             if let Some(t) = self.collab_trainer.get() {
                 t.note_event();
             }
-        }
-        Ok(())
-    }
-
-    /// Догнать `user_events` лайками из зеркала, у которых ещё нет события.
-    /// Источник истины — `user_likes_tracks`; здесь только обеспечиваем, что
-    /// каждый лайк виден как сигнал и затриггерил индексацию.
-    pub async fn ensure_likes_recorded(
-        self: &Arc<Self>,
-        sc_user_id: &str,
-        sc_track_ids: &[String],
-    ) -> AppResult<()> {
-        if sc_user_id.is_empty() || sc_track_ids.is_empty() {
-            return Ok(());
-        }
-        let normalized_all: Vec<String> = sc_track_ids
-            .iter()
-            .filter_map(|s| normalize_sc_track_id(s))
-            .collect();
-        if normalized_all.is_empty() {
-            return Ok(());
-        }
-
-        let lock_key = format!("events:{sc_user_id}");
-        let lock = self.lock_for(&lock_key);
-        let _g = lock.lock().await;
-
-        let existing: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM user_events \
-             WHERE sc_user_id = $1 AND event_type = 'like' AND sc_track_id = ANY($2)",
-        )
-        .bind(sc_user_id)
-        .bind(&normalized_all)
-        .fetch_all(&self.pg)
-        .await?;
-        let existing_set: HashSet<String> = existing.into_iter().map(|(s,)| s).collect();
-
-        let mut missing: Vec<String> = normalized_all
-            .into_iter()
-            .filter(|id| !existing_set.contains(id))
-            .collect();
-        missing.sort();
-        missing.dedup();
-        if missing.is_empty() {
-            return Ok(());
-        }
-
-        let n = missing.len();
-        let user_ids = vec![sc_user_id.to_string(); n];
-        let types = vec!["like".to_string(); n];
-        let weights = vec![LIKE_WEIGHT; n];
-
-        sqlx::query(
-            "INSERT INTO user_events (sc_user_id, sc_track_id, event_type, weight) \
-             SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::float8[])",
-        )
-        .bind(&user_ids)
-        .bind(&missing)
-        .bind(&types)
-        .bind(&weights)
-        .execute(&self.pg)
-        .await?;
-
-        for id in &missing {
-            self.enqueue_indexing(id);
         }
         Ok(())
     }

@@ -2,17 +2,9 @@ import { fetch } from '@tauri-apps/plugin-http';
 import type { Track } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { ApiError, getSessionId } from './api-client';
-import {
-  BYPASS_STORAGE_BASE,
-  BYPASS_STREAMING_BASE,
-  BYPASS_STREAMING_PREMIUM_BASE,
-  STORAGE_BASE,
-  STREAMING_BASE,
-  STREAMING_PREMIUM_BASE,
-} from './constants';
+import { STORAGE_BASE, STREAMING_BASE, STREAMING_PREMIUM_BASE } from './constants';
 import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
-import { isHealthy, markHealthy, markUnhealthy } from './host-health';
-import { getIsPremium } from './premium-cache';
+import { markHealthy, markUnhealthy } from './host-health';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -23,25 +15,6 @@ export type ResolvedStreamingTrack = Partial<Track> & {
 // ─── Host resolution ────────────────────────────────────────
 
 function resolveStreamingBases(): string[] {
-  const bypass = useSettingsStore.getState().bypassWhitelist;
-  const premium = getIsPremium();
-
-  if (bypass && premium) {
-    // All 4 bases, healthy first
-    const all = [
-      BYPASS_STREAMING_PREMIUM_BASE,
-      BYPASS_STREAMING_BASE,
-      STREAMING_PREMIUM_BASE,
-      STREAMING_BASE,
-    ];
-    const unique = [...new Set(all)];
-    return unique.sort((a, b) => {
-      const aH = isHealthy(a) ? 0 : 1;
-      const bH = isHealthy(b) ? 0 : 1;
-      return aH - bH;
-    });
-  }
-
   return [...new Set([STREAMING_PREMIUM_BASE, STREAMING_BASE])];
 }
 
@@ -103,9 +76,7 @@ function buildStreamUrl(base: string, trackUrn: string, hq: boolean) {
 
 export function buildStorageUrls(trackUrn: string): string[] {
   const file = `${trackUrn.replace(/:/g, '_')}.m4a`;
-  const bypass = useSettingsStore.getState().bypassWhitelist;
-  const bases = bypass && getIsPremium() ? [BYPASS_STORAGE_BASE, STORAGE_BASE] : [STORAGE_BASE];
-  return [...new Set(bases)].map((base) => `${base}/${file}`);
+  return [`${STORAGE_BASE}/${file}`];
 }
 
 export function streamFallbackUrls(

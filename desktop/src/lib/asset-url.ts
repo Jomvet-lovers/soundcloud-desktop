@@ -1,7 +1,5 @@
-import { useSettingsStore } from '../stores/settings';
-import { BYPASS_IMAGES_BASE, getProxyPort, IMAGES_BASE } from './constants';
+import { getProxyPort, IMAGES_BASE } from './constants';
 import { isMac } from './platform';
-import { getIsPremium } from './premium-cache';
 
 const WHITELIST = [
   'localhost',
@@ -10,11 +8,6 @@ const WHITELIST = [
   'scproxy.localhost',
   'images.scdinternal.site',
   'api.scdinternal.site',
-  'white.api.scdinternal.site',
-  'white.images.scdinternal.site',
-  'white.storage.scdinternal.site',
-  'white.stream.scdinternal.site',
-  'white.stream-premium.scdinternal.site',
   'unpkg.com',
 ];
 const RETRY_BYPASS_CACHE_PARAM = '__scproxy_bust';
@@ -53,10 +46,8 @@ function buildEncodedPayload(
   bypassCache: boolean,
 ): { encoded: string; target: string } {
   const target = bypassCache ? withCacheBust(url) : url;
-  const bypass = useSettingsStore.getState().bypassWhitelist;
-  const upstreams = bypass && getIsPremium() ? [BYPASS_IMAGES_BASE, IMAGES_BASE] : [IMAGES_BASE];
   return {
-    encoded: encodeURIComponent(btoa(JSON.stringify([target, ...upstreams]))),
+    encoded: encodeURIComponent(btoa(JSON.stringify([target, IMAGES_BASE]))),
     target,
   };
 }

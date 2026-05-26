@@ -5,6 +5,7 @@ use sqlx::PgPool;
 
 use crate::common::sc_ids::extract_sc_id;
 use crate::error::AppResult;
+use crate::modules::events::EventsService;
 use crate::modules::indexing::IndexingService;
 use crate::modules::sync_queue::mirror::{self, LIKES_PLAYLISTS, LIKES_TRACKS};
 use crate::modules::sync_queue::SyncQueueService;
@@ -14,6 +15,7 @@ pub struct LikesService {
     pg: PgPool,
     sync_queue: Arc<SyncQueueService>,
     indexing: Arc<IndexingService>,
+    events: Arc<EventsService>,
 }
 
 impl LikesService {
@@ -21,11 +23,13 @@ impl LikesService {
         pg: PgPool,
         sync_queue: Arc<SyncQueueService>,
         indexing: Arc<IndexingService>,
+        events: Arc<EventsService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             pg,
             sync_queue,
             indexing,
+            events,
         })
     }
 
@@ -47,6 +51,9 @@ impl LikesService {
                 .await?;
         }
         mirror::set_wanted(&self.pg, LIKES_TRACKS, sc_user_id, sc_track_id).await?;
+        self.events
+            .record(sc_user_id, sc_track_id, "like", None)
+            .await?;
         self.sync_queue
             .enqueue(sc_user_id, "like_track", track_urn, None)
             .await?;

@@ -181,7 +181,6 @@ async fn main() {
         list_cache.clone(),
         cold_refresh.clone(),
         tokens.clone(),
-        events.clone(),
     );
     let dislikes = DislikesService::new(pg.clone(), events.clone());
     let resolve = ResolveService::new(sc.clone(), tokens.clone());
@@ -233,7 +232,12 @@ async fn main() {
     );
     artist_account_walker.spawn(shutdown.clone());
 
-    let likes = LikesService::new(pg.clone(), sync_queue.clone(), indexing.clone());
+    let likes = LikesService::new(
+        pg.clone(),
+        sync_queue.clone(),
+        indexing.clone(),
+        events.clone(),
+    );
 
     let mb = MbClient::new(
         external_fetcher.clone(),

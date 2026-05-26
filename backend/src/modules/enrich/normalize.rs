@@ -13,6 +13,12 @@ static RE_NOISE: Lazy<Regex> = Lazy::new(|| {
 static RE_SPLIT_ARTISTS: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)\s+(?:x|×|vs\.?|&|and|,|feat\.?|ft\.?|featuring)\s+|,\s*").unwrap()
 });
+/// "03. Aikko - Title" — номер трека в начале artist-части. Срезаем форму с
+/// явной точкой после числа; голые цифры ловит `looks_like_track_number`.
+/// Не трогаем имена вида "M.O.S.T." (там нет ведущих цифр) или "112" /
+/// "21 Savage" (нет точки после числа).
+static RE_TRACK_NUM_PREFIX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\s*\d{1,3}\s*\.\s+").unwrap());
 
 /// Срезает префиксы-маркеры роли ("prod. by", "feat.", "remix by" и т.п.),
 /// которые могут просочиться в имя артиста из внешних источников (AI, Genius,
@@ -172,7 +178,10 @@ pub fn parse_sc_title(raw: &str, uploader: Option<&str>) -> ParsedTitle {
     let (artist_part, title_part) = split_first_dash(&stripped);
     // Префикс вида "01 - …" / "1 - …" — это номер трека в альбоме, а не имя
     // артиста. Отбрасываем "артистную" часть, чтобы fallback ушёл на uploader.
-    let artist_part = artist_part.filter(|a| !looks_like_track_number(a));
+    // Также режем "03. Aikko" → "Aikko" (номер + точка перед реальным именем).
+    let artist_part = artist_part
+        .map(|a| RE_TRACK_NUM_PREFIX.replace(&a, "").trim().to_string())
+        .filter(|a| !a.is_empty() && !looks_like_track_number(a));
     let title_clean = title_part.trim().to_string();
     parsed.cleaned_title = if title_clean.is_empty() {
         stripped.trim().to_string()
@@ -530,6 +539,27 @@ mod tests {
         let p = parse_sc_title("112 - Peaches & Cream", None);
         assert_eq!(p.primary_artists, vec!["112"]);
         assert_eq!(p.cleaned_title, "Peaches & Cream");
+    }
+
+    #[test]
+    fn parse_track_number_dot_prefix_in_artist_part() {
+        // Реальный кейс: трек "03. Aikko - Мне Выгодней Вас Не Знать" — uploader
+        // лил альбом и в title зашит номер трека + имя артиста через точку.
+        // Должны срезать "03. " и оставить artist = "Aikko".
+        let p = parse_sc_title(
+            "03. Aikko - Мне Выгодней Вас Не Знать",
+            Some("Thirteenth :3"),
+        );
+        assert_eq!(p.primary_artists, vec!["Aikko"]);
+        assert_eq!(p.cleaned_title, "Мне Выгодней Вас Не Знать");
+
+        // После среза остался голый номер — fallback на uploader.
+        let p = parse_sc_title("03. 04 - Title", Some("uploader"));
+        assert_eq!(p.primary_artists, vec!["uploader"]);
+
+        // "M.O.S.T." — нет ведущих цифр, не трогаем.
+        let p = parse_sc_title("M.O.S.T. - Track", None);
+        assert_eq!(p.primary_artists, vec!["M.O.S.T."]);
     }
 
     #[test]

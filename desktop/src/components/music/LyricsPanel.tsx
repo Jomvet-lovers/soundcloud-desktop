@@ -1563,7 +1563,7 @@ const FullscreenVisualizer = React.memo(() => {
       ref={wrapRef}
       className="absolute inset-x-0 bottom-0 z-0 pointer-events-none"
       style={{
-        height: 'min(56vh, 460px)',
+        height: 'clamp(320px, 62vh, 100vh)',
         // Hard floor at bottom (full opacity until ~78% from the top of the canvas)
         // and a soft fade upward — so the wave reads as rooted to the very edge.
         maskImage: 'linear-gradient(to top, black 0%, black 60%, transparent 100%)',

@@ -22,6 +22,7 @@ impl RecommendationsService {
         if let Some(f) = filter {
             builder = builder.filter(f.clone());
         }
+        let _permit = self.qdrant_sem.acquire().await.ok();
         match self.qdrant.raw().search_points(builder).await {
             Ok(r) => r
                 .result
@@ -44,6 +45,7 @@ impl RecommendationsService {
     }
 
     pub(crate) async fn retrieve_vector(&self, collection: &str, id: u64) -> Option<Vec<f32>> {
+        let _permit = self.qdrant_sem.acquire().await.ok();
         let resp = self
             .qdrant
             .raw()
@@ -70,6 +72,7 @@ impl RecommendationsService {
             return out;
         }
         let pids: Vec<PointId> = ids.iter().copied().map(numeric_id).collect();
+        let _permit = self.qdrant_sem.acquire().await.ok();
         match self
             .qdrant
             .raw()

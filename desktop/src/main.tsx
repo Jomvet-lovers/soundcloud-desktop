@@ -43,6 +43,7 @@ function startDeferredRuntime() {
     void import('./lib/scproxy');
     void import('./lib/tray');
     void import('./lib/audio');
+    void import('./lib/queue-autopilot');
     void import('./lib/discord');
   });
 }

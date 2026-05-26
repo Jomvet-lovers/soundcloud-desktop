@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth';
-import { useSettingsStore } from '../stores/settings';
 import { api } from './api';
 import { getIsPremium, setIsPremium } from './premium-cache';
 
@@ -16,10 +15,6 @@ async function fetchSubscription(): Promise<SubscriptionResponse> {
   try {
     const res = await api<SubscriptionResponse>('/me/subscription');
     setIsPremium(res.premium);
-    // Auto-disable bypass if no longer premium
-    if (!res.premium && useSettingsStore.getState().bypassWhitelist) {
-      useSettingsStore.getState().setBypassWhitelist(false);
-    }
     return res;
   } catch {
     // Network failure: keep cached value, don't reset to false

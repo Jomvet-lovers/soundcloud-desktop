@@ -376,6 +376,8 @@
     "highQualityStreamingDesc": "Стараться воспроизводить треки в максимально доступном качестве",
     "bypassWhitelist": "Обход белых списков",
     "bypassWhitelistDesc": "Альтернативная маршрутизация при блокировках и отключениях интернета",
+    "bypassWhitelistSoon": "Скоро будет",
+    "bypassWhitelistSoonDesc": "Готовим обход — следите за обновлениями",
     "dpiBypass": "Обход DPI-блокировок",
     "dpiBypassDesc": "Помогает SoundCloud работать, если провайдер его режет или блокирует.",
     "import": "Импорт",

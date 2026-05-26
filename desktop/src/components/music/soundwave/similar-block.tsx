@@ -168,7 +168,7 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
                   icon={CLUSTER_ICON[c.id]}
                   index={idx}
                   cluster={c}
-                  queue={allTracks}
+                  queue={c.tracks}
                 />
               ) : (
                 <ClusterRow
@@ -179,7 +179,7 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
                   icon={CLUSTER_ICON[c.id]}
                   index={idx}
                   tracks={c.tracks}
-                  queue={allTracks}
+                  queue={c.tracks}
                 />
               ),
             )}

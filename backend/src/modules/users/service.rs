@@ -14,7 +14,6 @@ use crate::modules::cold_refresh::{
     read_collection_page, ColdRefreshService, FOLLOWINGS, LIKED_PLAYLISTS, LIKED_TRACKS,
     OWNED_PLAYLISTS, OWNED_TRACKS,
 };
-use crate::modules::events::EventsService;
 use crate::modules::likes::cold as likes_cold;
 use crate::sc::ScClient;
 
@@ -27,7 +26,6 @@ pub struct UsersService {
     list_cache: Arc<ListCacheService>,
     cold_refresh: Arc<ColdRefreshService>,
     tokens: Arc<TokenProvider>,
-    events: Arc<EventsService>,
 }
 
 impl UsersService {
@@ -37,7 +35,6 @@ impl UsersService {
         list_cache: Arc<ListCacheService>,
         cold_refresh: Arc<ColdRefreshService>,
         tokens: Arc<TokenProvider>,
-        events: Arc<EventsService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
@@ -45,7 +42,6 @@ impl UsersService {
             list_cache,
             cold_refresh,
             tokens,
-            events,
         })
     }
 
@@ -251,8 +247,9 @@ impl UsersService {
         Ok(result)
     }
 
-    /// Cold-read LIKED_TRACKS для любого юзера. Для своего юзера —
-    /// дополнительно сидируем events training-poll (`ensure_likes_recorded`).
+    /// Cold-read LIKED_TRACKS для любого юзера. Источник истины свежести
+    /// лайков — `user_events` (туда пишет UI через `LikesService`); этот
+    /// эндпоинт только проектирует список лайков, не сидирует events.
     pub async fn get_liked_tracks(
         self: &Arc<Self>,
         session_id: Uuid,
@@ -287,18 +284,6 @@ impl UsersService {
                     obj.insert("user_favorite".into(), Value::Bool(true));
                 }
             }
-            let events = self.events.clone();
-            let user_id = viewer_sc_user_id.to_string();
-            let urns: Vec<String> = result
-                .collection
-                .iter()
-                .filter_map(|t| t.get("urn").and_then(|v| v.as_str()).map(String::from))
-                .collect();
-            tokio::spawn(async move {
-                if let Err(e) = events.ensure_likes_recorded(&user_id, &urns).await {
-                    tracing::debug!(error = %e, "seedLikesTaste failed");
-                }
-            });
         } else {
             likes_cold::apply_user_favorite_flag(
                 &self.pg,

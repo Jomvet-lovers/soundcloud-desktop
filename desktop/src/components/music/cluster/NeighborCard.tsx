@@ -1,35 +1,66 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { art } from '../../../lib/formatters';
-import { pauseBlack14, playBlack14 } from '../../../lib/icons';
+import { Loader2, pauseBlack14, playBlack14 } from '../../../lib/icons';
 import {
   recordClusterFeedback,
   setUrnCluster,
   useClusterFeedback,
 } from '../../../lib/recsFeedback';
 import { useAutoHide } from '../../../lib/useAutoHide';
-import { useTrackPlay } from '../../../lib/useTrackPlay';
-import type { Track } from '../../../stores/player';
+import { type Track, usePlayerStore } from '../../../stores/player';
 import type { ClusterNeighborDto } from './types';
 
 interface Props {
   neighbor: ClusterNeighborDto;
   track: Track;
   queue: Track[];
+  /** If provided, called on first play to build an async queue (e.g. same_artist similar). */
+  resolveQueue?: (track: Track) => Promise<Track[]>;
 }
 
-export const NeighborCard = React.memo(function NeighborCard({ neighbor, track, queue }: Props) {
+export const NeighborCard = React.memo(function NeighborCard({
+  neighbor,
+  track,
+  queue,
+  resolveQueue,
+}: Props) {
   const navigate = useNavigate();
-  const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue);
+  const isThis = usePlayerStore((s) => s.currentTrack?.urn === track.urn);
+  const isThisPlaying = usePlayerStore((s) => s.currentTrack?.urn === track.urn && s.isPlaying);
   const showPlayingOverlay = useAutoHide(isThisPlaying);
   const clusterId = useClusterFeedback();
-  const togglePlay = React.useCallback(() => {
+  const [resolving, setResolving] = useState(false);
+
+  const togglePlay = React.useCallback(async () => {
     if (clusterId) {
       setUrnCluster(track.urn, clusterId);
       recordClusterFeedback(clusterId, 'click');
     }
-    togglePlayRaw();
-  }, [clusterId, track.urn, togglePlayRaw]);
+    const { play, pause, resume } = usePlayerStore.getState();
+    if (isThisPlaying) {
+      pause();
+      return;
+    }
+    if (isThis) {
+      resume();
+      return;
+    }
+    if (resolveQueue) {
+      if (resolving) return;
+      setResolving(true);
+      try {
+        const resolved = await resolveQueue(track);
+        play(track, resolved.length > 0 ? resolved : [track]);
+      } catch {
+        play(track, [track]);
+      } finally {
+        setResolving(false);
+      }
+      return;
+    }
+    play(track, queue.length > 0 ? queue : [track]);
+  }, [clusterId, track, isThis, isThisPlaying, resolveQueue, resolving, queue]);
   const cover = art(track.artwork_url, 't300x300');
   const avatar = art(neighbor.avatar_url, 't120x120');
 
@@ -109,7 +140,7 @@ export const NeighborCard = React.memo(function NeighborCard({ neighbor, track, 
 
         <div
           className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:opacity-100 ${
-            showPlayingOverlay ? 'opacity-100' : 'opacity-0'
+            showPlayingOverlay || resolving ? 'opacity-100' : 'opacity-0'
           }`}
         >
           <span
@@ -119,7 +150,13 @@ export const NeighborCard = React.memo(function NeighborCard({ neighbor, track, 
               boxShadow: '0 12px 36px rgba(0,0,0,0.45), 0 0 28px var(--color-accent-glow)',
             }}
           >
-            {isThisPlaying ? pauseBlack14 : playBlack14}
+            {resolving ? (
+              <Loader2 size={16} className="text-black animate-spin" />
+            ) : isThisPlaying ? (
+              pauseBlack14
+            ) : (
+              playBlack14
+            )}
           </span>
         </div>
       </div>

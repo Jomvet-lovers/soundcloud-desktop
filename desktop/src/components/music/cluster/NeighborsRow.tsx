@@ -14,6 +14,8 @@ interface Props {
   cluster: ClusterHydrated;
   queue: Track[];
   cardWidth?: number;
+  /** If set, NeighborCard click awaits this resolver to build the play queue. */
+  resolveQueue?: (track: Track) => Promise<Track[]>;
 }
 
 export const NeighborsRow = React.memo(function NeighborsRow({
@@ -24,6 +26,7 @@ export const NeighborsRow = React.memo(function NeighborsRow({
   cluster,
   queue,
   cardWidth = 200,
+  resolveQueue,
 }: Props) {
   const tracksById = useMemo(() => {
     const map = new Map<string, Track>();
@@ -55,7 +58,12 @@ export const NeighborsRow = React.memo(function NeighborsRow({
         <HorizontalScroll>
           {pairs.map(({ neighbor, track }) => (
             <div key={neighbor.artist_id} className="shrink-0" style={{ width: cardWidth }}>
-              <NeighborCard neighbor={neighbor} track={track} queue={queue} />
+              <NeighborCard
+                neighbor={neighbor}
+                track={track}
+                queue={queue}
+                resolveQueue={resolveQueue}
+              />
             </div>
           ))}
         </HorizontalScroll>

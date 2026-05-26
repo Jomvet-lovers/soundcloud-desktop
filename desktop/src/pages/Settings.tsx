@@ -24,7 +24,7 @@ import {
   saveWallpaperFromBuffer,
 } from '../lib/cache';
 import { trackedInvoke } from '../lib/diagnostics';
-import { Download, Globe, Link, Loader2, Star, Trash2, X } from '../lib/icons';
+import { Download, Globe, Link, Loader2, Sparkles, Star, Trash2, X } from '../lib/icons';
 import { useSubscription } from '../lib/subscription';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -892,6 +892,82 @@ const StartupSection = React.memo(function StartupSection() {
   );
 });
 
+/* ── Bypass-whitelist "Coming Soon" overlay ──────────────
+ * Sits on top of the working toggle row. Pointer-events-none, so the underlying
+ * toggle still receives clicks — the state persists but currently drives nothing.
+ */
+
+const SOON_PARTICLES = [
+  { left: 8, top: 22, size: 3, dur: 3.4, delay: 0 },
+  { left: 22, top: 64, size: 2, dur: 4.1, delay: 0.6 },
+  { left: 41, top: 36, size: 3, dur: 3.7, delay: 1.1 },
+  { left: 58, top: 70, size: 2, dur: 4.4, delay: 0.3 },
+  { left: 74, top: 28, size: 3, dur: 3.2, delay: 1.5 },
+  { left: 88, top: 58, size: 2, dur: 4.0, delay: 0.9 },
+];
+
+const BypassComingSoonOverlay = React.memo(function BypassComingSoonOverlay() {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden rounded-2xl"
+      style={{
+        background:
+          'linear-gradient(135deg, rgba(30,15,50,0.62) 0%, rgba(20,10,40,0.58) 50%, rgba(15,8,30,0.62) 100%)',
+        backdropFilter: 'blur(10px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+        border: '0.5px solid rgba(168,85,247,0.35)',
+        boxShadow:
+          '0 18px 50px rgba(0,0,0,0.35), 0 0 32px rgba(139,92,246,0.18), inset 0 1px 0 rgba(255,255,255,0.06)',
+      }}
+    >
+      <div className="absolute inset-0" style={{ contain: 'strict', transform: 'translateZ(0)' }}>
+        {SOON_PARTICLES.map((p, i) => (
+          <span
+            key={i}
+            className="absolute rounded-full"
+            style={{
+              width: p.size,
+              height: p.size,
+              left: `${p.left}%`,
+              top: `${p.top}%`,
+              background: `hsl(${260 + ((i * 11) % 50)}, 80%, ${68 + ((i * 7) % 22)}%)`,
+              opacity: 0.55,
+              animation: `star-float ${p.dur}s ease-in-out ${p.delay}s infinite alternate`,
+            }}
+          />
+        ))}
+      </div>
+      <div
+        className="absolute inset-y-0 -left-1/3 w-2/3"
+        style={{
+          background:
+            'linear-gradient(110deg, transparent 35%, rgba(255,255,255,0.10) 50%, transparent 65%)',
+          animation: 'sw-shine 3.6s linear infinite',
+        }}
+      />
+      <div
+        className="relative flex items-center gap-2 rounded-full px-4 py-1.5"
+        style={{
+          background:
+            'linear-gradient(135deg, rgba(168,85,247,0.42), rgba(139,92,246,0.32) 50%, rgba(99,102,241,0.36))',
+          border: '0.5px solid rgba(168,85,247,0.55)',
+          boxShadow: '0 6px 22px rgba(139,92,246,0.32), inset 0 1px 0 rgba(255,255,255,0.14)',
+        }}
+      >
+        <Sparkles
+          size={12}
+          className="text-amber-300"
+          style={{ filter: 'drop-shadow(0 0 6px rgba(252,211,77,0.6))' }}
+        />
+        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/95">
+          {t('settings.bypassWhitelistSoon')}
+        </span>
+      </div>
+    </div>
+  );
+});
+
 /* ── Playback Section ─────────────────────────────────── */
 
 const PlaybackSection = React.memo(function PlaybackSection() {
@@ -1023,42 +1099,46 @@ const PlaybackSection = React.memo(function PlaybackSection() {
         )}
       </div>
 
-      {/* Bypass Whitelists */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[13px] text-white/70 font-medium">{t('settings.bypassWhitelist')}</p>
-          <p className="text-[11px] text-white/30 mt-0.5">{t('settings.bypassWhitelistDesc')}</p>
-        </div>
-        {isPremium ? (
-          <button
-            onClick={() => setBypassWhitelist(!bypassWhitelist)}
-            className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
-              bypassWhitelist ? 'bg-accent' : 'bg-white/10'
-            }`}
-          >
-            <div
-              className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
-                bypassWhitelist ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
-              }`}
-            />
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-purple-300/80"
-              style={{
-                background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.12))',
-                border: '0.5px solid rgba(168,85,247,0.25)',
-              }}
-            >
-              <Star size={10} fill="currentColor" className="text-amber-400" />
-              Star
-            </span>
-            <div className="w-11 h-6 rounded-full bg-white/10 relative opacity-40 cursor-not-allowed">
-              <div className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full shadow-md bg-white" />
-            </div>
+      {/* Bypass Whitelists — toggle stays functional, "Coming Soon" overlay on top */}
+      <div className="relative -mx-2 px-2 py-2 rounded-2xl">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[13px] text-white/70 font-medium">{t('settings.bypassWhitelist')}</p>
+            <p className="text-[11px] text-white/30 mt-0.5">{t('settings.bypassWhitelistDesc')}</p>
           </div>
-        )}
+          {isPremium ? (
+            <button
+              onClick={() => setBypassWhitelist(!bypassWhitelist)}
+              className={`w-11 h-6 rounded-full transition-all duration-200 cursor-pointer relative ${
+                bypassWhitelist ? 'bg-accent' : 'bg-white/10'
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${
+                  bypassWhitelist ? 'left-[22px] bg-accent-contrast' : 'left-0.5 bg-white'
+                }`}
+              />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-purple-300/80"
+                style={{
+                  background:
+                    'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.12))',
+                  border: '0.5px solid rgba(168,85,247,0.25)',
+                }}
+              >
+                <Star size={10} fill="currentColor" className="text-amber-400" />
+                Star
+              </span>
+              <div className="w-11 h-6 rounded-full bg-white/10 relative opacity-40 cursor-not-allowed">
+                <div className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full shadow-md bg-white" />
+              </div>
+            </div>
+          )}
+        </div>
+        <BypassComingSoonOverlay />
       </div>
 
       {/* DPI Bypass */}

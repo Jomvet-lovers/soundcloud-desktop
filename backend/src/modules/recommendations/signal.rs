@@ -1,8 +1,9 @@
+use std::collections::HashSet;
+
 use sqlx::PgPool;
 
 use crate::error::AppResult;
 
-const POSITIVE_TYPES: &[&str] = &["like", "playlist_add"];
 const IMPLICIT_POSITIVE: &str = "full_play";
 const NEGATIVE_TYPES: &[&str] = &["dislike", "skip"];
 
@@ -79,6 +80,19 @@ pub enum SeedKind {
 }
 
 #[derive(Debug, sqlx::FromRow)]
+struct EventLikeRow {
+    sc_track_id: String,
+    weight: f64,
+    age_days: f32,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct MirrorLikeRow {
+    sc_track_id: String,
+    age_days: f32,
+}
+
+#[derive(Debug, sqlx::FromRow)]
 struct EventRow {
     sc_track_id: String,
     event_type: String,
@@ -88,20 +102,6 @@ struct EventRow {
 }
 
 pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserSignals> {
-    let rows: Vec<EventRow> = sqlx::query_as(
-        "SELECT sc_track_id, event_type, weight, position_pct,
-                (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days
-         FROM user_events
-         WHERE sc_user_id = $1
-           AND created_at > NOW() - INTERVAL '365 days'
-         ORDER BY created_at DESC
-         LIMIT $2",
-    )
-    .bind(sc_user_id)
-    .bind(POSITIVE_LIMIT + NEGATIVE_LIMIT + PLAYED_LIMIT)
-    .fetch_all(pg)
-    .await?;
-
     let disliked_ids: Vec<String> = sqlx::query_scalar(
         "SELECT sc_track_id FROM disliked_tracks WHERE sc_user_id = $1 LIMIT 500",
     )
@@ -109,35 +109,42 @@ pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserS
     .fetch_all(pg)
     .await
     .unwrap_or_default();
+    let disliked_set: HashSet<String> = disliked_ids.iter().cloned().collect();
 
-    let disliked_set: std::collections::HashSet<String> = disliked_ids.iter().cloned().collect();
+    let strong_positives =
+        load_strong_positives(pg, sc_user_id, &disliked_set).await;
 
-    let mut strong_positives: Vec<WeightedTrack> = Vec::new();
+    let event_rows: Vec<EventRow> = sqlx::query_as(
+        "SELECT sc_track_id, event_type, weight, position_pct, \
+                (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
+         FROM user_events \
+         WHERE sc_user_id = $1 \
+           AND event_type = ANY($2) \
+           AND created_at > NOW() - INTERVAL '180 days' \
+         ORDER BY created_at DESC \
+         LIMIT $3",
+    )
+    .bind(sc_user_id)
+    .bind(&[IMPLICIT_POSITIVE, "skip", "dislike"][..])
+    .bind(NEGATIVE_LIMIT + PLAYED_LIMIT)
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
+
     let mut implicit_positives: Vec<WeightedTrack> = Vec::new();
     let mut played: Vec<String> = Vec::new();
     let mut negatives: Vec<WeightedTrack> = Vec::new();
-    let mut seen_played = std::collections::HashSet::new();
+    let mut seen_played: HashSet<String> = strong_positives
+        .iter()
+        .map(|w| w.sc_track_id.clone())
+        .collect();
 
-    for r in rows {
+    for r in event_rows {
         if disliked_set.contains(&r.sc_track_id) {
             continue;
         }
         let decay = decay_factor(r.age_days);
-        let weighted_pos = WeightedTrack {
-            sc_track_id: r.sc_track_id.clone(),
-            weight: (r.weight.max(0.0) as f32) * decay,
-        };
-        let weighted_neg = WeightedTrack {
-            sc_track_id: r.sc_track_id.clone(),
-            weight: (r.weight.min(0.0).abs() as f32) * decay,
-        };
-        if POSITIVE_TYPES.contains(&r.event_type.as_str())
-            && strong_positives.len() < POSITIVE_LIMIT as usize
-        {
-            strong_positives.push(weighted_pos);
-        } else if r.event_type == IMPLICIT_POSITIVE
-            && implicit_positives.len() < POSITIVE_LIMIT as usize
-        {
+        if r.event_type == IMPLICIT_POSITIVE && implicit_positives.len() < POSITIVE_LIMIT as usize {
             let multiplier = match r.position_pct {
                 Some(p) if p >= 0.85 => 1.0,
                 Some(p) if p >= 0.65 => 0.6,
@@ -145,16 +152,25 @@ pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserS
             };
             implicit_positives.push(WeightedTrack {
                 sc_track_id: r.sc_track_id.clone(),
-                weight: weighted_pos.weight * multiplier,
+                weight: (r.weight.max(0.0) as f32) * decay * multiplier,
             });
         }
         if NEGATIVE_TYPES.contains(&r.event_type.as_str())
             && negatives.len() < NEGATIVE_LIMIT as usize
         {
-            negatives.push(weighted_neg);
+            negatives.push(WeightedTrack {
+                sc_track_id: r.sc_track_id.clone(),
+                weight: (r.weight.min(0.0).abs() as f32) * decay,
+            });
         }
         if played.len() < PLAYED_LIMIT as usize && seen_played.insert(r.sc_track_id.clone()) {
             played.push(r.sc_track_id);
+        }
+    }
+
+    for w in &strong_positives {
+        if played.len() < PLAYED_LIMIT as usize && seen_played.insert(w.sc_track_id.clone()) {
+            played.push(w.sc_track_id.clone());
         }
     }
 
@@ -174,6 +190,87 @@ pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserS
         negatives,
         disliked_ids,
     })
+}
+
+/// Лайки приоритетно тянем из `user_events` — это реальные click-actions с
+/// весом. Если их меньше порога (например, свежий юзер, у которого только
+/// синканулось зеркало `/me/likes/tracks`) — добираем недостающее из
+/// `user_likes_tracks` тем же порядком, что отдаёт зеркало:
+/// `ORDER BY created_at DESC, ctid DESC` (ctid резолвит ties в батче refresh'а).
+async fn load_strong_positives(
+    pg: &PgPool,
+    sc_user_id: &str,
+    disliked: &HashSet<String>,
+) -> Vec<WeightedTrack> {
+    let mut out: Vec<WeightedTrack> = Vec::with_capacity(POSITIVE_LIMIT as usize);
+    let mut seen: HashSet<String> = HashSet::new();
+
+    let event_likes: Vec<EventLikeRow> = sqlx::query_as(
+        "SELECT sc_track_id, weight, \
+                (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
+         FROM user_events \
+         WHERE sc_user_id = $1 \
+           AND event_type IN ('like', 'playlist_add') \
+           AND created_at > NOW() - INTERVAL '365 days' \
+         ORDER BY created_at DESC \
+         LIMIT $2",
+    )
+    .bind(sc_user_id)
+    .bind(POSITIVE_LIMIT)
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
+
+    for r in event_likes {
+        if disliked.contains(&r.sc_track_id) || !seen.insert(r.sc_track_id.clone()) {
+            continue;
+        }
+        let decay = decay_factor(r.age_days);
+        out.push(WeightedTrack {
+            sc_track_id: r.sc_track_id,
+            weight: (r.weight.max(0.0) as f32) * decay,
+        });
+        if out.len() >= POSITIVE_LIMIT as usize {
+            return out;
+        }
+    }
+
+    if out.len() >= STRONG_POSITIVE_MIN {
+        return out;
+    }
+
+    // Fallback: зеркало `/me/likes/tracks`. Сортируем как зеркало
+    // (ORDER BY created_at DESC, ctid DESC) — свежий лайк приоритетный.
+    let need_more = (POSITIVE_LIMIT as usize).saturating_sub(out.len());
+    let mirror_likes: Vec<MirrorLikeRow> = sqlx::query_as(
+        "SELECT sc_track_id, \
+                (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
+         FROM user_likes_tracks \
+         WHERE user_id = $1 AND wanted_state = true \
+           AND created_at > NOW() - INTERVAL '365 days' \
+         ORDER BY created_at DESC, ctid DESC \
+         LIMIT $2",
+    )
+    .bind(sc_user_id)
+    .bind(need_more as i64)
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
+
+    for r in mirror_likes {
+        if disliked.contains(&r.sc_track_id) || !seen.insert(r.sc_track_id.clone()) {
+            continue;
+        }
+        out.push(WeightedTrack {
+            sc_track_id: r.sc_track_id,
+            weight: decay_factor(r.age_days),
+        });
+        if out.len() >= POSITIVE_LIMIT as usize {
+            break;
+        }
+    }
+
+    out
 }
 
 fn decay_factor(age_days: f32) -> f32 {

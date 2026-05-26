@@ -124,18 +124,24 @@ pub async fn build(
         blended,
         &artist_by_track,
         &wave_cursor,
-        req.limit,
+        // По-щедрому накидываем кандидатов с запасом — дальше language- и
+        // S3-фильтры режут часть, и без запаса до limit'а может не дойти.
+        req.limit * 3,
         ARTIST_CAP_IN_WINDOW,
     );
 
-    // S3-verify и quality-filter тут же — за поведением остаётся правило
-    // "никаких треков, которых нет в storage".
-    let ids: Vec<String> = picked.iter().map(|c| c.sc_track_id.to_string()).collect();
-    let missing = svc.s3.find_missing(&ids).await.unwrap_or_default();
-    let mut tracks: Vec<RecommendResult> = Vec::with_capacity(picked.len());
+    let ids_after_cap: Vec<String> = picked.iter().map(|c| c.sc_track_id.to_string()).collect();
+    let lang_allowed = svc
+        .filter_tracks_by_language(&ids_after_cap, req.languages)
+        .await;
+    let missing = svc.s3.find_missing(&ids_after_cap).await.unwrap_or_default();
+    let mut tracks: Vec<RecommendResult> = Vec::with_capacity(req.limit);
     for c in &picked {
+        if tracks.len() >= req.limit {
+            break;
+        }
         let id_str = c.sc_track_id.to_string();
-        if missing.contains(&id_str) {
+        if missing.contains(&id_str) || !lang_allowed.contains(&id_str) {
             continue;
         }
         tracks.push(RecommendResult {
