@@ -15,11 +15,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# torch ставится отдельно с CPU-индекса pytorch.org (без CUDA-байтов).
-# В requirements.txt torch не указан, чтобы не было апгрейд-гонки между шагами.
+# torch / torchaudio / torchvision ставятся одной командой с CPU-индекса
+# pytorch.org — иначе torchvision подтянется с PyPI под старый torch и упадёт
+# на регистрации операторов (`torchvision::nms does not exist`).
+# В requirements.txt torch-семейство не указано, чтобы не было апгрейд-гонки.
 RUN pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
-        torch torchaudio \
+        torch torchaudio torchvision \
  && pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src

@@ -30,16 +30,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
 COPY requirements.txt .
-# torch/torchaudio — pre-built CUDA-колёса с pytorch.org (cu130 под CUDA 13.0 base).
+# torch / torchaudio / torchvision — одной командой с cu130-индекса pytorch.org,
+# иначе torchvision приедет с PyPI под старый torch и упадёт на регистрации
+# операторов (`torchvision::nms does not exist`).
 # --break-system-packages: на Ubuntu 24.04 PEP 668 запрещает системный pip без флага.
 # В контейнере venv не нужен — образ одноразовый и иммутабельный.
 RUN python -m pip install --no-cache-dir --break-system-packages \
         --extra-index-url https://download.pytorch.org/whl/cu130 \
-        torch torchaudio \
+        torch torchaudio torchvision \
  && python -m pip install --no-cache-dir --break-system-packages -r requirements.txt \
  && python -m pip install --no-cache-dir --break-system-packages "bitsandbytes>=0.46.0" \
  && python -c "import sys; print('python:', sys.executable, sys.version)" \
- && python -c "import nats, torch, bitsandbytes; print('imports OK')"
+ && python -c "import nats, torch, torchvision, bitsandbytes; print('imports OK')"
 
 COPY src ./src
 

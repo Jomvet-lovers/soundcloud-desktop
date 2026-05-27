@@ -41,15 +41,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
 COPY requirements.txt .
-# torch/torchaudio — последний релиз с Volta-поддержкой в дефолтных wheels (2.7.x).
-# Если 2.7 окажется уже без sm_70 — снизить до torch==2.6.0/torchaudio==2.6.0.
+# torch / torchaudio / torchvision — одной командой с cu128-индекса pytorch.org.
+# Иначе torchvision приедет с PyPI под другой torch и упадёт на регистрации
+# операторов (`torchvision::nms does not exist`).
+# Пин 2.7.x — последний minor с дефолтными wheels под Pascal/Volta. Если 2.7
+# окажется уже без sm_70 — снизить до 2.6.x.
 RUN python -m pip install --no-cache-dir --break-system-packages \
         --extra-index-url https://download.pytorch.org/whl/cu128 \
-        "torch>=2.7,<2.8" "torchaudio>=2.7,<2.8" \
+        "torch>=2.7,<2.8" "torchaudio>=2.7,<2.8" "torchvision>=0.22,<0.23" \
  && python -m pip install --no-cache-dir --break-system-packages -r requirements.txt \
  && python -m pip install --no-cache-dir --break-system-packages "bitsandbytes>=0.45.0,<0.46.0" \
  && python -c "import sys; print('python:', sys.executable, sys.version)" \
- && python -c "import nats, torch, bitsandbytes; print('imports OK')"
+ && python -c "import nats, torch, torchvision, bitsandbytes; print('imports OK')"
 
 COPY src ./src
 
