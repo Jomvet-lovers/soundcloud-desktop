@@ -15,13 +15,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# torch / torchaudio / torchvision ставятся одной командой с CPU-индекса
-# pytorch.org — иначе torchvision подтянется с PyPI под старый torch и упадёт
-# на регистрации операторов (`torchvision::nms does not exist`).
+# torch / torchaudio / torchvision / torchcodec — одной командой с CPU-индекса
+# pytorch.org, чтобы pip взял согласованные версии всех четырёх.
+# torchcodec обязателен с torchaudio 2.8+: `torchaudio.load()` теперь декодит
+# через TorchCodec, без него падает `TorchCodec is required for load_with_torchcodec`.
 # В requirements.txt torch-семейство не указано, чтобы не было апгрейд-гонки.
 RUN pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
-        torch torchaudio torchvision \
+        torch torchaudio torchvision torchcodec \
  && pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
