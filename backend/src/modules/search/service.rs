@@ -116,10 +116,12 @@ impl SearchService {
         // нормализованный id, чтобы запросы по разным формам того же URN не
         // плодили cache misses.
         let user_sc_id = match user_urn {
-            Some(urn) if !urn.is_empty() => match repository::resolve_user_sc_id(&self.pg, urn).await? {
-                Some(id) => Some(id),
-                None => return Ok(empty_page(page, limit)),
-            },
+            Some(urn) if !urn.is_empty() => {
+                match repository::resolve_user_sc_id(&self.pg, urn).await? {
+                    Some(id) => Some(id),
+                    None => return Ok(empty_page(page, limit)),
+                }
+            }
             _ => None,
         };
 
@@ -169,10 +171,12 @@ impl SearchService {
         let (page, limit) = Self::clamp_page_limit(page, limit);
 
         let user_sc_id = match user_urn {
-            Some(urn) if !urn.is_empty() => match repository::resolve_user_sc_id(&self.pg, urn).await? {
-                Some(id) => Some(id),
-                None => return Ok(empty_page(page, limit)),
-            },
+            Some(urn) if !urn.is_empty() => {
+                match repository::resolve_user_sc_id(&self.pg, urn).await? {
+                    Some(id) => Some(id),
+                    None => return Ok(empty_page(page, limit)),
+                }
+            }
             _ => None,
         };
 
@@ -208,12 +212,7 @@ impl SearchService {
         Ok(decode_page(value, page, limit))
     }
 
-    pub async fn users(
-        &self,
-        q: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
+    pub async fn users(&self, q: &str, page: i64, limit: i64) -> AppResult<ListPageResult<Value>> {
         let Some(q_norm) = Self::normalize_query(q) else {
             return Ok(empty_page(page, limit));
         };
@@ -228,7 +227,8 @@ impl SearchService {
 
         let value = self
             .cached(&key, || async {
-                let (items, has_more) = repository::search_users(&self.pg, &q_norm, page, limit).await?;
+                let (items, has_more) =
+                    repository::search_users(&self.pg, &q_norm, page, limit).await?;
                 Ok(serde_json::to_value(PageEnvelope {
                     collection: items,
                     page,
@@ -276,12 +276,7 @@ impl SearchService {
         Ok(decode_page(value, page, limit))
     }
 
-    pub async fn albums(
-        &self,
-        q: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
+    pub async fn albums(&self, q: &str, page: i64, limit: i64) -> AppResult<ListPageResult<Value>> {
         let Some(q_norm) = Self::normalize_query(q) else {
             return Ok(empty_page(page, limit));
         };
