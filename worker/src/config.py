@@ -15,6 +15,13 @@ WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "").strip()
 DEMUCS_MODEL = os.environ.get("DEMUCS_MODEL", "htdemucs")
 
+# Максимальная длительность аудио, которую отправляем в MuQ/MuLan embed.
+# Attention в MuQ — O(T²) по timesteps, на 10-минутном треке это уже ~9 GB
+# transient VRAM. 300 сек (5 мин) даёт ~2 GB peak и более чем достаточно для
+# жанра/настроения трека (MuQ всё равно усредняет по времени).
+# 0 = без ограничения.
+MAX_EMBED_DURATION_SEC = int(os.environ.get("MAX_EMBED_DURATION_SEC", "300"))
+
 
 def _parse_concurrency(raw: str) -> int | dict[str, int]:
     """

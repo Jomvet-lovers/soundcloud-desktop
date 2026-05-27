@@ -15,6 +15,7 @@ from nats.aio.client import Client as NATSClient
 from qdrant_client import QdrantClient
 
 from .. import subjects as subj
+from ..config import MAX_EMBED_DURATION_SEC
 from ..models import DEVICE, Models
 from ..storage import has_audio_vectors, upsert_audio
 
@@ -37,6 +38,11 @@ def _load_wav(audio_bytes: bytes, sr: int) -> torch.Tensor:
 
     Через torchaudio (ffmpeg-backend) — читает AAC/MP3 нативно, без librosa
     + audioread (deprecated в librosa 0.10, удалят в 1.0).
+
+    Truncate до MAX_EMBED_DURATION_SEC — иначе MuQ attention (O(T²)) на
+    длинных треках жрёт многие GB transient VRAM (для 10-min трека — ~9 GB
+    одной матрицей attention, OOM-ит даже на 24 GB карте при параллельных
+    задачах).
     """
     with tempfile.NamedTemporaryFile(suffix=".audio", delete=True) as f:
         f.write(audio_bytes)
@@ -46,6 +52,10 @@ def _load_wav(audio_bytes: bytes, sr: int) -> torch.Tensor:
         waveform = waveform.mean(dim=0, keepdim=True)
     if orig_sr != sr:
         waveform = TAF.resample(waveform, orig_sr, sr)
+    if MAX_EMBED_DURATION_SEC > 0:
+        max_samples = MAX_EMBED_DURATION_SEC * sr
+        if waveform.shape[1] > max_samples:
+            waveform = waveform[:, :max_samples]
     return waveform  # [1, samples]
 
 
