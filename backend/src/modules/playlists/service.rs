@@ -127,12 +127,14 @@ impl PlaylistsService {
         }
         let repo = crate::modules::playlists::PlaylistRepository::new(self.pg.clone());
         if let Some(row) = repo.find_by_urn(playlist_urn).await? {
-            // Sharing-guard для приватных плейлистов.
+            // Sharing-guard для приватных плейлистов. sc_user_id из сессии —
+            // URN ("soundcloud:users:NNN"), owner_sc_user_id в БД — голый ID.
             if row.sharing != "public" {
+                let me = crate::common::sc_ids::extract_sc_id(sc_user_id);
                 let is_owner = row
                     .owner_sc_user_id
                     .as_deref()
-                    .map(|u| u == sc_user_id)
+                    .map(|u| u == me)
                     .unwrap_or(false);
                 if !is_owner {
                     return Err(AppError::not_found("Playlist not found"));
@@ -239,10 +241,11 @@ impl PlaylistsService {
         let playlist_row = repo.find_by_urn(playlist_urn).await?;
         if let Some(row) = &playlist_row {
             if row.sharing != "public" {
+                let me = crate::common::sc_ids::extract_sc_id(sc_user_id);
                 let is_owner = row
                     .owner_sc_user_id
                     .as_deref()
-                    .map(|u| u == sc_user_id)
+                    .map(|u| u == me)
                     .unwrap_or(false);
                 if !is_owner {
                     return Err(AppError::not_found("Playlist not found"));
