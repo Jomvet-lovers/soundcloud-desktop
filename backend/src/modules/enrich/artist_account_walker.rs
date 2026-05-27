@@ -80,11 +80,11 @@ impl ArtistAccountWalker {
             "SELECT id, name FROM artists \
              WHERE merged_into IS NULL \
                AND (last_account_walk_at IS NULL \
-                    OR last_account_walk_at < now() - make_interval(hours => $1)) \
+                    OR last_account_walk_at < now() - ($1::int * INTERVAL '1 hour')) \
              ORDER BY last_account_walk_at NULLS FIRST \
              LIMIT $2",
         )
-        .bind(COOLDOWN_HOURS as f64)
+        .bind(COOLDOWN_HOURS as i32)
         .bind(PER_TICK_ARTISTS)
         .fetch_all(&self.pg)
         .await?;
