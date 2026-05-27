@@ -190,12 +190,18 @@ jobs:
 
       - name: Lowercase image name
         id: repo
-        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        env:
+          REPO_RAW: ${{ github.repository }}
+          OWNER_RAW: ${{ github.repository_owner }}
+        run: |
+          echo "name=$(echo "$REPO_RAW" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          echo "owner=$(echo "$OWNER_RAW" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Compute tags & cache
         id: meta
         env:
           REPO: ${{ steps.repo.outputs.name }}
+          OWNER: ${{ steps.repo.outputs.owner }}
           VERSION: ${{ needs.version.outputs.version }}
           IMG: ${{ matrix.image_name || matrix.name }}
           SUFFIX: ${{ matrix.tag_suffix }}
@@ -221,16 +227,16 @@ jobs:
               echo "cache_to=type=gha,mode=max,scope=${{ matrix.name }}" >> "$GITHUB_OUTPUT"
               ;;
             registry-cpu)
-              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker-cache:cpu" >> "$GITHUB_OUTPUT"
-              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker-cache:cpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              echo "cache_from=type=registry,ref=ghcr.io/$OWNER/cache/scd-worker:cpu" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$OWNER/cache/scd-worker:cpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
               ;;
             registry-gpu)
-              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu" >> "$GITHUB_OUTPUT"
-              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              echo "cache_from=type=registry,ref=ghcr.io/$OWNER/cache/scd-worker:gpu" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$OWNER/cache/scd-worker:gpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
               ;;
             registry-gpu-cuda12)
-              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu-cuda12" >> "$GITHUB_OUTPUT"
-              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu-cuda12,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              echo "cache_from=type=registry,ref=ghcr.io/$OWNER/cache/scd-worker:gpu-cuda12" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$OWNER/cache/scd-worker:gpu-cuda12,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
               ;;
           esac
 
