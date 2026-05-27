@@ -8,8 +8,9 @@ import tempfile
 import time
 
 import aiohttp
-import librosa
 import torch
+import torchaudio
+import torchaudio.functional as TAF
 from nats.aio.client import Client as NATSClient
 from qdrant_client import QdrantClient
 
@@ -32,11 +33,20 @@ async def _download(url: str) -> bytes:
 
 
 def _load_wav(audio_bytes: bytes, sr: int) -> torch.Tensor:
+    """Декод произвольного аудио (m4a/mp3/wav/...) в моно-волну заданного sr.
+
+    Через torchaudio (ffmpeg-backend) — читает AAC/MP3 нативно, без librosa
+    + audioread (deprecated в librosa 0.10, удалят в 1.0).
+    """
     with tempfile.NamedTemporaryFile(suffix=".audio", delete=True) as f:
         f.write(audio_bytes)
         f.flush()
-        audio, _ = librosa.load(f.name, sr=sr, mono=True)
-    return torch.tensor(audio).unsqueeze(0)
+        waveform, orig_sr = torchaudio.load(f.name)  # [channels, samples]
+    if waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+    if orig_sr != sr:
+        waveform = TAF.resample(waveform, orig_sr, sr)
+    return waveform  # [1, samples]
 
 
 def _embed_muq(models: Models, audio_bytes: bytes) -> list[float]:
