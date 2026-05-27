@@ -11,6 +11,10 @@ pub enum BackendKind {
 #[derive(Clone, Debug)]
 pub struct S3Config {
     pub endpoint: Option<String>,
+    /// Endpoint, используемый только для presigned URLs (`/redirect/...`).
+    /// Если задан — должен быть публично резолвящимся, чтобы внешний воркер
+    /// мог по нему пойти; иначе presign берёт `endpoint`.
+    pub presign_endpoint: Option<String>,
     pub region: String,
     pub bucket: String,
     pub access_key_id: String,
@@ -141,6 +145,9 @@ impl Config {
         let s3 = if backend == BackendKind::S3 {
             Some(S3Config {
                 endpoint: env::var("S3_ENDPOINT").ok().filter(|v| !v.is_empty()),
+                presign_endpoint: env::var("S3_PRESIGN_ENDPOINT")
+                    .ok()
+                    .filter(|v| !v.is_empty()),
                 region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into()),
                 bucket: env::var("S3_BUCKET").expect("S3_BUCKET is required for s3 backend"),
                 access_key_id: env::var("S3_ACCESS_KEY_ID")

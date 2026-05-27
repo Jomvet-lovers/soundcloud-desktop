@@ -14,6 +14,7 @@ use crate::config::S3Config;
 
 pub struct S3Backend {
     client: Client,
+    presign_client: Client,
     bucket: String,
 }
 
@@ -29,7 +30,7 @@ impl S3Backend {
 
         let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .region(Region::new(cfg.region.clone()))
-            .credentials_provider(creds);
+            .credentials_provider(creds.clone());
 
         if let Some(endpoint) = &cfg.endpoint {
             loader = loader.endpoint_url(endpoint.clone());
@@ -43,8 +44,24 @@ impl S3Backend {
         }
         let client = Client::from_conf(s3_builder.build());
 
+        let presign_client = if let Some(presign_endpoint) = &cfg.presign_endpoint {
+            let presign_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                .region(Region::new(cfg.region.clone()))
+                .credentials_provider(creds)
+                .endpoint_url(presign_endpoint.clone());
+            let presign_shared = presign_loader.load().await;
+            let mut presign_builder = aws_sdk_s3::config::Builder::from(&presign_shared);
+            if cfg.force_path_style {
+                presign_builder = presign_builder.force_path_style(true);
+            }
+            Client::from_conf(presign_builder.build())
+        } else {
+            client.clone()
+        };
+
         Self {
             client,
+            presign_client,
             bucket: cfg.bucket.clone(),
         }
     }
