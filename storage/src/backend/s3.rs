@@ -164,7 +164,7 @@ impl S3Backend {
         let cfg = PresigningConfig::expires_in(expires)
             .map_err(|e| BackendError::Other(format!("presign config: {e}")))?;
         let req = self
-            .client
+            .presign_client
             .get_object()
             .bucket(&self.bucket)
             .key(key)
