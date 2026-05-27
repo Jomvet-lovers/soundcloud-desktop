@@ -761,6 +761,95 @@ export function useSearchUsers(q: string) {
   return { users: query.items, ...query };
 }
 
+/* ── Search: SCD-DB ───────────────────────────────────────────── */
+
+/**
+ * Поиск в нашей базе (зеркало SoundCloud). Возвращает только то, что мы уже
+ * индексировали — но без сетевого fan-out'а в SC API, поэтому в разы быстрее.
+ * Бэк зашит на trgm-индексы + statement_timeout, фронту достаточно поднести
+ * `q` и опционально `userUrn` для скоупа.
+ */
+
+const SEARCH_DB_LIMIT = 20;
+const SEARCH_DB_MAX_PAGES = 10;
+
+export function useSearchDbTracks(q: string, userUrn?: string) {
+  const query = usePagedQuery<Track>({
+    queryKey: ['search', 'db', 'tracks', q, userUrn ?? ''],
+    url: (page, limit) =>
+      pagedUrl(
+        '/search/db/tracks',
+        page,
+        limit,
+        `q=${encodeURIComponent(q)}${userUrn ? `&user_urn=${encodeURIComponent(userUrn)}` : ''}`,
+      ),
+    limit: SEARCH_DB_LIMIT,
+    staleTime: SEARCH_CACHE_MS,
+    maxPages: SEARCH_DB_MAX_PAGES,
+    enabled: !!q.trim(),
+    dedupe: (t) => t.urn,
+  });
+  return { tracks: query.items, ...query };
+}
+
+export function useSearchDbPlaylists(q: string, userUrn?: string) {
+  const query = usePagedQuery<Playlist>({
+    queryKey: ['search', 'db', 'playlists', q, userUrn ?? ''],
+    url: (page, limit) =>
+      pagedUrl(
+        '/search/db/playlists',
+        page,
+        limit,
+        `q=${encodeURIComponent(q)}${userUrn ? `&user_urn=${encodeURIComponent(userUrn)}` : ''}`,
+      ),
+    limit: SEARCH_DB_LIMIT,
+    staleTime: SEARCH_CACHE_MS,
+    maxPages: SEARCH_DB_MAX_PAGES,
+    enabled: !!q.trim(),
+    dedupe: (p) => p.urn,
+  });
+  return { playlists: query.items, ...query };
+}
+
+export function useSearchDbUsers(q: string) {
+  const query = usePagedQuery<SCUser>({
+    queryKey: ['search', 'db', 'users', q],
+    url: (page, limit) => pagedUrl('/search/db/users', page, limit, `q=${encodeURIComponent(q)}`),
+    limit: SEARCH_DB_LIMIT,
+    staleTime: SEARCH_CACHE_MS,
+    maxPages: SEARCH_DB_MAX_PAGES,
+    enabled: !!q.trim(),
+    dedupe: (u) => u.urn,
+  });
+  return { users: query.items, ...query };
+}
+
+export function useSearchDbArtists(q: string) {
+  const query = usePagedQuery<import('./discover').CatalogArtist>({
+    queryKey: ['search', 'db', 'artists', q],
+    url: (page, limit) => pagedUrl('/search/db/artists', page, limit, `q=${encodeURIComponent(q)}`),
+    limit: SEARCH_DB_LIMIT,
+    staleTime: SEARCH_CACHE_MS,
+    maxPages: SEARCH_DB_MAX_PAGES,
+    enabled: !!q.trim(),
+    dedupe: (a) => a.id,
+  });
+  return { artists: query.items, ...query };
+}
+
+export function useSearchDbAlbums(q: string) {
+  const query = usePagedQuery<import('./discover').CatalogAlbum>({
+    queryKey: ['search', 'db', 'albums', q],
+    url: (page, limit) => pagedUrl('/search/db/albums', page, limit, `q=${encodeURIComponent(q)}`),
+    limit: SEARCH_DB_LIMIT,
+    staleTime: SEARCH_CACHE_MS,
+    maxPages: SEARCH_DB_MAX_PAGES,
+    enabled: !!q.trim(),
+    dedupe: (a) => a.id,
+  });
+  return { albums: query.items, ...query };
+}
+
 /* ── Fallback / Seed Tracks ────────────────────────────────────── */
 
 const FALLBACK_TRACK_IDS = '2028682452,2065341288,2028677636,2209249766,2060818444,2064016848';

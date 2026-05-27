@@ -21,6 +21,7 @@ use crate::modules::oauth_apps::OAuthAppsService;
 use crate::modules::playlists::PlaylistsService;
 use crate::modules::recommendations::RecommendationsService;
 use crate::modules::resolve::ResolveService;
+use crate::modules::search::SearchService;
 use crate::modules::subscriptions::SubscriptionsService;
 use crate::modules::sync_queue::SyncQueueService;
 use crate::modules::tracks::TracksService;
@@ -45,6 +46,7 @@ pub struct AppState {
     pub users: Arc<UsersService>,
     pub likes: Arc<LikesService>,
     pub resolve: Arc<ResolveService>,
+    pub search: Arc<SearchService>,
     pub history: Arc<HistoryService>,
     pub featured: Arc<FeaturedService>,
     pub lyrics: Arc<LyricsService>,

@@ -19,6 +19,7 @@ pub mod oauth_apps;
 pub mod playlists;
 pub mod recommendations;
 pub mod resolve;
+pub mod search;
 pub mod subscriptions;
 pub mod sync_queue;
 pub mod tracks;

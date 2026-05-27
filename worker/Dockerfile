@@ -1,4 +1,12 @@
-FROM python:3.11-slim
+# CPU-образ воркера. Тэг: ghcr.io/<repo>/worker:cpu
+#
+# Запускается на любом x86_64 хосте без GPU. Все модели (Whisper, Demucs, MuQ,
+# bge-m3, Qwen) крутятся на CPU — в разы медленнее, чем на GPU, но работает.
+# Берут этот образ для дешёвых дополнительных consumer'ов, dev-стендов или
+# хостов, где GPU физически нет.
+#
+# Никаких CUDA-требований к хосту нет — образ полностью самодостаточный.
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -7,7 +15,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# torch ставится отдельно с CPU-индекса pytorch.org (без CUDA-байтов).
+# В requirements.txt torch не указан, чтобы не было апгрейд-гонки между шагами.
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        torch torchaudio \
+ && pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
 

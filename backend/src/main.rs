@@ -47,6 +47,7 @@ use crate::modules::oauth_apps::{OAuthAppTokenService, OAuthAppsService};
 use crate::modules::playlists::PlaylistsService;
 use crate::modules::recommendations::{RecommendationsService, S3VerifierService};
 use crate::modules::resolve::ResolveService;
+use crate::modules::search::SearchService;
 use crate::modules::subscriptions::SubscriptionsService;
 use crate::modules::sync_queue::SyncQueueService;
 use crate::modules::tracks::TracksService;
@@ -186,6 +187,7 @@ async fn main() {
     );
     let dislikes = DislikesService::new(pg.clone(), events.clone());
     let resolve = ResolveService::new(sc.clone(), tokens.clone());
+    let search = SearchService::new(pg.clone(), cache.clone());
     let history = HistoryService::new(pg.clone());
     let featured = FeaturedService::new(pg.clone(), sc.clone(), auth.clone());
     let transcode = TranscodeTriggerService::new(http_client.clone(), config.clone());
@@ -416,6 +418,7 @@ async fn main() {
         users,
         likes,
         resolve,
+        search,
         history,
         featured,
         lyrics,

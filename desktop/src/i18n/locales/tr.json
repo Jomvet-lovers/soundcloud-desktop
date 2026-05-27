@@ -50,7 +50,18 @@
     "tracks": "Parcalar",
     "playlists": "Calma listeleri",
     "users": "Kullanicilar",
-    "noResults": "Sonuc bulunamadi"
+    "artists": "Sanatcilar",
+    "albums": "Albumler",
+    "noResults": "Sonuc bulunamadi",
+    "noResultsDbHint": "Yerel SCD veritabaninda eslesme yok. SoundCloud'a gecmeyi dene.",
+    "tryScHint": "SCD veritabaninda araniyor. Daha genis aramak icin SoundCloud'a gec.",
+    "source": {
+      "db": "SCD",
+      "sc": "SoundCloud",
+      "dbBadge": "VT",
+      "dbHint": "Yerel SCD veritabaninda ara — hizli, yansitilmis icerikle sinirli.",
+      "scHint": "Dogrudan SoundCloud'da ara — yavas ama tum icerigi kapsar."
+    }
   },
   "track": {
     "comments": "Yorumlar",
@@ -143,7 +154,13 @@
     "links": "Baglantilar",
     "verifiedArtist": "Dogrulanmis sanatci",
     "auraTitle": "Aura",
-    "auraCustom": "Ozel"
+    "auraCustom": "Ozel",
+    "search": {
+      "placeholder": "{{scope}} icinde ara…",
+      "unavailable": "Arama burada kullanilamiyor",
+      "clear": "Temizle",
+      "empty": "Bu kullanicinin icerigide eslesme yok"
+    }
   },
   "library": {
     "likedTracks": "Begenilen Parcalar",

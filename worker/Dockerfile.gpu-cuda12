@@ -1,0 +1,61 @@
+# Legacy GPU-образ воркера — CUDA 12.8 LTS. Долгоиграющая ветка тулкита для
+# карт, которые в основной :gpu уже не вписываются.
+# Тэг: ghcr.io/<repo>/worker:gpu-cuda12
+#
+# Когда брать этот образ:
+#   - если твоя карта старее, чем поддерживает основной :gpu (сейчас CUDA 13,
+#     минимум Turing/sm_75),
+#   - в перспективе: когда выйдет CUDA 14 и основной :gpu уедет на неё (или
+#     появится :gpu-cuda13 для предыдущей ветки), а свежая CUDA дропнет
+#     Turing/Ampere — этот образ продолжит покрывать старые карты, пока живёт
+#     ветка 12.x LTS.
+#
+# Поддерживаемые архитектуры (минимум — Pascal, sm_60):
+#   Pascal      sm_60/61    GTX 10xx, Tesla P40, Tesla P100, Quadro P-series
+#   Volta       sm_70       Tesla V100, Quadro GV100
+#   Turing      sm_75       RTX 20xx, GTX 16xx, Tesla T4
+#   Ampere      sm_80/86    RTX 30xx, A4000, A5000, A6000, A40, A100
+#   Ada         sm_89       RTX 40xx, L4, L40
+#   Hopper      sm_90       H100
+#   Blackwell   sm_100/120  RTX 50xx, B100, B200  (добавлен в CUDA 12.8 нативно)
+#
+# Архитектур новее Blackwell на момент CUDA 12.8 ещё нет; если появятся —
+# доступ к ним только через свежую CUDA (т.е. :gpu).
+#
+# Версии в этом образе зафиксированы под совместимость со старыми картами:
+# torch 2.7.x (последний minor с дефолтными wheel'ами под Pascal/Volta),
+# bitsandbytes 0.45.x. На свежих картах будет работать, но без последних
+# оптимизаций (FP4 на Blackwell и т.п.) — для них есть :gpu.
+#
+# Хост-требования:
+#   - NVIDIA driver >= R570 (требование CUDA 12.8 runtime),
+#   - nvidia-container-toolkit.
+FROM docker.io/nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-dev python3-pip \
+    ffmpeg libsndfile1 libchromaprint-tools ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+COPY requirements.txt .
+# torch/torchaudio — последний релиз с Volta-поддержкой в дефолтных wheels (2.7.x).
+# Если 2.7 окажется уже без sm_70 — снизить до torch==2.6.0/torchaudio==2.6.0.
+RUN python -m pip install --no-cache-dir --break-system-packages \
+        --extra-index-url https://download.pytorch.org/whl/cu128 \
+        "torch>=2.7,<2.8" "torchaudio>=2.7,<2.8" \
+ && python -m pip install --no-cache-dir --break-system-packages -r requirements.txt \
+ && python -m pip install --no-cache-dir --break-system-packages "bitsandbytes>=0.45.0,<0.46.0" \
+ && python -c "import sys; print('python:', sys.executable, sys.version)" \
+ && python -c "import nats, torch, bitsandbytes; print('imports OK')"
+
+COPY src ./src
+
+ENV HF_HOME=/models
+ENV PYTHONUNBUFFERED=1
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.8,max_split_size_mb:512
+VOLUME ["/models"]
+
+CMD ["python", "-m", "src.main"]

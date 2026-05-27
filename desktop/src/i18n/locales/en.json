@@ -88,10 +88,21 @@
     "tracks": "Tracks",
     "playlists": "Playlists",
     "users": "Users",
+    "artists": "Artists",
+    "albums": "Albums",
     "noResults": "No results found",
+    "noResultsDbHint": "Nothing matched in the local SCD library. Try switching to SoundCloud.",
+    "tryScHint": "Searching in SCD library. Switch to SoundCloud to broaden the search.",
     "hint": "Search for artists, bands, tracks, podcasts",
     "history": "Recent searches",
-    "clearHistory": "Clear all"
+    "clearHistory": "Clear all",
+    "source": {
+      "db": "SCD",
+      "sc": "SoundCloud",
+      "dbBadge": "DB",
+      "dbHint": "Search inside the local SCD library — fast, scoped to mirrored content.",
+      "scHint": "Search directly on SoundCloud — slower, but covers everything."
+    }
   },
   "track": {
     "comments": "Comments",
@@ -185,7 +196,13 @@
     "links": "Links",
     "verifiedArtist": "Verified Artist",
     "auraTitle": "Aura",
-    "auraCustom": "Custom"
+    "auraCustom": "Custom",
+    "search": {
+      "placeholder": "Search in their {{scope}}…",
+      "unavailable": "Search not available here",
+      "clear": "Clear search",
+      "empty": "No matches in this user's content"
+    }
   },
   "library": {
     "likedTracks": "Liked Tracks",

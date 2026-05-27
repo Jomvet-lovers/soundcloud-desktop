@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { AlbumGridCard } from '../components/discover/AlbumGridCard';
+import { ArtistGridCard } from '../components/discover/ArtistGridCard';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
@@ -8,16 +10,23 @@ import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
 import { preloadTrack } from '../lib/audio';
+import { DEFAULT_AURA } from '../lib/aura';
 import { art, dur, fc } from '../lib/formatters';
 import {
   type SCUser,
   useInfiniteScroll,
+  useSearchDbAlbums,
+  useSearchDbArtists,
+  useSearchDbPlaylists,
+  useSearchDbTracks,
+  useSearchDbUsers,
   useSearchPlaylists,
   useSearchTracks,
   useSearchUsers,
 } from '../lib/hooks';
 import {
   Clock,
+  Database,
   ExternalLink,
   headphones11,
   heart11,
@@ -34,6 +43,7 @@ import {
 import { useTrackPlay } from '../lib/useTrackPlay';
 import type { Track } from '../stores/player';
 import { useSearchHistoryStore } from '../stores/searchHistory';
+import { useSearchPrefsStore } from '../stores/searchPrefs';
 
 /* ── Components ───────────────────────────────────────────── */
 
@@ -296,108 +306,287 @@ const SearchHistory = React.memo(function SearchHistory({
 
 /* ── Isolated Search Results ──────────────────────────────── */
 
-const SearchTracksTab = React.memo(function SearchTracksTab({ query }: { query: string }) {
+/**
+ * `db` ↔ `sc` различаются только тем, какой хук дергают. Карточки и
+ * виртуализация одинаковые — фронт-shape единый (бэк делает project_to_sc_shape).
+ */
+type SearchSource = 'db' | 'sc';
+
+const SearchTracksTab = React.memo(function SearchTracksTab({
+  query,
+  source,
+}: {
+  query: string;
+  source: SearchSource;
+}) {
   const { t } = useTranslation();
-  const tracksQuery = useSearchTracks(query);
+  // Один из двух хуков активен (enabled=!!q). Switch по source — статичная
+  // ветка, для query-cache это просто разные queryKey.
+  const dbQuery = useSearchDbTracks(source === 'db' ? query : '');
+  const scQuery = useSearchTracks(source === 'sc' ? query : '');
+  const active = source === 'db' ? dbQuery : scQuery;
   const sentinelRef = useInfiniteScroll(
-    !!tracksQuery.hasNextPage,
-    !!tracksQuery.isFetchingNextPage,
-    tracksQuery.fetchNextPage,
+    !!active.hasNextPage,
+    !!active.isFetchingNextPage,
+    active.fetchNextPage,
   );
+  const tracks = active.tracks;
 
   return (
     <div className="min-h-[400px]">
-      {tracksQuery.isLoading ? (
+      {active.isLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : tracksQuery.tracks.length === 0 ? (
-        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+      ) : tracks.length === 0 ? (
+        <SearchNoResults source={source} />
       ) : (
         <VirtualList
-          items={tracksQuery.tracks}
+          items={tracks}
           rowHeight={68}
           overscan={8}
           className="flex flex-col gap-1"
-          disabled={tracksQuery.tracks.length < 40}
+          disabled={tracks.length < 40}
           getItemKey={(track) => track.urn}
-          renderItem={(track) => <TrackRow track={track} queue={tracksQuery.tracks} />}
+          renderItem={(track) => <TrackRow track={track} queue={tracks} />}
         />
       )}
       <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {tracksQuery.isFetchingNextPage && (
-          <Loader2 size={24} className="text-white/20 animate-spin" />
-        )}
+        {active.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
       </div>
+      <SearchNoResultsHintFooter
+        source={source}
+        showHint={!active.isLoading && tracks.length > 0 && !active.hasNextPage}
+      />
+      {/* keep t available for noResults strings inside SearchNoResults */}
+      <span className="hidden">{t('search.noResults')}</span>
     </div>
   );
 });
 
-const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({ query }: { query: string }) {
-  const { t } = useTranslation();
-  const playlistsQuery = useSearchPlaylists(query);
+const SearchPlaylistsTab = React.memo(function SearchPlaylistsTab({
+  query,
+  source,
+}: {
+  query: string;
+  source: SearchSource;
+}) {
+  const dbQuery = useSearchDbPlaylists(source === 'db' ? query : '');
+  const scQuery = useSearchPlaylists(source === 'sc' ? query : '');
+  const active = source === 'db' ? dbQuery : scQuery;
   const sentinelRef = useInfiniteScroll(
-    !!playlistsQuery.hasNextPage,
-    !!playlistsQuery.isFetchingNextPage,
-    playlistsQuery.fetchNextPage,
+    !!active.hasNextPage,
+    !!active.isFetchingNextPage,
+    active.fetchNextPage,
   );
+  const playlists = active.playlists;
 
   return (
     <div className="min-h-[400px]">
-      {playlistsQuery.isLoading ? (
+      {active.isLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : playlistsQuery.playlists.length === 0 ? (
-        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+      ) : playlists.length === 0 ? (
+        <SearchNoResults source={source} />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-          {playlistsQuery.playlists.map((p, i) => (
+          {playlists.map((p, i) => (
             <PlaylistCard key={`${p.urn}-${i}`} playlist={p} />
           ))}
         </div>
       )}
       <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {playlistsQuery.isFetchingNextPage && (
-          <Loader2 size={24} className="text-white/20 animate-spin" />
-        )}
+        {active.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
       </div>
+      <SearchNoResultsHintFooter
+        source={source}
+        showHint={!active.isLoading && playlists.length > 0 && !active.hasNextPage}
+      />
     </div>
   );
 });
 
-const SearchUsersTab = React.memo(function SearchUsersTab({ query }: { query: string }) {
-  const { t } = useTranslation();
-  const usersQuery = useSearchUsers(query);
+const SearchUsersTab = React.memo(function SearchUsersTab({
+  query,
+  source,
+}: {
+  query: string;
+  source: SearchSource;
+}) {
+  const dbQuery = useSearchDbUsers(source === 'db' ? query : '');
+  const scQuery = useSearchUsers(source === 'sc' ? query : '');
+  const active = source === 'db' ? dbQuery : scQuery;
   const sentinelRef = useInfiniteScroll(
-    !!usersQuery.hasNextPage,
-    !!usersQuery.isFetchingNextPage,
-    usersQuery.fetchNextPage,
+    !!active.hasNextPage,
+    !!active.isFetchingNextPage,
+    active.fetchNextPage,
   );
+  const users = active.users;
 
   return (
     <div className="min-h-[400px]">
-      {usersQuery.isLoading ? (
+      {active.isLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
-      ) : usersQuery.users.length === 0 ? (
-        <div className="py-20 text-center text-white/30">{t('search.noResults')}</div>
+      ) : users.length === 0 ? (
+        <SearchNoResults source={source} />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {usersQuery.users.map((u, i) => (
+          {users.map((u, i) => (
             <UserCard key={`${u.urn}-${i}`} user={u} />
           ))}
         </div>
       )}
       <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
-        {usersQuery.isFetchingNextPage && (
+        {active.isFetchingNextPage && <Loader2 size={24} className="text-white/20 animate-spin" />}
+      </div>
+      <SearchNoResultsHintFooter
+        source={source}
+        showHint={!active.isLoading && users.length > 0 && !active.hasNextPage}
+      />
+    </div>
+  );
+});
+
+/**
+ * Artists/Albums: только SCD-режим имеет данные. На SC такого таба нет.
+ * Каллер обязан скрывать таб при source='sc' — но на всякий случай рендерим
+ * вежливый плейсхолдер, а не пустоту.
+ */
+const SearchArtistsTab = React.memo(function SearchArtistsTab({ query }: { query: string }) {
+  const artistsQuery = useSearchDbArtists(query);
+  const sentinelRef = useInfiniteScroll(
+    !!artistsQuery.hasNextPage,
+    !!artistsQuery.isFetchingNextPage,
+    artistsQuery.fetchNextPage,
+  );
+
+  return (
+    <div className="min-h-[400px]">
+      {artistsQuery.isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
+        </div>
+      ) : artistsQuery.artists.length === 0 ? (
+        <SearchNoResults source="db" />
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 items-stretch">
+          {artistsQuery.artists.map((a) => (
+            <ArtistGridCard key={a.id} artist={a} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
+        {artistsQuery.isFetchingNextPage && (
           <Loader2 size={24} className="text-white/20 animate-spin" />
         )}
       </div>
     </div>
   );
 });
+
+const SearchAlbumsTab = React.memo(function SearchAlbumsTab({ query }: { query: string }) {
+  const albumsQuery = useSearchDbAlbums(query);
+  const sentinelRef = useInfiniteScroll(
+    !!albumsQuery.hasNextPage,
+    !!albumsQuery.isFetchingNextPage,
+    albumsQuery.fetchNextPage,
+  );
+
+  return (
+    <div className="min-h-[400px]">
+      {albumsQuery.isLoading ? (
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
+        </div>
+      ) : albumsQuery.albums.length === 0 ? (
+        <SearchNoResults source="db" />
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 items-stretch">
+          {albumsQuery.albums.map((a) => (
+            <AlbumGridCard key={a.id} album={a} aura={DEFAULT_AURA} />
+          ))}
+        </div>
+      )}
+      <div ref={sentinelRef} className="h-20 flex items-center justify-center mt-6">
+        {albumsQuery.isFetchingNextPage && (
+          <Loader2 size={24} className="text-white/20 animate-spin" />
+        )}
+      </div>
+    </div>
+  );
+});
+
+/* ── Source Toggle ───────────────────────────────────────── */
+
+const SourceToggle = React.memo(function SourceToggle({
+  source,
+  onChange,
+}: {
+  source: SearchSource;
+  onChange: (s: SearchSource) => void;
+}) {
+  const { t } = useTranslation();
+  const opts: ReadonlyArray<{ id: SearchSource; label: string; icon: React.ReactNode }> = [
+    { id: 'db', label: t('search.source.db'), icon: <Database size={13} /> },
+    { id: 'sc', label: t('search.source.sc'), icon: <SearchIcon size={13} /> },
+  ];
+  return (
+    <div className="flex items-center justify-center gap-1 p-1 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-sm mx-auto">
+      {opts.map((o) => {
+        const active = source === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onChange(o.id)}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-[12px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] cursor-pointer ${
+              active
+                ? 'bg-white/[0.10] text-white shadow border border-white/[0.06]'
+                : 'text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent'
+            }`}
+            title={o.id === 'db' ? t('search.source.dbHint') : t('search.source.scHint')}
+          >
+            {o.icon}
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
+/* ── Helpers (empty states) ──────────────────────────────── */
+
+function SearchNoResults({ source }: { source: SearchSource }) {
+  const { t } = useTranslation();
+  return (
+    <div className="py-20 text-center">
+      <div className="text-white/30 text-[14px] font-medium">{t('search.noResults')}</div>
+      {source === 'db' && (
+        <div className="text-white/20 text-[11px] mt-2">{t('search.noResultsDbHint')}</div>
+      )}
+    </div>
+  );
+}
+
+function SearchNoResultsHintFooter({
+  source,
+  showHint,
+}: {
+  source: SearchSource;
+  showHint: boolean;
+}) {
+  const { t } = useTranslation();
+  if (!showHint || source !== 'db') return null;
+  return (
+    <div className="text-center text-white/25 text-[11px] mt-4 mb-2 font-medium">
+      {t('search.tryScHint')}
+    </div>
+  );
+}
 
 const SearchEmpty = React.memo(function SearchEmpty() {
   const { t } = useTranslation();
@@ -411,14 +600,21 @@ const SearchEmpty = React.memo(function SearchEmpty() {
 
 /* ── Search Page ──────────────────────────────────────────── */
 
+type SearchTab = 'tracks' | 'playlists' | 'users' | 'artists' | 'albums';
+
+const TABS_DB: readonly SearchTab[] = ['tracks', 'playlists', 'users', 'artists', 'albums'];
+const TABS_SC: readonly SearchTab[] = ['tracks', 'playlists', 'users'];
+
 export const Search = React.memo(() => {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'tracks' | 'playlists' | 'users'>('tracks');
+  const [activeTab, setActiveTab] = useState<SearchTab>('tracks');
   const [resolveUrl, setResolveUrl] = useState<string | null>(null);
 
   const addQuery = useSearchHistoryStore((s) => s.addQuery);
+  const source = useSearchPrefsStore((s) => s.source);
+  const setSource = useSearchPrefsStore((s) => s.setSource);
 
   const isUrl = isSoundCloudUrl(inputValue);
 
@@ -436,6 +632,16 @@ export const Search = React.memo(() => {
     }, 500);
     return () => clearTimeout(handler);
   }, [inputValue, isUrl, addQuery]);
+
+  // Если переключились на SC, а активный таб — Artists/Albums (только-DB),
+  // мягко падаем на tracks, чтобы юзер видел релевантные результаты, а не
+  // пустоту.
+  const visibleTabs: readonly SearchTab[] = source === 'db' ? TABS_DB : TABS_SC;
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab)) {
+      setActiveTab('tracks');
+    }
+  }, [visibleTabs, activeTab]);
 
   // Handle Enter for URL resolve
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -458,11 +664,14 @@ export const Search = React.memo(() => {
     setDebouncedQuery(query);
   };
 
-  const tabs = [
-    { id: 'tracks', label: t('search.tracks') },
-    { id: 'playlists', label: t('search.playlists') },
-    { id: 'users', label: t('search.users') },
-  ] as const;
+  const tabs = useMemo(
+    () =>
+      visibleTabs.map((id) => ({
+        id,
+        label: t(`search.${id}` as const),
+      })),
+    [visibleTabs, t],
+  );
 
   const historyQueries = useSearchHistoryStore((s) => s.queries);
   const showHistory = !inputValue && !resolveUrl && historyQueries.length > 0;
@@ -512,16 +721,19 @@ export const Search = React.memo(() => {
         )}
       </div>
 
+      {/* Source toggle (hidden during URL resolve to reduce visual noise) */}
+      {!isUrl && !resolveUrl && <SourceToggle source={source} onChange={setSource} />}
+
       {/* Tabs */}
       {debouncedQuery && (
-        <div className="flex items-center justify-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-lg mx-auto">
+        <div className="flex items-center justify-center gap-1.5 p-1.5 bg-white/[0.02] border border-white/[0.05] rounded-2xl w-fit backdrop-blur-2xl shadow-lg mx-auto flex-wrap">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] ${
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-300 ease-[var(--ease-apple)] cursor-pointer ${
                   isActive
                     ? 'bg-white/[0.12] text-white shadow-md border border-white/[0.05]'
                     : 'text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent'
@@ -553,13 +765,19 @@ export const Search = React.memo(() => {
 
       {/* Results */}
       {!resolveUrl && debouncedQuery && activeTab === 'tracks' && (
-        <SearchTracksTab query={debouncedQuery} />
+        <SearchTracksTab query={debouncedQuery} source={source} />
       )}
       {!resolveUrl && debouncedQuery && activeTab === 'playlists' && (
-        <SearchPlaylistsTab query={debouncedQuery} />
+        <SearchPlaylistsTab query={debouncedQuery} source={source} />
       )}
       {!resolveUrl && debouncedQuery && activeTab === 'users' && (
-        <SearchUsersTab query={debouncedQuery} />
+        <SearchUsersTab query={debouncedQuery} source={source} />
+      )}
+      {!resolveUrl && debouncedQuery && activeTab === 'artists' && source === 'db' && (
+        <SearchArtistsTab query={debouncedQuery} />
+      )}
+      {!resolveUrl && debouncedQuery && activeTab === 'albums' && source === 'db' && (
+        <SearchAlbumsTab query={debouncedQuery} />
       )}
     </div>
   );

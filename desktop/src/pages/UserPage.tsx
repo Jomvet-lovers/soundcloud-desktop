@@ -1,15 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { AuraField } from '../components/user/AuraField';
 import { IdentityHub } from '../components/user/IdentityHub';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
 import { TabDock, type TabId } from '../components/user/TabDock';
+import { UserSearchBox } from '../components/user/UserSearchBox';
 import {
   UserConnectionsTab,
   UserLikesTab,
   UserPlaylistsTab,
   UserPopularTab,
+  UserSearchPlaylistsTab,
+  UserSearchTracksTab,
   UserTracksTab,
 } from '../components/user/UserTabs';
 import { useEditableUserAura, useUserAura } from '../components/user/useUserAura';
@@ -18,12 +21,44 @@ import { Loader2 } from '../lib/icons';
 import { useSubscription } from '../lib/subscription';
 import { useAuthStore } from '../stores/auth';
 
+/**
+ * Какие табы поддерживают inline-поиск по контенту юзера. На followers/
+ * following/likes контент принадлежит другим людям / SC owns it — локальный
+ * trgm-поиск там не имеет смысла. На popular/tracks/playlists скоуп — наш.
+ */
+function isSearchableScope(tab: TabId): boolean {
+  return tab === 'popular' || tab === 'tracks' || tab === 'playlists';
+}
+
+function searchableScopeLabelKey(tab: TabId): string {
+  if (tab === 'playlists') return 'playlists';
+  return 'tracks';
+}
+
 export function UserPage() {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const currentUser = useAuthStore((s) => s.user);
 
   const [activeTab, setActiveTab] = useState<TabId>('popular');
+  // Inline-поиск по контенту юзера. Debounce 350ms — баланс между "не лагает
+  // на каждый символ" и "ощущается отзывчиво". Поиск работает только в
+  // tracks/popular/playlists скоупах — в followers/following/likes контент
+  // принадлежит другим юзерам/SC API, локальный фильтр там бессмысленен.
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedSearch(searchInput.trim()), 350);
+    return () => clearTimeout(handler);
+  }, [searchInput]);
+  // При смене таба чистим поиск — иначе при переходе followers→tracks инпут
+  // покажет старую строку, у которой уже был отдельный контекст. activeTab —
+  // именно триггер эффекта, тело его не читает.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeTab is the trigger
+  useEffect(() => {
+    setSearchInput('');
+    setDebouncedSearch('');
+  }, [activeTab]);
 
   const { data: user, isLoading: userLoading } = useUser(urn);
   const { data: webProfiles } = useUserWebProfiles(urn);
@@ -81,8 +116,16 @@ export function UserPage() {
             onPickCustom={editable.onPickCustom}
           />
 
-          <div className="mt-10 mb-8">
+          <div className="mt-10 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <TabDock tabs={tabs} active={activeTab} onChange={setActiveTab} aura={aura} />
+            <div className="md:max-w-sm md:w-80 w-full">
+              <UserSearchBox
+                value={searchInput}
+                onChange={setSearchInput}
+                scopeLabel={t(`user.${searchableScopeLabelKey(activeTab)}`)}
+                disabled={!isSearchableScope(activeTab)}
+              />
+            </div>
           </div>
 
           <div
@@ -96,12 +139,24 @@ export function UserPage() {
                 '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
             }}
           >
-            {activeTab === 'popular' && <UserPopularTab urn={urn!} aura={aura} />}
-            {activeTab === 'tracks' && <UserTracksTab urn={urn!} aura={aura} />}
-            {activeTab === 'playlists' && <UserPlaylistsTab urn={urn!} />}
-            {activeTab === 'likes' && <UserLikesTab urn={urn!} aura={aura} />}
-            {activeTab === 'followers' && <UserConnectionsTab urn={urn!} mode="followers" />}
-            {activeTab === 'following' && <UserConnectionsTab urn={urn!} mode="followings" />}
+            {(() => {
+              const searching = !!debouncedSearch && isSearchableScope(activeTab);
+              if (searching && (activeTab === 'tracks' || activeTab === 'popular')) {
+                return <UserSearchTracksTab urn={urn!} aura={aura} query={debouncedSearch} />;
+              }
+              if (searching && activeTab === 'playlists') {
+                return <UserSearchPlaylistsTab urn={urn!} query={debouncedSearch} />;
+              }
+              if (activeTab === 'popular') return <UserPopularTab urn={urn!} aura={aura} />;
+              if (activeTab === 'tracks') return <UserTracksTab urn={urn!} aura={aura} />;
+              if (activeTab === 'playlists') return <UserPlaylistsTab urn={urn!} />;
+              if (activeTab === 'likes') return <UserLikesTab urn={urn!} aura={aura} />;
+              if (activeTab === 'followers')
+                return <UserConnectionsTab urn={urn!} mode="followers" />;
+              if (activeTab === 'following')
+                return <UserConnectionsTab urn={urn!} mode="followings" />;
+              return null;
+            })()}
           </div>
         </div>
       </div>

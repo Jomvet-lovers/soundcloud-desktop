@@ -129,6 +129,16 @@ jobs:
             cache_type: registry-gpu
             free_disk: true
             no_default_tags: true
+          - name: worker-gpu-cuda12
+            image_name: worker
+            context: worker
+            file: worker/Dockerfile.gpu-cuda12
+            tag_suffix: "-gpu-cuda12"
+            extra_tags: |
+              ghcr.io/__REPO__/worker:gpu-cuda12
+            cache_type: registry-gpu-cuda12
+            free_disk: true
+            no_default_tags: true
     steps:
       - uses: actions/checkout@v4
         with:

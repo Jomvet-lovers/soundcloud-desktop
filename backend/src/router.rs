@@ -52,6 +52,7 @@ pub fn build(state: AppState) -> Router {
         .merge(modules::artists::router())
         .merge(modules::albums::router())
         .merge(modules::discover::router())
+        .merge(modules::search::router())
         .with_state(state)
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(

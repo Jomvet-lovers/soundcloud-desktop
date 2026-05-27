@@ -16,7 +16,9 @@ import {
   ChevronUp as _ChevronUp,
   ClipboardCopy as _ClipboardCopy,
   Clock as _Clock,
+  Cloud as _Cloud,
   Compass as _Compass,
+  Database as _Database,
   Disc3 as _Disc3,
   Download as _Download,
   ExternalLink as _ExternalLink,
@@ -102,7 +104,9 @@ export const ChevronLeft = memo(_ChevronLeft);
 export const ChevronRight = memo(_ChevronRight);
 export const ChevronUp = memo(_ChevronUp);
 export const Clock = memo(_Clock);
+export const Cloud = memo(_Cloud);
 export const Compass = memo(_Compass);
+export const Database = memo(_Database);
 export const Disc3 = memo(_Disc3);
 export const ExternalLink = memo(_ExternalLink);
 export const Eye = memo(_Eye);
