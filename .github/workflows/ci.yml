@@ -118,9 +118,9 @@ jobs:
 
       - name: Lowercase image name
         id: repo
-        run: echo "name=$(echo "$REPO" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+        run: echo "owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
         env:
-          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
 
       - name: Build image
         uses: docker/build-push-action@v6
@@ -129,7 +129,7 @@ jobs:
           push: false
           load: true
           tags: soundcloud-desktop-worker:ci
-          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker-cache:cpu
+          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.owner }}/cache/scd-worker:cpu
 
   desktop:
     if: "!contains(github.event.head_commit.message, '!release')"
