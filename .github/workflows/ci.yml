@@ -129,7 +129,7 @@ jobs:
           push: false
           load: true
           tags: soundcloud-desktop-worker:ci
-          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker:cache-cpu
+          cache-from: type=registry,ref=ghcr.io/${{ steps.repo.outputs.name }}/worker-cache:cpu
 
   desktop:
     if: "!contains(github.event.head_commit.message, '!release')"

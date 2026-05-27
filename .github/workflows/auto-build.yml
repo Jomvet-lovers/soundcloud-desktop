@@ -221,12 +221,16 @@ jobs:
               echo "cache_to=type=gha,mode=max,scope=${{ matrix.name }}" >> "$GITHUB_OUTPUT"
               ;;
             registry-cpu)
-              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker:cache-cpu" >> "$GITHUB_OUTPUT"
-              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker:cache-cpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker-cache:cpu" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker-cache:cpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
               ;;
             registry-gpu)
-              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker:cache-gpu" >> "$GITHUB_OUTPUT"
-              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker:cache-gpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
+              ;;
+            registry-gpu-cuda12)
+              echo "cache_from=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu-cuda12" >> "$GITHUB_OUTPUT"
+              echo "cache_to=type=registry,ref=ghcr.io/$REPO/worker-cache:gpu-cuda12,mode=max,image-manifest=true,oci-mediatypes=true" >> "$GITHUB_OUTPUT"
               ;;
           esac
 
