@@ -257,11 +257,14 @@ impl IndexingService {
     /// Реап «зависших» треков. Два сценария:
     /// * `storage_state='pending'` дольше REAP_AGE — transcode-trigger не дошёл
     ///   (streaming был занят / упал HTTP) или storage не ответил. Триггерим
-    ///   повторно — TranscodeTriggerService сам дедупит inflight.
+    ///   повторно — TranscodeTriggerService сам дедупит inflight и сначала
+    ///   делает S3-probe: если файл уже в S3 (бэк падал между upload'ом и
+    ///   `mark_storage_done`), синтетический `STORAGE_TRACK_UPLOADED` доводит
+    ///   цепочку без повторного SC→streaming→S3 roundtrip'а.
     /// * `storage_state='ok'` + `index_state='pending'` — файл уже в S3, но
-    ///   qdrant не доехал. Повторно kick'аем transcode (storage ответит
-    ///   cached → fanout STORAGE_TRACK_UPLOADED → backend опубликует
-    ///   INDEX_AUDIO заново).
+    ///   qdrant не доехал. Trigger пройдёт по тому же S3-probe path'у и
+    ///   опубликует `STORAGE_TRACK_UPLOADED` синтетически → `INDEX_AUDIO`
+    ///   уйдёт заново, streaming не дёргаем.
     async fn reap(self: &Arc<Self>) -> AppResult<()> {
         let cutoff = chrono::Utc::now() - chrono::Duration::from_std(REAP_AGE).unwrap_or_default();
         let stuck: Vec<(String,)> = sqlx::query_as(

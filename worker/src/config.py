@@ -22,6 +22,8 @@ def _parse_concurrency(raw: str) -> int | dict[str, int]:
       - ""       → 1 (глобальный Semaphore(1), дефолт = старое поведение)
       - "N"      → N (глобальный Semaphore(N), общий на все типы)
       - "k=v,…"  → {tag: N} (свой семафор на каждый тип; отсутствующие тэги = 1)
+                   Значение 0 для тэга = полное отключение (consumer не
+                   регистрируется, связанные модели не грузятся).
 
     Известные тэги: ai, audio, lyrics, collab, quality.
     """
@@ -41,7 +43,7 @@ def _parse_concurrency(raw: str) -> int | dict[str, int]:
         k, _, v = part.partition("=")
         k = k.strip().lower()
         try:
-            n = max(1, int(v.strip()))
+            n = max(0, int(v.strip()))
         except ValueError:
             continue
         if k:

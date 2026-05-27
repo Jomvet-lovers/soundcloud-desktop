@@ -7,21 +7,32 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 use tracing::debug;
 
+use crate::bus::nats::NatsService;
+use crate::bus::subjects;
 use crate::config::AppConfig;
+use crate::modules::recommendations::S3VerifierService;
 
 const MAX_INFLIGHT: usize = 16;
 const DEDUP_TTL: Duration = Duration::from_secs(15 * 60);
 const DEDUP_CAP: u64 = 16_384;
+const SYNTHETIC_PUBLISH_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct TranscodeTriggerService {
     http: Client,
     config: Arc<AppConfig>,
     sem: Arc<Semaphore>,
     inflight: Cache<String, ()>,
+    nats: Arc<NatsService>,
+    verifier: Arc<S3VerifierService>,
 }
 
 impl TranscodeTriggerService {
-    pub fn new(http: Client, config: Arc<AppConfig>) -> Arc<Self> {
+    pub fn new(
+        http: Client,
+        config: Arc<AppConfig>,
+        nats: Arc<NatsService>,
+        verifier: Arc<S3VerifierService>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             http,
             config,
@@ -30,6 +41,8 @@ impl TranscodeTriggerService {
                 .max_capacity(DEDUP_CAP)
                 .time_to_idle(DEDUP_TTL)
                 .build(),
+            nats,
+            verifier,
         })
     }
 
@@ -42,6 +55,12 @@ impl TranscodeTriggerService {
     /// разом; без semaphore TCP-pool/HTTP/streaming captiously дохнут.
     /// Дедуп по sc_track_id (TTL 15 мин) глушит повторные kick'и того же
     /// трека из reap'а, пока storage-event ещё в пути.
+    ///
+    /// Перед HTTP-kick'ом — S3-probe: если файл уже лежит (бэк падал между
+    /// `S3-залит` и `state обновлён`, либо предыдущий run всё доделал),
+    /// публикуем синтетический `storage.track_uploaded` напрямую и не
+    /// дёргаем стриминг. Это снимает повторный SC→streaming→S3 roundtrip и
+    /// доводит indexed-цепочку (`subscribe_storage_uploaded` → `INDEX_AUDIO`).
     pub fn trigger(self: &Arc<Self>, sc_track_id: &str) {
         if self.inflight.get(&sc_track_id.to_string()).is_some() {
             return;
@@ -55,6 +74,30 @@ impl TranscodeTriggerService {
                 Ok(p) => p,
                 Err(_) => return,
             };
+
+            if this.verifier.is_present(&id).await {
+                let storage_url = this.verifier.redirect_url_for(&id);
+                let event = json!({
+                    "sc_track_id": id,
+                    "storage_url": storage_url,
+                });
+                let publish = this.nats.publish(subjects::STORAGE_TRACK_UPLOADED, &event);
+                match tokio::time::timeout(SYNTHETIC_PUBLISH_TIMEOUT, publish).await {
+                    Ok(Ok(())) => {
+                        debug!(sc_track_id = %id, "[trigger] S3 hit — synthetic storage.track_uploaded");
+                    }
+                    Ok(Err(e)) => {
+                        debug!(sc_track_id = %id, error = %e, "[trigger] synthetic publish failed");
+                        this.inflight.invalidate(&id);
+                    }
+                    Err(_) => {
+                        debug!(sc_track_id = %id, "[trigger] synthetic publish timed out");
+                        this.inflight.invalidate(&id);
+                    }
+                }
+                return;
+            }
+
             let urn = format!("soundcloud:tracks:{id}");
             let url = format!(
                 "{}/internal/transcode-upload/{}",

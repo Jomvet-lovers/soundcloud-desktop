@@ -190,7 +190,14 @@ async fn main() {
     let search = SearchService::new(pg.clone(), cache.clone());
     let history = HistoryService::new(pg.clone());
     let featured = FeaturedService::new(pg.clone(), sc.clone(), auth.clone());
-    let transcode = TranscodeTriggerService::new(http_client.clone(), config.clone());
+    let s3_verifier =
+        S3VerifierService::new(http_client.clone(), config.storage.url.clone(), pg.clone());
+    let transcode = TranscodeTriggerService::new(
+        http_client.clone(),
+        config.clone(),
+        nats.clone(),
+        s3_verifier.clone(),
+    );
     let worker = WorkerClient::new(nats.clone());
     let lrclib = LrclibService::new(external_fetcher.clone());
     let mxm = MusixmatchService::new(external_fetcher.clone(), config.mxm.api_base.clone());
@@ -318,8 +325,6 @@ async fn main() {
         crate::modules::indexing::TrackDiscoveryService::new(sc.clone(), indexing.clone());
     sc.install_track_observer(track_discovery.clone());
 
-    let s3_verifier =
-        S3VerifierService::new(http_client.clone(), config.storage.url.clone(), pg.clone());
     let recommendations = RecommendationsService::new(
         qdrant.clone(),
         pg.clone(),

@@ -37,17 +37,28 @@ log = logging.getLogger(__name__)
 TAGS = ("ai", "audio", "lyrics", "collab", "quality")
 
 
-def _build_semaphores() -> dict[str, asyncio.Semaphore]:
-    """Строит {tag: Semaphore} по WORKER_CONCURRENCY. См. docstring модуля."""
+def _build_semaphores() -> dict[str, asyncio.Semaphore | None]:
+    """Строит {tag: Semaphore | None} по WORKER_CONCURRENCY.
+
+    None означает что тэг полностью отключён (`tag=0` в per-tag режиме):
+    pull-loop не запускается, consumer не регистрируется, связанные модели
+    не грузятся в load_all().
+    """
     cfg = WORKER_CONCURRENCY
     if isinstance(cfg, int):
         shared = asyncio.Semaphore(cfg)
         log.info(f"WORKER_CONCURRENCY: global Semaphore({cfg}) shared across {list(TAGS)}")
         return {tag: shared for tag in TAGS}
-    sems = {tag: asyncio.Semaphore(cfg.get(tag, 1)) for tag in TAGS}
+    sems: dict[str, asyncio.Semaphore | None] = {}
+    for tag in TAGS:
+        n = cfg.get(tag, 1)
+        sems[tag] = asyncio.Semaphore(n) if n > 0 else None
     log.info(
         "WORKER_CONCURRENCY per-tag: "
-        + ", ".join(f"{t}={cfg.get(t, 1)}" for t in TAGS)
+        + ", ".join(
+            f"{t}={cfg.get(t, 1)}" + (" [DISABLED]" if sems[t] is None else "")
+            for t in TAGS
+        )
     )
     return sems
 
@@ -156,32 +167,43 @@ async def main() -> None:
     nc = await connect()
     js = nc.jetstream()
 
-    models = load_all()
+    sems = _build_semaphores()
+    enabled_tags = {tag for tag, sem in sems.items() if sem is not None}
+    if not enabled_tags:
+        log.error("All tags disabled in WORKER_CONCURRENCY — nothing to do, exiting.")
+        return
+
+    models = load_all(enabled_tags)
     qdrant = new_client()
     ensure_collections(qdrant)
 
-    # Стримы создаёт backend. Воркер только добавляет свои consumer'ы.
-    await ensure_consumer(
-        js, subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC, subj.SUBJECT_AI_RPC_FILTER,
-    )
-    await ensure_consumer(
-        js, subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO, subj.SUBJECT_INDEX_AUDIO_NEW
-    )
-    await ensure_consumer(
-        js, subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS, subj.SUBJECT_EMBED_LYRICS_NEW
-    )
-    await ensure_consumer(
-        js, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB, subj.SUBJECT_TRAIN_COLLAB_NEW
-    )
-    await ensure_consumer(
-        js,
-        subj.STREAM_TRAIN_QUALITY,
-        subj.DURABLE_TRAIN_QUALITY,
-        subj.SUBJECT_TRAIN_QUALITY_NEW,
-    )
+    # Стримы создаёт backend. Воркер регистрирует только consumer'ы для
+    # активных тэгов — отключённые стримы остаются другим воркерам.
+    if "ai" in enabled_tags:
+        await ensure_consumer(
+            js, subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC, subj.SUBJECT_AI_RPC_FILTER,
+        )
+    if "audio" in enabled_tags:
+        await ensure_consumer(
+            js, subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO, subj.SUBJECT_INDEX_AUDIO_NEW
+        )
+    if "lyrics" in enabled_tags:
+        await ensure_consumer(
+            js, subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS, subj.SUBJECT_EMBED_LYRICS_NEW
+        )
+    if "collab" in enabled_tags:
+        await ensure_consumer(
+            js, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB, subj.SUBJECT_TRAIN_COLLAB_NEW
+        )
+    if "quality" in enabled_tags:
+        await ensure_consumer(
+            js,
+            subj.STREAM_TRAIN_QUALITY,
+            subj.DURABLE_TRAIN_QUALITY,
+            subj.SUBJECT_TRAIN_QUALITY_NEW,
+        )
 
     stop = asyncio.Event()
-    sems = _build_semaphores()
 
     def _signal(*_):
         if stop.is_set():
@@ -200,60 +222,59 @@ async def main() -> None:
         except NotImplementedError:
             pass
 
-    ai_task = asyncio.create_task(
-        _js_pull_loop(
-            js, sems["ai"], subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC,
-            subj.SUBJECT_AI_RPC_FILTER,
-            lambda subject, payload: _route_ai(models, subject, payload),
-            "[ai]", stop, is_rpc=True, nc=nc,
-        )
-    )
-    audio_task = asyncio.create_task(
-        _js_pull_loop(
-            js, sems["audio"], subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO,
-            subj.SUBJECT_INDEX_AUDIO_NEW,
-            lambda p: audio.handle(p, models, qdrant, nc),
-            "[audio]", stop, is_rpc=False,
-        )
-    )
-    lyrics_task = asyncio.create_task(
-        _js_pull_loop(
-            js, sems["lyrics"], subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS,
-            subj.SUBJECT_EMBED_LYRICS_NEW,
-            lambda p: lyrics.handle(p, models, qdrant, nc),
-            "[lyrics]", stop, is_rpc=False,
-        )
-    )
-    collab_task = asyncio.create_task(
-        _js_pull_loop(
-            js, sems["collab"], subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB,
-            subj.SUBJECT_TRAIN_COLLAB_NEW,
-            lambda p: collab_handler.handle(p, models, qdrant, nc),
-            "[collab]", stop, is_rpc=False,
-        )
-    )
-    quality_task = asyncio.create_task(
-        _js_pull_loop(
-            js, sems["quality"], subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY,
-            subj.SUBJECT_TRAIN_QUALITY_NEW,
-            lambda p: quality_handler.handle(p, models, qdrant, nc),
-            "[quality]", stop, is_rpc=False,
-        )
-    )
+    tasks: list[asyncio.Task] = []
+    if sems["ai"] is not None:
+        tasks.append(asyncio.create_task(
+            _js_pull_loop(
+                js, sems["ai"], subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC,
+                subj.SUBJECT_AI_RPC_FILTER,
+                lambda subject, payload: _route_ai(models, subject, payload),
+                "[ai]", stop, is_rpc=True, nc=nc,
+            )
+        ))
+    if sems["audio"] is not None:
+        tasks.append(asyncio.create_task(
+            _js_pull_loop(
+                js, sems["audio"], subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO,
+                subj.SUBJECT_INDEX_AUDIO_NEW,
+                lambda p: audio.handle(p, models, qdrant, nc),
+                "[audio]", stop, is_rpc=False,
+            )
+        ))
+    if sems["lyrics"] is not None:
+        tasks.append(asyncio.create_task(
+            _js_pull_loop(
+                js, sems["lyrics"], subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS,
+                subj.SUBJECT_EMBED_LYRICS_NEW,
+                lambda p: lyrics.handle(p, models, qdrant, nc),
+                "[lyrics]", stop, is_rpc=False,
+            )
+        ))
+    if sems["collab"] is not None:
+        tasks.append(asyncio.create_task(
+            _js_pull_loop(
+                js, sems["collab"], subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB,
+                subj.SUBJECT_TRAIN_COLLAB_NEW,
+                lambda p: collab_handler.handle(p, models, qdrant, nc),
+                "[collab]", stop, is_rpc=False,
+            )
+        ))
+    if sems["quality"] is not None:
+        tasks.append(asyncio.create_task(
+            _js_pull_loop(
+                js, sems["quality"], subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY,
+                subj.SUBJECT_TRAIN_QUALITY_NEW,
+                lambda p: quality_handler.handle(p, models, qdrant, nc),
+                "[quality]", stop, is_rpc=False,
+            )
+        ))
 
-    log.info("Worker ready.")
+    log.info(f"Worker ready ({len(tasks)} pull-loops active).")
     await stop.wait()
 
-    ai_task.cancel()
-    audio_task.cancel()
-    lyrics_task.cancel()
-    collab_task.cancel()
-    quality_task.cancel()
-    await asyncio.gather(
-        ai_task, audio_task, lyrics_task, collab_task,
-        quality_task,
-        return_exceptions=True,
-    )
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
     try:
         await asyncio.wait_for(nc.drain(), timeout=2)
     except (asyncio.TimeoutError, Exception) as e:
