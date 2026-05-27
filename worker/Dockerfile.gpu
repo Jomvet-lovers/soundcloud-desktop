@@ -41,6 +41,8 @@ RUN python -m pip install --no-cache-dir --break-system-packages \
         torch torchaudio torchvision torchcodec \
  && python -m pip install --no-cache-dir --break-system-packages -r requirements.txt \
  && python -m pip install --no-cache-dir --break-system-packages "bitsandbytes>=0.46.0" \
+ && python -m pip install --no-cache-dir --break-system-packages \
+        nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 \
  && python -c "import sys; print('python:', sys.executable, sys.version)" \
  && python -c "import nats, torch, torchvision, torchcodec, bitsandbytes; print('imports OK')"
 
@@ -49,6 +51,11 @@ COPY src ./src
 ENV HF_HOME=/models
 ENV PYTHONUNBUFFERED=1
 ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,garbage_collection_threshold:0.8,max_split_size_mb:512
+# CTranslate2 (faster-whisper) собран под CUDA 12 и ищет libcublas.so.12 /
+# libcudnn.so.X / libcudart.so.12. В CUDA 13 базовом образе их нет (только .so.13).
+# Ставим cu12 .so рядом через pip-wheels и указываем их пути в LD_LIBRARY_PATH —
+# torch cu130 wheels используют свои .so.13 через собственный rpath, конфликта нет.
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/dist-packages/nvidia/cudnn/lib:/usr/local/lib/python3.12/dist-packages/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH}
 VOLUME ["/models"]
 
 CMD ["python", "-m", "src.main"]

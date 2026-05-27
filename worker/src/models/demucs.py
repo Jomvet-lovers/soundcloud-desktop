@@ -2,7 +2,7 @@
 import logging
 
 from ..config import DEMUCS_MODEL
-from .device import DEVICE, USE_FP16
+from .device import DEVICE
 from .registry import Models
 
 log = logging.getLogger(__name__)
@@ -17,13 +17,14 @@ def _load_demucs():
     log.info(f"Loading Demucs ({DEMUCS_MODEL})...")
     model = demucs_get_model(name=DEMUCS_MODEL)
     model.to(DEVICE)
+    # Demucs (htdemucs) — BagOfModels, .half() покрывает не все подмодули
+    # (часть параметров остаётся fp32 → input fp16 даёт Float/Half mismatch при
+    # apply_model). Оставляем в fp32 — лишние ~200 MB VRAM, зато стабильно.
     for sub in getattr(model, "models", [model]):
         sub.requires_grad_(False)
         set_inference = getattr(sub, "eval", None)
         if callable(set_inference):
             set_inference()
-        if USE_FP16 and hasattr(sub, "half"):
-            sub.half()
     log.info("Demucs loaded.")
     return model
 
