@@ -28,8 +28,14 @@ async def run_with_lifecycle(
     msg: Msg,
     handler: Callable[[dict], Awaitable[dict | None]],
     tag: str,
+    hard_timeout: int | None = None,
 ) -> None:
-    """JetStream work-queue: успех → ack; ошибка/таймаут → nak (пойдёт другому воркеру)."""
+    """JetStream work-queue: успех → ack; ошибка/таймаут → nak (пойдёт другому воркеру).
+
+    hard_timeout=None → дефолтный HARD_TIMEOUT_SEC; тяжёлые лейны (transcribe)
+    передают свой увеличенный лимит.
+    """
+    timeout = hard_timeout or HARD_TIMEOUT_SEC
     try:
         payload = json.loads(msg.data.decode())
     except Exception as e:
@@ -41,10 +47,10 @@ async def run_with_lifecycle(
     hb_task = asyncio.create_task(_heartbeat(msg, stop))
 
     try:
-        await asyncio.wait_for(handler(payload), timeout=HARD_TIMEOUT_SEC)
+        await asyncio.wait_for(handler(payload), timeout=timeout)
         await msg.ack()
     except asyncio.TimeoutError:
-        log.warning(f"{tag} hard timeout {HARD_TIMEOUT_SEC}s — nak")
+        log.warning(f"{tag} hard timeout {timeout}s — nak")
         await msg.nak(delay=0)
     except Exception as e:
         log.error(f"{tag} failed: {e}")

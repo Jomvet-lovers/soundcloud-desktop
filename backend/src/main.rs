@@ -212,6 +212,7 @@ async fn main() {
         netease,
         worker.clone(),
         transcode.clone(),
+        s3_verifier.clone(),
         config.lyrics.indexing_concurrency,
     );
     lyrics.spawn_consumers();

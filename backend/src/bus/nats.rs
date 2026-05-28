@@ -71,6 +71,9 @@ impl NatsService {
         svc.ensure_stream(&streams::INDEX_AUDIO, true, None).await?;
         svc.ensure_stream(&streams::EMBED_LYRICS, true, None)
             .await?;
+        // Work-queue с дефолтным 24h max_age (НЕ 120s как AI_RPC): backlog
+        // транскрайба может тянуться часами, джоб обязан дожить до воркера.
+        svc.ensure_stream(&streams::TRANSCRIBE, true, None).await?;
         svc.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60))
             .await?;
         svc.ensure_stream(&streams::TRAIN_QUALITY, true, Some(24 * 60 * 60))

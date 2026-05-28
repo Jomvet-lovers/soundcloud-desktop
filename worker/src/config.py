@@ -7,6 +7,10 @@ QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "") or None
 
 HEARTBEAT_SEC = int(os.environ.get("TASK_HEARTBEAT_SEC", "10"))
 HARD_TIMEOUT_SEC = int(os.environ.get("TASK_HARD_TIMEOUT_SEC", "120"))
+# Транскрайб (demucs + whisper на полном треке) легально идёт минуты, а не
+# секунды — общий 120s hard-timeout его рубил бы и слал в бесконечный ретрай.
+# Клиента, который ждёт, нет (фон), поэтому даём щедрый отдельный лимит.
+TRANSCRIBE_HARD_TIMEOUT_SEC = int(os.environ.get("TRANSCRIBE_HARD_TIMEOUT_SEC", "1800"))
 
 FORCED_DEVICE = os.environ.get("WORKER_DEVICE", "").lower().strip()
 

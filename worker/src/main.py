@@ -20,12 +20,12 @@ import threading
 
 from . import subjects as subj
 from .bus import connect, ensure_consumer, run_rpc_msg, run_with_lifecycle
-from .config import WORKER_CONCURRENCY
+from .config import TRANSCRIBE_HARD_TIMEOUT_SEC, WORKER_CONCURRENCY
 from .handlers import ai, audio, lyrics
 from .handlers import collab as collab_handler
 from .handlers import quality as quality_handler
+from .handlers import transcribe as transcribe_handler
 from .handlers.resolve import match_track, resolve_artist, verify_existence
-from .handlers.transcribe import transcribe
 from .models import load_all
 from .storage import ensure_collections, new_client
 
@@ -34,7 +34,7 @@ for noisy in ("httpx", "httpcore", "urllib3", "huggingface_hub", "filelock"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
-TAGS = ("ai", "audio", "lyrics", "collab", "quality")
+TAGS = ("ai", "audio", "lyrics", "collab", "quality", "transcribe")
 
 
 def _build_semaphores() -> dict[str, asyncio.Semaphore | None]:
@@ -75,6 +75,7 @@ async def _js_pull_loop(
     *,
     is_rpc: bool,
     nc=None,
+    hard_timeout: int | None = None,
 ) -> None:
     """Пока семафор занят — не вызываем fetch, сообщения достаются другим воркерам.
 
@@ -130,7 +131,7 @@ async def _js_pull_loop(
                 if is_rpc:
                     await run_rpc_msg(msg, handler_factory, tag, nc)
                 else:
-                    await run_with_lifecycle(msg, handler_factory, tag)
+                    await run_with_lifecycle(msg, handler_factory, tag, hard_timeout)
         except BaseException:
             try:
                 sem.release()
@@ -148,8 +149,6 @@ def _route_ai(models, subject: str, payload: dict):
         return ai.search_queries(models, payload)
     if subject == subj.AI_RANK_LYRICS:
         return ai.rank_lyrics(models, payload)
-    if subject == subj.AI_TRANSCRIBE:
-        return transcribe(models, payload)
     if subject == subj.AI_ENCODE_TEXT_MULAN:
         return ai.encode_text_mulan(models, payload)
     if subject == subj.AI_RESOLVE_ARTIST:
@@ -201,6 +200,10 @@ async def main() -> None:
             subj.STREAM_TRAIN_QUALITY,
             subj.DURABLE_TRAIN_QUALITY,
             subj.SUBJECT_TRAIN_QUALITY_NEW,
+        )
+    if "transcribe" in enabled_tags:
+        await ensure_consumer(
+            js, subj.STREAM_TRANSCRIBE, subj.DURABLE_TRANSCRIBE, subj.SUBJECT_TRANSCRIBE_NEW
         )
 
     stop = asyncio.Event()
@@ -266,6 +269,15 @@ async def main() -> None:
                 subj.SUBJECT_TRAIN_QUALITY_NEW,
                 lambda p: quality_handler.handle(p, models, qdrant, nc),
                 "[quality]", stop, is_rpc=False,
+            )
+        ))
+    if sems["transcribe"] is not None:
+        tasks.append(asyncio.create_task(
+            _js_pull_loop(
+                js, sems["transcribe"], subj.STREAM_TRANSCRIBE, subj.DURABLE_TRANSCRIBE,
+                subj.SUBJECT_TRANSCRIBE_NEW,
+                lambda p: transcribe_handler.handle(p, models, nc),
+                "[transcribe]", stop, is_rpc=False, hard_timeout=TRANSCRIBE_HARD_TIMEOUT_SEC,
             )
         ))
 

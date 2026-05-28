@@ -33,19 +33,19 @@ def load_all(enabled_tags: set[str] | None = None) -> Models:
       muq, mulan   ← audio, ai (match_track, encode_text_mulan)
       bge-m3       ← lyrics, ai (rank_lyrics), collab, quality
       xlm-roberta  ← ai (detect_language)
-      whisper      ← ai (transcribe)
-      Qwen, demucs — ленивые, грузятся при первом обращении.
+      whisper      ← transcribe (self-gen лирика)
+      Qwen, demucs — ленивые, грузятся при первом обращении (demucs — в transcribe).
 
     enabled_tags=None → грузим всё (старое поведение).
     """
     if enabled_tags is None:
-        enabled_tags = {"ai", "audio", "lyrics", "collab", "quality"}
+        enabled_tags = {"ai", "audio", "lyrics", "collab", "quality", "transcribe"}
 
     need_muq = bool(enabled_tags & {"audio", "ai"})
     need_mulan = bool(enabled_tags & {"audio", "ai"})
     need_lyrics_embed = bool(enabled_tags & {"lyrics", "ai", "collab", "quality"})
     need_lang = "ai" in enabled_tags
-    need_whisper = "ai" in enabled_tags
+    need_whisper = "transcribe" in enabled_tags
 
     log.info(f"Worker device: {DEVICE} (fp16={USE_FP16})")
     log.info(f"Loading models for tags: {sorted(enabled_tags)}")

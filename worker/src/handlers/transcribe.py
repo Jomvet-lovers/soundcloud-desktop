@@ -1,5 +1,9 @@
-"""AI.TRANSCRIBE: download audio → (опц. demucs vocals) → whisper → LRC/plain."""
+"""TRANSCRIBE: download audio → (опц. demucs vocals) → whisper → LRC/plain.
+
+Фоновая work-queue задача (НЕ req/res): backend публикует transcribe.audio.new,
+воркер отвечает событием done.transcribe."""
 import asyncio
+import json
 import logging
 import tempfile
 import time
@@ -7,7 +11,9 @@ from pathlib import Path
 
 import aiohttp
 import torch
+from nats.aio.client import Client as NATSClient
 
+from .. import subjects as subj
 from ..models import DEVICE, Models, ensure_demucs
 
 log = logging.getLogger(__name__)
@@ -162,3 +168,26 @@ async def transcribe(models: Models, payload: dict) -> dict:
             vocals_path.unlink(missing_ok=True)
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
+
+
+async def handle(payload: dict, models: Models, nc: NATSClient) -> None:
+    """Транскрайбит трек и публикует `done.transcribe`.
+
+    Пустой результат (нет речи / шум) — это УСПЕХ (handler не падает → ack):
+    backend по такому событию ставит self-gen-disable и больше не берёт трек,
+    поэтому инструменталы не уходят в бесконечный ретрай. Реальные сбои
+    (download/декод) — исключение, которое пробрасывается в run_with_lifecycle
+    → nak → ретрай (max_deliver), затем подбирает стейл-реап бэка.
+    """
+    sc_track_id = str(payload.get("sc_track_id", ""))
+    mode = payload.get("mode", "full")
+    result = await transcribe(models, payload)
+    done = {
+        "sc_track_id": sc_track_id,
+        "mode": mode,
+        "syncedLrc": result.get("syncedLrc"),
+        "plainText": result.get("plainText"),
+        "language": result.get("language"),
+    }
+    await nc.publish(subj.SUBJECT_DONE_TRANSCRIBE, json.dumps(done).encode())
+    log.info(f"[transcribe] {sc_track_id} done.transcribe published (mode={mode})")

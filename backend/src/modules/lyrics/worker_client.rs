@@ -21,15 +21,6 @@ pub struct RankResult {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TranscribeResult {
-    #[serde(rename = "syncedLrc")]
-    pub synced_lrc: Option<String>,
-    #[serde(rename = "plainText")]
-    pub plain_text: Option<String>,
-    pub language: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct LangResult {
     pub language: String,
     pub confidence: f32,
@@ -108,26 +99,6 @@ impl WorkerClient {
                 }),
                 Duration::from_secs(60),
                 false,
-            )
-            .await
-    }
-
-    pub async fn transcribe_audio(
-        &self,
-        audio_url: &str,
-        language: Option<&str>,
-        initial_prompt: Option<&str>,
-    ) -> AppResult<Option<TranscribeResult>> {
-        self.nats
-            .request(
-                subjects::AI_TRANSCRIBE,
-                &serde_json::json!({
-                    "audio_url": audio_url,
-                    "language": language,
-                    "initial_prompt": initial_prompt,
-                }),
-                Duration::from_secs(180),
-                true,
             )
             .await
     }

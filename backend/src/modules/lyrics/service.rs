@@ -21,6 +21,7 @@ use crate::modules::lyrics::util::{
     strip_lrc_timestamps,
 };
 use crate::modules::lyrics::worker_client::{RankCandidate, WorkerClient};
+use crate::modules::recommendations::S3VerifierService;
 use crate::modules::transcode::TranscodeTriggerService;
 
 const MIN_RANK_SCORE: f32 = 6.0;
@@ -36,6 +37,11 @@ const REAP_LIMIT_FULL: i64 = 20;
 
 const INFLIGHT_CAPACITY: u64 = 4096;
 const INFLIGHT_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// «Зависший» pending-транскрайб старше порога считаем потерянным (воркер
+/// умер / max_deliver исчерпан / бэк упал между клеймом и publish) и
+/// перевыставляем. Порог большой: backlog транскрайба легально тянется часами.
+const TRANSCRIBE_STALE: Duration = Duration::from_secs(3 * 60 * 60);
 
 const STOPWORDS: &[&str] = &[
     "feat",
@@ -120,8 +126,8 @@ pub struct LyricsService {
     netease: Arc<NeteaseService>,
     worker: Arc<WorkerClient>,
     trigger: Arc<TranscodeTriggerService>,
+    verifier: Arc<S3VerifierService>,
     inflight: Cache<String, Arc<Mutex<Option<LyricsResponse>>>>,
-    whisper_inflight: Cache<String, Arc<Mutex<()>>>,
     indexing_sem: Arc<Semaphore>,
 }
 
@@ -136,6 +142,7 @@ impl LyricsService {
         netease: Arc<NeteaseService>,
         worker: Arc<WorkerClient>,
         trigger: Arc<TranscodeTriggerService>,
+        verifier: Arc<S3VerifierService>,
         indexing_concurrency: usize,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -147,11 +154,8 @@ impl LyricsService {
             netease,
             worker,
             trigger,
+            verifier,
             inflight: Cache::builder()
-                .max_capacity(INFLIGHT_CAPACITY)
-                .time_to_idle(INFLIGHT_TTL)
-                .build(),
-            whisper_inflight: Cache::builder()
                 .max_capacity(INFLIGHT_CAPACITY)
                 .time_to_idle(INFLIGHT_TTL)
                 .build(),
@@ -191,6 +195,7 @@ impl LyricsService {
                 }
             },
         );
+        self.subscribe_done_transcribe();
     }
 
     pub fn spawn_reap_loops(self: &Arc<Self>, shutdown: CancellationToken) {
@@ -264,6 +269,16 @@ impl LyricsService {
             .run_pipeline(Some(sc_track_id.as_str()), &hints, true)
             .await?;
         *guard = Some(result.clone());
+        // fork B: в агрегаторах текста нет → фоном пробуем self-gen (whisper),
+        // если трек не disabled и не в процессе. Юзеру сразу отдаём «не нашли»;
+        // результат подъедет в lyrics_cache позже (транскрайб едет долго).
+        if result.synced_lrc.is_none() && result.plain_text.is_none() {
+            let svc = self.clone();
+            let id = sc_track_id.clone();
+            tokio::spawn(async move {
+                svc.enqueue_transcribe(&id, None).await;
+            });
+        }
         let id = sc_track_id.clone();
         let cache = self.inflight.clone();
         tokio::spawn(async move {
@@ -716,23 +731,63 @@ impl LyricsService {
         deduped.into_iter().take(MAX_CANDIDATES).collect()
     }
 
+    /// Аудио залито в S3 → ставим self-gen транскрайб в фон. Никакого inline
+    /// req/res и in-process мьютекса: дедуп и защита от рейсов целиком на
+    /// `tracks.transcribe_state` (атомарный клейм внутри `enqueue_transcribe`).
     pub async fn handle_uploaded(self: &Arc<Self>, sc_track_id_raw: &str, storage_url: &str) {
+        if storage_url.is_empty() {
+            return;
+        }
+        self.enqueue_transcribe(sc_track_id_raw, Some(storage_url.to_string()))
+            .await;
+    }
+
+    /// Единая точка постановки self-gen транскрайба (work-queue, НЕ req/res).
+    /// Источники: upload-событие (`handle_uploaded`, `storage_url=Some`), reap и
+    /// user-запрос (fork B, `storage_url=None`).
+    ///
+    /// Гонки целиком на `tracks.transcribe_state`:
+    ///   * `disabled`/`done`/свежий `pending` → no-op (early-out + клейм);
+    ///   * клейм `UPDATE ... RETURNING` атомарен между upload-событием,
+    ///     user-запросом и воркерами;
+    ///   * аудио ещё не в S3 → кикаем transcode и выходим: по заливке storage
+    ///     пришлёт `storage.track_uploaded` → `handle_uploaded` → сюда же с URL.
+    async fn enqueue_transcribe(
+        self: &Arc<Self>,
+        sc_track_id_raw: &str,
+        storage_url: Option<String>,
+    ) {
         let sc_track_id = normalize(sc_track_id_raw);
-        if sc_track_id.is_empty() || storage_url.is_empty() {
+        if sc_track_id.is_empty() {
             return;
         }
 
-        let lock = match self.whisper_inflight.get(&sc_track_id) {
-            Some(l) => l,
-            None => {
-                let l = Arc::new(Mutex::new(()));
-                self.whisper_inflight.insert(sc_track_id.clone(), l.clone());
-                l
+        // Дешёвый early-out до S3-HEAD: не ходим в сеть для disabled/done/pending.
+        match self.transcribe_eligible(&sc_track_id).await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                debug!(track = %sc_track_id, error = %e, "enqueue_transcribe: eligibility check failed");
+                return;
+            }
+        }
+
+        // URL: из события, либо из S3 (если уже залит), иначе кикаем transcode.
+        let url = match storage_url {
+            Some(u) if !u.is_empty() => u,
+            _ => {
+                if self.verifier.is_present(&sc_track_id).await {
+                    self.verifier.redirect_url_for(&sc_track_id)
+                } else {
+                    self.trigger.trigger(&sc_track_id);
+                    return;
+                }
             }
         };
-        let _g = lock.lock().await;
 
-        let entity: Option<LyricsCacheRow> = match sqlx::query_as(
+        // Режим из текущего состояния lyrics_cache: есть synced — делать нечего;
+        // есть plain (агрегатор) — align (досинхронизировать); пусто — full.
+        let row: Option<LyricsCacheRow> = match sqlx::query_as(
             "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at FROM lyrics_cache WHERE sc_track_id = $1",
         )
         .bind(&sc_track_id)
@@ -741,94 +796,167 @@ impl LyricsService {
         {
             Ok(v) => v,
             Err(e) => {
-                warn!(track = %sc_track_id, error = %e, "handle_uploaded: db read failed");
+                debug!(track = %sc_track_id, error = %e, "enqueue_transcribe: lyrics read failed");
                 return;
             }
         };
-
-        if let Some(row) = entity.as_ref() {
-            if row.synced_lrc.is_some() {
-                return;
+        let (mode, language, initial_prompt) = match row {
+            Some(r) if r.synced_lrc.is_some() => return, // уже полностью готово
+            Some(r) if r.plain_text.as_deref().map(|p| !p.is_empty()).unwrap_or(false) => {
+                let plain = r.plain_text.unwrap_or_default();
+                let initial = plain.chars().take(2000).collect::<String>();
+                ("align", r.language, Some(initial))
             }
-            if row.plain_text.is_some() {
-                if let Err(e) = self.align_with_whisper(row, storage_url).await {
-                    warn!(track = %sc_track_id, error = %e, "align_with_whisper failed");
-                }
+            _ => ("full", None, None),
+        };
+
+        // Атомарный клейм: pending только если eligible. 0 строк → кто-то успел
+        // раньше / уже done|disabled → не публикуем.
+        match self.claim_transcribe(&sc_track_id).await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                debug!(track = %sc_track_id, error = %e, "enqueue_transcribe: claim failed");
                 return;
             }
         }
 
-        if let Err(e) = self.full_transcribe(&sc_track_id, storage_url).await {
-            warn!(track = %sc_track_id, error = %e, "full_transcribe failed");
+        let job = serde_json::json!({
+            "sc_track_id": sc_track_id,
+            "audio_url": url,
+            "language": language,
+            "initial_prompt": initial_prompt,
+            "mode": mode,
+        });
+        if let Err(e) = self.nats.publish(subjects::TRANSCRIBE_AUDIO, &job).await {
+            // Клейм останется pending → стейл-реап перевыставит через TRANSCRIBE_STALE.
+            warn!(track = %sc_track_id, error = %e, "enqueue_transcribe: publish failed");
+        } else {
+            info!(track = %sc_track_id, mode, "[transcribe] enqueued");
         }
     }
 
-    async fn align_with_whisper(
-        self: &Arc<Self>,
-        entity: &LyricsCacheRow,
-        storage_url: &str,
-    ) -> AppResult<()> {
-        let plain = match entity.plain_text.as_deref() {
-            Some(p) if !p.is_empty() => p,
-            _ => return Ok(()),
+    /// true если трек можно ставить в транскрайб: `transcribe_state` IS NULL или
+    /// «зависший» pending. done/disabled/свежий pending → false.
+    async fn transcribe_eligible(&self, sc_track_id: &str) -> AppResult<bool> {
+        let row: Option<(Option<String>, Option<chrono::DateTime<chrono::Utc>>)> =
+            sqlx::query_as("SELECT transcribe_state, transcribe_at FROM tracks WHERE sc_track_id = $1")
+                .bind(sc_track_id)
+                .fetch_optional(&self.pg)
+                .await?;
+        let Some((state, at)) = row else {
+            return Ok(false); // нет трека — нечего транскрайбить
         };
-        if entity.synced_lrc.is_some() {
-            return Ok(());
-        }
-        let lang = entity.language.clone();
-        let initial = plain.chars().take(2000).collect::<String>();
-        let result = match self
-            .worker
-            .transcribe_audio(storage_url, lang.as_deref(), Some(&initial))
-            .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                warn!(track = %entity.sc_track_id, error = %e, "align: transcribe failed");
-                return Ok(());
+        Ok(match state.as_deref() {
+            None => true,
+            Some("pending") => {
+                let cutoff =
+                    chrono::Utc::now() - chrono::Duration::from_std(TRANSCRIBE_STALE).unwrap();
+                at.map(|t| t < cutoff).unwrap_or(true)
             }
-        };
-        let Some(res) = result else { return Ok(()) };
-        let Some(synced) = res.synced_lrc else {
-            return Ok(());
-        };
-        sqlx::query("UPDATE lyrics_cache SET synced_lrc = $2 WHERE sc_track_id = $1")
-            .bind(&entity.sc_track_id)
-            .bind(&synced)
-            .execute(&self.pg)
-            .await?;
-        info!(track = %entity.sc_track_id, "aligned sync LRC");
-        Ok(())
+            _ => false, // done / disabled
+        })
     }
 
-    async fn full_transcribe(
-        self: &Arc<Self>,
-        sc_track_id: &str,
-        storage_url: &str,
-    ) -> AppResult<()> {
-        let result = match self.worker.transcribe_audio(storage_url, None, None).await {
-            Ok(r) => r,
-            Err(e) => {
-                warn!(track = %sc_track_id, error = %e, "self-gen transcribe failed");
-                return Ok(());
-            }
-        };
-        let Some(res) = result else { return Ok(()) };
-        if res.synced_lrc.is_none() && res.plain_text.is_none() {
-            info!(track = %sc_track_id, "self-gen: whisper returned empty");
-            return Ok(());
-        }
-        let row: LyricsCacheRow = sqlx::query_as(
-            "INSERT INTO lyrics_cache (sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at) \
-             VALUES ($1, $2, $3, 'self_gen', NULL, NULL, NULL) RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at",
+    /// Атомарно помечает трек `pending`, если он eligible. true → клейм наш
+    /// (публикуем джоб), false → опередили / state терминальный.
+    async fn claim_transcribe(&self, sc_track_id: &str) -> AppResult<bool> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::from_std(TRANSCRIBE_STALE).unwrap();
+        let res = sqlx::query(
+            "UPDATE tracks SET transcribe_state = 'pending', transcribe_at = now() \
+             WHERE sc_track_id = $1 \
+               AND (transcribe_state IS NULL \
+                    OR (transcribe_state = 'pending' AND transcribe_at < $2))",
         )
         .bind(sc_track_id)
-        .bind(&res.synced_lrc)
-        .bind(&res.plain_text)
-        .fetch_one(&self.pg)
+        .bind(cutoff)
+        .execute(&self.pg)
         .await?;
-        info!(track = %sc_track_id, lang = %res.language, "self-generated LRC");
-        if let Some(text) = pick_lyrics_text(res.plain_text.as_deref(), res.synced_lrc.as_deref()) {
+        Ok(res.rows_affected() > 0)
+    }
+
+    fn subscribe_done_transcribe(self: &Arc<Self>) {
+        let svc = self.clone();
+        self.nats.consume(
+            streams::DONE.name,
+            "backend-done-transcribe",
+            Some(subjects::DONE_TRANSCRIBE),
+            move |data| {
+                let svc = svc.clone();
+                async move { svc.persist_transcribe(data).await }
+            },
+        );
+    }
+
+    /// Идемпотентно применяет результат self-gen транскрайба:
+    ///   * пусто (нет речи / шум) → `transcribe_state='disabled'` (self-gen-disable):
+    ///     трек больше не транскрайбим, но агрегаторы продолжают пытаться;
+    ///   * `full` → INSERT self_gen ON CONFLICT DO NOTHING (не затираем агрегатор,
+    ///     если он успел вписаться), `state='done'`, эмбеддинг через `after_found`;
+    ///   * `align` → дозаполняем `synced_lrc` если пуст, `state='done'`.
+    async fn persist_transcribe(self: &Arc<Self>, data: serde_json::Value) -> AppResult<()> {
+        let Some(sc_track_id) = data
+            .get("sc_track_id")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+        else {
+            return Ok(());
+        };
+        let mode = data.get("mode").and_then(|v| v.as_str()).unwrap_or("full");
+        let synced = data
+            .get("syncedLrc")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+        let plain = data
+            .get("plainText")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        if synced.is_none() && plain.is_none() {
+            // self-gen-disable: whisper нечего дал — больше не берём этот трек.
+            sqlx::query(
+                "UPDATE tracks SET transcribe_state = 'disabled', transcribe_at = now() WHERE sc_track_id = $1",
+            )
+            .bind(&sc_track_id)
+            .execute(&self.pg)
+            .await?;
+            info!(track = %sc_track_id, mode, "self-gen disabled (whisper empty)");
+            return Ok(());
+        }
+
+        if mode == "align" {
+            sqlx::query(
+                "UPDATE lyrics_cache SET synced_lrc = $2 WHERE sc_track_id = $1 AND synced_lrc IS NULL",
+            )
+            .bind(&sc_track_id)
+            .bind(synced)
+            .execute(&self.pg)
+            .await?;
+            self.mark_transcribe_done(&sc_track_id).await?;
+            info!(track = %sc_track_id, "self-gen aligned sync LRC");
+            return Ok(());
+        }
+
+        // full: не затираем реальный источник, если агрегатор успел вписаться.
+        let inserted: Option<LyricsCacheRow> = sqlx::query_as(
+            "INSERT INTO lyrics_cache (sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at) \
+             VALUES ($1, $2, $3, 'self_gen', NULL, NULL, NULL) \
+             ON CONFLICT (sc_track_id) DO NOTHING \
+             RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at",
+        )
+        .bind(&sc_track_id)
+        .bind(synced)
+        .bind(plain)
+        .fetch_optional(&self.pg)
+        .await?;
+        self.mark_transcribe_done(&sc_track_id).await?;
+
+        let Some(row) = inserted else {
+            info!(track = %sc_track_id, "self-gen: aggregator already present, kept");
+            return Ok(());
+        };
+        info!(track = %sc_track_id, "self-generated LRC");
+        if let Some(text) = pick_lyrics_text(row.plain_text.as_deref(), row.synced_lrc.as_deref()) {
             if text.len() > 30 {
                 let svc = self.clone();
                 let row_clone = row.clone();
@@ -839,6 +967,16 @@ impl LyricsService {
                 });
             }
         }
+        Ok(())
+    }
+
+    async fn mark_transcribe_done(&self, sc_track_id: &str) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE tracks SET transcribe_state = 'done', transcribe_at = now() WHERE sc_track_id = $1",
+        )
+        .bind(sc_track_id)
+        .execute(&self.pg)
+        .await?;
         Ok(())
     }
 
@@ -901,13 +1039,22 @@ impl LyricsService {
         let cutoff =
             chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
 
+        // Зависшие pending перевыставляем только после TRANSCRIBE_STALE; свежий
+        // pending и disabled/done реап пропускает (иначе HEAD'ил бы инструменталы
+        // вечно). enqueue_transcribe ниже всё равно клеймит атомарно.
+        let stale_cutoff = chrono::Utc::now() - chrono::Duration::from_std(TRANSCRIBE_STALE).unwrap();
+
         let need_align: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM lyrics_cache \
-             WHERE plain_text IS NOT NULL AND length(plain_text) > 0 AND synced_lrc IS NULL AND created_at < $1 \
-             ORDER BY created_at ASC LIMIT $2",
+            "SELECT lc.sc_track_id FROM lyrics_cache lc \
+             JOIN tracks t ON t.sc_track_id = lc.sc_track_id \
+             WHERE lc.plain_text IS NOT NULL AND length(lc.plain_text) > 0 AND lc.synced_lrc IS NULL \
+               AND lc.created_at < $1 \
+               AND (t.transcribe_state IS NULL OR (t.transcribe_state = 'pending' AND t.transcribe_at < $3)) \
+             ORDER BY lc.created_at ASC LIMIT $2",
         )
         .bind(cutoff)
         .bind(REAP_LIMIT_ALIGN)
+        .bind(stale_cutoff)
         .fetch_all(&self.pg)
         .await?;
 
@@ -915,10 +1062,12 @@ impl LyricsService {
             "SELECT it.sc_track_id FROM tracks it \
              LEFT JOIN lyrics_cache lc ON lc.sc_track_id = it.sc_track_id \
              WHERE it.storage_state IN ('sq','hq') AND lc.sc_track_id IS NULL AND it.created_at < $1 \
+               AND (it.transcribe_state IS NULL OR (it.transcribe_state = 'pending' AND it.transcribe_at < $3)) \
              ORDER BY it.created_at ASC LIMIT $2",
         )
         .bind(cutoff)
         .bind(REAP_LIMIT_FULL)
+        .bind(stale_cutoff)
         .fetch_all(&self.pg)
         .await?;
 
@@ -932,7 +1081,10 @@ impl LyricsService {
             "[lyrics-reap] retrying whisper"
         );
         for (id,) in need_align.into_iter().chain(need_full) {
-            self.trigger.trigger(&id);
+            let svc = self.clone();
+            tokio::spawn(async move {
+                svc.enqueue_transcribe(&id, None).await;
+            });
         }
         Ok(())
     }

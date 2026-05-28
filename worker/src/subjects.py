@@ -3,7 +3,6 @@
 AI_DETECT_LANGUAGE = "ai.rpc.detect_language"
 AI_SEARCH_QUERIES = "ai.rpc.search_queries"
 AI_RANK_LYRICS = "ai.rpc.rank_lyrics"
-AI_TRANSCRIBE = "ai.rpc.transcribe"
 AI_ENCODE_TEXT_MULAN = "ai.rpc.encode_text_mulan"
 AI_RESOLVE_ARTIST = "ai.rpc.resolve_artist"
 AI_VERIFY_EXISTENCE = "ai.rpc.verify_existence"
@@ -22,6 +21,13 @@ STREAM_EMBED_LYRICS = "EMBED_LYRICS"
 SUBJECT_EMBED_LYRICS_NEW = "embed.lyrics.new"
 DURABLE_EMBED_LYRICS = "lyrics-workers"
 
+# Self-gen лирика (whisper) — own work-queue стрим, НЕ ai.rpc (тяжёлая фоновая
+# GPU-задача, длительность не ограничена). Backend публикует transcribe.audio.new,
+# воркер отвечает событием done.transcribe.
+STREAM_TRANSCRIBE = "TRANSCRIBE"
+SUBJECT_TRANSCRIBE_NEW = "transcribe.audio.new"
+DURABLE_TRANSCRIBE = "transcribe-workers"
+
 STREAM_TRAIN_COLLAB = "TRAIN_COLLAB"
 SUBJECT_TRAIN_COLLAB_NEW = "train.collab.new"
 DURABLE_TRAIN_COLLAB = "collab-workers"
@@ -32,5 +38,6 @@ DURABLE_TRAIN_QUALITY = "quality-workers"
 
 SUBJECT_DONE_INDEX_AUDIO = "done.index_audio"
 SUBJECT_DONE_EMBED_LYRICS = "done.embed_lyrics"
+SUBJECT_DONE_TRANSCRIBE = "done.transcribe"
 SUBJECT_DONE_TRAIN_COLLAB = "done.train_collab"
 SUBJECT_DONE_TRAIN_QUALITY = "done.train_quality"
