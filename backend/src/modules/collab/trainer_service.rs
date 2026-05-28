@@ -171,8 +171,12 @@ impl CollabTrainerService {
             sessions = sessions.len(),
             dim, min_count, "[collab.train] enqueuing"
         );
+        let object = format!("collab-{}", Utc::now().timestamp_millis());
+        self.nats
+            .put_object(subjects::COLLAB_DATA_BUCKET, &object, &sessions)
+            .await?;
         let payload = json!({
-            "sessions": sessions,
+            "object": object,
             "dim": dim,
             "min_count": min_count,
             "window": 5,

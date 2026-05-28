@@ -24,6 +24,10 @@ pub const DONE_INDEX_AUDIO: &str = "done.index_audio";
 pub const DONE_EMBED_LYRICS: &str = "done.embed_lyrics";
 pub const DONE_TRANSCRIBE: &str = "done.transcribe";
 
+/// Object Store бакет с bulk-датасетом collab-тренировки: сессии не лезут в
+/// сообщение (лимит NATS 1 MB), в `train.collab.new` едет только имя объекта.
+pub const COLLAB_DATA_BUCKET: &str = "COLLAB_DATA";
+
 pub const STORAGE_TRACK_UPLOADED: &str = "storage.track_uploaded";
 
 pub struct StreamCfg {

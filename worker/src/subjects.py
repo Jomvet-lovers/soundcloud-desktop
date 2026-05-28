@@ -31,6 +31,7 @@ DURABLE_TRANSCRIBE = "transcribe-workers"
 STREAM_TRAIN_COLLAB = "TRAIN_COLLAB"
 SUBJECT_TRAIN_COLLAB_NEW = "train.collab.new"
 DURABLE_TRAIN_COLLAB = "collab-workers"
+OBJECT_STORE_COLLAB = "COLLAB_DATA"  # bulk-сессии едут блобом, не в сообщении
 
 STREAM_TRAIN_QUALITY = "TRAIN_QUALITY"
 SUBJECT_TRAIN_QUALITY_NEW = "train.quality.new"

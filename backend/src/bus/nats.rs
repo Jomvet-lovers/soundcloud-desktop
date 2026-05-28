@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_nats::jetstream::consumer::{pull, AckPolicy};
+use async_nats::jetstream::object_store::Config as ObjectStoreConfig;
 use async_nats::jetstream::stream::{RetentionPolicy, StorageType};
 use async_nats::{Client, ConnectOptions, HeaderMap};
 use bytes::Bytes;
@@ -82,6 +83,8 @@ impl NatsService {
             .await?;
         svc.ensure_stream(&streams::DONE, false, None).await?;
         svc.ensure_stream(&streams::STORAGE_EVENTS, false, None)
+            .await?;
+        svc.ensure_object_store(crate::bus::subjects::COLLAB_DATA_BUCKET, 24 * 60 * 60)
             .await?;
         Ok(svc)
     }
@@ -215,6 +218,43 @@ impl NatsService {
             .map_err(|e| AppError::internal(format!("jetstream publish {subject}: {e}")))?;
         ack.await
             .map_err(|e| AppError::internal(format!("jetstream ack {subject}: {e}")))?;
+        Ok(())
+    }
+
+    async fn ensure_object_store(&self, bucket: &str, max_age_s: u64) -> AppResult<()> {
+        if self.js.get_object_store(bucket).await.is_ok() {
+            return Ok(());
+        }
+        self.js
+            .create_object_store(ObjectStoreConfig {
+                bucket: bucket.to_string(),
+                max_age: Duration::from_secs(max_age_s),
+                storage: StorageType::File,
+                ..Default::default()
+            })
+            .await
+            .map(|_| ())
+            .map_err(|e| AppError::internal(format!("object store create {bucket}: {e}")))
+    }
+
+    /// Кладёт JSON-блоб в Object Store — для bulk-данных, не влезающих в
+    /// сообщение (лимит NATS 1 MB). В самом сообщении едет только имя объекта.
+    pub async fn put_object<P>(&self, bucket: &str, name: &str, payload: &P) -> AppResult<()>
+    where
+        P: Serialize,
+    {
+        let json = serde_json::to_vec(payload)
+            .map_err(|e| AppError::internal(format!("object encode: {e}")))?;
+        let store = self
+            .js
+            .get_object_store(bucket)
+            .await
+            .map_err(|e| AppError::internal(format!("object store {bucket}: {e}")))?;
+        let mut reader = json.as_slice();
+        store
+            .put(name, &mut reader)
+            .await
+            .map_err(|e| AppError::internal(format!("object put {bucket}/{name}: {e}")))?;
         Ok(())
     }
 

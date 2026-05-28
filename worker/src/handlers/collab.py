@@ -88,7 +88,17 @@ async def handle(
     qdrant: QdrantClient,
     nc: NATSClient,
 ) -> None:
-    sessions = payload.get("sessions") or []
+    object_name = payload.get("object")
+    if object_name:
+        store = await nc.jetstream().object_store(subj.OBJECT_STORE_COLLAB)
+        obj = await store.get(object_name)
+        sessions = json.loads(obj.data.decode())
+        try:
+            await store.delete(object_name)
+        except Exception as e:
+            log.debug(f"[collab] object delete failed: {e}")
+    else:
+        sessions = payload.get("sessions") or []
     dim = int(payload.get("dim") or 128)
     min_count = int(payload.get("min_count") or 3)
     window = int(payload.get("window") or 5)
