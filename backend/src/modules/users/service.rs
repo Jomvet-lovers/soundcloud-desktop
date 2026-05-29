@@ -125,13 +125,9 @@ impl UsersService {
         let repo = crate::modules::users::UserRepository::new(self.pg.clone());
         if let Some(row) = repo.find_by_urn(user_urn).await? {
             let synced_at = row.sc_synced_at;
-            {
-                let repo2 = crate::modules::users::UserRepository::new(self.pg.clone());
-                let urn = user_urn.to_string();
-                tokio::spawn(async move {
-                    let _ = repo2.touch_last_read(&urn).await;
-                });
-            }
+            // Inline (WHERE-guarded 5мин, обычно no-op) вместо spawn-на-запрос:
+            // не плодим неограниченные таски/checkout'ы пула под нагрузкой.
+            let _ = repo.touch_last_read(user_urn).await;
             if self.cold_refresh.is_user_stale(Some(synced_at)) {
                 let refresh = self.cold_refresh.clone();
                 let tokens = self.tokens.clone();

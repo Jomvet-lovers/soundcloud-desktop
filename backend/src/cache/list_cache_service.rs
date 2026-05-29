@@ -88,6 +88,36 @@ impl ListCacheService {
         }
     }
 
+    /// Set, в котором лежат все конкретные list-ключи данного префикса —
+    /// заменяет full-keyspace SCAN при инвалидации точечным SMEMBERS+DEL.
+    fn index_key(prefix: &str, scope: CacheScope, session_id: Option<&str>) -> String {
+        format!(
+            "idx:{LIST_PREFIX}{}",
+            Self::build_redis_key(prefix, scope, session_id)
+        )
+    }
+
+    /// Регистрирует сохранённый list-ключ в index-set его префикса (TTL чуть
+    /// больше, чем у записей, чтобы set их переживал).
+    async fn register_prefix_index(
+        &self,
+        redis_key: &str,
+        cache_key: &str,
+        scope: CacheScope,
+        session_id: Option<&str>,
+        ttl_sec: u64,
+    ) {
+        let prefix = cache_key.split(':').next().unwrap_or(cache_key);
+        let idx = Self::index_key(prefix, scope, session_id);
+        let full = format!("{LIST_PREFIX}{redis_key}");
+        let mut conn = match self.redis.get().await {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let _: Result<(), _> = conn.sadd(&idx, &full).await;
+        let _: Result<(), _> = conn.expire(&idx, (ttl_sec as i64) + 60).await;
+    }
+
     fn lock(&self, key: &str) -> Arc<AsyncMutex<()>> {
         if let Some(lock) = self.inflight.get(&key.to_string()) {
             return lock;
@@ -158,38 +188,19 @@ impl ListCacheService {
             return Ok(());
         }
         let mut conn = self.redis.get().await?;
-        let mut patterns: Vec<String> = Vec::new();
+        let mut index_keys: Vec<String> = Vec::new();
         for p in prefixes {
-            patterns.push(format!(
-                "{LIST_PREFIX}{}*",
-                Self::build_redis_key(p, CacheScope::Shared, None)
-            ));
+            index_keys.push(Self::index_key(p, CacheScope::Shared, None));
             if session_id.is_some() {
-                patterns.push(format!(
-                    "{LIST_PREFIX}{}*",
-                    Self::build_redis_key(p, CacheScope::User, session_id)
-                ));
+                index_keys.push(Self::index_key(p, CacheScope::User, session_id));
             }
         }
-        for pattern in patterns {
-            let mut cursor: u64 = 0;
-            loop {
-                let (next, keys): (u64, Vec<String>) = deadpool_redis::redis::cmd("SCAN")
-                    .arg(cursor)
-                    .arg("MATCH")
-                    .arg(&pattern)
-                    .arg("COUNT")
-                    .arg(200)
-                    .query_async(&mut conn)
-                    .await?;
-                if !keys.is_empty() {
-                    let _: () = conn.del(keys).await?;
-                }
-                if next == 0 {
-                    break;
-                }
-                cursor = next;
+        for idx in index_keys {
+            let members: Vec<String> = conn.smembers(&idx).await.unwrap_or_default();
+            if !members.is_empty() {
+                let _: () = conn.del(members).await?;
             }
+            let _: () = conn.del(&idx).await?;
         }
         Ok(())
     }
@@ -267,6 +278,14 @@ impl ListCacheService {
 
         if chunks > 0 {
             self.save(&redis_key, &state, opts.ttl_sec).await;
+            self.register_prefix_index(
+                &redis_key,
+                opts.key,
+                opts.scope,
+                opts.session_id,
+                opts.ttl_sec,
+            )
+                .await;
         }
 
         Ok(slice_page(state, opts.page, opts.limit))

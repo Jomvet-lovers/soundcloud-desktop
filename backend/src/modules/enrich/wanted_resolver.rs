@@ -1,8 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::join_all;
 use serde_json::Value;
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -20,6 +22,7 @@ use crate::sc::ScClient;
 
 const BATCH_SIZE: i64 = 30;
 const SEARCH_LIMIT: usize = 10;
+const STAGE2_CONCURRENCY: usize = 8;
 /// Композитный score для безусловной линковки. Что в диапазоне
 /// [BORDERLINE_LOW, SEARCH_LINK_THRESHOLD) — отдаётся на AI matcher (если включён).
 const SEARCH_LINK_THRESHOLD: f32 = 0.7;
@@ -224,27 +227,31 @@ impl WantedResolverService {
             }
         }
 
-        // Stage 2 — для остальных пробуем найти в уже tracks этого артиста
-        // и общий SC search.
-        for r in &rows {
-            if linked_ids.contains(&r.id) {
-                continue;
-            }
-            let outcome = self.resolve_one(r, &chain).await;
-            match outcome {
-                Ok(true) => {
-                    linked_ids.insert(r.id);
-                }
-                Ok(false) => {
-                    let _ =
-                        sqlx::query("UPDATE wanted_tracks SET updated_at = now() WHERE id = $1")
+        // Stage 2 — для остальных: existing tracks + общий SC search.
+        // Bounded-concurrent (SC через rotating proxy), а не серийный for{await}.
+        let sem = Arc::new(Semaphore::new(STAGE2_CONCURRENCY));
+        let pending: Vec<&WantedRecord> =
+            rows.iter().filter(|r| !linked_ids.contains(&r.id)).collect();
+        join_all(pending.into_iter().map(|r| {
+            let sem = sem.clone();
+            let chain = &chain;
+            async move {
+                let _permit = sem.acquire().await;
+                match self.resolve_one(r, chain).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let _ = sqlx::query(
+                            "UPDATE wanted_tracks SET updated_at = now() WHERE id = $1",
+                        )
                             .bind(r.id)
                             .execute(&self.pg)
                             .await;
+                    }
+                    Err(e) => warn!(error = %e, %r.id, "wanted-resolver: resolve_one failed"),
                 }
-                Err(e) => warn!(error = %e, %r.id, "wanted-resolver: resolve_one failed"),
             }
-        }
+        }))
+            .await;
         Ok(())
     }
 

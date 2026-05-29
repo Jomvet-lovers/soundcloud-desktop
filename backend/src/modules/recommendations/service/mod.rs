@@ -20,11 +20,16 @@ use crate::modules::lyrics::WorkerClient;
 use crate::modules::recommendations::s3_verifier::S3VerifierService;
 use crate::qdrant::QdrantService;
 
-/// Лимит одновременных gRPC-запросов к qdrant. Tonic мультиплексирует
-/// stream'ы по одному HTTP/2 соединению; при сотнях параллельных recommend'ов
-/// канал срывается (h2 protocol error / operation cancelled). 16 — комфортный
-/// потолок без видимого замедления одного запроса волны.
-const QDRANT_MAX_CONCURRENCY: usize = 16;
+/// Предохранитель от срыва одного HTTP/2-канала к qdrant при сотнях
+/// параллельных stream'ов — НЕ лимит qdrant. Дефолт 128 (одна сборка волны
+/// = 40+ запросов, чтобы 2-3 юзера не сериализовались). Тюн: `QDRANT_MAX_CONCURRENCY`.
+fn qdrant_max_concurrency() -> usize {
+    std::env::var("QDRANT_MAX_CONCURRENCY")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(128)
+}
 
 pub struct RecommendationsService {
     pub(crate) qdrant: Arc<QdrantService>,
@@ -49,7 +54,7 @@ impl RecommendationsService {
     ) -> Arc<Self> {
         Arc::new(Self {
             qdrant,
-            qdrant_sem: Arc::new(Semaphore::new(QDRANT_MAX_CONCURRENCY)),
+            qdrant_sem: Arc::new(Semaphore::new(qdrant_max_concurrency())),
             pg,
             redis,
             worker,

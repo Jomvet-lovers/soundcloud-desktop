@@ -10,8 +10,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::join_all;
 use serde_json::Value;
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -91,15 +93,22 @@ impl ArtistAccountWalker {
         if artists.is_empty() {
             return Ok(());
         }
-        for (artist_id, name) in artists {
-            if let Err(e) = self.walk_artist(artist_id, &name).await {
-                debug!(%artist_id, error = %e, "artist_account_walker: walk failed");
+        // Артисты независимы — обходим bounded-concurrent, а не серийно.
+        let sem = Arc::new(Semaphore::new(6));
+        join_all(artists.into_iter().map(|(artist_id, name)| {
+            let sem = sem.clone();
+            async move {
+                let _permit = sem.acquire().await;
+                if let Err(e) = self.walk_artist(artist_id, &name).await {
+                    debug!(%artist_id, error = %e, "artist_account_walker: walk failed");
+                }
+                let _ = sqlx::query("UPDATE artists SET last_account_walk_at = now() WHERE id = $1")
+                    .bind(artist_id)
+                    .execute(&self.pg)
+                    .await;
             }
-            sqlx::query("UPDATE artists SET last_account_walk_at = now() WHERE id = $1")
-                .bind(artist_id)
-                .execute(&self.pg)
-                .await?;
-        }
+        }))
+            .await;
         Ok(())
     }
 

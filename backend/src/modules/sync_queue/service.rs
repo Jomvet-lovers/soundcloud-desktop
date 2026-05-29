@@ -4,10 +4,12 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::Pool as RedisPool;
+use futures::future::join_all;
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::types::Uuid;
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 use tracing::warn;
 
 use crate::error::AppResult;
@@ -17,6 +19,7 @@ use crate::sc::{self, ScClient};
 use super::actions::{self, ActionCtx};
 
 const BATCH_SIZE: i64 = 50;
+const FLUSH_CONCURRENCY: usize = 16;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_RETRIES: i32 = 5;
 const BACKOFF_BAN_SEC: i64 = 30 * 60;
@@ -151,23 +154,37 @@ impl SyncQueueService {
     /// - прочее: retry_count++, exp backoff; на MAX_RETRIES — DELETE + warn
     pub async fn flush(&self) -> AppResult<FlushStats> {
         let claimed = self.claim_batch(BATCH_SIZE).await?;
-        let mut synced = 0usize;
-        let mut failed = 0usize;
-        for row in claimed {
-            match self.execute_one(&row).await {
-                Ok(()) => {
-                    sqlx::query("DELETE FROM sync_queue WHERE id = $1")
-                        .bind(row.id)
-                        .execute(&self.pg)
-                        .await?;
-                    synced += 1;
-                }
-                Err(err) => {
-                    self.record_failure(&row, &err).await?;
-                    failed += 1;
+        // Конкурентно (bounded): один забаненный/медленный юзер в голове батча
+        // не должен блокировать write-back остальным. Backoff-строки сюда не
+        // попадают (claim фильтрует next_run_at <= now()).
+        let sem = Arc::new(Semaphore::new(FLUSH_CONCURRENCY));
+        let results = join_all(claimed.into_iter().map(|row| {
+            let sem = sem.clone();
+            async move {
+                let _permit = sem.acquire().await;
+                match self.execute_one(&row).await {
+                    Ok(()) => {
+                        if let Err(e) = sqlx::query("DELETE FROM sync_queue WHERE id = $1")
+                            .bind(row.id)
+                            .execute(&self.pg)
+                            .await
+                        {
+                            warn!(error = %e, "sync_queue delete failed");
+                        }
+                        true
+                    }
+                    Err(err) => {
+                        if let Err(e) = self.record_failure(&row, &err).await {
+                            warn!(error = %e, "sync_queue record_failure failed");
+                        }
+                        false
+                    }
                 }
             }
-        }
+        }))
+            .await;
+        let synced = results.iter().filter(|&&ok| ok).count();
+        let failed = results.len() - synced;
         Ok(FlushStats { synced, failed })
     }
 

@@ -45,6 +45,7 @@ pub struct OAuthAppTokenService {
     snapshot: RwLock<Arc<Vec<String>>>,
     seeded: OnceCell<()>,
     refresh_lock: Mutex<()>,
+    bootstrap_lock: Mutex<()>,
 }
 
 impl OAuthAppTokenService {
@@ -56,6 +57,7 @@ impl OAuthAppTokenService {
             snapshot: RwLock::new(Arc::new(Vec::new())),
             seeded: OnceCell::new(),
             refresh_lock: Mutex::new(()),
+            bootstrap_lock: Mutex::new(()),
         })
     }
 
@@ -116,6 +118,14 @@ impl OAuthAppTokenService {
     }
 
     async fn bootstrap_first_app(&self) -> AppResult<()> {
+        // Single-flight рефилл пустого пула: конкурентные hot-path вызовы
+        // сериализуются здесь, пир уже мог дозалить — перечитываем и выходим,
+        // не issue'я лишний oauth/token POST (бережём лимит 30/1h/IP).
+        let _guard = self.bootstrap_lock.lock().await;
+        self.reload_snapshot().await?;
+        if !self.load_current().is_empty() {
+            return Ok(());
+        }
         let app_id = self.next_app_to_refresh().await?;
         self.refresh_for_app(app_id).await
     }

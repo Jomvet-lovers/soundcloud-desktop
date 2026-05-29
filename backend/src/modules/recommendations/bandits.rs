@@ -72,23 +72,29 @@ pub async fn record_shows(
     sc_user_id: &str,
     counts: &[(String, i64)],
 ) -> AppResult<()> {
+    let mut clusters: Vec<&str> = Vec::new();
+    let mut shows: Vec<i64> = Vec::new();
     for (cluster, n) in counts {
-        if *n <= 0 {
-            continue;
+        if *n > 0 {
+            clusters.push(cluster.as_str());
+            shows.push(*n);
         }
-        sqlx::query(
-            "INSERT INTO cluster_bandit_stats (sc_user_id, cluster_id, shows, updated_at)
-             VALUES ($1, $2, $3, NOW())
-             ON CONFLICT (sc_user_id, cluster_id)
-             DO UPDATE SET shows = cluster_bandit_stats.shows + EXCLUDED.shows,
-                           updated_at = NOW()",
-        )
+    }
+    if clusters.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO cluster_bandit_stats (sc_user_id, cluster_id, shows, updated_at)
+         SELECT $1, c, s, NOW() FROM UNNEST($2::text[], $3::bigint[]) AS t(c, s)
+         ON CONFLICT (sc_user_id, cluster_id)
+         DO UPDATE SET shows = cluster_bandit_stats.shows + EXCLUDED.shows,
+                       updated_at = NOW()",
+    )
         .bind(sc_user_id)
-        .bind(cluster)
-        .bind(*n)
+        .bind(&clusters)
+        .bind(&shows)
         .execute(pg)
         .await?;
-    }
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use futures::future::join_all;
 use parking_lot_compat::Mutex;
 use regex::Regex;
 use reqwest::header::HeaderMap;
@@ -133,35 +134,38 @@ impl MusixmatchService {
             return Vec::new();
         };
         let tracks = self.track_search(q, &token, limit).await;
-        let mut out = Vec::new();
-        for t in tracks {
+        let token: &str = &token;
+        // Параллельно по трекам (а не серийный for{await}) — иначе ~N round-trip
+        // подряд в критическом пути лирики.
+        let cands = join_all(tracks.into_iter().map(|t| async move {
             let synced_fut = async {
                 if t.has_subtitles > 0 {
-                    self.subtitle_by_track_id(t.track_id, &token).await
+                    self.subtitle_by_track_id(t.track_id, token).await
                 } else {
                     None
                 }
             };
             let plain_fut = async {
                 if t.has_lyrics > 0 {
-                    self.lyrics_by_track_id(t.track_id, &token).await
+                    self.lyrics_by_track_id(t.track_id, token).await
                 } else {
                     None
                 }
             };
             let (synced, plain) = tokio::join!(synced_fut, plain_fut);
             if synced.is_none() && plain.is_none() {
-                continue;
+                return None;
             }
-            out.push(MxmCandidate {
+            Some(MxmCandidate {
                 synced_lrc: synced,
                 plain_text: plain,
                 artist_guess: t.artist_name,
                 title_guess: t.track_name,
                 duration_sec: t.track_length,
-            });
-        }
-        out
+            })
+        }))
+            .await;
+        cands.into_iter().flatten().collect()
     }
 
     async fn track_search(&self, q: &str, token: &str, limit: usize) -> Vec<TrackHit> {

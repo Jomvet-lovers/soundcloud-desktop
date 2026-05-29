@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use futures::TryStreamExt;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -264,15 +265,18 @@ impl CollabTrainerService {
 
     async fn build_sessions(&self) -> AppResult<Vec<Vec<u64>>> {
         let since = Utc::now().naive_utc() - chrono::Duration::days(HISTORY_WINDOW_DAYS);
-        let rows: Vec<(String, String, chrono::NaiveDateTime, String)> = sqlx::query_as(
+        let session_events: Vec<String> = SESSION_EVENTS.iter().map(|s| s.to_string()).collect();
+        // Стримим, а не fetch_all: весь 90д-набор не материализуем в RAM и не
+        // пиним коннект под огромный буфер. event_type фильтруем в SQL.
+        let mut stream = sqlx::query_as::<_, (String, String, chrono::NaiveDateTime, String)>(
             "SELECT sc_user_id, sc_track_id, created_at, event_type FROM user_events \
-             WHERE created_at >= $1 \
+             WHERE created_at >= $1 AND event_type = ANY($2) \
              ORDER BY sc_user_id ASC, created_at ASC",
         )
         .bind(since)
-        .fetch_all(&self.pg)
-        .await?;
-        let total_rows = rows.len();
+            .bind(&session_events)
+            .fetch(&self.pg);
+        let mut total_rows = 0usize;
 
         let mut sessions: Vec<Vec<u64>> = Vec::new();
         let mut current_user: Option<String> = None;
@@ -296,7 +300,10 @@ impl CollabTrainerService {
             seen.clear();
         };
 
-        for (sc_user_id, sc_track_id, created_at, event_type) in rows {
+        while let Some((sc_user_id, sc_track_id, created_at, event_type)) =
+            stream.try_next().await?
+        {
+            total_rows += 1;
             if !session_set.contains(event_type.as_str()) {
                 continue;
             }
