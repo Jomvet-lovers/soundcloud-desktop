@@ -10,6 +10,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -258,11 +259,48 @@ impl NatsService {
         Ok(())
     }
 
+    /// Достаёт JSON-блоб из Object Store (обратная сторона [`put_object`]).
+    pub async fn get_object<T>(&self, bucket: &str, name: &str) -> AppResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        use tokio::io::AsyncReadExt;
+        let store = self
+            .js
+            .get_object_store(bucket)
+            .await
+            .map_err(|e| AppError::internal(format!("object store {bucket}: {e}")))?;
+        let mut obj = store
+            .get(name)
+            .await
+            .map_err(|e| AppError::internal(format!("object get {bucket}/{name}: {e}")))?;
+        let mut buf = Vec::new();
+        obj.read_to_end(&mut buf)
+            .await
+            .map_err(|e| AppError::internal(format!("object read {bucket}/{name}: {e}")))?;
+        serde_json::from_slice(&buf)
+            .map_err(|e| AppError::internal(format!("object decode {bucket}/{name}: {e}")))
+    }
+
+    pub async fn delete_object(&self, bucket: &str, name: &str) -> AppResult<()> {
+        let store = self
+            .js
+            .get_object_store(bucket)
+            .await
+            .map_err(|e| AppError::internal(format!("object store {bucket}: {e}")))?;
+        store
+            .delete(name)
+            .await
+            .map_err(|e| AppError::internal(format!("object delete {bucket}/{name}: {e}")))?;
+        Ok(())
+    }
+
     pub fn consume<F, Fut>(
         &self,
         stream: &'static str,
         durable: &'static str,
         filter_subject: Option<&'static str>,
+        concurrency: usize,
         handler: F,
     ) where
         F: Fn(serde_json::Value) -> Fut + Send + Sync + 'static,
@@ -271,6 +309,7 @@ impl NatsService {
         let js = self.js.clone();
         let token = self.shutdown.clone();
         let handler = Arc::new(handler);
+        let sem = Arc::new(Semaphore::new(concurrency.max(1)));
 
         tokio::spawn(async move {
             loop {
@@ -292,7 +331,7 @@ impl NatsService {
                 let mut config = pull::Config {
                     durable_name: Some(durable.to_string()),
                     ack_policy: AckPolicy::Explicit,
-                    ack_wait: Duration::from_secs(30),
+                    ack_wait: Duration::from_secs(120),
                     max_deliver: 5,
                     ..Default::default()
                 };
@@ -334,6 +373,12 @@ impl NatsService {
                 };
 
                 loop {
+                    // Permit acquired before pulling → не больше `concurrency`
+                    // сообщений в работе одновременно (backpressure).
+                    let permit = match sem.clone().acquire_owned().await {
+                        Ok(p) => p,
+                        Err(_) => return,
+                    };
                     let next = tokio::select! {
                         _ = token.cancelled() => return,
                         m = messages.next() => m,
@@ -350,27 +395,31 @@ impl NatsService {
                         }
                     };
 
-                    match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
-                        Ok(data) => match handler(data).await {
-                            Ok(()) => {
-                                if let Err(e) = msg.ack().await {
-                                    warn!(stream, durable, error = %e, "consume: ack failed");
+                    let handler = handler.clone();
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        match serde_json::from_slice::<serde_json::Value>(&msg.payload) {
+                            Ok(data) => match handler(data).await {
+                                Ok(()) => {
+                                    if let Err(e) = msg.ack().await {
+                                        warn!(stream, durable, error = %e, "consume: ack failed");
+                                    }
                                 }
-                            }
+                                Err(e) => {
+                                    error!(stream, durable, error = %e, "consume: handler failed");
+                                    let _ = msg
+                                        .ack_with(async_nats::jetstream::AckKind::Nak(Some(
+                                            Duration::from_secs(5),
+                                        )))
+                                        .await;
+                                }
+                            },
                             Err(e) => {
-                                error!(stream, durable, error = %e, "consume: handler failed");
-                                let _ = msg
-                                    .ack_with(async_nats::jetstream::AckKind::Nak(Some(
-                                        Duration::from_secs(5),
-                                    )))
-                                    .await;
+                                error!(stream, durable, error = %e, "consume: payload decode failed");
+                                let _ = msg.ack().await;
                             }
-                        },
-                        Err(e) => {
-                            error!(stream, durable, error = %e, "consume: payload decode failed");
-                            let _ = msg.ack().await;
                         }
-                    }
+                    });
                 }
 
                 if !token.is_cancelled() {

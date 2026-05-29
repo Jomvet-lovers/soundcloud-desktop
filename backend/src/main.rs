@@ -206,6 +206,7 @@ async fn main() {
     let lyrics = LyricsService::new(
         pg.clone(),
         nats.clone(),
+        qdrant.clone(),
         lrclib,
         mxm,
         genius.clone(),
@@ -222,6 +223,7 @@ async fn main() {
     let collab_trainer = CollabTrainerService::new(
         pg.clone(),
         nats.clone(),
+        qdrant.clone(),
         collab_vector.clone(),
         config.collab.clone(),
     );
@@ -230,6 +232,7 @@ async fn main() {
     let indexing = IndexingService::new(
         pg.clone(),
         nats.clone(),
+        qdrant.clone(),
         lyrics.clone(),
         transcode.clone(),
         config.max_track_duration_ms,

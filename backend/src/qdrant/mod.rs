@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use qdrant_client::config::QdrantConfig;
-use qdrant_client::qdrant::{Distance, VectorParamsBuilder};
-use qdrant_client::Qdrant;
+use qdrant_client::qdrant::{
+    CreateCollectionBuilder, Distance, GetCollectionInfoRequest, PointStruct, UpsertPointsBuilder,
+    VectorParamsBuilder,
+};
+use qdrant_client::{Payload, Qdrant};
+use serde_json::json;
 use tracing::{info, warn};
 
 use crate::config::QdrantCfg;
@@ -66,4 +70,142 @@ impl QdrantService {
             }
         }
     }
+
+    /// Все vector-write'ы живут здесь: воркер считает эмбеддинги и шлёт их в
+    /// NATS, в Qdrant пишет только backend (см. AGENTS.md воркера). Point id =
+    /// числовой sc_track_id; payload.sc_track_id (строка) используется как
+    /// filter-ключ в recommendations.
+    pub async fn upsert_audio(
+        &self,
+        sc_track_id: u64,
+        mert: Vec<f32>,
+        clap: Vec<f32>,
+        language: Option<&str>,
+    ) -> AppResult<()> {
+        let payload = track_payload(sc_track_id, "indexed_at", language);
+        self.client
+            .upsert_points(UpsertPointsBuilder::new(
+                collections::TRACKS_MERT,
+                vec![PointStruct::new(sc_track_id, mert, payload.clone())],
+            ))
+            .await
+            .map_err(|e| AppError::internal(format!("qdrant upsert mert: {e}")))?;
+        self.client
+            .upsert_points(UpsertPointsBuilder::new(
+                collections::TRACKS_CLAP,
+                vec![PointStruct::new(sc_track_id, clap, payload)],
+            ))
+            .await
+            .map_err(|e| AppError::internal(format!("qdrant upsert clap: {e}")))?;
+        Ok(())
+    }
+
+    pub async fn upsert_lyrics(
+        &self,
+        sc_track_id: u64,
+        vec: Vec<f32>,
+        language: Option<&str>,
+    ) -> AppResult<()> {
+        let payload = track_payload(sc_track_id, "embedded_at", language);
+        self.client
+            .upsert_points(UpsertPointsBuilder::new(
+                collections::TRACKS_LYRICS,
+                vec![PointStruct::new(sc_track_id, vec, payload)],
+            ))
+            .await
+            .map_err(|e| AppError::internal(format!("qdrant upsert lyrics: {e}")))?;
+        Ok(())
+    }
+
+    pub async fn upsert_collab(&self, dim: u64, points: Vec<(u64, Vec<f32>)>) -> AppResult<usize> {
+        if points.is_empty() {
+            return Ok(0);
+        }
+        self.ensure_collab_collection(dim).await?;
+        let structs: Vec<PointStruct> = points
+            .into_iter()
+            .map(|(id, v)| {
+                PointStruct::new(id, v, Payload::from(json_map([("sc_track_id", json!(id.to_string()))])))
+            })
+            .collect();
+        let total = structs.len();
+        self.client
+            .upsert_points_chunked(
+                UpsertPointsBuilder::new(collections::TRACKS_COLLAB, structs),
+                500,
+            )
+            .await
+            .map_err(|e| AppError::internal(format!("qdrant upsert collab: {e}")))?;
+        Ok(total)
+    }
+
+    /// collab-вектор имеет динамическую размерность (зависит от тренировки),
+    /// поэтому коллекция создаётся лениво на первом upsert'е, а при смене dim —
+    /// пересоздаётся (старые вектора несовместимы).
+    async fn ensure_collab_collection(&self, dim: u64) -> AppResult<()> {
+        let current = self
+            .client
+            .collection_info(GetCollectionInfoRequest {
+                collection_name: collections::TRACKS_COLLAB.into(),
+            })
+            .await
+            .ok()
+            .and_then(|r| r.result)
+            .and_then(|c| c.config)
+            .and_then(|c| c.params)
+            .and_then(|p| p.vectors_config)
+            .and_then(|vc| match vc.config {
+                Some(qdrant_client::qdrant::vectors_config::Config::Params(p)) => Some(p.size),
+                _ => None,
+            });
+        match current {
+            Some(d) if d == dim => return Ok(()),
+            Some(d) => {
+                warn!(got = d, want = dim, "collab collection dim mismatch — recreating");
+                let _ = self.client.delete_collection(collections::TRACKS_COLLAB).await;
+            }
+            None => {}
+        }
+        let req = CreateCollectionBuilder::new(collections::TRACKS_COLLAB)
+            .vectors_config(VectorParamsBuilder::new(dim, Distance::Cosine))
+            .on_disk_payload(true)
+            .build();
+        self.client
+            .create_collection(req)
+            .await
+            .map_err(|e| AppError::internal(format!("collab collection create: {e}")))?;
+        info!(dim, "collab collection created");
+        Ok(())
+    }
+}
+
+/// JSON-массив чисел → `Vec<f32>`. None если поля нет, оно не массив, пусто или
+/// содержит не-finite/не-числа (частичный или NaN/Inf вектор в Qdrant нельзя).
+pub fn parse_f32_vec(v: Option<&serde_json::Value>) -> Option<Vec<f32>> {
+    let arr = v?.as_array()?;
+    if arr.is_empty() {
+        return None;
+    }
+    let out: Vec<f32> = arr
+        .iter()
+        .filter_map(|x| x.as_f64().filter(|f| f.is_finite()).map(|f| f as f32))
+        .collect();
+    (out.len() == arr.len()).then_some(out)
+}
+
+fn json_map<const N: usize>(
+    entries: [(&str, serde_json::Value); N],
+) -> serde_json::Map<String, serde_json::Value> {
+    entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+}
+
+fn track_payload(sc_track_id: u64, ts_key: &str, language: Option<&str>) -> Payload {
+    let mut m = json_map([
+        ("sc_track_id", json!(sc_track_id.to_string())),
+        (ts_key, json!(chrono::Utc::now().timestamp())),
+    ]);
+    if let Some(l) = language.filter(|l| !l.is_empty()) {
+        m.insert("language".to_string(), json!(l));
+    }
+    Payload::from(m)
 }

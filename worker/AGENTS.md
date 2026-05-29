@@ -8,7 +8,9 @@
 
 ## Правила
 
-- **Никакой бизнес-логики.** Воркер не знает про треки, плейлисты, юзеров, сессии. Не лазит в SoundCloud API. Не трогает PostgreSQL. Про индексированные треки знает только backend.
+- **Никакой бизнес-логики.** Воркер не знает про треки, плейлисты, юзеров, сессии. Не лазит в SoundCloud API. Не трогает
+  PostgreSQL. **Не пишет в Qdrant** — считает вектор и отдаёт в шину, в Qdrant пишет только backend. Про индексированные
+  треки знает только backend.
 - **Только модели.** Загрузка при старте (`models.py`), инференс по задаче. Всё остальное — снаружи.
 - **Никакого HTTP.** Воркеров может быть 1, 10, 100, 1000 — они все stateless и масштабируются горизонтально. Никто не знает их адреса, никаких ENV под каждый хост.
 - **Коммуникация — NATS.**
@@ -16,7 +18,8 @@
   - JetStream work queues (`INDEX_AUDIO`, `EMBED_LYRICS`, `TRANSCRIBE`, `TRAIN_*`) — тяжёлые **фоновые** durable задачи. Durable consumer, `ack_policy=explicit`, `ack_wait=30s`, `max_deliver=5`. Завершение → `done.*` publish.
   - `TRANSCRIBE` (self-gen лирика: demucs+whisper) — НЕ req/res: длительность не ограничена, синхронного клиента нет. Свой durable `transcribe-workers` и свой `WORKER_CONCURRENCY`-тег `transcribe`, чтобы тяжёлый GPU не вставал поперёк интерактивных `ai.rpc.*`.
 - **Вход — готовые данные.** Текст в теле задачи. Аудио — ссылкой на S3/storage, один `GET` и всё. Воркер не знает про streaming-сервис, не знает про storage-логику.
-- **Выход — ответ модели.** Вектор → Qdrant. Короткий ответ → NATS reply. Уведомление о завершении → `done.*` publish.
+- **Выход — только NATS.** Вектор едет в `done.*` payload (collab — блобом в Object Store, имя в сообщении); в Qdrant
+  его кладёт backend, слушая `done.*`. Короткий ответ → NATS reply. Завершение → `done.*` publish.
 
 ## Lifecycle задачи (durable)
 
@@ -30,24 +33,25 @@
 
 Весь Python-код живёт в `src/`. Запуск — `python -m src.main`.
 
-| Файл | Назначение |
-|------|-----------|
-| `src/main.py` | entry point: connect NATS, load models, spawn pull-consumers, route AI subjects |
-| `src/config.py` | все env-переменные в одном месте |
-| `src/subjects.py` | константы subjects/streams/durables (синхронизированы с `backend/src/bus/subjects.rs`) |
-| `src/bus/client.py` | `connect()` к NATS |
-| `src/bus/streams.py` | `ensure_stream`, `ensure_consumer` |
-| `src/bus/rpc.py` | `run_with_lifecycle` (JS work-queue) + `run_rpc_msg` (core-reply) + heartbeat |
-| `src/models/device.py` | `DEVICE`, `USE_FP16` (auto-detect CUDA/CPU) |
-| `src/models/registry.py` | `Models` dataclass + per-model asyncio locks |
-| `src/models/loader.py` | `load_all()` — MuQ/MuLan/bge-m3/xlm-roberta/Qwen/Whisper, fp16 на CUDA |
-| `src/models/demucs.py` | `ensure_demucs()` — ленивая загрузка (≈1.5 GB VRAM только при транскрипции) |
-| `src/storage/qdrant.py` | Qdrant: upsert + idempotency check |
-| `src/handlers/ai.py` | detect_language, search_queries, rank_lyrics, encode_text_mulan |
+| Файл                         | Назначение                                                                                           |
+|------------------------------|------------------------------------------------------------------------------------------------------|
+| `src/main.py`                | entry point: connect NATS, load models, spawn pull-consumers, route AI subjects                      |
+| `src/config.py`              | все env-переменные в одном месте                                                                     |
+| `src/subjects.py`            | константы subjects/streams/durables (синхронизированы с `backend/src/bus/subjects.rs`)               |
+| `src/bus/client.py`          | `connect()` к NATS                                                                                   |
+| `src/bus/streams.py`         | `ensure_stream`, `ensure_consumer`                                                                   |
+| `src/bus/rpc.py`             | `run_with_lifecycle` (JS work-queue) + `run_rpc_msg` (core-reply) + heartbeat                        |
+| `src/models/device.py`       | `DEVICE`, `USE_FP16` (auto-detect CUDA/CPU)                                                          |
+| `src/models/registry.py`     | `Models` dataclass + per-model asyncio locks                                                         |
+| `src/models/loader.py`       | `load_all()` — MuQ/MuLan/bge-m3/xlm-roberta/Qwen/Whisper, fp16 на CUDA                               |
+| `src/models/demucs.py`       | `ensure_demucs()` — ленивая загрузка (≈1.5 GB VRAM только при транскрипции)                          |
+| `src/handlers/ai.py`         | detect_language, search_queries, rank_lyrics, encode_text_mulan                                      |
 | `src/handlers/transcribe.py` | TRANSCRIBE: demucs (vocals) + Whisper → publish `done.transcribe` (пусто = self-gen-disable на бэке) |
-| `src/handlers/audio.py` | INDEX_AUDIO: download → MuQ + MuQ-MuLan → Qdrant → publish `done.index_audio` |
-| `src/handlers/lyrics.py` | EMBED_LYRICS: bge-m3 → Qdrant → publish `done.embed_lyrics` |
+| `src/handlers/audio.py`      | INDEX_AUDIO: download → MuQ + MuQ-MuLan → вектора в `done.index_audio`                               |
+| `src/handlers/lyrics.py`     | EMBED_LYRICS: bge-m3 → вектор в `done.embed_lyrics`                                                  |
+| `src/handlers/collab.py`     | TRAIN_COLLAB: gensim Word2Vec → вектора блобом в Object Store + `done.train_collab`                  |
 
 ## Масштабирование
 
-Воркеры = горизонтально клонируемые stateless-контейнеры. NATS — единственная точка входа/выхода. Qdrant — куда пишутся вектора. Состояние задач (ack/pending/deliveries) хранит JetStream, не воркер.
+Воркеры = горизонтально клонируемые stateless-контейнеры. NATS — единственная точка входа/выхода (Qdrant/PG/S3-запись —
+на backend). Состояние задач (ack/pending/deliveries) хранит JetStream, не воркер.

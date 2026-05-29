@@ -15,6 +15,7 @@ use crate::modules::lyrics::LyricsService;
 use crate::modules::tracks::normalize::ScTrackFields;
 use crate::modules::tracks::{TrackPriority, TrackRepository};
 use crate::modules::transcode::TranscodeTriggerService;
+use crate::qdrant::{parse_f32_vec, QdrantService};
 
 const REAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const REAP_AGE: Duration = Duration::from_secs(5 * 60);
@@ -50,6 +51,7 @@ pub struct IndexingStats {
 pub struct IndexingService {
     pg: PgPool,
     nats: Arc<NatsService>,
+    qdrant: Arc<QdrantService>,
     lyrics: Arc<LyricsService>,
     trigger: Arc<TranscodeTriggerService>,
     tracks: TrackRepository,
@@ -60,6 +62,7 @@ impl IndexingService {
     pub fn new(
         pg: PgPool,
         nats: Arc<NatsService>,
+        qdrant: Arc<QdrantService>,
         lyrics: Arc<LyricsService>,
         trigger: Arc<TranscodeTriggerService>,
         max_track_duration_ms: i32,
@@ -68,6 +71,7 @@ impl IndexingService {
         Arc::new(Self {
             pg,
             nats,
+            qdrant,
             lyrics,
             trigger,
             tracks,
@@ -158,6 +162,7 @@ impl IndexingService {
             streams::STORAGE_EVENTS.name,
             "backend-storage-uploaded",
             Some(subjects::STORAGE_TRACK_UPLOADED),
+            16,
             move |data| {
                 let svc = svc.clone();
                 async move {
@@ -220,12 +225,24 @@ impl IndexingService {
             streams::DONE.name,
             "backend-done-index-audio",
             Some(subjects::DONE_INDEX_AUDIO),
+            16,
             move |data| {
                 let svc = svc.clone();
                 async move {
                     let Some(sc_track_id) = data.get("sc_track_id").and_then(|v| v.as_str()) else {
                         return Ok(());
                     };
+                    // Воркер шлёт вектора в payload — пишем их в Qdrant ДО mark_indexed.
+                    // Upsert упал → Err → NAK → передоставка (вектора не потеряем).
+                    if let (Some(mert), Some(clap)) = (
+                        parse_f32_vec(data.get("mert")),
+                        parse_f32_vec(data.get("clap")),
+                    ) {
+                        if let Ok(id) = sc_track_id.parse::<u64>() {
+                            let language = data.get("language").and_then(|v| v.as_str());
+                            svc.qdrant.upsert_audio(id, mert, clap, language).await?;
+                        }
+                    }
                     svc.tracks.mark_indexed(sc_track_id).await?;
                     debug!(track = %sc_track_id, "indexed_at set");
                     if let Some(fp) = data.get("fingerprint").and_then(|v| v.as_str()) {

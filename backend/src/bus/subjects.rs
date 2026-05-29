@@ -23,6 +23,7 @@ pub const ENRICH_TRACK: &str = "enrich.track.new";
 pub const DONE_INDEX_AUDIO: &str = "done.index_audio";
 pub const DONE_EMBED_LYRICS: &str = "done.embed_lyrics";
 pub const DONE_TRANSCRIBE: &str = "done.transcribe";
+pub const DONE_TRAIN_COLLAB: &str = "done.train_collab";
 
 /// Object Store бакет с bulk-датасетом collab-тренировки: сессии не лезут в
 /// сообщение (лимит NATS 1 MB), в `train.collab.new` едет только имя объекта.

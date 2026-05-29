@@ -19,7 +19,6 @@ const UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, lik
 
 const API_THROTTLE_MS: u64 = 0;
 const WEB_DIRECT_THROTTLE_MS: u64 = 0;
-const MAX_CONCURRENT_SCRAPES: usize = 50;
 
 static RE_OPEN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)<div\b[^>]*\bdata-lyrics-container="true"[^>]*>"#).unwrap());
@@ -291,12 +290,13 @@ pub struct GeniusService {
 
 impl GeniusService {
     pub fn new(fetcher: Arc<ExternalFetcher>, cfg: GeniusCfg) -> Arc<Self> {
+        let scrape_sem = Arc::new(Semaphore::new(cfg.max_concurrent_scrapes.max(1)));
         Arc::new(Self {
             fetcher,
             cfg,
             api_throttle: Throttle::new(Duration::from_millis(API_THROTTLE_MS)),
             web_throttle: Throttle::new(Duration::from_millis(WEB_DIRECT_THROTTLE_MS)),
-            scrape_sem: Arc::new(Semaphore::new(MAX_CONCURRENT_SCRAPES)),
+            scrape_sem,
         })
     }
 
@@ -855,6 +855,7 @@ mod tests {
             fetcher,
             GeniusCfg {
                 access_token: String::new(),
+                max_concurrent_scrapes: 50,
             },
         )
     }

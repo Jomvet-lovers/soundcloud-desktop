@@ -23,6 +23,7 @@ use crate::modules::lyrics::util::{
 use crate::modules::lyrics::worker_client::{RankCandidate, WorkerClient};
 use crate::modules::recommendations::S3VerifierService;
 use crate::modules::transcode::TranscodeTriggerService;
+use crate::qdrant::{parse_f32_vec, QdrantService};
 
 const MIN_RANK_SCORE: f32 = 6.0;
 const MAX_CANDIDATES: usize = 8;
@@ -120,6 +121,7 @@ struct Candidate {
 pub struct LyricsService {
     pg: PgPool,
     nats: Arc<NatsService>,
+    qdrant: Arc<QdrantService>,
     lrclib: Arc<LrclibService>,
     mxm: Arc<MusixmatchService>,
     genius: Arc<GeniusService>,
@@ -136,6 +138,7 @@ impl LyricsService {
     pub fn new(
         pg: PgPool,
         nats: Arc<NatsService>,
+        qdrant: Arc<QdrantService>,
         lrclib: Arc<LrclibService>,
         mxm: Arc<MusixmatchService>,
         genius: Arc<GeniusService>,
@@ -148,6 +151,7 @@ impl LyricsService {
         Arc::new(Self {
             pg,
             nats,
+            qdrant,
             lrclib,
             mxm,
             genius,
@@ -169,6 +173,7 @@ impl LyricsService {
             streams::DONE.name,
             "backend-done-embed-lyrics",
             Some(subjects::DONE_EMBED_LYRICS),
+            16,
             move |data| {
                 let svc = svc.clone();
                 async move {
@@ -183,6 +188,14 @@ impl LyricsService {
                     let Some(id) = sc_track_id else { return Ok(()) };
                     if skipped {
                         return Ok(());
+                    }
+                    // Вектор в payload → пишем в Qdrant ДО embedded_at. Upsert
+                    // упал → Err → NAK → передоставка (эмбеддинг не потеряем).
+                    if let Some(vec) = parse_f32_vec(data.get("vec")) {
+                        if let Ok(num_id) = id.parse::<u64>() {
+                            let language = data.get("language").and_then(|v| v.as_str());
+                            svc.qdrant.upsert_lyrics(num_id, vec, language).await?;
+                        }
                     }
                     sqlx::query(
                         "UPDATE lyrics_cache SET embedded_at = now() \
@@ -887,6 +900,7 @@ impl LyricsService {
             streams::DONE.name,
             "backend-done-transcribe",
             Some(subjects::DONE_TRANSCRIBE),
+            16,
             move |data| {
                 let svc = svc.clone();
                 async move { svc.persist_transcribe(data).await }

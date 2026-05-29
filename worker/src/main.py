@@ -27,7 +27,6 @@ from .handlers import quality as quality_handler
 from .handlers import transcribe as transcribe_handler
 from .handlers.resolve import match_track, resolve_artist, verify_existence
 from .models import load_all
-from .storage import ensure_collections, new_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 for noisy in ("httpx", "httpcore", "urllib3", "huggingface_hub", "filelock"):
@@ -173,8 +172,6 @@ async def main() -> None:
         return
 
     models = load_all(enabled_tags)
-    qdrant = new_client()
-    ensure_collections(qdrant)
 
     # Стримы создаёт backend. Воркер регистрирует только consumer'ы для
     # активных тэгов — отключённые стримы остаются другим воркерам.
@@ -240,7 +237,7 @@ async def main() -> None:
             _js_pull_loop(
                 js, sems["audio"], subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO,
                 subj.SUBJECT_INDEX_AUDIO_NEW,
-                lambda p: audio.handle(p, models, qdrant, nc),
+                lambda p: audio.handle(p, models, nc),
                 "[audio]", stop, is_rpc=False,
             )
         ))
@@ -249,7 +246,7 @@ async def main() -> None:
             _js_pull_loop(
                 js, sems["lyrics"], subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS,
                 subj.SUBJECT_EMBED_LYRICS_NEW,
-                lambda p: lyrics.handle(p, models, qdrant, nc),
+                lambda p: lyrics.handle(p, models, nc),
                 "[lyrics]", stop, is_rpc=False,
             )
         ))
@@ -258,7 +255,7 @@ async def main() -> None:
             _js_pull_loop(
                 js, sems["collab"], subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB,
                 subj.SUBJECT_TRAIN_COLLAB_NEW,
-                lambda p: collab_handler.handle(p, models, qdrant, nc),
+                lambda p: collab_handler.handle(p, models, nc),
                 "[collab]", stop, is_rpc=False,
             )
         ))
@@ -267,7 +264,7 @@ async def main() -> None:
             _js_pull_loop(
                 js, sems["quality"], subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY,
                 subj.SUBJECT_TRAIN_QUALITY_NEW,
-                lambda p: quality_handler.handle(p, models, qdrant, nc),
+                lambda p: quality_handler.handle(p, models, nc),
                 "[quality]", stop, is_rpc=False,
             )
         ))

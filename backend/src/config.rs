@@ -46,6 +46,7 @@ pub struct ColdCfg {
 #[derive(Clone, Debug)]
 pub struct GeniusCfg {
     pub access_token: String,
+    pub max_concurrent_scrapes: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -151,6 +152,7 @@ pub struct EnrichCfg {
     pub ai_enabled: bool,
     pub ai_timeout_ms: u64,
     pub ai_daily_budget: u64,
+    pub consumer_concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -261,6 +263,7 @@ impl AppConfig {
 
             genius: GeniusCfg {
                 access_token: env_str("GENIUS_ACCESS_TOKEN", ""),
+                max_concurrent_scrapes: env_usize("GENIUS_MAX_CONCURRENT_SCRAPES", 150),
             },
 
             enrich: EnrichCfg {
@@ -276,6 +279,7 @@ impl AppConfig {
                 ai_enabled: env_str("ENRICH_AI_ENABLED", "true") != "false",
                 ai_timeout_ms: env_u64("ENRICH_AI_TIMEOUT_MS", 20_000),
                 ai_daily_budget: env_u64("ENRICH_AI_DAILY_BUDGET", 5000),
+                consumer_concurrency: env_usize("ENRICH_CONSUMER_CONCURRENCY", 32),
             },
 
             enrich_crawl: EnrichCrawlCfg {

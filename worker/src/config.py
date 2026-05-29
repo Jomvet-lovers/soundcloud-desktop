@@ -2,8 +2,6 @@
 import os
 
 NATS_URL = os.environ["NATS_URL"]
-QDRANT_URL = os.environ["QDRANT_URL"]
-QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "") or None
 
 HEARTBEAT_SEC = int(os.environ.get("TASK_HEARTBEAT_SEC", "10"))
 HARD_TIMEOUT_SEC = int(os.environ.get("TASK_HARD_TIMEOUT_SEC", "120"))

@@ -1,15 +1,15 @@
-"""EMBED_LYRICS: bge-m3 encode text → qdrant tracks_lyrics."""
+"""EMBED_LYRICS: bge-m3 encode text → вектор в шину.
+
+Запись в Qdrant — на бэке (см. AGENTS.md): воркер шлёт вектор в `done.embed_lyrics`.
+"""
 import asyncio
 import json
 import logging
 import time
-
 from nats.aio.client import Client as NATSClient
-from qdrant_client import QdrantClient
 
 from .. import subjects as subj
 from ..models import Models
-from ..storage import has_lyrics_vector, upsert_lyrics
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +22,6 @@ def _embed(models: Models, text: str) -> list[float]:
 async def handle(
     payload: dict,
     models: Models,
-    qdrant: QdrantClient,
     nc: NATSClient,
 ) -> None:
     sc_track_id = str(payload["sc_track_id"])
@@ -37,16 +36,15 @@ async def handle(
         )
         return
 
-    if has_lyrics_vector(qdrant, sc_track_id):
-        log.info(f"[lyrics] {sc_track_id} already embedded, skip")
-    else:
-        log.info(f"[lyrics] {sc_track_id} embedding ({len(text)} chars)")
-        t0 = time.monotonic()
-        vec = await asyncio.to_thread(_embed, models, text[:4000])
-        upsert_lyrics(qdrant, sc_track_id, vec, language)
-        log.info(f"[lyrics] {sc_track_id} embedded in {time.monotonic() - t0:.2f}s")
+    log.info(f"[lyrics] {sc_track_id} embedding ({len(text)} chars)")
+    t0 = time.monotonic()
+    vec = await asyncio.to_thread(_embed, models, text[:4000])
+    log.info(f"[lyrics] {sc_track_id} embedded in {time.monotonic() - t0:.2f}s")
 
+    done_payload: dict = {"sc_track_id": sc_track_id, "vec": vec}
+    if language:
+        done_payload["language"] = language
     await nc.publish(
         subj.SUBJECT_DONE_EMBED_LYRICS,
-        json.dumps({"sc_track_id": sc_track_id}).encode(),
+        json.dumps(done_payload).encode(),
     )

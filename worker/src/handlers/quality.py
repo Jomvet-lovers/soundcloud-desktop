@@ -12,12 +12,11 @@ Handlers:
 """
 import json
 import logging
+import numpy as np
 import os
 import threading
 import time
 from typing import Any
-
-import numpy as np
 
 from .. import subjects as subj
 
@@ -113,7 +112,7 @@ def _train(features: np.ndarray, labels: np.ndarray) -> tuple[Any, dict]:
     return clf, info
 
 
-async def handle(payload: dict, models, qdrant, nc) -> None:
+async def handle(payload: dict, models, nc) -> None:
     examples = payload.get("examples") or []
     if len(examples) < 100:
         await nc.publish(

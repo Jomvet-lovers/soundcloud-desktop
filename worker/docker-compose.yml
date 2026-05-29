@@ -13,8 +13,6 @@ x-worker-common: &worker-common
   restart: always
   environment: &worker-env
     NATS_URL: ${NATS_URL}
-    QDRANT_URL: ${QDRANT_URL}
-    QDRANT_API_KEY: ${QDRANT_API_KEY:-}
     TASK_HARD_TIMEOUT_SEC: ${TASK_HARD_TIMEOUT_SEC:-120}
     TASK_HEARTBEAT_SEC: ${TASK_HEARTBEAT_SEC:-10}
     MINI_MODEL: ${MINI_MODEL:-google/gemma-4-E2B-it}

@@ -131,6 +131,7 @@ impl EnrichService {
             streams::ENRICH.name,
             "backend-enrich-track",
             Some(subjects::ENRICH_TRACK),
+            self.cfg.consumer_concurrency,
             move |data| {
                 let svc = svc.clone();
                 async move { svc.handle_message(data).await }
@@ -260,22 +261,10 @@ impl EnrichService {
             }
         }
 
-        // Cross-process lock: гарантирует, что один и тот же sc_track_id не
-        // обрабатывается двумя инстансами / двумя redelivery NATS параллельно.
-        // Lock привязан к сессии postgres'а — освободится сам при возврате
-        // connection в pool, либо мы явно снимем в конце.
-        let mut lock_conn = self.pg.acquire().await?;
-        let locked: (bool,) =
-            sqlx::query_as("SELECT pg_try_advisory_lock(hashtextextended($1::text, 0))")
-                .bind(sc_track_id)
-                .fetch_one(&mut *lock_conn)
-                .await?;
-        if !locked.0 {
-            tracing::debug!(track = %sc_track_id, "enrich: skipped (locked elsewhere)");
-            return Ok(());
-        }
-        let _guard = AdvisoryLockGuard::new(lock_conn, sc_track_id.to_string());
-
+        // Дедуп без удержания соединения (hot-path под нагрузкой): in-memory
+        // `inflight` (handle_message) гасит конкурентный дубль в инстансе,
+        // FRESH_AFTER_DONE — повторы по уже done, а persist::apply идемпотентен
+        // (ON CONFLICT). Соединения берём только на короткие запросы.
         let ctx = TrackContext::from_row(&track);
 
         let mut result = if let Some(fast) = self.try_sc_verified(&ctx).await? {
@@ -456,7 +445,7 @@ impl EnrichService {
                    AND enrich_attempts < $1
                    AND (enriched_at IS NULL
                         OR enriched_at < now() - (interval '5 minutes' * power(2, enrich_attempts)))
-                 ORDER BY enriched_at NULLS FIRST
+                 ORDER BY index_priority, enriched_at NULLS FIRST
                  LIMIT $2
                  FOR UPDATE SKIP LOCKED
              )
@@ -484,38 +473,6 @@ impl EnrichService {
             }
         }
         Ok(())
-    }
-}
-
-/// RAII guard для pg_advisory_unlock. При drop'е спавнит fire-and-forget таск,
-/// который снимает lock — асинхронно, потому что Drop sync. Если процесс
-/// упадёт до выполнения — postgres сам отпустит lock при reset'е connection.
-struct AdvisoryLockGuard {
-    conn: Option<sqlx::pool::PoolConnection<sqlx::Postgres>>,
-    sc_track_id: String,
-}
-
-impl AdvisoryLockGuard {
-    fn new(conn: sqlx::pool::PoolConnection<sqlx::Postgres>, sc_track_id: String) -> Self {
-        Self {
-            conn: Some(conn),
-            sc_track_id,
-        }
-    }
-}
-
-impl Drop for AdvisoryLockGuard {
-    fn drop(&mut self) {
-        let Some(mut conn) = self.conn.take() else {
-            return;
-        };
-        let id = std::mem::take(&mut self.sc_track_id);
-        tokio::spawn(async move {
-            let _ = sqlx::query("SELECT pg_advisory_unlock(hashtextextended($1::text, 0))")
-                .bind(&id)
-                .execute(&mut *conn)
-                .await;
-        });
     }
 }
 

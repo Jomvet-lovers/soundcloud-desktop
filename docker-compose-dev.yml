@@ -156,7 +156,6 @@ services:
     stop_grace_period: 8s
     environment:
       NATS_URL: nats://nats:4222
-      QDRANT_URL: http://qdrant:6333
       MINI_MODEL: ${MINI_MODEL:-Qwen/Qwen3-1.7B}
       WHISPER_MODEL: ${WHISPER_MODEL:-medium}
       WHISPER_COMPUTE: ${WHISPER_COMPUTE:-float16}

@@ -143,21 +143,24 @@ impl ArtistCrawlService {
         }
         info!(count = rows.len(), "artist crawl: processing batch");
 
-        for (artist_id, mb_id, genius_id, sc_user_id, mb_off, genius_off) in rows {
-            if let Err(e) = self
-                .crawl_one(
-                    artist_id,
-                    mb_id.as_deref(),
-                    genius_id.as_deref(),
-                    sc_user_id.as_deref(),
-                    mb_off as u32,
-                    genius_off as u32,
-                )
-                .await
-            {
-                warn!(artist = %artist_id, error = %e, "artist crawl failed");
-            }
-        }
+        join_all(rows.into_iter().map(
+            |(artist_id, mb_id, genius_id, sc_user_id, mb_off, genius_off)| async move {
+                if let Err(e) = self
+                    .crawl_one(
+                        artist_id,
+                        mb_id.as_deref(),
+                        genius_id.as_deref(),
+                        sc_user_id.as_deref(),
+                        mb_off as u32,
+                        genius_off as u32,
+                    )
+                    .await
+                {
+                    warn!(artist = %artist_id, error = %e, "artist crawl failed");
+                }
+            },
+        ))
+            .await;
         Ok(())
     }
 

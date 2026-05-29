@@ -159,7 +159,15 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
         parsed.cleaned_title.clone()
     };
 
-    if let Some(artist) = primary_hint.as_deref() {
+    // MB throttle (1.1с) сериализует enrich, а для SC-аплоадов MB почти всегда
+    // пуст — ходим туда только для лейбловых треков (ISRC / metadata_artist).
+    let try_mb = ctx.isrc.is_some()
+        || ctx
+        .metadata_artist
+        .as_deref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false);
+    if let Some(artist) = primary_hint.as_deref().filter(|_| try_mb) {
         if !artist.is_empty() && !title_q.is_empty() {
             let mut found: Option<MbRecording> = None;
             match deps

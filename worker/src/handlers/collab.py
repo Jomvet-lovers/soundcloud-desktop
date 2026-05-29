@@ -1,4 +1,4 @@
-"""TRAIN_COLLAB: gensim Word2Vec на сессиях прослушивания → qdrant tracks_collab.
+"""TRAIN_COLLAB: gensim Word2Vec на сессиях прослушивания → вектора в шину.
 
 Модель обучается на последовательностях track_id внутри пользовательской сессии
 (skip-gram, item2vec). Получившиеся вектора отражают «треки слушают вместе».
@@ -7,9 +7,12 @@
 ломаются из-за высокой baseline-correlation. Используется как primary signal в
 рекомендациях: retrieval + rerank.
 
+Запись в Qdrant — на бэке (см. AGENTS.md): вектора едут блобом в Object Store
+(в сообщение не лезут), в `done.train_collab` — имя объекта + dim.
+
 Вход (NATS payload):
   {
-    "sessions": [[id1, id2, ...], ...],   # int track id; min len(session)=2
+    "object": "collab-<ts>",               # имя блоба сессий в Object Store
     "dim": 128,                            # размерность эмбеддинга
     "min_count": 3,                        # отсекать треки с <3 повторами
     "window": 5,
@@ -18,41 +21,18 @@
   }
 
 Выход:
-  publish done.train_collab {trained, vocab_size, dim, took_sec}
+  put Object Store <object>-vectors {dim, points:[{id, vec}]}
+  publish done.train_collab {trained, object, dim, vocab_size, n_sessions, train_sec}
 """
 import asyncio
 import json
 import logging
 import time
-
 from nats.aio.client import Client as NATSClient
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from .. import subjects as subj
 
 log = logging.getLogger(__name__)
-
-COLLAB_COLLECTION = "tracks_collab"
-
-
-def _ensure_collection(client: QdrantClient, dim: int) -> None:
-    existing = {c.name for c in client.get_collections().collections}
-    if COLLAB_COLLECTION in existing:
-        info = client.get_collection(COLLAB_COLLECTION)
-        params = info.config.params.vectors
-        actual = params.size if hasattr(params, "size") else None
-        if actual == dim:
-            return
-        log.warning(
-            f"[collab] collection {COLLAB_COLLECTION} dim mismatch (got {actual}, want {dim}) — recreating"
-        )
-        client.delete_collection(COLLAB_COLLECTION)
-    client.create_collection(
-        COLLAB_COLLECTION,
-        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
-    )
-    log.info(f"[collab] collection {COLLAB_COLLECTION} created (dim={dim})")
 
 
 def _train(
@@ -85,12 +65,11 @@ def _train(
 async def handle(
     payload: dict,
     models,
-    qdrant: QdrantClient,
     nc: NATSClient,
 ) -> None:
     object_name = payload.get("object")
+    store = await nc.jetstream().object_store(subj.OBJECT_STORE_COLLAB)
     if object_name:
-        store = await nc.jetstream().object_store(subj.OBJECT_STORE_COLLAB)
         obj = await store.get(object_name)
         sessions = json.loads(obj.data.decode())
         try:
@@ -141,40 +120,35 @@ async def handle(
         )
         return
 
-    _ensure_collection(qdrant, dim)
+    points = [
+        {"id": tid, "vec": model.wv[word].tolist()}
+        for word in model.wv.index_to_key
+        if (tid := _as_int(word)) is not None
+    ]
 
-    # Батчевый upsert.
-    BATCH = 500
-    points: list[PointStruct] = []
-    total = 0
-    for word in model.wv.index_to_key:
-        try:
-            tid = int(word)
-        except ValueError:
-            continue
-        vec = model.wv[word].tolist()
-        points.append(PointStruct(id=tid, vector=vec, payload={"sc_track_id": str(tid)}))
-        if len(points) >= BATCH:
-            qdrant.upsert(COLLAB_COLLECTION, points=points)
-            total += len(points)
-            points = []
-    if points:
-        qdrant.upsert(COLLAB_COLLECTION, points=points)
-        total += len(points)
-
+    out_object = f"{object_name or 'collab'}-vectors-{int(time.time() * 1000)}"
+    blob = json.dumps({"dim": dim, "points": points}).encode()
+    await store.put(out_object, blob)
     upsert_sec = time.monotonic() - t0 - train_sec
-    log.info(f"[collab] upserted {total} vectors in {upsert_sec:.2f}s")
+    log.info(f"[collab] {len(points)} vectors → object {out_object} in {upsert_sec:.2f}s")
 
     await nc.publish(
         subj.SUBJECT_DONE_TRAIN_COLLAB,
         json.dumps(
             {
                 "trained": True,
-                "vocab_size": total,
+                "object": out_object,
+                "vocab_size": len(points),
                 "dim": dim,
                 "n_sessions": n_sessions,
                 "train_sec": round(train_sec, 2),
-                "upsert_sec": round(upsert_sec, 2),
             }
         ).encode(),
     )
+
+
+def _as_int(word: str) -> int | None:
+    try:
+        return int(word)
+    except ValueError:
+        return None
