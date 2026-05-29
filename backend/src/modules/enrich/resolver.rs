@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::error::AppResult;
 use crate::modules::enrich::ai::AiResolverClient;
@@ -236,7 +236,7 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
     match genius_stage::search(&deps.genius, ctx, primary_hint.as_deref(), &title_q).await {
         Ok(Some(res)) => return Ok(merge_with(heuristic, res, ctx)),
         Ok(None) => debug!(title_q, "Genius search empty"),
-        Err(e) => debug!(error = %e, "Genius search failed"),
+        Err(e) => warn!(error = %e, "Genius search failed"),
     }
 
     if let Some(meta_a) = ctx.metadata_artist.as_deref() {
@@ -248,7 +248,7 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
             match genius_stage::search(&deps.genius, ctx, Some(meta_a), &title_q).await {
                 Ok(Some(res)) => return Ok(merge_with(heuristic, res, ctx)),
                 Ok(None) => debug!(meta_a, "Genius search empty (metadata_artist)"),
-                Err(e) => debug!(error = %e, "Genius search failed (metadata_artist)"),
+                Err(e) => warn!(error = %e, "Genius search failed (metadata_artist)"),
             }
         }
     }

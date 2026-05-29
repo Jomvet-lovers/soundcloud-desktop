@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
-use tracing::debug;
+use tracing::warn;
 
 use crate::common::external_fetch::ExternalFetcher;
 use crate::common::throttle::Throttle;
@@ -341,14 +341,15 @@ impl GeniusService {
         let bytes = match result {
             Ok(b) => b,
             Err(e) => {
-                debug!(url, label, error = %e, "genius fetch failed");
+                warn!(url, label, error = %e, "genius fetch failed");
                 return None;
             }
         };
         match serde_json::from_slice::<T>(&bytes) {
             Ok(d) => Some(d),
             Err(e) => {
-                debug!(url, label, error = %e, "genius parse failed");
+                let head: String = String::from_utf8_lossy(&bytes).chars().take(80).collect();
+                warn!(url, label, error = %e, head = %head, "genius parse failed");
                 None
             }
         }
@@ -362,7 +363,7 @@ impl GeniusService {
         {
             Ok(b) => b,
             Err(e) => {
-                debug!(url, error = %e, "genius html fetch failed");
+                warn!(url, error = %e, "genius html fetch failed");
                 return None;
             }
         };

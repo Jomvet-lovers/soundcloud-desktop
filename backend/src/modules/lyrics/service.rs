@@ -802,7 +802,12 @@ impl LyricsService {
         };
         let (mode, language, initial_prompt) = match row {
             Some(r) if r.synced_lrc.is_some() => return, // уже полностью готово
-            Some(r) if r.plain_text.as_deref().map(|p| !p.is_empty()).unwrap_or(false) => {
+            Some(r)
+            if r.plain_text
+                .as_deref()
+                .map(|p| !p.is_empty())
+                .unwrap_or(false) =>
+                {
                 let plain = r.plain_text.unwrap_or_default();
                 let initial = plain.chars().take(2000).collect::<String>();
                 ("align", r.language, Some(initial))
@@ -839,11 +844,12 @@ impl LyricsService {
     /// true если трек можно ставить в транскрайб: `transcribe_state` IS NULL или
     /// «зависший» pending. done/disabled/свежий pending → false.
     async fn transcribe_eligible(&self, sc_track_id: &str) -> AppResult<bool> {
-        let row: Option<(Option<String>, Option<chrono::DateTime<chrono::Utc>>)> =
-            sqlx::query_as("SELECT transcribe_state, transcribe_at FROM tracks WHERE sc_track_id = $1")
-                .bind(sc_track_id)
-                .fetch_optional(&self.pg)
-                .await?;
+        let row: Option<(Option<String>, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+            "SELECT transcribe_state, transcribe_at FROM tracks WHERE sc_track_id = $1",
+        )
+            .bind(sc_track_id)
+            .fetch_optional(&self.pg)
+            .await?;
         let Some((state, at)) = row else {
             return Ok(false); // нет трека — нечего транскрайбить
         };
@@ -1042,7 +1048,8 @@ impl LyricsService {
         // Зависшие pending перевыставляем только после TRANSCRIBE_STALE; свежий
         // pending и disabled/done реап пропускает (иначе HEAD'ил бы инструменталы
         // вечно). enqueue_transcribe ниже всё равно клеймит атомарно.
-        let stale_cutoff = chrono::Utc::now() - chrono::Duration::from_std(TRANSCRIBE_STALE).unwrap();
+        let stale_cutoff =
+            chrono::Utc::now() - chrono::Duration::from_std(TRANSCRIBE_STALE).unwrap();
 
         let need_align: Vec<(String,)> = sqlx::query_as(
             "SELECT lc.sc_track_id FROM lyrics_cache lc \

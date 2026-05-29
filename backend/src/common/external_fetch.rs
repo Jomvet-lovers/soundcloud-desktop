@@ -216,6 +216,15 @@ impl ExternalFetcher {
             (target_url.to_string(), headers)
         };
 
+        // Never let the upstream compress: the scraping proxy forwards bodies
+        // as-is and strips `content-encoding`, so a gzip/br response would reach
+        // us undecodable (this silently killed Genius once). Asking for
+        // `identity` guarantees a plain body whether we go direct or via proxy.
+        extra_headers.insert(
+            reqwest::header::ACCEPT_ENCODING,
+            HeaderValue::from_static("identity"),
+        );
+
         let mut builder = self.inner.http.request(method, &url);
         for (k, v) in extra_headers.drain() {
             if let Some(name) = k {
