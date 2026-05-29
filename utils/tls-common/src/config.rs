@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 pub struct TlsConfig {
@@ -9,6 +10,54 @@ pub struct TlsConfig {
     pub http_port: u16,
     pub http_redirect: bool,
     pub proxy_protocol: bool,
+    /// Peers allowed to dictate the client addr via PROXY v1 (haproxy). Others' PROXY headers are ignored.
+    pub proxy_trusted_cidrs: Vec<IpCidr>,
+    /// Hostnames resolved (and periodically re-resolved) to trusted peer IPs —
+    /// e.g. `haproxy`, so the allowlist survives container recreation.
+    pub proxy_trusted_hosts: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct IpCidr {
+    net: IpAddr,
+    prefix: u8,
+}
+
+impl IpCidr {
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim();
+        let (ip_s, prefix) = match s.split_once('/') {
+            Some((a, b)) => (a, b.trim().parse::<u8>().ok()?),
+            None => (s, if s.contains(':') { 128 } else { 32 }),
+        };
+        let net: IpAddr = ip_s.trim().parse().ok()?;
+        let max = if net.is_ipv6() { 128 } else { 32 };
+        if prefix > max {
+            return None;
+        }
+        Some(Self { net, prefix })
+    }
+
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        match (self.net, ip) {
+            (IpAddr::V4(n), IpAddr::V4(i)) => prefix_match(&n.octets(), &i.octets(), self.prefix),
+            (IpAddr::V6(n), IpAddr::V6(i)) => prefix_match(&n.octets(), &i.octets(), self.prefix),
+            _ => false,
+        }
+    }
+}
+
+fn prefix_match(a: &[u8], b: &[u8], prefix: u8) -> bool {
+    let full = (prefix / 8) as usize;
+    if a[..full] != b[..full] {
+        return false;
+    }
+    let rem = prefix % 8;
+    if rem == 0 {
+        return true;
+    }
+    let mask = 0xFFu8 << (8 - rem);
+    (a[full] & mask) == (b[full] & mask)
 }
 
 impl TlsConfig {
@@ -38,8 +87,16 @@ impl TlsConfig {
             http_port: env_u16("TLS_HTTP_PORT", 80),
             // HTTP→HTTPS 301 by default; off для смешанного режима.
             http_redirect: env_bool("TLS_HTTP_REDIRECT", true),
-            // PROXY v1 (haproxy `send-proxy`) — читаем real client addr перед TLS.
             proxy_protocol: env_bool("TLS_PROXY_PROTOCOL", false),
+            proxy_trusted_cidrs: parse_csv(
+                &std::env::var("TLS_PROXY_TRUSTED_CIDRS").unwrap_or_default(),
+            )
+                .iter()
+                .filter_map(|s| IpCidr::parse(s))
+                .collect(),
+            proxy_trusted_hosts: parse_csv(
+                &std::env::var("TLS_PROXY_TRUSTED_HOSTS").unwrap_or_default(),
+            ),
         })
     }
 }

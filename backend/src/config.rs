@@ -23,6 +23,7 @@ pub struct AppConfig {
     pub enrich: EnrichCfg,
     pub enrich_crawl: EnrichCrawlCfg,
     pub cold: ColdCfg,
+    pub max_track_duration_ms: i32,
 }
 
 /// TTL'и для cold-cache. Если sc_synced_at старше TTL — на чтении спавним
@@ -297,6 +298,8 @@ impl AppConfig {
                 refresh_concurrency: env_usize("COLD_REFRESH_CONCURRENCY", 32),
                 refresh_lock_ttl_sec: env_u64("COLD_REFRESH_LOCK_TTL_SEC", 60),
             },
+
+            max_track_duration_ms: (env_u64("MAX_TRACK_DURATION_SEC", 420) * 1000) as i32,
         }
     }
 }

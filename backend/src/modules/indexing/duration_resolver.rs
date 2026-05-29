@@ -16,12 +16,17 @@ const REQ_GAP: Duration = Duration::from_millis(150);
 pub struct DurationResolver {
     tracks: TrackRepository,
     resolve: Arc<ResolveService>,
+    max_track_duration_ms: i32,
 }
 
 impl DurationResolver {
-    pub fn new(pg: PgPool, resolve: Arc<ResolveService>) -> Arc<Self> {
+    pub fn new(pg: PgPool, resolve: Arc<ResolveService>, max_track_duration_ms: i32) -> Arc<Self> {
         let tracks = TrackRepository::new(pg);
-        Arc::new(Self { tracks, resolve })
+        Arc::new(Self {
+            tracks,
+            resolve,
+            max_track_duration_ms,
+        })
     }
 
     pub fn spawn(self: &Arc<Self>, shutdown: CancellationToken) {
@@ -68,6 +73,9 @@ impl DurationResolver {
             self.tracks
                 .apply_resolved_duration(sc_track_id, full as i32)
                 .await?;
+            if self.max_track_duration_ms > 0 && full > self.max_track_duration_ms as i64 {
+                self.tracks.mark_too_long(sc_track_id).await?;
+            }
         } else {
             // SC по-прежнему отдаёт sentinel — снимаем флаг, чтобы не зацикливать
             // запросы; реальный duration появится при следующем cold-refresh'е

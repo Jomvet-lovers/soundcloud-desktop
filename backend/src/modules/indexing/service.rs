@@ -53,6 +53,7 @@ pub struct IndexingService {
     lyrics: Arc<LyricsService>,
     trigger: Arc<TranscodeTriggerService>,
     tracks: TrackRepository,
+    max_track_duration_ms: i32,
 }
 
 impl IndexingService {
@@ -61,6 +62,7 @@ impl IndexingService {
         nats: Arc<NatsService>,
         lyrics: Arc<LyricsService>,
         trigger: Arc<TranscodeTriggerService>,
+        max_track_duration_ms: i32,
     ) -> Arc<Self> {
         let tracks = TrackRepository::new(pg.clone());
         Arc::new(Self {
@@ -69,6 +71,7 @@ impl IndexingService {
             lyrics,
             trigger,
             tracks,
+            max_track_duration_ms,
         })
     }
 
@@ -98,6 +101,10 @@ impl IndexingService {
             .tracks
             .upsert_from_sc(&fields, priority, priority)
             .await?;
+        if self.max_track_duration_ms > 0 && fields.duration_ms > self.max_track_duration_ms {
+            self.tracks.mark_too_long(&fields.sc_track_id).await?;
+            return Ok(());
+        }
         if result.was_new {
             self.kick_pipeline(&fields.sc_track_id);
         }

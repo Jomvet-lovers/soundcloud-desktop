@@ -240,6 +240,23 @@ impl TrackRepository {
         Ok(row)
     }
 
+    /// Terminal `too_long`: excluded from storage/index/transcribe pickup queues.
+    pub async fn mark_too_long(&self, sc_track_id: &str) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE tracks SET \
+                 storage_state = 'too_long', \
+                 index_state = 'too_long', \
+                 transcribe_state = 'disabled', \
+                 updated_at = now() \
+             WHERE sc_track_id = $1 \
+               AND (storage_state <> 'too_long' OR index_state <> 'too_long')",
+        )
+            .bind(sc_track_id)
+            .execute(&self.pg)
+            .await?;
+        Ok(())
+    }
+
     /// S3-аплоад завершён. `quality` ∈ {`'sq'`,`'hq'`} — кладём в
     /// `storage_quality`. `storage_state` всегда `'ok'`. Если приземлился `sq` —
     /// взводим `hq_upgrade_pending`, чтобы стриминговый cron позже перекачал

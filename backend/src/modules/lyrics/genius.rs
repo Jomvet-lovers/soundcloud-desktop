@@ -1,10 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::join_all;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
+use tokio::sync::Semaphore;
 use tracing::warn;
 
 use crate::common::external_fetch::ExternalFetcher;
@@ -15,8 +17,9 @@ const GENIUS_API: &str = "https://api.genius.com";
 const GENIUS_WEB_API: &str = "https://genius.com/api";
 const UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-const API_THROTTLE_MS: u64 = 500;
-const WEB_DIRECT_THROTTLE_MS: u64 = 3000;
+const API_THROTTLE_MS: u64 = 0;
+const WEB_DIRECT_THROTTLE_MS: u64 = 0;
+const MAX_CONCURRENT_SCRAPES: usize = 50;
 
 static RE_OPEN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"(?i)<div\b[^>]*\bdata-lyrics-container="true"[^>]*>"#).unwrap());
@@ -283,6 +286,7 @@ pub struct GeniusService {
     cfg: GeniusCfg,
     api_throttle: Arc<Throttle>,
     web_throttle: Arc<Throttle>,
+    scrape_sem: Arc<Semaphore>,
 }
 
 impl GeniusService {
@@ -292,6 +296,7 @@ impl GeniusService {
             cfg,
             api_throttle: Throttle::new(Duration::from_millis(API_THROTTLE_MS)),
             web_throttle: Throttle::new(Duration::from_millis(WEB_DIRECT_THROTTLE_MS)),
+            scrape_sem: Arc::new(Semaphore::new(MAX_CONCURRENT_SCRAPES)),
         })
     }
 
@@ -331,6 +336,7 @@ impl GeniusService {
     {
         let with_bearer = url.starts_with(GENIUS_API);
         let headers = self.json_headers(with_bearer);
+        let _permit = self.scrape_sem.acquire().await.ok();
         let result = if with_bearer {
             self.fetcher.get_api(url, headers, &self.api_throttle).await
         } else {
@@ -356,6 +362,7 @@ impl GeniusService {
     }
 
     async fn fetch_html(&self, url: &str) -> Option<String> {
+        let _permit = self.scrape_sem.acquire().await.ok();
         let bytes = match self
             .fetcher
             .get_scrape(url, self.html_headers(), &self.web_throttle)
@@ -648,21 +655,16 @@ impl GeniusService {
 
     pub async fn search_by_query(&self, q: &str, limit: usize) -> Vec<GeniusCandidate> {
         let hits = self.collect_lyric_hits(q, limit).await;
-        let mut out = Vec::new();
-        for hit in hits.into_iter().take(limit) {
-            let html = match self.fetch_html(&hit.url).await {
-                Some(t) => t,
-                None => continue,
-            };
-            if let Some(plain) = parse_lyrics_html(&html) {
-                out.push(GeniusCandidate {
-                    plain_text: plain,
-                    artist_guess: hit.artist,
-                    title_guess: hit.title,
-                });
-            }
-        }
-        out
+        let scrapes = hits.into_iter().take(limit).map(|hit| async move {
+            let html = self.fetch_html(&hit.url).await?;
+            let plain = parse_lyrics_html(&html)?;
+            Some(GeniusCandidate {
+                plain_text: plain,
+                artist_guess: hit.artist,
+                title_guess: hit.title,
+            })
+        });
+        join_all(scrapes).await.into_iter().flatten().collect()
     }
 
     /// Собирает список Genius-кандидатов для скрейпа лирики:

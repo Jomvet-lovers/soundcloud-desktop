@@ -9,7 +9,7 @@ use rustls_acme::AcmeConfig;
 use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 
-use crate::acceptor::ConnectInfoAcceptor;
+use crate::acceptor::{ConnectInfoAcceptor, TrustedProxies};
 use crate::config::TlsConfig;
 use crate::redirect::redirect_router;
 use crate::shutdown::shutdown_signal;
@@ -33,9 +33,32 @@ pub async fn serve(cfg: TlsConfig, app: Router) {
         .with_no_client_auth()
         .with_cert_resolver(state.resolver());
     rustls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    let trusted = TrustedProxies {
+        cidrs: Arc::new(cfg.proxy_trusted_cidrs.clone()),
+        resolved: Arc::new(std::sync::RwLock::new(Vec::new())),
+    };
+    if !cfg.proxy_trusted_hosts.is_empty() {
+        let hosts = cfg.proxy_trusted_hosts.clone();
+        let resolved = trusted.resolved.clone();
+        tokio::spawn(async move {
+            loop {
+                let mut ips = Vec::new();
+                for h in &hosts {
+                    if let Ok(addrs) = tokio::net::lookup_host(format!("{h}:0")).await {
+                        ips.extend(addrs.map(|sa| sa.ip()));
+                    }
+                }
+                if let Ok(mut w) = resolved.write() {
+                    *w = ips;
+                }
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
     let acceptor = ConnectInfoAcceptor {
         inner: state.axum_acceptor(Arc::new(rustls_config)),
         proxy_protocol: cfg.proxy_protocol,
+        proxy_trusted: trusted,
     };
 
     tokio::spawn(async move {

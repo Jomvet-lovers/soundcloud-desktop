@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::join_all;
 use serde_json::Value;
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
@@ -416,20 +417,30 @@ impl ArtistCrawlService {
             if albums.is_empty() {
                 break;
             }
-            for album_ref in albums {
+            join_all(albums.into_iter().map(|album_ref| {
                 let year_hint = album_ref.year;
                 let genius_album_id = album_ref.genius_album_id;
-                let album_id = self
-                    .ensure_genius_album(album_ref, Some(artist_id), year_hint)
-                    .await?;
-                let Some(album_id) = album_id else { continue };
-                if let Err(e) = self
-                    .ingest_genius_album_tracks(artist_id, album_id, genius_album_id)
-                    .await
-                {
-                    debug!(album_id = %album_id, error = %e, "Genius album tracks ingest failed");
+                async move {
+                    let album_id = match self
+                        .ensure_genius_album(album_ref, Some(artist_id), year_hint)
+                        .await
+                    {
+                        Ok(Some(id)) => id,
+                        Ok(None) => return,
+                        Err(e) => {
+                            debug!(error = %e, "ensure_genius_album failed");
+                            return;
+                        }
+                    };
+                    if let Err(e) = self
+                        .ingest_genius_album_tracks(artist_id, album_id, genius_album_id)
+                        .await
+                    {
+                        debug!(album_id = %album_id, error = %e, "Genius album tracks ingest failed");
+                    }
                 }
-            }
+            }))
+                .await;
             if !has_more {
                 return Ok(());
             }
@@ -585,8 +596,14 @@ impl ArtistCrawlService {
                 .list_artist_songs(genius_id, page, GENIUS_PAGE_SIZE)
                 .await;
             let count = songs.len() as u32;
-            for song in songs {
-                if let Err(e) = self.persist_genius_song(artist_id, genius_id, song).await {
+            let results = join_all(
+                songs
+                    .into_iter()
+                    .map(|song| self.persist_genius_song(artist_id, genius_id, song)),
+            )
+                .await;
+            for r in results {
+                if let Err(e) = r {
                     debug!(error = %e, "wanted_track upsert (genius) failed");
                 }
             }

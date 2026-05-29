@@ -227,13 +227,21 @@ async fn main() {
     );
     collab_trainer.spawn_bootstrap_and_cron(shutdown.clone());
 
-    let indexing =
-        IndexingService::new(pg.clone(), nats.clone(), lyrics.clone(), transcode.clone());
+    let indexing = IndexingService::new(
+        pg.clone(),
+        nats.clone(),
+        lyrics.clone(),
+        transcode.clone(),
+        config.max_track_duration_ms,
+    );
     indexing.spawn(shutdown.clone());
     cold_refresh.install_indexing(indexing.clone());
 
-    let duration_resolver =
-        crate::modules::indexing::DurationResolver::new(pg.clone(), resolve.clone());
+    let duration_resolver = crate::modules::indexing::DurationResolver::new(
+        pg.clone(),
+        resolve.clone(),
+        config.max_track_duration_ms,
+    );
     duration_resolver.spawn(shutdown.clone());
 
     let artist_account_walker = crate::modules::enrich::ArtistAccountWalker::new(

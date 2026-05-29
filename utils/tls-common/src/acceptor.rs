@@ -1,7 +1,8 @@
 use std::future::Future;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
 use axum::extract::ConnectInfo;
@@ -18,9 +19,28 @@ use crate::proxy::read_proxy_v1;
 /// 2) оборачивает service в `ConnectInfoService` чтобы каждый Request получил
 ///    `ConnectInfo<SocketAddr>` extension.
 #[derive(Clone)]
+pub(crate) struct TrustedProxies {
+    pub cidrs: Arc<Vec<crate::config::IpCidr>>,
+    pub resolved: Arc<RwLock<Vec<IpAddr>>>,
+}
+
+impl TrustedProxies {
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        if self.cidrs.iter().any(|c| c.contains(ip)) {
+            return true;
+        }
+        self.resolved
+            .read()
+            .map(|r| r.contains(&ip))
+            .unwrap_or(false)
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct ConnectInfoAcceptor<A> {
     pub inner: A,
     pub proxy_protocol: bool,
+    pub proxy_trusted: TrustedProxies,
 }
 
 impl<A, S> Accept<TcpStream, S> for ConnectInfoAcceptor<A>
@@ -38,12 +58,22 @@ where
     fn accept(&self, stream: TcpStream, service: S) -> Self::Future {
         let inner = self.inner.clone();
         let proxy_protocol = self.proxy_protocol;
+        let proxy_trusted = self.proxy_trusted.clone();
         Box::pin(async move {
             let mut stream = stream;
-            let real_addr = if proxy_protocol {
-                read_proxy_v1(&mut stream).await?
+            let peer = stream.peer_addr()?;
+            // PROXY header is consumed when present (else its bytes corrupt TLS)
+            // but only trusted from allowlisted peers; otherwise use peer_addr so
+            // a direct connector can't spoof source-IP by forging it.
+            let real_addr = if proxy_protocol && peek_proxy_signature(&stream).await {
+                let advertised = read_proxy_v1(&mut stream).await?;
+                if proxy_trusted.contains(peer.ip()) {
+                    advertised
+                } else {
+                    peer
+                }
             } else {
-                stream.peer_addr()?
+                peer
             };
             let svc = ConnectInfoService {
                 inner: service,
@@ -51,6 +81,17 @@ where
             };
             inner.accept(stream, svc).await
         })
+    }
+}
+
+async fn peek_proxy_signature(stream: &TcpStream) -> bool {
+    let mut sig = [0u8; 6];
+    match stream.peek(&mut sig).await {
+        Ok(n) if n >= 1 => {
+            let want = b"PROXY ";
+            sig[..n] == want[..n.min(want.len())]
+        }
+        _ => false,
     }
 }
 
