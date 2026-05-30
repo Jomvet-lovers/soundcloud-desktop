@@ -10,7 +10,7 @@ interface AuraFieldProps {
 function AuraFieldImpl({ aura, isStar }: AuraFieldProps) {
   return (
     <div
-      className="absolute inset-0 pointer-events-none overflow-hidden"
+        className="fixed inset-0 pointer-events-none overflow-hidden"
       style={{ contain: 'strict', transform: 'translateZ(0)' }}
     >
       <div
@@ -32,10 +32,10 @@ function AuraFieldImpl({ aura, isStar }: AuraFieldProps) {
         }}
       />
       <div
-        className="absolute top-[40%] left-[20%] w-[55vw] h-[55vw] rounded-full mix-blend-screen"
+          className="absolute -bottom-[18%] left-[16%] w-[62vw] h-[62vw] rounded-full mix-blend-screen"
         style={{
           background: `radial-gradient(circle, ${aura.orbs[2]} 0%, transparent 65%)`,
-          opacity: isStar ? 0.3 : 0.12,
+            opacity: isStar ? 0.32 : 0.14,
           filter: 'blur(160px)',
           animation: 'orb-drift 34s ease-in-out -16s infinite',
         }}

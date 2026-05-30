@@ -1,6 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
@@ -27,9 +27,15 @@ pub fn router() -> Router<AppState> {
             "/tracks/{track_urn}/comments",
             get(get_comments).post(create_comment),
         )
+        .route("/tracks/{track_urn}/sharing", put(set_track_sharing))
         .route("/tracks/{track_urn}/favoriters", get(get_favoriters))
         .route("/tracks/{track_urn}/reposters", get(get_reposters))
         .route("/tracks/{track_urn}/related", get(get_related))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SharingBody {
+    sharing: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -132,6 +138,19 @@ async fn delete_track(
     Path(track_urn): Path<String>,
 ) -> AppResult<Json<Value>> {
     Ok(Json(st.tracks.delete(ctx.session_id, &track_urn).await?))
+}
+
+async fn set_track_sharing(
+    State(st): State<AppState>,
+    ctx: SessionCtx,
+    Path(track_urn): Path<String>,
+    Json(body): Json<SharingBody>,
+) -> AppResult<Json<Value>> {
+    Ok(Json(
+        st.tracks
+            .set_sharing(&ctx.sc_user_id, &track_urn, &body.sharing)
+            .await?,
+    ))
 }
 
 async fn get_streams(

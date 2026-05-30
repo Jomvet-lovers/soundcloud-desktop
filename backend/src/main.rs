@@ -198,7 +198,8 @@ async fn main() {
         nats.clone(),
         s3_verifier.clone(),
     );
-    let worker = WorkerClient::new(nats.clone());
+    let worker = WorkerClient::new(nats.clone(), cache.clone(), qdrant.clone());
+    worker.spawn_done_consumer();
     let lrclib = LrclibService::new(external_fetcher.clone());
     let mxm = MusixmatchService::new(external_fetcher.clone(), config.mxm.api_base.clone());
     let genius = GeniusService::new(external_fetcher.clone(), config.genius.clone());
@@ -347,6 +348,14 @@ async fn main() {
         config.soundwave.clone(),
     );
 
+    let vibe = crate::modules::search::VibeSearchService::new(
+        pg.clone(),
+        cache.clone(),
+        recommendations.clone(),
+        worker.clone(),
+        qdrant.clone(),
+    );
+
     events.install_deps(
         indexing.clone(),
         dislikes.clone(),
@@ -436,6 +445,7 @@ async fn main() {
         likes,
         resolve,
         search,
+        vibe,
         history,
         featured,
         lyrics,

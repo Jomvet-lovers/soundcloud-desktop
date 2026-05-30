@@ -109,12 +109,17 @@ pub fn start_media_controls(app: &AppHandle) {
                     }
                     Ok(MediaCmd::SetPlaying(playing)) => {
                         let state = handle.state::<AudioState>();
+                        // get_pos() is output time; the OS expects source-timeline position.
                         let pos = state
                             .player
                             .lock()
                             .unwrap()
                             .as_ref()
-                            .map(|player| player.get_pos())
+                            .map(|player| {
+                                Duration::from_secs_f64(crate::audio::engine::source_pos(
+                                    &state, player,
+                                ))
+                            })
                             .unwrap_or_default();
                         let progress = Some(MediaPosition(pos));
                         let playback = if playing {

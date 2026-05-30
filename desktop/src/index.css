@@ -26,6 +26,16 @@
   box-sizing: border-box;
 }
 
+/* Drop sticky :hover while content scrolls under a stationary cursor — WebKitGTK
+   doesn't re-hit-test on wheel scroll, so cards otherwise "stick" or light up the
+   wrong tile. The guard is set on scroll and cleared on pointer move/down (see
+   AppShell), so real hover/click intent re-enables instantly. */
+main[data-scrolling] *,
+main[data-scrolling] *::before,
+main[data-scrolling] *::after {
+    pointer-events: none !important;
+}
+
 html,
 body,
 #root {
@@ -83,8 +93,13 @@ body,
 
 /* ── Shimmer ───────────────────────────────────────────────── */
 @keyframes skeleton-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.45;
+    }
 }
 
 .skeleton-shimmer {
@@ -93,7 +108,9 @@ body,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton-shimmer { animation: none; }
+    .skeleton-shimmer {
+        animation: none;
+    }
 }
 
 /* ── Scrollbar hide ────────────────────────────────────────── */
@@ -543,6 +560,108 @@ body,
   }
 }
 
+/* ── Liquid Glass Portal (vp-) — vibe-search CTA in the SoundWave hero ──
+   Composite-only motion: transform / opacity / box-shadow. Pointer lensing
+   (--mx/--my/--px) is written from JS to CSS vars. Blur layers (vp-aurora,
+   vp-lens) carry contain:strict + translateZ(0) to live on their own GPU
+   layer; the content wrapper is isolation:isolate so its repaints never
+   recompute those blurs. */
+
+/* Idle chevron breathing; accelerates on hover so the » "opens" toward search. */
+@keyframes vp-chev {
+    0%,
+    100% {
+        transform: translate3d(0, 0, 0);
+    }
+    50% {
+        transform: translate3d(3px, 0, 0);
+    }
+}
+
+/* One-shot specular sweep across the lozenge on hover. */
+@keyframes vp-gleam {
+    to {
+        transform: translateX(560%);
+    }
+}
+
+.vp-portal {
+    transition: transform 0.4s var(--ease-apple),
+    box-shadow 0.4s var(--ease-apple);
+}
+
+.vp-portal:active {
+    transform: scale(0.992);
+}
+
+.vp-portal:focus-visible .vp-ring {
+    opacity: 1;
+}
+
+/* Marching » chevrons. will-change is intent-scoped to :hover only. */
+.vp-chev {
+    animation: vp-chev 1.9s ease-in-out infinite;
+}
+
+.vp-portal:hover .vp-chev {
+    animation-duration: 0.85s;
+    will-change: transform;
+}
+
+/* Gleam sweeps once per hover (skew lives on the inner span, unanimated). */
+.vp-portal:hover .vp-gleam {
+    animation: vp-gleam 1.05s var(--ease-apple);
+}
+
+/* Sigil lifts and its hairline ring expands on hover. */
+.vp-sigil {
+    transition: transform 0.45s var(--ease-apple);
+}
+
+.vp-portal:hover .vp-sigil {
+    transform: scale(1.06);
+}
+
+.vp-sigil-ring {
+    opacity: 0;
+    transform: scale(1);
+    transition: transform 0.55s var(--ease-apple),
+    opacity 0.55s var(--ease-apple);
+}
+
+.vp-portal:hover .vp-sigil-ring {
+    opacity: 0.5;
+    transform: scale(1.22);
+}
+
+/* Motes drift at rest, then are drawn toward the » well on hover. The drift
+   animation is dropped (not paused) on hover so the base value + pull
+   transition take over — a paused animation would keep overriding transform. */
+.vp-mote {
+    animation-name: sw-drift;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    transition: transform var(--vp-pdur, 520ms) var(--ease-apple),
+    opacity 0.4s ease-out;
+}
+
+.vp-portal:hover .vp-mote {
+    animation-name: none;
+    transform: translate3d(var(--vp-dx, 0), var(--vp-dy, 0), 0) scale(0.4);
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vp-chev,
+    .vp-portal:hover .vp-chev,
+    .vp-portal:hover .vp-gleam,
+    .vp-aurora,
+    .vp-mote,
+    .vp-portal:hover .vp-mote {
+        animation: none !important;
+    }
+}
+
 .soundwave-bar {
   transform-origin: center;
   animation: sw-bar 1.4s ease-in-out infinite;
@@ -590,4 +709,473 @@ body,
   -webkit-background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
+}
+
+/* ── Now Playing Bar — Liquid Pill Dock ──────────────────────────
+   A single floating frosted capsule. The glass (backdrop-filter) lives in
+   its OWN isolated layer (.npb-glass); all live/interactive content sits in
+   a sibling .npb-content layer ABOVE it, so 60fps progress repaints never
+   re-run the blur. There is no idle motion; the looping "now playing" cues
+   (vinyl ring, eq bars, play pulse) run only while [data-playing] is true
+   (= playing AND window visible). */
+.npb {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 11px 16px 15px;
+    /* overlay: empty areas around the pill let clicks fall through to the page */
+    pointer-events: none;
+    animation: npb-rise 0.7s var(--ease-apple) both;
+}
+
+@keyframes npb-rise {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* accent under-glow plate behind the pill (cheap gradient, no backdrop-filter) */
+.npb-underglow {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(62%, 660px);
+    height: 70px;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(60% 100% at 50% 100%, var(--color-accent-glow) 0%, transparent 72%);
+    filter: blur(8px);
+    opacity: 0.85;
+    transition: opacity 0.4s var(--ease-apple);
+}
+
+.npb:hover .npb-underglow {
+    opacity: 1;
+}
+
+/* the floating capsule — frame carries shadow + the gentle float */
+.npb-dock {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
+    width: max-content;
+    max-width: calc(100% - 32px);
+    border-radius: 28px;
+    box-shadow: 0 30px 70px -22px rgba(0, 0, 0, 0.78),
+    0 0 64px -18px var(--color-accent-glow);
+}
+
+/* the ONLY backdrop-filter — isolated in its own GPU layer */
+.npb-glass {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+    background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.09),
+            rgba(255, 255, 255, 0.022) 44%,
+            rgba(255, 255, 255, 0.01)
+    ),
+    rgba(15, 15, 19, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset,
+    0 -10px 26px -18px rgba(0, 0, 0, 0.7) inset;
+    backdrop-filter: blur(28px) saturate(1.6);
+    -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    contain: strict;
+    transform: translateZ(0);
+}
+
+/* accent tint in the corner */
+.npb-glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(120% 180% at 6% 0%, var(--color-accent-glow) 0%, transparent 42%);
+    opacity: 0.5;
+}
+
+/* fine grain for material realism */
+.npb-glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.04;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* content layer — repaints here never re-blur the glass below */
+.npb-content {
+    position: relative;
+    z-index: 1;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 10px 18px 8px;
+}
+
+.npb-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.npb-sep {
+    width: 1px;
+    height: 30px;
+    flex: 0 0 auto;
+    background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+}
+
+/* meta (art + title) */
+.npb-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.npb-art {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    flex: 0 0 auto;
+    border-radius: 13px;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    transition: transform 0.3s var(--ease-apple),
+    box-shadow 0.3s var(--ease-apple);
+}
+
+.npb-art:hover {
+    transform: scale(1.05) rotate(-1.5deg);
+    box-shadow: 0 10px 26px -8px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.2) inset,
+    0 0 30px -8px var(--color-accent-glow);
+}
+
+.npb-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.npb-artfb {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(140deg, var(--color-accent), #3a2bd0);
+}
+
+.npb-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: conic-gradient(
+            from 0deg,
+            transparent 0 74%,
+            rgba(255, 255, 255, 0.55) 84%,
+            transparent 92%
+    );
+    -webkit-mask: radial-gradient(circle, transparent 56%, #000 58%);
+    mask: radial-gradient(circle, transparent 56%, #000 58%);
+    opacity: 0;
+    transition: opacity 0.3s var(--ease-apple);
+}
+
+.npb-eq {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5px;
+    height: 11px;
+    opacity: 0;
+    transition: opacity 0.3s var(--ease-apple);
+    pointer-events: none;
+}
+
+.npb-eq i {
+    width: 2px;
+    height: 11px;
+    border-radius: 1px;
+    background: #fff;
+    box-shadow: 0 0 6px var(--color-accent-glow);
+    transform-origin: bottom;
+    transform: scaleY(0.32);
+}
+
+.npb-dock[data-playing="true"] .npb-ring {
+    opacity: 0.5;
+    animation: npb-spin 7s linear infinite;
+}
+
+.npb-dock[data-playing="true"] .npb-eq {
+    opacity: 1;
+}
+
+.npb-dock[data-playing="true"] .npb-eq i {
+    animation: npb-eq 900ms ease-in-out infinite;
+}
+
+.npb-eq i:nth-child(1) {
+    animation-delay: -200ms;
+}
+
+.npb-eq i:nth-child(2) {
+    animation-delay: -560ms;
+}
+
+.npb-eq i:nth-child(3) {
+    animation-delay: -80ms;
+}
+
+.npb-eq i:nth-child(4) {
+    animation-delay: -380ms;
+}
+
+@keyframes npb-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes npb-eq {
+    0%,
+    100% {
+        transform: scaleY(0.32);
+    }
+    50% {
+        transform: scaleY(1);
+    }
+}
+
+.npb-txt {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    max-width: 150px;
+}
+
+.npb-ttl {
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: rgba(255, 255, 255, 0.95);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    transition: color 0.2s var(--ease-apple);
+}
+
+.npb-ttl:hover {
+    color: #fff;
+}
+
+.npb-sub {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.5);
+    min-width: 0;
+    transition: color 0.2s var(--ease-apple);
+}
+
+.npb-sub.is-link {
+    cursor: pointer;
+}
+
+.npb-sub.is-link:hover {
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.npb-sub span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* play orb — the hero */
+.npb-play {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    flex: 0 0 auto;
+    margin: 0 3px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 0;
+    background: radial-gradient(
+            125% 125% at 32% 24%,
+            var(--color-accent-hover),
+            var(--color-accent) 68%
+    );
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.26) inset,
+    0 8px 20px -5px var(--color-accent-glow),
+    0 0 30px -6px var(--color-accent-glow);
+    transition: transform 0.25s var(--ease-apple),
+    box-shadow 0.25s var(--ease-apple);
+}
+
+.npb-play:hover {
+    transform: translateY(-1px) scale(1.06);
+}
+
+.npb-play:active {
+    transform: scale(0.95);
+}
+
+.npb-play::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    border: 1.5px solid var(--color-accent);
+    opacity: 0;
+}
+
+.npb-dock[data-playing="true"] .npb-play::after {
+    animation: npb-pulse 2.8s var(--ease-apple) infinite;
+}
+
+@keyframes npb-pulse {
+    0% {
+        transform: scale(1);
+        opacity: 0.7;
+    }
+    70% {
+        transform: scale(1.4);
+        opacity: 0;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+/* progress lane (full pill width) */
+.npb-lane {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.npb-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: rgba(255, 255, 255, 0.42);
+    padding: 0 1px 1px;
+}
+
+.npb-times b {
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 700;
+}
+
+/* track loading (SC → SCD): the capsule traces its own glowing accent outline,
+   the artwork shows a % veil, and the halo brightens. No idle motion — the ring
+   just fills to the real download progress via a transition. */
+.npb-dock.is-loading {
+    box-shadow: 0 30px 70px -22px rgba(0, 0, 0, 0.78),
+    0 0 90px -10px var(--color-accent-glow);
+}
+
+.npb-loadring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.npb-loadring rect {
+    x: 1px;
+    y: 1px;
+    width: calc(100% - 2px);
+    height: calc(100% - 2px);
+    rx: 27px;
+    ry: 27px;
+    fill: none;
+}
+
+.npb-loadring-track {
+    stroke: rgba(255, 255, 255, 0.07);
+    stroke-width: 2;
+}
+
+.npb-loadring-fill {
+    stroke: var(--color-accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 100 100;
+    filter: drop-shadow(0 0 5px var(--color-accent-glow));
+    transition: stroke-dashoffset 0.3s var(--ease-apple);
+}
+
+.npb-art-load {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: grid;
+    place-items: center;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(8, 8, 10, 0.34), rgba(8, 8, 10, 0.62));
+    font-size: 11px;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+@media (max-width: 1040px) {
+    .npb .npb-vol-slider {
+        display: none;
+    }
+
+    .npb-txt {
+        max-width: 112px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .npb,
+    .npb-dock[data-playing="true"] .npb-ring,
+    .npb-dock[data-playing="true"] .npb-eq i,
+    .npb-dock[data-playing="true"] .npb-play::after {
+        animation: none;
+    }
 }

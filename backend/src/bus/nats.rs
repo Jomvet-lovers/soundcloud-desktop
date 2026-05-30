@@ -69,21 +69,34 @@ impl NatsService {
         let js = async_nats::jetstream::new(nc.clone());
 
         let svc = Arc::new(Self { nc, js, shutdown });
-        svc.ensure_stream(&streams::AI_RPC, true, Some(120)).await?;
-        svc.ensure_stream(&streams::INDEX_AUDIO, true, None).await?;
-        svc.ensure_stream(&streams::EMBED_LYRICS, true, None)
+        svc.ensure_stream(&streams::AI_RPC, true, Some(120), None)
+            .await?;
+        svc.ensure_stream(&streams::INDEX_AUDIO, true, None, None)
+            .await?;
+        svc.ensure_stream(&streams::EMBED_LYRICS, true, None, None)
             .await?;
         // Work-queue с дефолтным 24h max_age (НЕ 120s как AI_RPC): backlog
         // транскрайба может тянуться часами, джоб обязан дожить до воркера.
-        svc.ensure_stream(&streams::TRANSCRIBE, true, None).await?;
-        svc.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60))
+        svc.ensure_stream(&streams::TRANSCRIBE, true, None, None)
             .await?;
-        svc.ensure_stream(&streams::TRAIN_QUALITY, true, Some(24 * 60 * 60))
+        // Энкод запросов: тот же класс, что transcribe (долгий бэклог). 15-мин
+        // duplicate_window дедупит одинаковые `Nats-Msg-Id` (model:hash) на
+        // уровне очереди — бэкстоп к Redis in-flight маркеру.
+        svc.ensure_stream(
+            &streams::ENCODE,
+            true,
+            None,
+            Some(Duration::from_secs(15 * 60)),
+        )
             .await?;
-        svc.ensure_stream(&streams::ENRICH, true, Some(7 * 24 * 60 * 60))
+        svc.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60), None)
             .await?;
-        svc.ensure_stream(&streams::DONE, false, None).await?;
-        svc.ensure_stream(&streams::STORAGE_EVENTS, false, None)
+        svc.ensure_stream(&streams::TRAIN_QUALITY, true, Some(24 * 60 * 60), None)
+            .await?;
+        svc.ensure_stream(&streams::ENRICH, true, Some(7 * 24 * 60 * 60), None)
+            .await?;
+        svc.ensure_stream(&streams::DONE, false, None, None).await?;
+        svc.ensure_stream(&streams::STORAGE_EVENTS, false, None, None)
             .await?;
         svc.ensure_object_store(crate::bus::subjects::COLLAB_DATA_BUCKET, 24 * 60 * 60)
             .await?;
@@ -95,6 +108,7 @@ impl NatsService {
         cfg: &StreamCfg,
         work_queue: bool,
         max_age_seconds: Option<u64>,
+        duplicate_window: Option<Duration>,
     ) -> AppResult<()> {
         let default_age = if work_queue { 24 * 60 * 60 } else { 60 * 60 };
         let age = Duration::from_secs(max_age_seconds.unwrap_or(default_age));
@@ -103,7 +117,7 @@ impl NatsService {
         } else {
             RetentionPolicy::Limits
         };
-        let stream_cfg = async_nats::jetstream::stream::Config {
+        let mut stream_cfg = async_nats::jetstream::stream::Config {
             name: cfg.name.to_string(),
             subjects: cfg.subjects.iter().map(|s| s.to_string()).collect(),
             retention,
@@ -111,6 +125,9 @@ impl NatsService {
             max_age: age,
             ..Default::default()
         };
+        if let Some(dw) = duplicate_window {
+            stream_cfg.duplicate_window = dw;
+        }
         match self.js.create_stream(stream_cfg.clone()).await {
             Ok(_) => {
                 info!(stream = cfg.name, subjects = ?cfg.subjects, "JetStream created");
@@ -215,6 +232,30 @@ impl NatsService {
         let ack = self
             .js
             .publish(subject.to_string(), body)
+            .await
+            .map_err(|e| AppError::internal(format!("jetstream publish {subject}: {e}")))?;
+        ack.await
+            .map_err(|e| AppError::internal(format!("jetstream ack {subject}: {e}")))?;
+        Ok(())
+    }
+
+    /// Publish с `Nats-Msg-Id` → JetStream дедупит одинаковые msg-id внутри
+    /// `duplicate_window` стрима (бэкстоп к Redis in-flight маркеру: даже если
+    /// маркер истёк, а джоб ещё в бэклоге, повторная публикация не плодит
+    /// дубль).
+    pub async fn publish_dedup<P>(&self, subject: &str, payload: &P, msg_id: &str) -> AppResult<()>
+    where
+        P: Serialize,
+    {
+        let mut headers = HeaderMap::new();
+        headers.insert("Nats-Msg-Id", msg_id);
+        let body = Bytes::from(
+            serde_json::to_vec(payload)
+                .map_err(|e| AppError::internal(format!("publish encode: {e}")))?,
+        );
+        let ack = self
+            .js
+            .publish_with_headers(subject.to_string(), headers, body)
             .await
             .map_err(|e| AppError::internal(format!("jetstream publish {subject}: {e}")))?;
         ack.await

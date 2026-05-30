@@ -48,6 +48,7 @@ pub async fn pick_tracks(
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
              WHERE ta.artist_id = ANY($1) \
                AND ta.role = 'primary' \
+               AND it.sharing = 'public' \
                AND NOT (it.sc_track_id = ANY($2)) \
          ) \
          SELECT artist_id, sc_track_id, play_count, rn FROM ranked WHERE rn <= $3",

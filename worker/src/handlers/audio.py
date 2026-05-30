@@ -111,57 +111,67 @@ def _embed_mulan(models: Models, wav: torch.Tensor) -> list[float]:
     return vec.detach().float().cpu().numpy().tolist()
 
 
-async def handle(
-    payload: dict,
-    models: Models,
-    nc: NATSClient,
-) -> None:
+async def prepare(payload: dict, models: Models) -> dict:
+    """Скачка + декод + chromaprint (всё вне GPU)."""
     sc_track_id = str(payload["sc_track_id"])
     s3_url = payload["s3_url"]
-    language = payload.get("language")
-
-    fingerprint: str | None = None
-
-    log.info(f"[audio] {sc_track_id} downloading {s3_url}")
     t0 = time.monotonic()
     audio_bytes = await _download(s3_url)
     log.info(
         f"[audio] {sc_track_id} downloaded {len(audio_bytes)} bytes in "
         f"{time.monotonic() - t0:.2f}s"
     )
+    wav = await asyncio.to_thread(_load_wav, audio_bytes, 24000)
     try:
-        # Декод один раз (CPU, вне локов) — оба эмбеддера хотят один и тот же
-        # 24kHz моно-вход. GPU-секции под локами на модель: при audio=N качается
-        # N треков, но на карте одновр. максимум один muq и один mulan.
-        wav = await asyncio.to_thread(_load_wav, audio_bytes, 24000)
-        async with models.muq_lock:
+        fingerprint = await asyncio.to_thread(_chromaprint_fingerprint, audio_bytes)
+    except Exception as e:
+        log.warning(f"[audio] {sc_track_id} chromaprint crashed: {e}")
+        fingerprint = None
+    return {
+        "sc_track_id": sc_track_id,
+        "wav": wav,
+        "fingerprint": fingerprint,
+        "language": payload.get("language"),
+    }
+
+
+def gpu_batch(models: Models, items: list[dict]) -> list[dict]:
+    """По одному треку на forward (MuQ/MuLan не маскируют паддинг → не склеиваем)."""
+    out: list[dict] = []
+    try:
+        for p in items:
+            sc_track_id = p["sc_track_id"]
+            wav = p["wav"]
             t_muq = time.monotonic()
-            muq_vec = await asyncio.to_thread(_embed_muq, models, wav)
-            log.info(f"[audio] {sc_track_id} muq done in {time.monotonic() - t_muq:.2f}s")
-        async with models.mulan_lock:
+            muq_vec = _embed_muq(models, wav)
             t_mulan = time.monotonic()
-            mulan_vec = await asyncio.to_thread(_embed_mulan, models, wav)
+            mulan_vec = _embed_mulan(models, wav)
             log.info(
-                f"[audio] {sc_track_id} mulan done in {time.monotonic() - t_mulan:.2f}s"
+                f"[audio] {sc_track_id} muq {t_mulan - t_muq:.2f}s "
+                f"mulan {time.monotonic() - t_mulan:.2f}s"
             )
-        try:
-            fingerprint = await asyncio.to_thread(_chromaprint_fingerprint, audio_bytes)
-        except Exception as e:
-            log.warning(f"[audio] {sc_track_id} chromaprint crashed: {e}")
+            out.append(
+                {
+                    "mert": muq_vec,
+                    "clap": mulan_vec,
+                    "fingerprint": p.get("fingerprint"),
+                    "language": p.get("language"),
+                }
+            )
     finally:
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
+    return out
 
+
+async def publish(nc: NATSClient, payload: dict, result: dict) -> None:
     done_payload: dict = {
-        "sc_track_id": sc_track_id,
-        "mert": muq_vec,
-        "clap": mulan_vec,
+        "sc_track_id": str(payload["sc_track_id"]),
+        "mert": result["mert"],
+        "clap": result["clap"],
     }
-    if language:
-        done_payload["language"] = language
-    if fingerprint:
-        done_payload["fingerprint"] = fingerprint
-    await nc.publish(
-        subj.SUBJECT_DONE_INDEX_AUDIO,
-        json.dumps(done_payload).encode(),
-    )
+    if result.get("language"):
+        done_payload["language"] = result["language"]
+    if result.get("fingerprint"):
+        done_payload["fingerprint"] = result["fingerprint"]
+    await nc.publish(subj.SUBJECT_DONE_INDEX_AUDIO, json.dumps(done_payload).encode())

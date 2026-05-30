@@ -4,6 +4,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::common::query::parse_languages;
 use crate::common::session::SessionCtx;
 use crate::error::AppResult;
 use crate::modules::recommendations::clusters::ClusterResponse;
@@ -31,20 +32,6 @@ pub fn router() -> Router<AppState> {
             get(wave_artist),
         )
         .route("/recommendations/wave/feedback", post(wave_feedback))
-}
-
-fn parse_languages(raw: Option<&str>) -> Option<Vec<String>> {
-    let s = raw?;
-    let v: Vec<String> = s
-        .split(',')
-        .filter(|x| !x.is_empty())
-        .map(String::from)
-        .collect();
-    if v.is_empty() {
-        None
-    } else {
-        Some(v)
-    }
 }
 
 fn parse_limit(raw: Option<&str>, fallback: usize) -> usize {
@@ -150,7 +137,7 @@ async fn search(
         .recommendations
         .search_by_text(&q.q.unwrap_or_default(), limit, languages.as_deref())
         .await?;
-    Ok(Json(out))
+    Ok(Json(out.results))
 }
 
 #[derive(Debug, Deserialize)]

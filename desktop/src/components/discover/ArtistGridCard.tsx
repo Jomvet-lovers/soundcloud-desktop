@@ -1,10 +1,11 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { auraRgba, DEFAULT_AURA, resolveAura } from '../../lib/aura';
+import {auraRgba, resolveAura} from '../../lib/aura';
 import type { CatalogArtist } from '../../lib/discover';
 import { fc } from '../../lib/formatters';
 import { Check, Disc3, Globe, Headphones, MicVocal, Star } from '../../lib/icons';
+import {useViewerAura} from '../../lib/useViewerAura';
 import { gradientForId, monogramOf } from './visuals';
 
 interface ArtistGridCardProps {
@@ -14,12 +15,13 @@ interface ArtistGridCardProps {
 function ArtistGridCardImpl({ artist }: ArtistGridCardProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const viewerAura = useViewerAura();
   const aura = useMemo(
     () =>
       artist.star && artist.aura_id
         ? resolveAura(artist.aura_id, artist.custom_hex ?? null)
-        : DEFAULT_AURA,
-    [artist.aura_id, artist.custom_hex, artist.star],
+          : viewerAura,
+      [artist.aura_id, artist.custom_hex, artist.star, viewerAura],
   );
   const initials = monogramOf(artist.name);
   const [g1, g2, g3] = useMemo(() => gradientForId(artist.id), [artist.id]);
@@ -172,7 +174,7 @@ function ArtistGridCardImpl({ artist }: ArtistGridCardProps) {
           <div
             className="h-full rounded-full"
             style={{
-              width: `${Math.round(artist.trending * 100)}%`,
+                width: `${Math.round(artist.popularity * 100)}%`,
               background: `linear-gradient(90deg, ${aura.orbs[0]}, ${aura.orbs[1]})`,
               boxShadow: `0 0 10px ${auraRgba(aura, 0.5)}`,
             }}
@@ -184,7 +186,7 @@ function ArtistGridCardImpl({ artist }: ArtistGridCardProps) {
             {fc(artist.monthly_listeners)}
           </span>
           <span style={{ color: auraRgba(aura, 0.9) }}>
-            {t('discover.trendValue', { value: Math.round(artist.trending * 100) })}
+            {t('discover.trendValue', {value: Math.round(artist.popularity * 100)})}
           </span>
         </div>
       </div>

@@ -24,4 +24,5 @@ pub mod trainer;
 
 pub use handlers::router;
 pub use s3_verifier::S3VerifierService;
-pub use service::RecommendationsService;
+pub use service::{RecommendResult, RecommendationsService};
+pub(crate) use service::util::{point_id_to_value, value_id_to_string};

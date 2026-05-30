@@ -194,6 +194,45 @@ impl PlaylistsService {
         }))
     }
 
+    /// Смена приватности своего плейлиста. Owner-check по нашей БД, optimistic
+    /// апдейт `playlists.sharing`, write-back в SC через sync_queue
+    /// (`playlist_sharing` — без destructive-инвалидации строки).
+    pub async fn set_sharing(
+        &self,
+        sc_user_id: &str,
+        playlist_urn: &str,
+        sharing: &str,
+    ) -> AppResult<Value> {
+        if sharing != "public" && sharing != "private" {
+            return Err(AppError::bad_request("sharing must be 'public' or 'private'"));
+        }
+        let me = crate::common::sc_ids::extract_sc_id(sc_user_id);
+        let owner: Option<Option<String>> =
+            sqlx::query_scalar("SELECT owner_sc_user_id FROM playlists WHERE urn = $1")
+                .bind(playlist_urn)
+                .fetch_optional(&self.pg)
+                .await?;
+        match owner {
+            Some(o) if o.as_deref() == Some(me) => {}
+            _ => return Err(AppError::not_found("Playlist not found")),
+        }
+
+        sqlx::query("UPDATE playlists SET sharing = $2 WHERE urn = $1")
+            .bind(playlist_urn)
+            .bind(sharing)
+            .execute(&self.pg)
+            .await?;
+        self.sync_queue
+            .enqueue(
+                sc_user_id,
+                "playlist_sharing",
+                playlist_urn,
+                Some(&json!({ "sharing": sharing })),
+            )
+            .await?;
+        Ok(json!({ "urn": playlist_urn, "sharing": sharing }))
+    }
+
     /// Оптимистичный delete: убираем строку из user_owned_playlists (UI сразу
     /// перестаёт показывать плейлист в /me/playlists), сносим playlists +
     /// playlist_tracks. SC delete — фоном через worker.
@@ -238,19 +277,17 @@ impl PlaylistsService {
     ) -> AppResult<ListPageResult<Value>> {
         let repo = crate::modules::playlists::PlaylistRepository::new(self.pg.clone());
 
-        let playlist_row = repo.find_by_urn(playlist_urn).await?;
-        if let Some(row) = &playlist_row {
-            if row.sharing != "public" {
-                let me = crate::common::sc_ids::extract_sc_id(sc_user_id);
-                let is_owner = row
-                    .owner_sc_user_id
-                    .as_deref()
-                    .map(|u| u == me)
-                    .unwrap_or(false);
-                if !is_owner {
-                    return Err(AppError::not_found("Playlist not found"));
-                }
+        let viewer = crate::common::sc_ids::extract_sc_id(sc_user_id);
+        let guard_private = |row: &crate::modules::playlists::PlaylistRow| -> AppResult<()> {
+            if row.sharing != "public" && row.owner_sc_user_id.as_deref() != Some(viewer) {
+                return Err(AppError::not_found("Playlist not found"));
             }
+            Ok(())
+        };
+
+        let mut playlist_row = repo.find_by_urn(playlist_urn).await?;
+        if let Some(row) = &playlist_row {
+            guard_private(row)?;
         }
         let needs_seed = match &playlist_row {
             None => true,
@@ -272,6 +309,15 @@ impl PlaylistsService {
             self.cold_refresh
                 .refresh_playlist_tracks(playlist_urn, &chain)
                 .await?;
+            // Первый заход (row был None): перечитываем мету, иначе can_see_private
+            // ниже посчитается по None → owner своего приватного плейлиста увидел
+            // бы public-only до второго захода. Свежую мету тоже guard'им.
+            if playlist_row.is_none() {
+                playlist_row = repo.find_by_urn(playlist_urn).await?;
+                if let Some(row) = &playlist_row {
+                    guard_private(row)?;
+                }
+            }
         } else if let Some(row) = &playlist_row {
             if self.cold_refresh.is_playlist_stale(row.tracks_synced_at) {
                 let refresh = self.cold_refresh.clone();
@@ -289,15 +335,23 @@ impl PlaylistsService {
             }
         }
 
+        // Приватные member-треки видит только их uploader. Приватный плейлист
+        // выше уже owner-guarded (sharing != public ⇒ caller — owner), публичный
+        // показывает private-членов лишь своему владельцу. Иначе — public-only.
+        let can_see_private = playlist_row.as_ref().is_some_and(|r| {
+            r.sharing != "public" || r.owner_sc_user_id.as_deref() == Some(viewer)
+        });
+
         let offset = page.max(0) * limit;
         let ids = repo.page_track_ids(playlist_urn, offset, limit + 1).await?;
         let has_more = ids.len() as i64 > limit;
         let page_ids: Vec<String> = ids.into_iter().take(limit as usize).collect();
-        let collection: Vec<Value> = crate::modules::tracks::project_many(&self.pg, &page_ids)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+        let projected = if can_see_private {
+            crate::modules::tracks::project_many(&self.pg, &page_ids).await?
+        } else {
+            crate::modules::tracks::project_many_public(&self.pg, &page_ids).await?
+        };
+        let collection: Vec<Value> = projected.into_iter().flatten().collect();
         Ok(ListPageResult {
             collection,
             page,

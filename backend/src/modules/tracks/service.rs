@@ -111,10 +111,12 @@ impl TracksService {
                 // зайдёт сюда же — мы не отдаём `/me/track-by-id` отдельным
                 // эндпоинтом, /tracks/{urn} один на всех.
                 if track_row.sharing != "public" {
+                    // uploader_sc_user_id — голый id, sc_user_id из сессии — URN.
+                    let me = crate::common::sc_ids::extract_sc_id(sc_user_id);
                     let is_owner = track_row
                         .uploader_sc_user_id
                         .as_deref()
-                        .map(|u| u == sc_user_id)
+                        .map(|u| u == me)
                         .unwrap_or(false);
                     if !is_owner {
                         return Err(crate::error::AppError::not_found("Track not found"));
@@ -187,15 +189,80 @@ impl TracksService {
         track_urn: &str,
         body: &Value,
     ) -> AppResult<Value> {
-        // Мутация на треке владельца — только user-token, без public-fallback.
+        // Мутация на треке владельца — только user-token, без public-fallback
+        // (SC сам отвергнет PUT на чужой трек).
         let chain = self.tokens.chain(TokenKind::User(session_id)).await?;
-        try_with_chain(&chain, |tok| {
+        let resp = try_with_chain(&chain, |tok| {
             let sc = self.sc.clone();
             let path = format!("/tracks/{track_urn}");
             let body = body.clone();
             async move { sc.api_put_value(&path, &tok, Some(&body)).await }
         })
-        .await
+            .await?;
+
+        // Reconcile приватности локально: дженерик-PUT с `{track:{sharing}}` (или
+        // плоским `{sharing}`) меняет SC, а наш read-фильтр (project_many_public)
+        // иначе держал бы старое значение до cold-refresh → утечка приватного на
+        // публичных путях. set_sharing делает это явно; здесь подстраховываемся.
+        let sharing = body
+            .get("track")
+            .and_then(|t| t.get("sharing"))
+            .or_else(|| body.get("sharing"))
+            .and_then(|v| v.as_str());
+        if let Some(s) = sharing.filter(|s| *s == "public" || *s == "private") {
+            let _ = sqlx::query(
+                "UPDATE tracks SET sharing = $2, updated_at = now() WHERE sc_track_id = $1",
+            )
+                .bind(extract_sc_id(track_urn))
+                .bind(s)
+                .execute(&self.pg)
+                .await;
+        }
+        Ok(resp)
+    }
+
+    /// Смена приватности своего трека. Owner-check по нашей БД, optimistic
+    /// апдейт `tracks.sharing` (приват-фильтр срабатывает сразу), write-back в
+    /// SC через sync_queue (ban-resilient). `sharing` ∈ {public, private}.
+    pub async fn set_sharing(
+        &self,
+        sc_user_id: &str,
+        track_urn: &str,
+        sharing: &str,
+    ) -> AppResult<Value> {
+        if sharing != "public" && sharing != "private" {
+            return Err(crate::error::AppError::bad_request(
+                "sharing must be 'public' or 'private'",
+            ));
+        }
+        let sc_track_id = extract_sc_id(track_urn).to_string();
+        let me = extract_sc_id(sc_user_id);
+
+        let uploader: Option<Option<String>> =
+            sqlx::query_scalar("SELECT uploader_sc_user_id FROM tracks WHERE sc_track_id = $1")
+                .bind(&sc_track_id)
+                .fetch_optional(&self.pg)
+                .await?;
+        // 404 (а не 403) для чужого/несуществующего — не палим факт наличия.
+        match uploader {
+            Some(u) if u.as_deref() == Some(me) => {}
+            _ => return Err(crate::error::AppError::not_found("Track not found")),
+        }
+
+        sqlx::query("UPDATE tracks SET sharing = $2, updated_at = now() WHERE sc_track_id = $1")
+            .bind(&sc_track_id)
+            .bind(sharing)
+            .execute(&self.pg)
+            .await?;
+        self.sync_queue
+            .enqueue(
+                sc_user_id,
+                "track_sharing",
+                track_urn,
+                Some(&json!({ "sharing": sharing })),
+            )
+            .await?;
+        Ok(json!({ "urn": track_urn, "sharing": sharing }))
     }
 
     pub async fn delete(&self, session_id: uuid::Uuid, track_urn: &str) -> AppResult<Value> {

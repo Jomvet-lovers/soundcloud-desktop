@@ -6,8 +6,10 @@ use serde_json::Value;
 
 use crate::cache::ListPageResult;
 use crate::common::pagination::PaginationQuery;
+use crate::common::query::parse_languages;
 use crate::common::session::SessionCtx;
 use crate::error::AppResult;
+use crate::modules::search::vibe::{LyricsMode, LyricsSearchResponse, VibeResponse};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -17,6 +19,59 @@ pub fn router() -> Router<AppState> {
         .route("/search/db/users", get(users))
         .route("/search/db/artists", get(artists))
         .route("/search/db/albums", get(albums))
+        .route("/search/vibe", get(vibe))
+        .route("/search/lyrics", get(lyrics))
+}
+
+#[derive(Debug, Deserialize)]
+struct VibeQuery {
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    limit: Option<String>,
+    #[serde(default)]
+    languages: Option<String>,
+}
+
+async fn vibe(
+    State(st): State<AppState>,
+    _ctx: SessionCtx,
+    Query(q): Query<VibeQuery>,
+) -> AppResult<Json<VibeResponse>> {
+    let limit = q.limit.as_deref().and_then(|s| s.parse::<usize>().ok());
+    let languages = parse_languages(q.languages.as_deref());
+    Ok(Json(
+        st.vibe
+            .vibe(&q.q.unwrap_or_default(), limit, languages.as_deref())
+            .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct LyricsQuery {
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    page: Option<String>,
+    #[serde(default)]
+    limit: Option<String>,
+}
+
+async fn lyrics(
+    State(st): State<AppState>,
+    _ctx: SessionCtx,
+    Query(q): Query<LyricsQuery>,
+) -> AppResult<Json<LyricsSearchResponse>> {
+    let mode = LyricsMode::parse(q.mode.as_deref());
+    let page = q.page.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let limit = q.limit.as_deref().and_then(|s| s.parse::<i64>().ok());
+    Ok(Json(
+        st.vibe
+            .lyrics(&q.q.unwrap_or_default(), mode, page, limit)
+            .await?,
+    ))
 }
 
 #[derive(Debug, Clone, Deserialize)]

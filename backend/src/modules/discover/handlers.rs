@@ -120,6 +120,7 @@ struct CatalogArtist {
     album_count: i32,
     monthly_listeners: i64,
     trending: f32,
+    popularity: f32,
     tags: Vec<String>,
     star: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,6 +185,7 @@ struct ArtistRow {
     album_count_denorm: i32,
     monthly_listeners: i64,
     trending_score: f32,
+    popularity_score: f32,
     tags: Vec<String>,
     is_star: bool,
     star_aura_id: Option<String>,
@@ -222,12 +224,15 @@ fn usable_search(s: &str) -> Option<&str> {
 }
 
 fn artist_sort_kind(s: Option<&str>) -> &'static str {
-    match s.unwrap_or("trending") {
+    // Default: popular (по прослушиваниям). trending вырождался в алфавит —
+    // у большинства артистов trending_score = 0.
+    match s.unwrap_or("popular") {
+        "trending" => "trending",
         "listeners" => "listeners",
         "tracks" => "tracks",
         "star" => "star",
         "az" => "az",
-        _ => "trending",
+        _ => "popular",
     }
 }
 
@@ -255,6 +260,7 @@ fn album_kind_filter(s: Option<&str>) -> Option<&'static str> {
 
 fn artist_cursor_for_sort(sort: &str, row: &ArtistRow) -> ArtistCursor {
     let (p, p2) = match sort {
+        "trending" => (row.trending_score as f64, 0.0),
         "listeners" => (row.monthly_listeners as f64, 0.0),
         "tracks" => (row.track_count_primary as f64, 0.0),
         "star" => (
@@ -262,7 +268,7 @@ fn artist_cursor_for_sort(sort: &str, row: &ArtistRow) -> ArtistCursor {
             row.trending_score as f64,
         ),
         "az" => (0.0, 0.0),
-        _ => (row.trending_score as f64, 0.0),
+        _ => (row.popularity_score as f64, 0.0),
     };
     ArtistCursor {
         p,
@@ -306,17 +312,18 @@ async fn fetch_artists(
     limit: i64,
 ) -> AppResult<Vec<ArtistRow>> {
     let order_clause = match sort {
+        "trending" => "trending_score DESC, normalized_name ASC, id ASC",
         "listeners" => "monthly_listeners DESC, normalized_name ASC, id ASC",
         "tracks" => "track_count_primary DESC, normalized_name ASC, id ASC",
         "star" => "is_star DESC, trending_score DESC, normalized_name ASC, id ASC",
         "az" => "normalized_name ASC, id ASC",
-        _ => "trending_score DESC, normalized_name ASC, id ASC",
+        _ => "popularity_score DESC, normalized_name ASC, id ASC",
     };
 
     let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         "SELECT id, name, normalized_name, country, avatar_url, confidence, \
                 track_count_primary, track_count_featured, album_count_denorm, \
-                monthly_listeners, trending_score, tags, \
+                monthly_listeners, trending_score, popularity_score, tags, \
                 is_star, star_aura_id, star_custom_hex \
          FROM artists \
          WHERE merged_into IS NULL \
@@ -408,7 +415,7 @@ async fn fetch_artists(
                     .push_bind(c.id)
                     .push("))");
             }
-            _ => {
+            "trending" => {
                 let p = c.p as f32;
                 qb.push(" AND (trending_score < ")
                     .push_bind(p)
@@ -417,6 +424,22 @@ async fn fetch_artists(
                     .push(" AND normalized_name > ")
                     .push_bind(c.n.clone())
                     .push(") OR (trending_score = ")
+                    .push_bind(p)
+                    .push(" AND normalized_name = ")
+                    .push_bind(c.n.clone())
+                    .push(" AND id > ")
+                    .push_bind(c.id)
+                    .push("))");
+            }
+            _ => {
+                let p = c.p as f32;
+                qb.push(" AND (popularity_score < ")
+                    .push_bind(p)
+                    .push(" OR (popularity_score = ")
+                    .push_bind(p)
+                    .push(" AND normalized_name > ")
+                    .push_bind(c.n.clone())
+                    .push(") OR (popularity_score = ")
                     .push_bind(p)
                     .push(" AND normalized_name = ")
                     .push_bind(c.n.clone())
@@ -455,6 +478,9 @@ async fn fetch_albums(
 
     // release_year > текущий год отсекаем — встречаются «умники» с 2027-м.
     // NULL release_year оставляем (часть треков просто без даты).
+    // Гейт качества: popularity_score > 0 (есть SC-прослушивания) и есть
+    // primary-артист — иначе каталог на ~60% состоит из never-played мусора
+    // (старые compilation/Greatest Hits/региональные издания, орфаны без артиста).
     let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         "SELECT al.id, al.title, al.normalized_title, al.type AS kind, al.release_year, \
                 al.release_date, al.cover_url, al.confidence, \
@@ -465,6 +491,8 @@ async fn fetch_albums(
          FROM albums al \
          LEFT JOIN artists a ON a.id = al.primary_artist_id AND a.merged_into IS NULL \
          WHERE al.track_count > 0 \
+           AND al.popularity_score > 0 \
+           AND al.primary_artist_id IS NOT NULL \
            AND (al.release_year IS NULL \
                 OR al.release_year <= EXTRACT(YEAR FROM CURRENT_DATE)::smallint)",
     );
@@ -614,6 +642,7 @@ async fn artists(
             album_count: r.album_count_denorm,
             monthly_listeners: r.monthly_listeners,
             trending: r.trending_score,
+            popularity: r.popularity_score,
             tags: canonicalize_tags(r.tags),
             star: r.is_star,
             aura_id: if r.is_star { r.star_aura_id } else { None },
@@ -698,7 +727,9 @@ async fn albums_by_year(
     let kind = album_kind_filter(q.kind.as_deref());
 
     // max_y клампим текущим годом — иначе альбом с release_year=2027 (а они в
-    // базе есть, см. бриф) сдвигает всю шкалу buckets вперёд.
+    // базе есть, см. бриф) сдвигает всю шкалу buckets вперёд. Тот же kind-фильтр,
+    // что и в LATERAL — иначе якорный год берётся по всем типам, а bucket'ы по
+    // выбранному kind, и при kind=single запрошенный span схлопывается.
     let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
         "WITH max_y AS ( \
              SELECT LEAST( \
@@ -707,7 +738,13 @@ async fn albums_by_year(
              ) AS year \
              FROM albums \
              WHERE track_count > 0 AND release_year IS NOT NULL \
-         ), years AS ( \
+               AND popularity_score > 0 AND primary_artist_id IS NOT NULL",
+    );
+    if let Some(k) = kind {
+        qb.push(" AND type = ").push_bind(k.to_string());
+    }
+    qb.push(
+        " ), years AS ( \
              SELECT generate_series( \
                  COALESCE((SELECT year FROM max_y), EXTRACT(YEAR FROM CURRENT_DATE)::int), \
                  COALESCE((SELECT year FROM max_y), EXTRACT(YEAR FROM CURRENT_DATE)::int) - (",
@@ -726,7 +763,9 @@ async fn albums_by_year(
          FROM years y \
          CROSS JOIN LATERAL ( \
              SELECT * FROM albums al_inner \
-             WHERE al_inner.release_year = y.year AND al_inner.track_count > 0",
+             WHERE al_inner.release_year = y.year AND al_inner.track_count > 0 \
+               AND al_inner.popularity_score > 0 \
+               AND al_inner.primary_artist_id IS NOT NULL",
     );
     if let Some(k) = kind {
         qb.push(" AND al_inner.type = ").push_bind(k.to_string());
@@ -819,7 +858,7 @@ async fn fetch_artists_by_ids(pg: &PgPool, ids: &[Uuid]) -> AppResult<Vec<Artist
     let rows: Vec<ArtistRow> = sqlx::query_as(
         r#"SELECT id, name, normalized_name, country, avatar_url, confidence,
                   track_count_primary, track_count_featured, album_count_denorm,
-                  monthly_listeners, trending_score, tags,
+                  monthly_listeners, trending_score, popularity_score, tags,
                   is_star, star_aura_id, star_custom_hex
            FROM artists
            WHERE id = ANY($1) AND merged_into IS NULL"#,
@@ -862,7 +901,7 @@ async fn fetch_star_artists(
     }
     let select_cols = r#"id, name, normalized_name, country, avatar_url, confidence,
                   track_count_primary, track_count_featured, album_count_denorm,
-                  monthly_listeners, trending_score, tags,
+                  monthly_listeners, trending_score, popularity_score, tags,
                   is_star, star_aura_id, star_custom_hex"#;
 
     if strategy == "random" {
@@ -906,7 +945,7 @@ async fn fetch_star_artists(
              AND is_star = TRUE
              AND (track_count_primary > 0 OR track_count_featured > 0)
              AND id <> ALL($1)
-           ORDER BY trending_score DESC, monthly_listeners DESC, normalized_name
+           ORDER BY popularity_score DESC, monthly_listeners DESC, normalized_name
            LIMIT $2"#,
     ))
     .bind(exclude)
@@ -928,6 +967,7 @@ fn artist_row_to_catalog(r: ArtistRow) -> CatalogArtist {
         album_count: r.album_count_denorm,
         monthly_listeners: r.monthly_listeners,
         trending: r.trending_score,
+        popularity: r.popularity_score,
         tags: canonicalize_tags(r.tags),
         star: r.is_star,
         aura_id: if r.is_star { r.star_aura_id } else { None },
@@ -1286,17 +1326,23 @@ async fn random(
 async fn pick_random_album(pg: &PgPool) -> AppResult<Option<Uuid>> {
     let row: Option<(Uuid,)> = sqlx::query_as(
         r#"SELECT id FROM albums TABLESAMPLE BERNOULLI(2)
-           WHERE track_count > 0 LIMIT 1"#,
+           WHERE track_count > 0 AND popularity_score > 0
+             AND primary_artist_id IS NOT NULL
+           LIMIT 1"#,
     )
     .fetch_optional(pg)
     .await?;
     if let Some((id,)) = row {
         return Ok(Some(id));
     }
-    let row: Option<(Uuid,)> =
-        sqlx::query_as(r#"SELECT id FROM albums WHERE track_count > 0 ORDER BY id LIMIT 1"#)
-            .fetch_optional(pg)
-            .await?;
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        r#"SELECT id FROM albums
+           WHERE track_count > 0 AND popularity_score > 0
+             AND primary_artist_id IS NOT NULL
+           ORDER BY id LIMIT 1"#,
+    )
+        .fetch_optional(pg)
+        .await?;
     Ok(row.map(|(id,)| id))
 }
 

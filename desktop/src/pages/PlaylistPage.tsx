@@ -17,6 +17,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { LikeButton } from '../components/music/LikeButton';
+import {SharingToggle} from '../components/music/SharingToggle';
+import {sameScdMeta, TrackStatusBadges} from '../components/music/TrackStatusBadges';
 import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualList } from '../components/ui/VirtualList';
 import { api } from '../lib/api';
@@ -246,6 +248,10 @@ const SortableTrackRow = React.memo(
 
         <TrackTitleArtist track={track} highlight={isThis} size="sm" />
 
+          <div className="hidden sm:flex shrink-0">
+              <TrackStatusBadges meta={track._scd_meta}/>
+          </div>
+
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {track.playback_count != null && (
             <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
@@ -281,7 +287,10 @@ const SortableTrackRow = React.memo(
     );
   },
   (prev, next) =>
-    prev.track.urn === next.track.urn && prev.index === next.index && prev.isOwner === next.isOwner,
+      prev.track.urn === next.track.urn &&
+      prev.index === next.index &&
+      prev.isOwner === next.isOwner &&
+      sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );
 
 /* ── Non-sortable Track Row (for non-owner view) ─────────── */
@@ -337,6 +346,10 @@ const TrackRow = React.memo(
 
         <TrackTitleArtist track={track} highlight={isThis} size="sm" />
 
+          <div className="hidden sm:flex shrink-0">
+              <TrackStatusBadges meta={track._scd_meta}/>
+          </div>
+
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {track.playback_count != null && (
             <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
@@ -363,7 +376,8 @@ const TrackRow = React.memo(
   (prev, next) =>
     prev.track.urn === next.track.urn &&
     prev.index === next.index &&
-    prev.track.user_favorite === next.track.user_favorite,
+      prev.track.user_favorite === next.track.user_favorite &&
+      sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );
 
 /* ── Main: PlaylistPage ──────────────────────────────────── */
@@ -672,6 +686,7 @@ export const PlaylistPage = React.memo(() => {
                 {isOwner && (
                   <>
                     <span className="w-px h-5 bg-white/[0.08] mx-0.5" aria-hidden />
+                      <SharingToggle kind="playlist" urn={playlist.urn} sharing={playlist.sharing}/>
                     <button
                       type="button"
                       onClick={() => setShowDeleteConfirm(true)}

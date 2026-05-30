@@ -23,7 +23,11 @@
     "clearQueue": "Kuyrugu Temizle",
     "addToQueue": "Kuyruga Ekle",
     "shuffle": "Karistir",
-    "repeat": "Tekrar"
+    "repeat": "Tekrar",
+    "abLoopSetA": "En iyi bolumu dongule: baslangic (A)",
+    "abLoopSetB": "En iyi bolumu dongule: bitis (B)",
+    "abLoopClear": "A-B dongusunu temizle",
+    "notPlaying": "Calmiyor"
   },
   "auth": {
     "signIn": "SoundCloud ile giris yap",
@@ -47,6 +51,7 @@
   },
   "search": {
     "placeholder": "Parca, calma listesi, kullanici ara...",
+    "globalPlaceholder": "Ne dinlemek istersin?",
     "tracks": "Parcalar",
     "playlists": "Calma listeleri",
     "users": "Kullanicilar",
@@ -55,6 +60,65 @@
     "noResults": "Sonuc bulunamadi",
     "noResultsDbHint": "Yerel SCD veritabaninda eslesme yok. SoundCloud'a gecmeyi dene.",
     "tryScHint": "SCD veritabaninda araniyor. Daha genis aramak icin SoundCloud'a gec.",
+    "caption": "Kesfet",
+    "eyebrow": "SoundCloud · Lens",
+    "heroTitle": "Bugun ne dinleyelim?",
+    "heroSubtitle": "Parca, calma listesi, sanatci ve albumleri ara. SoundCloud linki yapistirinca direkt ac.",
+    "constellation": "Bir mod sec",
+    "firstTimeTitle": "Aramaya basla",
+    "firstTimeBody": "Bir sarki, sanatci veya mod yaz. Veya yukaridan bir mod sec. Son aramalar burada birikecek.",
+    "seeAll": "Tumu",
+    "back": "Geri",
+    "try": "Dene",
+    "urlHint": "Acmak icin Enter'a bas",
+    "clear": "Temizle",
+    "resultsFor": "Sonuclar",
+    "history": "Son aramalar",
+    "clearHistory": "Temizle",
+    "byText": "Metne gore",
+    "byLines": "Sozlere gore",
+    "byVibe": "Vibe'a gore",
+    "aiPicks": "AI seciyor",
+    "boardEmpty": "Henuz bir sey yok — aramayi dene",
+    "mode": {
+      "text": "Metin",
+      "vibe": "Vibe"
+    },
+    "vibe": {
+      "empty": "Bu vibe ile eslesen yok",
+      "tryText": "Metinle ara"
+    },
+    "popular": {
+      "artists": "Populer sanatcilar",
+      "albums": "Populer albumler"
+    },
+    "empty": {
+      "dbTitle": "Metinle eslesme yok",
+      "dbBody": "\"{{query}}\" baslik, sanatci veya sozlerle eslesmedi. Vibe ile aramayi dene — hissi tarif et.",
+      "cta": "Vibe ile ara",
+      "scTitle": "Sonuc yok",
+      "scBody": "\"{{query}}\" sonuc dondurmedi. Farkli bir yazim veya daha genel bir terim dene.",
+      "toVibeTitle": "Kelimelerle eslesme yok",
+      "toVibeBody": "Vibe ile aramayi dene — anahtar kelime degil, hissi tarif et.",
+      "toVibeCta": "Vibe ile ara",
+      "toTextTitle": "Bu vibe bos cikti",
+      "toTextBody": "Tam kelimeleri dene — bir baslik, sanatci veya hatirladigin bir soz.",
+      "toTextCta": "Metinle ara"
+    },
+    "dive": "Benzer",
+    "diveFrom": "{{title}}",
+    "diveEmpty": "\"{{title}}\" benzeri yok",
+    "diveEmptyBody": "Baska bir parca dene veya aramaya geri don.",
+    "preparingTitle": "Vibe'ini yakaliyoruz…",
+    "preparingBody": "Bu sorgu yeni — hesapliyoruz. Birazdan gelecek.",
+    "resolve": {
+      "loading": "Link aciliyor...",
+      "redirecting": "Yonlendiriliyor...",
+      "errorTitle": "Acilmadi",
+      "notFound": "Link bulunamadi",
+      "failed": "Cozulemedi",
+      "unknown": "Bilinmeyen kaynak: {{kind}}"
+    },
     "source": {
       "db": "SCD",
       "sc": "SoundCloud",
@@ -80,6 +144,15 @@
       "alt": "alt",
       "reupload": "yeniden yukleme",
       "cover": "cover"
+    },
+    "status": {
+      "analyzed": "Onbellekte ve analiz edildi",
+      "analyzedHq": "Onbellekte (HQ) ve analiz edildi",
+      "cached": "Onbellekte",
+      "cachedHq": "Onbellekte (HQ)",
+      "pending": "Isleniyor",
+      "tooLong": "Cok uzun — onbellege alinmaz",
+      "failed": "Isleme basarisiz"
     },
     "notFoundOnSc": "SoundCloud'da bulunamadi",
     "wantedHint": "Sarki biliniyor ama henuz yuklenmedi",
@@ -185,10 +258,8 @@
     "goodAfternoon": "Iyi gunler",
     "goodEvening": "Iyi aksamlar",
     "goodNight": "Iyi geceler",
-    "yourFeed": "Akisiniz",
     "freshReleases": "Yeni Yayinlar",
     "reposted": "Yeniden paylasildi",
-    "endOfFeed": "Her seyi gordunuz",
     "recommended": "Sizin Icin Onerilenler",
     "discover": "Kesfet",
     "startListening": "Dinlemeye Basla",
@@ -342,6 +413,7 @@
     "prevTrack": "Onceki parca",
     "shuffle": "Karistirmayi degistir",
     "repeat": "Tekrari degistir",
+    "abLoop": "A-B dongu noktasi belirle",
     "volumeUp": "Sesi artir",
     "volumeDown": "Sesi azalt",
     "mute": "Sesi kapat / ac",

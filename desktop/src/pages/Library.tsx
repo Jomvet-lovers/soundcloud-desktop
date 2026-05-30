@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
 import { LikeButton } from '../components/music/LikeButton';
 import { PlaylistCard } from '../components/music/PlaylistCard';
+import {sameScdMeta, TrackStatusBadges} from '../components/music/TrackStatusBadges';
 import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualGrid } from '../components/ui/VirtualGrid';
 import { VirtualList } from '../components/ui/VirtualList';
@@ -118,6 +119,10 @@ const LibraryTrackRow = React.memo(
           className="flex flex-col justify-center"
         />
 
+          <div className="hidden md:flex shrink-0">
+              <TrackStatusBadges meta={track._scd_meta}/>
+          </div>
+
         <LikeButton track={track} />
 
         <AddToPlaylistDialog trackUrns={[track.urn]}>
@@ -158,7 +163,10 @@ const LibraryTrackRow = React.memo(
       </div>
     );
   },
-  (prev, next) => prev.track.urn === next.track.urn && prev.index === next.index,
+    (prev, next) =>
+        prev.track.urn === next.track.urn &&
+        prev.index === next.index &&
+        sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );
 
 const UserCard = React.memo(({ user }: { user: SCUser }) => {

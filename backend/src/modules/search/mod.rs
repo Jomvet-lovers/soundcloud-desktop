@@ -9,6 +9,8 @@
 pub mod handlers;
 pub mod repository;
 pub mod service;
+pub mod vibe;
 
 pub use handlers::router;
 pub use service::SearchService;
+pub use vibe::VibeSearchService;

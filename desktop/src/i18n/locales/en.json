@@ -36,7 +36,11 @@
     "pitchModeAuto": "Pitch follows speed",
     "pitchModeAutoShort": "Auto",
     "pitchModeManual": "Manual pitch",
-    "pitchModeManualShort": "Manual"
+    "pitchModeManualShort": "Manual",
+    "abLoopSetA": "Loop best part: set start (A)",
+    "abLoopSetB": "Loop best part: set end (B)",
+    "abLoopClear": "Clear A-B loop",
+    "notPlaying": "Not playing"
   },
   "auth": {
     "signIn": "Sign in with SoundCloud",
@@ -85,6 +89,7 @@
   },
   "search": {
     "placeholder": "Search tracks, playlists, users...",
+    "globalPlaceholder": "What do you want to hear?",
     "tracks": "Tracks",
     "playlists": "Playlists",
     "users": "Users",
@@ -96,6 +101,63 @@
     "hint": "Search for artists, bands, tracks, podcasts",
     "history": "Recent searches",
     "clearHistory": "Clear all",
+    "caption": "Discover",
+    "eyebrow": "SoundCloud · Lens",
+    "heroTitle": "What's your sound today?",
+    "heroSubtitle": "Search tracks, playlists, artists, albums. Paste a SoundCloud link to jump straight in.",
+    "constellation": "Pick a vibe",
+    "firstTimeTitle": "Start exploring",
+    "firstTimeBody": "Type a song, an artist, a mood. Or pick a vibe above. Recent searches will collect here as you go.",
+    "seeAll": "See all",
+    "back": "Back",
+    "try": "Try one",
+    "urlHint": "Press Enter to open link",
+    "clear": "Clear",
+    "resultsFor": "Results for",
+    "byText": "By text",
+    "byLines": "By lyrics",
+    "byVibe": "By vibe",
+    "aiPicks": "AI picks",
+    "boardEmpty": "Nothing to show yet — try a search",
+    "mode": {
+      "text": "Text",
+      "vibe": "Vibe"
+    },
+    "vibe": {
+      "empty": "Nothing matched this vibe",
+      "tryText": "Search by text instead"
+    },
+    "popular": {
+      "artists": "Popular artists",
+      "albums": "Popular albums"
+    },
+    "empty": {
+      "dbTitle": "Nothing matched by text",
+      "dbBody": "\"{{query}}\" didn't match any title, artist or lyric. Try searching by vibe — describe the feeling instead.",
+      "cta": "Search by vibe",
+      "scTitle": "Nothing found",
+      "scBody": "\"{{query}}\" returned no results. Try a different spelling or a broader term.",
+      "toVibeTitle": "Nothing matched the words",
+      "toVibeBody": "Try searching by vibe — describe the feeling, not the keywords.",
+      "toVibeCta": "Search by vibe",
+      "toTextTitle": "This vibe came up empty",
+      "toTextBody": "Try the exact words — a title, an artist, or a lyric you remember.",
+      "toTextCta": "Search by text"
+    },
+    "dive": "Similar",
+    "diveFrom": "{{title}}",
+    "diveEmpty": "Nothing similar to \"{{title}}\"",
+    "diveEmptyBody": "Try another track, or head back to your search.",
+    "preparingTitle": "Tuning into your vibe…",
+    "preparingBody": "First time for this one — we're reading the room. It'll appear in a moment.",
+    "resolve": {
+      "loading": "Resolving link...",
+      "redirecting": "Redirecting...",
+      "errorTitle": "Could not resolve",
+      "notFound": "Link not found",
+      "failed": "Failed to resolve",
+      "unknown": "Unknown resource: {{kind}}"
+    },
     "source": {
       "db": "SCD",
       "sc": "SoundCloud",
@@ -103,6 +165,12 @@
       "dbHint": "Search inside the local SCD library — fast, scoped to mirrored content.",
       "scHint": "Search directly on SoundCloud — slower, but covers everything."
     }
+  },
+  "sharing": {
+    "public": "Public",
+    "private": "Private",
+    "makePublic": "Make public",
+    "makePrivate": "Make private"
   },
   "track": {
     "comments": "Comments",
@@ -121,6 +189,15 @@
       "alt": "alt",
       "reupload": "re-upload",
       "cover": "cover"
+    },
+    "status": {
+      "analyzed": "Cached & analyzed",
+      "analyzedHq": "Cached (HQ) & analyzed",
+      "cached": "Cached",
+      "cachedHq": "Cached (HQ)",
+      "pending": "Processing",
+      "tooLong": "Too long — not cached",
+      "failed": "Processing failed"
     },
     "notFoundOnSc": "not found on SoundCloud",
     "wantedHint": "Track is known but not uploaded yet",
@@ -227,10 +304,8 @@
     "goodAfternoon": "Good afternoon",
     "goodEvening": "Good evening",
     "goodNight": "Good night",
-    "yourFeed": "Your Feed",
     "freshReleases": "Fresh Releases",
     "reposted": "Reposted",
-    "endOfFeed": "You're all caught up",
     "recommended": "Recommended For You",
     "discover": "Discover",
     "startListening": "Start Listening",
@@ -249,15 +324,11 @@
     "idleSub": "Up next — a track we think you'll love",
     "coldTitle": "Your wave is still warming up",
     "coldDesc": "Like a few tracks and we'll tune this radio to your taste",
-    "searchPlaceholder": "Describe a vibe — e.g. \"sad piano in the rain\"",
-    "searchAction": "Search",
-    "searchClear": "Clear",
-    "searchReset": "Back to wave",
-    "searchResultsFor": "Results for \"{{q}}\"",
-    "searchResultsCount_one": "{{count}} track",
-    "searchResultsCount_other": "{{count}} tracks",
-    "searchEmptyTitle": "Nothing matched that vibe",
-    "searchEmptyDesc": "Try different words — moods, instruments or a scene",
+    "vibeCta": {
+      "title": "Search by vibe",
+      "subtitle": "Describe a feeling — we'll find the sound",
+      "badge": "AI"
+    },
     "hideLikedLabel": "Hide liked",
     "hideLikedOn": "Liked tracks are excluded from the wave",
     "hideLikedOff": "Turn on to exclude tracks you've already liked",
@@ -415,6 +486,7 @@
     "prevTrack": "Previous track",
     "shuffle": "Toggle shuffle",
     "repeat": "Toggle repeat",
+    "abLoop": "Cycle A-B loop point",
     "volumeUp": "Volume up",
     "volumeDown": "Volume down",
     "mute": "Mute / Unmute",

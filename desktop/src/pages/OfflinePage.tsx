@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import {TrackStatusBadges} from '../components/music/TrackStatusBadges';
 import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { VirtualList } from '../components/ui/VirtualList';
 import { type AuthStatus, useAuthStatus } from '../lib/auth-status';
@@ -204,6 +205,7 @@ const OfflineTrackRow = React.memo(function OfflineTrackRow({
       <TrackTitleArtist track={track} size="md" />
 
       <div className="hidden shrink-0 items-center gap-2 sm:flex">
+          <TrackStatusBadges meta={track._scd_meta}/>
         {showCachedBadge ? (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/16 bg-emerald-400/8 px-2.5 py-1 text-[11px] font-medium text-emerald-100/80">
             <Download size={12} />

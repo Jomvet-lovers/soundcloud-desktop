@@ -35,7 +35,7 @@
 
 | Файл                         | Назначение                                                                                           |
 |------------------------------|------------------------------------------------------------------------------------------------------|
-| `src/main.py`                | entry point: connect NATS, load models, spawn pull-consumers, route AI subjects                      |
+| `src/main.py`                | entry point: connect NATS, load models, поднять лейны (runner.py), route AI subjects                 |
 | `src/config.py`              | все env-переменные в одном месте                                                                     |
 | `src/subjects.py`            | константы subjects/streams/durables (синхронизированы с `backend/src/bus/subjects.rs`)               |
 | `src/bus/client.py`          | `connect()` к NATS                                                                                   |
@@ -47,9 +47,26 @@
 | `src/models/demucs.py`       | `ensure_demucs()` — ленивая загрузка (≈1.5 GB VRAM только при транскрипции)                          |
 | `src/handlers/ai.py`         | detect_language, search_queries, rank_lyrics, encode_text_mulan                                      |
 | `src/handlers/transcribe.py` | TRANSCRIBE: demucs (vocals) + Whisper → publish `done.transcribe` (пусто = self-gen-disable на бэке) |
-| `src/handlers/audio.py`      | INDEX_AUDIO: download → MuQ + MuQ-MuLan → вектора в `done.index_audio`                               |
-| `src/handlers/lyrics.py`     | EMBED_LYRICS: bge-m3 → вектор в `done.embed_lyrics`                                                  |
+| `src/runner.py`              | `run_batched_lane` (фан-аут+GPU) и `run_concurrent_lane` (N задач)                                   |
+| `src/handlers/audio.py`      | INDEX_AUDIO: prepare (download+decode) → gpu_batch (MuQ+MuLan) → `done.index_audio`                  |
+| `src/handlers/lyrics.py`     | EMBED_LYRICS: prepare → gpu_batch (bge-m3, батч) → `done.embed_lyrics`                               |
 | `src/handlers/collab.py`     | TRAIN_COLLAB: gensim Word2Vec → вектора блобом в Object Store + `done.train_collab`                  |
+
+## Лейны (runner.py)
+
+Два раннера поверх durable pull-consumer:
+
+- **`run_batched_lane`** (audio, lyrics): качалка (`prepare`, I/O) фанится на N задач
+  (`WORKER_CONCURRENCY[tag]`) → очередь → один GPU-исполнитель (`gpu_batch`). Скачка
+  перекрывает GPU; один владелец модели → локи на лейне не нужны.
+  - lyrics батчится (bge-m3 сам маскирует паддинг).
+  - audio — по одному треку на forward: MuQ маску из инпута не строит, у MuLan
+    пулинг `mean(dim=-2)` без маски → паддинг разных длин испортил бы вектор.
+- **`run_concurrent_lane`** (ai-rpc, transcribe, collab, quality): до N одновременных
+  задач (fetch → spawn task, permit в его finally).
+
+GPU-лок (`mulan_lock`/`lyrics_text_lock`) даётся батч-лейну только при `ai>0`, когда
+ai-rpc шарит ту же модель; при `ai=0` локов нет.
 
 ## Масштабирование
 

@@ -4,7 +4,9 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
+import {SharingToggle} from '../components/music/SharingToggle';
 import { SoundWaveSimilarBlock } from '../components/music/soundwave';
+import {sameScdMeta, TrackStatusBadges} from '../components/music/TrackStatusBadges';
 import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
 import { api } from '../lib/api';
 import { getCurrentTime, preloadTrack } from '../lib/audio';
@@ -44,8 +46,10 @@ import {
   Send,
 } from '../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../lib/likes';
+import {useScdMeta} from '../lib/scdMeta';
 import { getArtistDisplay, getDisplayTitle, getParticipants } from '../lib/track-display';
 import { useTrackPlay } from '../lib/useTrackPlay';
+import {useAuthStore} from '../stores/auth';
 import { useLyricsStore } from '../stores/lyrics';
 import { type Track, usePlayerStore } from '../stores/player';
 
@@ -370,6 +374,10 @@ const RelatedRow = React.memo(
 
         <TrackTitleArtist track={track} size="sm" />
 
+          <div className="shrink-0">
+              <TrackStatusBadges meta={track._scd_meta}/>
+          </div>
+
         <div className="text-right shrink-0">
           <p className="text-[10px] text-white/25 tabular-nums">{dur(track.duration)}</p>
           {track.playback_count != null && (
@@ -382,7 +390,8 @@ const RelatedRow = React.memo(
       </div>
     );
   },
-  (prev, next) => prev.track.urn === next.track.urn,
+    (prev, next) =>
+        prev.track.urn === next.track.urn && sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );
 
 /* ── Download — icon-only in the rail ───────────────────── */
@@ -428,6 +437,7 @@ export const TrackPage = React.memo(() => {
   const navigate = useNavigate();
   const [descExpanded, setDescExpanded] = useState(false);
   const openLyrics = useLyricsStore((s) => s.openPanel);
+    const myUrn = useAuthStore((s) => s.user?.urn);
 
   const { data: track, isLoading } = useQuery({
     queryKey: ['track', urn],
@@ -465,7 +475,8 @@ export const TrackPage = React.memo(() => {
     (s) => !!trackUrn && s.currentTrack?.urn === trackUrn && s.isPlaying,
   );
 
-  const relatedTracks = useMemo(() => relatedData?.collection ?? [], [relatedData]);
+    const relatedRaw = useMemo(() => relatedData?.collection ?? [], [relatedData]);
+    const relatedTracks = useScdMeta(relatedRaw);
   const favoriters = useMemo(() => favoritersData?.collection ?? [], [favoritersData]);
 
   if (isLoading || !track) {
@@ -485,7 +496,9 @@ export const TrackPage = React.memo(() => {
     const { play, pause, resume } = usePlayerStore.getState();
     if (isThisPlaying) pause();
     else if (isThis) resume();
-    else play(track, relatedTracks.length > 0 ? [track, ...relatedTracks] : undefined);
+        // Стартуем очередь одним этим треком — доезд берёт on-end autopilot
+    // (волна от трека → фоллбек на SC related), см. lib/queue-autopilot.ts.
+    else play(track, [track]);
   };
 
   return (
@@ -542,11 +555,15 @@ export const TrackPage = React.memo(() => {
 
           {/* Info */}
           <div className="flex-1 min-w-0 py-2">
-            {track.genre && (
-              <span className="inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/[0.06] text-white/40 border border-white/[0.06] mb-3 uppercase tracking-wider">
-                {track.genre}
-              </span>
-            )}
+              <div className="flex items-center gap-2 mb-3">
+                  <TrackStatusBadges meta={track._scd_meta}/>
+                  {track.genre && (
+                      <span
+                          className="inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/[0.06] text-white/40 border border-white/[0.06] uppercase tracking-wider">
+                  {track.genre}
+                </span>
+                  )}
+              </div>
             <h1 className="text-2xl font-bold text-white/95 leading-tight mb-2 line-clamp-2">
               {getDisplayTitle(track)}
             </h1>
@@ -622,14 +639,13 @@ export const TrackPage = React.memo(() => {
                       )}
                       {participants?.remixers && participants.remixers.length > 0 && (
                         <span>
-                          {(participants.featured.length > 0) && '· '}
+                          {participants.featured.length > 0 && '· '}
                           <ArtistLinks artists={participants.remixers} /> Remix
                         </span>
                       )}
                       {participants?.producers && participants.producers.length > 0 && (
                         <span>
-                          {(participants.featured.length > 0 ||
-                            participants.remixers.length > 0) &&
+                          {(participants.featured.length > 0 || participants.remixers.length > 0) &&
                             '· '}
                           prod. <ArtistLinks artists={participants.producers} />
                         </span>
@@ -712,6 +728,9 @@ export const TrackPage = React.memo(() => {
                 </AddToPlaylistDialog>
                 <CopyIconAction url={track.permalink_url} />
                 <DownloadButton track={track} />
+                  {!!myUrn && track.user?.urn === myUrn && (
+                      <SharingToggle kind="track" urn={track.urn} sharing={track.sharing}/>
+                  )}
               </div>
             </div>
           </div>

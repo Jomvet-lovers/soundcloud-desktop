@@ -16,6 +16,9 @@ const REFRESH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const FRESH_WINDOW_DAYS: i32 = 14;
 const TAG_PRECOMPUTE_LIMIT: i64 = 32;
 const CACHE_TTL_FALLBACK_SECS: u64 = 3 * 60 * 60;
+// Один наш вовлечённый full_play ≈ INTERNAL_PLAY_WEIGHT пассивных SC-плеев.
+// Поднимает локальных фаворитов над глобальными по SC, не обгоняя реальные хиты.
+const INTERNAL_PLAY_WEIGHT: i64 = 10_000;
 
 pub const REDIS_KEY_SUMMARY: &str = "discover:summary:v1";
 pub const REDIS_KEY_TAGS: &str = "discover:tags:v1";
@@ -85,6 +88,7 @@ impl DiscoverService {
         let started = std::time::Instant::now();
         self.refresh_artist_counts().await?;
         self.refresh_artist_plays().await?;
+        self.refresh_artist_popularity().await?;
         self.refresh_artist_tags().await?;
         self.refresh_artist_star().await?;
         self.refresh_album_meta().await?;
@@ -215,6 +219,61 @@ impl DiscoverService {
             WHERE a.id = aff.artist_id AND a.merged_into IS NULL
             "#,
         )
+            .execute(&self.pg)
+            .await?;
+        Ok(())
+    }
+
+    async fn refresh_artist_popularity(&self) -> AppResult<()> {
+        // Гибрид: SC play_count по primary-трекам (база) + наши full_play с
+        // весом INTERNAL_PLAY_WEIGHT. LN-нормализация как у album popularity.
+        sqlx::query(&format!(
+            r#"
+            WITH sc AS (
+                SELECT t.primary_artist_id AS artist_id,
+                       SUM(c.play_count)::bigint AS plays
+                FROM sc_track_counters c
+                JOIN tracks t ON t.sc_track_id = c.sc_track_id
+                WHERE t.primary_artist_id IS NOT NULL
+                GROUP BY t.primary_artist_id
+            ),
+            internal AS (
+                SELECT t.primary_artist_id AS artist_id,
+                       COUNT(*)::bigint AS fp
+                FROM user_events ue
+                JOIN tracks t ON t.sc_track_id = ue.sc_track_id
+                WHERE ue.event_type = 'full_play'
+                  AND t.primary_artist_id IS NOT NULL
+                GROUP BY t.primary_artist_id
+            ),
+            combined AS (
+                SELECT COALESCE(sc.artist_id, internal.artist_id) AS artist_id,
+                       COALESCE(sc.plays, 0)
+                         + COALESCE(internal.fp, 0) * {weight}::bigint AS score
+                FROM sc
+                FULL OUTER JOIN internal ON sc.artist_id = internal.artist_id
+            ),
+            denom AS (
+                SELECT GREATEST(MAX(score), 1)::bigint AS m FROM combined
+            ),
+            affected AS (
+                SELECT artist_id FROM combined WHERE score > 0
+                UNION
+                SELECT id AS artist_id FROM artists
+                WHERE popularity_score > 0 AND merged_into IS NULL
+            )
+            UPDATE artists a SET
+                popularity_score = LEAST(
+                    1.0::real,
+                    (LN(GREATEST(COALESCE(cm.score, 0), 0) + 1)::real
+                     / NULLIF(LN((SELECT m FROM denom) + 1)::real, 0))
+                )
+            FROM affected aff
+            LEFT JOIN combined cm ON cm.artist_id = aff.artist_id
+            WHERE a.id = aff.artist_id AND a.merged_into IS NULL
+            "#,
+            weight = INTERNAL_PLAY_WEIGHT,
+        ))
         .execute(&self.pg)
         .await?;
         Ok(())
@@ -439,13 +498,21 @@ impl DiscoverService {
     }
 
     pub async fn compute_summary(&self) -> AppResult<CachedSummary> {
+        // artists_count/albums_count/fresh_count считаем по тому же гейту, что и
+        // каталог — иначе бейдж таба завышает на мусоре (артисты без треков,
+        // альбомы без плеев), которого в самом каталоге нет.
         let (artists_count, albums_count, fresh_count): (i64, i64, i64) = sqlx::query_as(
             r#"SELECT
-                COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname = 'artists'), 0)
-                    - (SELECT COUNT(*)::bigint FROM artists WHERE merged_into IS NOT NULL),
-                COALESCE((SELECT reltuples::bigint FROM pg_class WHERE relname = 'albums'), 0),
+                (SELECT COUNT(*)::bigint FROM artists
+                  WHERE merged_into IS NULL
+                    AND (track_count_primary > 0 OR track_count_featured > 0)),
                 (SELECT COUNT(*)::bigint FROM albums
-                  WHERE release_date IS NOT NULL
+                  WHERE track_count > 0 AND popularity_score > 0
+                    AND primary_artist_id IS NOT NULL),
+                (SELECT COUNT(*)::bigint FROM albums
+                  WHERE track_count > 0 AND popularity_score > 0
+                    AND primary_artist_id IS NOT NULL
+                    AND release_date IS NOT NULL
                     AND release_date > (CURRENT_DATE - ($1::int * INTERVAL '1 day')))
             "#,
         )

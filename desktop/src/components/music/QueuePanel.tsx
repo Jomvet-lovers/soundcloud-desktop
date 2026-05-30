@@ -8,6 +8,7 @@ import { art, dur } from '../../lib/formatters';
 import { GripVertical, pauseTextWhite12, playIcon32, Trash2, X } from '../../lib/icons';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { usePlayerStore } from '../../stores/player';
+import {TrackStatusBadges} from './TrackStatusBadges';
 import { UploadKindDot } from './UploadKindDot';
 
 /* ── Now Playing (single, non-draggable) ─────────────────────────── */
@@ -55,6 +56,9 @@ const NowPlayingItem = React.memo(() => {
           {currentTrack.title}
         </p>
         <p className="text-[10px] text-white/30 truncate mt-0.5">{currentTrack.user.username}</p>
+      </div>
+        <div className="shrink-0">
+            <TrackStatusBadges meta={currentTrack._scd_meta}/>
       </div>
       <span className="text-[10px] text-white/20 tabular-nums shrink-0">
         {dur(currentTrack.duration)}
@@ -136,6 +140,10 @@ const QueueRow = React.memo(function QueueRow({
       </div>
 
       <QueueTrackRowBody track={track} isCurrent={isCurrent} onClick={handleClick} />
+
+        <div className="shrink-0">
+            <TrackStatusBadges meta={track._scd_meta}/>
+        </div>
 
       <span className="text-[10px] text-white/20 tabular-nums shrink-0">{dur(track.duration)}</span>
 

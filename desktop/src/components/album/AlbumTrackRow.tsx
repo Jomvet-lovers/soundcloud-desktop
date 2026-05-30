@@ -14,7 +14,7 @@ import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
-import { TrackStatusBadges } from '../music/TrackStatusBadges';
+import {sameScdMeta, TrackStatusBadges} from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
 interface AlbumTrackRowProps {
@@ -130,8 +130,6 @@ const areEqual = (prev: AlbumTrackRowProps, next: AlbumTrackRowProps) =>
   prev.aura.accent[1] === next.aura.accent[1] &&
   prev.aura.accent[2] === next.aura.accent[2] &&
   prev.track.user_favorite === next.track.user_favorite &&
-  prev.track._scd_meta?.storage_state === next.track._scd_meta?.storage_state &&
-  prev.track._scd_meta?.storage_quality === next.track._scd_meta?.storage_quality &&
-  prev.track._scd_meta?.index_state === next.track._scd_meta?.index_state;
+    sameScdMeta(prev.track._scd_meta, next.track._scd_meta);
 
 export const AlbumTrackRow = memo(AlbumTrackRowImpl, areEqual);

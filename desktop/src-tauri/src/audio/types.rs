@@ -69,6 +69,10 @@ pub struct AudioSink {
 
 pub const STALL_THRESHOLD_MS: u64 = 2_000;
 pub const STALL_COOLDOWN_MS: u64 = 10_000;
+/// After a device switch/reconnect the new output can take a moment to start
+/// pulling samples (Bluetooth especially); suppress stall-detection for this long
+/// so the settling gap isn't mistaken for a dead stream.
+pub const STALL_SUPPRESS_MS: u64 = 4_000;
 
 #[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

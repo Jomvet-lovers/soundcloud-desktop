@@ -44,9 +44,9 @@ export interface TrackEnrichment {
 }
 
 export interface TrackScdMeta {
-  storage_state: 'pending' | 'ok' | 'failed' | 'missing';
+    storage_state: 'pending' | 'ok' | 'failed' | 'missing' | 'too_long';
   storage_quality?: 'sq' | 'hq';
-  index_state: 'pending' | 'indexed' | 'failed';
+    index_state: 'pending' | 'indexed' | 'failed' | 'too_long';
   enrich_state: 'pending' | 'done' | 'failed';
 }
 
@@ -98,6 +98,19 @@ export interface Track {
 
 type RepeatMode = 'off' | 'one' | 'all';
 export type PlaybackQuality = 'hq' | 'sq';
+
+/**
+ * A-B loop ("best part" repeat). Bounds are in **source seconds**.
+ * `b === null` means point A is set and we're waiting for B — the loop is not
+ * active yet. Both set → playback loops the `[a, b]` segment.
+ */
+export interface AbLoop {
+    a: number;
+    b: number | null;
+}
+
+/** Smallest meaningful loop width / handle gap, in seconds. */
+export const AB_MIN_GAP = 0.2;
 
 /**
  * Module-level slot для обработчика "очередь кончилась". Не часть PlayerState,
@@ -163,6 +176,8 @@ interface PlayerState {
   volumeBeforeMute: number;
   shuffle: boolean;
   repeat: RepeatMode;
+    /** A-B segment loop for the current track, or null when disabled. */
+    abLoop: AbLoop | null;
   /** Download progress 0-1 when loading from API, null when not downloading */
   downloadProgress: number | null;
   playbackQuality: PlaybackQuality | null;
@@ -192,6 +207,11 @@ interface PlayerState {
   clearQueue: () => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+    /** Tap-to-set cycle at the given source-seconds position: set A → set B → clear. */
+    cycleAbPoint: (pos: number) => void;
+    /** Drag a single loop bound (used by the markers on the progress bar). */
+    nudgeAbBound: (which: 'a' | 'b', value: number) => void;
+    clearAbLoop: () => void;
   setCurrentTrackAccess: (access: Track['access']) => void;
   replaceTrackMetadata: (track: Track) => void;
   setPlaybackTransport: (quality: PlaybackQuality | null, source: PlaybackSource | null) => void;
@@ -209,6 +229,7 @@ export const usePlayerStore = create<PlayerState>()(
       volumeBeforeMute: 50,
       shuffle: false,
       repeat: 'off',
+        abLoop: null,
       downloadProgress: null,
       playbackQuality: null,
       playbackSource: null,
@@ -444,6 +465,38 @@ export const usePlayerStore = create<PlayerState>()(
         set((s) => ({
           repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
         })),
+
+        cycleAbPoint: (pos) =>
+            set((s) => {
+                const at = Math.max(0, pos);
+                const ab = s.abLoop;
+                // No loop yet → drop point A.
+                if (!ab) return {abLoop: {a: at, b: null}};
+                // A set, awaiting B → place the second point, ordering the pair.
+                if (ab.b == null) {
+                    if (at > ab.a + AB_MIN_GAP) return {abLoop: {a: ab.a, b: at}};
+                    if (at < ab.a - AB_MIN_GAP) return {abLoop: {a: at, b: ab.a}};
+                    return {abLoop: null}; // too close to A → cancel
+                }
+                // Active loop → clear.
+                return {abLoop: null};
+            }),
+
+        nudgeAbBound: (which, value) =>
+            set((s) => {
+                if (!s.abLoop) return {};
+                const {a, b} = s.abLoop;
+                if (which === 'a') {
+                    const na = Math.max(0, value);
+                    if (b != null && na > b - AB_MIN_GAP) return {};
+                    return {abLoop: {a: na, b}};
+                }
+                const nb = Math.max(0, value);
+                if (nb < a + AB_MIN_GAP) return {};
+                return {abLoop: {a, b: nb}};
+            }),
+
+        clearAbLoop: () => set((s) => (s.abLoop ? {abLoop: null} : {})),
 
       setCurrentTrackAccess: (access) =>
         set((s) => (s.currentTrack ? { currentTrack: { ...s.currentTrack, access } } : {})),

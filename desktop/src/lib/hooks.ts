@@ -214,6 +214,12 @@ function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
     gcTime: opts.gcTime ?? INFINITE_GC_MS,
     maxPages: opts.maxPages,
     enabled: opts.enabled,
+      // Списки рефрешатся только явными invalidate'ами из мутаций. Remount/
+      // reconnect не должен перетягивать весь infinite-query: для SC cursor-лент
+      // это перепроходит сдвинувшийся курсор и тасует выдачу. Focus-рефетч уже
+      // выключен глобально в query-client.
+      refetchOnMount: false,
+      refetchOnReconnect: false,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: opts.autoFetchAll is stable, query is captured
@@ -287,27 +293,6 @@ export function useFeatured() {
     queryFn: () => api<FeaturedResponse | null>('/featured'),
     staleTime: 5 * 60_000,
   });
-}
-
-/* ── Feed ──────────────────────────────────────────────────────── */
-
-export function useFeed() {
-  const query = usePagedQuery<FeedItem>({
-    queryKey: ['feed'],
-    url: (page, limit) => pagedUrl('/me/feed', page, limit),
-    limit: 20,
-    staleTime: SHORT_CACHE_MS,
-    maxPages: 8,
-    dedupe: (item) => item.origin?.urn ?? `${item.type}:${item.created_at}`,
-  });
-
-  return {
-    items: query.items,
-    fetchNextPage: query.fetchNextPage,
-    hasNextPage: query.hasNextPage,
-    isFetchingNextPage: query.isFetchingNextPage,
-    isLoading: query.isLoading,
-  };
 }
 
 /* ── Liked tracks ──────────────────────────────────────────────── */
@@ -706,6 +691,48 @@ export function useCreatePlaylist() {
   });
 }
 
+/* ── Sharing (privacy) ─────────────────────────────────────────── */
+
+/** Тоггл приватности своего плейлиста. Optimistic: бэк сразу обновляет наш
+ *  `sharing` + кладёт write-back в SC через sync_queue. */
+export function useSetPlaylistSharing(playlistUrn: string | undefined) {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (sharing: 'public' | 'private') =>
+            api(`/playlists/${encodeURIComponent(playlistUrn!)}/sharing`, {
+                method: 'PUT',
+                body: JSON.stringify({sharing}),
+            }),
+        onSuccess: (_data, sharing) => {
+            qc.setQueryData<Playlist>(['playlist', playlistUrn], (old) =>
+                old ? {...old, sharing} : old,
+            );
+            qc.invalidateQueries({queryKey: ['playlist', playlistUrn]});
+            qc.invalidateQueries({queryKey: ['me', 'playlists']});
+            // Список своих плейлистов на профиле — ['user', urn, 'playlists'].
+            qc.invalidateQueries({queryKey: ['user']});
+        },
+    });
+}
+
+/** Тоггл приватности своего трека. */
+export function useSetTrackSharing(trackUrn: string | undefined) {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: (sharing: 'public' | 'private') =>
+            api(`/tracks/${encodeURIComponent(trackUrn!)}/sharing`, {
+                method: 'PUT',
+                body: JSON.stringify({sharing}),
+            }),
+        onSuccess: (_data, sharing) => {
+            qc.setQueryData<Track>(['track', trackUrn], (old) => (old ? {...old, sharing} : old));
+            qc.invalidateQueries({queryKey: ['track', trackUrn], exact: true});
+            // Списки своих треков на профиле — ['user', urn, 'tracks'] (нет ['me','tracks']).
+            qc.invalidateQueries({queryKey: ['user']});
+        },
+    });
+}
+
 export function useDeletePlaylist() {
   const qc = useQueryClient();
   return useMutation({
@@ -848,6 +875,81 @@ export function useSearchDbAlbums(q: string) {
     dedupe: (a) => a.id,
   });
   return { albums: query.items, ...query };
+}
+
+/* ── Search: Vibe + Lyrics (AI) ───────────────────────────────── */
+
+const EMPTY_TRACKS: Track[] = [];
+const EMPTY_ATMOSPHERE: SearchAtmosphere = {topGenres: []};
+
+export interface SearchAtmosphere {
+    /** Dominant genres of the result set — used to tint the page atmosphere. */
+    topGenres: string[];
+}
+
+export interface VibeSearchResponse {
+    items: Track[];
+    atmosphere: SearchAtmosphere;
+    /** "preparing" = the query vector is still being computed by the worker
+     *  (high load); items is empty, the UI shows a "preparing vibe" plaque and
+     *  this query auto-refetches until it flips to "ready". */
+    status?: 'ready' | 'preparing';
+}
+
+/**
+ * Semantic "by vibe" search. Backend encodes the query (MuLan→CLAP, cached) and
+ * returns SC-shaped tracks in similarity order plus an `atmosphere` hint
+ * (dominant genres) the UI uses to recolour the page.
+ */
+export function useVibeSearch(q: string, opts?: { limit?: number; languages?: string[] }) {
+    const limit = opts?.limit ?? 48;
+    const langs = (opts?.languages ?? []).slice().sort().join(',');
+    const query = useQuery({
+        queryKey: ['search', 'vibe', q, limit, langs],
+        enabled: q.trim().length >= 2,
+        staleTime: SEARCH_CACHE_MS,
+        // While the worker is still encoding the query (preparing), poll until the
+        // vector lands and the backend flips to ready.
+        refetchInterval: (q2) => (q2.state.data?.status === 'preparing' ? 2500 : false),
+        queryFn: () => {
+            const usp = new URLSearchParams({q: q.trim(), limit: String(limit)});
+            if (langs) usp.set('languages', langs);
+            return api<VibeSearchResponse>(`/search/vibe?${usp}`, undefined, 30_000);
+        },
+    });
+    return {
+        tracks: query.data?.items ?? EMPTY_TRACKS,
+        atmosphere: query.data?.atmosphere ?? EMPTY_ATMOSPHERE,
+        preparing: query.data?.status === 'preparing',
+        ...query,
+    };
+}
+
+export type LyricMode = 'text' | 'semantic' | 'auto';
+
+export interface LyricHit {
+    track: Track;
+    /** The matched lyric line (text mode); null for pure semantic hits. */
+    matchedLine: string | null;
+    score: number;
+}
+
+/**
+ * Lyric search. `text` = keyword match over stored lyrics (returns the matched
+ * line); `semantic` = lyric-embedding similarity; `auto` = both, merged.
+ */
+export function useLyricSearch(q: string, mode: LyricMode = 'auto') {
+    const query = usePagedQuery<LyricHit>({
+        queryKey: ['search', 'lyrics', q, mode],
+        url: (page, limit) =>
+            pagedUrl('/search/lyrics', page, limit, `q=${encodeURIComponent(q)}&mode=${mode}`),
+        limit: SEARCH_DB_LIMIT,
+        staleTime: SEARCH_CACHE_MS,
+        maxPages: SEARCH_DB_MAX_PAGES,
+        enabled: q.trim().length >= 2,
+        dedupe: (h) => h.track.urn,
+    });
+    return {hits: query.items, ...query};
 }
 
 /* ── Fallback / Seed Tracks ────────────────────────────────────── */

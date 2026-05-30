@@ -1,7 +1,6 @@
 pub const AI_DETECT_LANGUAGE: &str = "ai.rpc.detect_language";
 pub const AI_SEARCH_QUERIES: &str = "ai.rpc.search_queries";
 pub const AI_RANK_LYRICS: &str = "ai.rpc.rank_lyrics";
-pub const AI_ENCODE_TEXT_MULAN: &str = "ai.rpc.encode_text_mulan";
 pub const AI_RESOLVE_ARTIST: &str = "ai.rpc.resolve_artist";
 pub const AI_VERIFY_EXISTENCE: &str = "ai.rpc.verify_existence";
 pub const AI_MATCH_TRACK: &str = "ai.rpc.match_track";
@@ -18,12 +17,21 @@ pub const TRAIN_QUALITY: &str = "train.quality.new";
 /// `done.transcribe` → backend идемпотентно сохраняет.
 pub const TRANSCRIBE_AUDIO: &str = "transcribe.audio.new";
 
+/// Энкод текста запроса (vibe MuLan / lyrics bge-m3) в вектор. Под хайлоадом
+/// воркеров мало и они отвечают долго (минуты-часы из бэклога) — поэтому НЕ
+/// req/res (15s), а own work-queue (сиблинг TRANSCRIBE): backend публикует
+/// `encode.text.new` → воркер считает когда сможет → `done.encode` → backend
+/// пишет вектор в Qdrant (durable) + Redis-кэш. Дедуп публикаций — через
+/// `Nats-Msg-Id` в duplicate_window стрима + Redis in-flight маркер.
+pub const ENCODE_TEXT_NEW: &str = "encode.text.new";
+
 pub const ENRICH_TRACK: &str = "enrich.track.new";
 
 pub const DONE_INDEX_AUDIO: &str = "done.index_audio";
 pub const DONE_EMBED_LYRICS: &str = "done.embed_lyrics";
 pub const DONE_TRANSCRIBE: &str = "done.transcribe";
 pub const DONE_TRAIN_COLLAB: &str = "done.train_collab";
+pub const DONE_ENCODE: &str = "done.encode";
 
 /// Object Store бакет с bulk-датасетом collab-тренировки: сессии не лезут в
 /// сообщение (лимит NATS 1 MB), в `train.collab.new` едет только имя объекта.
@@ -54,6 +62,10 @@ pub mod streams {
     pub const TRANSCRIBE: StreamCfg = StreamCfg {
         name: "TRANSCRIBE",
         subjects: &["transcribe.>"],
+    };
+    pub const ENCODE: StreamCfg = StreamCfg {
+        name: "ENCODE",
+        subjects: &["encode.>"],
     };
     pub const TRAIN_COLLAB: StreamCfg = StreamCfg {
         name: "TRAIN_COLLAB",

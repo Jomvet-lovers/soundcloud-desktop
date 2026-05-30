@@ -214,6 +214,25 @@ export const skipForward20 = <_SkipForward size={20} fill="currentColor" />;
 export const shuffleIcon16 = <_Shuffle size={16} />;
 export const repeatIcon16 = <_Repeat size={16} />;
 export const repeat1Icon16 = <_Repeat1 size={16} />;
+// A-B segment loop: brackets framing a small loop arrow (a bounded repeat).
+export const repeatAbIcon16 = (
+    <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+    >
+        <path d="M8 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h2"/>
+        <path d="M16 4h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2"/>
+        <path d="M14.5 10.5a3 3 0 1 0 .4 4"/>
+        <path d="M15 8v3h-3"/>
+    </svg>
+);
 
 // Volume
 export const volumeXIcon16 = <_VolumeX size={16} />;

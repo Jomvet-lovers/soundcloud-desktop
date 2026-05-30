@@ -4,6 +4,7 @@ import { type Aura, auraRgba } from '../../lib/aura';
 import { dur, fc } from '../../lib/formatters';
 import { Calendar, ListMusic, Loader2, Music } from '../../lib/icons';
 import type { Track } from '../../stores/player';
+import {TrackStatusBadges} from '../music/TrackStatusBadges';
 import { VirtualList } from '../ui/VirtualList';
 import { ThemedTrackRow } from '../user/ThemedTrackRow';
 import type { TracksSort } from './types';
@@ -381,6 +382,9 @@ const WantedRow = memo(({ track, index }: { track: Track; index: number }) => (
     <div className="flex-1 min-w-0">
       <p className="text-[13px] font-medium text-white/55 truncate">{track.title}</p>
       <p className="text-[11px] text-white/25 truncate">{track.user?.username}</p>
+    </div>
+      <div className="hidden md:flex shrink-0">
+          <TrackStatusBadges meta={track._scd_meta}/>
     </div>
     {track.enrichment?.release_year && (
       <span className="text-[11px] text-white/25 tabular-nums shrink-0">

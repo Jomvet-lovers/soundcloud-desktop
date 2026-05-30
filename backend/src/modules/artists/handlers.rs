@@ -241,7 +241,7 @@ async fn covers(
     .fetch_all(&st.pg)
     .await?;
     let ids: Vec<String> = rows.into_iter().map(|(t,)| t).collect();
-    let mut items: Vec<Value> = crate::modules::tracks::project_many(&st.pg, &ids)
+    let mut items: Vec<Value> = crate::modules::tracks::project_many_public(&st.pg, &ids)
         .await?
         .into_iter()
         .flatten()
@@ -480,6 +480,6 @@ async fn fetch_artist_tracks(
         .fetch_all(pg)
         .await?;
     let ids: Vec<String> = rows.into_iter().map(|(t,)| t).collect();
-    let projected = crate::modules::tracks::project_many(pg, &ids).await?;
+    let projected = crate::modules::tracks::project_many_public(pg, &ids).await?;
     Ok(projected.into_iter().flatten().collect())
 }

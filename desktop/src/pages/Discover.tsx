@@ -9,9 +9,9 @@ import { useDebouncedValue } from '../components/discover/useDebouncedValue';
 import { AuraField } from '../components/user/AuraField';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
 import { type TabDescriptor, TabDock } from '../components/user/TabDock';
-import { DEFAULT_AURA } from '../lib/aura';
 import { fetchDiscoverRandom, useDiscoverSummary } from '../lib/discover';
 import { Search, X } from '../lib/icons';
+import {useViewerAura} from '../lib/useViewerAura';
 
 type DiscoverTabId = 'albums' | 'artists';
 
@@ -25,7 +25,7 @@ export const Discover = memo(function Discover() {
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
   const [isSurprising, setIsSurprising] = useState(false);
 
-  const aura = DEFAULT_AURA;
+    const aura = useViewerAura();
 
   const summaryQuery = useDiscoverSummary();
   const summary = summaryQuery.data;

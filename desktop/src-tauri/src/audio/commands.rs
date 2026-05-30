@@ -87,6 +87,11 @@ pub fn audio_set_playback_rate(rate: f64, state: State<'_, AudioState>) {
 }
 
 #[tauri::command]
+pub fn audio_set_ab_loop(a: Option<f64>, b: Option<f64>, state: State<'_, AudioState>) {
+    engine::set_ab_loop(a, b, state);
+}
+
+#[tauri::command]
 pub fn audio_get_position(state: State<'_, AudioState>) -> f64 {
     engine::get_position(state)
 }
@@ -174,4 +179,19 @@ pub fn audio_set_comments_timeline(
 #[tauri::command]
 pub fn audio_clear_comments_timeline(state: State<'_, AudioState>) {
     timing::audio_clear_comments_timeline(state);
+}
+
+#[tauri::command]
+pub async fn audio_preview_play(
+    path: String,
+    volume: f64,
+    gen: u64,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    engine::preview_play(path, volume, gen, state).await
+}
+
+#[tauri::command]
+pub fn audio_preview_stop(fade_ms: u64, gen: u64, state: State<'_, AudioState>) {
+    engine::preview_stop(fade_ms, gen, state);
 }

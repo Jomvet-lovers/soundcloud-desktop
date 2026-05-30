@@ -54,7 +54,7 @@ impl UsersService {
         target_sc_user_id: &str,
         session_id: Uuid,
     ) -> TokenKind {
-        if viewer_sc_user_id == target_sc_user_id {
+        if same_sc_user(viewer_sc_user_id, target_sc_user_id) {
             TokenKind::User(session_id)
         } else {
             TokenKind::UserFirst(session_id)
@@ -208,7 +208,7 @@ impl UsersService {
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
         let chain = self
             .tokens
             .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
@@ -217,7 +217,8 @@ impl UsersService {
             .ensure_collection(OWNED_TRACKS, target_sc_user_id, is_self, &chain, &[])
             .await?;
         let mut result =
-            read_collection_page(&self.pg, &OWNED_TRACKS, target_sc_user_id, page, limit).await?;
+            read_collection_page(&self.pg, &OWNED_TRACKS, target_sc_user_id, page, limit, !is_self)
+                .await?;
         likes_cold::apply_user_favorite_flag(&self.pg, viewer_sc_user_id, &mut result.collection)
             .await?;
         Ok(result)
@@ -232,7 +233,7 @@ impl UsersService {
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
         let chain = self
             .tokens
             .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
@@ -240,9 +241,15 @@ impl UsersService {
         self.cold_refresh
             .ensure_collection(OWNED_PLAYLISTS, target_sc_user_id, is_self, &chain, &[])
             .await?;
-        let mut result =
-            read_collection_page(&self.pg, &OWNED_PLAYLISTS, target_sc_user_id, page, limit)
-                .await?;
+        let mut result = read_collection_page(
+            &self.pg,
+            &OWNED_PLAYLISTS,
+            target_sc_user_id,
+            page,
+            limit,
+            !is_self,
+        )
+            .await?;
         likes_cold::apply_user_favorite_flag_to_playlists(
             &self.pg,
             viewer_sc_user_id,
@@ -264,7 +271,7 @@ impl UsersService {
         limit: i64,
         access: &str,
     ) -> AppResult<ListPageResult<Value>> {
-        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
         let chain = self
             .tokens
             .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
@@ -279,7 +286,8 @@ impl UsersService {
             )
             .await?;
         let mut result =
-            read_collection_page(&self.pg, &LIKED_TRACKS, target_sc_user_id, page, limit).await?;
+            read_collection_page(&self.pg, &LIKED_TRACKS, target_sc_user_id, page, limit, !is_self)
+                .await?;
 
         // Если смотрим свои лайки — каждый item автоматически user_favorite.
         // Если чужие — флаг показывает, лайкнул ли это ВЬЮВЕР (другой юзер).
@@ -309,7 +317,7 @@ impl UsersService {
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
         let chain = self
             .tokens
             .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
@@ -317,9 +325,15 @@ impl UsersService {
         self.cold_refresh
             .ensure_collection(LIKED_PLAYLISTS, target_sc_user_id, is_self, &chain, &[])
             .await?;
-        let mut result =
-            read_collection_page(&self.pg, &LIKED_PLAYLISTS, target_sc_user_id, page, limit)
-                .await?;
+        let mut result = read_collection_page(
+            &self.pg,
+            &LIKED_PLAYLISTS,
+            target_sc_user_id,
+            page,
+            limit,
+            !is_self,
+        )
+            .await?;
         likes_cold::apply_user_favorite_flag_to_playlists(
             &self.pg,
             viewer_sc_user_id,
@@ -338,7 +352,7 @@ impl UsersService {
         page: i64,
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
-        let is_self = viewer_sc_user_id == target_sc_user_id;
+        let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
         let chain = self
             .tokens
             .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
@@ -346,7 +360,7 @@ impl UsersService {
         self.cold_refresh
             .ensure_collection(FOLLOWINGS, target_sc_user_id, is_self, &chain, &[])
             .await?;
-        read_collection_page(&self.pg, &FOLLOWINGS, target_sc_user_id, page, limit).await
+        read_collection_page(&self.pg, &FOLLOWINGS, target_sc_user_id, page, limit, !is_self).await
     }
 
     pub async fn get_web_profiles(&self, session_id: Uuid, user_urn: &str) -> AppResult<Value> {
@@ -362,4 +376,12 @@ impl UsersService {
 
 fn as_pairs(v: &[(String, String)]) -> Vec<(&str, String)> {
     v.iter().map(|(k, v)| (k.as_str(), v.clone())).collect()
+}
+
+/// «Свой» ли это профиль. Нормализуем оба id, т.к. viewer приходит URN'ом
+/// (`soundcloud:users:NNN`), а target — голым (handler делает `extract_sc_id`).
+/// Без нормализации `is_self` всегда false → `/users/{self}/*` прятал бы свои
+/// приватные треки/плейлисты от самого владельца.
+fn same_sc_user(viewer: &str, target: &str) -> bool {
+    crate::common::sc_ids::extract_sc_id(viewer) == crate::common::sc_ids::extract_sc_id(target)
 }

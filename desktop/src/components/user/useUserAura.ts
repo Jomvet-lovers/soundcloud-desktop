@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { type Aura, auraFromHex, DEFAULT_AURA, DEFAULT_CUSTOM_HEX, resolveAura } from '../../lib/aura';
+import {useViewerAura} from '../../lib/useViewerAura';
 
 type AuraResponse = {
   aura_id: string | null;
@@ -22,9 +23,10 @@ export function useUserAura(urn: string | undefined, hasStar: boolean) {
     gcTime: GC_MS,
   });
 
+    const viewerAura = useViewerAura();
   const aura = useMemo(
-    () => (hasStar ? resolveAura(query.data?.aura_id, query.data?.custom_hex) : DEFAULT_AURA),
-    [hasStar, query.data?.aura_id, query.data?.custom_hex],
+      () => (hasStar ? resolveAura(query.data?.aura_id, query.data?.custom_hex) : viewerAura),
+      [hasStar, query.data?.aura_id, query.data?.custom_hex, viewerAura],
   );
 
   const initialCustomHex = query.data?.custom_hex ?? DEFAULT_CUSTOM_HEX;
@@ -43,6 +45,7 @@ export function useEditableUserAura(urn: string | undefined, enabled: boolean) {
     gcTime: GC_MS,
   });
 
+    const viewerAura = useViewerAura();
   const [aura, setAura] = useState<Aura>(DEFAULT_AURA);
   const [customHex, setCustomHex] = useState<string>(DEFAULT_CUSTOM_HEX);
   const initRef = useRef(false);
@@ -107,5 +110,6 @@ export function useEditableUserAura(urn: string | undefined, enabled: boolean) {
     [queueSave],
   );
 
-  return { aura, customHex, onPickAura, onPickCustom };
+    // Без «звезды» кастомизация недоступна — отдаём ауру по теме смотрящего.
+    return {aura: enabled ? aura : viewerAura, customHex, onPickAura, onPickCustom};
 }

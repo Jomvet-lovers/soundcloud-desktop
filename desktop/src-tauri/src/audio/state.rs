@@ -21,6 +21,25 @@ pub struct CommentsTimelineState {
     pub next_index: usize,
 }
 
+/// Lightweight hover-preview channel: a second rodio `Player` on the shared mixer
+/// with its own throwaway analyser (so it never disturbs the main player's spectrum)
+/// and a tick-driven linear volume ramp for fade-in/out. Never writes plays history.
+pub struct PreviewState {
+    pub player: Option<Player>,
+    /// Currently applied volume (rodio scale 0.0..2.0).
+    pub volume: f32,
+    /// Target volume the tick-thread ramp is moving toward.
+    pub target: f32,
+    /// Per-tick volume delta magnitude (>= 0); direction derived from volume vs target.
+    pub step: f32,
+    /// When the ramp reaches 0, stop and drop the player (fade-out).
+    pub stop_at_zero: bool,
+    /// Monotonic generation of the installed preview. A newer hover bumps it; a
+    /// stale stop / out-of-order decode is rejected by comparing against it so
+    /// rapid hover across tiles can't clobber the surviving preview.
+    pub gen: u64,
+}
+
 pub struct AudioState {
     pub player: Mutex<Option<Player>>,
     pub mixer: Arc<Mutex<Mixer>>,
@@ -29,9 +48,17 @@ pub struct AudioState {
     pub normalization_gain: Mutex<f32>,
     pub volume: Mutex<f32>,
     pub playback_rate: Mutex<f32>,
+    /// Source-time position integrator `(source_anchor, output_anchor)` in seconds.
+    /// rodio's get_pos() is wall-clock (output) time; source time is integrated as
+    /// `source_anchor + (get_pos() - output_anchor) * rate`. The anchor is re-based on
+    /// load/seek/loop and on every rate change so speed changes mid-track stay exact.
+    pub pos_anchor: Mutex<(f64, f64)>,
     pub has_track: AtomicBool,
     pub ended_notified: AtomicBool,
     pub suppress_ended_until_ms: AtomicU64,
+    /// Wall-clock ms until which the tick thread skips stall-detection — set around
+    /// device switch/reconnect so a settling output isn't read as a dead stream.
+    pub suppress_stall_until_ms: AtomicU64,
     pub device_error: Arc<AtomicBool>,
     pub device_reconnected: Arc<AtomicBool>,
     pub load_gen: AtomicU64,
@@ -42,7 +69,11 @@ pub struct AudioState {
     pub last_known_default_output: Mutex<Option<String>>,
     pub lyrics_timeline: Mutex<Option<LyricsTimelineState>>,
     pub comments_timeline: Mutex<Option<CommentsTimelineState>>,
+    /// A-B loop region `(a, b)` in **source seconds** (a < b). When set, playback
+    /// jumps back to `a` once it crosses `b` (see tick.rs). None = disabled.
+    pub ab_loop: Mutex<Option<(f64, f64)>>,
     pub analyser_buffer: Arc<AnalyserBuffer>,
+    pub preview: Mutex<PreviewState>,
 }
 
 pub fn init() -> AudioState {
@@ -123,9 +154,11 @@ pub fn init() -> AudioState {
         normalization_gain: Mutex::new(1.0),
         volume: Mutex::new(0.25),
         playback_rate: Mutex::new(1.0),
+        pos_anchor: Mutex::new((0.0, 0.0)),
         has_track: AtomicBool::new(false),
         ended_notified: AtomicBool::new(false),
         suppress_ended_until_ms: AtomicU64::new(0),
+        suppress_stall_until_ms: AtomicU64::new(0),
         device_error: device_error_flag,
         device_reconnected: reconnected_flag,
         load_gen: AtomicU64::new(0),
@@ -136,6 +169,15 @@ pub fn init() -> AudioState {
         last_known_default_output: Mutex::new(None),
         lyrics_timeline: Mutex::new(None),
         comments_timeline: Mutex::new(None),
+        ab_loop: Mutex::new(None),
         analyser_buffer: AnalyserBuffer::new(),
+        preview: Mutex::new(PreviewState {
+            player: None,
+            volume: 0.0,
+            target: 0.0,
+            step: 0.0,
+            stop_at_zero: false,
+            gen: 0,
+        }),
     }
 }

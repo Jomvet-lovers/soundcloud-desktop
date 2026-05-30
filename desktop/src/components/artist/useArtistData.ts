@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { api } from '../../lib/api';
-import { type Aura, DEFAULT_AURA, resolveAura } from '../../lib/aura';
+import {type Aura, resolveAura} from '../../lib/aura';
+import {useViewerAura} from '../../lib/useViewerAura';
 import type { Track } from '../../stores/player';
 import type { ArtistAlbum, ArtistDetail, TracksSort } from './types';
 
@@ -80,12 +81,13 @@ export function useArtistStar(id: string | undefined): ArtistStar {
     gcTime: GC_STAR,
   });
 
+    const viewerAura = useViewerAura();
   return useMemo(() => {
     const data = query.data;
-    if (!data?.premium) return { hasStar: false, aura: DEFAULT_AURA };
+      if (!data?.premium) return {hasStar: false, aura: viewerAura};
     return {
       hasStar: true,
       aura: resolveAura(data.aura_id, data.custom_hex),
     };
-  }, [query.data]);
+  }, [query.data, viewerAura]);
 }

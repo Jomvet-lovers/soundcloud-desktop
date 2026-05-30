@@ -149,7 +149,6 @@ async fn recommend_one(
     if let Some(f) = filter {
         req = req.filter(f.clone());
     }
-    let _permit = svc.qdrant_sem.acquire().await.ok();
     let raw = match svc.qdrant.raw().recommend(req).await {
         Ok(r) => r.result,
         Err(e) => {

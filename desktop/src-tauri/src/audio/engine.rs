@@ -7,7 +7,7 @@ use tokio::task;
 
 use crate::audio::decode::{create_player_from_bytes, resolve_normalization_gain};
 use crate::audio::state::AudioState;
-use crate::audio::types::{AudioLoadResult, MediaCmd, EQ_BANDS};
+use crate::audio::types::{AudioLoadResult, MediaCmd, EQ_BANDS, STALL_SUPPRESS_MS, TICK_INTERVAL_MS};
 
 const ENDED_SUPPRESS_MS: u64 = 1200;
 
@@ -22,6 +22,16 @@ fn suppress_ended_temporarily(state: &AudioState) {
     state
         .suppress_ended_until_ms
         .store(now_ms() + ENDED_SUPPRESS_MS, Ordering::Relaxed);
+}
+
+/// Mute stall-detection (tick.rs) for a short window. A device switch briefly
+/// freezes the old player and the freshly opened output may lag before it starts
+/// pulling samples; without this the tick thread reads the gap as a dead stream and
+/// fires a redundant reconnect mid-switch.
+pub fn suppress_stall_temporarily(state: &AudioState) {
+    state
+        .suppress_stall_until_ms
+        .store(now_ms() + STALL_SUPPRESS_MS, Ordering::Relaxed);
 }
 
 fn volume_to_rodio(v: f64) -> f32 {
@@ -43,6 +53,28 @@ fn apply_current_rate(state: &AudioState, player: &rodio::Player) {
     }
 }
 
+/// Current playback speed as f64, floored away from zero so it's safe to divide by.
+/// rodio's `get_pos()`/`try_seek()` operate in output (wall-clock) time = source/rate;
+/// this lets callers convert to/from the source timeline the rest of the app uses.
+pub fn current_rate(state: &AudioState) -> f64 {
+    (*state.playback_rate.lock().unwrap() as f64).max(0.01)
+}
+
+/// Current position in **source seconds**, integrated from rodio's wall-clock get_pos().
+/// Exact across mid-track speed changes (each constant-rate segment is closed into the
+/// anchor by set_playback_rate). Does NOT lock `state.player` — pass the held player.
+pub fn source_pos(state: &AudioState, player: &rodio::Player) -> f64 {
+    let rate = current_rate(state);
+    let (src_anchor, out_anchor) = *state.pos_anchor.lock().unwrap();
+    (src_anchor + (player.get_pos().as_secs_f64() - out_anchor) * rate).max(0.0)
+}
+
+/// Re-base the integrator so subsequent get_pos() readings map to source `source`.
+/// `output` is the get_pos() value that corresponds to that source position right now.
+fn set_pos_anchor(state: &AudioState, source: f64, output: f64) {
+    *state.pos_anchor.lock().unwrap() = (source.max(0.0), output.max(0.0));
+}
+
 fn commit_loaded_track(
     state: &AudioState,
     bytes: Vec<u8>,
@@ -53,6 +85,8 @@ fn commit_loaded_track(
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
     *state.normalization_gain.lock().unwrap() = normalization_gain;
+    // Fresh track starts at source 0 / output 0.
+    set_pos_anchor(state, 0.0, 0.0);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
     state.device_error.store(false, Ordering::Relaxed);
@@ -100,17 +134,19 @@ async fn build_player_from_bytes(
 
 pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
     suppress_ended_temporarily(state);
+    suppress_stall_temporarily(state);
     let bytes = state.source_bytes.lock().unwrap().clone();
     let Some(bytes) = bytes else {
         return Ok(());
     };
 
-    let (position, was_paused) = {
+    let rate = current_rate(state);
+    let (source_position, was_paused) = {
         let player = state.player.lock().unwrap();
         let Some(player) = player.as_ref() else {
             return Ok(());
         };
-        (player.get_pos(), player.is_paused())
+        (source_pos(state, player), player.is_paused())
     };
 
     let mixer = state.mixer.lock().unwrap().clone();
@@ -130,16 +166,22 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )?;
-    if position.as_secs_f64() > 0.0 {
-        new_player.try_seek(position).ok();
-    }
+    // Apply speed BEFORE seeking so try_seek's argument is interpreted under the speed
+    // factor: try_seek(source/rate) lands the decoder at the original source position.
+    let output_target = source_position / rate;
     apply_current_rate(state, &new_player);
+    if source_position > 0.0 {
+        new_player
+            .try_seek(Duration::from_secs_f64(output_target))
+            .ok();
+    }
 
     let mut player = state.player.lock().unwrap();
     if let Some(old) = player.take() {
         old.stop();
     }
     *player = Some(new_player);
+    set_pos_anchor(state, source_position, output_target);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
     state.device_error.store(false, Ordering::Relaxed);
@@ -325,7 +367,21 @@ pub fn stop(state: State<'_, AudioState>) {
 
 pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
     suppress_ended_temporarily(&state);
-    let target = Duration::from_secs_f64(position);
+    seek_to(&state, position)
+}
+
+/// Seek to `position` (source seconds), trying an in-place decoder seek first and
+/// recreating the player when that fails. A bare `try_seek` silently no-ops on
+/// decoders that can't seek in place, so any caller that needs the jump to actually
+/// take effect (the manual slider, the A-B loop snap-back in tick.rs) must route
+/// through here. Takes `&AudioState` so the tick thread can call it without `State`.
+pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
+    // `position` is in source seconds (the timeline the whole app uses). rodio's
+    // try_seek operates in output time = source/rate on a speed-applied player, so
+    // convert before handing it the target.
+    let rate = current_rate(state);
+    let output_target = (position / rate).max(0.0);
+    let target = Duration::from_secs_f64(output_target);
     let was_paused = state
         .player
         .lock()
@@ -340,6 +396,7 @@ pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
         if let Some(ref player) = *player {
             if player.try_seek(target).is_ok() {
                 state.ended_notified.store(false, Ordering::Relaxed);
+                set_pos_anchor(state, position, output_target);
                 return Ok(());
             }
         }
@@ -367,16 +424,17 @@ pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )?;
+    apply_current_rate(state, &new_player);
     if position > 0.0 {
         new_player.try_seek(target).ok();
     }
-    apply_current_rate(&state, &new_player);
 
     let mut player = state.player.lock().unwrap();
     if let Some(old) = player.take() {
         old.stop();
     }
     *player = Some(new_player);
+    set_pos_anchor(state, position, output_target);
     state.ended_notified.store(false, Ordering::Relaxed);
 
     Ok(())
@@ -396,9 +454,21 @@ fn clamp_playback_rate(rate: f64) -> f32 {
 
 pub fn set_playback_rate(rate: f64, state: State<'_, AudioState>) {
     let value = clamp_playback_rate(rate);
-    *state.playback_rate.lock().unwrap() = value;
-    if let Some(ref player) = *state.player.lock().unwrap() {
+    let player_guard = state.player.lock().unwrap();
+    if let Some(ref player) = *player_guard {
+        // Close the current constant-rate segment into the integrator BEFORE switching
+        // speed, so source-time stays exact across the change (no re-seek, no glitch).
+        let old_rate = current_rate(&state);
+        let out = player.get_pos().as_secs_f64();
+        {
+            let mut anchor = state.pos_anchor.lock().unwrap();
+            anchor.0 += (out - anchor.1) * old_rate;
+            anchor.1 = out;
+        }
+        *state.playback_rate.lock().unwrap() = value;
         player.set_speed(value);
+    } else {
+        *state.playback_rate.lock().unwrap() = value;
     }
 }
 
@@ -408,8 +478,18 @@ pub fn get_position(state: State<'_, AudioState>) -> f64 {
         .lock()
         .unwrap()
         .as_ref()
-        .map(|player| player.get_pos().as_secs_f64())
+        .map(|player| source_pos(&state, player))
         .unwrap_or(0.0)
+}
+
+/// Set or clear the A-B loop region. `a`/`b` are in source seconds; a valid region
+/// needs both bounds with `b` meaningfully after `a`. Anything else clears the loop.
+pub fn set_ab_loop(a: Option<f64>, b: Option<f64>, state: State<'_, AudioState>) {
+    let value = match (a, b) {
+        (Some(a), Some(b)) if b > a + 0.05 => Some((a.max(0.0), b)),
+        _ => None,
+    };
+    *state.ab_loop.lock().unwrap() = value;
 }
 
 pub fn set_eq(enabled: bool, gains: Vec<f64>, state: State<'_, AudioState>) {
@@ -472,4 +552,102 @@ pub async fn save_track_to_path(cache_path: String, dest_path: String) -> Result
         .await
         .map_err(|e| format!("Copy failed: {}", e))?;
     Ok(dest_path)
+}
+
+/* ── Hover-preview channel ───────────────────────────────────────
+ * A parallel lightweight player on the shared mixer for ~15s on-hover
+ * previews. Sources from an already-cached file (reusing track_cache),
+ * gets its own throwaway analyser so the main player's spectrum stays
+ * intact, and fades via a tick-thread volume ramp (see tick.rs). Never
+ * touches the main player or plays history.
+ */
+
+fn preview_step(target: f32, fade_ms: u64) -> f32 {
+    let ticks = (fade_ms as f32 / TICK_INTERVAL_MS as f32).max(1.0);
+    (target / ticks).max(0.0005)
+}
+
+/// Start (or replace) the hover preview from a cached file `path` at `volume`
+/// (rodio scale 0.0..2.0). The decode runs off-thread. `gen` is a monotonic token
+/// from the frontend: an out-of-order (older) decode that finishes after a newer
+/// hover installed its preview is dropped. There is no play-side fade-in (the
+/// sample starts at target volume); fade-OUT lives in `preview_stop`.
+pub async fn preview_play(
+    path: String,
+    volume: f64,
+    gen: u64,
+    state: State<'_, AudioState>,
+) -> Result<(), String> {
+    // Cheap pre-check: a hover already superseded by a newer one shouldn't pay for
+    // the file read + decode (the authoritative gen check still runs post-decode).
+    if gen < state.preview.lock().unwrap().gen {
+        return Ok(());
+    }
+    let bytes = task::spawn_blocking({
+        let path = path.clone();
+        move || std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))
+    })
+        .await
+        .map_err(|e| format!("preview read task failed: {e}"))??;
+
+    let mixer = state.mixer.lock().unwrap().clone();
+    let eq_params = state.eq_params.clone();
+    let target = (volume as f32).clamp(0.0, 2.0);
+    // Own throwaway analyser buffer — the preview decoder must NOT write into the
+    // main player's spectrum buffer. Normalization is skipped (gain 1.0) to keep
+    // hover latency low. Build directly at the target volume so the sample is
+    // audible the instant it loads (a zero-start + tick fade-in left it silent).
+    let analyser = crate::audio::analyser::AnalyserBuffer::new();
+    let player = task::spawn_blocking(move || {
+        create_player_from_bytes(&bytes, &mixer, target, 1.0, false, eq_params, analyser)
+            .map(|(player, _)| player)
+    })
+        .await
+        .map_err(|e| format!("preview decode task failed: {e}"))??;
+    player.play();
+
+    let mut preview = state.preview.lock().unwrap();
+    // A newer hover already installed its preview — drop this stale decode.
+    if gen < preview.gen {
+        player.stop();
+        return Ok(());
+    }
+    if let Some(old) = preview.player.take() {
+        old.stop();
+    }
+    preview.player = Some(player);
+    preview.volume = target;
+    preview.target = target;
+    preview.step = 0.0;
+    preview.stop_at_zero = false;
+    preview.gen = gen;
+    Ok(())
+}
+
+/// Stop the hover preview. `gen == 0` force-stops whatever is playing (unhover /
+/// click); a non-zero `gen` is a targeted stale-stop that no-ops unless it still
+/// matches the installed preview. With `fade_ms > 0` it fades out (the tick
+/// thread drops the player at zero); with 0 it stops immediately.
+pub fn preview_stop(fade_ms: u64, gen: u64, state: State<'_, AudioState>) {
+    let mut preview = state.preview.lock().unwrap();
+    if preview.player.is_none() {
+        return;
+    }
+    // Targeted stop for a preview that's already been superseded — ignore.
+    if gen != 0 && gen != preview.gen {
+        return;
+    }
+    if fade_ms == 0 {
+        if let Some(old) = preview.player.take() {
+            old.stop();
+        }
+        preview.volume = 0.0;
+        preview.target = 0.0;
+        preview.step = 0.0;
+        preview.stop_at_zero = false;
+        return;
+    }
+    preview.step = preview_step(preview.volume.max(0.0005), fade_ms);
+    preview.target = 0.0;
+    preview.stop_at_zero = true;
 }

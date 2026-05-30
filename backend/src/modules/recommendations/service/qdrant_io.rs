@@ -2,11 +2,11 @@ use qdrant_client::qdrant::{
     point_id::PointIdOptions, vector_output::Vector as VectorVariant,
     vectors_output::VectorsOptions, Filter, GetPointsBuilder, PointId, SearchPointsBuilder,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::debug;
 
 use super::types::RecommendResult;
-use super::util::{numeric_id, payload_to_map, point_id_to_value};
+use super::util::{numeric_id, payload_to_map, point_id_to_value, value_to_u64};
 use super::RecommendationsService;
 
 impl RecommendationsService {
@@ -22,13 +22,31 @@ impl RecommendationsService {
         if let Some(f) = filter {
             builder = builder.filter(f.clone());
         }
-        let _permit = self.qdrant_sem.acquire().await.ok();
-        match self.qdrant.raw().search_points(builder).await {
-            Ok(r) => r
-                .result
-                .into_iter()
-                .map(|p| RecommendResult {
-                    id: point_id_to_value(p.id),
+        let raw = match self.qdrant.raw().search_points(builder).await {
+            Ok(r) => r.result,
+            Err(e) => {
+                debug!(collection, error = %e, "searchByVector failed");
+                return Vec::new();
+            }
+        };
+        // Privacy-guard: Qdrant payload не несёт `sharing`, поэтому отбрасываем
+        // приватные треки по source-of-truth (`tracks.sharing`). Иначе любой
+        // vector-arm (wave/similar/artist/collab/search) утёк бы private-трек.
+        // Дёшево: PK-lookup по ≤limit id; private-точек в индексе единицы.
+        let ids: Vec<String> = raw
+            .iter()
+            .filter_map(|p| value_to_u64(&point_id_to_value(p.id.clone())).map(|n| n.to_string()))
+            .collect();
+        let public = self.public_track_ids(&ids).await;
+        raw.into_iter()
+            .filter_map(|p| {
+                let id = point_id_to_value(p.id);
+                let id_str = value_to_u64(&id)?.to_string();
+                if !public.contains(&id_str) {
+                    return None;
+                }
+                Some(RecommendResult {
+                    id,
                     score: Some(p.score),
                     payload: Some(payload_to_map(p.payload)),
                     artist: None,
@@ -36,16 +54,28 @@ impl RecommendationsService {
                     playback_count: None,
                     features: None,
                 })
-                .collect(),
-            Err(e) => {
-                debug!(collection, error = %e, "searchByVector failed");
-                Vec::new()
-            }
+            })
+            .collect()
+    }
+
+    /// Подмножество `ids` с `sharing='public'` (source-of-truth privacy-фильтр
+    /// для всех vector-arm'ов). Пустой вход / DB-ошибка → пустой набор
+    /// (fail-closed: лучше пустой рукав, чем утечка приватного).
+    pub(crate) async fn public_track_ids(&self, ids: &[String]) -> HashSet<String> {
+        if ids.is_empty() {
+            return HashSet::new();
         }
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT sc_track_id FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'",
+        )
+            .bind(ids)
+            .fetch_all(&self.pg)
+            .await
+            .unwrap_or_default();
+        rows.into_iter().map(|(id, )| id).collect()
     }
 
     pub(crate) async fn retrieve_vector(&self, collection: &str, id: u64) -> Option<Vec<f32>> {
-        let _permit = self.qdrant_sem.acquire().await.ok();
         let resp = self
             .qdrant
             .raw()
@@ -72,7 +102,6 @@ impl RecommendationsService {
             return out;
         }
         let pids: Vec<PointId> = ids.iter().copied().map(numeric_id).collect();
-        let _permit = self.qdrant_sem.acquire().await.ok();
         match self
             .qdrant
             .raw()

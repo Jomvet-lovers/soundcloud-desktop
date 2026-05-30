@@ -24,6 +24,10 @@ DEMUCS_MODEL = os.environ.get("DEMUCS_MODEL", "htdemucs")
 # 0 = без ограничения.
 MAX_EMBED_DURATION_SEC = int(os.environ.get("MAX_EMBED_DURATION_SEC", "300"))
 
+# lyrics батчится (bge-m3 сам маскирует паддинг); audio — нет (MuQ/MuLan не маскируют).
+LYRICS_BATCH = int(os.environ.get("LYRICS_BATCH", "16"))
+BATCH_WAIT_MS = int(os.environ.get("BATCH_WAIT_MS", "120"))
+
 
 def _parse_concurrency(raw: str) -> int | dict[str, int]:
     """

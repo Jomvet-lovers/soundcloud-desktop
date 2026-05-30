@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AudioLines,
@@ -7,12 +7,10 @@ import {
   Headphones,
   playBlack14,
   RefreshCw,
-  Search,
   Sparkles,
   Star,
 } from '../../../lib/icons';
 import { isUrnLiked } from '../../../lib/likes';
-import { useSoundWaveSearch } from '../../../lib/soundwave';
 import { useAuthStore } from '../../../stores/auth';
 import type { Track } from '../../../stores/player';
 import { usePlayerStore } from '../../../stores/player';
@@ -28,13 +26,11 @@ import {
   useClusterWave,
 } from '../cluster';
 import { AmbientLayer } from './ambient';
-import { SearchHeader } from './headers';
 import { HideLikedToggle } from './hide-liked-toggle';
 import { LanguageFilter } from './language-filter';
-import { RecommendationsStrip } from './strip';
 import { WaveTrackHeader } from './track-header';
 import { useInfiniteWave } from './use-infinite-wave';
-import { VibeSearchBar, type VibeSearchBarHandle } from './vibe-search-bar';
+import {VibePortal} from './vibe-portal';
 import { LiveWaveform } from './waveform';
 
 // `wave` всегда первый. Остальные — стандартный набор для home-страницы.
@@ -69,8 +65,6 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activeQuery, setActiveQuery] = useState('');
-  const searchRef = useRef<VibeSearchBarHandle>(null);
 
   const stableLanguages = useMemo(() => [...selectedLanguages].sort(), [selectedLanguages]);
   const langKey = stableLanguages.join(',') || 'all';
@@ -88,12 +82,6 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
     url,
     enabled: isAuthenticated,
   });
-
-  const {
-    data: searchData,
-    isLoading: searchLoading,
-    isFetching: searchFetching,
-  } = useSoundWaveSearch({ q: activeQuery, languages: stableLanguages });
 
   const rawClusters = useMemo(() => data?.clusters ?? [], [data]);
   const rawAllTracks = useMemo(() => data?.allTracks ?? [], [data]);
@@ -130,27 +118,17 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
     [orderedClusters],
   );
 
-  const searchTracks = useMemo(() => searchData?.tracks ?? [], [searchData]);
-  const isSearchMode = activeQuery.length >= 2;
-  const searchBusy = searchLoading || searchFetching;
-
   const waveTrack = currentTrack ?? filteredAllTracks[0] ?? null;
   const isCurrent = !!currentTrack && waveTrack?.urn === currentTrack.urn;
 
   useInfiniteWave({
-    enabled: isAuthenticated && !isSearchMode,
+      enabled: isAuthenticated,
     seedKind: 'user',
     initialTracks: waveCluster?.tracks ?? [],
     initialCursor: null,
     languages: stableLanguages,
     filterTrack: hideLiked ? hideLikedFilter : undefined,
   });
-
-  const handleSubmitSearch = useCallback((q: string) => setActiveQuery(q), []);
-  const handleClearSearch = useCallback(() => {
-    searchRef.current?.clear();
-    setActiveQuery('');
-  }, []);
 
   // "От любимых": click on a top-artist card → fetch same_artist similar cluster
   // and play that as the queue, so next/prev stays within the artist's adjacent tracks.
@@ -198,9 +176,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
   };
 
   const spinning = isRefreshing || isFetching;
-  const showCold = !isSearchMode && !isLoading && orderedClusters.length === 0;
-  const showSearchEmpty = isSearchMode && !searchBusy && searchTracks.length === 0;
-  const playableTracks = isSearchMode ? searchTracks : filteredAllTracks;
+    const showCold = !isLoading && orderedClusters.length === 0;
 
   return (
     <section
@@ -271,7 +247,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
             <button
               type="button"
               onClick={handlePlayAll}
-              disabled={playableTracks.length === 0}
+              disabled={filteredAllTracks.length === 0}
               className="flex items-center gap-2 pl-2.5 pr-4 h-10 rounded-full font-semibold text-[13px] transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.97] hover:scale-[1.03]"
               style={{
                 background: 'var(--color-accent)',
@@ -299,8 +275,8 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
               queue={
                 waveCluster?.tracks?.length
                   ? waveCluster.tracks
-                  : playableTracks.length
-                    ? playableTracks
+                    : filteredAllTracks.length
+                        ? filteredAllTracks
                     : [waveTrack]
               }
               isCurrent={isCurrent}
@@ -322,25 +298,10 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
           <LiveWaveform track={waveTrack} isCurrent={isCurrent} />
         </div>
 
-        <VibeSearchBar
-          ref={searchRef}
-          onSubmit={handleSubmitSearch}
-          onClear={handleClearSearch}
-          loading={searchBusy}
-          active={isSearchMode}
-        />
+          <VibePortal/>
 
         <div className="min-h-[280px]">
-          {isSearchMode ? (
-            <SearchSection
-              query={activeQuery}
-              count={searchTracks.length}
-              tracks={searchTracks}
-              busy={searchBusy}
-              empty={showSearchEmpty}
-              onClear={handleClearSearch}
-            />
-          ) : isLoading ? (
+            {isLoading ? (
             <ClusterSkeletonState rows={3} itemsPerRow={6} />
           ) : showCold ? (
             <ClusterEmptyState
@@ -380,41 +341,5 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
         </div>
       </div>
     </section>
-  );
-});
-
-interface SearchSectionProps {
-  query: string;
-  count: number;
-  tracks: Track[];
-  busy: boolean;
-  empty: boolean;
-  onClear: () => void;
-}
-
-const SearchSection = React.memo(function SearchSection({
-  query,
-  count,
-  tracks,
-  busy,
-  empty,
-  onClear,
-}: SearchSectionProps) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-col gap-4">
-      <SearchHeader query={query} count={count} onClear={onClear} />
-      {busy ? (
-        <ClusterSkeletonState rows={1} itemsPerRow={6} />
-      ) : empty ? (
-        <ClusterEmptyState
-          icon={<Search size={18} style={{ color: 'var(--color-accent)' }} />}
-          title={t('soundwave.searchEmptyTitle')}
-          description={t('soundwave.searchEmptyDesc')}
-        />
-      ) : (
-        <RecommendationsStrip tracks={tracks} />
-      )}
-    </div>
   );
 });

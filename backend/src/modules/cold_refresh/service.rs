@@ -627,16 +627,19 @@ async fn delete_orphans(
 }
 
 /// Чтение страницы из mirror-таблицы юзера. JOIN на нормализованную сущность
-/// (`tracks`/`users`/`playlists`) + проекция в SC-shape JSON. Owned-коллекции
-/// проектируются так же — приватные строки лежат в shared `tracks`/`playlists`
-/// с `sharing='private'`, доступ контролируется на уровне callers'а
-/// (`/me/*` пропускает; public endpoints фильтруют).
+/// (`tracks`/`users`/`playlists`) + проекция в SC-shape JSON.
+///
+/// Mirror-таблица шарится между `/me/*` (владелец, видит private) и
+/// `/users/{id}/*` (чужой профиль): строки индексируются `target_sc_user_id`,
+/// сидятся owner-токеном с private-контентом. Поэтому `public_only` ОБЯЗАН
+/// быть `true` для чужого вьювера — иначе приватные строки владельца утекают.
 pub async fn read_collection_page(
     pg: &PgPool,
     coll: &UserCollection,
     sc_user_id: &str,
     page: i64,
     limit: i64,
+    public_only: bool,
 ) -> AppResult<ListPageResult<Value>> {
     let offset = page.max(0) * limit;
     let table = coll.mirror_table;
@@ -668,11 +671,14 @@ pub async fn read_collection_page(
         .collect();
 
     let collection: Vec<Value> = match coll.entity_kind {
-        EntityKind::Track => crate::modules::tracks::project_many(pg, &page_keys)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect(),
+        EntityKind::Track => {
+            let projected = if public_only {
+                crate::modules::tracks::project_many_public(pg, &page_keys).await?
+            } else {
+                crate::modules::tracks::project_many(pg, &page_keys).await?
+            };
+            projected.into_iter().flatten().collect()
+        }
         EntityKind::User => {
             let rows: Vec<crate::modules::users::UserRow> =
                 sqlx::query_as("SELECT * FROM users WHERE urn = ANY($1)")
@@ -687,11 +693,15 @@ pub async fn read_collection_page(
                 .collect()
         }
         EntityKind::Playlist => {
-            let rows: Vec<crate::modules::playlists::PlaylistRow> =
-                sqlx::query_as("SELECT * FROM playlists WHERE urn = ANY($1)")
-                    .bind(&page_keys)
-                    .fetch_all(pg)
-                    .await?;
+            let pl_sql = if public_only {
+                "SELECT * FROM playlists WHERE urn = ANY($1) AND sharing = 'public'"
+            } else {
+                "SELECT * FROM playlists WHERE urn = ANY($1)"
+            };
+            let rows: Vec<crate::modules::playlists::PlaylistRow> = sqlx::query_as(pl_sql)
+                .bind(&page_keys)
+                .fetch_all(pg)
+                .await?;
             let map: std::collections::HashMap<String, crate::modules::playlists::PlaylistRow> =
                 rows.into_iter().map(|p| (p.urn.clone(), p)).collect();
             page_keys

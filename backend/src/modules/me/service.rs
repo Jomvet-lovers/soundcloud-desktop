@@ -11,12 +11,11 @@ use crate::modules::sync_queue::mirror::{self, FOLLOWINGS as FOLLOWINGS_MIRROR};
 use crate::modules::sync_queue::SyncQueueService;
 use crate::sc::ScClient;
 
-const TTL_FEED: u64 = 60;
 const TTL_FOLLOWINGS_TRACKS: u64 = 60;
 const TTL_FOLLOWERS: u64 = 600;
 
 /// MeService держит только то, что у нас **нет** как отдельной коллекции:
-/// SC-фид (`/me/feed`, `/me/feed/tracks`, `/me/followings/tracks`),
+/// SC-фид (`/me/followings/tracks`),
 /// followers (входящие подписчики бизнесу не нужны cold), follow/unfollow
 /// мутации и `/me` профиль. Tracks/playlists/likes/followings того же юзера
 /// ходят через [`UsersService`] с `target == ctx.sc_user_id` — общие mirror
@@ -103,64 +102,6 @@ impl MeService {
                 },
             )
             .await
-    }
-
-    pub async fn get_feed(
-        &self,
-        token: &str,
-        session_id: &str,
-        sc_user_id: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
-        let mut result = self
-            .list_page(
-                "me-feed",
-                TTL_FEED,
-                session_id,
-                page,
-                limit,
-                "/me/feed".into(),
-                token.to_string(),
-                vec![],
-            )
-            .await?;
-        likes_cold::apply_user_favorite_flag_to_activities(
-            &self.pg,
-            sc_user_id,
-            &mut result.collection,
-        )
-        .await?;
-        Ok(result)
-    }
-
-    pub async fn get_feed_tracks(
-        &self,
-        token: &str,
-        session_id: &str,
-        sc_user_id: &str,
-        page: i64,
-        limit: i64,
-    ) -> AppResult<ListPageResult<Value>> {
-        let mut result = self
-            .list_page(
-                "me-feed-tracks",
-                TTL_FEED,
-                session_id,
-                page,
-                limit,
-                "/me/feed/tracks".into(),
-                token.to_string(),
-                vec![],
-            )
-            .await?;
-        likes_cold::apply_user_favorite_flag_to_activities(
-            &self.pg,
-            sc_user_id,
-            &mut result.collection,
-        )
-        .await?;
-        Ok(result)
     }
 
     pub async fn get_followings_tracks(

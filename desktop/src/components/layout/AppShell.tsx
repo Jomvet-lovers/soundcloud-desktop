@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Outlet, useNavigate } from 'react-router-dom';
+import {Outlet} from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
@@ -39,6 +39,7 @@ const keybindings: Keybinding[] = [
   { key: 'p', label: 'kb.prevTrack', group: 'playback', display: 'P' },
   { key: 's', label: 'kb.shuffle', group: 'playback', display: 'S' },
   { key: 'r', label: 'kb.repeat', group: 'playback', display: 'R' },
+    {key: 'b', label: 'kb.abLoop', group: 'playback', display: 'B'},
   { key: 'ArrowUp', label: 'kb.volumeUp', group: 'playback', display: '↑' },
   { key: 'ArrowDown', label: 'kb.volumeDown', group: 'playback', display: '↓' },
   { key: 'm', label: 'kb.mute', group: 'playback', display: 'M' },
@@ -229,7 +230,38 @@ export const AppShell = React.memo(() => {
   });
   const onQueueToggle = useCallback(() => setQueueOpen((v) => !v), []);
   const onQueueClose = useCallback(() => setQueueOpen(false), []);
-  const navigate = useNavigate();
+    const mainRef = useRef<HTMLElement>(null);
+
+    // Anti-sticky-hover: WebKitGTK doesn't re-hit-test :hover while the content
+    // scrolls under a stationary cursor, so cards "freeze" hovered or light up the
+    // wrong tile. Flag the scroll container while scrolling (CSS drops pointer
+    // events app-wide); clear the instant the pointer actually moves or presses.
+    useEffect(() => {
+        const main = mainRef.current;
+        if (!main) return;
+        let t: ReturnType<typeof setTimeout> | null = null;
+        const clear = () => {
+            if (t) {
+                clearTimeout(t);
+                t = null;
+            }
+            if (main.hasAttribute('data-scrolling')) main.removeAttribute('data-scrolling');
+        };
+        const onScroll = () => {
+            if (!main.hasAttribute('data-scrolling')) main.setAttribute('data-scrolling', '1');
+            if (t) clearTimeout(t);
+            t = setTimeout(clear, 120);
+        };
+        main.addEventListener('scroll', onScroll, {passive: true});
+        main.addEventListener('pointermove', clear, {passive: true});
+        main.addEventListener('pointerdown', clear, {passive: true});
+        return () => {
+            main.removeEventListener('scroll', onScroll);
+            main.removeEventListener('pointermove', clear);
+            main.removeEventListener('pointerdown', clear);
+            if (t) clearTimeout(t);
+        };
+    }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -247,7 +279,7 @@ export const AppShell = React.memo(() => {
       // Ctrl+K — focus search (always, even in input)
       if (code === 'KeyK' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        navigate('/search');
+          document.getElementById('global-search-input')?.focus();
         return;
       }
 
@@ -261,7 +293,7 @@ export const AppShell = React.memo(() => {
       // / — focus search (not in input)
       if ((e.key === '/' || code === 'Slash') && !inInput) {
         e.preventDefault();
-        navigate('/search');
+          document.getElementById('global-search-input')?.focus();
         return;
       }
 
@@ -317,6 +349,9 @@ export const AppShell = React.memo(() => {
         case 'KeyR':
           player.toggleRepeat();
           break;
+          case 'KeyB':
+              player.cycleAbPoint(getCurrentTime());
+              break;
         case 'KeyL':
           useLyricsStore.getState().toggle();
           break;
@@ -349,7 +384,7 @@ export const AppShell = React.memo(() => {
       window.removeEventListener('keydown', handler);
       window.removeEventListener('keyup', resetVolumeHold);
     };
-  }, [navigate, queueOpen, kbOpen]);
+  }, [queueOpen, kbOpen]);
 
   return (
     <div className="flex flex-col h-screen relative overflow-hidden">
@@ -358,7 +393,8 @@ export const AppShell = React.memo(() => {
       <Titlebar />
       <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
         <Sidebar />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden">
+          {/* pb clears the floating now-playing dock, which overlays (doesn't push) content */}
+          <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden pb-[136px]">
           <StableOutlet />
         </main>
       </div>

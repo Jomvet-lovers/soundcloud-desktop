@@ -230,6 +230,7 @@ impl RecommendationsService {
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
              WHERE ta.artist_id = $1 \
                AND ta.role = 'primary' \
+               AND it.sharing = 'public' \
              ORDER BY COALESCE(c.play_count, 0) DESC, it.created_at DESC \
              LIMIT $2",
         )
@@ -295,6 +296,7 @@ impl RecommendationsService {
              LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
              WHERE ta.artist_id = ANY($1)
                AND ta.role = 'primary'
+               AND it.sharing = 'public'
              ORDER BY ta.artist_id, it.sc_track_id, COALESCE(c.play_count, 0) DESC
              LIMIT $2",
         )

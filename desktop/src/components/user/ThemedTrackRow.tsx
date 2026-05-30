@@ -1,5 +1,8 @@
+import {Lock} from 'lucide-react';
 import React from 'react';
+import {useTranslation} from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
+import {type Aura, auraRgb, auraRgba, isLight} from '../../lib/aura';
 import { art, dur, fc } from '../../lib/formatters';
 import {
   headphones11,
@@ -15,9 +18,8 @@ import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
-import { TrackStatusBadges } from '../music/TrackStatusBadges';
+import {sameScdMeta, TrackStatusBadges} from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
-import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 
 interface ThemedTrackRowProps {
   track: Track;
@@ -27,6 +29,7 @@ interface ThemedTrackRowProps {
 }
 
 function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) {
+    const {t} = useTranslation();
   const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
   const lightAura = isLight(aura);
@@ -97,6 +100,15 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
             <Music size={16} className="text-white/20" />
           </div>
         )}
+          {track.sharing === 'private' && (
+              <div
+                  title={t('sharing.private')}
+                  aria-label={t('sharing.private')}
+                  className="absolute top-0.5 left-0.5 flex items-center justify-center w-4 h-4 rounded-full bg-black/65 backdrop-blur-md text-amber-300/90"
+              >
+                  <Lock size={9}/>
+              </div>
+        )}
       </div>
 
       <TrackTitleArtist track={track} highlight={isThis} size="md" className="flex-1 min-w-0" />
@@ -144,6 +156,8 @@ const areEqual = (prev: ThemedTrackRowProps, next: ThemedTrackRowProps) =>
   prev.aura.accent[0] === next.aura.accent[0] &&
   prev.aura.accent[1] === next.aura.accent[1] &&
   prev.aura.accent[2] === next.aura.accent[2] &&
-  prev.track.user_favorite === next.track.user_favorite;
+    prev.track.user_favorite === next.track.user_favorite &&
+    prev.track.sharing === next.track.sharing &&
+    sameScdMeta(prev.track._scd_meta, next.track._scd_meta);
 
 export const ThemedTrackRow = React.memo(ThemedTrackRowImpl, areEqual);

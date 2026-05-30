@@ -23,7 +23,7 @@ interface ArtistsCatalogProps {
 
 function ArtistsCatalogImpl({ aura, query }: ArtistsCatalogProps) {
   const { t } = useTranslation();
-  const [sort, setSort] = useState<ArtistSort>('trending');
+    const [sort, setSort] = useState<ArtistSort>('popular');
   const [tag, setTag] = useState<TagFilter>('all');
 
   const tagsQuery = useDiscoverTags(8);
@@ -50,6 +50,7 @@ function ArtistsCatalogImpl({ aura, query }: ArtistsCatalogProps) {
   );
 
   const sortOptions: ReadonlyArray<{ id: ArtistSort; label: string }> = [
+      {id: 'popular', label: t('discover.sortPopular')},
     { id: 'trending', label: t('discover.sortTrending') },
     { id: 'listeners', label: t('discover.sortListeners') },
     { id: 'tracks', label: t('discover.sortTracks') },

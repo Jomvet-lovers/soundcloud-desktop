@@ -546,6 +546,7 @@ impl RecommendationsService {
                  JOIN track_artists ta ON ta.artist_id = tau.artist_id AND ta.role = 'primary' \
                  JOIN tracks it ON it.id = ta.track_id \
                  LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
+                 WHERE it.sharing = 'public' \
              ) \
              SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
              FROM ranked r \
@@ -623,6 +624,7 @@ impl RecommendationsService {
                  JOIN track_artists ta ON ta.artist_id = co.co_id AND ta.role = 'primary' \
                  JOIN tracks it ON it.id = ta.track_id \
                  LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
+                 WHERE it.sharing = 'public' \
              ) \
              SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
              FROM ranked r \
@@ -675,6 +677,7 @@ impl RecommendationsService {
              JOIN tracks it ON it.id = ta.track_id \
              WHERE ta.artist_id IN (SELECT artist_id FROM user_artists) \
                AND ta.role = 'primary' \
+               AND it.sharing = 'public' \
                AND it.sc_synced_at > NOW() - INTERVAL '30 days' \
                AND NOT (it.sc_track_id = ANY($2)) \
              ORDER BY it.sc_synced_at DESC \

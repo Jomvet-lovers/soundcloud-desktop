@@ -14,37 +14,42 @@ from ..models import Models
 log = logging.getLogger(__name__)
 
 
-def _embed(models: Models, text: str) -> list[float]:
-    vec = models.lyrics_embed.encode(text, normalize_embeddings=True)
-    return vec.tolist()
+def _embed_batch(models: Models, texts: list[str]) -> list[list[float]]:
+    """Один encode на пачку (SentenceTransformer сам маскирует паддинг)."""
+    vecs = models.lyrics_embed.encode(
+        texts, normalize_embeddings=True, batch_size=len(texts)
+    )
+    return [v.tolist() for v in vecs]
 
 
-async def handle(
-    payload: dict,
-    models: Models,
-    nc: NATSClient,
-) -> None:
-    sc_track_id = str(payload["sc_track_id"])
+async def prepare(payload: dict, models: Models) -> dict | None:
+    """None → пропуск пустого/короткого текста."""
     text = (payload.get("text") or "").strip()
-    language = payload.get("language")
-
     if not text or len(text) < 30:
-        log.debug(f"[lyrics] {sc_track_id} empty/short text, skip")
-        await nc.publish(
-            subj.SUBJECT_DONE_EMBED_LYRICS,
-            json.dumps({"sc_track_id": sc_track_id, "skipped": True}).encode(),
-        )
-        return
+        return None
+    return {
+        "sc_track_id": str(payload["sc_track_id"]),
+        "text": text[:4000],
+        "language": payload.get("language"),
+    }
 
-    log.info(f"[lyrics] {sc_track_id} embedding ({len(text)} chars)")
+
+def gpu_batch(models: Models, items: list[dict]) -> list[dict]:
     t0 = time.monotonic()
-    vec = await asyncio.to_thread(_embed, models, text[:4000])
-    log.info(f"[lyrics] {sc_track_id} embedded in {time.monotonic() - t0:.2f}s")
+    vecs = _embed_batch(models, [p["text"] for p in items])
+    log.info(f"[lyrics] embedded batch×{len(items)} in {time.monotonic() - t0:.2f}s")
+    return [{"vec": v, "language": p.get("language")} for p, v in zip(items, vecs)]
 
-    done_payload: dict = {"sc_track_id": sc_track_id, "vec": vec}
-    if language:
-        done_payload["language"] = language
+
+async def publish(nc: NATSClient, payload: dict, result: dict) -> None:
+    done_payload: dict = {"sc_track_id": str(payload["sc_track_id"]), "vec": result["vec"]}
+    if result.get("language"):
+        done_payload["language"] = result["language"]
+    await nc.publish(subj.SUBJECT_DONE_EMBED_LYRICS, json.dumps(done_payload).encode())
+
+
+async def publish_skip(nc: NATSClient, payload: dict, _result) -> None:
     await nc.publish(
         subj.SUBJECT_DONE_EMBED_LYRICS,
-        json.dumps(done_payload).encode(),
+        json.dumps({"sc_track_id": str(payload["sc_track_id"]), "skipped": True}).encode(),
     )

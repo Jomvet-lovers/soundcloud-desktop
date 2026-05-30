@@ -149,6 +149,16 @@ impl CacheService {
         Ok(acquired.is_some())
     }
 
+    /// Снимает SETNX-лок досрочно. Нужно когда фоновая работа под локом
+    /// сорвалась (например джоб не опубликовался) и переспрос должен
+    /// пере-диспатчиться сразу, не дожидаясь TTL.
+    pub async fn release_lock(&self, key: &str) -> AppResult<()> {
+        let mut conn = self.redis.get().await?;
+        let full = format!("{LOCK_PREFIX}{key}");
+        let _: () = conn.del(full).await?;
+        Ok(())
+    }
+
     async fn clear_index(&self, index_key: &str) -> AppResult<()> {
         let mut conn = self.redis.get().await?;
         let members: Vec<String> = conn.zrange(index_key, 0, -1).await?;

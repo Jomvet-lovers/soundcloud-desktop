@@ -511,11 +511,37 @@ pub fn project_to_sc_shape(row: &TrackRow, uploader_user: Option<&Value>) -> Val
 /// Bulk-load с проекцией. Возвращает упорядоченный по входному порядку
 /// массив. Отсутствующие в БД sc_track_id заменяются Value::Null (caller
 /// решает что с ними делать — обычно фильтрует).
+///
+/// Видит ВСЕ строки, включая `sharing='private'` — звать только когда видимость
+/// уже установлена caller'ом (`/me/*`, single-track после owner-guard, internal
+/// replay). Для discovery/чужих профилей — [`project_many_public`].
 pub async fn project_many(pg: &PgPool, sc_track_ids: &[String]) -> AppResult<Vec<Option<Value>>> {
+    project_many_filtered(pg, sc_track_ids, false).await
+}
+
+/// То же, но отдаёт только `sharing='public'`. Приватные строки выпадают в
+/// `None` (caller'ы их `flatten`'ят). Default для всех публичных read-path'ов.
+pub async fn project_many_public(
+    pg: &PgPool,
+    sc_track_ids: &[String],
+) -> AppResult<Vec<Option<Value>>> {
+    project_many_filtered(pg, sc_track_ids, true).await
+}
+
+async fn project_many_filtered(
+    pg: &PgPool,
+    sc_track_ids: &[String],
+    public_only: bool,
+) -> AppResult<Vec<Option<Value>>> {
     if sc_track_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<TrackRow> = sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = ANY($1)")
+    let sql = if public_only {
+        "SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'"
+    } else {
+        "SELECT * FROM tracks WHERE sc_track_id = ANY($1)"
+    };
+    let rows: Vec<TrackRow> = sqlx::query_as(sql)
         .bind(sc_track_ids)
         .fetch_all(pg)
         .await?;

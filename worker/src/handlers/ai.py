@@ -1,6 +1,8 @@
-"""AI RPC: detect_language, search_queries, rank_lyrics, encode_text_mulan.
+"""AI RPC: detect_language, search_queries, rank_lyrics.
 
-Транскрибация вынесена в transcribe.py — там тяжёлый pipeline с demucs + whisper.
+encode_text_mulan / encode_lyrics_text живут здесь же, но дёргаются не как RPC, а
+из encode-лейна (work-queue → done.encode, см. handlers/encode.py). Транскрибация
+вынесена в transcribe.py — там тяжёлый pipeline с demucs + whisper.
 """
 import asyncio
 import gc
@@ -246,4 +248,8 @@ async def rank_lyrics(models: Models, payload: dict) -> dict:
             log.warning(f"[ai] rank_lyrics failed: {e}")
             return {"best_idx": candidates[0].get("idx", 0), "score": 0, "error": str(e)}
 
-    return await asyncio.to_thread(_run)
+    # Тот же резидентный bge-m3, что encode_lyrics_text и lyrics-батч-лейн —
+    # сериализуем форвард тем же локом, иначе конкурентные CUDA-форварды на одном
+    # модуле (ai-rpc vs батч) могут портить состояние/вектора.
+    async with models.lyrics_text_lock:
+        return await asyncio.to_thread(_run)

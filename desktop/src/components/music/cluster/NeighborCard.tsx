@@ -9,6 +9,7 @@ import {
 } from '../../../lib/recsFeedback';
 import { useAutoHide } from '../../../lib/useAutoHide';
 import { type Track, usePlayerStore } from '../../../stores/player';
+import {TrackStatusBadges} from '../TrackStatusBadges';
 import type { ClusterNeighborDto } from './types';
 
 interface Props {
@@ -159,6 +160,10 @@ export const NeighborCard = React.memo(function NeighborCard({
             )}
           </span>
         </div>
+
+          <div className="absolute bottom-2 left-2 flex">
+              <TrackStatusBadges meta={track._scd_meta} variant="overlay"/>
+          </div>
       </div>
 
       <div className="px-3 py-2.5">

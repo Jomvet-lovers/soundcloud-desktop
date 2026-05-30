@@ -10,7 +10,9 @@ pub mod like_playlist;
 pub mod like_track;
 pub mod playlist_create;
 pub mod playlist_delete;
+pub mod playlist_sharing;
 pub mod playlist_update;
+pub mod track_sharing;
 pub mod unfollow_user;
 pub mod unlike_playlist;
 pub mod unlike_track;
@@ -39,6 +41,8 @@ pub async fn dispatch(ctx: &ActionCtx<'_>, action_type: &str) -> AppResult<()> {
         playlist_create::KIND => playlist_create::execute(ctx).await,
         playlist_update::KIND => playlist_update::execute(ctx).await,
         playlist_delete::KIND => playlist_delete::execute(ctx).await,
+        track_sharing::KIND => track_sharing::execute(ctx).await,
+        playlist_sharing::KIND => playlist_sharing::execute(ctx).await,
         comment::KIND => comment::execute(ctx).await,
         other => Err(AppError::bad_request(format!(
             "unknown sync_queue action_type: {other}"

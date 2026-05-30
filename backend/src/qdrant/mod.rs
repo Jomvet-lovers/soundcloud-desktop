@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::{
-    CreateCollectionBuilder, Distance, GetCollectionInfoRequest, PointStruct, UpsertPointsBuilder,
-    VectorParamsBuilder,
+    vector_output::Vector as VectorVariant, vectors_output::VectorsOptions,
+    CreateCollectionBuilder, Distance, GetCollectionInfoRequest, GetPointsBuilder,
+    HnswConfigDiffBuilder, PointId, PointStruct, UpsertPointsBuilder, VectorParamsBuilder,
 };
 use qdrant_client::{Payload, Qdrant};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
 use crate::config::QdrantCfg;
@@ -17,6 +19,13 @@ pub mod collections {
     pub const TRACKS_CLAP: &str = "tracks_clap";
     pub const TRACKS_LYRICS: &str = "tracks_lyrics";
     pub const TRACKS_COLLAB: &str = "tracks_collab";
+
+    /// Durable-кэш векторов текстовых запросов (vibe MuLan / lyrics bge-m3).
+    /// Используется как KV: точка по UUID(sha256(query)), get-by-id, без ANN —
+    /// поэтому коллекции создаются с `hnsw m=0` (граф не строится) и векторами
+    /// on_disk. Размерности зеркалят `tracks_clap`/`tracks_lyrics`.
+    pub const QUERY_VEC_MULAN: &str = "query_vectors_mulan";
+    pub const QUERY_VEC_LYRICS: &str = "query_vectors_lyrics";
 }
 
 pub struct QdrantService {
@@ -68,6 +77,69 @@ impl QdrantService {
                 Ok(_) => info!(collection = name, size, "Qdrant collection created"),
                 Err(e) => warn!(collection = name, error = %e, "Qdrant collection create failed"),
             }
+        }
+
+        // Query-vec коллекции: KV по UUID(hash), только get-by-id → HNSW не нужен
+        // (m=0, граф не строится, ноль оверхеда на upsert), вектора on_disk.
+        for (name, size) in [
+            (collections::QUERY_VEC_MULAN, 512u64),
+            (collections::QUERY_VEC_LYRICS, 1024),
+        ] {
+            if existing.contains(name) {
+                continue;
+            }
+            let req = CreateCollectionBuilder::new(name)
+                .vectors_config(VectorParamsBuilder::new(size, Distance::Cosine).on_disk(true))
+                .hnsw_config(HnswConfigDiffBuilder::default().m(0))
+                .on_disk_payload(true)
+                .build();
+            match self.client.create_collection(req).await {
+                Ok(_) => info!(collection = name, size, "Qdrant query-vec collection created (hnsw m=0)"),
+                Err(e) => warn!(collection = name, error = %e, "Qdrant query-vec collection create failed"),
+            }
+        }
+    }
+
+    /// Durable-запись вектора запроса: point id = детерминированный UUID из
+    /// sha256-хэша запроса (тот же хэш, что Redis-ключ). Пустые не пишем (вызов
+    /// гейтит звонящий) — durable-стор хранит только реальные вектора.
+    pub async fn upsert_query_vector(
+        &self,
+        collection: &str,
+        hash: &str,
+        vec: Vec<f32>,
+    ) -> AppResult<()> {
+        let payload = Payload::from(json_map([(
+            "created_at",
+            json!(chrono::Utc::now().timestamp()),
+        )]));
+        self.client
+            .upsert_points(UpsertPointsBuilder::new(
+                collection,
+                vec![PointStruct::new(query_point_id(hash), vec, payload)],
+            ))
+            .await
+            .map_err(|e| AppError::internal(format!("qdrant upsert query vec: {e}")))?;
+        Ok(())
+    }
+
+    /// Get-by-id (НЕ ANN) вектора запроса из durable-стора. None — нет точки или
+    /// Qdrant недоступен (звонящий упадёт на Redis/воркер).
+    pub async fn get_query_vector(&self, collection: &str, hash: &str) -> Option<Vec<f32>> {
+        let resp = self
+            .client
+            .get_points(
+                GetPointsBuilder::new(collection, vec![query_point_id(hash)]).with_vectors(true),
+            )
+            .await
+            .ok()?;
+        let p = resp.result.into_iter().next()?;
+        match p.vectors.and_then(|v| v.vectors_options)? {
+            VectorsOptions::Vector(v) => match v.into_vector() {
+                VectorVariant::Dense(dense) => Some(dense.data),
+                _ => None,
+            },
+            _ => None,
         }
     }
 
@@ -197,6 +269,31 @@ fn json_map<const N: usize>(
     entries: [(&str, serde_json::Value); N],
 ) -> serde_json::Map<String, serde_json::Value> {
     entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+}
+
+/// sha256-hex (64 ASCII chars) → детерминированный UUID-string point id (Qdrant
+/// принимает только u64/UUID). Берём первые 16 байт (32 hex) хэша. Кривой/короткий
+/// `hash` (битый `done.encode` payload) не должен паниковать слайсом — для него
+/// берём детерминированный sha256-фолбэк (upsert и get согласованы, т.к. функция
+/// чистая).
+fn query_point_id(hash: &str) -> PointId {
+    let valid32 = hash.len() >= 32 && hash.as_bytes()[..32].iter().all(u8::is_ascii_hexdigit);
+    let fallback;
+    let h: &str = if valid32 {
+        &hash[..32]
+    } else {
+        fallback = hex::encode(Sha256::digest(hash.as_bytes()));
+        &fallback[..32]
+    };
+    let uuid = format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    );
+    PointId::from(uuid)
 }
 
 fn track_payload(sc_track_id: u64, ts_key: &str, language: Option<&str>) -> Payload {

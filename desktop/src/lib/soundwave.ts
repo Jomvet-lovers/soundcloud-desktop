@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import {useInfiniteQuery, useQuery} from '@tanstack/react-query';
+import {useMemo} from 'react';
 import type { Track } from '../stores/player';
 import { api } from './api';
 
@@ -44,37 +45,6 @@ export async function hydrateByIds(recs: RecommendResult[]): Promise<Track[]> {
   );
 
   return results.filter((t): t is Track => t !== null);
-}
-
-/**
- * Free-form vibe search. Returns hydrated tracks in Qdrant score order.
- * Kept flat (not cluster-grouped) — search is a single-intent query.
- */
-export function useSoundWaveSearch(opts: { q: string; languages?: string[]; limit?: number }) {
-  const q = opts.q.trim();
-  const limit = opts.limit ?? 24;
-  const languages = normLanguages(opts.languages);
-
-  return useQuery({
-    queryKey: ['soundwave', 'search', q, limit, languages ?? 'all'],
-    enabled: q.length >= 2,
-    staleTime: SW_STALE_MS,
-    gcTime: SW_GC_MS,
-    queryFn: async () => {
-      const qs = new URLSearchParams({ q, limit: String(limit) });
-      if (languages) qs.set('languages', languages);
-
-      const recs = await api<RecommendResult[]>(
-        `/recommendations/search?${qs}`,
-        undefined,
-        30_000,
-      ).catch(() => [] as RecommendResult[]);
-      if (!recs.length) return { tracks: [] as Track[], recs };
-
-      const tracks = await hydrateByIds(recs);
-      return { tracks, recs };
-    },
-  });
 }
 
 export type SmartWaveSeedKind = 'user' | 'track' | 'artist';
@@ -193,6 +163,63 @@ export function useSmartWave(opts: {
         limit: opts.limit,
       }),
   });
+}
+
+/**
+ * Endless home-wave board for the Search landing — the "затягивающая сетка".
+ * Infinite, cursor-paged via `fetchSmartWave({ seedKind: 'user' })`; the server
+ * personalises it and degrades to popularity for cold/un-indexed users, so it
+ * always returns covers to scroll. Flattened + deduped by urn for a clean grid.
+ */
+export function useWaveBoard(opts?: { enabled?: boolean; languages?: string[] }) {
+    const languages = normLanguages(opts?.languages);
+    const query = useInfiniteQuery<
+        SmartWaveBatch,
+        Error,
+        SmartWaveBatch[],
+        string[],
+        string | undefined
+    >({
+        queryKey: ['wave', 'board', languages ?? 'all'],
+        enabled: opts?.enabled !== false,
+        staleTime: SW_STALE_MS,
+        gcTime: SW_GC_MS,
+        initialPageParam: undefined,
+        queryFn: ({pageParam}) =>
+            fetchSmartWave({
+                seedKind: 'user',
+                cursor: pageParam,
+                limit: 24,
+                languages: opts?.languages,
+            }),
+        // The server keeps returning a (non-empty) cursor even when a user's wave is
+        // exhausted and the page is empty — treat an empty page as end-of-feed so we
+        // don't loop forever on a cursor that yields nothing.
+        getNextPageParam: (last) => (last.cursor && last.tracks.length > 0 ? last.cursor : undefined),
+        select: (data) => data.pages,
+    });
+
+    const tracks = useMemo(() => {
+        const seen = new Set<string>();
+        const out: Track[] = [];
+        for (const page of query.data ?? []) {
+            for (const t of page.tracks) {
+                if (!seen.has(t.urn)) {
+                    seen.add(t.urn);
+                    out.push(t);
+                }
+            }
+        }
+        return out;
+    }, [query.data]);
+
+    return {
+        tracks,
+        isLoading: query.isLoading,
+        hasNextPage: query.hasNextPage,
+        isFetchingNextPage: query.isFetchingNextPage,
+        fetchNextPage: query.fetchNextPage,
+    };
 }
 
 /** Optional lightweight poll of indexing stats. Fails silently if endpoint absent. */

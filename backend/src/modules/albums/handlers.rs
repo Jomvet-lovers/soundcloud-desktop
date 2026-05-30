@@ -100,7 +100,7 @@ async fn detail(
     .fetch_all(&st.pg)
     .await?;
     let track_ids: Vec<String> = track_id_rows.into_iter().map(|(t,)| t).collect();
-    let mut tracks: Vec<Value> = crate::modules::tracks::project_many(&st.pg, &track_ids)
+    let mut tracks: Vec<Value> = crate::modules::tracks::project_many_public(&st.pg, &track_ids)
         .await?
         .into_iter()
         .flatten()

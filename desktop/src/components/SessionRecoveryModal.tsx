@@ -72,10 +72,10 @@ export const SessionRecoveryModal = React.memo(() => {
           className="fixed left-1/2 top-1/2 z-[101] w-[380px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl overflow-hidden outline-none animate-in fade-in zoom-in-95 duration-200"
           style={{
             background:
-              'linear-gradient(165deg, rgba(22,14,38,0.97), rgba(14,10,28,0.98), rgba(10,8,22,0.99))',
+                'linear-gradient(165deg, var(--color-accent-glow), transparent 55%), linear-gradient(165deg, rgba(14,14,18,0.985), rgba(9,9,13,0.99))',
             border: '0.5px solid rgba(255,255,255,0.08)',
             boxShadow:
-              '0 25px 60px rgba(0,0,0,0.6), 0 0 50px rgba(var(--accent-rgb, 255,85,0),0.08), inset 0 1px 0 rgba(255,255,255,0.04)',
+                '0 25px 60px rgba(0,0,0,0.6), 0 0 50px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.04)',
           }}
         >
           {/* Ambient glow */}

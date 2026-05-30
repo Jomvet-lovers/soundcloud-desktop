@@ -1,10 +1,11 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { type Aura, auraRgba, DEFAULT_AURA, resolveAura } from '../../lib/aura';
+import {type Aura, auraRgba, resolveAura} from '../../lib/aura';
 import { type CatalogAlbum, type CatalogArtist, useDiscoverSpotlight } from '../../lib/discover';
 import { dur, fc } from '../../lib/formatters';
 import { Disc3, Headphones, ListMusic, Sparkles, Star } from '../../lib/icons';
+import {useViewerAura} from '../../lib/useViewerAura';
 import { HorizontalScroll } from '../ui/HorizontalScroll';
 import { Skeleton } from '../ui/Skeleton';
 import { gradientForId, monogramOf } from './visuals';
@@ -197,12 +198,13 @@ const ArtistSpotlightCard = memo(function ArtistSpotlightCard({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const viewerAura = useViewerAura();
   const aura = useMemo(
     () =>
       artist.star && artist.aura_id
         ? resolveAura(artist.aura_id, artist.custom_hex ?? null)
-        : DEFAULT_AURA,
-    [artist.aura_id, artist.custom_hex, artist.star],
+          : viewerAura,
+      [artist.aura_id, artist.custom_hex, artist.star, viewerAura],
   );
   const initials = monogramOf(artist.name);
   const [g1, g2, g3] = useMemo(() => gradientForId(artist.id), [artist.id]);
@@ -344,7 +346,7 @@ const ArtistSpotlightCard = memo(function ArtistSpotlightCard({
             boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.4)}`,
           }}
         >
-          {t('discover.trendValue', { value: Math.round(artist.trending * 100) })}
+          {t('discover.trendValue', {value: Math.round(artist.popularity * 100)})}
         </span>
       </div>
 

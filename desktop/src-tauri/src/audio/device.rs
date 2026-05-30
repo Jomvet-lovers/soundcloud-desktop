@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rodio::mixer::Mixer;
 use rodio::stream::{DeviceSinkBuilder, MixerDeviceSink};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -68,39 +67,42 @@ pub fn list_devices() -> Vec<AudioSink> {
     }
 }
 
-pub fn switch_device(
-    state: State<'_, AudioState>,
-    device_name: Option<String>,
-) -> Result<(), String> {
-    let switch_to_default = device_name.is_none();
-
+/// Point the OS default at `device_name` and return the cpal device id the output
+/// thread should open. On Linux routing is done with `pactl set-default-sink` and the
+/// thread always opens the default cpal device, so the returned id is `None`; other
+/// platforms open the device by id directly.
+fn resolve_switch_name(device_name: &Option<String>) -> Result<Option<String>, String> {
     #[cfg(target_os = "linux")]
-    let switch_name: Option<String> = {
-        if let Some(ref name) = device_name {
+    {
+        if let Some(name) = device_name {
             std::process::Command::new("pactl")
                 .args(["set-default-sink", name])
                 .status()
                 .map_err(|e| format!("pactl failed: {}", e))?;
         }
-        None
-    };
-    #[cfg(not(target_os = "linux"))]
-    let switch_name: Option<String> = device_name;
-
-    let preserved_default_name = if switch_to_default {
-        current_default_output_name()
-    } else {
-        None
-    };
-
-    {
-        let mut player = state.player.lock().unwrap();
-        if let Some(old) = player.take() {
-            old.stop();
-        }
-        state.has_track.store(false, Ordering::Relaxed);
-        state.load_gen.fetch_add(1, Ordering::Relaxed);
+        Ok(None)
     }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(device_name.clone())
+    }
+}
+
+/// Swap the active output sink and continue the current track on it — same source
+/// position, same play/pause state, no gap in the queue. The live player is kept in
+/// place: the output thread silences it by dropping the old sink while
+/// `reload_current_track` reads its frozen position, builds a fresh player on the new
+/// mixer, seeks, and atomically swaps. `reload_current_track` early-returns on a `None`
+/// player, so the player must NOT be torn down before calling it (this mirrors the
+/// device-reconnect path in tick.rs, which preserves the track for the same reason).
+fn swap_device_and_continue(
+    state: &AudioState,
+    switch_name: Option<String>,
+) -> Result<(), String> {
+    // The old player freezes the instant the output thread drops its sink and the new
+    // device may lag before it starts pulling samples; hold off stall-detection so the
+    // tick thread doesn't fire a redundant reconnect during the swap.
+    engine::suppress_stall_temporarily(state);
 
     let (reply_tx, reply_rx) = std::sync::mpsc::channel();
     state
@@ -111,15 +113,34 @@ pub fn switch_device(
         })
         .map_err(|e| e.to_string())?;
 
-    let new_mixer: Mixer = reply_rx
+    // The output thread updates the shared mixer (the same `Arc` as `state.mixer`) in
+    // place before replying, falling back to the default device on failure. The mixer
+    // is live either way, so rebuild the track on it, then surface any open error.
+    let opened = reply_rx
         .recv()
-        .map_err(|e| format!("Device switch failed: {}", e))??;
+        .map_err(|e| format!("Device switch failed: {}", e))?;
+    engine::reload_current_track(state)?;
+    opened.map(|_| ())
+}
 
-    *state.mixer.lock().unwrap() = new_mixer;
+pub fn switch_device(
+    state: State<'_, AudioState>,
+    device_name: Option<String>,
+) -> Result<(), String> {
+    let preserved_default_name = if device_name.is_none() {
+        current_default_output_name()
+    } else {
+        None
+    };
+
+    let switch_name = resolve_switch_name(&device_name)?;
+    swap_device_and_continue(&state, switch_name)?;
+
+    // Pin the resolved default as the known baseline so the follow monitor treats it
+    // as already-applied instead of a fresh change to chase.
     if let Some(name) = preserved_default_name {
         *state.last_known_default_output.lock().unwrap() = Some(name);
     }
-    engine::reload_current_track(&state)?;
     Ok(())
 }
 
@@ -331,42 +352,6 @@ fn switch_to_device_internal(
     state: &AudioState,
     device_name: Option<String>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "linux")]
-    let switch_name: Option<String> = {
-        if let Some(ref name) = device_name {
-            std::process::Command::new("pactl")
-                .args(["set-default-sink", name])
-                .status()
-                .map_err(|e| format!("pactl failed: {}", e))?;
-        }
-        None
-    };
-    #[cfg(not(target_os = "linux"))]
-    let switch_name: Option<String> = device_name;
-
-    {
-        let mut player = state.player.lock().unwrap();
-        if let Some(old) = player.take() {
-            old.stop();
-        }
-        state.has_track.store(false, Ordering::Relaxed);
-        state.load_gen.fetch_add(1, Ordering::Relaxed);
-    }
-
-    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
-    state
-        .audio_tx
-        .send(AudioThreadCmd::SwitchDevice {
-            name: switch_name,
-            reply: reply_tx,
-        })
-        .map_err(|e| e.to_string())?;
-
-    let new_mixer: Mixer = reply_rx
-        .recv()
-        .map_err(|e| format!("Device switch failed: {}", e))??;
-
-    *state.mixer.lock().unwrap() = new_mixer;
-    engine::reload_current_track(state)?;
-    Ok(())
+    let switch_name = resolve_switch_name(&device_name)?;
+    swap_device_and_continue(state, switch_name)
 }

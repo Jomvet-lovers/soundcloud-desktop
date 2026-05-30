@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import {useTranslation} from 'react-i18next';
 import type { TrackScdMeta } from '../../stores/player';
 
 type Variant = 'inline' | 'overlay';
@@ -9,71 +10,79 @@ interface Props {
   showIndex?: boolean;
 }
 
-const baseStyle =
-  'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-semibold uppercase tracking-wide';
-
-function StorageBadge({ meta, variant }: { meta: TrackScdMeta; variant: Variant }) {
-  const inOverlay = variant === 'overlay';
-  if (meta.storage_state === 'pending') return null;
-  if (meta.storage_state === 'failed' || meta.storage_state === 'missing') {
-    const tone = inOverlay
-      ? 'bg-rose-400/85 text-black'
-      : 'bg-rose-500/15 text-rose-300';
+/**
+ * Сравнение полей меты, влияющих на бейдж. Для `React.memo`-компараторов
+ * строк трека — чтобы бейдж переставал отставать, когда у того же урна
+ * меняется статус анализа/кеша (например, трек дослушали → проиндексировали).
+ */
+export function sameScdMeta(a?: TrackScdMeta, b?: TrackScdMeta): boolean {
     return (
-      <span className={`${baseStyle} ${tone}`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-        issue
-      </span>
+        a?.storage_state === b?.storage_state &&
+        a?.storage_quality === b?.storage_quality &&
+        a?.index_state === b?.index_state
     );
-  }
-  const isHq = meta.storage_quality === 'hq';
-  const tone = isHq
-    ? inOverlay
-      ? 'bg-emerald-400/90 text-black'
-      : 'bg-emerald-500/15 text-emerald-300'
-    : inOverlay
-      ? 'bg-white/85 text-black'
-      : 'bg-white/[0.08] text-white/70';
-  return <span className={`${baseStyle} ${tone}`}>{isHq ? 'HQ' : 'cached'}</span>;
 }
 
-function IndexBadge({ meta, variant }: { meta: TrackScdMeta; variant: Variant }) {
-  const inOverlay = variant === 'overlay';
-  if (meta.index_state === 'indexed') {
-    const tone = inOverlay ? 'bg-sky-400/90 text-black' : 'bg-sky-500/15 text-sky-300';
-    return <span className={`${baseStyle} ${tone}`}>analyzed</span>;
-  }
-  if (meta.index_state === 'pending') {
-    const tone = inOverlay
-      ? 'bg-amber-400/85 text-black'
-      : 'bg-amber-500/15 text-amber-300';
-    return (
-      <span className={`${baseStyle} ${tone}`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-        analyzing
-      </span>
-    );
-  }
-  if (meta.index_state === 'failed') {
-    const tone = inOverlay
-      ? 'bg-rose-400/85 text-black'
-      : 'bg-rose-500/15 text-rose-300';
-    return (
-      <span className={`${baseStyle} ${tone}`}>
-        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-        analysis failed
-      </span>
-    );
-  }
-  return null;
+type Tier = 'analyzed' | 'cached' | 'pending' | 'tooLong' | 'failed';
+
+// letter + per-tier tone; second value is overlay tone (solid on artwork)
+const TIERS: Record<Tier, { letter: string; inline: string; overlay: string }> = {
+    analyzed: {
+        letter: 'A',
+        inline: 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/25',
+        overlay: 'bg-emerald-400/90 text-black ring-black/5',
+    },
+    cached: {
+        letter: 'C',
+        inline: 'bg-amber-500/15 text-amber-300 ring-amber-400/25',
+        overlay: 'bg-amber-400/90 text-black ring-black/5',
+    },
+    pending: {
+        letter: '·',
+        inline: 'bg-white/[0.06] text-white/40 ring-white/10',
+        overlay: 'bg-white/75 text-black/60 ring-black/5',
+    },
+    tooLong: {
+        letter: 'F',
+        inline: 'bg-black/60 text-white/70 ring-white/15',
+        overlay: 'bg-black/85 text-white/80 ring-white/15',
+    },
+    failed: {
+        letter: '!',
+        inline: 'bg-rose-500/15 text-rose-300 ring-rose-400/25',
+        overlay: 'bg-rose-400/90 text-black ring-black/5',
+    },
+};
+
+function tierOf(meta: TrackScdMeta, showIndex: boolean): Tier | null {
+    const s = meta.storage_state;
+    const i = meta.index_state;
+    if (s === 'too_long' || i === 'too_long') return 'tooLong';
+    if (s === 'failed' || s === 'missing' || i === 'failed') return 'failed';
+    if (s === 'ok') return showIndex && i === 'indexed' ? 'analyzed' : 'cached';
+    return showIndex ? 'pending' : null;
 }
 
 function TrackStatusBadgesInner({ meta, variant = 'inline', showIndex = true }: Props) {
+    const {t} = useTranslation();
   if (!meta) return null;
+    const tier = tierOf(meta, showIndex);
+    if (!tier) return null;
+
+    const {letter, inline, overlay} = TIERS[tier];
+    const tone = variant === 'overlay' ? overlay : inline;
+    const hq = tier === 'analyzed' || tier === 'cached' ? meta.storage_quality === 'hq' : false;
+
   return (
-    <span className="inline-flex items-center gap-1">
-      <StorageBadge meta={meta} variant={variant} />
-      {showIndex ? <IndexBadge meta={meta} variant={variant} /> : null}
+      <span
+          title={t(`track.status.${tier}${hq ? 'Hq' : ''}`)}
+          className={`relative inline-flex items-center justify-center w-[18px] h-[18px] rounded-[6px] text-[10px] font-bold leading-none ring-1 ring-inset select-none ${tone}`}
+      >
+      {letter}
+          {hq ? (
+              <span
+                  className="absolute -top-px -right-px w-[5px] h-[5px] rounded-full bg-current ring-1 ring-black/20"/>
+          ) : null}
     </span>
   );
 }

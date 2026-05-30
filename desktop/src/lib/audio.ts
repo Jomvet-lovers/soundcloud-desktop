@@ -241,9 +241,18 @@ async function resolveTrackMetadata(track: Track): Promise<Track> {
 
 async function loadTrack(track: Track) {
   const gen = ++loadGen;
+    const isNewTrack = currentUrn !== track.urn;
   stopTrack();
   currentUrn = track.urn;
   const urn = track.urn;
+
+    // A-B loop is per-track: drop it only when loading a genuinely different track —
+    // NOT on same-track reloads (repeat-one, device/EQ reload, or the loop's own
+    // restart). Done here, after currentUrn is advanced, so the resulting store
+    // notification doesn't re-enter the track-changed branch of the subscriber.
+    if (isNewTrack && usePlayerStore.getState().abLoop) {
+        usePlayerStore.getState().clearAbLoop();
+    }
 
   void hydrateTrackMetadata(track, gen);
 
@@ -378,6 +387,23 @@ async function hydrateTrackMetadata(track: Track, gen: number) {
 
 function handleTrackEnd() {
   const state = usePlayerStore.getState();
+    // A-B loop whose end sits at (or within a tick of) the track end: the Rust-side
+    // loop can't catch it before the sink drains, so restart the segment from A here.
+    if (state.abLoop?.b != null && state.currentTrack) {
+        const track = state.currentTrack;
+        const a = state.abLoop.a;
+        // loadTrack bumps loadGen synchronously; capture it so that if the user switches
+        // tracks during the (async) reload, this stale restart-seek is dropped instead of
+        // jumping the newly-loaded track to A.
+        const loadPromise = loadTrack(track);
+        const gen = loadGen;
+        void loadPromise.then(() => {
+            if (gen === loadGen && usePlayerStore.getState().currentTrack?.urn === track.urn) {
+                seek(a);
+            }
+        });
+        return;
+    }
   if (state.repeat === 'one') {
     // rodio sink is empty after track ends — must reload
     if (state.currentTrack) void loadTrack(state.currentTrack);
@@ -507,6 +533,16 @@ usePlayerStore.subscribe((state, prev) => {
   ) {
     invoke('audio_set_playback_rate', { rate: getEffectivePlaybackRate() }).catch(console.error);
   }
+
+    // A-B loop: only push an active region (both bounds set); otherwise clear it.
+    if (state.abLoop !== prev.abLoop) {
+        const ab = state.abLoop;
+        const active = ab != null && ab.b != null;
+        invoke('audio_set_ab_loop', {
+            a: active ? ab.a : null,
+            b: active ? ab.b : null,
+        }).catch(console.error);
+    }
 });
 
 /** Combine playback rate and (manual) pitch into a single Rust-side speed value.

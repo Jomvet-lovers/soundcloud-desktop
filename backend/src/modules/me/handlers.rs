@@ -16,8 +16,6 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/me", get(get_profile))
         .route("/me/subscription", get(get_subscription))
-        .route("/me/feed", get(get_feed))
-        .route("/me/feed/tracks", get(get_feed_tracks))
         .route("/me/likes/tracks", get(get_liked_tracks))
         .route("/me/likes/playlists", get(get_liked_playlists))
         .route("/me/followings", get(get_followings))
@@ -38,45 +36,6 @@ async fn get_profile(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<J
 async fn get_subscription(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<Json<Value>> {
     let premium = st.subscriptions.is_premium(&ctx.sc_user_id).await?;
     Ok(Json(premium_response(premium)))
-}
-
-async fn get_feed(
-    State(st): State<AppState>,
-    ctx: SessionCtx,
-    Query(q): Query<PaginationQuery>,
-) -> AppResult<Json<ListPageResult<Value>>> {
-    let (page, limit) = q.resolved();
-    Ok(Json(
-        st.me
-            .get_feed(
-                &ctx.access_token,
-                &ctx.session_id.to_string(),
-                &ctx.sc_user_id,
-                page,
-                limit,
-            )
-            .await?,
-    ))
-}
-
-async fn get_feed_tracks(
-    State(st): State<AppState>,
-    ctx: SessionCtx,
-    Query(q): Query<PaginationQuery>,
-) -> AppResult<Json<ListPageResult<Value>>> {
-    let (page, limit) = q.resolved();
-    let mut result = st
-        .me
-        .get_feed_tracks(
-            &ctx.access_token,
-            &ctx.session_id.to_string(),
-            &ctx.sc_user_id,
-            page,
-            limit,
-        )
-        .await?;
-    enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
-    Ok(Json(result))
 }
 
 async fn get_liked_tracks(

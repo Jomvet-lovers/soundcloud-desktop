@@ -1,5 +1,5 @@
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
+use axum::routing::{get, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
@@ -19,7 +19,13 @@ pub fn router() -> Router<AppState> {
             get(get_by_id).put(update_playlist).delete(delete_playlist),
         )
         .route("/playlists/{playlist_urn}/tracks", get(get_tracks))
+        .route("/playlists/{playlist_urn}/sharing", put(set_playlist_sharing))
         .route("/playlists/{playlist_urn}/reposters", get(get_reposters))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SharingBody {
+    sharing: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -133,6 +139,24 @@ async fn update_playlist(
         .list_cache
         .invalidate_by_cache_keys(&[tracks_key], Some(&session_id))
         .await;
+    let _ = st
+        .list_cache
+        .invalidate_by_prefixes(&["me-playlists"], Some(&session_id))
+        .await;
+    Ok(Json(v))
+}
+
+async fn set_playlist_sharing(
+    State(st): State<AppState>,
+    ctx: SessionCtx,
+    Path(playlist_urn): Path<String>,
+    Json(body): Json<SharingBody>,
+) -> AppResult<Json<Value>> {
+    let v = st
+        .playlists
+        .set_sharing(&ctx.sc_user_id, &playlist_urn, &body.sharing)
+        .await?;
+    let session_id = ctx.session_id.to_string();
     let _ = st
         .list_cache
         .invalidate_by_prefixes(&["me-playlists"], Some(&session_id))
