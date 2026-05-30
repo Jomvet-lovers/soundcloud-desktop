@@ -59,9 +59,9 @@ def _load_wav(audio_bytes: bytes, sr: int) -> torch.Tensor:
     return waveform  # [1, samples]
 
 
-def _embed_muq(models: Models, audio_bytes: bytes) -> list[float]:
+def _embed_muq(models: Models, wav: torch.Tensor) -> list[float]:
     dtype = next(models.muq.parameters()).dtype
-    wavs = _load_wav(audio_bytes, sr=24000).to(DEVICE, dtype=dtype)
+    wavs = wav.to(DEVICE, dtype=dtype)
     with torch.no_grad():
         out = models.muq(wavs, output_hidden_states=True)
     # Среднее по слоям через аккумулятор [1024] — не torch.stack, иначе пик памяти × num_layers.
@@ -102,9 +102,9 @@ def _chromaprint_fingerprint(audio_bytes: bytes) -> str | None:
     return None
 
 
-def _embed_mulan(models: Models, audio_bytes: bytes) -> list[float]:
+def _embed_mulan(models: Models, wav: torch.Tensor) -> list[float]:
     dtype = next(models.mulan.parameters()).dtype
-    wavs = _load_wav(audio_bytes, sr=24000).to(DEVICE, dtype=dtype)
+    wavs = wav.to(DEVICE, dtype=dtype)
     with torch.no_grad():
         vec = models.mulan(wavs=wavs).squeeze()
     vec = vec / vec.norm()
@@ -130,12 +130,17 @@ async def handle(
         f"{time.monotonic() - t0:.2f}s"
     )
     try:
-        t_muq = time.monotonic()
-        muq_vec = await asyncio.to_thread(_embed_muq, models, audio_bytes)
-        log.info(f"[audio] {sc_track_id} muq done in {time.monotonic() - t_muq:.2f}s")
+        # Декод один раз (CPU, вне локов) — оба эмбеддера хотят один и тот же
+        # 24kHz моно-вход. GPU-секции под локами на модель: при audio=N качается
+        # N треков, но на карте одновр. максимум один muq и один mulan.
+        wav = await asyncio.to_thread(_load_wav, audio_bytes, 24000)
+        async with models.muq_lock:
+            t_muq = time.monotonic()
+            muq_vec = await asyncio.to_thread(_embed_muq, models, wav)
+            log.info(f"[audio] {sc_track_id} muq done in {time.monotonic() - t_muq:.2f}s")
         async with models.mulan_lock:
             t_mulan = time.monotonic()
-            mulan_vec = await asyncio.to_thread(_embed_mulan, models, audio_bytes)
+            mulan_vec = await asyncio.to_thread(_embed_mulan, models, wav)
             log.info(
                 f"[audio] {sc_track_id} mulan done in {time.monotonic() - t_mulan:.2f}s"
             )

@@ -8,8 +8,6 @@
 """
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Optional
-
 from faster_whisper import WhisperModel
 from muq import MuQ, MuQMuLan
 from sentence_transformers import SentenceTransformer
@@ -17,6 +15,7 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
 )
+from typing import Any, Optional
 
 
 @dataclass
@@ -39,6 +38,8 @@ class Models:
     demucs_tried: bool = False
 
     mini_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    muq_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     mulan_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    lyrics_text_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     whisper_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     demucs_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

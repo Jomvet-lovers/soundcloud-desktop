@@ -7,7 +7,6 @@ import gc
 import json
 import logging
 import re
-
 import torch
 
 from ..models import DEVICE, Models, ensure_mini
@@ -147,6 +146,21 @@ async def encode_text_mulan(models: Models, payload: dict) -> dict:
         return {"vector": vec.detach().float().cpu().numpy().tolist()}
 
     async with models.mulan_lock:
+        return await asyncio.to_thread(_run)
+
+
+async def encode_lyrics_text(models: Models, payload: dict) -> dict:
+    """bge-m3 (тот же резидентный эмбеддер, что индексирует лирику) → 1024-dim вектор
+    для семантического поиска по текстам песен."""
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise ValueError("text is empty")
+
+    def _run() -> dict:
+        vec = models.lyrics_embed.encode(text, normalize_embeddings=True)
+        return {"vector": vec.astype("float32").tolist()}
+
+    async with models.lyrics_text_lock:
         return await asyncio.to_thread(_run)
 
 

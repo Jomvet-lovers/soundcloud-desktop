@@ -76,7 +76,14 @@ async def _js_pull_loop(
     nc=None,
     hard_timeout: int | None = None,
 ) -> None:
-    """Пока семафор занят — не вызываем fetch, сообщения достаются другим воркерам.
+    """Семафор гейтит N ОДНОВРЕМЕННЫХ задач, а не N подряд: после fetch обработка
+    уходит в отдельный task, а loop сразу берёт следующий permit и фетчит дальше.
+    Permit принадлежит task'у и отпускается в его finally — пока в работе N задач,
+    fetch не идёт и сообщения достаются другим воркерам.
+
+    Это и даёт перекрытие download↔GPU: пока одни задачи качают трек (async I/O),
+    другие держат GPU. При старом inline-await параллелизма не было — loop один,
+    ждал каждую задачу до конца, и Semaphore(N>1) простаивал (audio=4 == audio=1).
 
     После N подряд ошибок fetch (обычно — обрыв NATS) пересоздаём подписку,
     иначе зомби-psub будет вечно отдавать ошибки даже после реконнекта коннекта.
@@ -84,10 +91,26 @@ async def _js_pull_loop(
     psub = await js.pull_subscribe(subject, durable=durable)
     log.info(f"JS pull-consumer started: {stream}/{durable} → {subject}")
     err_streak = 0
+    inflight: set[asyncio.Task] = set()
 
-    while not stop.is_set():
-        await sem.acquire()
+    async def _process(msg) -> None:
+        # Permit (взят в loop до fetch) принадлежит этому task'у — отпускаем
+        # ровно один раз здесь, что бы внутри ни случилось.
         try:
+            if is_rpc:
+                await run_rpc_msg(msg, handler_factory, tag, nc)
+            else:
+                await run_with_lifecycle(msg, handler_factory, tag, hard_timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error(f"{tag} task crashed: {e}")
+        finally:
+            sem.release()
+
+    try:
+        while not stop.is_set():
+            await sem.acquire()
             try:
                 msgs = await psub.fetch(batch=1, timeout=1)
                 err_streak = 0
@@ -126,19 +149,16 @@ async def _js_pull_loop(
                 sem.release()
                 continue
 
-            for msg in msgs:
-                if is_rpc:
-                    await run_rpc_msg(msg, handler_factory, tag, nc)
-                else:
-                    await run_with_lifecycle(msg, handler_factory, tag, hard_timeout)
-        except BaseException:
-            try:
-                sem.release()
-            except ValueError:
-                pass
-            raise
-        else:
-            sem.release()
+            # Permit уходит вместе с task'ом; loop НЕ ждёт обработку и сразу
+            # фетчит следующее сообщение (до исчерпания семафора).
+            task = asyncio.create_task(_process(msgs[0]))
+            inflight.add(task)
+            task.add_done_callback(inflight.discard)
+    finally:
+        # Стоп/cancel: глушим ещё не доехавшие задачи — msg не за-ack'нется,
+        # JetStream передоставит другому воркеру (плюс есть hard-exit 5s в main).
+        for t in inflight:
+            t.cancel()
 
 
 def _route_ai(models, subject: str, payload: dict):
@@ -150,6 +170,8 @@ def _route_ai(models, subject: str, payload: dict):
         return ai.rank_lyrics(models, payload)
     if subject == subj.AI_ENCODE_TEXT_MULAN:
         return ai.encode_text_mulan(models, payload)
+    if subject == subj.AI_ENCODE_LYRICS_TEXT:
+        return ai.encode_lyrics_text(models, payload)
     if subject == subj.AI_RESOLVE_ARTIST:
         return resolve_artist(models, payload)
     if subject == subj.AI_VERIFY_EXISTENCE:
