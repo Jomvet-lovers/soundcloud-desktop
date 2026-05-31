@@ -280,13 +280,14 @@ async fn main() {
     };
     let enrich = EnrichService::new(
         pg.clone(),
-        nats.clone(),
         mb.clone(),
         genius.clone(),
         ai_resolver,
         config.enrich.clone(),
     );
-    enrich.spawn(shutdown.clone());
+    if let Some(kicker) = enrich.spawn(shutdown.clone()) {
+        indexing.install_enrich_kicker(kicker);
+    }
 
     let artist_crawl = ArtistCrawlService::new(
         pg.clone(),
@@ -295,9 +296,7 @@ async fn main() {
         sc.clone(),
         tokens.clone(),
         resolve.clone(),
-        config.enrich_crawl.clone(),
     );
-    artist_crawl.spawn(shutdown.clone());
 
     let ai_matcher = if config.enrich.ai_enabled {
         Some(crate::modules::enrich::ai_matcher::AiMatcherClient::new(
@@ -332,7 +331,14 @@ async fn main() {
 
     let discover = DiscoverService::new(pg.clone(), cache.clone(), subscriptions.clone());
     discover.clone().spawn_refresh_loop(shutdown.clone());
-    enrich.install_followup(artist_crawl.clone(), wanted_resolver.clone());
+
+    // Catalog discovery (crawl every artist on Genius/MB) on the work pool.
+    crate::modules::discovery::spawn(
+        pg.clone(),
+        artist_crawl.clone(),
+        &config.discovery,
+        shutdown.clone(),
+    );
 
     let track_discovery =
         crate::modules::indexing::TrackDiscoveryService::new(sc.clone(), indexing.clone());

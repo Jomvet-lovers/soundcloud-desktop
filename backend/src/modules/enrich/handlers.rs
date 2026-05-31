@@ -38,7 +38,10 @@ async fn retry_crawl(
     Path(artist_id): Path<Uuid>,
 ) -> AppResult<Json<Value>> {
     let r = sqlx::query(
-        "UPDATE artists SET last_crawled_at = NULL, crawl_attempts = 0, updated_at = now()
+        "UPDATE artists
+         SET crawl_dead = false, crawl_fail_count = 0,
+             genius_next_run_at = now(), mb_next_run_at = now(),
+             genius_locked_at = NULL, mb_locked_at = NULL, updated_at = now()
          WHERE id = $1 AND merged_into IS NULL",
     )
     .bind(artist_id)
@@ -95,7 +98,8 @@ async fn post_retry(
         let r = sqlx::query(
             "UPDATE tracks
              SET enrich_state = 'pending', enrich_attempts = 0, enriched_at = NULL,
-                 enrich_source = NULL, enrich_confidence = NULL
+                 enrich_source = NULL, enrich_confidence = NULL,
+                 enrich_next_run_at = now(), enrich_locked_at = NULL, enrich_error = NULL
              WHERE sc_track_id = $1",
         )
         .bind(&sc)
@@ -107,8 +111,9 @@ async fn post_retry(
         let r = sqlx::query(
             "UPDATE tracks
              SET enrich_state = 'pending', enrich_attempts = 0, enriched_at = NULL,
-                 enrich_source = NULL, enrich_confidence = NULL
-             WHERE enrich_state = 'failed'",
+                 enrich_source = NULL, enrich_confidence = NULL,
+                 enrich_next_run_at = now(), enrich_locked_at = NULL, enrich_error = NULL
+             WHERE enrich_state IN ('failed', 'dead')",
         )
         .execute(&st.pg)
         .await?;

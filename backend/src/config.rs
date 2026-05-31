@@ -22,6 +22,7 @@ pub struct AppConfig {
     pub genius: GeniusCfg,
     pub enrich: EnrichCfg,
     pub enrich_crawl: EnrichCrawlCfg,
+    pub discovery: DiscoveryCfg,
     pub cold: ColdCfg,
     pub max_track_duration_ms: i32,
 }
@@ -164,6 +165,21 @@ pub struct EnrichCrawlCfg {
     pub max_attempts: u32,
 }
 
+/// Catalog discovery (crawl every artist on Genius/MB) + wanted-track resolve,
+/// all on the work::Scheduler substrate. Separate Genius (proxy-parallel) and MB
+/// (serialized) lanes; no confidence floor, no lifetime cap — every artist with
+/// an external id is reachable on a freshness cadence.
+#[derive(Clone, Debug)]
+pub struct DiscoveryCfg {
+    pub enabled: bool,
+    pub genius_concurrency: usize,
+    pub mb_concurrency: usize,
+    pub batch: i64,
+    pub recrawl_days: i64,
+    pub max_fails: i16,
+    pub interest_interval_sec: u64,
+}
+
 impl AppConfig {
     pub fn from_env() -> Self {
         let database_url = match std::env::var("DATABASE_URL") {
@@ -288,6 +304,16 @@ impl AppConfig {
                 batch_size: env_u64("ENRICH_CRAWL_BATCH", 100) as i64,
                 stale_after_hours: env_u32("ENRICH_CRAWL_STALE_HOURS", 168),
                 max_attempts: env_u32("ENRICH_CRAWL_MAX_ATTEMPTS", 10),
+            },
+
+            discovery: DiscoveryCfg {
+                enabled: env_str("DISCOVERY_ENABLED", "true") != "false",
+                genius_concurrency: env_usize("DISCOVERY_GENIUS_CONCURRENCY", 8),
+                mb_concurrency: env_usize("DISCOVERY_MB_CONCURRENCY", 1),
+                batch: env_u64("DISCOVERY_BATCH", 64) as i64,
+                recrawl_days: env_u64("DISCOVERY_RECRAWL_DAYS", 14) as i64,
+                max_fails: env_u32("DISCOVERY_MAX_FAILS", 8) as i16,
+                interest_interval_sec: env_u64("DISCOVERY_INTEREST_INTERVAL_SEC", 3600),
             },
 
             cold: ColdCfg {

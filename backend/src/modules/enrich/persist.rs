@@ -172,7 +172,9 @@ pub async fn apply(
              enrich_state = 'done',
              enrich_source = $7,
              enrich_confidence = $8,
-             enrich_attempts = enrich_attempts + 1,
+             enrich_attempts = 0,
+             enrich_locked_at = NULL,
+             enrich_error = NULL,
              enriched_at = now(),
              upload_kind = $9
          WHERE id = $1",
@@ -365,23 +367,6 @@ async fn compute_upload_kind(
     } else {
         "unknown"
     })
-}
-
-pub async fn mark_failed(pg: &PgPool, track_id: Uuid, error: &str) -> AppResult<()> {
-    let truncated: String = error.chars().take(200).collect();
-    sqlx::query(
-        "UPDATE tracks
-         SET enrich_state = 'failed',
-             enrich_attempts = enrich_attempts + 1,
-             enriched_at = now(),
-             enrich_source = $2
-         WHERE id = $1",
-    )
-    .bind(track_id)
-    .bind(truncated)
-    .execute(pg)
-    .await?;
-    Ok(())
 }
 
 async fn upsert_artists(
@@ -691,6 +676,14 @@ async fn resolve_canonical_for_isrc(
     track_id: Uuid,
     isrc: &str,
 ) -> AppResult<Uuid> {
+    // Serialize canonical assignment per ISRC inside the tx so two concurrent
+    // same-ISRC enrichments cannot each mint a different canonical id and split
+    // the group. DB-only lock, released at commit; no .await on external work
+    // is held under it.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+        .bind(isrc)
+        .execute(&mut **tx)
+        .await?;
     let existing: Option<(Uuid,)> = sqlx::query_as(
         "SELECT canonical_track_id FROM tracks
          WHERE isrc = $1 AND canonical_track_id IS NOT NULL AND id <> $2

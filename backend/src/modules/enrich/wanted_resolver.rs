@@ -10,7 +10,6 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::config::EnrichCrawlCfg;
-use crate::db::advisory_locks;
 use crate::error::AppResult;
 use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::enrich::ai_matcher::{AiMatcherClient, MatchCandidate, MatchTarget};
@@ -67,14 +66,14 @@ impl WantedResolverService {
             let mut ticker = tokio::time::interval(svc.interval);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             ticker.tick().await;
-            if let Err(e) = svc.run_tick_locked().await {
+            if let Err(e) = svc.run_tick().await {
                 warn!(error = %e, "wanted-resolver bootstrap tick failed");
             }
             loop {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     _ = ticker.tick() => {
-                        if let Err(e) = svc.run_tick_locked().await {
+                        if let Err(e) = svc.run_tick().await {
                             warn!(error = %e, "wanted-resolver tick failed");
                         }
                     }
@@ -83,42 +82,89 @@ impl WantedResolverService {
         });
     }
 
-    async fn run_tick_locked(&self) -> AppResult<()> {
-        // Session-level advisory lock на отдельной коннекции. На время тика
-        // эта коннекция занята только удержанием лока — реальная работа
-        // run_tick'а идёт через свободные коннекты из пула.
-        let mut lock_conn = self.pg.acquire().await?;
-        let acquired: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
-            .bind(advisory_locks::WANTED_RESOLVER_TICK)
-            .fetch_one(&mut *lock_conn)
-            .await?;
-        if !acquired.0 {
-            debug!("wanted-resolver: another instance holds the lock, skipping");
+    /// Claim-based tick: lease a batch (SKIP LOCKED is the single-flight, no
+    /// advisory lock / held connection), resolve it, then back off the still-
+    /// unresolved rows and retire them to 'unresolvable' at the attempt cap.
+    async fn run_tick(&self) -> AppResult<()> {
+        let ids = self.claim_batch(BATCH_SIZE).await?;
+        if ids.is_empty() {
             return Ok(());
         }
-        let outcome = self.run_tick().await;
-        let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
-            .bind(advisory_locks::WANTED_RESOLVER_TICK)
-            .execute(&mut *lock_conn)
-            .await;
+        let rows = self.fetch_wanted_by_ids(&ids).await?;
+        let outcome = self.process_batch(rows, None).await;
+        self.finalize_claimed(&ids).await?;
         outcome
     }
 
-    async fn run_tick(&self) -> AppResult<()> {
-        let rows = self
-            .fetch_wanted(
+    async fn claim_batch(&self, batch: i64) -> AppResult<Vec<Uuid>> {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            "WITH picked AS (
+                 SELECT id FROM wanted_tracks
+                 WHERE status = 'wanted' AND track_id IS NULL
+                   AND resolve_next_run_at <= now()
+                   AND (resolve_locked_at IS NULL
+                        OR resolve_locked_at < now() - interval '10 minutes')
+                 ORDER BY resolve_next_run_at
+                 LIMIT $1 FOR UPDATE SKIP LOCKED
+             )
+             UPDATE wanted_tracks w
+             SET resolve_locked_at = now(), resolve_attempts = w.resolve_attempts + 1
+             FROM picked WHERE w.id = picked.id
+             RETURNING w.id",
+        )
+            .bind(batch)
+            .fetch_all(&self.pg)
+            .await?;
+        Ok(rows.into_iter().map(|(id, )| id).collect())
+    }
+
+    async fn fetch_wanted_by_ids(&self, ids: &[Uuid]) -> AppResult<Vec<WantedRecord>> {
+        let rows: Vec<(Uuid, String, String, Option<i32>, Option<String>, Option<Uuid>)> =
+            sqlx::query_as(
                 "SELECT wt.id, wt.title, COALESCE(a.name, ''), wt.duration_ms, wt.isrc, wt.primary_artist_id
                  FROM wanted_tracks wt
                  LEFT JOIN artists a ON a.id = wt.primary_artist_id
-                 WHERE wt.status = 'wanted'
-                   AND wt.track_id IS NULL
-                 ORDER BY wt.updated_at NULLS FIRST
-                 LIMIT $1",
-                BATCH_SIZE,
-                None,
+                 WHERE wt.id = ANY($1)",
             )
+                .bind(ids)
+                .fetch_all(&self.pg)
             .await?;
-        self.process_batch(rows, None).await
+        Ok(rows
+            .into_iter()
+            .filter(|(_, t, _, _, _, _)| !t.trim().is_empty())
+            .map(
+                |(id, title, artist, duration_ms, isrc, primary_artist_id)| WantedRecord {
+                    id,
+                    title,
+                    artist_name: artist,
+                    duration_ms,
+                    isrc,
+                    primary_artist_id,
+                },
+            )
+            .collect())
+    }
+
+    /// Clear leases on the whole claimed batch; for rows that stayed unresolved,
+    /// back off (exp on resolve_attempts, capped) or retire at the cap.
+    async fn finalize_claimed(&self, ids: &[Uuid]) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE wanted_tracks
+             SET resolve_locked_at = NULL,
+                 resolve_next_run_at = now()
+                     + LEAST(interval '7 days',
+                             interval '10 minutes' * power(2, LEAST(resolve_attempts, 10))),
+                 status = CASE WHEN resolve_attempts >= 8 THEN 'unresolvable' ELSE status END
+             WHERE id = ANY($1) AND status = 'wanted' AND track_id IS NULL",
+        )
+            .bind(ids)
+            .execute(&self.pg)
+            .await?;
+        sqlx::query("UPDATE wanted_tracks SET resolve_locked_at = NULL WHERE id = ANY($1)")
+            .bind(ids)
+            .execute(&self.pg)
+            .await?;
+        Ok(())
     }
 
     pub async fn run_for_artist(&self, artist_id: Uuid, max: i64) -> AppResult<()> {

@@ -4,6 +4,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -15,6 +16,7 @@ use crate::modules::lyrics::LyricsService;
 use crate::modules::tracks::normalize::ScTrackFields;
 use crate::modules::tracks::{TrackPriority, TrackRepository};
 use crate::modules::transcode::TranscodeTriggerService;
+use crate::modules::work::Kicker;
 use crate::qdrant::{parse_f32_vec, QdrantService};
 
 const REAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
@@ -56,6 +58,7 @@ pub struct IndexingService {
     trigger: Arc<TranscodeTriggerService>,
     tracks: TrackRepository,
     max_track_duration_ms: i32,
+    enrich_kick: OnceCell<Kicker>,
 }
 
 impl IndexingService {
@@ -76,7 +79,13 @@ impl IndexingService {
             trigger,
             tracks,
             max_track_duration_ms,
+            enrich_kick: OnceCell::new(),
         })
+    }
+
+    /// Wire the enrich pool's kick sender (set once, after enrich.spawn()).
+    pub fn install_enrich_kicker(&self, kicker: Kicker) {
+        let _ = self.enrich_kick.set(kicker);
     }
 
     pub fn spawn(self: &Arc<Self>, shutdown: CancellationToken) {
@@ -126,13 +135,12 @@ impl IndexingService {
     /// (но дёшевы — это NATS publish и in-memory trigger).
     fn kick_pipeline(self: &Arc<Self>, sc_track_id: &str) {
         self.trigger.trigger(sc_track_id);
-        let nats = self.nats.clone();
-        let id_for_enrich = sc_track_id.to_string();
-        tokio::spawn(async move {
-            if let Err(e) = crate::modules::enrich::publish_enrich(&nats, &id_for_enrich).await {
-                debug!(track = %id_for_enrich, error = %e, "enrich publish failed");
-            }
-        });
+        // Enrich: in-process kick (no broker). The row is already
+        // enrich_state='pending' from upsert_from_sc, so even a dropped kick is
+        // picked up by the pool's next priority-ordered claim.
+        if let Some(kicker) = self.enrich_kick.get() {
+            kicker.kick(sc_track_id.to_string());
+        }
         let lyrics = self.lyrics.clone();
         let id_for_lyrics = sc_track_id.to_string();
         tokio::spawn(async move {

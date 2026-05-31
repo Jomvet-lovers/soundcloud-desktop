@@ -14,6 +14,7 @@ pub mod resolver;
 pub mod sc_account_scan;
 pub mod sc_accounts;
 pub mod service;
+pub mod source;
 pub mod wanted_resolver;
 
 pub use ai::AiResolverClient;
@@ -21,5 +22,5 @@ pub use artist_account_walker::ArtistAccountWalker;
 pub use artist_crawl::ArtistCrawlService;
 pub use handlers::router;
 pub use mb::MbClient;
-pub use service::{publish_enrich, EnrichService};
+pub use service::EnrichService;
 pub use wanted_resolver::WantedResolverService;

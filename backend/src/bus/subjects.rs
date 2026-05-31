@@ -25,8 +25,6 @@ pub const TRANSCRIBE_AUDIO: &str = "transcribe.audio.new";
 /// `Nats-Msg-Id` в duplicate_window стрима + Redis in-flight маркер.
 pub const ENCODE_TEXT_NEW: &str = "encode.text.new";
 
-pub const ENRICH_TRACK: &str = "enrich.track.new";
-
 pub const DONE_INDEX_AUDIO: &str = "done.index_audio";
 pub const DONE_EMBED_LYRICS: &str = "done.embed_lyrics";
 pub const DONE_TRANSCRIBE: &str = "done.transcribe";
@@ -74,10 +72,6 @@ pub mod streams {
     pub const TRAIN_QUALITY: StreamCfg = StreamCfg {
         name: "TRAIN_QUALITY",
         subjects: &["train.quality.>"],
-    };
-    pub const ENRICH: StreamCfg = StreamCfg {
-        name: "ENRICH",
-        subjects: &["enrich.>"],
     };
     pub const DONE: StreamCfg = StreamCfg {
         name: "PIPELINE_DONE",

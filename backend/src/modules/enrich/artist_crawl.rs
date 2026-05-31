@@ -1,14 +1,11 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::future::join_all;
 use serde_json::Value;
 use sqlx::PgPool;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::debug;
 use uuid::Uuid;
 
-use crate::config::EnrichCrawlCfg;
 use crate::error::AppResult;
 use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::enrich::mb::{MbArtistUrl, MbClient, MbRecordingBrief};
@@ -32,7 +29,6 @@ pub struct ArtistCrawlService {
     sc: ScClient,
     tokens: Arc<TokenProvider>,
     resolve: Arc<ResolveService>,
-    cfg: EnrichCrawlCfg,
 }
 
 type ArtistRow = (
@@ -58,7 +54,6 @@ impl ArtistCrawlService {
         sc: ScClient,
         tokens: Arc<TokenProvider>,
         resolve: Arc<ResolveService>,
-        cfg: EnrichCrawlCfg,
     ) -> Arc<Self> {
         Arc::new(Self {
             pg,
@@ -67,150 +62,9 @@ impl ArtistCrawlService {
             sc,
             tokens,
             resolve,
-            cfg,
         })
     }
 
-    pub fn spawn(self: &Arc<Self>, shutdown: CancellationToken) {
-        if !self.cfg.enabled {
-            info!("artist crawl disabled by config");
-            return;
-        }
-        self.spawn_fresh_pickup(shutdown.clone());
-        let svc = self.clone();
-        tokio::spawn(async move {
-            let interval = Duration::from_secs(svc.cfg.interval_sec.max(60));
-            let mut ticker = tokio::time::interval(interval);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            ticker.tick().await;
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    _ = ticker.tick() => {
-                        if let Err(e) = svc.run_tick().await {
-                            warn!(error = %e, "artist crawl tick failed");
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    async fn run_tick(&self) -> AppResult<()> {
-        let stale_after = chrono::Duration::hours(self.cfg.stale_after_hours.max(1) as i64);
-        let stale_cutoff = chrono::Utc::now() - stale_after;
-        let max_attempts = self.cfg.max_attempts as i16;
-        let batch = self.cfg.batch_size.max(1);
-
-        let rows: Vec<ArtistRow> = sqlx::query_as(
-            "WITH activity AS (
-                 SELECT ta.artist_id, COUNT(*)::int8 AS event_count
-                 FROM user_events ue
-                 JOIN tracks it ON it.sc_track_id = ue.sc_track_id
-                 JOIN track_artists ta ON ta.track_id = it.id
-                 WHERE ue.created_at > now() - interval '30 days'
-                 GROUP BY ta.artist_id
-             ),
-             picked AS (
-                 SELECT a.id
-                 FROM artists a
-                 LEFT JOIN activity ac ON ac.artist_id = a.id
-                 WHERE a.merged_into IS NULL
-                   AND a.confidence >= 0.5
-                   AND a.crawl_attempts < $1
-                   AND (a.last_crawled_at IS NULL OR a.last_crawled_at < $2)
-                 ORDER BY ac.event_count DESC NULLS LAST,
-                          a.last_crawled_at NULLS FIRST,
-                          a.confidence DESC
-                 LIMIT $3
-                 FOR UPDATE SKIP LOCKED
-             )
-             UPDATE artists a
-             SET last_crawled_at = now(),
-                 crawl_attempts = a.crawl_attempts + 1
-             FROM picked
-             WHERE a.id = picked.id
-             RETURNING a.id, a.mb_artist_id, a.genius_artist_id, a.sc_user_id, a.mb_crawl_offset, a.genius_crawl_offset",
-        )
-        .bind(max_attempts)
-        .bind(stale_cutoff)
-        .bind(batch)
-        .fetch_all(&self.pg)
-        .await?;
-
-        if rows.is_empty() {
-            return Ok(());
-        }
-        info!(count = rows.len(), "artist crawl: processing batch");
-
-        join_all(rows.into_iter().map(
-            |(artist_id, mb_id, genius_id, sc_user_id, mb_off, genius_off)| async move {
-                if let Err(e) = self
-                    .crawl_one(
-                        artist_id,
-                        mb_id.as_deref(),
-                        genius_id.as_deref(),
-                        sc_user_id.as_deref(),
-                        mb_off as u32,
-                        genius_off as u32,
-                    )
-                    .await
-                {
-                    warn!(artist = %artist_id, error = %e, "artist crawl failed");
-                }
-            },
-        ))
-            .await;
-        Ok(())
-    }
-
-    fn spawn_fresh_pickup(self: &Arc<Self>, shutdown: CancellationToken) {
-        let svc = self.clone();
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_secs(60));
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            ticker.tick().await;
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    _ = ticker.tick() => {
-                        if let Err(e) = svc.pickup_fresh().await {
-                            warn!(error = %e, "fresh-pickup failed");
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    async fn pickup_fresh(self: &Arc<Self>) -> AppResult<()> {
-        let rows: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM artists
-             WHERE merged_into IS NULL
-               AND last_crawled_at IS NULL
-               AND confidence >= 0.5
-               AND crawl_attempts < $1
-               AND (mb_artist_id IS NOT NULL OR genius_artist_id IS NOT NULL)
-             ORDER BY confidence DESC, created_at
-             LIMIT 5",
-        )
-        .bind(self.cfg.max_attempts as i16)
-        .fetch_all(&self.pg)
-        .await?;
-        if rows.is_empty() {
-            return Ok(());
-        }
-        info!(count = rows.len(), "artist crawl: fresh-pickup batch");
-        for (artist_id,) in rows {
-            let svc = self.clone();
-            tokio::spawn(async move {
-                if let Err(e) = svc.run_for_artist(artist_id).await {
-                    warn!(%artist_id, error = %e, "fresh-pickup run_for_artist failed");
-                }
-            });
-        }
-        Ok(())
-    }
 
     pub async fn run_for_artist(self: &Arc<Self>, artist_id: Uuid) -> AppResult<()> {
         let claim: Option<ArtistRow> = sqlx::query_as(
@@ -238,7 +92,7 @@ impl ArtistCrawlService {
         .await
     }
 
-    async fn crawl_one(
+    pub async fn crawl_one(
         &self,
         artist_id: Uuid,
         mb_id: Option<&str>,
