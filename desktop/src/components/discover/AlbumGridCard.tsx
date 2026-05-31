@@ -5,6 +5,7 @@ import { type Aura, auraRgba } from '../../lib/aura';
 import type { CatalogAlbum } from '../../lib/discover';
 import { dur } from '../../lib/formatters';
 import { Disc3, ListMusic, Star } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { gradientForId, monogramOf } from './visuals';
 
 interface AlbumGridCardProps {
@@ -15,9 +16,13 @@ interface AlbumGridCardProps {
 function AlbumGridCardImpl({ album, aura }: AlbumGridCardProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const perf = usePerfMode();
   const kindLabel = t(`artist.kind.${album.type}`, { defaultValue: album.type });
   const initials = monogramOf(album.title);
   const [g1, g2, g3] = useMemo(() => gradientForId(album.id, 3), [album.id]);
+    const cardBlur = perf.blur(20);
+    const badgeBlur = perf.blur(12);
+    const discBlur = perf.blur(10);
 
   return (
     <button
@@ -25,20 +30,22 @@ function AlbumGridCardImpl({ album, aura }: AlbumGridCardProps) {
       onClick={() => navigate(`/album/${encodeURIComponent(album.id)}`)}
       className="group relative h-full w-full flex flex-col gap-3 text-left p-3 rounded-3xl cursor-pointer transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] hover:scale-[1.03] overflow-hidden"
       style={{
-        background: 'rgba(255,255,255,0.03)',
+          background: cardBlur > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,27,0.92)',
         border: '0.5px solid rgba(255,255,255,0.06)',
-        backdropFilter: 'blur(20px) saturate(140%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(140%)',
+          backdropFilter: cardBlur > 0 ? `blur(${cardBlur}px) saturate(140%)` : undefined,
+          WebkitBackdropFilter: cardBlur > 0 ? `blur(${cardBlur}px) saturate(140%)` : undefined,
       }}
     >
-      <div
-        className="absolute -inset-x-10 -top-16 h-32 pointer-events-none opacity-0 group-hover:opacity-80 transition-opacity duration-700"
-        style={{
-          background: `radial-gradient(60% 80% at 50% 50%, ${g1}80, transparent 70%)`,
-          filter: 'blur(40px)',
-          mixBlendMode: 'screen',
-        }}
-      />
+        {perf.bloom && (
+            <div
+                className="absolute -inset-x-10 -top-16 h-32 pointer-events-none opacity-0 group-hover:opacity-80 transition-opacity duration-700"
+                style={{
+                    background: `radial-gradient(60% 80% at 50% 50%, ${g1}80, transparent 70%)`,
+                    filter: `blur(${perf.blur(40)}px)`,
+                    mixBlendMode: 'screen',
+                }}
+            />
+        )}
 
       <div
         className="relative aspect-square rounded-2xl overflow-hidden"
@@ -80,9 +87,9 @@ function AlbumGridCardImpl({ album, aura }: AlbumGridCardProps) {
             <div
               className="absolute bottom-2 right-2 w-8 h-8 rounded-full flex items-center justify-center"
               style={{
-                background: 'rgba(0,0,0,0.35)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
+                  background: discBlur > 0 ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.6)',
+                  backdropFilter: discBlur > 0 ? `blur(${discBlur}px)` : undefined,
+                  WebkitBackdropFilter: discBlur > 0 ? `blur(${discBlur}px)` : undefined,
                 border: '0.5px solid rgba(255,255,255,0.16)',
               }}
             >
@@ -94,10 +101,10 @@ function AlbumGridCardImpl({ album, aura }: AlbumGridCardProps) {
         <div
           className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-[0.18em]"
           style={{
-            background: 'rgba(0,0,0,0.55)',
+              background: badgeBlur > 0 ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.72)',
             color: '#fff',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+              backdropFilter: badgeBlur > 0 ? `blur(${badgeBlur}px)` : undefined,
+              WebkitBackdropFilter: badgeBlur > 0 ? `blur(${badgeBlur}px)` : undefined,
             border: '0.5px solid rgba(255,255,255,0.12)',
           }}
         >

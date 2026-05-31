@@ -165,6 +165,12 @@ export const WALL_KEYFRAMES = `
   66%  { transform: translate3d(-3%,2%,0) scale(1.04); }
   100% { transform: translate3d(0,0,0) scale(1); }
 }
+@keyframes tg-orb-drift-lite {
+  0%   { transform: translate3d(0,0,0); }
+  33%  { transform: translate3d(3%,4%,0); }
+  66%  { transform: translate3d(-3%,2%,0); }
+  100% { transform: translate3d(0,0,0); }
+}
 @keyframes tg-ring-sweep {
   from { stroke-dashoffset: var(--tg-ring-len); }
   to   { stroke-dashoffset: 0; }
@@ -192,6 +198,7 @@ export const WALL_KEYFRAMES = `
 /* Hovered tile holds its breath mid-rise. */
 .tg-tile:hover .tg-breath { animation-play-state: paused !important; }
 [data-tg-hidden='1'] .tg-breath,
+[data-tg-hidden='1'] .tg-marquee-track,
 [data-tg-hidden='1'] .tg-orb { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {
   .tg-breath, .tg-orb, .tg-marquee-track { animation: none !important; }

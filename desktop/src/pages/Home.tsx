@@ -35,6 +35,7 @@ import {
   Repeat2,
   Sparkles,
 } from '../lib/icons';
+import {usePerfMode} from '../lib/perf';
 import {useScdMeta} from '../lib/scdMeta';
 import { getArtistTarget, useArtistDisplay, useDisplayTitle } from '../lib/track-display';
 import { useAutoHide } from '../lib/useAutoHide';
@@ -44,6 +45,35 @@ import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 
 /* ── Helpers ──────────────────────────────────────────────── */
+
+// Retained-card cap per horizontal shelf in reduced perf modes; full set lives
+// behind "see all". Beauty keeps every card (byte-identical to today).
+const SHELF_CAP = 24;
+
+function useShelfCap(): number {
+    return usePerfMode().mode === 'beauty' ? Number.POSITIVE_INFINITY : SHELF_CAP;
+}
+
+/* Blurred artwork backdrop for featured heroes; flat tint when blur is gated off. */
+const HeroBlurBg = React.memo(function HeroBlurBg({cover}: { cover: string }) {
+    const perf = usePerfMode();
+    const b = perf.blur(80);
+    return (
+        <div className="absolute inset-0 pointer-events-none">
+            {b > 0 && (
+                <img
+                    src={cover}
+                    alt=""
+                    className="w-full h-full object-cover scale-[1.4] opacity-20"
+                    decoding="async"
+                    style={{filter: `blur(${b}px) saturate(1.5)`}}
+                />
+            )}
+            <div
+                className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70"/>
+        </div>
+    );
+});
 
 function greetingKey() {
   const h = new Date().getHours();
@@ -137,17 +167,7 @@ const FeaturedCard = React.memo(
         onMouseEnter={() => preloadTrack(track.urn)}
       >
         {/* Blurred artwork background */}
-        {cover && (
-          <div className="absolute inset-0 pointer-events-none">
-            <img
-              src={cover}
-              alt=""
-              className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
-              decoding="async"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
-          </div>
-        )}
+          {cover && <HeroBlurBg cover={cover}/>}
 
         {/* Content */}
         <div className="relative flex items-center gap-6 p-6">
@@ -345,17 +365,7 @@ const FeaturedPlaylistHero = React.memo(function FeaturedPlaylistHero({
 
   return (
     <div className="relative rounded-3xl overflow-hidden group glass-featured select-none">
-      {cover && (
-        <div className="absolute inset-0 pointer-events-none">
-          <img
-            src={cover}
-            alt=""
-            className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
-            decoding="async"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
-        </div>
-      )}
+        {cover && <HeroBlurBg cover={cover}/>}
 
       <div className="relative flex items-center gap-6 p-6">
         <div
@@ -475,17 +485,7 @@ const FeaturedUserHero = React.memo(function FeaturedUserHero({ user }: { user: 
       className="relative rounded-3xl overflow-hidden group glass-featured select-none cursor-pointer"
       onClick={() => navigate(`/user/${encodeURIComponent(user.urn)}`)}
     >
-      {avatar && (
-        <div className="absolute inset-0 pointer-events-none">
-          <img
-            src={avatar}
-            alt=""
-            className="w-full h-full object-cover scale-[1.4] blur-[80px] opacity-20 saturate-150"
-            decoding="async"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/70 via-[rgb(8,8,10)]/50 to-[rgb(8,8,10)]/70" />
-        </div>
-      )}
+        {avatar && <HeroBlurBg cover={avatar}/>}
 
       <div className="relative flex items-center gap-6 p-6">
         <div className="w-[160px] h-[160px] rounded-full overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1]">
@@ -576,6 +576,7 @@ const FeaturedHero = React.memo(function FeaturedHero() {
 
 const FallbackShelf = React.memo(function FallbackShelf() {
   const { t } = useTranslation();
+    const shelfCap = useShelfCap();
   const user = useAuthStore((s) => s.user);
 
   // If user has any likes or followings, they're not a new user — no fallback needed
@@ -608,7 +609,7 @@ const FallbackShelf = React.memo(function FallbackShelf() {
           {fallbackLoading ? (
             <ShelfSkeleton count={6} />
           ) : (
-            fallbackTracks.map((track) => (
+              fallbackTracks.slice(0, shelfCap).map((track) => (
               <div key={track.urn} className="w-[180px] shrink-0">
                 <TrackCard track={track} queue={fallbackTracks} />
               </div>
@@ -629,6 +630,7 @@ const LikedShelf = React.memo(function LikedShelf({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const shelfCap = useShelfCap();
 
   if (!isLoading && likedTracks.length === 0) return null;
 
@@ -643,7 +645,7 @@ const LikedShelf = React.memo(function LikedShelf({
         {isLoading ? (
           <ShelfSkeleton />
         ) : (
-          likedTracks.map((track) => (
+            likedTracks.slice(0, shelfCap).map((track) => (
             <div key={track.urn} className="w-[180px] shrink-0">
               <TrackCard track={track} queue={likedTracks} />
             </div>
@@ -662,6 +664,7 @@ const FollowingShelf = React.memo(function FollowingShelf({
   isLoading: boolean;
 }) {
   const { t } = useTranslation();
+    const shelfCap = useShelfCap();
 
   if (!isLoading && followingTracks.length === 0) return null;
 
@@ -675,7 +678,7 @@ const FollowingShelf = React.memo(function FollowingShelf({
         {isLoading ? (
           <ShelfSkeleton />
         ) : (
-          followingTracks.map((track) => (
+            followingTracks.slice(0, shelfCap).map((track) => (
             <div key={track.urn} className="w-[180px] shrink-0">
               <TrackCard track={track} queue={followingTracks} />
             </div>
@@ -692,6 +695,7 @@ const DiscoverSection = React.memo(function DiscoverSection({
   likedTracks: Track[];
 }) {
   const { t } = useTranslation();
+    const shelfCap = useShelfCap();
   const { data: pool, isLoading } = useRelatedPool(likedTracks);
 
   // ── Recommended ──
@@ -723,7 +727,7 @@ const DiscoverSection = React.memo(function DiscoverSection({
             {isLoading ? (
               <ShelfSkeleton />
             ) : (
-              recommendedTracks.map((track) => (
+                recommendedTracks.slice(0, shelfCap).map((track) => (
                 <div key={track.urn} className="w-[180px] shrink-0">
                   <TrackCard track={track} queue={recommendedTracks} />
                 </div>
@@ -760,7 +764,7 @@ const DiscoverSection = React.memo(function DiscoverSection({
             {isLoading ? (
               <ShelfSkeleton />
             ) : (
-              genreTracks.map((track) => (
+                genreTracks.slice(0, shelfCap).map((track) => (
                 <div key={track.urn} className="w-[180px] shrink-0">
                   <TrackCard track={track} queue={genreTracks} />
                 </div>

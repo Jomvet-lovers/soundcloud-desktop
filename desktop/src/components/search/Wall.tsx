@@ -1,4 +1,4 @@
-import {memo, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {memo, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import type {Track} from '../../stores/player';
 import {InfiniteSentinel} from '../discover/InfiniteSentinel';
 import {CoverTile} from './CoverTile';
@@ -19,6 +19,11 @@ interface WallProps {
 const GAP = 12;
 const MIN_COLS = 2;
 const MAX_COLS = 10;
+/** Retained-tile cap: infinite scroll appends without bound, so window the DOM to
+ *  the most recent tiles. content-visibility already skips offscreen paint; this
+ *  caps DOM nodes / decoded images / memory. A leading spacer holds the grid rows
+ *  the dropped tiles occupied so the visible layout and scroll position don't shift. */
+const RETAIN_CAP = 400;
 
 /** Target tile edge scales with the viewport — bigger tiles on big screens. */
 function targetFor(width: number): number {
@@ -74,6 +79,18 @@ export const Wall = memo(function Wall({
 
     const showSkeleton = isLoading && items.length === 0;
 
+    // Window to the most recent RETAIN_CAP tiles; estimate the grid rows the dropped
+    // leading tiles consumed (heroes = 4 cells, others = 1) and reserve them with a
+    // full-width spacer so packed tiles below keep their position. Off by a hero or
+    // two vs. dense-flow exact packing, but it pins scroll and bounds the DOM.
+    const {visible, spacerRows} = useMemo(() => {
+        if (items.length <= RETAIN_CAP) return {visible: items, spacerRows: 0};
+        const start = items.length - RETAIN_CAP;
+        let cells = 0;
+        for (let i = 0; i < start; i++) cells += items[i].hero ? 4 : 1;
+        return {visible: items.slice(start), spacerRows: Math.ceil(cells / columns)};
+    }, [items, columns]);
+
     // A grid change (resize → more/taller cells) can re-open empty space below the
     // last page. Clear the "grew nothing" latch so auto-fill re-evaluates instead
     // of staying short until the item count happens to change.
@@ -111,8 +128,8 @@ export const Wall = memo(function Wall({
                     gridAutoFlow: 'dense',
                 }}
             >
-                {showSkeleton
-                    ? Array.from({length: Math.max(columns * 5, 18)}, (_, i) => (
+                {showSkeleton ? (
+                    Array.from({length: Math.max(columns * 5, 18)}, (_, i) => (
                         <div
                             key={`sk-${i}`}
                             className="rounded-2xl skeleton-shimmer"
@@ -123,15 +140,22 @@ export const Wall = memo(function Wall({
                             }}
                         />
                     ))
-                    : items.map((item) => (
-                        <CoverTile
-                            key={trackKey(item)}
-                            item={item}
-                            getQueue={getQueue}
-                            cellPx={cellPx}
-                            onDive={onDive}
-                        />
-                    ))}
+                ) : (
+                    <>
+                        {spacerRows > 0 && (
+                            <div aria-hidden style={{gridColumn: '1 / -1', gridRow: `span ${spacerRows}`}}/>
+                        )}
+                        {visible.map((item) => (
+                            <CoverTile
+                                key={trackKey(item)}
+                                item={item}
+                                getQueue={getQueue}
+                                cellPx={cellPx}
+                                onDive={onDive}
+                            />
+                        ))}
+                    </>
+                )}
             </div>
 
             {!showSkeleton && hasMore && onLoadMore && (

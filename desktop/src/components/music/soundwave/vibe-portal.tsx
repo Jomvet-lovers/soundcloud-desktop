@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useRef} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router-dom';
 import {AudioLines, ChevronRight, Sparkles} from '../../../lib/icons';
+import {usePerfMode} from '../../../lib/perf';
 import {useSearchPrefsStore} from '../../../stores/searchPrefs';
 
 interface Props {
@@ -32,6 +33,7 @@ const MOTES = Array.from({length: 7}, (_, i) => ({
 
 export const VibePortal = React.memo(function VibePortal({className}: Props) {
     const {t} = useTranslation();
+    const perf = usePerfMode();
     const navigate = useNavigate();
     const rootRef = useRef<HTMLButtonElement>(null);
     const rafRef = useRef(0);
@@ -80,9 +82,12 @@ export const VibePortal = React.memo(function VibePortal({className}: Props) {
         };
     }, []);
 
+    const moteCount = perf.particles(MOTES.length);
+    const idleMotes = perf.idleAnim;
+    const moteGlow = perf.glow;
     const motes = useMemo(
         () =>
-            MOTES.map((m) => (
+            MOTES.slice(0, moteCount).map((m) => (
                 <span
                     key={m.i}
                     className="vp-mote absolute rounded-full"
@@ -93,17 +98,18 @@ export const VibePortal = React.memo(function VibePortal({className}: Props) {
                             width: `${m.size}px`,
                             height: `${m.size}px`,
                             background: 'var(--color-accent)',
-                            boxShadow: '0 0 6px var(--color-accent-glow)',
+                            boxShadow: moteGlow ? '0 0 6px var(--color-accent-glow)' : undefined,
                             '--vp-dx': `${88 - m.left}%`,
                             '--vp-dy': `${50 - m.top}%`,
                             '--vp-pdur': `${m.pullDur}ms`,
+                            animationName: idleMotes ? undefined : 'none',
                             animationDuration: `${m.driftDur}ms`,
                             animationDelay: `${m.driftDelay}ms`,
                         } as React.CSSProperties
                     }
                 />
             )),
-        [],
+        [moteCount, idleMotes, moteGlow],
     );
 
     return (
@@ -128,10 +134,10 @@ export const VibePortal = React.memo(function VibePortal({className}: Props) {
                 style={{
                     background:
                         'radial-gradient(60% 100% at 50% 100%, var(--color-accent-glow), transparent 72%)',
-                    filter: 'blur(26px)',
+                    filter: `blur(${perf.blur(26)}px)`,
                     contain: 'strict',
                     transform: 'translateZ(0)',
-                    animation: 'sw-aurora 9s ease-in-out infinite',
+                    animation: perf.idleAnim ? 'sw-aurora 9s ease-in-out infinite' : undefined,
                 }}
             />
 
@@ -243,6 +249,7 @@ export const VibePortal = React.memo(function VibePortal({className}: Props) {
                   style={{
                       color: 'var(--color-accent)',
                       opacity: 0.28 + i * 0.26,
+                      animationName: perf.idleAnim ? undefined : 'none',
                       animationDelay: `${i * 0.16}s`,
                   }}
               />

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/api';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Loader2 } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { useAuthStore } from '../../stores/auth';
 
 interface FollowBtnProps {
@@ -13,6 +14,7 @@ interface FollowBtnProps {
 
 export function FollowBtn({ userUrn, aura }: FollowBtnProps) {
   const { t } = useTranslation();
+    const b = usePerfMode().blur(20);
   const currentUser = useAuthStore((s) => s.user);
   const qc = useQueryClient();
 
@@ -65,7 +67,9 @@ export function FollowBtn({ userUrn, aura }: FollowBtnProps) {
       }`}
       style={{
         background: following
-          ? 'rgba(255,255,255,0.06)'
+            ? b > 0
+                ? 'rgba(255,255,255,0.06)'
+                : 'rgba(40,40,46,0.85)'
           : 'linear-gradient(180deg, #ffffff, #e5e7eb)',
         border: following
           ? '0.5px solid rgba(255,255,255,0.12)'
@@ -73,8 +77,8 @@ export function FollowBtn({ userUrn, aura }: FollowBtnProps) {
         boxShadow: following
           ? 'inset 0 0.5px 0 rgba(255,255,255,0.08)'
           : `0 12px 32px ${auraRgba(aura, 0.28)}, inset 0 1px 0 rgba(255,255,255,0.6)`,
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
+          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
       }}
     >
       <span

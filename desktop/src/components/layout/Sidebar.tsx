@@ -17,6 +17,7 @@ import {
   Search,
   Settings,
 } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { useAppStatusStore } from '../../stores/app-status';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
@@ -130,6 +131,7 @@ export const Sidebar = React.memo(() => {
     })),
   );
   const { isPremium, modalOpen, setModalOpen, openModal } = useStarSubscription();
+    const perf = usePerfMode();
 
   const toggleLanguage = () => {
       void changeAppLanguage(i18n.language === 'ru' ? 'en' : 'ru');
@@ -141,7 +143,10 @@ export const Sidebar = React.memo(() => {
   return (
     <aside
         className="shrink-0 flex flex-col h-full overflow-hidden border-r border-white/[0.05] transition-[width] duration-300 ease-[var(--ease-apple)]"
-        style={{width: collapsed ? 56 : 196}}
+        style={{
+            width: collapsed ? 56 : 196,
+            transitionDuration: perf.mode === 'light' ? '0ms' : undefined,
+        }}
     >
         <nav className="flex flex-col gap-0.5 px-2 pt-3">
         {navItems.map((item) => (

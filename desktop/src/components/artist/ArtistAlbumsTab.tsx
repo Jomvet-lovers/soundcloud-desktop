@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Disc3, Loader2 } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import type { ArtistAlbum } from './types';
 import { useArtistAlbums } from './useArtistData';
 
@@ -81,7 +82,13 @@ const YearGroup = memo(
   ({ year, items, aura }: { year: number | null; items: ArtistAlbum[]; aura: Aura }) => {
     const { t } = useTranslation();
     return (
-      <div className="flex flex-col md:flex-row md:gap-8 gap-4">
+        <div
+            className="flex flex-col md:flex-row md:gap-8 gap-4"
+            style={{
+                contentVisibility: 'auto',
+                containIntrinsicSize: `auto ${Math.ceil(items.length / 5) * 260 + 80}px`,
+            }}
+        >
         {/* Year marker */}
         <div className="md:w-[200px] md:shrink-0 flex md:flex-col md:items-end items-center md:sticky md:top-24 self-start">
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">
@@ -117,8 +124,11 @@ const YearGroup = memo(
 const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const perf = usePerfMode();
   const kind = (album.type ?? 'album').toLowerCase();
   const kindLabel = t(`artist.kind.${kind}`, { defaultValue: kind });
+    const cb = perf.blur(20);
+    const badgeB = perf.blur(12);
 
   return (
     <button
@@ -126,10 +136,10 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
       onClick={() => navigate(`/album/${encodeURIComponent(album.id)}`)}
       className="group relative flex flex-col gap-2 text-left p-3 rounded-2xl cursor-pointer transition-all duration-500 hover:scale-[1.03]"
       style={{
-        background: 'rgba(255,255,255,0.03)',
+          background: cb > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
         border: '0.5px solid rgba(255,255,255,0.06)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
+          backdropFilter: cb > 0 ? `blur(${cb}px)` : undefined,
+          WebkitBackdropFilter: cb > 0 ? `blur(${cb}px)` : undefined,
       }}
     >
       <div
@@ -157,8 +167,8 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
           style={{
             background: 'rgba(0,0,0,0.55)',
             color: '#fff',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+              backdropFilter: badgeB > 0 ? `blur(${badgeB}px)` : undefined,
+              WebkitBackdropFilter: badgeB > 0 ? `blur(${badgeB}px)` : undefined,
             border: '0.5px solid rgba(255,255,255,0.12)',
           }}
         >

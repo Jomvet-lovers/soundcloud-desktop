@@ -9,6 +9,12 @@ export const USER_PAGE_KEYFRAMES = `
     66%  { transform: translate3d(-3%, 2%, 0) scale(1.04); }
     100% { transform: translate3d(0, 0, 0) scale(1); }
   }
+  @keyframes orb-drift-lite {
+    0%   { transform: translate3d(0, 0, 0); }
+    33%  { transform: translate3d(3%, 4%, 0); }
+    66%  { transform: translate3d(-3%, 2%, 0); }
+    100% { transform: translate3d(0, 0, 0); }
+  }
   @keyframes ring-rotate {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }

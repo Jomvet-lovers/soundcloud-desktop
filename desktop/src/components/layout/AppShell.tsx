@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
 import { art } from '../../lib/formatters';
+import {usePerfMode} from '../../lib/perf';
 import { isMac } from '../../lib/platform';
 import { toggleWindowFullscreen } from '../../lib/window';
 import { useLyricsStore } from '../../stores/lyrics';
@@ -146,6 +147,7 @@ const KeybindingsDialog = React.memo(
 /* ── Backgrounds ───────────────────────────────────────────── */
 
 const CustomBackground = React.memo(() => {
+    const perf = usePerfMode();
   const { bgName, bgOpacity, bgBlur } = useSettingsStore(
     useShallow((s) => ({
       bgName: s.backgroundImage,
@@ -156,8 +158,9 @@ const CustomBackground = React.memo(() => {
 
   const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
   if (!bgUrl) return null;
-  const blurInset = Math.max(24, bgBlur * 2);
-  const blurScale = 1 + bgBlur / 160;
+    const effBlur = perf.blur(bgBlur);
+    const blurInset = Math.max(24, effBlur * 2);
+    const blurScale = 1 + effBlur / 160;
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       <div
@@ -166,7 +169,9 @@ const CustomBackground = React.memo(() => {
           inset: -blurInset,
           contain: 'paint',
           transform: 'translateZ(0)',
-          willChange: 'filter',
+            // Beauty keeps the GPU-promotion hint (byte-identical); lighter modes drop
+            // the permanently-held buffer since blur is reduced/none.
+            willChange: perf.mode === 'beauty' ? 'filter' : undefined,
         }}
       >
         <img
@@ -177,7 +182,7 @@ const CustomBackground = React.memo(() => {
           className="w-full h-full object-cover select-none"
           style={{
             opacity: 0.18,
-            filter: bgBlur > 0 ? `blur(${bgBlur}px)` : 'none',
+              filter: effBlur > 0 ? `blur(${effBlur}px)` : 'none',
             transform: `translateZ(0) scale(${blurScale})`,
             transformOrigin: 'center',
           }}
@@ -192,8 +197,9 @@ const CustomBackground = React.memo(() => {
 });
 
 const AmbientGlow = React.memo(() => {
+    const perf = usePerfMode();
   const artwork = usePlayerStore((s) => art(s.currentTrack?.artwork_url, 't500x500'));
-  if (!artwork) return null;
+    if (!perf.bloom || !artwork) return null;
   return (
     <div
       className="absolute bottom-0 left-0 right-0 h-[400px] opacity-[0.06] blur-[100px] pointer-events-none transition-all duration-[2s] ease-out"
@@ -231,6 +237,12 @@ export const AppShell = React.memo(() => {
   const onQueueToggle = useCallback(() => setQueueOpen((v) => !v), []);
   const onQueueClose = useCallback(() => setQueueOpen(false), []);
     const mainRef = useRef<HTMLElement>(null);
+
+    // Mirror panel state into refs so the global keydown listener binds once.
+    const queueOpenRef = useRef(queueOpen);
+    queueOpenRef.current = queueOpen;
+    const kbOpenRef = useRef(kbOpen);
+    kbOpenRef.current = kbOpen;
 
     // Anti-sticky-hover: WebKitGTK doesn't re-hit-test :hover while the content
     // scrolls under a stationary cursor, so cards "freeze" hovered or light up the
@@ -362,12 +374,12 @@ export const AppShell = React.memo(() => {
           useSettingsStore.getState().toggleSidebar();
           break;
         case 'Escape':
-          if (kbOpen) {
+            if (kbOpenRef.current) {
             setKbOpen(false);
             break;
           }
           if (useLyricsStore.getState().open) useLyricsStore.getState().close();
-          else if (queueOpen) setQueueOpen(false);
+          else if (queueOpenRef.current) setQueueOpen(false);
           break;
       }
     };
@@ -384,7 +396,7 @@ export const AppShell = React.memo(() => {
       window.removeEventListener('keydown', handler);
       window.removeEventListener('keyup', resetVolumeHold);
     };
-  }, [queueOpen, kbOpen]);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen relative overflow-hidden">

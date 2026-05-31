@@ -38,6 +38,7 @@ import {
   searchLyricsManual,
   splitArtistTitle,
 } from '../../lib/lyrics';
+import {usePerfMode} from '../../lib/perf';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import {
   clampLyricsSplit,
@@ -157,18 +158,21 @@ function useArtworkColor(artworkUrl: string | null) {
 
 const FullscreenBackground = React.memo(
   ({ artworkSrc, color }: { artworkSrc: string | null; color: [number, number, number] }) => {
+      const perf = usePerfMode();
+      const artBlur = perf.blur(72);
     const [r, g, b] = color;
     return (
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ contain: 'strict', transform: 'translateZ(0)' }}
       >
-        {artworkSrc ? (
+          {artworkSrc && artBlur > 0 ? (
           <>
             <img
               src={artworkSrc}
               alt=""
-              className="w-full h-full object-cover scale-[1.2] blur-[72px] opacity-30 saturate-[1.2]"
+              className="w-full h-full object-cover scale-[1.2] opacity-30"
+              style={{filter: `blur(${artBlur}px) saturate(1.2)`}}
               loading="eager"
               decoding="async"
             />
@@ -611,6 +615,8 @@ function splitWordsForChars(cells: CharCell[]): CharCell[][] {
 }
 
 const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
+    const perf = usePerfMode();
+    const perChar = perf.mode !== 'light';
   const displayLines = useMemo(() => buildDisplayLines(lines), [lines]);
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(-1);
@@ -739,10 +745,14 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
     let lastTickTs = 0;
     const FRAME_BUDGET_MS = 33; // ~30fps — sweep is per-char so 30fps still looks smooth
     const tick = (ts: number) => {
+        // Park the rAF entirely while hidden; visibilitychange restarts it.
+        if (document.visibilityState === 'hidden') {
+            rafId = 0;
+            return;
+        }
       rafId = requestAnimationFrame(tick);
       if (ts - lastTickTs < FRAME_BUDGET_MS) return;
       lastTickTs = ts;
-      if (document.visibilityState === 'hidden') return;
 
       const idx = activeRef.current;
       if (idx < 0 || idx >= linesRef.current.length) return;
@@ -760,6 +770,14 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
     };
     rafId = requestAnimationFrame(tick);
 
+      const onVisibility = () => {
+          if (document.visibilityState !== 'hidden' && !rafId) {
+              lastTickTs = 0;
+              rafId = requestAnimationFrame(tick);
+          }
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+
     const applyPaused = (paused: boolean) => {
       container.classList.toggle('lyrics-paused', paused);
     };
@@ -770,6 +788,7 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
 
     return () => {
       cancelAnimationFrame(rafId);
+        document.removeEventListener('visibilitychange', onVisibility);
       container.removeEventListener('wheel', markManual);
       container.removeEventListener('touchstart', markManual);
       container.removeEventListener('pointerdown', markManual);
@@ -777,7 +796,7 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
       unlistenPromise.then((unlisten) => unlisten());
       unsubPlayer();
     };
-  }, [displayLines]);
+  }, [displayLines, perChar]);
 
   return (
     <div
@@ -801,6 +820,23 @@ const SyncedLyrics = React.memo(({ lines }: { lines: LyricLine[] }) => {
                   <div className="lyric-pause-bar" />
                 </div>
               </div>
+            );
+          }
+            if (!perChar) {
+                // Light: per-line highlight only — no per-char spans (hundreds of
+                // text-shadow nodes). The active line lights up via its [data-state]
+                // line styling (index.css), not the per-char sweep.
+                return (
+                    <div
+                        key={`${line.time}-${i}`}
+                        className="lyric-line"
+                        onClick={() => {
+                            manualScrollRef.current = false;
+                            seek(line.time);
+                        }}
+                    >
+                        <span className="lyric-fill">{line.text}</span>
+                    </div>
             );
           }
           const cells = splitChars(line.text);
@@ -947,6 +983,7 @@ const TimedCommentCard = React.memo(
 
 const TimedCommentsRail = React.memo(({ trackUrn }: { trackUrn: string }) => {
   const { t } = useTranslation();
+    const perf = usePerfMode();
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef(new Map<number, HTMLDivElement>());
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -990,9 +1027,26 @@ const TimedCommentsRail = React.memo(({ trackUrn }: { trackUrn: string }) => {
       setActiveIndex((prev) => (prev === nextIndex ? prev : nextIndex));
     };
 
-    syncActiveIndex();
-    const id = window.setInterval(syncActiveIndex, 250);
-    return () => window.clearInterval(id);
+      let id = 0;
+      const applyVisibility = () => {
+          const hidden = document.visibilityState === 'hidden';
+          if (hidden) {
+              if (id) {
+                  window.clearInterval(id);
+                  id = 0;
+              }
+          } else if (!id) {
+              syncActiveIndex();
+              id = window.setInterval(syncActiveIndex, 250);
+          }
+      };
+
+      applyVisibility();
+      document.addEventListener('visibilitychange', applyVisibility);
+      return () => {
+          if (id) window.clearInterval(id);
+          document.removeEventListener('visibilitychange', applyVisibility);
+      };
   }, [timedComments]);
 
   const focusIndex = activeIndex >= 0 ? activeIndex : timedComments.length > 0 ? 0 : -1;
@@ -1039,6 +1093,7 @@ const TimedCommentsRail = React.memo(({ trackUrn }: { trackUrn: string }) => {
           const scale = Math.max(0.9, 1 - distance * 0.035);
           const opacity =
             state === 'active' ? 1 : Math.max(0.28, distance === 0 ? 0.94 : 1 - distance * 0.15);
+            const cardBlur = perf.blur(distance >= 4 ? 1.5 : distance >= 2 ? 0.6 : 0);
 
           return (
             <div
@@ -1051,7 +1106,7 @@ const TimedCommentsRail = React.memo(({ trackUrn }: { trackUrn: string }) => {
               style={{
                 transform: `scale(${scale}) translateZ(0)`,
                 opacity,
-                filter: distance >= 4 ? 'blur(1.5px)' : distance >= 2 ? 'blur(0.6px)' : 'none',
+                  filter: cardBlur > 0 ? `blur(${cardBlur}px)` : 'none',
               }}
             >
               <TimedCommentCard

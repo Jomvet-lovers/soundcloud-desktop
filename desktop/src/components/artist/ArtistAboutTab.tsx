@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Check, Globe, MicVocal } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { SocialIcon, socialLabel } from './socials';
 import type { ArtistDetail } from './types';
 
@@ -14,6 +15,7 @@ interface ArtistAboutTabProps {
 function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const b = usePerfMode().blur(28);
   return (
     <div className="grid lg:grid-cols-3 gap-6 py-2">
       {/* Bio */}
@@ -21,10 +23,12 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
         className="lg:col-span-2 p-7 rounded-3xl"
         style={{
           background:
-            'linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
+              b > 0
+                  ? 'linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)'
+                  : 'rgba(20,20,24,0.85)',
           border: '0.5px solid rgba(255,255,255,0.07)',
-          backdropFilter: 'blur(28px) saturate(160%)',
-          WebkitBackdropFilter: 'blur(28px) saturate(160%)',
+            backdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
+            WebkitBackdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
           boxShadow: '0 20px 60px rgba(0,0,0,0.3), inset 0 0.5px 0 rgba(255,255,255,0.06)',
         }}
       >
@@ -57,10 +61,12 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
             className="p-5 rounded-3xl"
             style={{
               background:
-                'linear-gradient(165deg, rgba(255,85,0,0.08) 0%, rgba(255,255,255,0.02) 100%)',
+                  b > 0
+                      ? 'linear-gradient(165deg, rgba(255,85,0,0.08) 0%, rgba(255,255,255,0.02) 100%)'
+                      : 'rgba(34,22,18,0.85)',
               border: '0.5px solid rgba(255,85,0,0.18)',
-              backdropFilter: 'blur(28px)',
-              WebkitBackdropFilter: 'blur(28px)',
+                backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+                WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
               boxShadow: `inset 0 0.5px 0 rgba(255,255,255,0.06)`,
             }}
           >
@@ -108,10 +114,10 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
           <div
             className="p-5 rounded-3xl"
             style={{
-              background: 'rgba(255,255,255,0.03)',
+                background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(20,20,24,0.85)',
               border: '0.5px solid rgba(255,255,255,0.06)',
-              backdropFilter: 'blur(28px)',
-              WebkitBackdropFilter: 'blur(28px)',
+                backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+                WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
             }}
           >
             <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/40 mb-3">

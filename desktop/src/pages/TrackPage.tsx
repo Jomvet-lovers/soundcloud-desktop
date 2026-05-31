@@ -46,6 +46,7 @@ import {
   Send,
 } from '../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../lib/likes';
+import {usePerfMode} from '../lib/perf';
 import {useScdMeta} from '../lib/scdMeta';
 import { getArtistDisplay, getDisplayTitle, getParticipants } from '../lib/track-display';
 import { useTrackPlay } from '../lib/useTrackPlay';
@@ -258,7 +259,10 @@ const CommentItem = React.memo(({ comment }: { comment: Comment }) => {
   const avatar = art(comment.user.avatar_url, 'small');
 
   return (
-    <div className="flex gap-3 group">
+      <div
+          className="flex gap-3 group"
+          style={{contentVisibility: 'auto', containIntrinsicSize: 'auto 56px'}}
+      >
       <img
         src={avatar ?? ''}
         alt=""
@@ -438,6 +442,7 @@ export const TrackPage = React.memo(() => {
   const [descExpanded, setDescExpanded] = useState(false);
   const openLyrics = useLyricsStore((s) => s.openPanel);
     const myUrn = useAuthStore((s) => s.user?.urn);
+    const perf = usePerfMode();
 
   const { data: track, isLoading } = useQuery({
     queryKey: ['track', urn],
@@ -506,16 +511,24 @@ export const TrackPage = React.memo(() => {
       {/* ── Hero ─────────────────────────────────────── */}
       <section className="relative rounded-3xl overflow-hidden glass-featured">
         {/* Blurred bg */}
-        {cover && (
-          <div className="absolute inset-0 pointer-events-none">
-            <img
-              src={cover}
-              alt=""
-              className="w-full h-full object-cover scale-[1.5] blur-[100px] opacity-25 saturate-150"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/80 via-[rgb(8,8,10)]/60 to-[rgb(8,8,10)]/80" />
-          </div>
-        )}
+          {cover &&
+              (() => {
+                  const hb = perf.blur(100);
+                  return (
+                      <div className="absolute inset-0 pointer-events-none">
+                          {hb > 0 && (
+                              <img
+                                  src={cover}
+                                  alt=""
+                                  className="w-full h-full object-cover scale-[1.5] opacity-25"
+                                  style={{filter: `blur(${hb}px) saturate(1.5)`}}
+                              />
+                          )}
+                          <div
+                              className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/80 via-[rgb(8,8,10)]/60 to-[rgb(8,8,10)]/80"/>
+                      </div>
+                  );
+              })()}
 
         <div className="relative flex items-center gap-7 p-7">
           {/* Artwork */}

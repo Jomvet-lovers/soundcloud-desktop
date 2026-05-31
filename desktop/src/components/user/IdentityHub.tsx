@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Calendar, Globe, Sparkles } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { CopyLinkButton } from '../ui/CopyLinkButton';
 import { GlassHeroPanel } from '../ui/GlassHeroPanel';
 import { AuraPicker } from './AuraPicker';
@@ -56,6 +57,9 @@ export function IdentityHub({
   onPickCustom,
 }: IdentityHubProps) {
   const { t } = useTranslation();
+    const perf = usePerfMode();
+    const cpB = perf.blur(20);
+    const lb = perf.blur(16);
   const formattedDate = dateFormattedLong(user.created_at);
   const country = [user.city, user.country_code].filter(Boolean).join(', ');
 
@@ -91,7 +95,7 @@ export function IdentityHub({
                       WebkitBackgroundClip: 'text',
                       WebkitTextFillColor: 'transparent',
                       backgroundClip: 'text',
-                      animation: 'prismatic-shift 6s linear infinite',
+                        animation: perf.idleAnim ? 'prismatic-shift 6s linear infinite' : undefined,
                       filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))',
                     }
                   : { color: '#fff', textShadow: '0 8px 24px rgba(0,0,0,0.5)' }
@@ -121,10 +125,10 @@ export function IdentityHub({
                   rel="noreferrer"
                   className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold text-white/55 hover:text-white transition-all duration-300 hover:scale-105"
                   style={{
-                    background: 'rgba(255,255,255,0.04)',
+                      background: lb > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(28,28,32,0.85)',
                     border: '0.5px solid rgba(255,255,255,0.08)',
-                    backdropFilter: 'blur(16px)',
-                    WebkitBackdropFilter: 'blur(16px)',
+                      backdropFilter: lb > 0 ? `blur(${lb}px)` : undefined,
+                      WebkitBackdropFilter: lb > 0 ? `blur(${lb}px)` : undefined,
                   }}
                 >
                   <span className="text-white/45">{getWebIcon(link.service)}</span>
@@ -140,10 +144,10 @@ export function IdentityHub({
               <div
                 className="h-11 px-1 inline-flex items-center rounded-full"
                 style={{
-                  background: 'rgba(255,255,255,0.04)',
+                    background: cpB > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(28,28,32,0.85)',
                   border: '0.5px solid rgba(255,255,255,0.08)',
-                  backdropFilter: 'blur(20px)',
-                  WebkitBackdropFilter: 'blur(20px)',
+                    backdropFilter: cpB > 0 ? `blur(${cpB}px)` : undefined,
+                    WebkitBackdropFilter: cpB > 0 ? `blur(${cpB}px)` : undefined,
                 }}
               >
                 <CopyLinkButton url={user.permalink_url} />

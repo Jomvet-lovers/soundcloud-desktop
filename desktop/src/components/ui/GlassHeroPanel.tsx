@@ -1,6 +1,7 @@
 import type React from 'react';
 import { memo } from 'react';
 import { type Aura, auraRgba } from '../../lib/aura';
+import {usePerfMode} from '../../lib/perf';
 import { HERO_STAR_SEEDS, StarField } from '../user/StarField';
 
 interface GlassHeroPanelProps {
@@ -11,14 +12,19 @@ interface GlassHeroPanelProps {
 }
 
 function GlassHeroPanelImpl({ hasStar, aura, className, children }: GlassHeroPanelProps) {
+    const perf = usePerfMode();
+    const b = perf.blur(40);
+    const filter = b > 0 ? `blur(${b}px) saturate(160%)` : undefined;
   return (
     <div
       className={`relative rounded-[2.5rem] ${className ?? ''}`}
       style={{
         background:
-          'linear-gradient(165deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 50%, rgba(255,255,255,0.04) 100%)',
-        backdropFilter: 'blur(40px) saturate(160%)',
-        WebkitBackdropFilter: 'blur(40px) saturate(160%)',
+            b > 0
+                ? 'linear-gradient(165deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 50%, rgba(255,255,255,0.04) 100%)'
+                : 'rgba(20,20,24,0.82)',
+          backdropFilter: filter,
+          WebkitBackdropFilter: filter,
         boxShadow: hasStar
           ? `0 30px 80px rgba(0,0,0,0.4), 0 0 80px ${auraRgba(aura, 0.18)}, inset 0 0 0 1px ${auraRgba(aura, 0.3)}, inset 0 1px 0 rgba(255,255,255,0.1)`
           : '0 30px 80px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.08)',

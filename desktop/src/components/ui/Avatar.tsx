@@ -28,6 +28,8 @@ export function Avatar({ src, alt = '', size = 32, className = '' }: AvatarProps
     <img
       src={art(src, 't200x200') ?? undefined}
       alt={alt}
+      loading="lazy"
+      decoding="async"
       className={`rounded-full object-cover ${className}`}
       style={sizeStyle}
     />

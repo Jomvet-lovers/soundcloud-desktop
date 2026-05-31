@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { dur, fc } from '../../lib/formatters';
 import { Calendar, ListMusic, Loader2, Music } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import type { Track } from '../../stores/player';
 import {TrackStatusBadges} from '../music/TrackStatusBadges';
 import { VirtualList } from '../ui/VirtualList';
@@ -211,7 +212,13 @@ const YearBlock = memo(
     const { t } = useTranslation();
     const total = bucket.items.reduce((acc, x) => acc + (x.duration ?? 0), 0);
     return (
-      <div className="flex flex-col md:flex-row md:gap-8 gap-3">
+        <div
+            className="flex flex-col md:flex-row md:gap-8 gap-3"
+            style={{
+                contentVisibility: 'auto',
+                containIntrinsicSize: `auto ${bucket.items.length * ROW_HEIGHT + 120}px`,
+            }}
+        >
         {/* Year marker — same look as albums timeline */}
         <div className="md:w-[200px] md:shrink-0 flex md:flex-col md:items-end items-center md:sticky md:top-24 self-start">
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">
@@ -258,6 +265,7 @@ const SortToggle = memo(
     disabled?: boolean;
   }) => {
     const { t } = useTranslation();
+      const b = usePerfMode().blur(20);
     const options: Array<{ id: TracksSort; label: string }> = [
       { id: 'popular', label: t('artist.sortPopular') },
       { id: 'recent', label: t('artist.sortRecent') },
@@ -266,10 +274,10 @@ const SortToggle = memo(
       <div
         className={`inline-flex items-center gap-1 p-1 rounded-2xl transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
         style={{
-          background: 'rgba(255,255,255,0.03)',
+            background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
           boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+            backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+            WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         }}
       >
         {options.map((o) => {
@@ -311,6 +319,7 @@ const ViewToggle = memo(
     aura: Aura;
   }) => {
     const { t } = useTranslation();
+      const b = usePerfMode().blur(20);
     const options: Array<{ id: TracksView; label: string; icon: React.ReactNode }> = [
       {
         id: 'list',
@@ -327,10 +336,10 @@ const ViewToggle = memo(
       <div
         className="inline-flex items-center gap-1 p-1 rounded-2xl"
         style={{
-          background: 'rgba(255,255,255,0.03)',
+            background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
           boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+            backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+            WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         }}
       >
         {options.map((o) => {

@@ -11,6 +11,7 @@ import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
 import { type TabDescriptor, TabDock } from '../components/user/TabDock';
 import { fetchDiscoverRandom, useDiscoverSummary } from '../lib/discover';
 import { Search, X } from '../lib/icons';
+import {usePerfMode} from '../lib/perf';
 import {useViewerAura} from '../lib/useViewerAura';
 
 type DiscoverTabId = 'albums' | 'artists';
@@ -24,6 +25,8 @@ export const Discover = memo(function Discover() {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, SEARCH_DEBOUNCE_MS);
   const [isSurprising, setIsSurprising] = useState(false);
+    const perf = usePerfMode();
+    const catalogBlur = perf.blur(28);
 
     const aura = useViewerAura();
 
@@ -85,9 +88,13 @@ export const Discover = memo(function Discover() {
               className="rounded-[2rem] p-3 md:p-6"
               style={{
                 background:
-                  'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)',
-                backdropFilter: 'blur(28px) saturate(160%)',
-                WebkitBackdropFilter: 'blur(28px) saturate(160%)',
+                    catalogBlur > 0
+                        ? 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)'
+                        : 'rgba(18,18,22,0.85)',
+                  backdropFilter:
+                      catalogBlur > 0 ? `blur(${catalogBlur}px) saturate(160%)` : undefined,
+                  WebkitBackdropFilter:
+                      catalogBlur > 0 ? `blur(${catalogBlur}px) saturate(160%)` : undefined,
                 boxShadow:
                   '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
               }}
@@ -113,6 +120,8 @@ const SearchInput = memo(function SearchInput({
   onChange: (v: string) => void;
 }) {
   const { t } = useTranslation();
+    const perf = usePerfMode();
+    const b = perf.blur(20);
   return (
     <div className="relative w-full max-w-[320px]">
       <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
@@ -125,10 +134,10 @@ const SearchInput = memo(function SearchInput({
         placeholder={t('discover.searchPlaceholder')}
         className="w-full text-[13px] text-white/85 placeholder:text-white/25 py-2.5 pl-9 pr-8 rounded-2xl outline-none transition-all duration-300"
         style={{
-          background: 'rgba(255,255,255,0.04)',
+            background: b > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(24,24,28,0.9)',
           border: '0.5px solid rgba(255,255,255,0.06)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+            backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+            WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         }}
       />
       {value && (

@@ -14,6 +14,7 @@ import {
   playBlack14,
   playWhite14,
 } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
@@ -35,6 +36,7 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
   const lightAura = isLight(aura);
   const playIcon = lightAura ? playBlack14 : playWhite14;
   const pauseIcon = lightAura ? pauseBlack14 : pauseWhite14;
+    const pb = usePerfMode().blur(16);
 
   return (
     <div
@@ -76,10 +78,17 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center"
                 style={{
-                  background: lightAura ? auraRgba(aura, 0.8) : 'rgba(255,255,255,0.1)',
+                    background:
+                        pb > 0
+                            ? lightAura
+                                ? auraRgba(aura, 0.8)
+                                : 'rgba(255,255,255,0.1)'
+                            : lightAura
+                                ? auraRgb(aura)
+                                : 'rgba(48,48,54,0.92)',
                   border: `0.5px solid ${auraRgba(aura, 0.3)}`,
-                  backdropFilter: 'blur(16px)',
-                  WebkitBackdropFilter: 'blur(16px)',
+                    backdropFilter: pb > 0 ? `blur(${pb}px)` : undefined,
+                    WebkitBackdropFilter: pb > 0 ? `blur(${pb}px)` : undefined,
                 }}
               >
                 {playIcon}

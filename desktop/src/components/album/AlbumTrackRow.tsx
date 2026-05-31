@@ -10,6 +10,7 @@ import {
   playBlack14,
   playWhite14,
 } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
@@ -30,11 +31,14 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
   const lightAura = isLight(aura);
   const playIcon = lightAura ? playBlack14 : playWhite14;
   const pauseIcon = lightAura ? pauseBlack14 : pauseWhite14;
+  const hoverB = usePerfMode().blur(16);
 
   return (
     <div
       className="group flex items-center gap-4 px-4 py-2.5 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] select-none"
       style={{
+        contentVisibility: 'auto',
+        containIntrinsicSize: 'auto 60px',
         background: isThis
           ? `linear-gradient(90deg, ${auraRgba(aura, 0.16)}, ${auraRgba(aura, 0.04)} 70%, transparent)`
           : undefined,
@@ -71,10 +75,14 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center"
                 style={{
-                  background: lightAura ? auraRgba(aura, 0.85) : 'rgba(255,255,255,0.12)',
+                  background: lightAura
+                      ? auraRgba(aura, 0.85)
+                      : hoverB > 0
+                          ? 'rgba(255,255,255,0.12)'
+                          : 'rgba(54,54,60,0.92)',
                   boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.3)}`,
-                  backdropFilter: 'blur(16px)',
-                  WebkitBackdropFilter: 'blur(16px)',
+                  backdropFilter: hoverB > 0 ? `blur(${hoverB}px)` : undefined,
+                  WebkitBackdropFilter: hoverB > 0 ? `blur(${hoverB}px)` : undefined,
                 }}
               >
                 {playIcon}

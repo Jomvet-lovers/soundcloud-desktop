@@ -6,6 +6,25 @@ type PatchedImage = HTMLImageElement & {
   __skipProxyOnce?: boolean;
 };
 
+// Per-source memo of the encoded cache URL — virtualized grids re-assign the same
+// src on every render; encoding (URL/JSON/btoa/hashShard) is the render-hot cost.
+// Bounded (FIFO) so a long session streaming through many covers can't leak.
+const IMAGE_URL_MEMO_CAP = 4000;
+const imageCacheUrlMemo = new Map<string, string>();
+
+function cachedImageUrl(url: string): string {
+    let encoded = imageCacheUrlMemo.get(url);
+    if (encoded === undefined) {
+        encoded = toImageCacheUrl(url);
+        if (imageCacheUrlMemo.size >= IMAGE_URL_MEMO_CAP) {
+            const oldest = imageCacheUrlMemo.keys().next().value;
+            if (oldest !== undefined) imageCacheUrlMemo.delete(oldest);
+        }
+        imageCacheUrlMemo.set(url, encoded);
+    }
+    return encoded;
+}
+
 // Hook <img>.src — route through permanent image cache, store original URL
 // to enable retry on error.
 const imgSrcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src')!;
@@ -21,7 +40,7 @@ Object.defineProperty(HTMLImageElement.prototype, 'src', {
     if (url?.startsWith('http') && !isWhitelistedAssetUrl(url)) {
       img.__origSrc = url;
       img.__proxyRetryStage = 0;
-      url = toImageCacheUrl(url);
+        url = cachedImageUrl(url);
     }
     imgSrcDesc.set!.call(this, url);
   },

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Disc3 } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 
 interface AlbumCoverArtifactProps {
   title: string;
@@ -10,6 +11,7 @@ interface AlbumCoverArtifactProps {
 }
 
 function AlbumCoverArtifactImpl({ title, coverUrl, hasStar, aura }: AlbumCoverArtifactProps) {
+    const {idleAnim} = usePerfMode();
   return (
     <div className="relative shrink-0 self-center lg:self-start group w-[180px] h-[180px] md:w-[220px] md:h-[220px]">
       {hasStar && (
@@ -27,7 +29,7 @@ function AlbumCoverArtifactImpl({ title, coverUrl, hasStar, aura }: AlbumCoverAr
             className="absolute -inset-[40%]"
             style={{
               background: `conic-gradient(from 0deg, ${aura.orbs[0]}, ${aura.orbs[1]}, ${aura.orbs[2]}, ${aura.orbs[0]})`,
-              animation: 'ring-rotate 12s linear infinite',
+                animation: idleAnim ? 'ring-rotate 12s linear infinite' : undefined,
             }}
           />
         </div>

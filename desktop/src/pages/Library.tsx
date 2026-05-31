@@ -38,6 +38,7 @@ import {
   Users,
   X,
 } from '../lib/icons';
+import {usePerfMode} from '../lib/perf';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
@@ -218,10 +219,12 @@ const LibraryHero = React.memo(function LibraryHero({
   onTabFollowing: () => void;
 }) {
   const { t } = useTranslation();
+    const perf = usePerfMode();
   const user = useAuthStore((s) => s.user);
   const { tracks: likedTracks } = useLikedTracks();
   const { users: followings } = useMyFollowings();
   const [shuffleLoading, setShuffleLoading] = useState(false);
+    const cardBlur = perf.blur(40);
 
   const handleShuffleLikes = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -274,7 +277,14 @@ const LibraryHero = React.memo(function LibraryHero({
         onClick={onTabLikes}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-violet-500/20 via-fuchsia-500/10 to-orange-500/20" />
-        <div className="absolute inset-0 backdrop-blur-[40px] bg-white/[0.03] border border-white/[0.08] rounded-[32px]" />
+          <div
+              className="absolute inset-0 border border-white/[0.08] rounded-[32px]"
+              style={{
+                  backdropFilter: cardBlur > 0 ? `blur(${cardBlur}px)` : undefined,
+                  WebkitBackdropFilter: cardBlur > 0 ? `blur(${cardBlur}px)` : undefined,
+                  background: cardBlur > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(20,18,26,0.78)',
+              }}
+          />
 
         <div className="relative z-10">
           <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-md mb-4 shadow-inner ring-1 ring-white/10">
@@ -323,7 +333,14 @@ const LibraryHero = React.memo(function LibraryHero({
         onClick={onTabFollowing}
       >
         <div className="absolute inset-0 bg-gradient-to-bl from-blue-500/10 via-cyan-500/10 to-emerald-500/10" />
-        <div className="absolute inset-0 backdrop-blur-[40px] bg-white/[0.02] border border-white/[0.08] rounded-[32px]" />
+          <div
+              className="absolute inset-0 border border-white/[0.08] rounded-[32px]"
+              style={{
+                  backdropFilter: cardBlur > 0 ? `blur(${cardBlur}px)` : undefined,
+                  WebkitBackdropFilter: cardBlur > 0 ? `blur(${cardBlur}px)` : undefined,
+                  background: cardBlur > 0 ? 'rgba(255,255,255,0.02)' : 'rgba(16,20,24,0.78)',
+              }}
+          />
 
         <div className="relative z-10">
           <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-md mb-4 shadow-inner ring-1 ring-white/10">

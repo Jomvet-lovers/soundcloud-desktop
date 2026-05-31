@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import {usePerfMode} from '../../../lib/perf';
 
 interface Props {
   /** Number of drifting accent particles. Fewer on smaller blocks. */
@@ -19,10 +20,10 @@ export const AmbientLayer = React.memo(function AmbientLayer({
   blur = 45,
   intensity = 0.55,
 }: Props) {
-  const particles = useMemo(
-    () => Array.from({ length: particleCount }, (_, i) => i),
-    [particleCount],
-  );
+    const perf = usePerfMode();
+    const count = perf.particles(particleCount);
+    const orbBlur = perf.blur(blur);
+    const particles = useMemo(() => Array.from({length: count}, (_, i) => i), [count]);
 
   return (
     <div
@@ -34,20 +35,18 @@ export const AmbientLayer = React.memo(function AmbientLayer({
         className="absolute -top-1/3 -left-1/4 w-[55%] h-[170%] rounded-full"
         style={{
           background: 'radial-gradient(closest-side, var(--color-accent-glow), transparent 70%)',
-          filter: `blur(${blur}px)`,
+            filter: `blur(${orbBlur}px)`,
           opacity: intensity,
-          animation: 'sw-aurora 32s linear infinite',
-          willChange: 'transform',
+            animation: perf.idleAnim ? 'sw-aurora 32s linear infinite' : undefined,
         }}
       />
       <div
         className="absolute -bottom-1/2 right-[-12%] w-[50%] h-[160%] rounded-full"
         style={{
           background: 'radial-gradient(closest-side, rgba(255,255,255,0.07), transparent 70%)',
-          filter: `blur(${blur + 5}px)`,
+            filter: `blur(${orbBlur + 5}px)`,
           opacity: intensity * 0.9,
-          animation: 'sw-aurora 44s linear reverse infinite',
-          willChange: 'transform',
+            animation: perf.idleAnim ? 'sw-aurora 44s linear reverse infinite' : undefined,
         }}
       />
       {particles.map((i) => {
@@ -66,8 +65,10 @@ export const AmbientLayer = React.memo(function AmbientLayer({
               left: `${left}%`,
               top: `${top}%`,
               background: 'var(--color-accent)',
-              boxShadow: '0 0 6px var(--color-accent-glow)',
-              animation: `sw-drift ${duration}ms ease-in-out ${delay}ms infinite`,
+                boxShadow: perf.glow ? '0 0 6px var(--color-accent-glow)' : undefined,
+                animation: perf.idleAnim
+                    ? `sw-drift ${duration}ms ease-in-out ${delay}ms infinite`
+                    : undefined,
             }}
           />
         );

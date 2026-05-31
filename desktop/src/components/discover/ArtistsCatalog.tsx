@@ -49,14 +49,17 @@ function ArtistsCatalogImpl({ aura, query }: ArtistsCatalogProps) {
     [t, tagsQuery.data],
   );
 
-  const sortOptions: ReadonlyArray<{ id: ArtistSort; label: string }> = [
-      {id: 'popular', label: t('discover.sortPopular')},
-    { id: 'trending', label: t('discover.sortTrending') },
-    { id: 'listeners', label: t('discover.sortListeners') },
-    { id: 'tracks', label: t('discover.sortTracks') },
-    { id: 'star', label: t('discover.sortStar') },
-    { id: 'az', label: t('discover.sortAz') },
-  ];
+    const sortOptions = useMemo<ReadonlyArray<{ id: ArtistSort; label: string }>>(
+        () => [
+            {id: 'popular', label: t('discover.sortPopular')},
+            {id: 'trending', label: t('discover.sortTrending')},
+            {id: 'listeners', label: t('discover.sortListeners')},
+            {id: 'tracks', label: t('discover.sortTracks')},
+            {id: 'star', label: t('discover.sortStar')},
+            {id: 'az', label: t('discover.sortAz')},
+        ],
+        [t],
+    );
 
   const isInitialLoading = artistsQuery.isLoading;
   const isEmpty = !isInitialLoading && items.length === 0;

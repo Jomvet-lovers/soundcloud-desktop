@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/shallow';
 import { art, dur } from '../../lib/formatters';
 import { GripVertical, pauseTextWhite12, playIcon32, Trash2, X } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { usePlayerStore } from '../../stores/player';
 import {TrackStatusBadges} from './TrackStatusBadges';
@@ -71,13 +72,14 @@ const NowPlayingItem = React.memo(() => {
 const QueueRow = React.memo(function QueueRow({
   track,
   absIdx,
+                                                  isCurrent,
+                                                  isPlaying,
 }: {
   track: ReturnType<typeof usePlayerStore.getState>['queue'][number];
   absIdx: number;
+    isCurrent: boolean;
+    isPlaying: boolean;
 }) {
-  const queueIndex = usePlayerStore((s) => s.queueIndex);
-  const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const isCurrent = absIdx === queueIndex;
   const artwork = art(track.artwork_url, 't200x200');
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -85,10 +87,10 @@ const QueueRow = React.memo(function QueueRow({
   });
 
   const handleClick = () => {
-    const { playFromQueue, pause, resume } = usePlayerStore.getState();
-    if (absIdx === queueIndex && isPlaying) pause();
-    else if (absIdx === queueIndex) resume();
-    else playFromQueue(absIdx);
+      const s = usePlayerStore.getState();
+      if (absIdx === s.queueIndex && s.isPlaying) s.pause();
+      else if (absIdx === s.queueIndex) s.resume();
+      else s.playFromQueue(absIdx);
   };
 
   const handleRemove = () => {
@@ -187,49 +189,74 @@ const QueueTrackRowBody = React.memo(function QueueTrackRowBody({
   );
 });
 
-const DraggableQueue = React.memo(({ startIndex }: { startIndex: number }) => {
-  const queue = usePlayerStore((s) => s.queue);
-  const items = queue.slice(startIndex);
-  const itemIds = items.map((_, localIdx) => String(startIndex + localIdx));
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+// Cap rendered up-next rows; dnd-kit measures every mounted sortable, so an
+// unbounded queue would mount thousands of nodes.
+const QUEUE_RENDER_CAP = 100;
 
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={({ active, over }) => {
-        if (!over || active.id === over.id) return;
-        usePlayerStore.getState().moveInQueue(Number(active.id), Number(over.id));
-      }}
-    >
-      <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-        <div className="flex flex-col gap-0.5">
-          {items.map((track, localIdx) => (
-            <QueueRow
-              key={`${track.urn}-${startIndex + localIdx}`}
-              track={track}
-              absIdx={startIndex + localIdx}
-            />
-          ))}
-        </div>
-      </SortableContext>
-    </DndContext>
-  );
-});
+const DraggableQueue = React.memo(
+    ({
+         startIndex,
+         queueIndex,
+         isPlaying,
+     }: {
+        startIndex: number;
+        queueIndex: number;
+        isPlaying: boolean;
+    }) => {
+        const queue = usePlayerStore((s) => s.queue);
+        const items = queue.slice(startIndex, startIndex + QUEUE_RENDER_CAP);
+        const itemIds = items.map((_, localIdx) => String(startIndex + localIdx));
+        const sensors = useSensors(useSensor(PointerSensor, {activationConstraint: {distance: 5}}));
+
+        return (
+            <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={({active, over}) => {
+                    if (!over || active.id === over.id) return;
+                    usePlayerStore.getState().moveInQueue(Number(active.id), Number(over.id));
+                }}
+            >
+                <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+                    <div className="flex flex-col gap-0.5">
+                        {items.map((track, localIdx) => {
+                            const absIdx = startIndex + localIdx;
+                            const isCurrent = absIdx === queueIndex;
+                            return (
+                                <QueueRow
+                                    key={`${track.urn}-${absIdx}`}
+                                    track={track}
+                                    absIdx={absIdx}
+                                    isCurrent={isCurrent}
+                                    // Only the current row reads isPlaying; pass a stable false to the
+                                    // rest so play/pause re-renders just one memoized row.
+                                    isPlaying={isCurrent && isPlaying}
+                                />
+                            );
+                        })}
+                    </div>
+                </SortableContext>
+            </DndContext>
+        );
+    },
+);
 
 /* ── Panel ───────────────────────────────────────────────────────── */
 export const QueuePanel = React.memo(
   ({ open, onClose }: { open: boolean; onClose: () => void }) => {
     const { t } = useTranslation();
-    const { currentTrack, queue, queueIndex } = usePlayerStore(
+      const perf = usePerfMode();
+      const panelBlur = perf.blur(60);
+      const {currentTrack, queueLength, queueIndex, isPlaying} = usePlayerStore(
       useShallow((s) => ({
         currentTrack: s.currentTrack,
-        queue: s.queue,
+          queueLength: s.queue.length,
         queueIndex: s.queueIndex,
+          isPlaying: s.isPlaying,
       })),
     );
 
-    const upNextCount = queue.length - queueIndex - 1;
+      const upNextCount = queueLength - queueIndex - 1;
 
     return (
       <>
@@ -245,8 +272,9 @@ export const QueuePanel = React.memo(
         <div
           className="fixed top-0 right-0 bottom-0 w-[360px] z-50 flex flex-col"
           style={{
-            background: 'rgba(18, 18, 20, 0.88)',
-            backdropFilter: 'blur(60px) saturate(1.8)',
+              background: panelBlur > 0 ? 'rgba(18, 18, 20, 0.88)' : 'rgba(18, 18, 22, 0.98)',
+              backdropFilter: panelBlur > 0 ? `blur(${panelBlur}px) saturate(1.8)` : undefined,
+              WebkitBackdropFilter: panelBlur > 0 ? `blur(${panelBlur}px) saturate(1.8)` : undefined,
             borderLeft: '1px solid rgba(255,255,255,0.06)',
             transform: open ? 'translateX(0)' : 'translateX(100%)',
             visibility: open ? 'visible' : 'hidden',
@@ -257,7 +285,7 @@ export const QueuePanel = React.memo(
           <div className="flex items-center justify-between px-5 pt-5 pb-3">
             <h2 className="text-base font-semibold tracking-tight">{t('player.queue')}</h2>
             <div className="flex items-center gap-1">
-              {queue.length > 0 && (
+                {queueLength > 0 && (
                 <button
                   type="button"
                   onClick={() => usePlayerStore.getState().clearQueue()}
@@ -294,11 +322,15 @@ export const QueuePanel = React.memo(
                 <p className="text-[10px] text-white/25 uppercase tracking-wider font-medium mb-2 mt-3 px-1">
                   {t('player.upNext')} · {upNextCount}
                 </p>
-                <DraggableQueue startIndex={queueIndex + 1} />
+                  <DraggableQueue
+                      startIndex={queueIndex + 1}
+                      queueIndex={queueIndex}
+                      isPlaying={isPlaying}
+                  />
               </>
             )}
 
-            {queue.length === 0 && (
+              {queueLength === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-white/15">
                 {playIcon32}
                 <p className="text-sm mt-3">Queue is empty</p>

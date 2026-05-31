@@ -64,8 +64,17 @@ export function useInfiniteWave(opts: {
   useEffect(() => {
     if (!enabled) return;
 
-    return usePlayerStore.subscribe((state) => {
+      return usePlayerStore.subscribe((state, prev) => {
       const { queue, queueIndex, currentTrack, isPlaying } = state;
+          // Narrowed: only react to refill-relevant fields.
+          if (
+              queueIndex === prev.queueIndex &&
+              queue.length === prev.queue.length &&
+              currentTrack?.urn === prev.currentTrack?.urn &&
+              isPlaying === prev.isPlaying
+          ) {
+              return;
+          }
       if (!currentTrack) return;
       if (!ownedRef.current.has(currentTrack.urn)) return;
 

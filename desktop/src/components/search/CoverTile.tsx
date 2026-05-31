@@ -10,6 +10,7 @@ import {
     useIsPreviewActive,
 } from '../../lib/audioPreview';
 import {art} from '../../lib/formatters';
+import {usePerfMode} from '../../lib/perf';
 import {useTrackPlay} from '../../lib/useTrackPlay';
 import type {Track} from '../../stores/player';
 import {hashStr, type WallItem} from './utils';
@@ -39,6 +40,7 @@ export const CoverTile = memo(function CoverTile({
                                                      onDive,
                                                  }: CoverTileProps) {
     const {t} = useTranslation();
+    const perf = usePerfMode();
     const {track, kind, matchedLine, hero} = item;
     const {isThis, isThisPlaying, togglePlay} = useTrackPlay(track, getQueue);
     const previewing = useIsPreviewActive(track.urn);
@@ -67,19 +69,34 @@ export const CoverTile = memo(function CoverTile({
                 containIntrinsicSize: `${intrinsic}px ${intrinsic}px`,
             }}
         >
-            {kind === 'vibe' && (
-                <div
-                    className="absolute -inset-1.5 rounded-3xl pointer-events-none opacity-50 group-hover:opacity-100 transition-opacity duration-700"
-                    style={{
-                        background:
-                            'radial-gradient(60% 60% at 50% 50%, var(--color-accent-glow), transparent 70%)',
-                        filter: 'blur(18px)',
-                        mixBlendMode: 'screen',
-                    }}
-                />
-            )}
+            {kind === 'vibe' &&
+                (() => {
+                    const hb = perf.blur(18);
+                    // Light: no blurred halo — a crisp accent ring on hover instead.
+                    if (hb <= 0)
+                        return (
+                            <div
+                                className="absolute inset-0 rounded-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                                style={{boxShadow: 'inset 0 0 0 1.5px var(--color-accent)'}}
+                            />
+                        );
+                    return (
+                        <div
+                            className="absolute -inset-1.5 rounded-3xl pointer-events-none opacity-50 group-hover:opacity-100 transition-opacity duration-700"
+                            style={{
+                                background:
+                                    'radial-gradient(60% 60% at 50% 50%, var(--color-accent-glow), transparent 70%)',
+                                filter: `blur(${hb}px)`,
+                                mixBlendMode: 'screen',
+                            }}
+                        />
+                    );
+                })()}
 
-            <div className="tg-breath relative w-full h-full" style={breathStyle(track.urn)}>
+            <div
+                className="tg-breath relative w-full h-full"
+                style={perf.idleAnim ? breathStyle(track.urn) : undefined}
+            >
                 <div
                     role="button"
                     tabIndex={0}

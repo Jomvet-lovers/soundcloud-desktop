@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { art } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
 import { useTrackComments } from '../../lib/hooks';
+import {getPerfProfile} from '../../lib/perf';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
 
@@ -120,11 +121,15 @@ const FloatingCommentsInner = React.memo(function FloatingCommentsInner({
 
 function renderPill(container: HTMLDivElement, pill: Pill) {
   const { comment } = pill;
+    const flat = getPerfProfile(useSettingsStore.getState().perfMode).mode === 'light';
   const el = document.createElement('div');
   el.setAttribute('data-pill-id', String(pill.id));
-  el.className =
-    'flex items-center gap-2.5 px-4 py-2 rounded-full backdrop-blur-xl border border-white/10 pointer-events-auto transition-all duration-300 ease-out';
-  el.style.cssText = 'background: rgba(255,255,255,0.08); transform: scale(0.5); opacity: 0;';
+    el.className = `flex items-center gap-2.5 px-4 py-2 rounded-full border border-white/10 pointer-events-auto transition-all duration-300 ease-out${
+        flat ? '' : ' backdrop-blur-xl'
+    }`;
+    el.style.cssText = `background: ${
+        flat ? 'rgba(28,28,34,0.92)' : 'rgba(255,255,255,0.08)'
+    }; transform: scale(0.5); opacity: 0;`;
 
   const avatar = document.createElement('img');
   avatar.src = art(comment.user.avatar_url, 'small') || '';

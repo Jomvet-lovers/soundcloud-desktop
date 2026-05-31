@@ -1,5 +1,6 @@
 import React from 'react';
 import { fc } from '../../lib/formatters';
+import {usePerfMode} from '../../lib/perf';
 
 interface StatOrbProps {
   value: number | null | undefined;
@@ -8,14 +9,15 @@ interface StatOrbProps {
 }
 
 function StatOrbImpl({ value, label, accent }: StatOrbProps) {
+    const b = usePerfMode().blur(24);
   return (
     <div
-      className="relative px-5 py-3 rounded-2xl flex items-baseline gap-2.5 transition-all duration-500 hover:scale-[1.04]"
+        className="relative px-5 py-3 rounded-2xl flex items-baseline gap-2.5 transition-transform duration-500 hover:scale-[1.04]"
       style={{
-        background: 'rgba(255,255,255,0.04)',
+          background: b > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(28,28,32,0.85)',
         border: '0.5px solid rgba(255,255,255,0.08)',
-        backdropFilter: 'blur(24px)',
-        WebkitBackdropFilter: 'blur(24px)',
+          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         boxShadow: `inset 0 0.5px 0 rgba(255,255,255,0.08), 0 8px 24px ${accent}`,
       }}
     >

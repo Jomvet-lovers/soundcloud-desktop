@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import type {PerfMode} from '../lib/perf';
 import { tauriStorage } from '../lib/tauri-storage';
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
@@ -56,6 +57,7 @@ export interface SettingsState {
   accentColor: string;
   bgPrimary: string;
   themePreset: ThemePreset;
+    perfMode: PerfMode;
   backgroundImage: string;
   backgroundOpacity: number;
   backgroundBlur: number;
@@ -84,6 +86,7 @@ export interface SettingsState {
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
+    setPerfMode: (mode: PerfMode) => void;
   setBackgroundImage: (url: string) => void;
   setBackgroundOpacity: (opacity: number) => void;
   setBackgroundBlur: (blur: number) => void;
@@ -120,6 +123,7 @@ const DEFAULTS = {
   accentColor: '#ff5500',
   bgPrimary: '#08080a',
   themePreset: 'soundcloud' as ThemePreset,
+    perfMode: 'beauty' as PerfMode,
   backgroundImage: '',
   backgroundOpacity: 0.15,
   backgroundBlur: 0,
@@ -161,6 +165,7 @@ export const useSettingsStore = create<SettingsState>()(
           set({ themePreset: id, accentColor: preset.accent, bgPrimary: preset.bg });
         }
       },
+        setPerfMode: (perfMode) => set({perfMode}),
       setBackgroundImage: (backgroundImage) => set({ backgroundImage }),
       setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
       setBackgroundBlur: (backgroundBlur) => set({ backgroundBlur }),
@@ -216,7 +221,7 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 15,
+        version: 16,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;
@@ -237,6 +242,7 @@ export const useSettingsStore = create<SettingsState>()(
         accentColor: s.accentColor,
         bgPrimary: s.bgPrimary,
         themePreset: s.themePreset,
+          perfMode: s.perfMode,
         backgroundImage: s.backgroundImage,
         backgroundOpacity: s.backgroundOpacity,
         backgroundBlur: s.backgroundBlur,

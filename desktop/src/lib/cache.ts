@@ -40,8 +40,9 @@ export async function ensureTrackCached(
     return cached;
   }
 
-  const { buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId } =
-    await import('./api');
+    const {buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId} = await import(
+        './api'
+        );
   const sessionId = getSessionId();
   const urls = streamFallbackUrls(urn, highQualityStreaming);
   const downloadUrls = downloadFallbackUrls(urn, highQualityStreaming);
@@ -125,9 +126,30 @@ export function setupCacheMaintenance() {
     }
   });
 
-  window.setInterval(() => {
-    void enforceAudioCacheLimit();
-  }, CACHE_MAINTENANCE_INTERVAL_MS);
+    // Pause maintenance while the window is hidden — the WebView does not throttle timers.
+    let maintenanceTimer: number | null = null;
+    const startTimer = () => {
+        if (maintenanceTimer !== null) return;
+        maintenanceTimer = window.setInterval(() => {
+            void enforceAudioCacheLimit();
+        }, CACHE_MAINTENANCE_INTERVAL_MS);
+    };
+    const stopTimer = () => {
+        if (maintenanceTimer === null) return;
+        window.clearInterval(maintenanceTimer);
+        maintenanceTimer = null;
+    };
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            stopTimer();
+        } else {
+            void enforceAudioCacheLimit();
+            startTimer();
+        }
+    });
+
+    if (document.visibilityState !== 'hidden') startTimer();
 }
 
 /* ── Image cache (permanent, Rust) ───────────────────────── */

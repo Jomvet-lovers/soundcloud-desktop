@@ -20,6 +20,83 @@
   --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* ── Performance modes ──────────────────────────────────────────
+   One central gate for the liquid-glass cost. `:root` carries the full "beauty"
+   values, so the absence of the attribute === beauty and the rich design is the
+   default. ThemeProvider writes html[data-perf]; components read usePerfMode()
+   (lib/perf.ts) to gate inline-styled blur / particles / atmosphere, which a CSS
+   class can't override. backdrop-filter:blur is the single most expensive CSS op,
+   so these vars + the light-mode solid-tint swaps below are the biggest lever. */
+:root {
+    --glass-blur: 40px; /* .glass and frosted panels */
+    --glass-blur-strong: 60px; /* .glass-featured (SoundWave blocks) */
+    --glass-blur-soft: 28px; /* .npb-glass (now-playing pill) */
+}
+
+[data-perf="medium"] {
+    --glass-blur: 18px;
+    --glass-blur-strong: 26px;
+    --glass-blur-soft: 16px;
+}
+
+[data-perf="light"] {
+    --glass-blur: 0px;
+    --glass-blur-strong: 0px;
+    --glass-blur-soft: 0px;
+}
+
+/* Light mode: drop the live backdrop blur, keep the dark frosted look via a flat
+   solid tint (visually close on a dark UI, zero per-repaint blur cost). */
+[data-perf="light"] .glass,
+[data-perf="light"] .glass-flat {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(22, 22, 26, 0.82);
+}
+
+[data-perf="light"] .glass-featured {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(16, 16, 20, 0.86);
+}
+
+[data-perf="light"] .npb-glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.06),
+            rgba(255, 255, 255, 0.015) 44%,
+            rgba(255, 255, 255, 0.008)
+    ),
+    rgba(15, 15, 19, 0.92);
+}
+
+[data-perf="light"] .npb-glass::after {
+    display: none;
+}
+
+/* Global idle-animation gate — the WebView never throttles a hidden window, so
+   pause every animation while minimized (all modes, zero visual change while shown). */
+[data-app-hidden="1"] *,
+[data-app-hidden="1"] *::before,
+[data-app-hidden="1"] *::after {
+    animation-play-state: paused !important;
+}
+
+/* Light mode: stop decorative idle motion carried on CSS classes. Inline-styled
+   motion (star fields, aurora orbs, prismatic text) is gated in JS via usePerfMode;
+   functional motion (spinners, dialog transitions, live progress) is left alone. */
+[data-perf="light"] .skeleton-shimmer,
+[data-perf="light"] .soundwave-bar,
+[data-perf="light"] .vp-chev,
+[data-perf="light"] .vp-mote,
+[data-perf="light"] .lyric-line[data-state="active"] .note-gradient-text,
+[data-perf="light"] .npb-dock[data-playing="true"] .npb-ring,
+[data-perf="light"] .npb-dock[data-playing="true"] .npb-play::after {
+    animation: none !important;
+}
+
 *,
 *::before,
 *::after {
@@ -77,7 +154,7 @@ body,
 /* ── Glass ──────────────────────────────────────────────────── */
 .glass {
   background: rgba(255, 255, 255, 0.025);
-  backdrop-filter: blur(40px) saturate(1.8);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.8);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
@@ -229,7 +306,7 @@ body,
 /* ── Featured card glass ──────────────────────────────────── */
 .glass-featured {
   background: rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(60px) saturate(2);
+    backdrop-filter: blur(var(--glass-blur-strong)) saturate(2);
   border: 1px solid rgba(255, 255, 255, 0.07);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.03) inset,
@@ -390,6 +467,12 @@ body,
   white-space: pre-wrap;
   vertical-align: top;
   color: rgba(255, 255, 255, 0.32);
+}
+
+/* Light mode renders the active line as one .lyric-fill span (no per-char nodes),
+   so brighten its text directly — the per-char sweep that lights beauty is absent. */
+[data-perf="light"] .lyric-line[data-state="active"] .lyric-fill {
+    color: #fff;
 }
 
 /* A "word" wrapper just keeps characters from breaking mid-word. */
@@ -794,8 +877,8 @@ body,
     border: 1px solid rgba(255, 255, 255, 0.11);
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset,
     0 -10px 26px -18px rgba(0, 0, 0, 0.7) inset;
-    backdrop-filter: blur(28px) saturate(1.6);
-    -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.6);
+    -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.6);
     contain: strict;
     transform: translateZ(0);
 }

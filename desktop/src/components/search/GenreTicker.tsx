@@ -1,4 +1,5 @@
 import {memo} from 'react';
+import {usePerfMode} from '../../lib/perf';
 import {GENRES, type GenreChip} from './utils';
 
 interface GenreTickerProps {
@@ -12,6 +13,7 @@ interface GenreTickerProps {
  * repeated so one copy is wider than the viewport, then doubled for a seamless
  * loop (translateX -50%) — so it fills the full width even on big screens. */
 export const GenreTicker = memo(function GenreTicker({genres, onSelect}: GenreTickerProps) {
+    const perf = usePerfMode();
     const base = genres && genres.length >= 4 ? genres : GENRES;
     const reps = Math.max(2, Math.ceil(28 / base.length));
     const wide = Array.from({length: reps}, () => base).flat();
@@ -27,8 +29,14 @@ export const GenreTicker = memo(function GenreTicker({genres, onSelect}: GenreTi
             }}
         >
             <div
-                className="tg-marquee-track flex items-center gap-5 whitespace-nowrap will-change-transform group-hover:[animation-play-state:paused]"
-                style={{animation: 'tg-marquee 60s linear infinite', width: 'max-content'}}
+                className={`tg-marquee-track flex items-center gap-5 whitespace-nowrap group-hover:[animation-play-state:paused]${
+                    perf.idleAnim ? ' will-change-transform' : ''
+                }`}
+                style={
+                    perf.idleAnim
+                        ? {animation: 'tg-marquee 60s linear infinite', width: 'max-content'}
+                        : {width: 'max-content'}
+                }
             >
                 {chips.map((g, i) => (
                     <button

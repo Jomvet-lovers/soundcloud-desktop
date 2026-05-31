@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, Sparkles, Star } from '../../../../lib/icons';
+import {usePerfMode} from '../../../../lib/perf';
 import { useSubscription } from '../../../../lib/subscription';
 import { useAuthStore } from '../../../../stores/auth';
 import { Countdown, isExpired } from './countdown';
@@ -33,6 +34,7 @@ const STAR_GLYPHS = Array.from({ length: 10 }, (_, i) => ({
 
 export const SoundWaveLockOverlay = React.memo(function SoundWaveLockOverlay() {
   const { t } = useTranslation();
+    const perf = usePerfMode();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const { data: isPremium } = useSubscription(isAuthenticated);
 
@@ -43,6 +45,10 @@ export const SoundWaveLockOverlay = React.memo(function SoundWaveLockOverlay() {
   if (isPremium) return null;
   if (expired) return null;
 
+    const stars = STAR_GLYPHS.slice(0, perf.particles(STAR_GLYPHS.length));
+    const particles = PARTICLES.slice(0, perf.particles(PARTICLES.length));
+    const glassBlur = perf.blur(36);
+
   return (
     <div
       className="absolute inset-0 z-20 rounded-3xl overflow-hidden"
@@ -52,10 +58,12 @@ export const SoundWaveLockOverlay = React.memo(function SoundWaveLockOverlay() {
       <div
         className="absolute inset-0"
         style={{
-          backdropFilter: 'blur(36px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(36px) saturate(180%)',
+            backdropFilter: glassBlur > 0 ? `blur(${glassBlur}px) saturate(180%)` : undefined,
+            WebkitBackdropFilter: glassBlur > 0 ? `blur(${glassBlur}px) saturate(180%)` : undefined,
           background:
-            'radial-gradient(ellipse 80% 70% at 50% 30%, rgba(139,92,246,0.28) 0%, transparent 65%), linear-gradient(165deg, rgba(20,12,38,0.72) 0%, rgba(12,8,22,0.78) 55%, rgba(8,6,16,0.82) 100%)',
+              glassBlur > 0
+                  ? 'radial-gradient(ellipse 80% 70% at 50% 30%, rgba(139,92,246,0.28) 0%, transparent 65%), linear-gradient(165deg, rgba(20,12,38,0.72) 0%, rgba(12,8,22,0.78) 55%, rgba(8,6,16,0.82) 100%)'
+                  : 'radial-gradient(ellipse 80% 70% at 50% 30%, rgba(139,92,246,0.28) 0%, transparent 65%), linear-gradient(165deg, rgba(20,12,38,0.94) 0%, rgba(12,8,22,0.96) 55%, rgba(8,6,16,0.98) 100%)',
           contain: 'strict',
           transform: 'translateZ(0)',
         }}
@@ -78,7 +86,7 @@ export const SoundWaveLockOverlay = React.memo(function SoundWaveLockOverlay() {
         aria-hidden
         style={{ contain: 'strict', transform: 'translateZ(0)' }}
       >
-        {STAR_GLYPHS.map((s) => (
+          {stars.map((s) => (
           <div
             key={`g-${s.i}`}
             className="absolute"
@@ -88,14 +96,18 @@ export const SoundWaveLockOverlay = React.memo(function SoundWaveLockOverlay() {
               color: `hsl(${s.hue}, 85%, 78%)`,
               opacity: s.opacity,
               transform: `rotate(${s.rotate}deg)`,
-              filter: `drop-shadow(0 0 ${s.size}px hsl(${s.hue}, 90%, 70%))`,
-              animation: `star-float ${s.duration}s ease-in-out ${s.delay}s infinite alternate`,
+                filter: perf.glow
+                    ? `drop-shadow(0 0 ${s.size}px hsl(${s.hue}, 90%, 70%))`
+                    : undefined,
+                animation: perf.idleAnim
+                    ? `star-float ${s.duration}s ease-in-out ${s.delay}s infinite alternate`
+                    : undefined,
             }}
           >
             <Star size={s.size} fill="currentColor" />
           </div>
         ))}
-        {PARTICLES.map((p) => (
+          {particles.map((p) => (
           <div
             key={`p-${p.i}`}
             className="absolute rounded-full"
@@ -106,8 +118,10 @@ export const SoundWaveLockOverlay = React.memo(function SoundWaveLockOverlay() {
               top: `${p.top}%`,
               background: `hsl(${p.hue}, 80%, 75%)`,
               opacity: p.opacity,
-              boxShadow: `0 0 ${p.size * 3}px hsl(${p.hue}, 90%, 72%)`,
-              animation: `star-float ${p.duration}s ease-in-out ${p.delay}s infinite alternate`,
+                boxShadow: perf.glow ? `0 0 ${p.size * 3}px hsl(${p.hue}, 90%, 72%)` : undefined,
+                animation: perf.idleAnim
+                    ? `star-float ${p.duration}s ease-in-out ${p.delay}s infinite alternate`
+                    : undefined,
             }}
           />
         ))}

@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { type Aura, auraRgba } from '../../lib/aura';
+import {usePerfMode} from '../../lib/perf';
 
 export interface FilterOption<T extends string> {
   id: T;
@@ -22,6 +23,8 @@ function FilterRowImpl<T extends string>({
   aura,
   size = 'md',
 }: FilterRowProps<T>) {
+    const perf = usePerfMode();
+    const b = perf.blur(20);
   const padX = size === 'sm' ? 'px-3' : 'px-4';
   const padY = size === 'sm' ? 'h-7' : 'h-8';
   const fontSize = size === 'sm' ? 'text-[10.5px]' : 'text-[11.5px]';
@@ -30,10 +33,10 @@ function FilterRowImpl<T extends string>({
     <div
       className="inline-flex items-center gap-1 p-1 rounded-2xl flex-wrap"
       style={{
-        background: 'rgba(255,255,255,0.03)',
+          background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,27,0.9)',
         border: '0.5px solid rgba(255,255,255,0.06)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
+          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
       }}
     >
       {options.map((opt) => {

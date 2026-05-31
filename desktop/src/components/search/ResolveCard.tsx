@@ -2,6 +2,7 @@ import {AlertCircle, Link2, Loader2} from 'lucide-react';
 import {memo, useEffect, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router-dom';
+import {usePerfMode} from '../../lib/perf';
 import {resolveTrackFromStreaming} from '../../lib/streaming';
 
 interface ResolveCardProps {
@@ -12,6 +13,7 @@ interface ResolveCardProps {
 /* SoundCloud URL short-circuit: resolve the link and redirect to the track. */
 export const ResolveCard = memo(function ResolveCard({url, onDone}: ResolveCardProps) {
     const {t} = useTranslation();
+    const perf = usePerfMode();
     const navigate = useNavigate();
     const [error, setError] = useState(false);
 
@@ -36,15 +38,19 @@ export const ResolveCard = memo(function ResolveCard({url, onDone}: ResolveCardP
         };
     }, [url, navigate, onDone]);
 
+    const b = perf.blur(40);
     return (
         <div className="flex justify-center px-4 pt-16">
             <div
                 className="w-full max-w-[440px] flex flex-col items-center gap-4 p-8 rounded-[2rem] text-center"
                 style={{
-                    background: 'linear-gradient(165deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                    background:
+                        b > 0
+                            ? 'linear-gradient(165deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))'
+                            : 'rgba(18,18,22,0.85)',
                     border: '0.5px solid rgba(255,255,255,0.1)',
-                    backdropFilter: 'blur(40px) saturate(160%)',
-                    WebkitBackdropFilter: 'blur(40px) saturate(160%)',
+                    backdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
+                    WebkitBackdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
                     boxShadow: '0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)',
                     isolation: 'isolate',
                 }}

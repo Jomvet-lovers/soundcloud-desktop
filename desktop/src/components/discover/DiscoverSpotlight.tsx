@@ -5,6 +5,7 @@ import {type Aura, auraRgba, resolveAura} from '../../lib/aura';
 import { type CatalogAlbum, type CatalogArtist, useDiscoverSpotlight } from '../../lib/discover';
 import { dur, fc } from '../../lib/formatters';
 import { Disc3, Headphones, ListMusic, Sparkles, Star } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import {useViewerAura} from '../../lib/useViewerAura';
 import { HorizontalScroll } from '../ui/HorizontalScroll';
 import { Skeleton } from '../ui/Skeleton';
@@ -73,9 +74,11 @@ const AlbumSpotlightCard = memo(function AlbumSpotlightCard({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const perf = usePerfMode();
   const initials = monogramOf(album.title);
   const [g1, g2, g3] = useMemo(() => gradientForId(album.id, 3), [album.id]);
   const kindLabel = t(`artist.kind.${album.type}`, { defaultValue: album.type });
+    const badgeBlur = perf.blur(12);
 
   return (
     <button
@@ -96,14 +99,16 @@ const AlbumSpotlightCard = memo(function AlbumSpotlightCard({
           mixBlendMode: 'overlay',
         }}
       />
-      <div
-        className="absolute -inset-x-20 -bottom-32 h-64 pointer-events-none opacity-70"
-        style={{
-          background: `radial-gradient(60% 50% at 50% 50%, ${g1}, transparent 70%)`,
-          filter: 'blur(40px)',
-          mixBlendMode: 'screen',
-        }}
-      />
+        {perf.bloom && (
+            <div
+                className="absolute -inset-x-20 -bottom-32 h-64 pointer-events-none opacity-70"
+                style={{
+                    background: `radial-gradient(60% 50% at 50% 50%, ${g1}, transparent 70%)`,
+                    filter: `blur(${perf.blur(40)}px)`,
+                    mixBlendMode: 'screen',
+                }}
+            />
+        )}
 
       {album.cover_url ? (
         <img
@@ -132,9 +137,9 @@ const AlbumSpotlightCard = memo(function AlbumSpotlightCard({
         <span
           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-[0.22em] text-white/95"
           style={{
-            background: 'rgba(0,0,0,0.45)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+              background: badgeBlur > 0 ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.66)',
+              backdropFilter: badgeBlur > 0 ? `blur(${badgeBlur}px)` : undefined,
+              WebkitBackdropFilter: badgeBlur > 0 ? `blur(${badgeBlur}px)` : undefined,
             border: '0.5px solid rgba(255,255,255,0.12)',
           }}
         >
@@ -198,6 +203,7 @@ const ArtistSpotlightCard = memo(function ArtistSpotlightCard({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const perf = usePerfMode();
     const viewerAura = useViewerAura();
   const aura = useMemo(
     () =>
@@ -220,23 +226,27 @@ const ArtistSpotlightCard = memo(function ArtistSpotlightCard({
           '0 30px 60px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.10)',
       }}
     >
-      <div
-        className="absolute -inset-x-24 -top-32 h-72 pointer-events-none opacity-80"
-        style={{
-          background: `radial-gradient(55% 55% at 50% 50%, ${auraRgba(aura, 0.65)}, transparent 70%)`,
-          filter: 'blur(48px)',
-          mixBlendMode: 'screen',
-        }}
-      />
-      <div
-        className="absolute inset-x-0 top-0 h-44 pointer-events-none opacity-40"
-        style={{
-          background: `conic-gradient(from 220deg at 50% 0%, ${aura.orbs[0]}, ${aura.orbs[1]}, ${aura.orbs[2]}, ${aura.orbs[0]})`,
-          filter: 'blur(60px)',
-          mixBlendMode: 'screen',
-          animation: 'ring-rotate 30s linear infinite',
-        }}
-      />
+        {perf.bloom && (
+            <div
+                className="absolute -inset-x-24 -top-32 h-72 pointer-events-none opacity-80"
+                style={{
+                    background: `radial-gradient(55% 55% at 50% 50%, ${auraRgba(aura, 0.65)}, transparent 70%)`,
+                    filter: `blur(${perf.blur(48)}px)`,
+                    mixBlendMode: 'screen',
+                }}
+            />
+        )}
+        {perf.bloom && (
+            <div
+                className="absolute inset-x-0 top-0 h-44 pointer-events-none opacity-40"
+                style={{
+                    background: `conic-gradient(from 220deg at 50% 0%, ${aura.orbs[0]}, ${aura.orbs[1]}, ${aura.orbs[2]}, ${aura.orbs[0]})`,
+                    filter: `blur(${perf.blur(60)}px)`,
+                    mixBlendMode: 'screen',
+                    animation: perf.idleAnim ? 'ring-rotate 30s linear infinite' : undefined,
+                }}
+            />
+        )}
 
       <div className="relative flex flex-col items-center pt-10 px-6">
         <div className="relative w-[120px] h-[120px]">
@@ -255,7 +265,7 @@ const ArtistSpotlightCard = memo(function ArtistSpotlightCard({
                 className="absolute -inset-[40%]"
                 style={{
                   background: `conic-gradient(from 0deg, ${aura.orbs[0]}, ${aura.orbs[1]}, ${aura.orbs[2]}, ${aura.orbs[0]})`,
-                  animation: 'ring-rotate 10s linear infinite',
+                    animation: perf.idleAnim ? 'ring-rotate 10s linear infinite' : undefined,
                 }}
               />
             </div>

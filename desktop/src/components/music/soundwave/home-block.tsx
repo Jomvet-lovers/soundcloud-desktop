@@ -10,7 +10,7 @@ import {
   Sparkles,
   Star,
 } from '../../../lib/icons';
-import { isUrnLiked } from '../../../lib/likes';
+import {isUrnLiked, useLiked} from '../../../lib/likes';
 import { useAuthStore } from '../../../stores/auth';
 import type { Track } from '../../../stores/player';
 import { usePlayerStore } from '../../../stores/player';
@@ -86,27 +86,41 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
   const rawClusters = useMemo(() => data?.clusters ?? [], [data]);
   const rawAllTracks = useMemo(() => data?.allTracks ?? [], [data]);
 
+    // Recompute the hide-liked filters when the current track's like state flips
+    // (the primary like target from this surface). Reads stay live via isUrnLiked.
+    const likesVersion = useLiked(currentTrack?.urn ?? '');
+
+    // Stable predicate for the infinite-wave refill (reads live like state at call time).
   const hideLikedFilter = useCallback((tr: Track) => !tr.user_favorite && !isUrnLiked(tr.urn), []);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: likesVersion ticks the live isUrnLiked read.
   const filteredAllTracks = useMemo(() => {
     if (!hideLiked) return rawAllTracks;
-    return rawAllTracks.filter(hideLikedFilter);
-  }, [rawAllTracks, hideLiked, hideLikedFilter]);
+      return rawAllTracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn));
+  }, [rawAllTracks, hideLiked, likesVersion]);
 
+    // biome-ignore lint/correctness/useExhaustiveDependencies: likesVersion ticks the live isUrnLiked read.
   const filteredClusters = useMemo(() => {
     if (!hideLiked) return rawClusters;
     return rawClusters
-      .map((c) => ({
-        ...c,
-        tracks: c.tracks.filter(hideLikedFilter),
-        neighbors: c.neighbors?.filter((n) => {
-          const matchTrack = c.tracks.find((tr) => tr.urn.endsWith(`:${n.track_id}`));
-          if (!matchTrack) return true;
-          return !matchTrack.user_favorite && !isUrnLiked(matchTrack.urn);
-        }),
-      }))
+        .map((c) => {
+            const trackById = new Map<string, Track>();
+            for (const tr of c.tracks) {
+                const id = tr.urn.split(':').pop();
+                if (id) trackById.set(id, tr);
+            }
+            return {
+                ...c,
+                tracks: c.tracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn)),
+                neighbors: c.neighbors?.filter((n) => {
+                    const matchTrack = trackById.get(String(n.track_id));
+                    if (!matchTrack) return true;
+                    return !matchTrack.user_favorite && !isUrnLiked(matchTrack.urn);
+                }),
+            };
+        })
       .filter((c) => c.tracks.length > 0) as ClusterHydrated[];
-  }, [rawClusters, hideLiked, hideLikedFilter]);
+  }, [rawClusters, hideLiked, likesVersion]);
 
   const orderedClusters = useMemo(() => {
     const byId = new Map(filteredClusters.map((c) => [c.id, c]));

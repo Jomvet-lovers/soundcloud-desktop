@@ -21,6 +21,7 @@ import {
   X,
 } from '../lib/icons';
 import { getOfflineLikedTracks, getOfflineTracksByUrns } from '../lib/offline-index';
+import {usePerfMode} from '../lib/perf';
 import { useAppStatusStore } from '../stores/app-status';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
@@ -65,10 +66,18 @@ const OfflineSearchBar = React.memo(function OfflineSearchBar({
   onChange: (v: string) => void;
 }) {
   const { t } = useTranslation();
+    const b = usePerfMode().blur(36);
+    const bf = b > 0 ? `blur(${b}px)` : undefined;
   return (
-    <div className="group relative overflow-hidden rounded-[22px] border border-white/[0.10] bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02)_55%,rgba(255,255,255,0.05))] p-[1px] shadow-[0_18px_50px_rgba(0,0,0,0.30)] backdrop-blur-[36px] transition-colors focus-within:border-white/[0.18]">
+      <div
+          className="group relative overflow-hidden rounded-[22px] border border-white/[0.10] bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02)_55%,rgba(255,255,255,0.05))] p-[1px] shadow-[0_18px_50px_rgba(0,0,0,0.30)] transition-colors focus-within:border-white/[0.18]"
+          style={{backdropFilter: bf, WebkitBackdropFilter: bf}}
+      >
       <div className="pointer-events-none absolute inset-0 rounded-[22px] bg-[radial-gradient(ellipse_at_top_left,rgba(255,255,255,0.14),transparent_55%)]" />
-      <div className="relative flex items-center gap-3 rounded-[21px] bg-black/35 px-4 py-2.5 backdrop-blur-[36px]">
+          <div
+              className="relative flex items-center gap-3 rounded-[21px] bg-black/35 px-4 py-2.5"
+              style={{backdropFilter: bf, WebkitBackdropFilter: bf}}
+          >
         <Search size={15} className="text-white/40" strokeWidth={1.8} />
         <input
           value={value}
@@ -389,6 +398,7 @@ function OfflineSection({
   onRemoveCached?: (urn: string) => void;
 }) {
   const playableQueue = useMemo(() => buildPlayableQueue(items, cachedUrns), [items, cachedUrns]);
+    const b = usePerfMode().blur(32);
   const styles = {
     likes: {
       border: 'border-accent/14',
@@ -406,7 +416,11 @@ function OfflineSection({
 
   return (
     <section
-      className={`relative overflow-hidden rounded-[34px] border ${styles.border} bg-black/24 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-[32px] md:p-6`}
+        className={`relative overflow-hidden rounded-[34px] border ${styles.border} ${b > 0 ? 'bg-black/24' : 'bg-[rgb(14,14,18)]'} p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] md:p-6`}
+        style={{
+            backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+            WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+        }}
     >
       <div className={`pointer-events-none absolute inset-0 ${styles.glow}`} />
 
@@ -466,6 +480,7 @@ function OfflineSection({
 export const OfflinePage = React.memo(() => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const perf = usePerfMode();
   const appMode = useAppStatusStore((s) =>
     s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
@@ -598,19 +613,33 @@ export const OfflinePage = React.memo(() => {
 
   return (
     <div className="relative min-h-full overflow-hidden px-6 py-6 md:px-8 md:py-8">
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{ contain: 'strict', transform: 'translateZ(0)' }}
-      >
-        <div className="absolute left-[-10%] top-[-8%] h-[480px] w-[480px] rounded-full bg-accent/[0.07] blur-[140px]" />
-        <div className="absolute bottom-[-14%] right-[-10%] h-[520px] w-[520px] rounded-full bg-sky-400/[0.05] blur-[160px]" />
-      </div>
+        {perf.atmosphere && (
+            <div
+                className="pointer-events-none absolute inset-0"
+                style={{contain: 'strict', transform: 'translateZ(0)'}}
+            >
+                <div
+                    className="absolute left-[-10%] top-[-8%] h-[480px] w-[480px] rounded-full bg-accent/[0.07]"
+                    style={{filter: `blur(${perf.blur(140)}px)`}}
+                />
+                <div
+                    className="absolute bottom-[-14%] right-[-10%] h-[520px] w-[520px] rounded-full bg-sky-400/[0.05]"
+                    style={{filter: `blur(${perf.blur(160)}px)`}}
+                />
+            </div>
+        )}
 
       <div
         className="relative mx-auto flex w-full max-w-[1180px] flex-col gap-5"
         style={{ isolation: 'isolate' }}
       >
-        <section className="relative overflow-hidden rounded-[38px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-[1px] shadow-[0_24px_80px_rgba(0,0,0,0.28),0_0_1px_rgba(255,255,255,0.1)] backdrop-blur-[40px]">
+          <section
+              className="relative overflow-hidden rounded-[38px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-[1px] shadow-[0_24px_80px_rgba(0,0,0,0.28),0_0_1px_rgba(255,255,255,0.1)]"
+              style={{
+                  backdropFilter: perf.blur(40) > 0 ? `blur(${perf.blur(40)}px)` : undefined,
+                  WebkitBackdropFilter: perf.blur(40) > 0 ? `blur(${perf.blur(40)}px)` : undefined,
+              }}
+          >
           <div className="pointer-events-none absolute inset-0 rounded-[38px] bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.06),transparent_60%)]" />
 
           <div className="relative rounded-[37px] bg-black/25 px-5 py-5 md:px-6 md:py-6">

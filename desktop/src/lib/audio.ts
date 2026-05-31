@@ -42,8 +42,22 @@ let lastEndedUrn: string | null = null;
 const listeners = new Set<() => void>();
 const API_PREVIEW_DURATION_MS = 30_000;
 
+// The 10Hz tick fan-out drives every UI subscriber (progress, waveform clip-path,
+// time readouts). When the window is hidden it's pure waste — the WebView doesn't
+// throttle us, and MediaSession/Discord presence run off Rust events, not this.
+// cachedTime/cachedDuration keep updating; we just skip the DOM-touching fan-out.
 function notify() {
-  for (const l of listeners) l();
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    for (const l of listeners) l();
+}
+
+// Re-sync subscribers the moment the window comes back, so nothing shows a stale frame.
+if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            for (const l of listeners) l();
+        }
+    });
 }
 
 export function subscribe(listener: () => void): () => void {

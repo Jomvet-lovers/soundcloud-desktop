@@ -5,6 +5,7 @@ import {auraRgba, resolveAura} from '../../lib/aura';
 import type { CatalogArtist } from '../../lib/discover';
 import { fc } from '../../lib/formatters';
 import { Check, Disc3, Globe, Headphones, MicVocal, Star } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import {useViewerAura} from '../../lib/useViewerAura';
 import { gradientForId, monogramOf } from './visuals';
 
@@ -15,6 +16,7 @@ interface ArtistGridCardProps {
 function ArtistGridCardImpl({ artist }: ArtistGridCardProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const perf = usePerfMode();
     const viewerAura = useViewerAura();
   const aura = useMemo(
     () =>
@@ -26,6 +28,7 @@ function ArtistGridCardImpl({ artist }: ArtistGridCardProps) {
   const initials = monogramOf(artist.name);
   const [g1, g2, g3] = useMemo(() => gradientForId(artist.id), [artist.id]);
   const verified = artist.confidence >= 0.7;
+    const cardBlur = perf.blur(20);
 
   return (
     <button
@@ -33,20 +36,24 @@ function ArtistGridCardImpl({ artist }: ArtistGridCardProps) {
       onClick={() => navigate(`/artist/${encodeURIComponent(artist.id)}`)}
       className="group relative h-full w-full flex flex-col items-center gap-3 p-5 rounded-3xl cursor-pointer transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] hover:scale-[1.03] overflow-hidden"
       style={{
-        background: 'rgba(255,255,255,0.03)',
+          background: cardBlur > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,27,0.92)',
         border: '0.5px solid rgba(255,255,255,0.06)',
-        backdropFilter: 'blur(20px) saturate(140%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(140%)',
+          backdropFilter: cardBlur > 0 ? `blur(${cardBlur}px) saturate(140%)` : undefined,
+          WebkitBackdropFilter: cardBlur > 0 ? `blur(${cardBlur}px) saturate(140%)` : undefined,
       }}
     >
-      <div
-        className="absolute -inset-x-12 -top-20 h-44 pointer-events-none opacity-30 group-hover:opacity-90 transition-opacity duration-700"
-        style={{
-          background: `radial-gradient(60% 60% at 50% 50%, ${auraRgba(aura, 0.55)}, transparent 70%)`,
-          filter: 'blur(50px)',
-          mixBlendMode: 'screen',
-        }}
-      />
+        {perf.bloom && (
+            <div
+                className={`absolute -inset-x-12 -top-20 h-44 pointer-events-none group-hover:opacity-90 transition-opacity duration-700 ${
+                    perf.mode === 'beauty' ? 'opacity-30' : 'opacity-0'
+                }`}
+                style={{
+                    background: `radial-gradient(60% 60% at 50% 50%, ${auraRgba(aura, 0.55)}, transparent 70%)`,
+                    filter: `blur(${perf.blur(50)}px)`,
+                    mixBlendMode: 'screen',
+                }}
+            />
+        )}
 
       <div className="relative w-[96px] h-[96px]">
         {artist.star && (
@@ -64,7 +71,7 @@ function ArtistGridCardImpl({ artist }: ArtistGridCardProps) {
               className="absolute -inset-[40%]"
               style={{
                 background: `conic-gradient(from 0deg, ${aura.orbs[0]}, ${aura.orbs[1]}, ${aura.orbs[2]}, ${aura.orbs[0]})`,
-                animation: 'ring-rotate 12s linear infinite',
+                  animation: perf.idleAnim ? 'ring-rotate 12s linear infinite' : undefined,
               }}
             />
           </div>

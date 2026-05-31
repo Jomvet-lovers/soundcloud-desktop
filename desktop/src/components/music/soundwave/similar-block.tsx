@@ -44,7 +44,7 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
     url: trackId ? `/recommendations/similar/${encodeURIComponent(trackId)}` : null,
   });
 
-  const clusters = data?.clusters ?? [];
+    const clusters = useMemo(() => data?.clusters ?? [], [data]);
   const allTracks = useMemo(() => data?.allTracks ?? [], [data]);
 
   const orderedClusters = useMemo(() => {

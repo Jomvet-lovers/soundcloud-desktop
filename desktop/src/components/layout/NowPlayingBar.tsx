@@ -30,6 +30,7 @@ import {
   volumeXIcon16,
 } from '../../lib/icons';
 import { optimisticToggleLike } from '../../lib/likes';
+import {usePerfMode} from '../../lib/perf';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { useLyricsStore } from '../../stores/lyrics';
 import {
@@ -445,11 +446,17 @@ function useTrackReactions(trackUrn: string) {
   return trackData;
 }
 
-function LikeButton({ trackUrn }: { trackUrn: string }) {
+function LikeButton({
+                        trackUrn,
+                        trackData,
+                        disliked,
+                    }: {
+    trackUrn: string;
+    trackData: Track | undefined;
+    disliked: boolean;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const trackData = useTrackReactions(trackUrn);
-  const disliked = useDislikeStatus(trackUrn);
 
   const [liked, setLiked] = useState<boolean | null>(null);
   const prevUrn = useRef(trackUrn);
@@ -497,11 +504,17 @@ function LikeButton({ trackUrn }: { trackUrn: string }) {
   );
 }
 
-export function NowBarDislikeButton({ trackUrn }: { trackUrn: string }) {
+export function NowBarDislikeButton({
+                                        trackUrn,
+                                        trackData,
+                                        disliked,
+                                    }: {
+    trackUrn: string;
+    trackData: Track | undefined;
+    disliked: boolean;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const trackData = useTrackReactions(trackUrn);
-  const disliked = useDislikeStatus(trackUrn);
 
   const toggle = async () => {
     if (!trackData) return;
@@ -964,10 +977,17 @@ const PillTrackBody = React.memo(function PillTrackBody({
 const ReactCluster = React.memo(() => {
     const urn = usePlayerStore((s) => s.currentTrack?.urn);
     if (!urn) return null;
+    return <ReactClusterBody urn={urn}/>;
+});
+
+// Single track-query + dislike observer shared by both reaction buttons.
+const ReactClusterBody = React.memo(({urn}: { urn: string }) => {
+    const trackData = useTrackReactions(urn);
+    const disliked = useDislikeStatus(urn);
     return (
         <div className="flex items-center gap-0.5">
-            <LikeButton trackUrn={urn}/>
-            <NowBarDislikeButton trackUrn={urn}/>
+            <LikeButton trackUrn={urn} trackData={trackData} disliked={disliked}/>
+            <NowBarDislikeButton trackUrn={urn} trackData={trackData} disliked={disliked}/>
       <PlaybackQualityBadge />
     </div>
   );
@@ -1002,10 +1022,11 @@ function useDocHidden(): boolean {
 /* ── Background glow ─────────────────────────────────────────── */
 
 const BackgroundGlow = React.memo(() => {
+    const perf = usePerfMode();
   const artworkUrl = usePlayerStore((s) => s.currentTrack?.artwork_url);
   const artwork = art(artworkUrl, 't200x200');
 
-  if (!artwork) return null;
+    if (!perf.bloom || !artwork) return null;
   return (
     <div
       className="absolute inset-0 opacity-[0.05] blur-3xl pointer-events-none"

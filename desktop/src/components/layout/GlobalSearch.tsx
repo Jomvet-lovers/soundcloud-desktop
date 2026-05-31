@@ -2,6 +2,7 @@ import {memo, useEffect, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useLocation, useNavigate} from 'react-router-dom';
 import {Clock, Search as SearchIcon, X} from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import {isMac} from '../../lib/platform';
 import {useSearchHistoryStore} from '../../stores/searchHistory';
 import {useSearchQueryStore} from '../../stores/searchQuery';
@@ -20,6 +21,10 @@ export const GlobalSearch = memo(function GlobalSearch() {
     const history = useSearchHistoryStore((s) => s.queries);
     const removeQuery = useSearchHistoryStore((s) => s.removeQuery);
     const clearHistory = useSearchHistoryStore((s) => s.clearHistory);
+
+    const perf = usePerfMode();
+    const fieldBlur = perf.blur(24);
+    const dropBlur = perf.blur(32);
 
     const [focused, setFocused] = useState(false);
     const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -51,10 +56,12 @@ export const GlobalSearch = memo(function GlobalSearch() {
                 className="relative flex items-center gap-2.5 h-11 pl-4 pr-2 rounded-full overflow-hidden"
                 style={{
                     background:
-                        'linear-gradient(165deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.025) 60%, rgba(255,255,255,0.045) 100%)',
+                        fieldBlur > 0
+                            ? 'linear-gradient(165deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.025) 60%, rgba(255,255,255,0.045) 100%)'
+                            : 'rgba(28,28,34,0.9)',
                     border: `0.5px solid ${focused ? 'var(--color-accent)' : 'rgba(255,255,255,0.12)'}`,
-                    backdropFilter: 'blur(24px) saturate(160%)',
-                    WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+                    backdropFilter: fieldBlur > 0 ? `blur(${fieldBlur}px) saturate(160%)` : undefined,
+                    WebkitBackdropFilter: fieldBlur > 0 ? `blur(${fieldBlur}px) saturate(160%)` : undefined,
                     boxShadow: focused
                         ? '0 10px 34px rgba(0,0,0,0.4), 0 0 22px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.1)'
                         : '0 6px 20px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.07)',
@@ -125,10 +132,10 @@ export const GlobalSearch = memo(function GlobalSearch() {
                 <div
                     className="absolute left-0 right-0 mt-2 p-1.5 rounded-2xl overflow-hidden"
                     style={{
-                        background: 'rgba(16,16,20,0.78)',
+                        background: dropBlur > 0 ? 'rgba(16,16,20,0.78)' : 'rgba(16,16,20,0.96)',
                         border: '0.5px solid rgba(255,255,255,0.1)',
-                        backdropFilter: 'blur(32px) saturate(150%)',
-                        WebkitBackdropFilter: 'blur(32px) saturate(150%)',
+                        backdropFilter: dropBlur > 0 ? `blur(${dropBlur}px) saturate(150%)` : undefined,
+                        WebkitBackdropFilter: dropBlur > 0 ? `blur(${dropBlur}px) saturate(150%)` : undefined,
                         boxShadow: '0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)',
                     }}
                 >

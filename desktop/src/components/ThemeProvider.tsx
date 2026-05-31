@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import {setupVisibilityGate} from '../lib/perf';
 import { useSettingsStore } from '../stores/settings';
 
 function hexToRgb(hex: string): string {
@@ -12,6 +13,18 @@ function hexToRgb(hex: string): string {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const accentColor = useSettingsStore((s) => s.accentColor);
   const bgPrimary = useSettingsStore((s) => s.bgPrimary);
+  const perfMode = useSettingsStore((s) => s.perfMode);
+
+  // One global gate that pauses every CSS animation while the window is hidden
+  // (the WebView does not throttle timers/rAF). Install once.
+  useEffect(() => {
+    setupVisibilityGate();
+  }, []);
+
+  // Drives index.css `[data-perf="…"]` rules (glass blur radii, idle-animation gates).
+  useEffect(() => {
+    document.documentElement.dataset.perf = perfMode;
+  }, [perfMode]);
 
   useEffect(() => {
     const root = document.documentElement;

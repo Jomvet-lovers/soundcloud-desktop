@@ -1,7 +1,8 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles } from '../../lib/icons';
 import { AURAS, type Aura } from '../../lib/aura';
+import {Sparkles} from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 
 interface AuraPickerProps {
   aura: Aura;
@@ -12,14 +13,15 @@ interface AuraPickerProps {
 
 function AuraPickerImpl({ aura, onPickAura, customHex, onPickCustom }: AuraPickerProps) {
   const { t } = useTranslation();
+    const b = usePerfMode().blur(20);
   return (
     <div
       className="flex items-center gap-2 p-1.5 rounded-2xl"
       style={{
-        background: 'rgba(255,255,255,0.04)',
+          background: b > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(28,28,32,0.85)',
         border: '0.5px solid rgba(255,255,255,0.08)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
+          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
       }}
     >
       <span className="px-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 flex items-center gap-1.5">

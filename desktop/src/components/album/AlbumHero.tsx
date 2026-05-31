@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { dur } from '../../lib/formatters';
 import { Calendar, Check, Disc3, ListMusic, MicVocal } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { Avatar } from '../ui/Avatar';
 import { GlassHeroPanel } from '../ui/GlassHeroPanel';
 import { InfoChip } from '../user/UserChips';
@@ -39,6 +40,7 @@ const ArtistChip = memo(function ArtistChip({
 }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
+    const b = usePerfMode().blur(16);
   const isPrimary = role === 'primary';
   const subLabel = ROLE_LABEL_KEY[role] ? t(ROLE_LABEL_KEY[role]) : role;
   return (
@@ -49,12 +51,14 @@ const ArtistChip = memo(function ArtistChip({
       style={{
         background: isPrimary
           ? `linear-gradient(135deg, ${auraRgba(aura, 0.18)}, ${auraRgba(aura, 0.04)})`
-          : 'rgba(255,255,255,0.04)',
+            : b > 0
+                ? 'rgba(255,255,255,0.04)'
+                : 'rgba(28,28,32,0.85)',
         boxShadow: isPrimary
           ? `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`
           : 'inset 0 0 0 1px rgba(255,255,255,0.08)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
+          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
       }}
     >
       <span className="relative w-7 h-7 rounded-full overflow-hidden ring-1 ring-white/15">
@@ -74,6 +78,7 @@ const ArtistChip = memo(function ArtistChip({
 
 function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
   const { t } = useTranslation();
+    const perf = usePerfMode();
   const kind = (album.type ?? 'album').toLowerCase();
   const kindLabel = t(`artist.kind.${kind}`, { defaultValue: kind });
 
@@ -91,23 +96,28 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
 
   return (
     <GlassHeroPanel hasStar={hasStar} aura={aura}>
-      {album.cover_url && (
-        <div
-          className="absolute -top-10 left-6 md:left-10 w-[220px] h-[220px] md:w-[280px] md:h-[280px] pointer-events-none rounded-[3rem] overflow-hidden opacity-50"
-          style={{
-            filter: 'blur(50px)',
-            transform: 'translateZ(0)',
-            contain: 'strict',
-          }}
-        >
-          <img
-            src={album.cover_url}
-            alt=""
-            className="w-full h-full object-cover scale-150"
-            decoding="async"
-          />
-        </div>
-      )}
+        {album.cover_url &&
+            perf.bloom &&
+            (() => {
+                const hb = perf.blur(50);
+                return (
+                    <div
+                        className="absolute -top-10 left-6 md:left-10 w-[220px] h-[220px] md:w-[280px] md:h-[280px] pointer-events-none rounded-[3rem] overflow-hidden opacity-50"
+                        style={{
+                            filter: `blur(${hb}px)`,
+                            transform: 'translateZ(0)',
+                            contain: 'strict',
+                        }}
+                    >
+                        <img
+                            src={album.cover_url}
+                            alt=""
+                            className="w-full h-full object-cover scale-150"
+                            decoding="async"
+                        />
+                    </div>
+                );
+            })()}
 
       <div className="relative p-6 md:p-10 flex flex-col lg:flex-row gap-8 lg:gap-12 items-center lg:items-start">
         <AlbumCoverArtifact
@@ -124,13 +134,15 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
               style={{
                 background: hasStar
                   ? `linear-gradient(135deg, ${auraRgba(aura, 0.25)}, ${auraRgba(aura, 0.08)})`
-                  : 'rgba(255,255,255,0.05)',
+                    : perf.blur(12) > 0
+                        ? 'rgba(255,255,255,0.05)'
+                        : 'rgba(28,28,32,0.85)',
                 color: hasStar ? '#fff' : 'rgba(255,255,255,0.7)',
                 boxShadow: hasStar
                   ? `inset 0 0 0 1px ${auraRgba(aura, 0.4)}`
                   : 'inset 0 0 0 1px rgba(255,255,255,0.08)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
+                  backdropFilter: perf.blur(12) > 0 ? `blur(${perf.blur(12)}px)` : undefined,
+                  WebkitBackdropFilter: perf.blur(12) > 0 ? `blur(${perf.blur(12)}px)` : undefined,
               }}
             >
               <Disc3 size={11} /> {kindLabel}
@@ -158,7 +170,7 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     backgroundClip: 'text',
-                    animation: 'prismatic-shift 6s linear infinite',
+                      animation: perf.idleAnim ? 'prismatic-shift 6s linear infinite' : undefined,
                     filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))',
                   }
                 : { color: '#fff', textShadow: '0 8px 24px rgba(0,0,0,0.5)' }

@@ -1,4 +1,5 @@
 import {memo} from 'react';
+import {usePerfMode} from '../../lib/perf';
 
 interface EmptyStateProps {
     icon: React.ReactNode;
@@ -20,15 +21,20 @@ export const EmptyState = memo(function EmptyState({
                                                        ctaIcon,
                                                        onAction,
                                                    }: EmptyStateProps) {
+    const perf = usePerfMode();
+    const b = perf.blur(40);
     return (
         <div className="flex justify-center px-4 pt-14">
             <div
                 className="w-full max-w-[460px] flex flex-col items-center gap-5 p-10 rounded-[2.25rem] text-center"
                 style={{
-                    background: 'linear-gradient(165deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                    background:
+                        b > 0
+                            ? 'linear-gradient(165deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))'
+                            : 'rgba(18,18,22,0.85)',
                     border: '0.5px solid rgba(255,255,255,0.1)',
-                    backdropFilter: 'blur(40px) saturate(160%)',
-                    WebkitBackdropFilter: 'blur(40px) saturate(160%)',
+                    backdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
+                    WebkitBackdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
                     boxShadow: '0 30px 80px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)',
                     isolation: 'isolate',
                 }}

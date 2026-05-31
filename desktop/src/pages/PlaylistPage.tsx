@@ -55,6 +55,7 @@ import {
   Trash2,
   X,
 } from '../lib/icons';
+import {usePerfMode} from '../lib/perf';
 import { useAutoHide } from '../lib/useAutoHide';
 import { useTrackPlay } from '../lib/useTrackPlay';
 import { useAuthStore } from '../stores/auth';
@@ -386,6 +387,7 @@ export const PlaylistPage = React.memo(() => {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
+    const perf = usePerfMode();
   const myUrn = useAuthStore((s) => s.user?.urn);
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
   const {
@@ -550,16 +552,24 @@ export const PlaylistPage = React.memo(() => {
     <div className="p-6 pb-4 space-y-7 animate-fade-in-up">
       {/* ── Hero ─────────────────────────────────────── */}
       <section className="relative rounded-3xl overflow-hidden glass-featured">
-        {cover && (
-          <div className="absolute inset-0 pointer-events-none">
-            <img
-              src={cover}
-              alt=""
-              className="w-full h-full object-cover scale-[1.5] blur-[100px] opacity-25 saturate-150"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/80 via-[rgb(8,8,10)]/60 to-[rgb(8,8,10)]/80" />
-          </div>
-        )}
+          {cover &&
+              (() => {
+                  const hb = perf.blur(100);
+                  return (
+                      <div className="absolute inset-0 pointer-events-none">
+                          {hb > 0 && (
+                              <img
+                                  src={cover}
+                                  alt=""
+                                  className="w-full h-full object-cover scale-[1.5] opacity-25"
+                                  style={{filter: `blur(${hb}px) saturate(1.5)`}}
+                              />
+                          )}
+                          <div
+                              className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/80 via-[rgb(8,8,10)]/60 to-[rgb(8,8,10)]/80"/>
+                      </div>
+                  );
+              })()}
 
         <div className="relative flex items-center gap-7 p-7">
           {/* Artwork */}

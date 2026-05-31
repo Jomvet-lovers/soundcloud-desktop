@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgb, auraRgba } from '../../lib/aura';
 import { Globe, Users } from '../../lib/icons';
+import {usePerfMode} from '../../lib/perf';
 import { Avatar } from '../ui/Avatar';
 import type { RelatedArtist } from './types';
 
@@ -45,26 +46,30 @@ const RelatedCard = memo(
   ({ item, aura, maxWeight }: { item: RelatedArtist; aura: Aura; maxWeight: number }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
+      const perf = usePerfMode();
     const pct = Math.max(0.08, Math.min(1, item.weight / maxWeight));
+      const cb = perf.blur(20);
     return (
       <button
         type="button"
         onClick={() => navigate(`/artist/${encodeURIComponent(item.id)}`)}
         className="group relative flex flex-col items-center gap-3 p-5 rounded-3xl cursor-pointer transition-all duration-500 overflow-hidden hover:scale-[1.03]"
         style={{
-          background: 'rgba(255,255,255,0.03)',
+            background: cb > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
           border: '0.5px solid rgba(255,255,255,0.06)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+            backdropFilter: cb > 0 ? `blur(${cb}px)` : undefined,
+            WebkitBackdropFilter: cb > 0 ? `blur(${cb}px)` : undefined,
         }}
       >
-        <div
-          className="absolute -inset-x-12 -top-20 h-44 pointer-events-none opacity-50 group-hover:opacity-90 transition-opacity duration-700"
-          style={{
-            background: `radial-gradient(60% 60% at 50% 50%, ${auraRgba(aura, 0.4)}, transparent 70%)`,
-            filter: 'blur(40px)',
-          }}
-        />
+          {perf.bloom && (
+              <div
+                  className="absolute -inset-x-12 -top-20 h-44 pointer-events-none opacity-50 group-hover:opacity-90 transition-opacity duration-700"
+                  style={{
+                      background: `radial-gradient(60% 60% at 50% 50%, ${auraRgba(aura, 0.4)}, transparent 70%)`,
+                      filter: 'blur(40px)',
+                  }}
+              />
+          )}
         <div
           className="relative w-20 h-20 rounded-full overflow-hidden ring-2 ring-white/10 group-hover:ring-white/30 transition-all duration-500"
           style={{ boxShadow: `0 12px 30px ${auraRgba(aura, 0.25)}` }}

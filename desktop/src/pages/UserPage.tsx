@@ -18,6 +18,7 @@ import {
 import { useEditableUserAura, useUserAura } from '../components/user/useUserAura';
 import { useUser, useUserSubscription, useUserWebProfiles } from '../lib/hooks';
 import { Loader2 } from '../lib/icons';
+import {usePerfMode} from '../lib/perf';
 import { useSubscription } from '../lib/subscription';
 import { useAuthStore } from '../stores/auth';
 
@@ -38,6 +39,7 @@ function searchableScopeLabelKey(tab: TabId): string {
 export function UserPage() {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
+    const perf = usePerfMode();
   const currentUser = useAuthStore((s) => s.user);
 
   const [activeTab, setActiveTab] = useState<TabId>('popular');
@@ -132,9 +134,13 @@ export function UserPage() {
             className="rounded-[2rem] p-3 md:p-5"
             style={{
               background:
-                'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)',
-              backdropFilter: 'blur(28px) saturate(160%)',
-              WebkitBackdropFilter: 'blur(28px) saturate(160%)',
+                  perf.blur(28) > 0
+                      ? 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)'
+                      : 'rgba(18,18,22,0.85)',
+                backdropFilter:
+                    perf.blur(28) > 0 ? `blur(${perf.blur(28)}px) saturate(160%)` : undefined,
+                WebkitBackdropFilter:
+                    perf.blur(28) > 0 ? `blur(${perf.blur(28)}px) saturate(160%)` : undefined,
               boxShadow:
                 '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
             }}
