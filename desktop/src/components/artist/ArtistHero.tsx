@@ -1,15 +1,15 @@
-import { memo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { type Aura, auraRgba } from '../../lib/aura';
-import { Check, ChevronDown, Globe, ListMusic, MicVocal, Music, Users } from '../../lib/icons';
+import {memo, useState} from 'react';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
+import {type Aura, auraRgba} from '../../lib/aura';
+import {Check, ChevronDown, Globe, ListMusic, MicVocal, Music, Users} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import { GlassHeroPanel } from '../ui/GlassHeroPanel';
-import { AvatarArtifact } from '../user/AvatarArtifact';
-import { StatOrb } from '../user/StatOrb';
-import { InfoChip, VerifiedBadge } from '../user/UserChips';
-import { SocialIcon, socialLabel } from './socials';
-import type { ArtistDetail } from './types';
+import {GlassHeroPanel} from '../ui/GlassHeroPanel';
+import {AvatarArtifact} from '../user/AvatarArtifact';
+import {StatOrb} from '../user/StatOrb';
+import {InfoChip, VerifiedBadge} from '../user/UserChips';
+import {SocialIcon, socialLabel} from './socials';
+import type {ArtistDetail} from './types';
 
 interface ArtistHeroProps {
   artist: ArtistDetail;
@@ -124,7 +124,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
               className="group text-left cursor-pointer"
             >
               <p
-                className={`text-[14px] md:text-[15px] text-white/65 leading-relaxed max-w-2xl transition-all duration-700 ${
+                  className={`selectable text-[14px] md:text-[15px] text-white/65 leading-relaxed max-w-2xl transition-all duration-700 ${
                   bioExpanded ? '' : 'line-clamp-2'
                 }`}
               >

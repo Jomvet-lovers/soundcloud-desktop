@@ -1,11 +1,11 @@
-import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { type Aura, auraRgba } from '../../lib/aura';
-import { Check, Globe, MicVocal } from '../../lib/icons';
+import {memo} from 'react';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
+import {type Aura, auraRgba} from '../../lib/aura';
+import {Check, Globe, MicVocal} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import { SocialIcon, socialLabel } from './socials';
-import type { ArtistDetail } from './types';
+import {SocialIcon, socialLabel} from './socials';
+import type {ArtistDetail} from './types';
 
 interface ArtistAboutTabProps {
   artist: ArtistDetail;
@@ -36,7 +36,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
           <MicVocal size={11} /> {t('artist.aboutTitle')}
         </h3>
         {artist.bio ? (
-          <p className="text-[15px] text-white/75 leading-relaxed whitespace-pre-line">
+            <p className="text-[15px] text-white/75 leading-relaxed whitespace-pre-line selectable">
             {artist.bio}
           </p>
         ) : (

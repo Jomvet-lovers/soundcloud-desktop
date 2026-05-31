@@ -205,6 +205,83 @@ desktop/
 **Всегда** использовать эти переменные. НЕ хардкодить `#ff5500` или `rgba(255,85,0,...)`. Нужна другая прозрачность —
 добавить новую переменную в `ThemeProvider` и `:root` в `index.css`.
 
+## Режимы производительности (perf modes)
+
+Дизайн намеренно тяжёлый (backdrop-filter, частицы, aurora-орбы, per-char караоке). Чтобы он масштабировался под слабое
+железо, есть единый рубильник `perfMode: 'light' | 'medium' | 'beauty'` (`stores/settings.ts`, дефолт **beauty**, экран
+в Настройки → Производительность). **`beauty` обязан быть байт-в-байт как без режимов** — это продакшен-дизайн, его не
+трогаем.
+
+**Как устроено:**
+
+- `ThemeProvider` пишет `html[data-perf]`; `lib/perf.ts` отдаёт хук `usePerfMode()` → профиль (стабильный объект на
+  режим):
+  - `blur(px)` — масштабирует радиус блюра. beauty→px, medium→~½, light→**0**.
+  - `particles(n)` — масштабирует число декоративных элементов. beauty→n, medium→~45%, light→**0**.
+  - `idleAnim` — крутить ли idle-анимации (дрейфы, твинклы, спины, маркизы). light→`false`.
+  - `atmosphere` — монтировать ли атмосферу страницы (орбы, звёздные поля, ambient-слои). light→`false`.
+  - `glow` — per-element `drop-shadow`/`box-shadow` свечения на частицах. medium/light→`false`.
+  - `bloom` — монтировать ли тяжёлые фоновые блумы (`AmbientGlow`, per-card гало). light→`false`.
+- Вне React: `getPerfProfile(useSettingsStore.getState().perfMode)`.
+- **Глобальный visibility-gate**: один слушатель в `lib/perf.ts` (`setupVisibilityGate`) ставит `html[data-app-hidden]`,
+  а `index.css` паузит ВСЕ анимации при свёрнутом окне (WebView не throttle'ит). `lib/audio.ts notify()` тоже
+  early-return при hidden. **Не изобретать поштучную visibility-паузу в компонентах** — она уже глобальная.
+
+**Гибрид — где что гейтить:**
+
+- **CSS-классовые эффекты** (`.glass`/`.glass-featured`/`.npb-glass`, кейфреймы в `index.css`) — гейтятся в `index.css`
+  через `[data-perf="…"]`: радиусы на `var(--glass-blur | --glass-blur-strong | --glass-blur-soft)`, light = solid-tint
+  своп. Добавляешь новый glass-класс — вешай радиус на `var(--glass-blur)` и добавь его в light-блок.
+- **Инлайновые эффекты** (`style={{ backdropFilter, filter, animation }}`, число частиц, целые декоративные
+  поддеревья) — гейтятся в компоненте через `usePerfMode()`. Инлайн-стиль CSS-классом не перебить, только JS.
+
+**Паттерны** (правило: выражай эффект ЧЕРЕЗ API — тогда в beauty `blur()`/`particles()` вернут оригинал, булевы =
+`true`,
+и beauty сходится к исходнику сам; НИКОГДА не хардкодить уменьшенную константу):
+
+```tsx
+const perf = usePerfMode();
+const b = perf.blur(40);
+// blur → 0 в light: дропни backdrop-filter и подставь solid-tint (тёмный фрост сохраняется плоским)
+style = {
+{
+  backdropFilter: b ? `blur(${b}px) saturate(160%)` : undefined,
+          WebkitBackdropFilter
+:
+  b ? `blur(${b}px) saturate(160%)` : undefined,
+          background
+:
+  b ? '<оригинальный bg>' : 'rgba(20,20,24,0.85)',
+}
+}
+// частицы:        SEEDS.slice(0, perf.particles(SEEDS.length))   // 0 → не рендерить
+// атмосфера/блум: {perf.atmosphere && <AuraField/>}  /  {perf.bloom && <Glow/>}
+// idle-анимация:  animation: perf.idleAnim ? 'drift 8s infinite' : undefined   // hover-анимации НЕ трогать
+// glow:           boxShadow: perf.glow ? '0 0 6px var(--color-accent-glow)' : undefined
+```
+
+- **`scale` на blur запрещён** (пересчёт гаусса каждый кадр, см. коммент `sw-aurora` в `index.css`). Если дизайн требует
+  «дыхание» орба в beauty — ДВА кейфрейма: `orb-drift` (со `scale`) для beauty, `orb-drift-lite` (только `translate3d`)
+  для medium; компонент выбирает по `perf.mode === 'beauty'`. Образец — `AuraField` / `search/Atmosphere`.
+- `settings.glassBlur` — **мёртвый**, не использовать; блюр гонит только `perfMode`.
+
+## Как верстать экран
+
+1. **Дизайн — через skill.** Любой новый экран / редизайн / нетривиальный компонент верстать с подключённым skill
+   **`frontend-design`** — он даёт отличительный, не «AI-generic» вид. Без него выходит шаблонно. (Концепт-метафора
+   важнее раскладки — не рескин.)
+2. **Атмосферный фон** — `fixed inset-0` + `contain:strict` + `translateZ(0)`, контент `relative z-10` +
+   `isolation:isolate` (см. `AuraField` / `search/Atmosphere`). Монтаж гейтить на `perf.atmosphere`.
+3. Каждый инлайновый `backdrop-filter`/`filter:blur` — через `perf.blur()` + solid-tint своп на 0.
+4. Любое декоративное поле частиц/звёзд — счётчик через `perf.particles()`, свечения под `perf.glow`, анимации под
+   `perf.idleAnim`.
+5. Большие наборы — только `VirtualList`/`VirtualGrid`; горизонтальные ленты — кап/виртуализация, не «пусть висит».
+6. Проверить во ВСЕХ трёх режимах: beauty = как задумано, light = плоско/быстро но узнаваемо, medium = посередине.
+7. **Выделение текста.** Весь UI по умолчанию `user-select:none` (`body` в `index.css`) — это нативный десктоп-фил,
+   нельзя выделить случайный div. Копируемый ТЕКСТ-КОНТЕНТ (описания, био, тела комментов, markdown/новости) опт-инить
+   классом `selectable` (наследуется детям); инпуты/`[contenteditable]` уже selectable глобально. Хром — заголовки,
+   имена, числа, длительности, бейджи, лейблы, лирику (click-to-seek) — НЕ опт-инить.
+
 ## Производительность CSS (КРИТИЧНО)
 
 Это десктоп на WebView (WebKitGTK / WebView2), не браузер. WebView НЕ throttle'ит таймеры/rAF при сворачивании. Каждый

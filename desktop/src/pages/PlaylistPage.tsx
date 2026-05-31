@@ -7,23 +7,23 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import {SortableContext, useSortable, verticalListSortingStrategy} from '@dnd-kit/sortable';
+import {CSS} from '@dnd-kit/utilities';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
-import { toast } from 'sonner';
-import { useShallow } from 'zustand/shallow';
-import { LikeButton } from '../components/music/LikeButton';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {useTranslation} from 'react-i18next';
+import {useNavigate, useParams} from 'react-router-dom';
+import {toast} from 'sonner';
+import {useShallow} from 'zustand/shallow';
+import {LikeButton} from '../components/music/LikeButton';
 import {SharingToggle} from '../components/music/SharingToggle';
 import {sameScdMeta, TrackStatusBadges} from '../components/music/TrackStatusBadges';
-import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
-import { VirtualList } from '../components/ui/VirtualList';
-import { api } from '../lib/api';
-import { preloadTrack } from '../lib/audio';
-import { art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import {TrackTitleArtist} from '../components/music/TrackTitleArtist';
+import {VirtualList} from '../components/ui/VirtualList';
+import {api} from '../lib/api';
+import {preloadTrack} from '../lib/audio';
+import {art, dateFormatted, dur, durLong, fc} from '../lib/formatters';
 import {
   useDeletePlaylist,
   useInfiniteScroll,
@@ -37,8 +37,8 @@ import {
   Check,
   Clock,
   GripVertical,
-  Heart,
   headphones9,
+  Heart,
   heart9,
   LinkIcon,
   ListMusic,
@@ -56,11 +56,11 @@ import {
   X,
 } from '../lib/icons';
 import {usePerfMode} from '../lib/perf';
-import { useAutoHide } from '../lib/useAutoHide';
-import { useTrackPlay } from '../lib/useTrackPlay';
-import { useAuthStore } from '../stores/auth';
-import { type Track, usePlayerStore } from '../stores/player';
-import { useSettingsStore } from '../stores/settings';
+import {useAutoHide} from '../lib/useAutoHide';
+import {useTrackPlay} from '../lib/useTrackPlay';
+import {useAuthStore} from '../stores/auth';
+import {type Track, usePlayerStore} from '../stores/player';
+import {useSettingsStore} from '../stores/settings';
 
 /* ── Playlist Like chip (compact icon+count) ─────────────── */
 
@@ -741,7 +741,7 @@ export const PlaylistPage = React.memo(() => {
       {/* ── Description ──────────────────────────────── */}
       {playlist.description && (
         <section className="glass rounded-2xl p-5">
-          <p className="text-[13px] text-white/45 leading-relaxed whitespace-pre-wrap break-words">
+            <p className="selectable text-[13px] text-white/45 leading-relaxed whitespace-pre-wrap break-words">
             {playlist.description}
           </p>
         </section>

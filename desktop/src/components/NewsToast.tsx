@@ -1,10 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, { useCallback, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { proxiedAssetUrl } from '../lib/asset-url';
-import { NEWS, type NewsItem, SHOW_NEWS } from '../lib/constants';
-import { X } from '../lib/icons';
-import { useNewsStore } from '../stores/news';
+import React, {useCallback, useMemo, useState} from 'react';
+import {useTranslation} from 'react-i18next';
+import {proxiedAssetUrl} from '../lib/asset-url';
+import {NEWS, type NewsItem, SHOW_NEWS} from '../lib/constants';
+import {X} from '../lib/icons';
+import {useNewsStore} from '../stores/news';
 
 // ─── Toast Card (bottom-left) ──────────────────────────────
 
@@ -145,7 +145,7 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
 
           {/* Body */}
           <div className="px-5 pb-4">
-            <p className="text-[13px] leading-relaxed text-white/60 whitespace-pre-line">
+              <p className="selectable text-[13px] leading-relaxed text-white/60 whitespace-pre-line">
               {t(item.bodyKey)}
             </p>
           </div>

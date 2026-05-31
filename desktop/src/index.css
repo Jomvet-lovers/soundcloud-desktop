@@ -133,6 +133,24 @@ body,
   overflow: hidden;
 }
 
+/* ── Text selection ─────────────────────────────────────────────
+   Desktop chrome should feel native: nothing is selectable by default (no more
+   highlighting a random div). `body` covers Radix/sonner portals too. Real text
+   content opts back in with `.selectable`; inputs/editables are always selectable. */
+body {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"],
+.selectable {
+    user-select: text;
+    -webkit-user-select: text;
+}
+
 /* ── Scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 5px;

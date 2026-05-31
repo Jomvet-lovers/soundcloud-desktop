@@ -1,17 +1,17 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Trans, useTranslation } from 'react-i18next';
-import { useNavigate, useParams } from 'react-router-dom';
-import { toast } from 'sonner';
-import { AddToPlaylistDialog } from '../components/music/AddToPlaylistDialog';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import React, {useEffect, useMemo, useState} from 'react';
+import {Trans, useTranslation} from 'react-i18next';
+import {useNavigate, useParams} from 'react-router-dom';
+import {toast} from 'sonner';
+import {AddToPlaylistDialog} from '../components/music/AddToPlaylistDialog';
 import {SharingToggle} from '../components/music/SharingToggle';
-import { SoundWaveSimilarBlock } from '../components/music/soundwave';
+import {SoundWaveSimilarBlock} from '../components/music/soundwave';
 import {sameScdMeta, TrackStatusBadges} from '../components/music/TrackStatusBadges';
-import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
-import { api } from '../lib/api';
-import { getCurrentTime, preloadTrack } from '../lib/audio';
-import { downloadTrack } from '../lib/cache';
-import { ago, art, dateFormatted, dur, durLong, fc } from '../lib/formatters';
+import {TrackTitleArtist} from '../components/music/TrackTitleArtist';
+import {api} from '../lib/api';
+import {getCurrentTime, preloadTrack} from '../lib/audio';
+import {downloadTrack} from '../lib/cache';
+import {ago, art, dateFormatted, dur, durLong, fc} from '../lib/formatters';
 import {
   type Comment,
   invalidateAllLikesCache,
@@ -45,14 +45,14 @@ import {
   playCurrent16,
   Send,
 } from '../lib/icons';
-import { optimisticToggleLike, setLikedUrn, useLiked } from '../lib/likes';
+import {optimisticToggleLike, setLikedUrn, useLiked} from '../lib/likes';
 import {usePerfMode} from '../lib/perf';
 import {useScdMeta} from '../lib/scdMeta';
-import { getArtistDisplay, getDisplayTitle, getParticipants } from '../lib/track-display';
-import { useTrackPlay } from '../lib/useTrackPlay';
+import {getArtistDisplay, getDisplayTitle, getParticipants} from '../lib/track-display';
+import {useTrackPlay} from '../lib/useTrackPlay';
 import {useAuthStore} from '../stores/auth';
-import { useLyricsStore } from '../stores/lyrics';
-import { type Track, usePlayerStore } from '../stores/player';
+import {useLyricsStore} from '../stores/lyrics';
+import {type Track, usePlayerStore} from '../stores/player';
 
 function parseTags(tagList?: string): string[] {
   if (!tagList) return [];
@@ -287,7 +287,7 @@ const CommentItem = React.memo(({ comment }: { comment: Comment }) => {
             {ago(comment.created_at)}
           </span>
         </div>
-        <p className="text-[13px] text-white/55 mt-0.5 leading-relaxed break-words">
+          <p className="selectable text-[13px] text-white/55 mt-0.5 leading-relaxed break-words">
           {comment.body}
         </p>
       </div>
@@ -789,7 +789,7 @@ export const TrackPage = React.memo(() => {
                 {t('track.description')}
               </h3>
               <div
-                className={`text-[13px] text-white/45 leading-relaxed whitespace-pre-wrap break-words ${
+                  className={`selectable text-[13px] text-white/45 leading-relaxed whitespace-pre-wrap break-words ${
                   !descExpanded && descLong ? 'max-h-[120px] overflow-hidden relative' : ''
                 }`}
               >

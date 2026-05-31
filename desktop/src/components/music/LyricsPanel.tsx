@@ -1,16 +1,16 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
-import { api } from '../../lib/api';
-import { getCurrentTime, handlePrev, seek } from '../../lib/audio';
-import { toggleDislike, useDislikeStatus } from '../../lib/dislikes';
-import { ago, art, durLong } from '../../lib/formatters';
-import { type Comment, invalidateAllLikesCache, useTrackComments } from '../../lib/hooks';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import {invoke} from '@tauri-apps/api/core';
+import {listen} from '@tauri-apps/api/event';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
+import {useShallow} from 'zustand/shallow';
+import {api} from '../../lib/api';
+import {getCurrentTime, handlePrev, seek} from '../../lib/audio';
+import {toggleDislike, useDislikeStatus} from '../../lib/dislikes';
+import {ago, art, durLong} from '../../lib/formatters';
+import {type Comment, invalidateAllLikesCache, useTrackComments} from '../../lib/hooks';
 import {
   ExternalLink,
   Eye,
@@ -24,13 +24,13 @@ import {
   repeat1Icon16,
   repeatIcon16,
   Search,
+  shuffleIcon16,
   SkipBack,
   SkipForward,
-  shuffleIcon16,
   ThumbsDown,
   X,
 } from '../../lib/icons';
-import { optimisticToggleLike, useLiked } from '../../lib/likes';
+import {optimisticToggleLike, useLiked} from '../../lib/likes';
 import {
   getLyricsByTrack,
   type LyricLine,
@@ -39,7 +39,7 @@ import {
   splitArtistTitle,
 } from '../../lib/lyrics';
 import {usePerfMode} from '../../lib/perf';
-import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
+import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
 import {
   clampLyricsSplit,
   LYRICS_SPLIT_DEFAULT,
@@ -48,8 +48,8 @@ import {
   LYRICS_SPLIT_MIN,
   useLyricsStore,
 } from '../../stores/lyrics';
-import { type Track, usePlayerStore } from '../../stores/player';
-import { useSettingsStore } from '../../stores/settings';
+import {type Track, usePlayerStore} from '../../stores/player';
+import {useSettingsStore} from '../../stores/settings';
 import {
   ControlVolumeBtn,
   PlaybackRateSlider,
@@ -58,7 +58,7 @@ import {
   VolumeLabel,
   VolumeSlider,
 } from '../layout/NowPlayingBar';
-import { AddToPlaylistDialog } from './AddToPlaylistDialog';
+import {AddToPlaylistDialog} from './AddToPlaylistDialog';
 
 /* ── Source labels ────────────────────────────────────────── */
 
@@ -971,7 +971,7 @@ const TimedCommentCard = React.memo(
                 {ago(comment.created_at)}
               </span>
             </div>
-            <p className="mt-1 text-[13px] leading-relaxed text-white/58 break-words">
+              <p className="selectable mt-1 text-[13px] leading-relaxed text-white/58 break-words">
               {comment.body}
             </p>
           </div>

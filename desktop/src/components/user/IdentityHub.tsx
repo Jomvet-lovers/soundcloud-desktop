@@ -1,14 +1,14 @@
-import { useTranslation } from 'react-i18next';
-import { type Aura, auraRgba } from '../../lib/aura';
-import { Calendar, Globe, Sparkles } from '../../lib/icons';
+import {useTranslation} from 'react-i18next';
+import {type Aura, auraRgba} from '../../lib/aura';
+import {Calendar, Globe, Sparkles} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import { CopyLinkButton } from '../ui/CopyLinkButton';
-import { GlassHeroPanel } from '../ui/GlassHeroPanel';
-import { AuraPicker } from './AuraPicker';
-import { AvatarArtifact } from './AvatarArtifact';
-import { FollowBtn } from './FollowBtn';
-import { StatOrb } from './StatOrb';
-import { getWebIcon, InfoChip, ProChip, VerifiedBadge } from './UserChips';
+import {CopyLinkButton} from '../ui/CopyLinkButton';
+import {GlassHeroPanel} from '../ui/GlassHeroPanel';
+import {AuraPicker} from './AuraPicker';
+import {AvatarArtifact} from './AvatarArtifact';
+import {FollowBtn} from './FollowBtn';
+import {StatOrb} from './StatOrb';
+import {getWebIcon, InfoChip, ProChip, VerifiedBadge} from './UserChips';
 
 function dateFormattedLong(dateStr: string | null | undefined) {
   if (!dateStr) return null;
@@ -110,7 +110,7 @@ export function IdentityHub({
           </div>
 
           {user.description && (
-            <p className="text-[14px] md:text-[15px] text-white/65 leading-relaxed max-w-2xl line-clamp-3 hover:line-clamp-none transition-all duration-700 cursor-help">
+              <p className="selectable text-[14px] md:text-[15px] text-white/65 leading-relaxed max-w-2xl line-clamp-3 hover:line-clamp-none transition-all duration-700 cursor-help">
               {user.description}
             </p>
           )}
