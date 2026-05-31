@@ -15,26 +15,9 @@
 -- ВАЖНО: запрос в `search::vibe::lyrics_text` обязан использовать ровно это же
 -- выражение (LYRICS_FTS_EXPR), иначе планировщик не подхватит индекс.
 --
--- IF NOT EXISTS делает повтор no-op. Упавший concurrent-build оставляет
--- INVALID-индекс, который IF NOT EXISTS молча подхватил бы по имени (миграция
--- «успешна», но планировщик его не использует → seq scan под 2.5s timeout). DO
--- ниже сносит ровно INVALID-остаток (валидный, в т.ч. пред-созданный руками на
--- проде, не трогает — plain DROP, не CONCURRENTLY: на невалидном индексе lock
--- мгновенный), после чего CREATE его перестроит.
-
-DO
-$$
-BEGIN
-    IF
-EXISTS (
-        SELECT 1 FROM pg_class c
-        JOIN pg_index i ON i.indexrelid = c.oid
-        WHERE c.relname = 'lyrics_cache_fts_gin' AND NOT i.indisvalid
-    ) THEN
-        EXECUTE 'DROP INDEX "lyrics_cache_fts_gin"';
-END IF;
-END $$;
-
+-- Ровно один statement: CONCURRENTLY под `-- no-transaction` не может делить
+-- simple-query сообщение с другой командой — вторая команда вернёт implicit-tx
+-- и CONCURRENTLY будет отклонён. IF NOT EXISTS делает повтор no-op.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "lyrics_cache_fts_gin"
     ON "lyrics_cache" USING GIN (
     to_tsvector(
