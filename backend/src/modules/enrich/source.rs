@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -82,11 +81,7 @@ impl WorkSource for EnrichSource {
             .collect())
     }
 
-    async fn claim_one(
-        &self,
-        key: &str,
-        lease_timeout: Duration,
-    ) -> AppResult<Option<EnrichItem>> {
+    async fn claim_one(&self, key: &str, lease_timeout: Duration) -> AppResult<Option<EnrichItem>> {
         let Some(sc_id) = normalize_sc_track_id(key) else {
             return Ok(None);
         };
@@ -138,54 +133,34 @@ impl WorkSource for EnrichSource {
     }
 
     async fn on_failure(&self, item: &EnrichItem, outcome: &WorkOutcome) -> AppResult<()> {
-        match outcome {
-            WorkOutcome::ExternalBlocked { backoff } => {
-                let next = Utc::now()
-                    + chrono::Duration::from_std(*backoff)
-                    .unwrap_or_else(|_| chrono::Duration::minutes(10));
-                sqlx::query(
-                    "UPDATE tracks
-                     SET enrich_locked_at = NULL,
-                         enrich_attempts = GREATEST(0, enrich_attempts - 1),
-                         enrich_next_run_at = $2
-                     WHERE id = $1",
-                )
-                    .bind(item.id)
-                    .bind(next)
-                    .execute(&self.pg)
-                    .await?;
-            }
-            _ => {
-                let err: Option<String> = match outcome {
-                    WorkOutcome::Failed { error } => Some(error.chars().take(300).collect()),
-                    _ => None,
-                };
-                if item.attempts >= self.max_attempts {
-                    sqlx::query(
-                        "UPDATE tracks
-                         SET enrich_state = 'dead', enrich_locked_at = NULL,
-                             enrich_error = $2, enriched_at = now()
-                         WHERE id = $1",
-                    )
-                        .bind(item.id)
-                        .bind(err.as_deref())
-                        .execute(&self.pg)
-                        .await?;
-                } else {
-                    let next = next_run_after(item.attempts as i32, BACKOFF_BASE, BACKOFF_CAP);
-                    sqlx::query(
-                        "UPDATE tracks
-                         SET enrich_state = 'failed', enrich_locked_at = NULL,
-                             enrich_next_run_at = $2, enrich_error = $3
-                         WHERE id = $1",
-                    )
-                        .bind(item.id)
-                        .bind(next)
-                        .bind(err.as_deref())
-                        .execute(&self.pg)
-                        .await?;
-                }
-            }
+        let err: Option<String> = match outcome {
+            WorkOutcome::Failed { error } => Some(error.chars().take(300).collect()),
+            _ => None,
+        };
+        if item.attempts >= self.max_attempts {
+            sqlx::query(
+                "UPDATE tracks
+                 SET enrich_state = 'dead', enrich_locked_at = NULL,
+                     enrich_error = $2, enriched_at = now()
+                 WHERE id = $1",
+            )
+                .bind(item.id)
+                .bind(err.as_deref())
+                .execute(&self.pg)
+                .await?;
+        } else {
+            let next = next_run_after(item.attempts as i32, BACKOFF_BASE, BACKOFF_CAP);
+            sqlx::query(
+                "UPDATE tracks
+                 SET enrich_state = 'failed', enrich_locked_at = NULL,
+                     enrich_next_run_at = $2, enrich_error = $3
+                 WHERE id = $1",
+            )
+                .bind(item.id)
+                .bind(next)
+                .bind(err.as_deref())
+                .execute(&self.pg)
+                .await?;
         }
         Ok(())
     }

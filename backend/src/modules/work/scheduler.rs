@@ -99,7 +99,11 @@ pub fn spawn<S: WorkSource>(
 }
 
 /// Spawn the per-item run + terminal write, holding the permit until done.
-fn dispatch<S: WorkSource>(source: Arc<S>, permit: tokio::sync::OwnedSemaphorePermit, item: S::Item) {
+fn dispatch<S: WorkSource>(
+    source: Arc<S>,
+    permit: tokio::sync::OwnedSemaphorePermit,
+    item: S::Item,
+) {
     tokio::spawn(async move {
         let _permit = permit;
         let outcome = source.run(&item).await;

@@ -30,11 +30,10 @@ pub use scheduler::{spawn, Kicker};
 #[derive(Debug)]
 pub enum WorkOutcome {
     Done,
-    /// Ban / rate-limit / budget exhausted: NOT the item's fault. The source
-    /// rolls back the claim-time attempt increment and backs off by `backoff`.
-    ExternalBlocked { backoff: Duration },
     /// Real failure. Burns the claim-time attempt; terminal at the source cap.
-    Failed { error: String },
+    Failed {
+        error: String,
+    },
 }
 
 /// Runtime knobs. Backoff math and the attempt cap live in the source

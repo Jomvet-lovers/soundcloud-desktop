@@ -541,10 +541,7 @@ async fn project_many_filtered(
     } else {
         "SELECT * FROM tracks WHERE sc_track_id = ANY($1)"
     };
-    let rows: Vec<TrackRow> = sqlx::query_as(sql)
-        .bind(sc_track_ids)
-        .fetch_all(pg)
-        .await?;
+    let rows: Vec<TrackRow> = sqlx::query_as(sql).bind(sc_track_ids).fetch_all(pg).await?;
     let by_id: std::collections::HashMap<String, TrackRow> = rows
         .into_iter()
         .map(|r| (r.sc_track_id.clone(), r))

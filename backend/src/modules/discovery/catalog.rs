@@ -11,6 +11,17 @@ use crate::modules::work::{next_run_after, WorkOutcome, WorkSource};
 const BACKOFF_BASE: Duration = Duration::from_secs(60 * 60);
 const BACKOFF_CAP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
+/// Сырой ряд lease-выборки artists для краула (см. `claim`).
+type CrawlSqlRow = (
+    Uuid,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i32,
+    i32,
+    i16,
+);
+
 #[derive(Clone, Copy)]
 pub enum Lane {
     /// Wide proxy-parallel lane over artists with a genius_artist_id (crawls
@@ -107,15 +118,7 @@ impl WorkSource for CatalogSource {
                            a.mb_crawl_offset, a.genius_crawl_offset, a.crawl_fail_count"
             }
         };
-        let rows: Vec<(
-            Uuid,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            i32,
-            i32,
-            i16,
-        )> = sqlx::query_as(sql)
+        let rows: Vec<CrawlSqlRow> = sqlx::query_as(sql)
             .bind(lease_secs)
             .bind(batch)
             .fetch_all(&self.pg)

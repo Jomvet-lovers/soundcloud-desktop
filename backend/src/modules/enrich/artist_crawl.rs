@@ -65,7 +65,6 @@ impl ArtistCrawlService {
         })
     }
 
-
     pub async fn run_for_artist(self: &Arc<Self>, artist_id: Uuid) -> AppResult<()> {
         let claim: Option<ArtistRow> = sqlx::query_as(
             "UPDATE artists

@@ -94,8 +94,13 @@ impl QdrantService {
                 .on_disk_payload(true)
                 .build();
             match self.client.create_collection(req).await {
-                Ok(_) => info!(collection = name, size, "Qdrant query-vec collection created (hnsw m=0)"),
-                Err(e) => warn!(collection = name, error = %e, "Qdrant query-vec collection create failed"),
+                Ok(_) => info!(
+                    collection = name,
+                    size, "Qdrant query-vec collection created (hnsw m=0)"
+                ),
+                Err(e) => {
+                    warn!(collection = name, error = %e, "Qdrant query-vec collection create failed")
+                }
             }
         }
     }
@@ -197,7 +202,11 @@ impl QdrantService {
         let structs: Vec<PointStruct> = points
             .into_iter()
             .map(|(id, v)| {
-                PointStruct::new(id, v, Payload::from(json_map([("sc_track_id", json!(id.to_string()))])))
+                PointStruct::new(
+                    id,
+                    v,
+                    Payload::from(json_map([("sc_track_id", json!(id.to_string()))])),
+                )
             })
             .collect();
         let total = structs.len();
@@ -233,8 +242,15 @@ impl QdrantService {
         match current {
             Some(d) if d == dim => return Ok(()),
             Some(d) => {
-                warn!(got = d, want = dim, "collab collection dim mismatch — recreating");
-                let _ = self.client.delete_collection(collections::TRACKS_COLLAB).await;
+                warn!(
+                    got = d,
+                    want = dim,
+                    "collab collection dim mismatch — recreating"
+                );
+                let _ = self
+                    .client
+                    .delete_collection(collections::TRACKS_COLLAB)
+                    .await;
             }
             None => {}
         }
@@ -268,7 +284,10 @@ pub fn parse_f32_vec(v: Option<&serde_json::Value>) -> Option<Vec<f32>> {
 fn json_map<const N: usize>(
     entries: [(&str, serde_json::Value); N],
 ) -> serde_json::Map<String, serde_json::Value> {
-    entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+    entries
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
 }
 
 /// sha256-hex (64 ASCII chars) → детерминированный UUID-string point id (Qdrant

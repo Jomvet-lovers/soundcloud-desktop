@@ -2,11 +2,11 @@
 //! проекционного слоя, что и `/search/db/*` (project_to_sc_shape +
 //! enrich::dto::apply_to_tracks), но с двумя источниками кандидатов:
 //!
-//!   * vibe  — MuLan-вектор запроса → Qdrant tracks_clap (через готовый
-//!             [`RecommendationsService::search_by_text`]: enrich_and_boost,
-//!             artist_cap, take_verified);
-//!   * lyrics — PG FTS по lyrics_cache (expression GIN index, mode=text) и/или bge-m3-вектор →
-//!             Qdrant tracks_lyrics (mode=semantic), merge в auto.
+//! - vibe — MuLan-вектор запроса → Qdrant tracks_clap (через готовый
+//!   [`RecommendationsService::search_by_text`]: enrich_and_boost, artist_cap,
+//!   take_verified);
+//! - lyrics — PG FTS по lyrics_cache (expression GIN index, mode=text) и/или
+//!   bge-m3-вектор → Qdrant tracks_lyrics (mode=semantic), merge в auto.
 //!
 //! Энкодинг запроса кешируется в [`WorkerClient`] (длинный TTL, single-flight),
 //! а ранжированные списки — здесь, в Redis на короткий TTL: vibe ~90s, lyrics
@@ -185,9 +185,7 @@ impl VibeSearchService {
         let Some(q_norm) = Self::normalize_query(q) else {
             return Ok(empty_vibe());
         };
-        let limit = limit
-            .unwrap_or(VIBE_DEFAULT_LIMIT)
-            .clamp(1, VIBE_MAX_LIMIT);
+        let limit = limit.unwrap_or(VIBE_DEFAULT_LIMIT).clamp(1, VIBE_MAX_LIMIT);
         let lang_key = languages.map(|l| l.join(",")).unwrap_or_default();
         let key = vibe_res_key(&q_norm, limit, &lang_key);
 
@@ -238,7 +236,9 @@ impl VibeSearchService {
         limit: Option<i64>,
     ) -> AppResult<LyricsSearchResponse> {
         let page = page.unwrap_or(0).clamp(0, LYRICS_MAX_PAGE);
-        let limit = limit.unwrap_or(LYRICS_DEFAULT_LIMIT).clamp(1, LYRICS_MAX_LIMIT);
+        let limit = limit
+            .unwrap_or(LYRICS_DEFAULT_LIMIT)
+            .clamp(1, LYRICS_MAX_LIMIT);
         let Some(q_norm) = Self::normalize_query(q) else {
             return Ok(empty_lyrics(page, limit, mode));
         };
@@ -273,7 +273,9 @@ impl VibeSearchService {
         let fetch_limit = limit + 1;
 
         let mut tx = self.pg.begin().await?;
-        sqlx::query(&format!("SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}"))
+        sqlx::query(&format!(
+            "SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}"
+        ))
             .execute(&mut *tx)
             .await?;
 
@@ -312,7 +314,9 @@ impl VibeSearchService {
             .take(limit as usize)
             .map(|(sc_track_id, rank, matched)| RawLyricsHit {
                 sc_track_id,
-                matched_line: matched.map(|m| clean_headline(&m)).filter(|s| !s.is_empty()),
+                matched_line: matched
+                    .map(|m| clean_headline(&m))
+                    .filter(|s| !s.is_empty()),
                 score: rank as f64,
             })
             .collect();
@@ -341,9 +345,8 @@ impl VibeSearchService {
         let offset = (page * limit).max(0) as usize;
         let want = offset + limit as usize + 1;
 
-        let builder =
-            SearchPointsBuilder::new(collections::TRACKS_LYRICS, vec, want as u64)
-                .with_payload(true);
+        let builder = SearchPointsBuilder::new(collections::TRACKS_LYRICS, vec, want as u64)
+            .with_payload(true);
         let resp = match self.qdrant.raw().search_points(builder).await {
             Ok(r) => r,
             Err(e) => {
@@ -420,13 +423,16 @@ impl VibeSearchService {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<TrackRow> =
-            sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'")
-                .bind(ids)
-                .fetch_all(&self.pg)
-                .await?;
-        let by_id: HashMap<String, TrackRow> =
-            rows.into_iter().map(|r| (r.sc_track_id.clone(), r)).collect();
+        let rows: Vec<TrackRow> = sqlx::query_as(
+            "SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'",
+        )
+            .bind(ids)
+            .fetch_all(&self.pg)
+            .await?;
+        let by_id: HashMap<String, TrackRow> = rows
+            .into_iter()
+            .map(|r| (r.sc_track_id.clone(), r))
+            .collect();
 
         let uploader_ids: Vec<String> = by_id
             .values()
@@ -458,13 +464,16 @@ impl VibeSearchService {
             return Ok(Vec::new());
         }
         let ids: Vec<String> = hits.iter().map(|h| h.sc_track_id.clone()).collect();
-        let rows: Vec<TrackRow> =
-            sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'")
-                .bind(&ids)
-                .fetch_all(&self.pg)
-                .await?;
-        let by_id: HashMap<String, TrackRow> =
-            rows.into_iter().map(|r| (r.sc_track_id.clone(), r)).collect();
+        let rows: Vec<TrackRow> = sqlx::query_as(
+            "SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'",
+        )
+            .bind(&ids)
+            .fetch_all(&self.pg)
+            .await?;
+        let by_id: HashMap<String, TrackRow> = rows
+            .into_iter()
+            .map(|r| (r.sc_track_id.clone(), r))
+            .collect();
 
         let uploader_ids: Vec<String> = by_id
             .values()
@@ -588,7 +597,10 @@ fn clean_headline(raw: &str) -> String {
         .join(" ")
 }
 
-fn top_genres_of(items: &[crate::modules::recommendations::RecommendResult], n: usize) -> Vec<String> {
+fn top_genres_of(
+    items: &[crate::modules::recommendations::RecommendResult],
+    n: usize,
+) -> Vec<String> {
     let mut counts: HashMap<String, usize> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for it in items {

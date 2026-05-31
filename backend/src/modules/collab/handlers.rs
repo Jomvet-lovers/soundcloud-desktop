@@ -4,6 +4,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::common::admin::AdminAuth;
 use crate::error::AppResult;
 use crate::state::AppState;
 
@@ -21,7 +22,7 @@ struct TrainBody {
     min_count: Option<u32>,
 }
 
-async fn status(State(st): State<AppState>) -> AppResult<Json<Value>> {
+async fn status(_: AdminAuth, State(st): State<AppState>) -> AppResult<Json<Value>> {
     let dim = st.collab_vector.get_collab_dim().await;
     Ok(Json(json!({
         "collection_exists": dim.is_some(),
@@ -30,6 +31,7 @@ async fn status(State(st): State<AppState>) -> AppResult<Json<Value>> {
 }
 
 async fn train(
+    _: AdminAuth,
     State(st): State<AppState>,
     body: Option<Json<TrainBody>>,
 ) -> AppResult<Json<Value>> {

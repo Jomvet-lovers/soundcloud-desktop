@@ -21,7 +21,7 @@ use super::actions::{self, ActionCtx};
 const BATCH_SIZE: i64 = 50;
 const FLUSH_CONCURRENCY: usize = 16;
 const LOCK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-const MAX_RETRIES: i32 = 5;
+pub const MAX_RETRIES: i32 = 5;
 const BACKOFF_BAN_SEC: i64 = 30 * 60;
 const BACKOFF_RATE_LIMIT_SEC: i64 = 5 * 60;
 const BACKOFF_CAP_SEC: i64 = 60 * 60;

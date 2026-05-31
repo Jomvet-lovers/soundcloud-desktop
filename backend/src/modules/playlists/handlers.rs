@@ -19,7 +19,10 @@ pub fn router() -> Router<AppState> {
             get(get_by_id).put(update_playlist).delete(delete_playlist),
         )
         .route("/playlists/{playlist_urn}/tracks", get(get_tracks))
-        .route("/playlists/{playlist_urn}/sharing", put(set_playlist_sharing))
+        .route(
+            "/playlists/{playlist_urn}/sharing",
+            put(set_playlist_sharing),
+        )
         .route("/playlists/{playlist_urn}/reposters", get(get_reposters))
 }
 

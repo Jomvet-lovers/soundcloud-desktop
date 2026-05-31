@@ -102,10 +102,11 @@ impl ArtistAccountWalker {
                 if let Err(e) = self.walk_artist(artist_id, &name).await {
                     debug!(%artist_id, error = %e, "artist_account_walker: walk failed");
                 }
-                let _ = sqlx::query("UPDATE artists SET last_account_walk_at = now() WHERE id = $1")
-                    .bind(artist_id)
-                    .execute(&self.pg)
-                    .await;
+                let _ =
+                    sqlx::query("UPDATE artists SET last_account_walk_at = now() WHERE id = $1")
+                        .bind(artist_id)
+                        .execute(&self.pg)
+                        .await;
             }
         }))
             .await;

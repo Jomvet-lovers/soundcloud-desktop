@@ -19,6 +19,16 @@ use crate::modules::indexing::IndexingService;
 use crate::modules::tracks::TrackPriority;
 use crate::sc::ScClient;
 
+/// Сырой ряд выборки `wanted_tracks` (см. `fetch_wanted_by_ids`).
+type WantedSqlRow = (
+    Uuid,
+    String,
+    String,
+    Option<i32>,
+    Option<String>,
+    Option<Uuid>,
+);
+
 const BATCH_SIZE: i64 = 30;
 const SEARCH_LIMIT: usize = 10;
 const STAGE2_CONCURRENCY: usize = 8;
@@ -119,7 +129,7 @@ impl WantedResolverService {
     }
 
     async fn fetch_wanted_by_ids(&self, ids: &[Uuid]) -> AppResult<Vec<WantedRecord>> {
-        let rows: Vec<(Uuid, String, String, Option<i32>, Option<String>, Option<Uuid>)> =
+        let rows: Vec<WantedSqlRow> =
             sqlx::query_as(
                 "SELECT wt.id, wt.title, COALESCE(a.name, ''), wt.duration_ms, wt.isrc, wt.primary_artist_id
                  FROM wanted_tracks wt
@@ -276,8 +286,10 @@ impl WantedResolverService {
         // Stage 2 — для остальных: existing tracks + общий SC search.
         // Bounded-concurrent (SC через rotating proxy), а не серийный for{await}.
         let sem = Arc::new(Semaphore::new(STAGE2_CONCURRENCY));
-        let pending: Vec<&WantedRecord> =
-            rows.iter().filter(|r| !linked_ids.contains(&r.id)).collect();
+        let pending: Vec<&WantedRecord> = rows
+            .iter()
+            .filter(|r| !linked_ids.contains(&r.id))
+            .collect();
         join_all(pending.into_iter().map(|r| {
             let sem = sem.clone();
             let chain = &chain;

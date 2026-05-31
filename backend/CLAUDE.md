@@ -56,6 +56,10 @@ So wave quality depends on the user's liked tracks being **indexed** (vectors), 
   underground SC uploads and its throttle serializes enrich.
 - **Tracks > `MAX_TRACK_DURATION_SEC` (7 min)** are terminal `too_long` (storage/index = `too_long`, transcribe
   `disabled`) — not downloaded/indexed (DJ sets/podcasts bloat S3, useless for the wave). Frontend shows an `F` badge.
+- **Every `/admin/*` route is gated per-handler by the `AdminAuth` extractor** (`common/admin.rs`: constant-time
+  `x-admin-token` vs `config.admin.token`, fail-closed). There is **no** global auth layer in `router.rs` — a new admin
+  handler MUST take `_: AdminAuth` as its **first** argument or the route is open to the world (this is how
+  `/admin/collab/*` leaked). Body extractors (`Json`, `Option<Json<…>>`) are `FromRequest` and must stay **last**.
 - **Comment style:** terse, current-state only. No narrative-of-the-change comments, no rationale paragraphs.
 
 ## Gotchas (verified in prod)
@@ -79,10 +83,35 @@ clusters, bandits, trainer), `collab`/`centroids` (vectors), `cold_refresh` (TTL
 nats), `cache/`, `db/`, `qdrant/`, `redis/`, `sc/` (ScClient), `common/` (`external_fetch`, `throttle`), `config.rs`,
 `main.rs`.
 
+## Migrations (FOLLOW THESE)
+
+`migrations/NNNN_*.sql`, sqlx, **embedded at compile time** (`sqlx::migrate!()` in `db/mod.rs`) and run on every boot
+under an advisory lock.
+
+- **A `.sql` edit needs a rebuild+redeploy** to take effect — patching the file and restarting the old binary changes
+  nothing. **Never edit an already-applied migration:** the checksum (SHA-384 of the file) lives in `_sqlx_migrations`,
+  and any mismatch aborts startup with `VersionMismatch`. Fix forward with a new `NNNN_*.sql`. (Editing a *pending*
+  one — not yet in `_sqlx_migrations` — is safe; it applies fresh.)
+- **One file = one simple-query message = one implicit transaction.** Postgres runs every `;`-separated statement in the
+  file as a single transaction, so a migration with ≥2 statements is *always* transactional — `-- no-transaction` does
+  **not** change that (it only drops sqlx's own `BEGIN/COMMIT` wrapper).
+- **Non-transactional DDL** (`CREATE`/`DROP INDEX CONCURRENTLY`, `REINDEX CONCURRENTLY`, `ALTER TYPE … ADD VALUE`,
+  `VACUUM`) cannot run in a transaction. Two ways to ship it:
+  - **Default (what every index migration here does):** plain `CREATE INDEX IF NOT EXISTS` in the normal migration, and
+    **pre-create the big index `CONCURRENTLY` by hand on prod before deploy** so the migration no-ops via `IF NOT
+    EXISTS`. Keep everything idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`).
+  - **Only when the migration itself must build concurrently:** `-- no-transaction` as the **first line** *and* the file
+    holds **exactly one statement** — no `DO` block, no second DDL, nothing else. (A `DO` self-heal block +
+    `CREATE INDEX CONCURRENTLY` = two statements = implicit tx = the error that took prod down — `0029`.)
+- **A failed `CREATE INDEX CONCURRENTLY` leaves an INVALID index** that `IF NOT EXISTS` then silently skips (planner
+  ignores it → seq scans). Drop invalid leftovers by hand; self-heal can't share the file with the concurrent build.
+- **Keep boot migrations cheap.** They run while every starting instance blocks on the migration advisory lock; a heavy
+  in-transaction index build or backfill stalls the whole fleet — pre-create or backfill on prod instead.
+
 ## Commands
 
-- Build/check: `cargo check` / `cargo check --all-targets` (in `backend/`). Migrations: `migrations/NNNN_*.sql` (sqlx,
-  applied at startup; use `CREATE INDEX IF NOT EXISTS`, and create big indexes `CONCURRENTLY` on prod first).
+- Build/check: `cargo check` / `cargo check --all-targets` (in `backend/`). Migrations: see **Migrations (FOLLOW
+  THESE)** above.
 - Key env: `PG_POOL_MAX`, `ENRICH_CONSUMER_CONCURRENCY`, `LYRICS_INDEXING_CONCURRENCY`, `GENIUS_MAX_CONCURRENT_SCRAPES`,
   `GENIUS_ACCESS_TOKEN`, `MAX_TRACK_DURATION_SEC`, `ENRICH_*`, `SC_PROXY_URL`, `CALL_*`, `TLS_PROXY_TRUSTED_HOSTS`.
 - Prod: compose on dedic `ssh dedic-ru:/root/docker-compose.yml`; DB/qdrant/minio creds in

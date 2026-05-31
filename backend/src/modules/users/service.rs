@@ -216,9 +216,15 @@ impl UsersService {
         self.cold_refresh
             .ensure_collection(OWNED_TRACKS, target_sc_user_id, is_self, &chain, &[])
             .await?;
-        let mut result =
-            read_collection_page(&self.pg, &OWNED_TRACKS, target_sc_user_id, page, limit, !is_self)
-                .await?;
+        let mut result = read_collection_page(
+            &self.pg,
+            &OWNED_TRACKS,
+            target_sc_user_id,
+            page,
+            limit,
+            !is_self,
+        )
+            .await?;
         likes_cold::apply_user_favorite_flag(&self.pg, viewer_sc_user_id, &mut result.collection)
             .await?;
         Ok(result)
@@ -285,9 +291,15 @@ impl UsersService {
                 &[("access".into(), access.to_string())],
             )
             .await?;
-        let mut result =
-            read_collection_page(&self.pg, &LIKED_TRACKS, target_sc_user_id, page, limit, !is_self)
-                .await?;
+        let mut result = read_collection_page(
+            &self.pg,
+            &LIKED_TRACKS,
+            target_sc_user_id,
+            page,
+            limit,
+            !is_self,
+        )
+            .await?;
 
         // Если смотрим свои лайки — каждый item автоматически user_favorite.
         // Если чужие — флаг показывает, лайкнул ли это ВЬЮВЕР (другой юзер).
@@ -360,7 +372,15 @@ impl UsersService {
         self.cold_refresh
             .ensure_collection(FOLLOWINGS, target_sc_user_id, is_self, &chain, &[])
             .await?;
-        read_collection_page(&self.pg, &FOLLOWINGS, target_sc_user_id, page, limit, !is_self).await
+        read_collection_page(
+            &self.pg,
+            &FOLLOWINGS,
+            target_sc_user_id,
+            page,
+            limit,
+            !is_self,
+        )
+            .await
     }
 
     pub async fn get_web_profiles(&self, session_id: Uuid, user_urn: &str) -> AppResult<Value> {

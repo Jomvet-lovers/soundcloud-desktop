@@ -86,7 +86,11 @@ impl CollabTrainerService {
             move |data| {
                 let svc = svc.clone();
                 async move {
-                    if !data.get("trained").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if !data
+                        .get("trained")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
                         return Ok(());
                     }
                     // Нет object → старый воркер писал в Qdrant сам (rolling deploy).
@@ -116,7 +120,11 @@ impl CollabTrainerService {
                         warn!(object, error = %e, "[collab] vectors object cleanup failed");
                     }
                     svc.collab.invalidate_all();
-                    info!(count = n, dim = blob.dim, "[collab] vectors upserted from worker");
+                    info!(
+                        count = n,
+                        dim = blob.dim,
+                        "[collab] vectors upserted from worker"
+                    );
                     Ok(())
                 }
             },

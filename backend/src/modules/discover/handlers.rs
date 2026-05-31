@@ -43,6 +43,22 @@ pub fn router() -> Router<AppState> {
             "/admin/discover/settings",
             get(admin_settings_get).patch(admin_settings_update),
         )
+        .route(
+            "/admin/discover/refresh",
+            axum::routing::post(admin_refresh),
+        )
+}
+
+/// POST /admin/discover/refresh — trigger DiscoverService::refresh_aggregates now,
+/// instead of waiting for the periodic tick. Single-flight: `ran=false` means a
+/// refresh was already in progress and this call was a no-op.
+#[tracing::instrument(skip_all)]
+pub async fn admin_refresh(
+    _: AdminAuth,
+    State(st): State<AppState>,
+) -> AppResult<Json<serde_json::Value>> {
+    let ran = st.discover.try_refresh_aggregates().await?;
+    Ok(Json(serde_json::json!({ "ok": true, "ran": ran })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1341,8 +1357,8 @@ async fn pick_random_album(pg: &PgPool) -> AppResult<Option<Uuid>> {
              AND primary_artist_id IS NOT NULL
            ORDER BY id LIMIT 1"#,
     )
-        .fetch_optional(pg)
-        .await?;
+    .fetch_optional(pg)
+    .await?;
     Ok(row.map(|(id,)| id))
 }
 

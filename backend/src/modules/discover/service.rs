@@ -46,6 +46,9 @@ pub struct DiscoverService {
     pg: PgPool,
     cache: Arc<CacheService>,
     subscriptions: Arc<SubscriptionsService>,
+    // Process-local single-flight for `refresh_aggregates`: a manual trigger must
+    // not stack bulk catalog UPDATEs on top of the periodic tick, or each other.
+    refresh_lock: tokio::sync::Mutex<()>,
 }
 
 impl DiscoverService {
@@ -58,7 +61,18 @@ impl DiscoverService {
             pg,
             cache,
             subscriptions,
+            refresh_lock: tokio::sync::Mutex::new(()),
         })
+    }
+
+    /// Run `refresh_aggregates` under the single-flight guard. Returns `false`
+    /// (no-op) if a refresh is already in flight on this instance.
+    pub async fn try_refresh_aggregates(&self) -> AppResult<bool> {
+        let Ok(_guard) = self.refresh_lock.try_lock() else {
+            return Ok(false);
+        };
+        self.refresh_aggregates().await?;
+        Ok(true)
     }
 
     pub fn spawn_refresh_loop(self: Arc<Self>, shutdown: CancellationToken) {
@@ -66,15 +80,15 @@ impl DiscoverService {
             let mut tick = tokio::time::interval(REFRESH_TICK);
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             tick.tick().await;
-            if let Err(e) = self.refresh_aggregates().await {
+            if let Err(e) = self.try_refresh_aggregates().await {
                 warn!(error = %e, "discover bootstrap refresh failed");
             }
             loop {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
                     _ = tick.tick() => {
-                        match tokio::time::timeout(REFRESH_TIMEOUT, self.refresh_aggregates()).await {
-                            Ok(Ok(())) => {}
+                        match tokio::time::timeout(REFRESH_TIMEOUT, self.try_refresh_aggregates()).await {
+                            Ok(Ok(_)) => {}
                             Ok(Err(e)) => warn!(error = %e, "discover refresh failed"),
                             Err(_) => warn!("discover refresh timed out"),
                         }
@@ -219,8 +233,8 @@ impl DiscoverService {
             WHERE a.id = aff.artist_id AND a.merged_into IS NULL
             "#,
         )
-            .execute(&self.pg)
-            .await?;
+        .execute(&self.pg)
+        .await?;
         Ok(())
     }
 

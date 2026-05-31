@@ -204,7 +204,9 @@ impl PlaylistsService {
         sharing: &str,
     ) -> AppResult<Value> {
         if sharing != "public" && sharing != "private" {
-            return Err(AppError::bad_request("sharing must be 'public' or 'private'"));
+            return Err(AppError::bad_request(
+                "sharing must be 'public' or 'private'",
+            ));
         }
         let me = crate::common::sc_ids::extract_sc_id(sc_user_id);
         let owner: Option<Option<String>> =
