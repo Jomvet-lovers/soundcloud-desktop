@@ -33,8 +33,6 @@ export const VoiceCard = React.memo(function VoiceCard({
             style={{
                 background: 'rgba(255,255,255,0.035)',
                 border: '0.5px solid rgba(255,255,255,0.06)',
-                contentVisibility: 'auto',
-                containIntrinsicSize: 'auto 84px',
             }}
         >
             {ts != null && (

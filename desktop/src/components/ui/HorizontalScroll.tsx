@@ -1,4 +1,4 @@
-import { type ReactNode, type PointerEvent as ReactPointerEvent, useEffect, useRef } from 'react';
+import {type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef} from 'react';
 
 interface HorizontalScrollProps {
   children: ReactNode;
@@ -83,9 +83,7 @@ export function HorizontalScroll({ children, className = '' }: HorizontalScrollP
       }}
       className={`flex gap-4 overflow-x-hidden pb-2 scrollbar-hide cursor-grab active:cursor-grabbing ${className}`}
       style={{
-        contentVisibility: 'auto',
         contain: 'layout paint style',
-        containIntrinsicSize: '240px',
         touchAction: 'pan-y',
       }}
     >

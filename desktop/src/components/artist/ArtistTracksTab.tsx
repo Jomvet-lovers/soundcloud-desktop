@@ -1,15 +1,15 @@
-import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
-import { type Aura, auraRgba } from '../../lib/aura';
-import { dur, fc } from '../../lib/formatters';
-import { Calendar, ListMusic, Loader2, Music } from '../../lib/icons';
+import {memo, useMemo} from 'react';
+import {useTranslation} from 'react-i18next';
+import {type Aura, auraRgba} from '../../lib/aura';
+import {dur, fc} from '../../lib/formatters';
+import {Calendar, ListMusic, Loader2, Music} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import type { Track } from '../../stores/player';
+import type {Track} from '../../stores/player';
 import {TrackStatusBadges} from '../music/TrackStatusBadges';
-import { VirtualList } from '../ui/VirtualList';
-import { ThemedTrackRow } from '../user/ThemedTrackRow';
-import type { TracksSort } from './types';
-import { useArtistTracks } from './useArtistData';
+import {VirtualList} from '../ui/VirtualList';
+import {ThemedTrackRow} from '../user/ThemedTrackRow';
+import type {TracksSort} from './types';
+import {useArtistTracks} from './useArtistData';
 
 export type TracksView = 'list' | 'years';
 
@@ -212,13 +212,7 @@ const YearBlock = memo(
     const { t } = useTranslation();
     const total = bucket.items.reduce((acc, x) => acc + (x.duration ?? 0), 0);
     return (
-        <div
-            className="flex flex-col md:flex-row md:gap-8 gap-3"
-            style={{
-                contentVisibility: 'auto',
-                containIntrinsicSize: `auto ${bucket.items.length * ROW_HEIGHT + 120}px`,
-            }}
-        >
+        <div className="flex flex-col md:flex-row md:gap-8 gap-3">
         {/* Year marker — same look as albums timeline */}
         <div className="md:w-[200px] md:shrink-0 flex md:flex-col md:items-end items-center md:sticky md:top-24 self-start">
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">

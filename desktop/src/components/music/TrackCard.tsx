@@ -1,19 +1,19 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { preloadTrack } from '../../lib/audio';
-import { art, dur, fc } from '../../lib/formatters';
-import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
-import { recordClusterFeedback, setUrnCluster, useClusterFeedback } from '../../lib/recsFeedback';
-import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
-import { useAutoHide } from '../../lib/useAutoHide';
-import { useTrackPlay } from '../../lib/useTrackPlay';
-import type { Track } from '../../stores/player';
-import { usePlayerStore } from '../../stores/player';
-import { AddToPlaylistDialog } from './AddToPlaylistDialog';
-import { LikeButton } from './LikeButton';
-import { TrackStatusBadges } from './TrackStatusBadges';
-import { UploadKindDot } from './UploadKindDot';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
+import {preloadTrack} from '../../lib/audio';
+import {art, dur, fc} from '../../lib/formatters';
+import {ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32} from '../../lib/icons';
+import {recordClusterFeedback, setUrnCluster, useClusterFeedback} from '../../lib/recsFeedback';
+import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
+import {useAutoHide} from '../../lib/useAutoHide';
+import {useTrackPlay} from '../../lib/useTrackPlay';
+import type {Track} from '../../stores/player';
+import {usePlayerStore} from '../../stores/player';
+import {AddToPlaylistDialog} from './AddToPlaylistDialog';
+import {LikeButton} from './LikeButton';
+import {TrackStatusBadges} from './TrackStatusBadges';
+import {UploadKindDot} from './UploadKindDot';
 
 interface TrackCardProps {
   track: Track;
@@ -55,11 +55,7 @@ export const TrackCard = React.memo(
       <div
         className="group relative select-none"
         onMouseEnter={() => preloadTrack(track.urn)}
-        style={{
-          contentVisibility: 'auto',
-          contain: 'layout paint style',
-          containIntrinsicSize: '180px 260px',
-        }}
+        style={{contain: 'layout paint style'}}
       >
         {/* Artwork */}
         <div

@@ -1,21 +1,21 @@
-import { memo, useCallback, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { type Aura, auraRgba } from '../../lib/aura';
+import {memo, useCallback, useMemo, useState} from 'react';
+import {useTranslation} from 'react-i18next';
+import {type Aura, auraRgba} from '../../lib/aura';
 import {
-  type AlbumKindFilter,
-  type AlbumSort,
-  type CatalogAlbum,
-  flattenPages,
-  reachedHardCap,
-  useDiscoverAlbums,
-  useDiscoverAlbumsByYear,
+    type AlbumKindFilter,
+    type AlbumSort,
+    type CatalogAlbum,
+    flattenPages,
+    reachedHardCap,
+    useDiscoverAlbums,
+    useDiscoverAlbumsByYear,
 } from '../../lib/discover';
-import { Disc3 } from '../../lib/icons';
-import { Skeleton } from '../ui/Skeleton';
-import { VirtualGrid } from '../ui/VirtualGrid';
-import { AlbumGridCard } from './AlbumGridCard';
-import { FilterRow } from './FilterRow';
-import { InfiniteSentinel } from './InfiniteSentinel';
+import {Disc3} from '../../lib/icons';
+import {Skeleton} from '../ui/Skeleton';
+import {VirtualGrid} from '../ui/VirtualGrid';
+import {AlbumGridCard} from './AlbumGridCard';
+import {FilterRow} from './FilterRow';
+import {InfiniteSentinel} from './InfiniteSentinel';
 
 interface AlbumsCatalogProps {
   aura: Aura;
@@ -180,9 +180,7 @@ const YearGroup = memo(function YearGroup({
 
       <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
         {items.map((al) => (
-            <div key={al.id} style={{contentVisibility: 'auto', containIntrinsicSize: '300px'}}>
-                <AlbumGridCard album={al} aura={aura}/>
-            </div>
+            <AlbumGridCard key={al.id} album={al} aura={aura}/>
         ))}
       </div>
     </div>

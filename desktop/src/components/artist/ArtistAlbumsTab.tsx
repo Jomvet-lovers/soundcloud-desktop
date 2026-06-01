@@ -1,11 +1,11 @@
-import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { type Aura, auraRgba } from '../../lib/aura';
-import { Disc3, Loader2 } from '../../lib/icons';
+import {memo, useMemo} from 'react';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
+import {type Aura, auraRgba} from '../../lib/aura';
+import {Disc3, Loader2} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import type { ArtistAlbum } from './types';
-import { useArtistAlbums } from './useArtistData';
+import type {ArtistAlbum} from './types';
+import {useArtistAlbums} from './useArtistData';
 
 interface ArtistAlbumsTabProps {
   artistId: string;
@@ -82,13 +82,7 @@ const YearGroup = memo(
   ({ year, items, aura }: { year: number | null; items: ArtistAlbum[]; aura: Aura }) => {
     const { t } = useTranslation();
     return (
-        <div
-            className="flex flex-col md:flex-row md:gap-8 gap-4"
-            style={{
-                contentVisibility: 'auto',
-                containIntrinsicSize: `auto ${Math.ceil(items.length / 5) * 260 + 80}px`,
-            }}
-        >
+        <div className="flex flex-col md:flex-row md:gap-8 gap-4">
         {/* Year marker */}
         <div className="md:w-[200px] md:shrink-0 flex md:flex-col md:items-end items-center md:sticky md:top-24 self-start">
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">

@@ -4,15 +4,7 @@ import React from 'react';
 import {useTranslation} from 'react-i18next';
 import {preloadTrack} from '../../lib/audio';
 import {art, dur, fc} from '../../lib/formatters';
-import {
-    GripVertical,
-    headphones9,
-    heart9,
-    musicIcon12,
-    pauseWhite12,
-    playWhite12,
-    Trash2,
-} from '../../lib/icons';
+import {GripVertical, headphones9, heart9, musicIcon12, pauseWhite12, playWhite12, Trash2,} from '../../lib/icons';
 import {useTrackPlay} from '../../lib/useTrackPlay';
 import type {Track} from '../../stores/player';
 import {LikeButton} from '../music/LikeButton';
@@ -150,16 +142,15 @@ export const SortableSequenceRow = React.memo(
             <div
                 ref={setNodeRef}
                 style={{
-                    transform: isDragging && base ? `${base} rotate(1.5deg)` : base,
+                    transform: base,
                     transition,
-                    zIndex: isDragging ? 50 : undefined,
-                    boxShadow: isDragging
-                        ? '0 24px 60px rgba(0,0,0,0.55), inset 0 0 0 0.5px rgba(255,255,255,0.12)'
-                        : undefined,
-                    contentVisibility: 'auto',
-                    containIntrinsicSize: '68px',
+                    // Source row is hidden while dragging — the DragOverlay renders the
+                    // floating copy, so the drag survives this row windowing out of the
+                    // virtual list. (No content-visibility: the VirtualList already windows;
+                    // stacking it caused the scroll jank.)
+                    opacity: isDragging ? 0 : 1,
                 }}
-                className={`${ROW_BASE} ${activeCls(isThis)} ${isDragging ? 'bg-white/[0.06]' : ''}`}
+                className={`${ROW_BASE} ${activeCls(isThis)}`}
             >
                 <div
                     className="w-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-white/15 hover:text-white/40 transition-colors -ml-1"
@@ -195,15 +186,46 @@ export const SortableSequenceRow = React.memo(
         sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );
 
+/** Floating copy rendered by DragOverlay while reordering — stays mounted even if
+ *  the source row windows out of the virtual list, so long auto-scroll drags work. */
+export function SequenceRowOverlay({
+                                       track,
+                                       index,
+                                       queue,
+                                   }: {
+    track: Track;
+    index: number;
+    queue: Track[];
+}) {
+    const {isThis, isThisPlaying, togglePlay} = useTrackPlay(track, queue);
+    return (
+        <div
+            className={`${ROW_BASE} ${activeCls(isThis)} bg-white/[0.06] cursor-grabbing`}
+            style={{
+                transform: 'rotate(1.5deg)',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.55), inset 0 0 0 0.5px rgba(255,255,255,0.12)',
+            }}
+        >
+            <div className="w-5 flex items-center justify-center shrink-0 text-white/40 -ml-1">
+                <GripVertical size={14}/>
+            </div>
+            <RowBody
+                track={track}
+                index={index}
+                isThis={isThis}
+                isThisPlaying={isThisPlaying}
+                togglePlay={togglePlay}
+            />
+        </div>
+    );
+}
+
 /** Read-only row (non-owner). */
 export const SequenceRow = React.memo(
     function SequenceRow({track, index, queue}: { track: Track; index: number; queue: Track[] }) {
         const {isThis, isThisPlaying, togglePlay} = useTrackPlay(track, queue);
         return (
-            <div
-                style={{contentVisibility: 'auto', containIntrinsicSize: '68px'}}
-                className={`${ROW_BASE} ${activeCls(isThis)}`}
-            >
+            <div className={`${ROW_BASE} ${activeCls(isThis)}`}>
                 <RowBody
                     track={track}
                     index={index}

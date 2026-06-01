@@ -19,7 +19,6 @@ interface CoverTileProps {
     item: WallItem;
     /** Stable thunk → live play queue, resolved lazily so tile memo isn't broken. */
     getQueue: () => Track[];
-    cellPx: number;
     onDive?: (track: Track) => void;
 }
 
@@ -33,12 +32,7 @@ function breathStyle(urn: string): React.CSSProperties {
     return {animation: `tg-breathe ${dur}s ease-in-out ${delay}s infinite`};
 }
 
-export const CoverTile = memo(function CoverTile({
-                                                     item,
-                                                     getQueue,
-                                                     cellPx,
-                                                     onDive,
-                                                 }: CoverTileProps) {
+export const CoverTile = memo(function CoverTile({item, getQueue, onDive}: CoverTileProps) {
     const {t} = useTranslation();
     const perf = usePerfMode();
     const {track, kind, matchedLine, hero} = item;
@@ -47,7 +41,6 @@ export const CoverTile = memo(function CoverTile({
 
     const cover = art(track.artwork_url, hero ? 't500x500' : 't300x300');
     const span = hero ? 'span 2' : 'span 1';
-    const intrinsic = hero ? cellPx * 2 + 16 : cellPx;
 
     const enter = () => {
         preloadTrack(track.urn);
@@ -65,8 +58,6 @@ export const CoverTile = memo(function CoverTile({
             style={{
                 gridColumn: span,
                 gridRow: span,
-                contentVisibility: 'auto',
-                containIntrinsicSize: `${intrinsic}px ${intrinsic}px`,
             }}
         >
             {kind === 'vibe' &&

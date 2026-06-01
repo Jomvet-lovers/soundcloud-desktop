@@ -2,18 +2,20 @@ import {
     closestCenter,
     DndContext,
     type DragEndEvent,
+    DragOverlay,
+    type DragStartEvent,
     KeyboardSensor,
     PointerSensor,
     useSensor,
     useSensors,
 } from '@dnd-kit/core';
 import {SortableContext, verticalListSortingStrategy} from '@dnd-kit/sortable';
-import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {Clock, ListMusic, Loader2} from '../../lib/icons';
 import type {Track} from '../../stores/player';
 import {VirtualList} from '../ui/VirtualList';
-import {SequenceRow, SortableSequenceRow} from './SequenceRow';
+import {SequenceRow, SequenceRowOverlay, SortableSequenceRow} from './SequenceRow';
 
 const PANEL = {
     background: 'rgba(255,255,255,0.02)',
@@ -59,6 +61,9 @@ export const SequenceList = React.memo(function SequenceList({
         useSensor(KeyboardSensor),
     );
     const ids = useMemo(() => tracks.map((tr) => tr.urn), [tracks]);
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const activeIndex = activeId ? tracks.findIndex((tr) => tr.urn === activeId) : -1;
+    const activeTrack = activeIndex >= 0 ? tracks[activeIndex] : null;
 
     if (tracks.length === 0) {
         return (
@@ -87,12 +92,21 @@ export const SequenceList = React.memo(function SequenceList({
         <div className="rounded-[2rem] p-3 md:p-4" style={PANEL}>
             <Header count={tracks.length}/>
             {isOwner ? (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
+                    onDragEnd={(e) => {
+                        setActiveId(null);
+                        onDragEnd(e);
+                    }}
+                    onDragCancel={() => setActiveId(null)}
+                >
                     <SortableContext items={ids} strategy={verticalListSortingStrategy}>
                         <VirtualList
                             items={tracks}
                             rowHeight={68}
-                            overscan={10}
+                            overscan={12}
                             className="space-y-0.5"
                             getItemKey={(tr) => tr.urn}
                             renderItem={(track, i) => (
@@ -100,6 +114,11 @@ export const SequenceList = React.memo(function SequenceList({
                             )}
                         />
                     </SortableContext>
+                    <DragOverlay>
+                        {activeTrack ? (
+                            <SequenceRowOverlay track={activeTrack} index={activeIndex} queue={tracks}/>
+                        ) : null}
+                    </DragOverlay>
                 </DndContext>
             ) : (
                 <VirtualList

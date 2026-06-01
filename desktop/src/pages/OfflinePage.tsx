@@ -1,30 +1,19 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
 import {TrackStatusBadges} from '../components/music/TrackStatusBadges';
-import { TrackTitleArtist } from '../components/music/TrackTitleArtist';
-import { VirtualList } from '../components/ui/VirtualList';
-import { type AuthStatus, useAuthStatus } from '../lib/auth-status';
-import { listCachedUrns, removeCachedTrack } from '../lib/cache';
-import { art, dur } from '../lib/formatters';
-import { fetchAllLikedTracks } from '../lib/hooks';
-import {
-  Clock,
-  Download,
-  Globe,
-  Heart,
-  Music,
-  Play,
-  RotateCcw,
-  Search,
-  Trash2,
-  X,
-} from '../lib/icons';
-import { getOfflineLikedTracks, getOfflineTracksByUrns } from '../lib/offline-index';
+import {TrackTitleArtist} from '../components/music/TrackTitleArtist';
+import {VirtualList} from '../components/ui/VirtualList';
+import {type AuthStatus, useAuthStatus} from '../lib/auth-status';
+import {listCachedUrns, removeCachedTrack} from '../lib/cache';
+import {art, dur} from '../lib/formatters';
+import {fetchAllLikedTracks} from '../lib/hooks';
+import {Clock, Download, Globe, Heart, Music, Play, RotateCcw, Search, Trash2, X,} from '../lib/icons';
+import {getOfflineLikedTracks, getOfflineTracksByUrns} from '../lib/offline-index';
 import {usePerfMode} from '../lib/perf';
-import { useAppStatusStore } from '../stores/app-status';
-import type { Track } from '../stores/player';
-import { usePlayerStore } from '../stores/player';
+import {useAppStatusStore} from '../stores/app-status';
+import type {Track} from '../stores/player';
+import {usePlayerStore} from '../stores/player';
 
 interface OfflineLibraryState {
   cachedTracks: Track[];
@@ -179,7 +168,6 @@ const OfflineTrackRow = React.memo(function OfflineTrackRow({
           ? 'border-white/8 bg-white/[0.035] hover:border-white/14 hover:bg-white/[0.06] hover:shadow-[0_4px_24px_rgba(0,0,0,0.15)]'
           : 'border-white/6 bg-white/[0.02] opacity-60'
       }`}
-      style={{ contentVisibility: 'auto', containIntrinsicSize: '82px' }}
     >
       <button
         type="button"

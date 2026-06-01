@@ -1,22 +1,15 @@
-import { memo } from 'react';
-import { preloadTrack } from '../../lib/audio';
-import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
-import { art, dur } from '../../lib/formatters';
-import {
-  ListPlus,
-  Music,
-  pauseBlack14,
-  pauseWhite14,
-  playBlack14,
-  playWhite14,
-} from '../../lib/icons';
+import {memo} from 'react';
+import {preloadTrack} from '../../lib/audio';
+import {type Aura, auraRgb, auraRgba, isLight} from '../../lib/aura';
+import {art, dur} from '../../lib/formatters';
+import {ListPlus, Music, pauseBlack14, pauseWhite14, playBlack14, playWhite14,} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import { useTrackPlay } from '../../lib/useTrackPlay';
-import type { Track } from '../../stores/player';
-import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
-import { LikeButton } from '../music/LikeButton';
+import {useTrackPlay} from '../../lib/useTrackPlay';
+import type {Track} from '../../stores/player';
+import {AddToPlaylistDialog} from '../music/AddToPlaylistDialog';
+import {LikeButton} from '../music/LikeButton';
 import {sameScdMeta, TrackStatusBadges} from '../music/TrackStatusBadges';
-import { TrackTitleArtist } from '../music/TrackTitleArtist';
+import {TrackTitleArtist} from '../music/TrackTitleArtist';
 
 interface AlbumTrackRowProps {
   track: Track;
@@ -37,8 +30,6 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
     <div
       className="group flex items-center gap-4 px-4 py-2.5 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] select-none"
       style={{
-        contentVisibility: 'auto',
-        containIntrinsicSize: 'auto 60px',
         background: isThis
           ? `linear-gradient(90deg, ${auraRgba(aura, 0.16)}, ${auraRgba(aura, 0.04)} 70%, transparent)`
           : undefined,

@@ -20,10 +20,10 @@ const GAP = 12;
 const MIN_COLS = 2;
 const MAX_COLS = 10;
 /** Retained-tile cap: infinite scroll appends without bound, so window the DOM to
- *  the most recent tiles. content-visibility already skips offscreen paint; this
- *  caps DOM nodes / decoded images / memory. A leading spacer holds the grid rows
- *  the dropped tiles occupied so the visible layout and scroll position don't shift. */
-const RETAIN_CAP = 400;
+ *  the most recent tiles, capping DOM nodes / decoded images / memory. A leading
+ *  spacer holds the grid rows the dropped tiles occupied so the visible layout and
+ *  scroll position don't shift. */
+const RETAIN_CAP = 150;
 
 /** Target tile edge scales with the viewport — bigger tiles on big screens. */
 function targetFor(width: number): number {
@@ -47,8 +47,8 @@ function computeGrid(width: number): { columns: number; cellPx: number } {
 /* The wall: one deterministic packed mosaic of square tiles. Columns + cell size
  * come from a ResizeObserver; grid-auto-rows is a fixed px height so a tile can
  * never collapse (even mid-image-load), and grid-auto-flow:dense slots the seeded
- * 2×2 heroes into the rhythm. No JS virtualizer — content-visibility skips the
- * paint of off-screen tiles for free. */
+ * 2×2 heroes into the rhythm. The DOM is bounded by RETAIN_CAP, so every retained
+ * tile renders. */
 export const Wall = memo(function Wall({
                                            items,
                                            getQueue,
@@ -146,13 +146,7 @@ export const Wall = memo(function Wall({
                             <div aria-hidden style={{gridColumn: '1 / -1', gridRow: `span ${spacerRows}`}}/>
                         )}
                         {visible.map((item) => (
-                            <CoverTile
-                                key={trackKey(item)}
-                                item={item}
-                                getQueue={getQueue}
-                                cellPx={cellPx}
-                                onDive={onDive}
-                            />
+                            <CoverTile key={trackKey(item)} item={item} getQueue={getQueue} onDive={onDive}/>
                         ))}
                     </>
                 )}
