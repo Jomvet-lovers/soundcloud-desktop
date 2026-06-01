@@ -229,6 +229,13 @@ pub async fn upload(
                 format!("transcode skipped: short track ({duration_secs:.3}s)"),
             ));
         }
+        Err(PipelineError::TrackTooLong { duration_secs, .. }) => {
+            info!("[upload] skipped long track {filename}: {duration_secs:.3}s");
+            return Err((
+                StatusCode::CONFLICT,
+                format!("transcode skipped: long track ({duration_secs:.3}s)"),
+            ));
+        }
         Err(PipelineError::Ffmpeg(msg)) => {
             warn!("[upload] ffmpeg failed for {filename}: {msg}");
             return Err((

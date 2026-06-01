@@ -17,6 +17,11 @@ pub enum PipelineError {
         duration_secs: f64,
         min_duration_secs: f64,
     },
+    #[error("track too long: {duration_secs:.3}s > {max_duration_secs:.3}s")]
+    TrackTooLong {
+        duration_secs: f64,
+        max_duration_secs: f64,
+    },
     #[error("ffmpeg: {0}")]
     Ffmpeg(String),
     #[error("backend: {0}")]
@@ -145,6 +150,15 @@ async fn run_batch(
             let _ = job.reply.send(Err(PipelineError::TrackTooShort {
                 duration_secs: secs,
                 min_duration_secs: transcode::MIN_UPLOAD_DURATION_SECS,
+            }));
+            continue;
+        }
+        let max = config.max_upload_duration_secs;
+        if max > 0.0 && secs > max {
+            let _ = tokio::fs::remove_file(&job.source).await;
+            let _ = job.reply.send(Err(PipelineError::TrackTooLong {
+                duration_secs: secs,
+                max_duration_secs: max,
             }));
             continue;
         }

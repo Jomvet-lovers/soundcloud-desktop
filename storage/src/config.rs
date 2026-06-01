@@ -72,6 +72,9 @@ pub struct Config {
     pub transcode_batch_size: usize,
     /// Сколько ждём добор батча, прежде чем стрелять ffmpeg-ом.
     pub transcode_batch_wait_ms: u64,
+    /// Макс. длительность трека (сек). Длиннее — не транскодятся и отклоняются
+    /// на /upload (по аналогии с backend `MAX_TRACK_DURATION_SEC`). 0 = без лимита.
+    pub max_upload_duration_secs: f64,
     /// Параллельные backend-загрузки (S3 PUT / local rename).
     pub upload_concurrency: usize,
     /// Сколько раз ретраить одну backend-загрузку (на ошибки).
@@ -218,6 +221,7 @@ impl Config {
             ),
             transcode_batch_size: parse_env_usize("TRANSCODE_BATCH_SIZE", 8),
             transcode_batch_wait_ms: parse_env_u64("TRANSCODE_BATCH_WAIT_MS", 50),
+            max_upload_duration_secs: parse_env_u64("MAX_TRACK_DURATION_SEC", 420) as f64,
             upload_concurrency: parse_env_usize("UPLOAD_CONCURRENCY", 64),
             upload_retries: parse_env_usize("UPLOAD_RETRIES", 4),
             upload_retry_base_ms: parse_env_u64("UPLOAD_RETRY_BASE_MS", 250),
