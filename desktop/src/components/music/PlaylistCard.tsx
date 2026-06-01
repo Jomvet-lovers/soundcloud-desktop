@@ -2,12 +2,13 @@ import {Lock} from 'lucide-react';
 import React from 'react';
 import {useTranslation} from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { art, fc } from '../../lib/formatters';
+import {fc} from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
 import { Heart, ListMusic, Play, pauseBlack22 } from '../../lib/icons';
 import { useAutoHide } from '../../lib/useAutoHide';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import {PlaylistCover} from './PlaylistCover';
 
 interface PlaylistCardProps {
   playlist: Playlist;
@@ -19,8 +20,6 @@ export const PlaylistCard = React.memo(
   function PlaylistCard({ playlist, showPlayback }: PlaylistCardProps) {
     const navigate = useNavigate();
       const {t} = useTranslation();
-    const cover =
-      art(playlist.artwork_url, 't300x300') ?? art(playlist.tracks?.[0]?.artwork_url, 't300x300');
 
     const trackUrns = React.useMemo(
       () => new Set((playlist.tracks ?? []).map((t: Track) => t.urn)),
@@ -66,18 +65,14 @@ export const PlaylistCard = React.memo(
         onClick={() => navigate(`/playlist/${encodeURIComponent(playlist.urn)}`)}
       >
         <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
-          {cover ? (
-            <img
-              src={cover}
-              alt={playlist.title}
-              className="w-full h-full object-cover transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
-              decoding="async"
+            <PlaylistCover
+                artworkUrl={playlist.artwork_url}
+                tracks={playlist.tracks}
+                urn={playlist.urn}
+                alt={playlist.title}
+                iconSize={32}
+                className="transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"
             />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-transparent">
-              <ListMusic size={32} className="text-white/10" />
-            </div>
-          )}
 
           {/* Hover / playing overlay */}
           {showPlayback ? (

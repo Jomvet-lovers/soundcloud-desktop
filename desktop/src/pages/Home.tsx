@@ -36,6 +36,7 @@ import {
   Sparkles,
 } from '../lib/icons';
 import {usePerfMode} from '../lib/perf';
+import {playlistCoverUrl} from '../lib/playlist-cover';
 import {useScdMeta} from '../lib/scdMeta';
 import { getArtistTarget, useArtistDisplay, useDisplayTitle } from '../lib/track-display';
 import { useAutoHide } from '../lib/useAutoHide';
@@ -330,7 +331,7 @@ const FeaturedPlaylistHero = React.memo(function FeaturedPlaylistHero({
     })),
   );
 
-  const cover = art(playlist.artwork_url) ?? art(playlist.tracks?.[0]?.artwork_url);
+    const cover = playlistCoverUrl(playlist.artwork_url, playlist.tracks);
 
   const handlePlay = async () => {
     const { play, pause, resume } = usePlayerStore.getState();

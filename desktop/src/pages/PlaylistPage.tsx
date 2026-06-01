@@ -1,29 +1,18 @@
-import {
-  closestCenter,
-  DndContext,
-  type DragEndEvent,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import {SortableContext, useSortable, verticalListSortingStrategy} from '@dnd-kit/sortable';
-import {CSS} from '@dnd-kit/utilities';
+import type {DragEndEvent} from '@dnd-kit/core';
 import * as Dialog from '@radix-ui/react-dialog';
-import {useQuery, useQueryClient} from '@tanstack/react-query';
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate, useParams} from 'react-router-dom';
 import {toast} from 'sonner';
 import {useShallow} from 'zustand/shallow';
-import {LikeButton} from '../components/music/LikeButton';
-import {SharingToggle} from '../components/music/SharingToggle';
-import {sameScdMeta, TrackStatusBadges} from '../components/music/TrackStatusBadges';
-import {TrackTitleArtist} from '../components/music/TrackTitleArtist';
-import {VirtualList} from '../components/ui/VirtualList';
-import {api} from '../lib/api';
-import {preloadTrack} from '../lib/audio';
-import {art, dateFormatted, dur, durLong, fc} from '../lib/formatters';
+import {CrateLedger} from '../components/playlist/CrateLedger';
+import {PLAYLIST_KEYFRAMES} from '../components/playlist/keyframes';
+import {MoreCrates} from '../components/playlist/MoreCrates';
+import {PlaylistHero} from '../components/playlist/PlaylistHero';
+import {SequenceList} from '../components/playlist/SequenceList';
+import {SetRibbon} from '../components/playlist/SetRibbon';
+import {usePlaylistAura} from '../components/playlist/usePlaylistAura';
+import {Atmosphere} from '../components/search/Atmosphere';
 import {
   useDeletePlaylist,
   useInfiniteScroll,
@@ -31,364 +20,37 @@ import {
   usePlaylistTracks,
   useUpdatePlaylistTracks,
 } from '../lib/hooks';
-import {
-  AlertCircle,
-  Calendar,
-  Check,
-  Clock,
-  GripVertical,
-  headphones9,
-  Heart,
-  heart9,
-  LinkIcon,
-  ListMusic,
-  Loader2,
-  MapPin,
-  musicIcon12,
-  pauseBlack22,
-  pauseCurrent16,
-  pauseWhite12,
-  playBlack22,
-  playCurrent16,
-  playWhite12,
-  Shuffle,
-  Trash2,
-  X,
-} from '../lib/icons';
+import {AlertCircle, ChevronLeft, X} from '../lib/icons';
 import {usePerfMode} from '../lib/perf';
-import {useAutoHide} from '../lib/useAutoHide';
-import {useTrackPlay} from '../lib/useTrackPlay';
+import {rawPlaylistCover} from '../lib/playlist-cover';
 import {useAuthStore} from '../stores/auth';
 import {type Track, usePlayerStore} from '../stores/player';
 import {useSettingsStore} from '../stores/settings';
 
-/* ── Playlist Like chip (compact icon+count) ─────────────── */
-
-const PlaylistLikeBtn = React.memo(
-  ({ playlistUrn, count }: { playlistUrn: string; count?: number }) => {
-    const { t } = useTranslation();
-    const { data: likeStatus } = useQuery({
-      queryKey: ['likes', 'playlist', playlistUrn],
-      queryFn: () => api<{ liked: boolean }>(`/likes/playlists/${encodeURIComponent(playlistUrn)}`),
-      staleTime: 1000 * 60 * 5,
-    });
-
-    const [liked, setLiked] = useState(false);
-    const [localCount, setLocalCount] = useState(count ?? 0);
-    const qc = useQueryClient();
-
-    useEffect(() => {
-      if (likeStatus) setLiked(likeStatus.liked);
-    }, [likeStatus]);
-    useEffect(() => {
-      setLocalCount(count ?? 0);
-    }, [count]);
-
-    const toggle = async () => {
-      const next = !liked;
-      setLiked(next);
-      setLocalCount((c) => c + (next ? 1 : -1));
-      try {
-        await api(`/likes/playlists/${encodeURIComponent(playlistUrn)}`, {
-          method: next ? 'POST' : 'DELETE',
-        });
-        setTimeout(() => {
-          qc.invalidateQueries({ queryKey: ['likes', 'playlist', playlistUrn] });
-          qc.invalidateQueries({ queryKey: ['me', 'likes', 'playlists'] });
-        }, 3000);
-      } catch {
-        setLiked(!next);
-        setLocalCount((c) => c + (next ? -1 : 1));
-      }
-    };
-
+function HeroSkeleton() {
     return (
-      <button
-        type="button"
-        onClick={toggle}
-        title={t('track.likes')}
-        className={`inline-flex items-center gap-1.5 px-3 h-10 rounded-xl text-[12.5px] font-semibold tabular-nums transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer border ${
-          liked
-            ? 'bg-accent/15 text-accent border-accent/25 shadow-[0_0_16px_rgba(255,85,0,0.18)]'
-            : 'bg-white/[0.04] border-white/[0.06] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.1]'
-        }`}
-      >
-        <Heart size={14} fill={liked ? 'currentColor' : 'none'} />
-        <span>{fc(localCount)}</span>
-      </button>
+        <div className="relative rounded-[2.5rem] overflow-hidden glass-featured p-6 md:p-10">
+            <div className="flex flex-col lg:flex-row gap-10">
+                <div
+                    className="w-[150px] h-[150px] md:w-[200px] md:h-[200px] rounded-[1.7rem] skeleton-shimmer shrink-0 self-center lg:self-start"/>
+                <div className="flex-1 space-y-4 w-full">
+                    <div className="h-4 w-32 rounded-full skeleton-shimmer"/>
+                    <div className="h-14 w-2/3 rounded-2xl skeleton-shimmer"/>
+                    <div className="h-11 w-72 rounded-full skeleton-shimmer mt-6"/>
+                    <div className="h-24 w-full rounded-2xl skeleton-shimmer mt-4"/>
+        </div>
+            </div>
+        </div>
     );
-  },
-);
+}
 
-/* ── Copy-link icon button (inline for the rail) ────────── */
-
-const CopyIconAction = React.memo(function CopyIconAction({ url }: { url: string | undefined }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    if (!url) return;
-    try {
-      const u = new URL(url);
-      u.searchParams.delete('utm_medium');
-      u.searchParams.delete('utm_campaign');
-      u.searchParams.delete('utm_source');
-      const clean = u.toString().replace(/\?$/, '');
-      navigator.clipboard.writeText(clean);
-    } catch {
-      navigator.clipboard.writeText(url);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
-  };
-
-  if (!url) return null;
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      title={copied ? t('auth.copied') : t('auth.copyLink')}
-      aria-label={copied ? t('auth.copied') : t('auth.copyLink')}
-      className={`inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
-        copied
-          ? 'text-emerald-400 bg-emerald-500/12'
-          : 'text-white/60 hover:text-white/95 hover:bg-white/[0.07]'
-      }`}
-    >
-      {copied ? <Check size={16} /> : <LinkIcon size={16} />}
-    </button>
-  );
-});
-
-/* ── Sortable Track Row ───────────────────────────────────── */
-
-const SortableTrackRow = React.memo(
-  function SortableTrackRow({
-    track,
-    index,
-    queue,
-    isOwner,
-    onRemove,
-  }: {
-    track: Track;
-    index: number;
-    queue: Track[];
-    isOwner: boolean;
-    onRemove?: (urn: string) => void;
-  }) {
-    const { t } = useTranslation();
-    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-    const cover = art(track.artwork_url, 't200x200');
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-      id: track.urn,
-      disabled: !isOwner,
-    });
-
-    return (
-      <div
-        ref={setNodeRef}
-        style={{
-          transform: CSS.Transform.toString(transform),
-          transition,
-          opacity: isDragging ? 0.5 : 1,
-          zIndex: isDragging ? 50 : undefined,
-          contentVisibility: 'auto',
-          containIntrinsicSize: '68px',
-        }}
-        className={`group flex items-center gap-3.5 px-4 py-3 rounded-xl transition-colors duration-200 ease-[var(--ease-apple)] select-none ${
-          isThis ? 'bg-accent/[0.05] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
-        }`}
-      >
-        {isOwner && (
-          <div
-            className="w-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-white/15 hover:text-white/40 transition-colors"
-            {...attributes}
-            {...listeners}
-          >
-            <GripVertical size={14} />
-          </div>
-        )}
-
-        <div
-          className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
-          onClick={togglePlay}
-          onMouseEnter={() => preloadTrack(track.urn)}
-        >
-          {isThisPlaying ? (
-            <div className="w-7 h-7 rounded-full bg-accent text-accent-contrast flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
-              {pauseWhite12}
-            </div>
-          ) : (
-            <>
-              <span className="text-[12px] text-white/25 tabular-nums font-medium group-hover:hidden">
-                {index + 1}
-              </span>
-              <div className="hidden group-hover:flex w-7 h-7 rounded-full bg-white/10 items-center justify-center">
-                {playWhite12}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
-          {cover ? (
-            <img
-              src={cover}
-              alt=""
-              className="w-full h-full object-cover"
-              decoding="async"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
-              {musicIcon12}
-            </div>
-          )}
-        </div>
-
-        <TrackTitleArtist track={track} highlight={isThis} size="sm" />
-
-          <div className="hidden sm:flex shrink-0">
-              <TrackStatusBadges meta={track._scd_meta}/>
-          </div>
-
-        <div className="hidden sm:flex items-center gap-3 shrink-0">
-          {track.playback_count != null && (
-            <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
-              {headphones9}
-              {fc(track.playback_count)}
-            </span>
-          )}
-          {(track.favoritings_count ?? track.likes_count) != null && (
-            <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
-              {heart9}
-              {fc(track.favoritings_count ?? track.likes_count)}
-            </span>
-          )}
-        </div>
-
-        <LikeButton track={track} />
-
-        <span className="text-[11px] text-white/25 tabular-nums font-medium shrink-0 w-10 text-right">
-          {dur(track.duration)}
-        </span>
-
-        {isOwner && onRemove && (
-          <button
-            type="button"
-            onClick={() => onRemove(track.urn)}
-            className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 shrink-0"
-            title={t('playlist.removeTrack')}
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
-      </div>
-    );
-  },
-  (prev, next) =>
-      prev.track.urn === next.track.urn &&
-      prev.index === next.index &&
-      prev.isOwner === next.isOwner &&
-      sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
-);
-
-/* ── Non-sortable Track Row (for non-owner view) ─────────── */
-
-const TrackRow = React.memo(
-  function TrackRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
-    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
-    const cover = art(track.artwork_url, 't200x200');
-
-    return (
-      <div
-        style={{ contentVisibility: 'auto', containIntrinsicSize: '68px' }}
-        className={`group flex items-center gap-3.5 px-4 py-3 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] select-none ${
-          isThis ? 'bg-accent/[0.05] ring-1 ring-accent/15' : 'hover:bg-white/[0.03]'
-        }`}
-      >
-        <div
-          className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
-          onClick={togglePlay}
-          onMouseEnter={() => preloadTrack(track.urn)}
-        >
-          {isThisPlaying ? (
-            <div className="w-7 h-7 rounded-full bg-accent text-accent-contrast flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
-              {pauseWhite12}
-            </div>
-          ) : (
-            <>
-              <span className="text-[12px] text-white/25 tabular-nums font-medium group-hover:hidden">
-                {index + 1}
-              </span>
-              <div className="hidden group-hover:flex w-7 h-7 rounded-full bg-white/10 items-center justify-center">
-                {playWhite12}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
-          {cover ? (
-            <img
-              src={cover}
-              alt=""
-              className="w-full h-full object-cover"
-              decoding="async"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-white/[0.03]">
-              {musicIcon12}
-            </div>
-          )}
-        </div>
-
-        <TrackTitleArtist track={track} highlight={isThis} size="sm" />
-
-          <div className="hidden sm:flex shrink-0">
-              <TrackStatusBadges meta={track._scd_meta}/>
-          </div>
-
-        <div className="hidden sm:flex items-center gap-3 shrink-0">
-          {track.playback_count != null && (
-            <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
-              {headphones9}
-              {fc(track.playback_count)}
-            </span>
-          )}
-          {(track.favoritings_count ?? track.likes_count) != null && (
-            <span className="text-[10px] text-white/20 tabular-nums flex items-center gap-0.5">
-              {heart9}
-              {fc(track.favoritings_count ?? track.likes_count)}
-            </span>
-          )}
-        </div>
-
-        <LikeButton track={track} />
-
-        <span className="text-[11px] text-white/25 tabular-nums font-medium shrink-0 w-10 text-right">
-          {dur(track.duration)}
-        </span>
-      </div>
-    );
-  },
-  (prev, next) =>
-    prev.track.urn === next.track.urn &&
-    prev.index === next.index &&
-      prev.track.user_favorite === next.track.user_favorite &&
-      sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
-);
-
-/* ── Main: PlaylistPage ──────────────────────────────────── */
-
-export const PlaylistPage = React.memo(() => {
+export const PlaylistPage = React.memo(function PlaylistPage() {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
     const perf = usePerfMode();
   const myUrn = useAuthStore((s) => s.user?.urn);
+
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
   const {
     tracks: playlistTracks,
@@ -400,6 +62,7 @@ export const PlaylistPage = React.memo(() => {
   const updateTracks = useUpdatePlaylistTracks(urn);
   const deletePlaylist = useDeletePlaylist();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const { pinnedPlaylists, pinPlaylist, unpinPlaylist } = useSettingsStore(
     useShallow((s) => ({
       pinnedPlaylists: s.pinnedPlaylists,
@@ -412,28 +75,26 @@ export const PlaylistPage = React.memo(() => {
   const isOwner = !!playlist && !!myUrn && playlist.user.urn === myUrn;
   const isPinned = pinnedPlaylists.some((item) => item.urn === playlist?.urn);
 
-  const serverTracks: Track[] = React.useMemo(() => {
+    const serverTracks: Track[] = useMemo(() => {
     if (isLoading || !playlist) return [];
     return playlistTracks.length > 0 ? playlistTracks : (playlist.tracks ?? []);
   }, [isLoading, playlist, playlistTracks]);
 
-  // Local track order for DnD
+    // Local order for DnD; skip server sync while a debounced save is in flight.
   const [localTracks, setLocalTracks] = useState<Track[]>([]);
-  // Skip server sync while a debounced mutation is pending
   const pendingMutationRef = useRef(false);
   useEffect(() => {
     if (!pendingMutationRef.current) setLocalTracks(serverTracks);
   }, [serverTracks]);
 
-  // Debounced mutation: accumulate rapid changes, only send the latest state
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>(null!);
   const debouncedUpdate = useCallback(
-    (tracks: Track[], successMsg?: string) => {
+      (next: Track[], successMsg?: string) => {
       pendingMutationRef.current = true;
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
         updateTracks.mutate(
-          tracks.map((t) => t.urn),
+            next.map((tr) => tr.urn),
           {
             onSuccess: () => {
               pendingMutationRef.current = false;
@@ -441,7 +102,6 @@ export const PlaylistPage = React.memo(() => {
             },
             onError: () => {
               pendingMutationRef.current = false;
-              // Revert to server state on error
               setLocalTracks(serverTracks);
             },
           },
@@ -451,9 +111,11 @@ export const PlaylistPage = React.memo(() => {
     [updateTracks, serverTracks],
   );
 
+    useEffect(() => () => clearTimeout(debounceTimerRef.current), []);
+
   const tracks = isOwner ? localTracks : serverTracks;
 
-  const trackUrnSet = React.useMemo(() => new Set(tracks.map((t) => t.urn)), [tracks]);
+    const trackUrnSet = useMemo(() => new Set(tracks.map((tr) => tr.urn)), [tracks]);
   const { isPausedFromThis, isPlayingFromThis } = usePlayerStore(
     useShallow((s) => ({
       isPlayingFromThis:
@@ -462,379 +124,172 @@ export const PlaylistPage = React.memo(() => {
         !s.isPlaying && s.currentTrack != null && trackUrnSet.has(s.currentTrack.urn),
     })),
   );
-  const showPlayingOverlay = useAutoHide(isPlayingFromThis);
 
+    const aura = usePlaylistAura(tracks, playlist?.genre);
   const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
-  );
+    const handleDragEnd = useCallback(
+        (event: DragEndEvent) => {
+            const {active, over} = event;
+            if (!over || active.id === over.id) return;
+            const oldIndex = localTracks.findIndex((tr) => tr.urn === active.id);
+            const newIndex = localTracks.findIndex((tr) => tr.urn === over.id);
+            if (oldIndex === -1 || newIndex === -1) return;
+            const next = [...localTracks];
+            const [moved] = next.splice(oldIndex, 1);
+            next.splice(newIndex, 0, moved);
+            setLocalTracks(next);
+            debouncedUpdate(next, t('playlist.reordered'));
+        },
+        [localTracks, debouncedUpdate, t],
+    );
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    const handleRemoveTrack = useCallback(
+        (trackUrn: string) => {
+            const next = localTracks.filter((tr) => tr.urn !== trackUrn);
+            setLocalTracks(next);
+            debouncedUpdate(next, t('playlist.trackRemoved'));
+        },
+        [localTracks, debouncedUpdate, t],
+    );
 
-    const oldIndex = localTracks.findIndex((t) => t.urn === active.id);
-    const newIndex = localTracks.findIndex((t) => t.urn === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
+    const handlePlayAll = useCallback(() => {
+        if (tracks.length === 0) return;
+        const {play, pause, resume} = usePlayerStore.getState();
+        if (isPlayingFromThis) pause();
+        else if (isPausedFromThis) resume();
+        else play(tracks[0], tracks);
+    }, [tracks, isPlayingFromThis, isPausedFromThis]);
 
-    const newTracks = [...localTracks];
-    const [moved] = newTracks.splice(oldIndex, 1);
-    newTracks.splice(newIndex, 0, moved);
-    setLocalTracks(newTracks);
-    debouncedUpdate(newTracks, t('playlist.reordered'));
-  };
+    const handleShuffle = useCallback(() => {
+        if (tracks.length === 0) return;
+        const st = usePlayerStore.getState();
+        if (!st.shuffle) usePlayerStore.setState({shuffle: true});
+        st.play(tracks[Math.floor(Math.random() * tracks.length)], tracks);
+    }, [tracks]);
 
-  const handleRemoveTrack = (trackUrn: string) => {
-    const newTracks = localTracks.filter((t) => t.urn !== trackUrn);
-    setLocalTracks(newTracks);
-    debouncedUpdate(newTracks, t('playlist.trackRemoved'));
-  };
+    const handleJump = useCallback(
+        (index: number) => {
+            if (index < 0 || index >= tracks.length) return;
+            usePlayerStore.getState().play(tracks[index], tracks);
+        },
+        [tracks],
+    );
 
-  const handleTogglePin = () => {
+    const handleTogglePin = useCallback(() => {
     if (!playlist) return;
-
     if (isPinned) {
       unpinPlaylist(playlist.urn);
       toast.success(t('sidebar.unpinned'));
       return;
     }
-
     pinPlaylist({
       urn: playlist.urn,
       title: playlist.title,
-      artworkUrl: playlist.artwork_url ?? tracks[0]?.artwork_url ?? null,
+        artworkUrl: rawPlaylistCover(playlist.artwork_url, tracks),
     });
     toast.success(t('sidebar.pinned'));
-  };
+    }, [playlist, isPinned, unpinPlaylist, pinPlaylist, tracks, t]);
 
-  if (isLoading || !playlist) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <Loader2 size={24} className="text-white/15 animate-spin" />
-      </div>
-    );
-  }
-  const cover = art(playlist.artwork_url, 't500x500') ?? art(tracks[0]?.artwork_url, 't500x500');
-
-  const handlePlayAll = () => {
-    if (tracks.length === 0) return;
-    const { play, pause, resume } = usePlayerStore.getState();
-    if (isPlayingFromThis) {
-      pause();
-    } else if (isPausedFromThis) {
-      resume();
-    } else {
-      play(tracks[0], tracks);
-    }
-  };
-
-  const handleShuffle = () => {
-    if (tracks.length === 0) return;
-    if (!usePlayerStore.getState().shuffle) {
-      usePlayerStore.setState({ shuffle: true });
-    }
-    const random = tracks[Math.floor(Math.random() * tracks.length)];
-    usePlayerStore.getState().play(random, tracks);
-  };
-
-  const handleDelete = () => {
+    const handleDelete = useCallback(() => {
+        if (!playlist) return;
     deletePlaylist.mutate(playlist.urn, {
       onSuccess: () => {
         toast.success(t('playlist.deleted'));
         navigate(-1);
       },
     });
-  };
+    }, [playlist, deletePlaylist, navigate, t]);
 
-  return (
-    <div className="p-6 pb-4 space-y-7 animate-fade-in-up">
-      {/* ── Hero ─────────────────────────────────────── */}
-      <section className="relative rounded-3xl overflow-hidden glass-featured">
-          {cover &&
-              (() => {
-                  const hb = perf.blur(100);
-                  return (
-                      <div className="absolute inset-0 pointer-events-none">
-                          {hb > 0 && (
-                              <img
-                                  src={cover}
-                                  alt=""
-                                  className="w-full h-full object-cover scale-[1.5] opacity-25"
-                                  style={{filter: `blur(${hb}px) saturate(1.5)`}}
-                              />
-                          )}
-                          <div
-                              className="absolute inset-0 bg-gradient-to-r from-[rgb(8,8,10)]/80 via-[rgb(8,8,10)]/60 to-[rgb(8,8,10)]/80"/>
-                      </div>
-                  );
-              })()}
+    if (isLoading || !playlist) {
+        return (
+            <div className="relative min-h-full w-full">
+                <style>{PLAYLIST_KEYFRAMES}</style>
+                {perf.atmosphere && <Atmosphere/>}
+                <div
+                    className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10"
+                    style={{isolation: 'isolate'}}
+                >
+                    <HeroSkeleton/>
+                </div>
+            </div>
+        );
+    }
 
-        <div className="relative flex items-center gap-7 p-7">
-          {/* Artwork */}
-          <div
-            className="relative w-[200px] h-[200px] rounded-2xl overflow-hidden shrink-0 shadow-2xl ring-1 ring-white/[0.1] cursor-pointer group/cover"
-            onClick={handlePlayAll}
-          >
-            {cover ? (
-              <img
-                src={cover}
-                alt={playlist.title}
-                className="w-full h-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover/cover:scale-[1.04]"
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.04] to-white/[0.01]">
-                <ListMusic size={48} className="text-white/15" />
-              </div>
+    const trackCount = playlist.track_count || tracks.length;
+
+    return (
+        <div className="relative min-h-full w-full">
+            <style>{PLAYLIST_KEYFRAMES}</style>
+            {perf.atmosphere && (
+                <Atmosphere
+                    tint={aura.tint}
+                    energy={isPlayingFromThis ? Math.min(1, aura.energy + 0.12) : aura.energy}
+                />
             )}
 
-            {/* Play overlay */}
             <div
-              className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover/cover:bg-black/30 group-hover/cover:opacity-100 ${
-                showPlayingOverlay ? 'bg-black/30 opacity-100' : 'bg-black/0 opacity-0'
-              }`}
+                className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-7"
+                style={{isolation: 'isolate'}}
             >
-              <div
-                className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all duration-300 ease-[var(--ease-apple)] group-hover/cover:scale-100 ${
-                  showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
-                }`}
-              >
-                {isPlayingFromThis ? pauseBlack22 : playBlack22}
-              </div>
-            </div>
+                <button
+                    type="button"
+                    onClick={() => navigate(-1)}
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white/55 hover:text-white hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
+                    aria-label={t('search.back')}
+                >
+                    <ChevronLeft size={18}/>
+                </button>
 
-            {/* Track count pill */}
-            <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1 text-[10px] font-medium bg-black/50 backdrop-blur-md text-white/70 px-2 py-1 rounded-full">
-              <ListMusic size={10} />
-              {tracks.length}
-            </div>
-          </div>
-
-          {/* Info */}
-          <div className="flex-1 min-w-0 py-2">
-            <span className="inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/[0.06] text-white/40 border border-white/[0.06] mb-3 uppercase tracking-wider">
-              {playlist.playlist_type || 'Playlist'}
-            </span>
-
-            <h1 className="text-2xl font-bold text-white/95 leading-tight mb-2 line-clamp-2">
-              {playlist.title}
-            </h1>
-
-            {/* Artist */}
-            <div
-              className="flex items-center gap-2.5 mb-5 cursor-pointer group/artist"
-              onClick={() => navigate(`/user/${encodeURIComponent(playlist.user.urn)}`)}
-            >
-              {playlist.user.avatar_url && (
-                <img
-                  src={art(playlist.user.avatar_url, 'small') ?? ''}
-                  alt=""
-                  className="w-6 h-6 rounded-full ring-1 ring-white/[0.08] group-hover/artist:ring-white/[0.15] transition-all duration-150"
+                <PlaylistHero
+                    playlist={playlist}
+                    tracks={tracks}
+                    aura={aura}
+                    isOwner={isOwner}
+                    isPlaying={isPlayingFromThis}
+                    isPinned={isPinned}
+                    trackCount={trackCount}
+                    onPlayAll={handlePlayAll}
+                    onShuffle={handleShuffle}
+                    onTogglePin={handleTogglePin}
+                    onDelete={() => setShowDeleteConfirm(true)}
                 />
-              )}
-              <span className="text-[14px] text-white/50 group-hover/artist:text-white/70 transition-colors">
-                {playlist.user.username}
-              </span>
-            </div>
 
-            {/* ── Action bar: primary + secondary chips + icon rail ── */}
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* Primary Play All */}
-              <button
-                type="button"
-                onClick={handlePlayAll}
-                className={`inline-flex items-center gap-2 pl-4 pr-5 h-11 rounded-2xl text-[14px] font-semibold transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-[0.97] ${
-                  isPlayingFromThis
-                    ? 'bg-white text-black hover:bg-white/95'
-                    : 'bg-accent text-accent-contrast hover:bg-accent-hover'
-                }`}
-                style={{
-                  boxShadow:
-                    '0 8px 28px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.22)',
-                }}
-              >
-                {isPlayingFromThis ? pauseCurrent16 : playCurrent16}
-                {t('playlist.playAll')}
-              </button>
+                <CrateLedger playlist={playlist} tracks={tracks} accentGlow={aura.accentGlow}/>
 
-              {/* Secondary chips: Shuffle, Pin, Like(count) */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleShuffle}
-                  title={t('playlist.shuffle')}
-                  className="inline-flex items-center gap-1.5 px-3 h-10 rounded-xl text-[12.5px] font-semibold transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer border bg-white/[0.04] border-white/[0.06] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.1]"
-                >
-                  <Shuffle size={14} />
-                  <span>{t('playlist.shuffle')}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTogglePin}
-                  title={isPinned ? t('sidebar.unpinPlaylist') : t('sidebar.pinPlaylist')}
-                  className={`inline-flex items-center justify-center w-10 h-10 rounded-xl border transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
-                    isPinned
-                      ? 'bg-accent/15 border-accent/25 text-accent shadow-[0_0_16px_rgba(255,85,0,0.18)]'
-                      : 'bg-white/[0.04] border-white/[0.06] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.1]'
-                  }`}
-                >
-                  <MapPin size={15} />
-                </button>
-                <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
-              </div>
-
-              {/* Utility rail */}
-              <div
-                className="flex items-center gap-0.5 h-11 px-1.5 rounded-2xl"
-                style={{
-                  background: 'rgba(255,255,255,0.035)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                }}
-              >
-                <CopyIconAction url={playlist.permalink_url} />
-                {isOwner && (
-                  <>
-                    <span className="w-px h-5 bg-white/[0.08] mx-0.5" aria-hidden />
-                      <SharingToggle kind="playlist" urn={playlist.urn} sharing={playlist.sharing}/>
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteConfirm(true)}
-                      title={t('playlist.delete')}
-                      aria-label={t('playlist.delete')}
-                      className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/55 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 cursor-pointer"
+                {tracks.length > 1 && (
+                    <div
+                        className="rounded-[2rem] p-5 md:p-6"
+                        style={{
+                            background: 'rgba(255,255,255,0.025)',
+                            border: '0.5px solid rgba(255,255,255,0.06)',
+                        }}
                     >
-                      <Trash2 size={16} />
-                    </button>
-                  </>
+                        <div
+                            className="flex items-center gap-2 mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
+                            {t('playlist.theSet')}
+                        </div>
+                        <SetRibbon tracks={tracks} onJump={handleJump}/>
+                    </div>
                 )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* ── Stats bar ────────────────────────────────── */}
-      <section className="flex items-center gap-5 px-1 flex-wrap">
-        <div className="flex items-center gap-1.5 text-[12px] text-white/30">
-          <ListMusic size={13} className="text-white/20" />
-          <span className="tabular-nums font-medium">{tracks.length}</span>
-          <span className="text-white/15">{t('search.tracks').toLowerCase()}</span>
-        </div>
-        {playlist.likes_count != null && (
-          <div className="flex items-center gap-1.5 text-[12px] text-white/30">
-            <Heart size={13} className="text-white/20" />
-            <span className="tabular-nums font-medium">{fc(playlist.likes_count)}</span>
-            <span className="text-white/15">{t('track.likes')}</span>
-          </div>
-        )}
-        <div className="flex items-center gap-1.5 text-[12px] text-white/25 ml-auto">
-          <Clock size={12} />
-          <span className="tabular-nums">{durLong(playlist.duration)}</span>
-        </div>
-        <div className="flex items-center gap-1.5 text-[12px] text-white/20">
-          <Calendar size={12} />
-          <span>{dateFormatted(playlist.created_at)}</span>
-        </div>
-      </section>
-
-      {/* ── Description ──────────────────────────────── */}
-      {playlist.description && (
-        <section className="glass rounded-2xl p-5">
-            <p className="selectable text-[13px] text-white/45 leading-relaxed whitespace-pre-wrap break-words">
-            {playlist.description}
-          </p>
-        </section>
-      )}
-
-      {/* ── Track list ───────────────────────────────── */}
-      <section>
-        {tracks.length === 0 ? (
-          <div className="text-center py-12">
-            <ListMusic size={32} className="text-white/10 mx-auto mb-3" />
-            <p className="text-[13px] text-white/20">{t('playlist.noTracks')}</p>
-          </div>
-        ) : isOwner ? (
-          <div className="space-y-0.5">
-            {/* Header */}
-            <div className="flex items-center gap-3.5 px-4 py-2 text-[10px] text-white/20 uppercase tracking-wider font-medium">
-              <span className="w-5" />
-              <span className="w-8 text-center">#</span>
-              <span className="w-10" />
-              <span className="flex-1">Title</span>
-              <span className="hidden sm:block w-[100px]" />
-              <span className="w-10 text-right">
-                <Clock size={10} className="inline" />
-              </span>
-              <span className="w-7" />
-            </div>
-            <div className="h-px bg-white/[0.04] mx-4 mb-1" />
-
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={tracks.map((t) => t.urn)}
-                strategy={verticalListSortingStrategy}
-              >
-                <VirtualList
-                  items={tracks}
-                  rowHeight={68}
-                  overscan={10}
-                  className="space-y-0.5"
-                  getItemKey={(track) => track.urn}
-                  renderItem={(track, i) => (
-                    <SortableTrackRow
-                      track={track}
-                      index={i}
-                      queue={tracks}
-                      isOwner={true}
-                      onRemove={handleRemoveTrack}
-                    />
-                  )}
+                <SequenceList
+                    tracks={tracks}
+                    isOwner={isOwner}
+                    onDragEnd={handleDragEnd}
+                    onRemove={handleRemoveTrack}
+                    sentinelRef={scrollRef}
+                    hasNextPage={hasNextPage ?? false}
+                    isFetchingNextPage={isFetchingNextPage}
                 />
-              </SortableContext>
-            </DndContext>
-            {hasNextPage && (
-              <div ref={scrollRef} className="flex justify-center py-4">
-                {isFetchingNextPage && <Loader2 size={20} className="animate-spin text-white/30" />}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-0.5">
-            {/* Header */}
-            <div className="flex items-center gap-3.5 px-4 py-2 text-[10px] text-white/20 uppercase tracking-wider font-medium">
-              <span className="w-8 text-center">#</span>
-              <span className="w-10" />
-              <span className="flex-1">Title</span>
-              <span className="hidden sm:block w-[100px]" />
-              <span className="w-10 text-right">
-                <Clock size={10} className="inline" />
-              </span>
+
+                <MoreCrates
+                    curatorUrn={playlist.user.urn}
+                    curatorName={playlist.user.username}
+                    excludeUrn={playlist.urn}
+                />
             </div>
-            <div className="h-px bg-white/[0.04] mx-4 mb-1" />
 
-            <VirtualList
-              items={tracks}
-              rowHeight={68}
-              overscan={10}
-              className="space-y-0.5"
-              getItemKey={(track) => track.urn}
-              renderItem={(track, i) => <TrackRow track={track} index={i} queue={tracks} />}
-            />
-            {hasNextPage && (
-              <div ref={scrollRef} className="flex justify-center py-4">
-                {isFetchingNextPage && <Loader2 size={20} className="animate-spin text-white/30" />}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* ── Delete confirmation ────────────────────── */}
       <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-fade-in" />
@@ -855,7 +310,7 @@ export const PlaylistPage = React.memo(() => {
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-1">
               <Dialog.Close className="px-4 py-2 rounded-xl text-[13px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition-all cursor-pointer">
-                {t('common.cancel') ?? 'Cancel'}
+                  {t('common.cancel')}
               </Dialog.Close>
               <button
                 type="button"

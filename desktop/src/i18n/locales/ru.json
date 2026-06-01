@@ -278,7 +278,27 @@
     "deleteConfirm": "Удалить «{{title}}»? Это действие нельзя отменить.",
     "deleted": "Плейлист удалён",
     "private": "Приватный",
-    "public": "Публичный"
+    "public": "Публичный",
+    "kind": {
+      "set": "Сет",
+      "crate": "Подборка",
+      "collection": "Коллекция"
+    },
+    "curatedBy": "Собрал",
+    "linerNote": "Заметка куратора",
+    "theSequence": "Последовательность",
+    "theSet": "Сет",
+    "jumpToTrack": "К треку",
+    "spansGenres_one": "{{count}} жанр",
+    "spansGenres_few": "{{count}} жанра",
+    "spansGenres_many": "{{count}} жанров",
+    "distinctArtists_one": "{{count}} артист",
+    "distinctArtists_few": "{{count}} артиста",
+    "distinctArtists_many": "{{count}} артистов",
+    "yearRange": "{{from}}–{{to}}",
+    "moreCrates": "Ещё подборки от {{name}}",
+    "lastEdited": "Обновлено {{date}}",
+    "emptyCrate": "Подборка пуста — пора копать"
   },
   "user": {
     "followers": "Подписчики",

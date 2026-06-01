@@ -276,7 +276,25 @@
     "deleteConfirm": "Delete \"{{title}}\"? This cannot be undone.",
     "deleted": "Playlist deleted",
     "private": "Private",
-    "public": "Public"
+    "public": "Public",
+    "kind": {
+      "set": "Set",
+      "crate": "Crate",
+      "collection": "Collection"
+    },
+    "curatedBy": "Curated by",
+    "linerNote": "Curator's note",
+    "theSequence": "The Sequence",
+    "theSet": "The Set",
+    "jumpToTrack": "Jump to track",
+    "spansGenres_one": "{{count}} genre",
+    "spansGenres_other": "{{count}} genres",
+    "distinctArtists_one": "{{count}} artist",
+    "distinctArtists_other": "{{count}} artists",
+    "yearRange": "{{from}}–{{to}}",
+    "moreCrates": "More crates by {{name}}",
+    "lastEdited": "Updated {{date}}",
+    "emptyCrate": "This crate is empty — start digging"
   },
   "user": {
     "followers": "Followers",

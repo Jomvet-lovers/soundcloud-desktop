@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { art, fc } from '../../lib/formatters';
+import {fc} from '../../lib/formatters';
 import {
   type Playlist,
   useAddToPlaylist,
@@ -11,6 +11,7 @@ import {
   useMyPlaylists,
 } from '../../lib/hooks';
 import { Globe, ListMusic, ListPlus, Loader2, Lock, Plus, X } from '../../lib/icons';
+import {playlistCoverUrl} from '../../lib/playlist-cover';
 
 interface AddToPlaylistDialogProps {
   trackUrns: string[];
@@ -31,7 +32,7 @@ const PlaylistOption = React.memo(function PlaylistOption({
   containsSome: boolean;
 }) {
   const { t } = useTranslation();
-  const cover = art(playlist.artwork_url ?? playlist.tracks?.[0]?.artwork_url, 'small');
+    const cover = playlistCoverUrl(playlist.artwork_url, playlist.tracks, 'small');
 
   return (
     <button
@@ -198,8 +199,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
             if (cancelled) return;
             setPlaylistTrackMap((prev) => ({ ...prev, [playlistUrn]: [] }));
           } finally {
-            if (cancelled) return;
-            setLoadingPlaylistUrns((prev) => ({ ...prev, [playlistUrn]: false }));
+              if (!cancelled) setLoadingPlaylistUrns((prev) => ({...prev, [playlistUrn]: false}));
           }
         }),
       );
