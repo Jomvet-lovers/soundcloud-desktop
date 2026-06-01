@@ -3,10 +3,10 @@ use std::sync::Arc;
 use futures::future::join_all;
 use serde_json::Value;
 use sqlx::PgPool;
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::enrich::mb::{MbArtistUrl, MbClient, MbRecordingBrief};
 use crate::modules::enrich::normalize::{normalize_name, normalize_title};
@@ -168,18 +168,28 @@ impl ArtistCrawlService {
             }
         }
         if let Some(gid) = genius_id.and_then(|s| s.parse::<i64>().ok()) {
-            match self
+            let songs_res = self
                 .discover_genius_songs(artist_id, gid, genius_offset)
-                .await
-            {
-                Ok(next) => {
-                    self.set_crawl_offset(artist_id, CrawlSource::Genius, next)
-                        .await?
-                }
-                Err(e) => debug!(artist = %artist_id, error = %e, "Genius song discovery failed"),
+                .await;
+            if let Ok(next) = &songs_res {
+                self.set_crawl_offset(artist_id, CrawlSource::Genius, *next)
+                    .await?;
             }
-            if let Err(e) = self.discover_genius_albums(artist_id, gid).await {
-                debug!(artist = %artist_id, error = %e, "Genius album discovery failed");
+            let albums_res = self.discover_genius_albums(artist_id, gid).await;
+            // Propagate Genius transport/DB failures (→ backoff via on_failure), but
+            // swallow parse failures: a bad parse means a fleet-wide envelope change,
+            // not a per-artist signal, and must not march every artist to crawl_dead.
+            for (label, res) in [
+                ("genius songs", songs_res.map(|_| ())),
+                ("genius albums", albums_res),
+            ] {
+                match res {
+                    Ok(()) => {}
+                    Err(AppError::Internal(_)) => {
+                        warn!(artist = %artist_id, label, "genius parse failure swallowed")
+                    }
+                    Err(e) => return Err(e),
+                }
             }
         }
         if let Some(sc_user_id) = sc_user_id {
@@ -269,7 +279,7 @@ impl ArtistCrawlService {
     async fn discover_genius_albums(&self, artist_id: Uuid, genius_id: i64) -> AppResult<()> {
         let mut page = 1u32;
         for _ in 0..10 {
-            let (albums, has_more) = self.genius.list_artist_albums(genius_id, page, 20).await;
+            let (albums, has_more) = self.genius.list_artist_albums(genius_id, page, 20).await?;
             if albums.is_empty() {
                 break;
             }
@@ -315,7 +325,7 @@ impl ArtistCrawlService {
             let (tracks, has_more) = self
                 .genius
                 .list_album_tracks(genius_album_id, page, 50)
-                .await;
+                .await?;
             if tracks.is_empty() {
                 break;
             }
@@ -450,7 +460,7 @@ impl ArtistCrawlService {
             let songs = self
                 .genius
                 .list_artist_songs(genius_id, page, GENIUS_PAGE_SIZE)
-                .await;
+                .await?;
             let count = songs.len() as u32;
             let results = join_all(
                 songs

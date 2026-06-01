@@ -106,6 +106,9 @@ fn dispatch<S: WorkSource>(
 ) {
     tokio::spawn(async move {
         let _permit = permit;
+        // No catch_unwind: release builds are panic=abort, so a panic in run()
+        // aborts the process rather than unwinding; the lease is reclaimed by the
+        // next claim once it expires, not converted to a Failed outcome here.
         let outcome = source.run(&item).await;
         let res = match &outcome {
             WorkOutcome::Done => source.on_success(&item).await,

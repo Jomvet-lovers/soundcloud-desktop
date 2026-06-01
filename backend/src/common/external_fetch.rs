@@ -1,11 +1,14 @@
 //! Универсальный fetcher для внешних API (Genius/MusicBrainz/Wikipedia/...).
 //!
-//! Три режима:
-//! - `get_bytes`  — direct → race(proxy, relay). Без throttle, без ретраев.
-//! - `get_api`    — throttle → direct → race(proxy, relay). Для API с токеном.
-//! - `get_scrape` — race(proxy, relay) с внутренним 429-retry → fallback direct
-//!   (после throttle, без ретраев). Для HTML/web-API без токена, где direct
-//!   режется CF/rate-limit'ом.
+//! Режимы:
+//! - `get_bytes`  — direct → `proxy_first`. Без throttle, без ретраев на direct.
+//! - `get_api`    — throttle → direct → `proxy_first`. Для API с токеном.
+//! - `get_scrape` — `proxy_first` → fallback throttle→direct. Для web без токена.
+//!
+//! `proxy_first` — прокси primary с N ретраями (intermediate-proxy round-robin'ит
+//! пул egress-IP per-request), релей — единственный capped last-resort shot, НЕ
+//! racing'ом: scarce-релей (реальные десктопы) не контендится и под глобальным
+//! семафором, так что аутейдж прокси не зальёт его флудом.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,15 +19,15 @@ use bytes::Bytes;
 use call_relay::{Client as RelayClient, Request as RelayRequest};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method};
+use tokio::sync::Semaphore;
 use tracing::debug;
 
 use crate::common::throttle::Throttle;
 use crate::error::{AppError, AppResult};
 
-const SCRAPE_RELAY_RETRIES: u32 = 3;
-const SCRAPE_RETRY_BASE_MS: u64 = 800;
-
-const RACE_BOUNDED_GRACE: Duration = Duration::from_secs(8);
+const PROXY_RETRY_ATTEMPTS: u32 = 4;
+const PROXY_RETRY_BASE_MS: u64 = 300;
+const RELAY_MAX_CONCURRENT: usize = 8;
 
 #[derive(Clone)]
 pub struct ExternalFetcher {
@@ -35,6 +38,7 @@ struct Inner {
     http: Client,
     proxy_url: String,
     relay: Option<Arc<RelayClient>>,
+    relay_sem: Arc<Semaphore>,
 }
 
 impl ExternalFetcher {
@@ -44,6 +48,7 @@ impl ExternalFetcher {
                 http,
                 proxy_url,
                 relay,
+                relay_sem: Arc::new(Semaphore::new(RELAY_MAX_CONCURRENT)),
             }),
         })
     }
@@ -61,7 +66,7 @@ impl ExternalFetcher {
             Ok(b) => Ok(b),
             Err(e) => {
                 debug!(url, error = %e, "external direct failed, falling back");
-                self.race_relay_proxy(Method::GET, url, headers, None).await
+                self.proxy_first(Method::GET, url, headers, None).await
             }
         }
     }
@@ -77,9 +82,6 @@ impl ExternalFetcher {
         self.get_bytes(url, headers).await
     }
 
-    /// Scrape-режим: сначала race(proxy, relay) с внутренним ретраем на 429.
-    /// При исчерпании — throttle → direct (без ретраев).
-    /// Если fallback не настроен — сразу throttle → direct.
     pub async fn get_scrape(
         &self,
         url: &str,
@@ -87,89 +89,58 @@ impl ExternalFetcher {
         throttle: &Throttle,
     ) -> AppResult<Bytes> {
         if self.has_fallback() {
-            for attempt in 0..=SCRAPE_RELAY_RETRIES {
-                match self
-                    .race_relay_proxy(Method::GET, url, headers.clone(), None)
-                    .await
-                {
-                    Ok(b) => return Ok(b),
-                    Err(e) => {
-                        let retryable = matches!(
-                            &e,
-                            AppError::ScApi { status, .. }
-                                if *status == 429 || *status == 408 || *status == 425
-                        ) || matches!(&e, AppError::ScUnreachable(_));
-                        if attempt < SCRAPE_RELAY_RETRIES && retryable {
-                            let delay_ms = SCRAPE_RETRY_BASE_MS * (1u64 << attempt);
-                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                            continue;
-                        }
-                        debug!(url, attempt, error = %e, "scrape relay/proxy failed; falling to direct");
-                        break;
-                    }
-                }
+            match self
+                .proxy_first(Method::GET, url, headers.clone(), None)
+                .await
+            {
+                Ok(b) => return Ok(b),
+                Err(e) => debug!(url, error = %e, "scrape proxy_first failed; falling to direct"),
             }
         }
         throttle.wait().await;
         self.send_direct(Method::GET, url, headers, None).await
     }
 
-    pub async fn race_relay_proxy(
+    pub async fn proxy_first(
         &self,
         method: Method,
         url: &str,
         headers: HeaderMap,
         body: Option<Bytes>,
     ) -> AppResult<Bytes> {
-        let proxy_set = !self.inner.proxy_url.is_empty();
-        let relay_set = self.inner.relay.is_some();
-        match (relay_set, proxy_set) {
-            (true, true) => {
-                let relay_fut = self.send_relay(
-                    method.clone(),
-                    url.to_string(),
-                    headers.clone(),
-                    body.clone(),
-                );
-                let proxy_fut = self.send_proxy(method, url, headers, body);
-                tokio::pin!(relay_fut);
-                tokio::pin!(proxy_fut);
-
-                tokio::select! {
-                    relay_res = relay_fut.as_mut() => match relay_res {
-                        Ok(b) => Ok(b),
-                        Err(relay_err) => {
-                            await_other_with_grace(proxy_fut, RACE_BOUNDED_GRACE, relay_err).await
+        let mut last_err: Option<AppError> = None;
+        if !self.inner.proxy_url.is_empty() {
+            for attempt in 0..PROXY_RETRY_ATTEMPTS {
+                match self
+                    .send_proxy(method.clone(), url, headers.clone(), body.clone())
+                    .await
+                {
+                    Ok(b) => return Ok(b),
+                    Err(e) => {
+                        if is_hard_client_error(&e) {
+                            return Err(e);
                         }
-                    },
-                    proxy_res = proxy_fut.as_mut() => match proxy_res {
-                        Ok(b) => Ok(b),
-                        Err(proxy_err) => {
-                            let unbounded = matches!(
-                                &proxy_err,
-                                AppError::ScApi { status: 502, .. },
-                            );
-                            if unbounded {
-                                match relay_fut.await {
-                                    Ok(b) => Ok(b),
-                                    Err(_) => Err(proxy_err),
-                                }
-                            } else {
-                                await_other_with_grace(relay_fut, RACE_BOUNDED_GRACE, proxy_err).await
-                            }
+                        last_err = Some(e);
+                        if attempt + 1 < PROXY_RETRY_ATTEMPTS {
+                            let delay_ms = PROXY_RETRY_BASE_MS * (1u64 << attempt);
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                         }
-                    },
+                    }
                 }
             }
-            (true, false) => {
-                self.send_relay(method, url.to_string(), headers, body)
-                    .await
-            }
-            (false, true) => self.send_proxy(method, url, headers, body).await,
-            (false, false) => Err(AppError::ScUnreachable(
-                "no relay or proxy configured".to_string(),
-            )),
         }
+        if self.inner.relay.is_some() {
+            if let Ok(_permit) = self.inner.relay_sem.clone().try_acquire_owned() {
+                match self.send_relay(method, url.to_string(), headers, body).await {
+                    Ok(b) => return Ok(b),
+                    Err(e) => last_err = last_err.or(Some(e)),
+                }
+            } else {
+                debug!(url, "relay last-resort skipped: concurrency cap reached");
+            }
+        }
+        Err(last_err
+            .unwrap_or_else(|| AppError::ScUnreachable("no proxy or relay configured".to_string())))
     }
 
     async fn send_direct(
@@ -294,16 +265,10 @@ impl ExternalFetcher {
     }
 }
 
-async fn await_other_with_grace<F>(
-    other: F,
-    grace: Duration,
-    original_err: AppError,
-) -> AppResult<Bytes>
-where
-    F: std::future::Future<Output = AppResult<Bytes>>,
-{
-    match tokio::time::timeout(grace, other).await {
-        Ok(Ok(b)) => Ok(b),
-        Ok(Err(_)) | Err(_) => Err(original_err),
-    }
+fn is_hard_client_error(e: &AppError) -> bool {
+    matches!(
+        e,
+        AppError::ScApi { status, .. }
+            if (400..500).contains(status) && !matches!(status, 429 | 408 | 425)
+    )
 }

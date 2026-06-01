@@ -12,6 +12,7 @@ use tracing::warn;
 use crate::common::external_fetch::ExternalFetcher;
 use crate::common::throttle::Throttle;
 use crate::config::GeniusCfg;
+use crate::error::{AppError, AppResult};
 
 const GENIUS_API: &str = "https://api.genius.com";
 const GENIUS_WEB_API: &str = "https://genius.com/api";
@@ -330,32 +331,37 @@ impl GeniusService {
         format!("{GENIUS_API}{path}")
     }
 
-    async fn fetch_json<T>(&self, url: &str, label: &str) -> Option<T>
+    async fn fetch_json_strict<T>(&self, url: &str, label: &str) -> AppResult<T>
     where
         T: for<'de> Deserialize<'de>,
     {
         let with_bearer = url.starts_with(GENIUS_API);
         let headers = self.json_headers(with_bearer);
         let _permit = self.scrape_sem.acquire().await.ok();
-        let result = if with_bearer {
+        let bytes = if with_bearer {
             self.fetcher.get_api(url, headers, &self.api_throttle).await
         } else {
             self.fetcher
                 .get_scrape(url, headers, &self.web_throttle)
                 .await
-        };
-        let bytes = match result {
-            Ok(b) => b,
+        }?;
+        serde_json::from_slice::<T>(&bytes).map_err(|e| {
+            let head: String = String::from_utf8_lossy(&bytes).chars().take(80).collect();
+            warn!(url, label, error = %e, head = %head, "genius parse failed");
+            AppError::internal(format!("genius parse {label}: {e}"))
+        })
+    }
+
+    async fn fetch_json<T>(&self, url: &str, label: &str) -> Option<T>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        match self.fetch_json_strict(url, label).await {
+            Ok(v) => Some(v),
+            // parse failures already warn inside fetch_json_strict; log fetch/transport here
+            Err(AppError::Internal(_)) => None,
             Err(e) => {
                 warn!(url, label, error = %e, "genius fetch failed");
-                return None;
-            }
-        };
-        match serde_json::from_slice::<T>(&bytes) {
-            Ok(d) => Some(d),
-            Err(e) => {
-                let head: String = String::from_utf8_lossy(&bytes).chars().take(80).collect();
-                warn!(url, label, error = %e, head = %head, "genius parse failed");
                 None
             }
         }
@@ -382,20 +388,13 @@ impl GeniusService {
         genius_id: i64,
         page: u32,
         per_page: u32,
-    ) -> Vec<GeniusSongMeta> {
+    ) -> AppResult<Vec<GeniusSongMeta>> {
         let per = per_page.clamp(1, 50);
         let pg = page.max(1);
         let path = format!("/artists/{genius_id}/songs?per_page={per}&page={pg}&sort=popularity");
-        let url = if self.has_token() {
-            self.api(&path)
-        } else {
-            self.web_api(&path)
-        };
-        let parsed: ArtistSongsResp = match self.fetch_json(&url, "artist songs").await {
-            Some(d) => d,
-            None => return Vec::new(),
-        };
-        parsed
+        let url = self.web_api(&path);
+        let parsed: ArtistSongsResp = self.fetch_json_strict(&url, "artist songs").await?;
+        Ok(parsed
             .response
             .map(|r| r.songs.unwrap_or_default())
             .unwrap_or_default()
@@ -415,7 +414,7 @@ impl GeniusService {
                     featured,
                 })
             })
-            .collect()
+            .collect())
     }
 
     pub async fn list_artist_albums(
@@ -423,16 +422,13 @@ impl GeniusService {
         genius_id: i64,
         page: u32,
         per_page: u32,
-    ) -> (Vec<GeniusAlbumRef>, bool) {
+    ) -> AppResult<(Vec<GeniusAlbumRef>, bool)> {
         let per = per_page.clamp(1, 50);
         let pg = page.max(1);
         let url = self.web_api(&format!(
             "/artists/{genius_id}/albums?per_page={per}&page={pg}"
         ));
-        let parsed: ArtistAlbumsResp = match self.fetch_json(&url, "artist albums").await {
-            Some(d) => d,
-            None => return (Vec::new(), false),
-        };
+        let parsed: ArtistAlbumsResp = self.fetch_json_strict(&url, "artist albums").await?;
         let body = parsed.response.unwrap_or(ArtistAlbumsBody {
             albums: None,
             next_page: None,
@@ -463,7 +459,7 @@ impl GeniusService {
                 })
             })
             .collect();
-        (out, has_more)
+        Ok((out, has_more))
     }
 
     pub async fn list_album_tracks(
@@ -471,16 +467,13 @@ impl GeniusService {
         genius_album_id: i64,
         page: u32,
         per_page: u32,
-    ) -> (Vec<GeniusAlbumTrack>, bool) {
+    ) -> AppResult<(Vec<GeniusAlbumTrack>, bool)> {
         let per = per_page.clamp(1, 50);
         let pg = page.max(1);
         let url = self.web_api(&format!(
             "/albums/{genius_album_id}/tracks?per_page={per}&page={pg}"
         ));
-        let parsed: AlbumTracksResp = match self.fetch_json(&url, "album tracks").await {
-            Some(d) => d,
-            None => return (Vec::new(), false),
-        };
+        let parsed: AlbumTracksResp = self.fetch_json_strict(&url, "album tracks").await?;
         let body = parsed.response.unwrap_or(AlbumTracksBody {
             tracks: None,
             next_page: None,
@@ -512,16 +505,12 @@ impl GeniusService {
                 })
             })
             .collect();
-        (tracks, has_more)
+        Ok((tracks, has_more))
     }
 
     pub async fn lookup_song(&self, genius_song_id: i64) -> Option<GeniusSongDetails> {
         let path = format!("/songs/{genius_song_id}");
-        let url = if self.has_token() {
-            self.api(&path)
-        } else {
-            self.web_api(&path)
-        };
+        let url = self.web_api(&path);
         let parsed: SongResp = self.fetch_json(&url, "song").await?;
         let song = parsed.response.and_then(|r| r.song)?;
         let song_rd = song.release_date_components;
@@ -559,11 +548,7 @@ impl GeniusService {
 
     pub async fn lookup_artist(&self, genius_id: i64) -> Option<GeniusArtistDetails> {
         let path = format!("/artists/{genius_id}");
-        let url = if self.has_token() {
-            self.api(&path)
-        } else {
-            self.web_api(&path)
-        };
+        let url = self.web_api(&path);
         let parsed: ArtistResp = self.fetch_json(&url, "artist").await?;
         let a = parsed.response.and_then(|r| r.artist)?;
         Some(GeniusArtistDetails {
@@ -882,7 +867,7 @@ mod tests {
     #[ignore]
     async fn live_list_psychosis_albums() {
         let svc = build_client();
-        let (albums, _has_more) = svc.list_artist_albums(3401261, 1, 20).await;
+        let (albums, _has_more) = svc.list_artist_albums(3401261, 1, 20).await.unwrap();
         assert!(
             albums.len() >= 5,
             "expected several albums, got {}",
@@ -900,7 +885,7 @@ mod tests {
     #[ignore]
     async fn live_album_tracks_euphoria() {
         let svc = build_client();
-        let (tracks, _) = svc.list_album_tracks(1222807, 1, 50).await;
+        let (tracks, _) = svc.list_album_tracks(1222807, 1, 50).await.unwrap();
         assert!(tracks.len() >= 5);
         assert!(tracks.iter().all(|t| t.genius_song_id > 0));
     }

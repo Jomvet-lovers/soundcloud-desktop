@@ -574,13 +574,17 @@ pub async fn find_best_indexed_for_artist_title(
 /// Линкует wanted_track к найденному indexed_track (по sc_track_id) и
 /// перетаскивает связи с альбомами. Race-safe (UPDATE WHERE id, ON CONFLICT
 /// DO NOTHING для album_tracks).
-pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) -> AppResult<()> {
+/// Возвращает `true`, если трек реально нашёлся и строка перешла в `linked`.
+/// Без совпадения статус НЕ трогаем — строка остаётся `wanted` и в очереди
+/// резолвера (иначе orphan `linked` + `track_id IS NULL`, который пикап не берёт).
+pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) -> AppResult<bool> {
     let row: Option<(Option<Uuid>,)> = sqlx::query_as(
         "UPDATE wanted_tracks
-         SET track_id = (SELECT id FROM tracks WHERE sc_track_id = $2 LIMIT 1),
+         SET track_id = t.id,
              status = 'linked',
              updated_at = now()
-         WHERE id = $1
+         FROM (SELECT id FROM tracks WHERE sc_track_id = $2 LIMIT 1) t
+         WHERE wanted_tracks.id = $1
          RETURNING track_id",
     )
     .bind(wanted_id)
@@ -588,7 +592,7 @@ pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) 
     .fetch_optional(pg)
     .await?;
     let Some((Some(indexed_id),)) = row else {
-        return Ok(());
+        return Ok(false);
     };
     let albums: Vec<(Uuid, i16)> = sqlx::query_as(
         "SELECT album_id, position FROM wanted_track_albums WHERE wanted_track_id = $1",
@@ -619,7 +623,7 @@ pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) 
         .execute(pg)
         .await?;
     }
-    Ok(())
+    Ok(true)
 }
 
 #[derive(Debug, Clone)]

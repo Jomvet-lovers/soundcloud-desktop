@@ -278,6 +278,22 @@ async fn maybe_auto_attach_sc_account(
     .bind(sc_user_id)
     .execute(&mut **tx)
     .await?;
+    // Re-point this uploader's already-enriched tracks to the newly matched artist
+    // (skip in-flight/locked). Jitter next_run_at so a prolific reupload channel
+    // doesn't make its whole catalog claimable at once and swamp the enrich pool.
+    sqlx::query(
+        "UPDATE tracks
+         SET enrich_state = 'pending',
+             enrich_next_run_at = now() + (random() * interval '15 minutes')
+         WHERE uploader_sc_user_id = $1
+           AND enrich_locked_at IS NULL
+           AND enrich_state IN ('done', 'failed')
+           AND (primary_artist_id IS NULL OR primary_artist_id <> $2)",
+    )
+        .bind(sc_user_id)
+        .bind(artist_id)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 

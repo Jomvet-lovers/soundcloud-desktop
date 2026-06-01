@@ -391,6 +391,7 @@ impl ScAccountScanner {
     async fn persist_link(&self, wanted_id: Uuid, sc_track_id: &str) -> AppResult<()> {
         crate::modules::enrich::wanted_resolver::link_wanted_to_sc(&self.pg, wanted_id, sc_track_id)
             .await
+            .map(|_| ())
     }
 }
 
