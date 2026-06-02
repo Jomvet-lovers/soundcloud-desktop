@@ -39,7 +39,12 @@ impl BusClient {
     /// Fire-and-forget publish to `storage.track_uploaded` jetstream subject.
     /// No await on the ack — backend has its own dedup; payload loss is recoverable
     /// via the periodic reaper in `IndexingService.reap`.
-    pub fn publish_track_uploaded(&self, sc_track_id: String, storage_url: String) {
+    pub fn publish_track_uploaded(
+        &self,
+        sc_track_id: String,
+        storage_url: String,
+        quality: &'static str,
+    ) {
         let Some(js) = self.js.clone() else {
             return;
         };
@@ -48,10 +53,12 @@ impl BusClient {
             struct Payload {
                 sc_track_id: String,
                 storage_url: String,
+                quality: &'static str,
             }
             let body = match serde_json::to_vec(&Payload {
                 sc_track_id,
                 storage_url,
+                quality,
             }) {
                 Ok(b) => b,
                 Err(e) => {

@@ -95,6 +95,10 @@ impl StorageClient {
         data: Bytes,
         quality: &'static str,
     ) {
+        if !is_canonical_track_urn(&track_urn) {
+            warn!("[storage] refusing upload for non-canonical urn: {track_urn:?}");
+            return;
+        }
         if !self.enabled() || self.is_temporarily_unavailable() {
             return;
         }
@@ -243,9 +247,41 @@ async fn upload_to_storage(
     Ok(())
 }
 
+/// A well-formed SC track URN: `soundcloud:tracks:<digits>`. The S3 object name
+/// is derived from this via `track_filename` (`:`→`_`); a bare id would yield a
+/// non-canonical `<id>.m4a`, so uploads gate on this.
+pub fn is_canonical_track_urn(track_urn: &str) -> bool {
+    track_urn
+        .strip_prefix("soundcloud:tracks:")
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_canonical_track_urn, StorageClient};
+
+    #[test]
+    fn canonical_urn_maps_to_canonical_filename() {
+        assert!(is_canonical_track_urn("soundcloud:tracks:12345"));
+        assert_eq!(
+            StorageClient::track_filename("soundcloud:tracks:12345"),
+            "soundcloud_tracks_12345"
+        );
+    }
+
+    #[test]
+    fn rejects_bare_and_foreign_urns() {
+        assert!(!is_canonical_track_urn("12345"));
+        assert!(!is_canonical_track_urn("soundcloud:users:12345"));
+        assert!(!is_canonical_track_urn("soundcloud:tracks:"));
+        assert!(!is_canonical_track_urn("soundcloud:tracks:abc"));
+        assert!(!is_canonical_track_urn(""));
+    }
 }

@@ -180,10 +180,10 @@ impl IndexingService {
                         .and_then(|v| v.as_str())
                         .map(String::from)
                         .unwrap_or_default();
-                    let quality = data
-                        .get("quality")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("sq");
+                    // `None` → синтетический S3-hit event без quality: не
+                    // даунгрейдим уже записанное `storage_quality` (см.
+                    // `mark_storage_done`). Реальный storage-event несёт quality.
+                    let quality = data.get("quality").and_then(|v| v.as_str());
                     let Some(sc_track_id) = normalize_sc_track_id(raw_id) else {
                         return Ok(());
                     };

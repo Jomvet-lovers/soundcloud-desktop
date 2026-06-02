@@ -17,7 +17,7 @@ use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
-use crate::stream::storage::StorageClient;
+use crate::stream::storage::{is_canonical_track_urn, StorageClient};
 use crate::AppState;
 
 /// Глобальный лимит одновременно качающихся треков. Backend дедупит триггеры
@@ -39,6 +39,13 @@ pub async fn transcode_upload(
     headers: HeaderMap,
 ) -> Result<Json<TranscodeUploadResponse>, (StatusCode, String)> {
     check_auth(&headers, &state.config.internal_token)?;
+
+    if !is_canonical_track_urn(&track_urn) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "track_urn must be a canonical soundcloud:tracks:<id> URN".into(),
+        ));
+    }
 
     if state.config.storage_url.is_empty() || state.config.storage_token.is_empty() {
         return Err((
@@ -73,7 +80,7 @@ pub async fn transcode_upload(
         if head_ok(&task_state.http_client, &task_head).await {
             return;
         }
-        let data = match fetch_track(&task_state, &task_urn).await {
+        let (data, quality) = match fetch_track(&task_state, &task_urn).await {
             Some(d) => d,
             None => {
                 warn!("[internal/transcode-upload] {task_urn} no stream available");
@@ -87,6 +94,7 @@ pub async fn transcode_upload(
             &task_state.config.storage_token,
             &task_filename,
             &data,
+            quality,
         )
         .await
         {
@@ -136,25 +144,27 @@ async fn head_ok(client: &Client, url: &str) -> bool {
     }
 }
 
-/// Cascade: cookies(HQ) → oauth(HQ) → oauth(SQ) → cookies(SQ) → anon.
+/// Cascade: cookies(HQ) → cookies(SQ) → anon. Returns the bytes plus the quality
+/// (`hq`/`sq`) actually obtained, so storage records `storage_quality` correctly
+/// instead of defaulting everything to `sq`.
 /// OAuth здесь не используется (нет сессии) — только анонимные/cookies пути.
-async fn fetch_track(state: &AppState, track_urn: &str) -> Option<Bytes> {
+async fn fetch_track(state: &AppState, track_urn: &str) -> Option<(Bytes, &'static str)> {
     let tag = "[internal/fetch]";
 
     if let Some(cookies) = state.cookies.as_ref() {
         if let Ok(Some(result)) = cookies.get_stream(track_urn, true).await {
             info!("{tag} {track_urn} → cookies/hq");
-            return Some(result.data);
+            return Some((result.data, "hq"));
         }
         if let Ok(Some(result)) = cookies.get_stream(track_urn, false).await {
             info!("{tag} {track_urn} → cookies/sq");
-            return Some(result.data);
+            return Some((result.data, "sq"));
         }
     }
 
     if let Ok(Some(result)) = state.anon.get_stream(track_urn).await {
         info!("{tag} {track_urn} → anon");
-        return Some(result.data);
+        return Some((result.data, "sq"));
     }
 
     warn!("{tag} {track_urn} → no stream available");
@@ -167,6 +177,7 @@ async fn upload_to_storage(
     auth_token: &str,
     filename: &str,
     data: &Bytes,
+    quality: &'static str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let file_part = reqwest::multipart::Part::bytes(data.to_vec())
         .file_name("audio")
@@ -174,6 +185,7 @@ async fn upload_to_storage(
 
     let form = reqwest::multipart::Form::new()
         .text("filename", filename.to_string())
+        .text("quality", quality)
         .part("file", file_part);
 
     client

@@ -172,6 +172,8 @@ pub struct DiscoveryCfg {
     pub recrawl_days: i64,
     pub max_fails: i16,
     pub interest_interval_sec: u64,
+    pub account_concurrency: usize,
+    pub account_walk_days: i64,
 }
 
 impl AppConfig {
@@ -302,6 +304,8 @@ impl AppConfig {
                 recrawl_days: env_u64("DISCOVERY_RECRAWL_DAYS", 14) as i64,
                 max_fails: env_u32("DISCOVERY_MAX_FAILS", 8) as i16,
                 interest_interval_sec: env_u64("DISCOVERY_INTEREST_INTERVAL_SEC", 3600),
+                account_concurrency: env_usize("DISCOVERY_ACCOUNT_CONCURRENCY", 6),
+                account_walk_days: env_u64("DISCOVERY_ACCOUNT_WALK_DAYS", 2) as i64,
             },
 
             cold: ColdCfg {

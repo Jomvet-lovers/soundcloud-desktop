@@ -254,7 +254,6 @@ async fn main() {
         tokens.clone(),
         indexing.clone(),
     );
-    artist_account_walker.spawn(shutdown.clone());
 
     let likes = LikesService::new(
         pg.clone(),
@@ -336,6 +335,8 @@ async fn main() {
     crate::modules::discovery::spawn(
         pg.clone(),
         artist_crawl.clone(),
+        artist_account_walker.clone(),
+        wanted_resolver.clone(),
         &config.discovery,
         shutdown.clone(),
     );

@@ -5,8 +5,10 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::error::AppResult;
-use crate::modules::enrich::ArtistCrawlService;
+use crate::modules::enrich::{ArtistCrawlService, WantedResolverService};
 use crate::modules::work::{next_run_after, WorkOutcome, WorkSource};
+
+const POST_CRAWL_WANTED_MAX: i64 = 500;
 
 const BACKOFF_BASE: Duration = Duration::from_secs(60 * 60);
 const BACKOFF_CAP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -49,6 +51,7 @@ pub struct CatalogItem {
 pub struct CatalogSource {
     pg: PgPool,
     crawl: Arc<ArtistCrawlService>,
+    wanted: Option<Arc<WantedResolverService>>,
     lane: Lane,
     recrawl_days: i64,
     max_fails: i16,
@@ -58,6 +61,7 @@ impl CatalogSource {
     pub fn new(
         pg: PgPool,
         crawl: Arc<ArtistCrawlService>,
+        wanted: Option<Arc<WantedResolverService>>,
         lane: Lane,
         recrawl_days: i64,
         max_fails: i16,
@@ -65,6 +69,7 @@ impl CatalogSource {
         Self {
             pg,
             crawl,
+            wanted,
             lane,
             recrawl_days,
             max_fails,
@@ -160,7 +165,17 @@ impl WorkSource for CatalogSource {
             )
             .await
         {
-            Ok(()) => WorkOutcome::Done,
+            Ok(()) => {
+                if item.sc_user_id.is_some() {
+                    if let Some(resolver) = &self.wanted {
+                        if let Err(e) = resolver.run_for_artist(item.id, POST_CRAWL_WANTED_MAX).await
+                        {
+                            tracing::debug!(artist = %item.id, error = %e, "post-crawl wanted resolve failed");
+                        }
+                    }
+                }
+                WorkOutcome::Done
+            }
             Err(e) => WorkOutcome::Failed {
                 error: e.to_string(),
             },

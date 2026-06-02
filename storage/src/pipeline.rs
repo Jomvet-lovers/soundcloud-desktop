@@ -41,6 +41,9 @@ pub struct Pipeline {
 struct PipelineJob {
     source: PathBuf,
     filename: String,
+    /// `sq`/`hq` — forwarded into the `storage.track_uploaded` event so the
+    /// backend records `storage_quality` correctly.
+    quality: &'static str,
     reply: oneshot::Sender<Result<PipelineOutput, PipelineError>>,
 }
 
@@ -58,6 +61,7 @@ impl Pipeline {
         &self,
         source: PathBuf,
         filename: String,
+        quality: &'static str,
     ) -> Result<PipelineOutput, PipelineError> {
         let (tx, rx) = oneshot::channel();
         if self
@@ -65,6 +69,7 @@ impl Pipeline {
             .send(PipelineJob {
                 source: source.clone(),
                 filename,
+                quality,
                 reply: tx,
             })
             .await
@@ -243,7 +248,7 @@ fn spawn_commit(
         let res = commit_single(&bk, &wp, &cfg, &job.filename, out).await;
         let _ = tokio::fs::remove_file(&job.source).await;
         if res.is_ok() {
-            publish_uploaded(&bs, &cfg, &job.filename);
+            publish_uploaded(&bs, &cfg, &job.filename, job.quality);
         }
         let _ = job
             .reply
@@ -251,7 +256,7 @@ fn spawn_commit(
     });
 }
 
-fn publish_uploaded(bus: &BusClient, config: &Config, filename: &str) {
+fn publish_uploaded(bus: &BusClient, config: &Config, filename: &str, quality: &'static str) {
     if !bus.enabled() || config.event_base_url.is_empty() {
         return;
     }
@@ -259,7 +264,7 @@ fn publish_uploaded(bus: &BusClient, config: &Config, filename: &str) {
         return;
     };
     let storage_url = format!("{}/redirect/{}.m4a", config.event_base_url, filename);
-    bus.publish_track_uploaded(sc_track_id, storage_url);
+    bus.publish_track_uploaded(sc_track_id, storage_url, quality);
 }
 
 async fn commit_single(

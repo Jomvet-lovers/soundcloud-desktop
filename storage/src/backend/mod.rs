@@ -84,6 +84,49 @@ pub fn key_for(filename: &str) -> String {
     format!("{filename}.m4a")
 }
 
+/// Canonical S3 object stem for a SoundCloud track: `soundcloud_tracks_<digits>`.
+/// Accepts an already-canonical stem (optionally with a `.m4a` suffix) or a bare
+/// numeric SC track id and coerces it to canonical. Returns `None` for anything
+/// else. The `/upload` boundary rejects non-canonical names so a bare
+/// `<id>.m4a` can never land in storage again.
+pub fn canonical_track_filename(name: &str) -> Option<String> {
+    let stem = name.strip_suffix(".m4a").unwrap_or(name);
+    if let Some(id) = stem.strip_prefix("soundcloud_tracks_") {
+        return is_sc_id(id).then(|| stem.to_string());
+    }
+    is_sc_id(stem).then(|| format!("soundcloud_tracks_{stem}"))
+}
+
+fn is_sc_id(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_track_filename as canon;
+
+    #[test]
+    fn accepts_and_keeps_canonical() {
+        assert_eq!(canon("soundcloud_tracks_12345").unwrap(), "soundcloud_tracks_12345");
+        assert_eq!(canon("soundcloud_tracks_12345.m4a").unwrap(), "soundcloud_tracks_12345");
+    }
+
+    #[test]
+    fn coerces_bare_id() {
+        assert_eq!(canon("12345").unwrap(), "soundcloud_tracks_12345");
+        assert_eq!(canon("12345.m4a").unwrap(), "soundcloud_tracks_12345");
+    }
+
+    #[test]
+    fn rejects_non_canonical() {
+        assert!(canon("soundcloud_tracks_abc").is_none());
+        assert!(canon("remix_12345").is_none());
+        assert!(canon("soundcloud_tracks_").is_none());
+        assert!(canon("").is_none());
+        assert!(canon("hello").is_none());
+    }
+}
+
 pub fn content_type_for(key: &str) -> &'static str {
     if key.ends_with(".m4a") {
         "audio/mp4"

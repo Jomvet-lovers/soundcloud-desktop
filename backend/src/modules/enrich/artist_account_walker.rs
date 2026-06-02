@@ -8,14 +8,10 @@
 //! привязанных артистов попадали в нашу БД даже без Genius-входа.
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use futures::future::join_all;
 use serde_json::Value;
 use sqlx::PgPool;
-use tokio::sync::Semaphore;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::common::sc_ids::extract_sc_id;
@@ -27,11 +23,8 @@ use crate::modules::indexing::IndexingService;
 use crate::modules::tracks::{TrackPriority, TrackRepository};
 use crate::sc::ScClient;
 
-const TICK: Duration = Duration::from_secs(15 * 60);
-const PER_TICK_ARTISTS: i64 = 50;
 const PER_ARTIST_PAGES: usize = 5;
 const PAGE_SIZE: i64 = 100;
-const COOLDOWN_HOURS: i64 = 24;
 const TITLE_MATCH_THRESHOLD: f32 = 0.7;
 
 pub struct ArtistAccountWalker {
@@ -59,61 +52,7 @@ impl ArtistAccountWalker {
         })
     }
 
-    pub fn spawn(self: &Arc<Self>, shutdown: CancellationToken) {
-        let me = Arc::clone(self);
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(TICK);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    _ = ticker.tick() => {
-                        if let Err(e) = me.tick().await {
-                            warn!(error = %e, "artist_account_walker tick failed");
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    async fn tick(&self) -> AppResult<()> {
-        let artists: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT id, name FROM artists \
-             WHERE merged_into IS NULL \
-               AND (last_account_walk_at IS NULL \
-                    OR last_account_walk_at < now() - ($1::int * INTERVAL '1 hour')) \
-             ORDER BY last_account_walk_at NULLS FIRST \
-             LIMIT $2",
-        )
-        .bind(COOLDOWN_HOURS as i32)
-        .bind(PER_TICK_ARTISTS)
-        .fetch_all(&self.pg)
-        .await?;
-        if artists.is_empty() {
-            return Ok(());
-        }
-        // Артисты независимы — обходим bounded-concurrent, а не серийно.
-        let sem = Arc::new(Semaphore::new(6));
-        join_all(artists.into_iter().map(|(artist_id, name)| {
-            let sem = sem.clone();
-            async move {
-                let _permit = sem.acquire().await;
-                if let Err(e) = self.walk_artist(artist_id, &name).await {
-                    debug!(%artist_id, error = %e, "artist_account_walker: walk failed");
-                }
-                let _ =
-                    sqlx::query("UPDATE artists SET last_account_walk_at = now() WHERE id = $1")
-                        .bind(artist_id)
-                        .execute(&self.pg)
-                        .await;
-            }
-        }))
-            .await;
-        Ok(())
-    }
-
-    async fn walk_artist(&self, artist_id: Uuid, artist_name: &str) -> AppResult<()> {
+    pub async fn walk_artist(&self, artist_id: Uuid, artist_name: &str) -> AppResult<()> {
         let accounts: Vec<String> = sqlx::query_as(
             "SELECT sc_user_id FROM artist_sc_accounts \
              WHERE artist_id = $1 AND role IN ('main', 'alt', 'demo')",
@@ -133,9 +72,20 @@ impl ArtistAccountWalker {
         }
         let chain = self.tokens.chain(TokenKind::PublicPool).await?;
         let mut new_count = 0usize;
+        let mut avatar: Option<String> = None;
         for sc_user_id in accounts {
             let tracks = self.fetch_user_tracks(&sc_user_id, &chain).await?;
             for tr in tracks {
+                if avatar.is_none() {
+                    if let Some(a) = tr
+                        .get("user")
+                        .and_then(|u| u.get("avatar_url"))
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        avatar = Some(a.replace("-large.", "-t500x500."));
+                    }
+                }
                 if !track_matches_artist(&tr, &target_n) {
                     continue;
                 }
@@ -177,6 +127,16 @@ impl ArtistAccountWalker {
                     }
                 }
             }
+        }
+        if let Some(a) = avatar {
+            let _ = sqlx::query(
+                "UPDATE artists SET avatar_url = COALESCE(avatar_url, $2), updated_at = now()
+                 WHERE id = $1",
+            )
+                .bind(artist_id)
+                .bind(&a)
+                .execute(&self.pg)
+                .await;
         }
         if new_count > 0 {
             info!(%artist_id, attached = new_count, "artist_account_walker: linked");

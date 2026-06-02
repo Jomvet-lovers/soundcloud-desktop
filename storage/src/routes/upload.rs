@@ -121,6 +121,7 @@ pub async fn upload(
     }
 
     let mut filename: Option<String> = None;
+    let mut quality: Option<String> = None;
     let mut tmp_file_path: Option<std::path::PathBuf> = None;
     let mut reservation = TmpReservation::new(&state);
     let source_dir = state.config.source_path();
@@ -139,6 +140,14 @@ pub async fn upload(
                         .text()
                         .await
                         .map_err(|e| (StatusCode::BAD_REQUEST, format!("read filename: {e}")))?,
+                );
+            }
+            "quality" => {
+                quality = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| (StatusCode::BAD_REQUEST, format!("read quality: {e}")))?,
                 );
             }
             "file" => {
@@ -214,10 +223,30 @@ pub async fn upload(
         return Err((StatusCode::BAD_REQUEST, "invalid filename".into()));
     }
 
+    // Enforce the canonical `soundcloud_tracks_<id>` object name at the storage
+    // boundary — coerces a bare numeric id, rejects anything non-canonical, so a
+    // stray bare `<id>.m4a` can never be written regardless of the caller.
+    let filename = match crate::backend::canonical_track_filename(&filename) {
+        Some(c) => c,
+        None => {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            warn!("[upload] rejected non-canonical filename {filename:?}");
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "filename must be a canonical soundcloud_tracks_<id> track name".into(),
+            ));
+        }
+    };
+
+    let quality = normalize_quality(quality.as_deref());
+
     let file_lock = state.file_lock(&filename);
     let _file_guard = file_lock.lock().await;
 
-    let result = state.pipeline.submit(tmp_path, filename.clone()).await;
+    let result = state
+        .pipeline
+        .submit(tmp_path, filename.clone(), quality)
+        .await;
     drop(reservation);
 
     let output = match result {
@@ -261,6 +290,15 @@ pub async fn upload(
         path: format!("{filename}.m4a"),
         duration_secs: output.duration_secs,
     }))
+}
+
+/// Clamp the caller-supplied quality to a known value; anything unrecognized
+/// (or absent) is treated as `sq` so it gets picked up for an hq upgrade later.
+fn normalize_quality(q: Option<&str>) -> &'static str {
+    match q.map(str::trim) {
+        Some("hq") => "hq",
+        _ => "sq",
+    }
 }
 
 fn sanitize_filename(s: &str) -> String {

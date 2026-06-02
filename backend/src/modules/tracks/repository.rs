@@ -257,15 +257,21 @@ impl TrackRepository {
         Ok(())
     }
 
-    /// S3-аплоад завершён. `quality` ∈ {`'sq'`,`'hq'`} — кладём в
-    /// `storage_quality`. `storage_state` всегда `'ok'`. Если приземлился `sq` —
-    /// взводим `hq_upgrade_pending`, чтобы стриминговый cron позже перекачал
-    /// в hq. На приземление `hq` — флаг сбрасываем.
-    pub async fn mark_storage_done(&self, sc_track_id: &str, quality: &str) -> AppResult<()> {
+    /// S3-аплоад завершён. `quality` ∈ {`Some("sq")`,`Some("hq")`} — кладём в
+    /// `storage_quality`; `None` (синтетический S3-hit event без quality) НЕ
+    /// трогает quality/флаг, чтобы не даунгрейдить уже известный `hq` в `sq`.
+    /// `storage_state` всегда `'ok'`. Если приземлился `sq` — взводим
+    /// `hq_upgrade_pending`, чтобы стриминговый cron позже перекачал в hq. На
+    /// приземление `hq` — флаг сбрасываем.
+    pub async fn mark_storage_done(
+        &self,
+        sc_track_id: &str,
+        quality: Option<&str>,
+    ) -> AppResult<()> {
         sqlx::query(
             "UPDATE tracks SET \
                  storage_state = 'ok', \
-                 storage_quality = $2, \
+                 storage_quality = COALESCE($2, storage_quality), \
                  s3_verified_at = now(), \
                  s3_missing_at = NULL, \
                  storage_attempts = 0, \
