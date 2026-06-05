@@ -16,6 +16,7 @@ use crate::sc::ScClient;
 const TTL_FOLLOWINGS_TRACKS: u64 = 60;
 const TTL_FOLLOWERS: u64 = 600;
 const PROFILE_TTL_SEC: i64 = 600;
+const PROFILE_SEED_TIMEOUT_SEC: u64 = 3;
 
 /// MeService держит только то, что у нас **нет** как отдельной коллекции:
 /// SC-фид (`/me/followings/tracks`),
@@ -74,18 +75,57 @@ impl MeService {
             return Ok(profile);
         }
 
-        // Empty mirror: seed from SC, degrading to a session-derived stub when SC
-        // is unreachable so Library/auth still boot.
-        match self.refresh_profile(sc_user_id, token).await {
-            Ok(profile) => Ok(profile),
-            Err(e) => {
-                debug!(error = %e, "me cold seed failed, serving session stub");
+        // Empty mirror: seed from SC under a short budget; if SC is slow or
+        // unreachable, serve a session/users-derived stub now and finish seeding
+        // in the background so Library/auth boot without blocking.
+        let seed = self.refresh_profile(sc_user_id, token);
+        match tokio::time::timeout(std::time::Duration::from_secs(PROFILE_SEED_TIMEOUT_SEC), seed).await {
+            Ok(Ok(profile)) => Ok(profile),
+            other => {
+                if let Ok(Err(e)) = other {
+                    debug!(error = %e, "me cold seed failed, serving stub");
+                }
+                let me = Arc::clone(self);
+                let uid = sc_user_id.to_string();
+                let tok = token.to_string();
+                tokio::spawn(async move {
+                    let _ = me.refresh_profile(&uid, &tok).await;
+                });
                 Ok(self.session_profile_stub(sc_user_id).await)
             }
         }
     }
 
     async fn session_profile_stub(&self, sc_user_id: &str) -> Value {
+        let id: i64 = sc_user_id
+            .rsplit(':')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
+        // Prefer the users mirror (carries avatar/counts); fall back to the
+        // session row (username only) when the user was never synced.
+        let mirrored: Option<Value> = sqlx::query_scalar(
+            "SELECT jsonb_build_object( \
+                 'id', $2::int8, 'urn', urn, 'username', username, 'full_name', full_name, \
+                 'avatar_url', COALESCE(avatar_url, ''), 'permalink_url', COALESCE(permalink_url, ''), \
+                 'followers_count', COALESCE(followers_count, 0), \
+                 'followings_count', COALESCE(followings_count, 0), \
+                 'track_count', COALESCE(tracks_count, 0), \
+                 'playlist_count', COALESCE(playlists_count, 0), \
+                 'public_favorites_count', 0) \
+             FROM users WHERE sc_user_id = $1",
+        )
+            .bind(sc_user_id)
+            .bind(id)
+            .fetch_optional(&self.pg)
+            .await
+            .ok()
+            .flatten();
+        if let Some(profile) = mirrored {
+            return profile;
+        }
+
         let username: Option<String> = sqlx::query_scalar(
             "SELECT username FROM sessions WHERE soundcloud_user_id = $1 AND username IS NOT NULL \
              ORDER BY updated_at DESC LIMIT 1",
@@ -95,11 +135,6 @@ impl MeService {
             .await
             .ok()
             .flatten();
-        let id: i64 = sc_user_id
-            .rsplit(':')
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
         json!({
             "id": id,
             "urn": sc_user_id,
