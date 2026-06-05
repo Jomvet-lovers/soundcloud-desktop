@@ -1,12 +1,17 @@
 use axum::extract::State;
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use crate::cache::cache_service::CacheScope;
 use crate::common::admin::AdminAuth;
 use crate::error::AppResult;
 use crate::state::AppState;
 
-#[derive(Serialize)]
+const TTL_SEC: u64 = 30;
+const OVERVIEW_KEY: &str = "admin:auth:overview:v1";
+const OAUTH_HEALTH_KEY: &str = "admin:oauth:health:v1";
+
+#[derive(Serialize, Deserialize)]
 pub struct AuthOverview {
     pub total: i64,
     pub valid: i64,
@@ -21,6 +26,12 @@ pub struct AuthOverview {
 /// `now() at time zone 'utc'`.
 #[tracing::instrument(skip_all)]
 pub async fn overview(_: AdminAuth, State(state): State<AppState>) -> AppResult<Json<AuthOverview>> {
+    if let Ok(Some(raw)) = state.cache.get_raw(OVERVIEW_KEY).await {
+        if let Ok(cached) = serde_json::from_str::<AuthOverview>(&raw) {
+            return Ok(Json(cached));
+        }
+    }
+
     let (total, valid, expired, expiring_1h, distinct_users, active_24h): (i64, i64, i64, i64, i64, i64) =
         sqlx::query_as(
             "SELECT \
@@ -36,17 +47,24 @@ pub async fn overview(_: AdminAuth, State(state): State<AppState>) -> AppResult<
             .fetch_one(&state.pg)
             .await?;
 
-    Ok(Json(AuthOverview {
+    let resp = AuthOverview {
         total,
         valid,
         expired,
         expiring_1h,
         distinct_users,
         active_24h,
-    }))
+    };
+    if let Ok(payload) = serde_json::to_string(&resp) {
+        let _ = state
+            .cache
+            .set_raw(OVERVIEW_KEY, &payload, TTL_SEC, None, CacheScope::Shared, None)
+            .await;
+    }
+    Ok(Json(resp))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct OAuthAppHealth {
     pub id: uuid::Uuid,
     pub name: String,
@@ -62,6 +80,12 @@ pub struct OAuthAppHealth {
 /// the app via `sessions.oauth_app_id`, a text mirror of `oauth_apps.id`).
 #[tracing::instrument(skip_all)]
 pub async fn oauth_health(_: AdminAuth, State(state): State<AppState>) -> AppResult<Json<Vec<OAuthAppHealth>>> {
+    if let Ok(Some(raw)) = state.cache.get_raw(OAUTH_HEALTH_KEY).await {
+        if let Ok(cached) = serde_json::from_str::<Vec<OAuthAppHealth>>(&raw) {
+            return Ok(Json(cached));
+        }
+    }
+
     let rows = sqlx::query_as::<_, OAuthAppHealth>(
         "SELECT a.id, a.name, a.client_id, a.active, a.last_used_at, \
                 COUNT(s.id)::int8 AS sessions_total, \
@@ -75,5 +99,11 @@ pub async fn oauth_health(_: AdminAuth, State(state): State<AppState>) -> AppRes
         .fetch_all(&state.pg)
         .await?;
 
+    if let Ok(payload) = serde_json::to_string(&rows) {
+        let _ = state
+            .cache
+            .set_raw(OAUTH_HEALTH_KEY, &payload, TTL_SEC, None, CacheScope::Shared, None)
+            .await;
+    }
     Ok(Json(rows))
 }

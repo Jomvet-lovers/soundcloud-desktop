@@ -23,6 +23,7 @@ use account_walk::AccountWalkSource;
 use catalog::{CatalogSource, Lane};
 
 const TICK: Duration = Duration::from_secs(10);
+const ACCOUNT_TICK: Duration = Duration::from_secs(60);
 const LEASE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 pub fn spawn(
@@ -90,7 +91,7 @@ pub fn spawn(
             name: "account_walk",
             concurrency: cfg.account_concurrency.max(1),
             batch: cfg.batch.max(1),
-            tick: TICK,
+            tick: ACCOUNT_TICK,
             lease_timeout: LEASE_TIMEOUT,
         },
         shutdown.clone(),

@@ -55,8 +55,7 @@ impl WorkSource for AccountWalkSource {
                         OR ar.last_account_walk_at < now() - ($1 * interval '1 day'))
                    AND (ar.account_walk_locked_at IS NULL
                         OR ar.account_walk_locked_at < now() - ($2 * interval '1 second'))
-                   AND EXISTS (SELECT 1 FROM artist_sc_accounts a
-                               WHERE a.artist_id = ar.id AND a.role IN ('main', 'alt', 'demo'))
+                   AND ar.has_sc_account
                  ORDER BY ar.last_account_walk_at NULLS FIRST
                  LIMIT $3
                  FOR UPDATE SKIP LOCKED
