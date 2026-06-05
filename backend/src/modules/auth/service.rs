@@ -414,14 +414,32 @@ impl AuthService {
             warn!(request = %lr.id, error = %e, "Failed to advance step to profile");
         }
 
-        let me = match self.fetch_sc_me_with_retries(&token.access_token).await {
-            Some(me) => me,
-            None => {
-                self.retry_with_new_app(&lr, "Failed to fetch SoundCloud user info")
+        // Identify the user. The SC access token is a JWT whose `sub` claim is
+        // the user urn — authoritative (minted by SC's token endpoint) and
+        // present even when /me is unreachable. So /me is only best-effort
+        // enrichment (username), not a hard login dependency.
+        let me_opt = match self.fetch_sc_me(&token.access_token).await {
+            MeOutcome::Found(me) => Some(me),
+            MeOutcome::Unauthorized => {
+                self.retry_with_new_app(&lr, "SoundCloud rejected the token")
+                    .await?;
+                return Ok(());
+            }
+            MeOutcome::Unreachable => None,
+        };
+        let urn = match me_opt
+            .as_ref()
+            .map(|m| m.urn.clone())
+            .or_else(|| urn_from_access_token(&token.access_token))
+        {
+            Some(u) if !u.is_empty() => u,
+            _ => {
+                self.retry_with_new_app(&lr, "Failed to identify SoundCloud user")
                     .await?;
                 return Ok(());
             }
         };
+        let username: Option<String> = me_opt.as_ref().and_then(|m| m.username.clone());
 
         if let Err(e) = sqlx::query("UPDATE login_requests SET step = 'session' WHERE id = $1")
             .bind(lr.id)
@@ -448,20 +466,34 @@ impl AuthService {
             .bind(&token.refresh_token)
             .bind(expires_at)
             .bind(&scope)
-            .bind(&me.urn)
-            .bind(&me.username)
+                .bind(&urn)
+                .bind(&username)
             .bind(&lr.oauth_app_id)
             .fetch_optional(&self.pool)
             .await?;
             match updated {
                 Some(s) => s,
                 None => {
-                    self.insert_session(&token, expires_at, &scope, &me, &lr.oauth_app_id)
+                    self.insert_session(
+                        &token,
+                        expires_at,
+                        &scope,
+                        &urn,
+                        username.as_deref(),
+                        &lr.oauth_app_id,
+                    )
                         .await?
                 }
             }
         } else {
-            self.insert_session(&token, expires_at, &scope, &me, &lr.oauth_app_id)
+            self.insert_session(
+                &token,
+                expires_at,
+                &scope,
+                &urn,
+                username.as_deref(),
+                &lr.oauth_app_id,
+            )
                 .await?
         };
 
@@ -472,14 +504,14 @@ impl AuthService {
         )
         .bind(lr.id)
         .bind(session.id)
-        .bind(&me.username)
+            .bind(&username)
         .execute(&self.pool)
         .await?;
 
         info!(
             request = %lr.id,
             session = %session.id,
-            user = ?me.username,
+            user = ?username,
             "Login completed"
         );
         Ok(())
@@ -490,7 +522,8 @@ impl AuthService {
         token: &crate::sc::types::ScTokenResponse,
         expires_at: NaiveDateTime,
         scope: &str,
-        me: &ScMe,
+        urn: &str,
+        username: Option<&str>,
         oauth_app_id: &Option<String>,
     ) -> AppResult<Session> {
         let row: Session = sqlx::query_as(
@@ -504,8 +537,8 @@ impl AuthService {
         .bind(&token.refresh_token)
         .bind(expires_at)
         .bind(scope)
-        .bind(&me.urn)
-        .bind(&me.username)
+            .bind(urn)
+            .bind(username)
         .bind(oauth_app_id)
         .fetch_one(&self.pool)
         .await?;
@@ -521,13 +554,13 @@ impl AuthService {
         Ok(())
     }
 
-    async fn fetch_sc_me_with_retries(&self, access_token: &str) -> Option<ScMe> {
+    async fn fetch_sc_me(&self, access_token: &str) -> MeOutcome {
         for attempt in 0..3 {
             match self.sc.api_get::<ScMe>("/me", access_token, None).await {
-                Ok(me) => return Some(me),
+                Ok(me) => return MeOutcome::Found(me),
                 Err(AppError::ScApi { status, .. }) if status == 401 || status == 403 => {
                     error!(status = status, "Failed to fetch /me: auth error");
-                    return None;
+                    return MeOutcome::Unauthorized;
                 }
                 Err(err) => {
                     warn!(attempt, error = %err, "Failed to fetch /me, retrying");
@@ -537,7 +570,7 @@ impl AuthService {
                 }
             }
         }
-        None
+        MeOutcome::Unreachable
     }
 
     pub async fn get_login_request_status(
@@ -832,5 +865,29 @@ fn public_error_message(err: &AppError, default: &str) -> String {
                 s
             }
         }
+    }
+}
+
+enum MeOutcome {
+    Found(ScMe),
+    Unauthorized,
+    Unreachable,
+}
+
+/// Extract the SoundCloud user urn from the access token's JWT `sub` claim. The
+/// token is minted by SC's token endpoint (trusted by provenance), so the urn is
+/// authoritative without a /me round-trip. Returns None if the token is not a
+/// readable JWT.
+fn urn_from_access_token(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let sub = claims.get("sub")?.as_str()?.trim();
+    if sub.is_empty() {
+        None
+    } else {
+        Some(sub.to_string())
     }
 }
