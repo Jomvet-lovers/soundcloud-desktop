@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use tracing::debug;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{FetchChunkResult, GetPageOptions, ListCacheService, ListPageResult};
@@ -13,6 +15,7 @@ use crate::sc::ScClient;
 
 const TTL_FOLLOWINGS_TRACKS: u64 = 60;
 const TTL_FOLLOWERS: u64 = 600;
+const PROFILE_TTL_SEC: i64 = 600;
 
 /// MeService держит только то, что у нас **нет** как отдельной коллекции:
 /// SC-фид (`/me/followings/tracks`),
@@ -44,6 +47,86 @@ impl MeService {
 
     pub async fn get_profile(&self, token: &str) -> AppResult<Value> {
         self.sc.api_get_value("/me", token, None).await
+    }
+
+    /// DB-backed profile for Library: serve the mirror immediately, revalidate
+    /// from SC in the background when stale; synchronous seed on first read.
+    pub async fn get_profile_cold(self: &Arc<Self>, sc_user_id: &str, token: &str) -> AppResult<Value> {
+        let row: Option<(Value, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT profile_json, synced_at FROM user_profiles WHERE soundcloud_user_id = $1",
+        )
+            .bind(sc_user_id)
+            .fetch_one(&self.pg)
+            .await
+            .ok();
+
+        if let Some((profile, synced_at)) = row {
+            if Utc::now() - synced_at > Duration::seconds(PROFILE_TTL_SEC) {
+                let me = Arc::clone(self);
+                let uid = sc_user_id.to_string();
+                let tok = token.to_string();
+                tokio::spawn(async move {
+                    if let Err(e) = me.refresh_profile(&uid, &tok).await {
+                        debug!(error = %e, "me cold background refresh failed");
+                    }
+                });
+            }
+            return Ok(profile);
+        }
+
+        // Empty mirror: seed from SC, degrading to a session-derived stub when SC
+        // is unreachable so Library/auth still boot.
+        match self.refresh_profile(sc_user_id, token).await {
+            Ok(profile) => Ok(profile),
+            Err(e) => {
+                debug!(error = %e, "me cold seed failed, serving session stub");
+                Ok(self.session_profile_stub(sc_user_id).await)
+            }
+        }
+    }
+
+    async fn session_profile_stub(&self, sc_user_id: &str) -> Value {
+        let username: Option<String> = sqlx::query_scalar(
+            "SELECT username FROM sessions WHERE soundcloud_user_id = $1 AND username IS NOT NULL \
+             ORDER BY updated_at DESC LIMIT 1",
+        )
+            .bind(sc_user_id)
+            .fetch_optional(&self.pg)
+            .await
+            .ok()
+            .flatten();
+        let id: i64 = sc_user_id
+            .rsplit(':')
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        json!({
+            "id": id,
+            "urn": sc_user_id,
+            "username": username.unwrap_or_default(),
+            "avatar_url": "",
+            "permalink_url": "",
+            "followers_count": 0,
+            "followings_count": 0,
+            "track_count": 0,
+            "playlist_count": 0,
+            "public_favorites_count": 0,
+        })
+    }
+
+    async fn refresh_profile(&self, sc_user_id: &str, token: &str) -> AppResult<Value> {
+        let profile = self.sc.api_get_value("/me", token, None).await?;
+        sqlx::query(
+            "INSERT INTO user_profiles (soundcloud_user_id, profile_json, synced_at)
+             VALUES ($1, $2, now())
+             ON CONFLICT (soundcloud_user_id)
+             DO UPDATE SET profile_json = EXCLUDED.profile_json, synced_at = now()",
+        )
+            .bind(sc_user_id)
+            .bind(&profile)
+            .execute(&self.pg)
+            .await?;
+        Ok(profile)
     }
 
     // Internal helper — all 9 params used to build a single ListCache GetPageOptions

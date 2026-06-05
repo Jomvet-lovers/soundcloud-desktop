@@ -15,6 +15,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/me", get(get_profile))
+        .route("/me/cold", get(get_profile_cold))
         .route("/me/subscription", get(get_subscription))
         .route("/me/likes/tracks", get(get_liked_tracks))
         .route("/me/likes/playlists", get(get_liked_playlists))
@@ -31,6 +32,14 @@ pub fn router() -> Router<AppState> {
 
 async fn get_profile(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<Json<Value>> {
     Ok(Json(st.me.get_profile(&ctx.access_token).await?))
+}
+
+async fn get_profile_cold(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<Json<Value>> {
+    Ok(Json(
+        st.me
+            .get_profile_cold(&ctx.sc_user_id, &ctx.access_token)
+            .await?,
+    ))
 }
 
 async fn get_subscription(State(st): State<AppState>, ctx: SessionCtx) -> AppResult<Json<Value>> {
