@@ -24,6 +24,7 @@ use uuid::Uuid;
 use crate::error::AppResult;
 use crate::modules::recommendations::clusters::recommend_id_str;
 use crate::modules::recommendations::service::{RecommendResult, RecommendationsService};
+use crate::qdrant::collections;
 
 use cursor::{SeedKind, WaveCursor};
 use graph::GraphSeed;
@@ -33,12 +34,12 @@ use signals::UserSignals;
 const ARTIST_CAP_IN_WINDOW: usize = 2;
 /// Сколько MERT-кандидатов тянем — «очень много», дальше rank режет до limit.
 const MERT_POOL: usize = 400;
-/// Веса скоринга (см. rank.rs): сетка доминирует, MERT уточняет, синергия в топ.
-const RANK_W: rank::RankWeights = rank::RankWeights {
-    graph: 1.0,
-    mert: 0.35,
-    synergy: 2.0,
-};
+/// Вклад сетки как множителя (тоже через «И»): non-graph трек → ×GRAPH_FLOOR,
+/// свой (aff=1) → ×1. Сетка — одна из плоскостей конъюнкции, не доминатор.
+const GRAPH_FLOOR: f32 = 0.35;
+/// Ниже этой конъюнкции близости по плоскостям (бит×вайб×лирика) — выкидываем:
+/// трек должен быть близок ВО ВСЕХ плоскостях, а не пролезать по одной.
+const CONTENT_FLOOR: f32 = 0.55;
 /// Сетка-как-источник: с топ-N аффинити-артистов берём треки в пул кандидатов.
 const GRAPH_ARTISTS: usize = 120;
 const GRAPH_PER_ARTIST: i64 = 6;
@@ -126,33 +127,57 @@ pub async fn build(
     let pool_ids: Vec<u64> = mert.iter().map(|c| c.sc_track_id).collect();
     let meta = load_track_meta(&svc.pg, &pool_ids).await;
 
-    // Объединяем кандидатов из сетки и MERT (один трек может быть в обоих).
-    let mut cmap: HashMap<u64, rank::Candidate> = HashMap::new();
+    // Кандидаты (id → artist) из обоих источников; один трек может быть в обоих.
+    let mut artist_of: HashMap<u64, Option<Uuid>> = HashMap::new();
     for (tid, aid) in &graph_tracks {
-        cmap.entry(*tid).or_insert(rank::Candidate {
-            sc_track_id: *tid,
-            artist: Some(*aid),
-            mert: None,
-        });
+        artist_of.entry(*tid).or_insert(Some(*aid));
     }
     for c in &mert {
-        let Some(m) = meta.get(&c.sc_track_id) else {
-            continue;
-        };
-        if !m.storage_ok {
-            continue;
-        }
-        let e = cmap.entry(c.sc_track_id).or_insert(rank::Candidate {
-            sc_track_id: c.sc_track_id,
-            artist: m.primary_artist,
-            mert: None,
-        });
-        e.mert = Some(c.score);
-        if e.artist.is_none() {
-            e.artist = m.primary_artist;
+        if let Some(m) = meta.get(&c.sc_track_id) {
+            if m.storage_ok {
+                artist_of.entry(c.sc_track_id).or_insert(m.primary_artist);
+            }
         }
     }
-    let cands: Vec<rank::Candidate> = cmap.into_values().collect();
+
+    // КОНЪЮНКЦИЯ «И»: близость к вкусу ОДНОВРЕМЕННО по бит(MERT)×вайб(CLAP)×
+    // лирика(LYRICS). Центроид вкуса в каждой плоскости + косинус кандидата к
+    // нему → geomean (низкая близость по любой оси топит трек). 6 ретривов
+    // параллельно (лайки + кандидаты в 3 коллекциях).
+    let cand_ids: Vec<u64> = artist_of.keys().copied().collect();
+    let liked_ids: Vec<u64> = signals
+        .fresh_likes
+        .iter()
+        .take(80)
+        .filter_map(|s| s.parse::<u64>().ok())
+        .collect();
+    let (lm, lc, ll, cm, cc, cl) = tokio::join!(
+        svc.retrieve_vectors(collections::TRACKS_MERT, &liked_ids),
+        svc.retrieve_vectors(collections::TRACKS_CLAP, &liked_ids),
+        svc.retrieve_vectors(collections::TRACKS_LYRICS, &liked_ids),
+        svc.retrieve_vectors(collections::TRACKS_MERT, &cand_ids),
+        svc.retrieve_vectors(collections::TRACKS_CLAP, &cand_ids),
+        svc.retrieve_vectors(collections::TRACKS_LYRICS, &cand_ids),
+    );
+    let cen_m = mean_centroid(&lm);
+    let cen_c = mean_centroid(&lc);
+    let cen_l = mean_centroid(&ll);
+    let cands: Vec<rank::Candidate> = artist_of
+        .into_iter()
+        .map(|(tid, artist)| {
+            let key = tid.to_string();
+            let content = geomean(&[
+                sim(cen_m.as_deref(), cm.get(&key)),
+                sim(cen_c.as_deref(), cc.get(&key)),
+                sim(cen_l.as_deref(), cl.get(&key)),
+            ]);
+            rank::Candidate {
+                sc_track_id: tid,
+                artist,
+                content,
+            }
+        })
+        .collect();
     let cand_count = cands.len();
 
     // Берём с запасом (×2): дальше language-фильтр может срезать часть.
@@ -163,7 +188,8 @@ pub async fn build(
         &wave_cursor,
         req.limit * 2,
         ARTIST_CAP_IN_WINDOW,
-        RANK_W,
+        GRAPH_FLOOR,
+        CONTENT_FLOOR,
     );
 
     let ids_after: Vec<String> = picked.iter().map(|p| p.sc_track_id.to_string()).collect();
@@ -203,6 +229,7 @@ pub async fn build(
         graph = graph_res.affinity.len(),
         graph_tracks = graph_tracks.len(),
         mert_pool = mert.len(),
+        taste = cen_m.is_some(),
         cands = cand_count,
         "wave built"
     );
@@ -350,6 +377,45 @@ fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
     out.dedup();
     out.truncate(40);
     out
+}
+
+/// Косинус трека к центроиду плоскости (None если нет центроида/вектора).
+fn sim(centroid: Option<&[f32]>, vec: Option<&Vec<f32>>) -> Option<f32> {
+    match (centroid, vec) {
+        (Some(c), Some(v)) => Some(crate::modules::centroids::cosine(v, c)),
+        _ => None,
+    }
+}
+
+/// Geomean доступных плоскостей — конъюнкция «И»: низкая близость по любой
+/// топит. Лирика часто отсутствует → считаем по тем осям, что есть. Нет ни
+/// одной → 1.0 (нейтрально, рулят граф+присутствие).
+fn geomean(sims: &[Option<f32>]) -> f32 {
+    let xs: Vec<f32> = sims.iter().filter_map(|x| *x).filter(|x| *x > 0.0).collect();
+    if xs.is_empty() {
+        return 1.0;
+    }
+    let s: f32 = xs.iter().map(|x| x.ln()).sum();
+    (s / xs.len() as f32).exp()
+}
+
+/// Центроид вкуса — средний вектор лайков (нормализацию делает cosine).
+fn mean_centroid(vecs: &HashMap<String, Vec<f32>>) -> Option<Vec<f32>> {
+    let mut iter = vecs.values();
+    let first = iter.next()?;
+    let mut acc = first.clone();
+    let mut n = 1usize;
+    for v in iter {
+        for (a, b) in acc.iter_mut().zip(v.iter()) {
+            *a += *b;
+        }
+        n += 1;
+    }
+    let inv = 1.0 / n as f32;
+    for a in acc.iter_mut() {
+        *a *= inv;
+    }
+    Some(acc)
 }
 
 /// Топ-N артистов по affinity — с них берём треки в пул (сетка-как-источник).
