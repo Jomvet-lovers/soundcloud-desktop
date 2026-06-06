@@ -417,11 +417,20 @@ pub struct TrackCreditRow {
     pub source: String,
 }
 
+#[derive(Serialize, sqlx::FromRow)]
+pub struct BlockRow {
+    pub artist_id: Uuid,
+    pub name: Option<String>,
+    pub note: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Serialize)]
 pub struct TrackDetail {
     #[serde(flatten)]
     pub track: TrackListRow,
     pub credits: Vec<TrackCreditRow>,
+    pub blocks: Vec<BlockRow>,
 }
 
 #[tracing::instrument(skip_all)]
@@ -445,7 +454,16 @@ pub async fn track_detail(
         .fetch_all(&st.pg)
         .await?;
 
-    Ok(Json(TrackDetail { track, credits }))
+    let blocks = sqlx::query_as::<_, BlockRow>(
+        "SELECT b.artist_id, a.name, b.note, b.created_at \
+         FROM track_artist_blocks b LEFT JOIN artists a ON a.id = b.artist_id \
+         WHERE b.track_id = $1 ORDER BY b.created_at DESC",
+    )
+        .bind(track_id)
+        .fetch_all(&st.pg)
+        .await?;
+
+    Ok(Json(TrackDetail { track, credits, blocks }))
 }
 
 #[derive(Deserialize)]
@@ -472,6 +490,12 @@ pub async fn track_set_primary_artist(
     }
 
     let mut tx = st.pg.begin().await?;
+    // An explicit manual assignment lifts any detach-block for this pair.
+    sqlx::query("DELETE FROM track_artist_blocks WHERE track_id = $1 AND artist_id = $2")
+        .bind(track_id)
+        .bind(body.artist_id)
+        .execute(&mut *tx)
+        .await?;
     let updated = sqlx::query("UPDATE tracks SET primary_artist_id = $1 WHERE id = $2")
         .bind(body.artist_id)
         .bind(track_id)
@@ -597,6 +621,13 @@ pub async fn track_add_credit(
         return Err(AppError::not_found("track not found"));
     }
 
+    // An explicit manual credit lifts any detach-block for this pair.
+    sqlx::query("DELETE FROM track_artist_blocks WHERE track_id = $1 AND artist_id = $2")
+        .bind(track_id)
+        .bind(body.artist_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query(
         "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence) \
          VALUES ($1, $2, $3, COALESCE($4, 0), 'manual', 1.0) \
@@ -658,5 +689,70 @@ pub async fn track_remove_credit(
             .await?;
     }
     tx.commit().await?;
+    Ok(Json(serde_json::json!({ "ok": true, "removed": res.rows_affected() })))
+}
+
+// ───────────────────────── detach (sticky unlink) ─────────────────────────
+
+#[derive(Deserialize)]
+pub struct DetachArtist {
+    pub artist_id: Uuid,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// POST /admin/tracks/{id}/detach-artist — permanently unlink an artist from a
+/// track: drop all its credits, clear the denormalized primary if it matched,
+/// and record a block so the enrich/crawl pipeline never re-links it (triggers).
+#[tracing::instrument(skip_all)]
+pub async fn track_detach_artist(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    Path(track_id): Path<Uuid>,
+    Json(body): Json<DetachArtist>,
+) -> AppResult<Json<Value>> {
+    let mut tx = st.pg.begin().await?;
+    let track_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tracks WHERE id = $1)")
+        .bind(track_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if !track_ok {
+        return Err(AppError::not_found("track not found"));
+    }
+    sqlx::query(
+        "INSERT INTO track_artist_blocks (track_id, artist_id, note) VALUES ($1, $2, $3) \
+         ON CONFLICT (track_id, artist_id) DO UPDATE SET note = EXCLUDED.note",
+    )
+        .bind(track_id)
+        .bind(body.artist_id)
+        .bind(&body.note)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM track_artists WHERE track_id = $1 AND artist_id = $2")
+        .bind(track_id)
+        .bind(body.artist_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE tracks SET primary_artist_id = NULL WHERE id = $1 AND primary_artist_id = $2")
+        .bind(track_id)
+        .bind(body.artist_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// DELETE /admin/tracks/{id}/blocks/{artist_id} — lift a detach block (re-allow linking).
+#[tracing::instrument(skip_all)]
+pub async fn track_unblock_artist(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    Path((track_id, artist_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<Json<Value>> {
+    let res = sqlx::query("DELETE FROM track_artist_blocks WHERE track_id = $1 AND artist_id = $2")
+        .bind(track_id)
+        .bind(artist_id)
+        .execute(&st.pg)
+        .await?;
     Ok(Json(serde_json::json!({ "ok": true, "removed": res.rows_affected() })))
 }

@@ -17,6 +17,9 @@ pub mod track_arm;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use deadpool_redis::redis::AsyncCommands;
+use deadpool_redis::Pool as RedisPool;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -151,17 +154,22 @@ pub async fn build(
         .take(80)
         .filter_map(|s| s.parse::<u64>().ok())
         .collect();
-    let (lm, lc, ll, cm, cc, cl) = tokio::join!(
-        svc.retrieve_vectors(collections::TRACKS_MERT, &liked_ids),
-        svc.retrieve_vectors(collections::TRACKS_CLAP, &liked_ids),
-        svc.retrieve_vectors(collections::TRACKS_LYRICS, &liked_ids),
-        svc.retrieve_vectors(collections::TRACKS_MERT, &cand_ids),
-        svc.retrieve_vectors(collections::TRACKS_CLAP, &cand_ids),
-        svc.retrieve_vectors(collections::TRACKS_LYRICS, &cand_ids),
-    );
-    let cen_m = mean_centroid(&lm);
-    let cen_c = mean_centroid(&lc);
-    let cen_l = mean_centroid(&ll);
+    // Центроиды вкуса кэшируются per-user (иначе +3 ретрива/страницу), а
+    // векторы кандидатов тянем всегда (разные на каждой странице) — параллельно.
+    let centroids_fut = taste_centroids(svc, req.sc_user_id, &liked_ids);
+    let cands_vecs_fut = async {
+        tokio::join!(
+            svc.retrieve_vectors(collections::TRACKS_MERT, &cand_ids),
+            svc.retrieve_vectors(collections::TRACKS_CLAP, &cand_ids),
+            svc.retrieve_vectors(collections::TRACKS_LYRICS, &cand_ids),
+        )
+    };
+    let (taste, (cm, cc, cl)) = tokio::join!(centroids_fut, cands_vecs_fut);
+    let TasteCentroids {
+        m: cen_m,
+        c: cen_c,
+        l: cen_l,
+    } = taste;
     let cands: Vec<rank::Candidate> = artist_of
         .into_iter()
         .map(|(tid, artist)| {
@@ -377,6 +385,65 @@ fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
     out.dedup();
     out.truncate(40);
     out
+}
+
+const TASTE_TTL_SECS: u64 = 300;
+
+#[derive(Serialize, Deserialize, Default)]
+struct TasteCentroids {
+    m: Option<Vec<f32>>,
+    c: Option<Vec<f32>>,
+    l: Option<Vec<f32>>,
+}
+
+/// Центроиды вкуса (mert/clap/lyrics) с per-user Redis-кэшем (TTL 5 мин) —
+/// иначе 3 лишних qdrant-ретрива на каждую страницу волны.
+async fn taste_centroids(
+    svc: &RecommendationsService,
+    sc_user_id: &str,
+    liked_ids: &[u64],
+) -> TasteCentroids {
+    if !sc_user_id.is_empty() {
+        if let Some(c) = read_taste_cache(&svc.redis, sc_user_id).await {
+            return c;
+        }
+    }
+    let (lm, lc, ll) = tokio::join!(
+        svc.retrieve_vectors(collections::TRACKS_MERT, liked_ids),
+        svc.retrieve_vectors(collections::TRACKS_CLAP, liked_ids),
+        svc.retrieve_vectors(collections::TRACKS_LYRICS, liked_ids),
+    );
+    let cen = TasteCentroids {
+        m: mean_centroid(&lm),
+        c: mean_centroid(&lc),
+        l: mean_centroid(&ll),
+    };
+    if !sc_user_id.is_empty() && (cen.m.is_some() || cen.c.is_some() || cen.l.is_some()) {
+        write_taste_cache(&svc.redis, sc_user_id, &cen).await;
+    }
+    cen
+}
+
+fn taste_key(sc_user_id: &str) -> String {
+    format!("wave:taste:{sc_user_id}")
+}
+
+async fn read_taste_cache(redis: &RedisPool, sc_user_id: &str) -> Option<TasteCentroids> {
+    let mut conn = redis.get().await.ok()?;
+    let raw: Option<String> = conn.get(taste_key(sc_user_id)).await.ok().flatten();
+    serde_json::from_str(&raw?).ok()
+}
+
+async fn write_taste_cache(redis: &RedisPool, sc_user_id: &str, cen: &TasteCentroids) {
+    let Ok(payload) = serde_json::to_string(cen) else {
+        return;
+    };
+    let Ok(mut conn) = redis.get().await else {
+        return;
+    };
+    let _: Result<(), _> = conn
+        .set_ex::<_, _, ()>(taste_key(sc_user_id), payload, TASTE_TTL_SECS)
+        .await;
 }
 
 /// Косинус трека к центроиду плоскости (None если нет центроида/вектора).

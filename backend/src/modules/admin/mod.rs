@@ -31,4 +31,6 @@ pub fn router() -> Router<AppState> {
         .route("/admin/tracks/{track_id}/album", patch(catalog::track_set_album))
         .route("/admin/tracks/{track_id}/credits", post(catalog::track_add_credit))
         .route("/admin/tracks/{track_id}/credits/{artist_id}", delete(catalog::track_remove_credit))
+        .route("/admin/tracks/{track_id}/detach-artist", post(catalog::track_detach_artist))
+        .route("/admin/tracks/{track_id}/blocks/{artist_id}", delete(catalog::track_unblock_artist))
 }
