@@ -1,0 +1,15 @@
+name: migrations-guard
+on:
+  pull_request:
+    paths: [ 'backend/migrations/**' ]
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: append-only + unique migrations
+        env:
+          MIG_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/check-migrations.sh "$MIG_BASE_REF...HEAD"
