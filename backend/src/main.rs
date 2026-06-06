@@ -220,7 +220,7 @@ async fn main() {
     lyrics.spawn_consumers();
     lyrics.spawn_reap_loops(shutdown.clone());
 
-    let collab_vector = CollabVectorService::new(qdrant.clone(), pg.clone());
+    let collab_vector = CollabVectorService::new(qdrant.clone());
     let collab_trainer = CollabTrainerService::new(
         pg.clone(),
         nats.clone(),
@@ -366,7 +366,6 @@ async fn main() {
     events.install_deps(
         indexing.clone(),
         dislikes.clone(),
-        collab_vector.clone(),
         collab_trainer.clone(),
     );
 

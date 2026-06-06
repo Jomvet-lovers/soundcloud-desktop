@@ -82,15 +82,6 @@ impl WaveCursor {
         )
     }
 
-    /// Доля дизов в скользящем окне feedback'а.
-    pub fn neg_rate(&self) -> f32 {
-        if self.neg_flags.is_empty() {
-            return 0.0;
-        }
-        let neg = self.neg_flags.iter().filter(|f| **f == 1).count() as f32;
-        neg / self.neg_flags.len() as f32
-    }
-
     pub fn mark_served(&mut self, sc_track_id: u64, artist_id: Option<Uuid>) {
         self.served = self.served.saturating_add(1);
         push_capped(&mut self.seen_tracks, sc_track_id, SEEN_TRACKS_CAP);

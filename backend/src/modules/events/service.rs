@@ -8,7 +8,7 @@ use tracing::warn;
 
 use crate::common::sc_ids::normalize_sc_track_id;
 use crate::error::AppResult;
-use crate::modules::collab::{CollabTrainerService, CollabVectorService};
+use crate::modules::collab::CollabTrainerService;
 use crate::modules::dislikes::DislikesService;
 use crate::modules::indexing::IndexingService;
 
@@ -79,7 +79,6 @@ pub struct EventsService {
     user_locks: Cache<String, Arc<AsyncMutex<()>>>,
     indexing: OnceCell<Arc<IndexingService>>,
     dislikes: OnceCell<Arc<DislikesService>>,
-    collab: OnceCell<Arc<CollabVectorService>>,
     collab_trainer: OnceCell<Arc<CollabTrainerService>>,
 }
 
@@ -93,7 +92,6 @@ impl EventsService {
                 .build(),
             indexing: OnceCell::new(),
             dislikes: OnceCell::new(),
-            collab: OnceCell::new(),
             collab_trainer: OnceCell::new(),
         })
     }
@@ -102,12 +100,10 @@ impl EventsService {
         &self,
         indexing: Arc<IndexingService>,
         dislikes: Arc<DislikesService>,
-        collab: Arc<CollabVectorService>,
         collab_trainer: Arc<CollabTrainerService>,
     ) {
         let _ = self.indexing.set(indexing);
         let _ = self.dislikes.set(dislikes);
-        let _ = self.collab.set(collab);
         let _ = self.collab_trainer.set(collab_trainer);
     }
 
@@ -199,11 +195,6 @@ impl EventsService {
 
         self.enqueue_indexing(&normalized);
 
-        if is_positive {
-            if let Some(c) = self.collab.get() {
-                c.invalidate(sc_user_id);
-            }
-        }
         if COLLAB_TRIGGER_EVENTS.contains(&event_type) {
             if let Some(t) = self.collab_trainer.get() {
                 t.note_event();

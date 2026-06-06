@@ -42,10 +42,6 @@ impl ClusterBuilder {
         }
     }
 
-    pub fn attach_features(&mut self, track_id: String, features: Vec<f32>) {
-        self.features.insert(track_id, features);
-    }
-
     pub fn features_map(&self) -> &HashMap<String, Vec<f32>> {
         &self.features
     }

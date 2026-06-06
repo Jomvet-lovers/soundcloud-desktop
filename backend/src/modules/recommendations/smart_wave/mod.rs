@@ -43,6 +43,9 @@ const GRAPH_FLOOR: f32 = 0.35;
 /// Ниже этой конъюнкции близости по плоскостям (бит×вайб×лирика) — выкидываем:
 /// трек должен быть близок ВО ВСЕХ плоскостях, а не пролезать по одной.
 const CONTENT_FLOOR: f32 = 0.55;
+/// Track/Artist волна: насколько mood-центроид идёт ОТ СИДА (трек/артист)
+/// против твоего вкуса (0.7 сид + 0.3 ты). Home-волна не блендит (сид = вкус).
+const SEED_MOOD_WEIGHT: f32 = 0.7;
 /// Сетка-как-источник: с топ-N аффинити-артистов берём треки в пул кандидатов.
 const GRAPH_ARTISTS: usize = 120;
 const GRAPH_PER_ARTIST: i64 = 6;
@@ -154,9 +157,17 @@ pub async fn build(
         .take(80)
         .filter_map(|s| s.parse::<u64>().ok())
         .collect();
+    // Для track/artist волны вайб идёт ОТ СИДА (сам трек / треки артиста),
+    // подмешан твой вкус — иначе на чужом по вайбу треке волна была бы «твоя»,
+    // а не про этот трек. Home (User) — чистый твой вкус.
+    let mood_seed_ids: Vec<u64> = match &req.seed {
+        SmartWaveSeed::User => Vec::new(),
+        SmartWaveSeed::Track(t) => vec![*t],
+        SmartWaveSeed::Artist(_, tracks) => tracks.iter().take(20).copied().collect(),
+    };
     // Центроиды вкуса кэшируются per-user (иначе +3 ретрива/страницу), а
     // векторы кандидатов тянем всегда (разные на каждой странице) — параллельно.
-    let centroids_fut = taste_centroids(svc, req.sc_user_id, &liked_ids);
+    let centroids_fut = mood_centroids(svc, req.sc_user_id, &mood_seed_ids, &liked_ids);
     let cands_vecs_fut = async {
         tokio::join!(
             svc.retrieve_vectors(collections::TRACKS_MERT, &cand_ids),
@@ -422,6 +433,42 @@ async fn taste_centroids(
         write_taste_cache(&svc.redis, sc_user_id, &cen).await;
     }
     cen
+}
+
+/// Центроиды для mood-скоринга. Home — твой вкус (кэш). Track/artist — вайб
+/// сида (векторы трека / треков артиста), подмешан твой вкус [SEED_MOOD_WEIGHT].
+async fn mood_centroids(
+    svc: &RecommendationsService,
+    sc_user_id: &str,
+    seed_ids: &[u64],
+    liked_ids: &[u64],
+) -> TasteCentroids {
+    let user = taste_centroids(svc, sc_user_id, liked_ids).await;
+    if seed_ids.is_empty() {
+        return user;
+    }
+    let (sm, sc, sl) = tokio::join!(
+        svc.retrieve_vectors(collections::TRACKS_MERT, seed_ids),
+        svc.retrieve_vectors(collections::TRACKS_CLAP, seed_ids),
+        svc.retrieve_vectors(collections::TRACKS_LYRICS, seed_ids),
+    );
+    TasteCentroids {
+        m: blend_centroids(mean_centroid(&sm), user.m, SEED_MOOD_WEIGHT),
+        c: blend_centroids(mean_centroid(&sc), user.c, SEED_MOOD_WEIGHT),
+        l: blend_centroids(mean_centroid(&sl), user.l, SEED_MOOD_WEIGHT),
+    }
+}
+
+/// `w·seed + (1-w)·user` поэлементно; если одна сторона пуста — берём другую.
+fn blend_centroids(seed: Option<Vec<f32>>, user: Option<Vec<f32>>, w: f32) -> Option<Vec<f32>> {
+    match (seed, user) {
+        (Some(s), Some(u)) => {
+            let n = s.len().min(u.len());
+            Some((0..n).map(|i| w * s[i] + (1.0 - w) * u[i]).collect())
+        }
+        (Some(s), None) => Some(s),
+        (None, u) => u,
+    }
 }
 
 fn taste_key(sc_user_id: &str) -> String {
