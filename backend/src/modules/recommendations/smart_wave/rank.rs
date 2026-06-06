@@ -1,9 +1,12 @@
-//! Ранжирование волны: сетка × MERT с плавной деградацией.
+//! Ранжирование волны: сетка + MERT с плавной деградацией.
 //!
-//! `score = mert_norm · (1 + λ·affinity)`. База — MERT (всё, что нашёл qdrant,
-//! уже ранжируемо), сетка поднимает наверх. Не-граф треки оседают в хвост →
-//! волна бесконечно и плавно «ухудшается»: сперва высокая близость сетки +
-//! сильный MERT, потом ниже % сетки, в конце — чистый MERT без сетки.
+//! Кандидаты идут из ДВУХ источников: сетка (треки близких артистов) и MERT
+//! (qdrant-похожие на лайки). Скор аддитивный:
+//!   `score = aff·W_graph + mert_norm·W_mert + aff·mert_norm·W_syn`
+//! - в топе: высокая близость сетки И сильный MERT (синергия);
+//! - ниже: меньше % сетки;
+//! - в хвосте: без сетки (чистый MERT, `aff=0`).
+//! Так волна и бесконечна, и плавно «ухудшается».
 
 use std::collections::{HashMap, HashSet};
 
@@ -11,14 +14,20 @@ use uuid::Uuid;
 
 use super::cursor::WaveCursor;
 use super::graph::Affinity;
-use super::track_arm::TrackArmCandidate;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TrackMeta {
     pub primary_artist: Option<Uuid>,
-    /// Лежит ли трек на нашем S3. Не-`ok` не отдаём — иначе late-drop схлопывает
-    /// выдачу (корень бага исчезающих карточек).
+    /// Лежит ли трек на нашем S3 — не-`ok` не отдаём (иначе late-drop схлопывает выдачу).
     pub storage_ok: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Candidate {
+    pub sc_track_id: u64,
+    pub artist: Option<Uuid>,
+    /// raw z-score из qdrant; `None` = трек пришёл только из сетки.
+    pub mert: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,48 +37,53 @@ pub struct RankedTrack {
     pub artist: Option<Uuid>,
 }
 
-#[allow(clippy::too_many_arguments)]
+#[derive(Debug, Clone, Copy)]
+pub struct RankWeights {
+    pub graph: f32,
+    pub mert: f32,
+    pub synergy: f32,
+}
+
 pub fn rank_and_pick(
-    mert: &[TrackArmCandidate],
+    cands: &[Candidate],
     affinity: &Affinity,
     disliked_artists: &HashSet<Uuid>,
-    meta: &HashMap<u64, TrackMeta>,
     cursor: &WaveCursor,
     limit: usize,
     artist_cap: usize,
-    lambda: f32,
+    w: RankWeights,
 ) -> Vec<RankedTrack> {
-    // min-max нормализация MERT z-score → [0,1], чтобы умножать на буст сетки.
-    let (lo, hi) = mert
+    // min-max нормализация MERT z-score → [0,1] по тем кандидатам, у кого он есть.
+    let (lo, hi) = cands
         .iter()
-        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), c| {
-            (lo.min(c.score), hi.max(c.score))
+        .filter_map(|c| c.mert)
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), m| {
+            (lo.min(m), hi.max(m))
         });
     let span = (hi - lo).max(1e-6);
 
-    let mut scored: Vec<RankedTrack> = Vec::with_capacity(mert.len());
-    for c in mert {
-        let Some(m) = meta.get(&c.sc_track_id) else {
-            continue; // не в каталоге
-        };
-        if !m.storage_ok {
-            continue;
-        }
-        if let Some(a) = m.primary_artist {
+    let mut scored: Vec<RankedTrack> = Vec::with_capacity(cands.len());
+    for c in cands {
+        if let Some(a) = c.artist {
             if disliked_artists.contains(&a) {
-                continue; // диз-артист — режем даже в чистом MERT-хвосте
+                continue; // диз-артист — режем даже в чистом MERT
             }
         }
-        let mert_norm = ((c.score - lo) / span).clamp(0.0, 1.0);
-        let aff = m
-            .primary_artist
+        let aff = c
+            .artist
             .and_then(|a| affinity.get(&a).copied())
             .unwrap_or(0.0);
-        let score = mert_norm * (1.0 + lambda * aff);
+        let mert_norm = c.mert.map(|m| ((m - lo) / span).clamp(0.0, 1.0));
+        // трек без сетки И без MERT — мусор.
+        if aff <= 0.0 && mert_norm.is_none() {
+            continue;
+        }
+        let mn = mert_norm.unwrap_or(0.0);
+        let score = aff * w.graph + mn * w.mert + aff * mn * w.synergy;
         scored.push(RankedTrack {
             sc_track_id: c.sc_track_id,
             score,
-            artist: m.primary_artist,
+            artist: c.artist,
         });
     }
     scored.sort_by(|a, b| {

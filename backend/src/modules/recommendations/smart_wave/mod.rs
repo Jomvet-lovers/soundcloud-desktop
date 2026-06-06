@@ -33,8 +33,16 @@ use signals::UserSignals;
 const ARTIST_CAP_IN_WINDOW: usize = 2;
 /// Сколько MERT-кандидатов тянем — «очень много», дальше rank режет до limit.
 const MERT_POOL: usize = 400;
-/// Сила буста сетки: aff=1.0 (TIER A) даёт ×(1+λ) над чистым MERT.
-const LAMBDA_GRAPH: f32 = 3.0;
+/// Веса скоринга (см. rank.rs): сетка доминирует, MERT уточняет, синергия в топ.
+const RANK_W: rank::RankWeights = rank::RankWeights {
+    graph: 1.0,
+    mert: 0.35,
+    synergy: 2.0,
+};
+/// Сетка-как-источник: с топ-N аффинити-артистов берём треки в пул кандидатов.
+const GRAPH_ARTISTS: usize = 120;
+const GRAPH_PER_ARTIST: i64 = 6;
+const GRAPH_TRACKS_TOTAL: i64 = 600;
 const SEED_LIKES_USER: usize = 14;
 /// Досев последними отданными треками — двигает MERT-пул вперёд (бесконечность).
 const SEED_SERVED_FORWARD: usize = 8;
@@ -85,35 +93,77 @@ pub async fn build(
     let mut wave_cursor =
         cursor::load_or_new(&svc.redis, owner, req.cursor_token, seed_kind, &seed_key).await;
 
-    let mert_seeds = pick_mert_seeds(&req.seed, &signals, &wave_cursor);
+    let mert_seeds_raw = pick_mert_seeds(&req.seed, &signals, &wave_cursor);
     let exclude = build_exclude(&signals, &wave_cursor, &req.seed);
-    let negative_ids = negative_ids_for_qdrant(&signals);
+    let negative_raw = negative_ids_for_qdrant(&signals);
+
+    // qdrant.recommend падает целиком, если хоть одна positive/negative точка не
+    // существует в коллекции → шлём только indexed (иначе MERT-пул всегда пуст).
+    let (mert_seeds, negative_ids) = tokio::join!(
+        filter_indexed(&svc.pg, &mert_seeds_raw),
+        filter_indexed(&svc.pg, &negative_raw),
+    );
     let filter = svc.build_filter(&exclude, req.languages);
 
     let graph_fut = graph::build_affinity(svc, req.sc_user_id, graph_seed);
-    let mert_fut = track_arm::recommend_from_many(
-        svc,
-        &mert_seeds,
-        &negative_ids,
-        filter.as_ref(),
-        MERT_POOL,
-    );
+    let mert_fut =
+        track_arm::recommend_from_many(svc, &mert_seeds, &negative_ids, filter.as_ref(), MERT_POOL);
     let (graph_res, mert) = tokio::join!(graph_fut, mert_fut);
     let disliked_set: HashSet<Uuid> = graph_res.disliked_artists.iter().copied().collect();
+
+    // Сетка как ИСТОЧНИК: треки топ-аффинити артистов (playable+indexed). Это
+    // держит волну живой даже когда MERT тонкий, и даёт «граф-only» хвост.
+    let top_artists = top_affinity_artists(&graph_res.affinity, GRAPH_ARTISTS);
+    let graph_tracks = graph::collect_artist_tracks(
+        &svc.pg,
+        &top_artists,
+        &exclude,
+        GRAPH_PER_ARTIST,
+        GRAPH_TRACKS_TOTAL,
+    )
+        .await;
 
     let pool_ids: Vec<u64> = mert.iter().map(|c| c.sc_track_id).collect();
     let meta = load_track_meta(&svc.pg, &pool_ids).await;
 
+    // Объединяем кандидатов из сетки и MERT (один трек может быть в обоих).
+    let mut cmap: HashMap<u64, rank::Candidate> = HashMap::new();
+    for (tid, aid) in &graph_tracks {
+        cmap.entry(*tid).or_insert(rank::Candidate {
+            sc_track_id: *tid,
+            artist: Some(*aid),
+            mert: None,
+        });
+    }
+    for c in &mert {
+        let Some(m) = meta.get(&c.sc_track_id) else {
+            continue;
+        };
+        if !m.storage_ok {
+            continue;
+        }
+        let e = cmap.entry(c.sc_track_id).or_insert(rank::Candidate {
+            sc_track_id: c.sc_track_id,
+            artist: m.primary_artist,
+            mert: None,
+        });
+        e.mert = Some(c.score);
+        if e.artist.is_none() {
+            e.artist = m.primary_artist;
+        }
+    }
+    let cands: Vec<rank::Candidate> = cmap.into_values().collect();
+    let cand_count = cands.len();
+
     // Берём с запасом (×2): дальше language-фильтр может срезать часть.
     let picked = rank::rank_and_pick(
-        &mert,
+        &cands,
         &graph_res.affinity,
         &disliked_set,
-        &meta,
         &wave_cursor,
         req.limit * 2,
         ARTIST_CAP_IN_WINDOW,
-        LAMBDA_GRAPH,
+        RANK_W,
     );
 
     let ids_after: Vec<String> = picked.iter().map(|p| p.sc_track_id.to_string()).collect();
@@ -151,7 +201,9 @@ pub async fn build(
         served_total = wave_cursor.served,
         returned = tracks.len(),
         graph = graph_res.affinity.len(),
+        graph_tracks = graph_tracks.len(),
         mert_pool = mert.len(),
+        cands = cand_count,
         "wave built"
     );
 
@@ -298,6 +350,35 @@ fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
     out.dedup();
     out.truncate(40);
     out
+}
+
+/// Топ-N артистов по affinity — с них берём треки в пул (сетка-как-источник).
+fn top_affinity_artists(aff: &graph::Affinity, n: usize) -> Vec<Uuid> {
+    let mut v: Vec<(Uuid, f32)> = aff.iter().map(|(k, w)| (*k, *w)).collect();
+    v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    v.truncate(n);
+    v.into_iter().map(|(k, _)| k).collect()
+}
+
+/// Оставить только проиндексированные в qdrant id — recommend ошибается на
+/// несуществующих точках (одна битая negative-точка валит весь запрос).
+async fn filter_indexed(pg: &PgPool, ids: &[u64]) -> Vec<u64> {
+    if ids.is_empty() {
+        return Vec::new();
+    }
+    let strs: Vec<String> = ids.iter().map(|i| i.to_string()).collect();
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT sc_track_id FROM tracks WHERE sc_track_id = ANY($1) AND index_state = 'indexed'",
+    )
+        .bind(&strs)
+        .fetch_all(pg)
+        .await
+        .unwrap_or_default();
+    let set: HashSet<String> = rows.into_iter().map(|(s, )| s).collect();
+    ids.iter()
+        .copied()
+        .filter(|i| set.contains(&i.to_string()))
+        .collect()
 }
 
 async fn load_track_meta(pg: &PgPool, ids: &[u64]) -> HashMap<u64, TrackMeta> {

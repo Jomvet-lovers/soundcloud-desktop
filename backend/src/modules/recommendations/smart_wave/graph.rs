@@ -339,6 +339,47 @@ async fn load_coplay_edges(pg: &PgPool, nodes: &[Uuid]) -> Vec<(Uuid, Uuid, f32)
         .unwrap_or_default()
 }
 
+/// Треки близких артистов — сетка как ИСТОЧНИК кандидатов (не только ре-ранкер).
+/// Только playable+indexed (иначе qdrant/плеер их не отдаст), top по play_count,
+/// `per_artist` штук на артиста (анти-моно), не из exclude.
+pub async fn collect_artist_tracks(
+    pg: &PgPool,
+    artist_ids: &[Uuid],
+    exclude: &[String],
+    per_artist: i64,
+    total: i64,
+) -> Vec<(u64, Uuid)> {
+    if artist_ids.is_empty() {
+        return Vec::new();
+    }
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        "WITH ranked AS ( \
+             SELECT ta.artist_id, it.sc_track_id, \
+                 ROW_NUMBER() OVER ( \
+                     PARTITION BY ta.artist_id ORDER BY COALESCE(c.play_count, 0) DESC \
+                 ) AS rn \
+             FROM track_artists ta \
+             JOIN tracks it ON it.id = ta.track_id \
+             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
+             WHERE ta.artist_id = ANY($1) AND ta.role = 'primary' \
+               AND it.sharing = 'public' AND it.storage_state = 'ok' \
+               AND it.index_state = 'indexed' \
+               AND NOT (it.sc_track_id = ANY($2)) \
+         ) \
+         SELECT artist_id, sc_track_id FROM ranked WHERE rn <= $3 LIMIT $4",
+    )
+        .bind(artist_ids)
+        .bind(exclude)
+        .bind(per_artist)
+        .bind(total)
+        .fetch_all(pg)
+        .await
+        .unwrap_or_default();
+    rows.into_iter()
+        .filter_map(|(a, s)| s.parse::<u64>().ok().map(|n| (n, a)))
+        .collect()
+}
+
 fn normalize_by_max(map: &mut Affinity) {
     let max = map.values().copied().fold(0f32, f32::max);
     if max <= 0.0 {
