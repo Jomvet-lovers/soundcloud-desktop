@@ -125,7 +125,9 @@ export const WaveMasthead = memo(function WaveMasthead({
                 }}
             />
             <ArtworkMosaic tracks={likedTracks}/>
-            {perf.atmosphere && <StarField aura={sound.aura} seeds={HERO_STAR_SEEDS} intensity={0.95}/>}
+            {perf.atmosphere && (
+                <StarField aura={sound.aura} seeds={HERO_STAR_SEEDS} intensity={0.95} glow={false}/>
+            )}
             <div
                 className="absolute inset-0 pointer-events-none rounded-[inherit] transition-[background] duration-500"
                 style={{

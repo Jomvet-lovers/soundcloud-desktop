@@ -1,7 +1,7 @@
-import {useInfiniteQuery, useQuery} from '@tanstack/react-query';
-import {useMemo} from 'react';
-import type { Track } from '../stores/player';
-import { api } from './api';
+import {useQuery} from '@tanstack/react-query';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import type {Track} from '../stores/player';
+import {api} from './api';
 
 export interface RecommendResult {
   id: string | number;
@@ -167,59 +167,94 @@ export function useSmartWave(opts: {
 
 /**
  * Endless home-wave board for the Search landing — the "затягивающая сетка".
- * Infinite, cursor-paged via `fetchSmartWave({ seedKind: 'user' })`; the server
- * personalises it and degrades to popularity for cold/un-indexed users, so it
- * always returns covers to scroll. Flattened + deduped by urn for a clean grid.
+ *
+ * Курсор волны на бэке STATEFUL (токен = id сессии, позиция двигается в Redis) —
+ * это несовместимо с refetch-моделью `useInfiniteQuery` (рефетч страниц на
+ * stateful-курсоре отдаёт другое → лента вставала после пары экранов). Поэтому
+ * пагинируем ВРУЧНУЮ: только вперёд, append, без рефетча. Плюс при КАЖДОМ заходе
+ * стартуем СВЕЖУЮ волну (топ-треки), а не доигрываем посредственный хвост.
  */
 export function useWaveBoard(opts?: { enabled?: boolean; languages?: string[] }) {
-    const languages = normLanguages(opts?.languages);
-    const query = useInfiniteQuery<
-        SmartWaveBatch,
-        Error,
-        SmartWaveBatch[],
-        string[],
-        string | undefined
-    >({
-        queryKey: ['wave', 'board', languages ?? 'all'],
-        enabled: opts?.enabled !== false,
-        staleTime: SW_STALE_MS,
-        gcTime: SW_GC_MS,
-        initialPageParam: undefined,
-        queryFn: ({pageParam}) =>
-            fetchSmartWave({
-                seedKind: 'user',
-                cursor: pageParam,
-                limit: 24,
-                languages: opts?.languages,
-            }),
-        // The server keeps returning a (non-empty) cursor even when a user's wave is
-        // exhausted and the page is empty — treat an empty page as end-of-feed so we
-        // don't loop forever on a cursor that yields nothing.
-        getNextPageParam: (last) => (last.cursor && last.tracks.length > 0 ? last.cursor : undefined),
-        select: (data) => data.pages,
-    });
+    const enabled = opts?.enabled !== false;
+    const langKey = normLanguages(opts?.languages) ?? 'all';
+    const languagesRef = useRef(opts?.languages);
+    languagesRef.current = opts?.languages;
 
-    const tracks = useMemo(() => {
-        const seen = new Set<string>();
-        const out: Track[] = [];
-        for (const page of query.data ?? []) {
-            for (const t of page.tracks) {
-                if (!seen.has(t.urn)) {
-                    seen.add(t.urn);
-                    out.push(t);
-                }
-            }
+    const [tracks, setTracks] = useState<Track[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+    const [hasNextPage, setHasNextPage] = useState(true);
+
+    const cursorRef = useRef<string | undefined>(undefined);
+    const seenRef = useRef<Set<string>>(new Set());
+    const fetchingRef = useRef(false);
+
+    // Свежий старт при каждом заходе / смене языка: топ волны, не хвост.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: langKey намеренно триггерит fresh-волну при смене языка (значение читаем через ref, чтобы не словить stale-замыкание).
+    useEffect(() => {
+        if (!enabled) {
+            setTracks([]);
+            setHasNextPage(true);
+            return;
         }
-        return out;
-    }, [query.data]);
+        let cancelled = false;
+        cursorRef.current = undefined;
+        seenRef.current = new Set();
+        fetchingRef.current = true;
+        setTracks([]);
+        setHasNextPage(true);
+        setIsLoading(true);
+        (async () => {
+            const batch = await fetchSmartWave({
+                seedKind: 'user',
+                limit: 24,
+                languages: languagesRef.current,
+            });
+            if (cancelled) return;
+            cursorRef.current = batch.cursor || undefined;
+            setTracks(dedupeNew(batch.tracks, seenRef.current));
+            setHasNextPage(batch.tracks.length > 0 && !!batch.cursor);
+            setIsLoading(false);
+            fetchingRef.current = false;
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [enabled, langKey]);
 
-    return {
-        tracks,
-        isLoading: query.isLoading,
-        hasNextPage: query.hasNextPage,
-        isFetchingNextPage: query.isFetchingNextPage,
-        fetchNextPage: query.fetchNextPage,
-    };
+    const fetchNextPage = useCallback(async () => {
+        if (!enabled || fetchingRef.current || !hasNextPage) return;
+        fetchingRef.current = true;
+        setIsFetchingNextPage(true);
+        try {
+            const batch = await fetchSmartWave({
+                seedKind: 'user',
+                cursor: cursorRef.current,
+                limit: 24,
+                languages: languagesRef.current,
+            });
+            cursorRef.current = batch.cursor || cursorRef.current;
+            const fresh = dedupeNew(batch.tracks, seenRef.current);
+            if (fresh.length > 0) setTracks((prev) => [...prev, ...fresh]);
+            setHasNextPage(batch.tracks.length > 0); // пусто = волна иссякла
+        } finally {
+            fetchingRef.current = false;
+            setIsFetchingNextPage(false);
+        }
+    }, [enabled, hasNextPage]);
+
+    return {tracks, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage};
+}
+
+function dedupeNew(batch: Track[], seen: Set<string>): Track[] {
+    const out: Track[] = [];
+    for (const t of batch) {
+        if (t?.urn && !seen.has(t.urn)) {
+            seen.add(t.urn);
+            out.push(t);
+        }
+    }
+    return out;
 }
 
 /** Optional lightweight poll of indexing stats. Fails silently if endpoint absent. */

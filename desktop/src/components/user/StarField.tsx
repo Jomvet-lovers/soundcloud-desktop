@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Aura } from '../../lib/aura';
+import type {Aura} from '../../lib/aura';
 import {Star} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
 
@@ -51,10 +51,13 @@ interface StarFieldProps {
   aura: Aura;
   seeds: StarSeed[];
   intensity?: number;
+    /** Per-star glow (drop-shadow/box-shadow). Off for cheaper pages. Default on. */
+    glow?: boolean;
 }
 
-function StarFieldImpl({ aura, seeds, intensity = 1 }: StarFieldProps) {
+function StarFieldImpl({aura, seeds, intensity = 1, glow = true}: StarFieldProps) {
     const perf = usePerfMode();
+    const allowGlow = glow && perf.glow;
     const dots = DOT_SEEDS.slice(0, perf.particles(DOT_SEEDS.length));
     const stars = seeds.slice(0, perf.particles(seeds.length));
     if (dots.length === 0 && stars.length === 0) return null;
@@ -77,7 +80,7 @@ function StarFieldImpl({ aura, seeds, intensity = 1 }: StarFieldProps) {
                 left: `${d.left}%`,
                 top: `${d.top}%`,
                 background: color,
-                  boxShadow: perf.glow ? `0 0 ${d.size * 2}px ${color}` : undefined,
+                  boxShadow: allowGlow ? `0 0 ${d.size * 2}px ${color}` : undefined,
                 ['--min' as keyof React.CSSProperties]: d.min * intensity,
                 ['--max' as keyof React.CSSProperties]: d.max * intensity,
                   animation: perf.idleAnim
@@ -100,7 +103,7 @@ function StarFieldImpl({ aura, seeds, intensity = 1 }: StarFieldProps) {
                 top: `${s.top}%`,
                 color,
                 transform: `rotate(${s.rot}deg)`,
-                  filter: perf.glow ? `drop-shadow(0 0 ${s.size}px ${color})` : undefined,
+                  filter: allowGlow ? `drop-shadow(0 0 ${s.size}px ${color})` : undefined,
                 ['--min' as keyof React.CSSProperties]: s.min * intensity,
                 ['--max' as keyof React.CSSProperties]: s.max * intensity,
                   animation: perf.idleAnim

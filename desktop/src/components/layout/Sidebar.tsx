@@ -1,28 +1,28 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
-import { NavLink } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
-import { changeAppLanguage } from '../../i18n';
-import { art } from '../../lib/formatters';
+import {useTranslation} from 'react-i18next';
+import {NavLink} from 'react-router-dom';
+import {useShallow} from 'zustand/shallow';
+import {changeAppLanguage} from '../../i18n';
+import {art} from '../../lib/formatters';
 import {
-  Clock,
-  Compass,
-  Download,
-  Globe,
-  Home,
-  Library,
-  ListMusic,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Search,
-  Settings,
+    Clock,
+    Compass,
+    Download,
+    Globe,
+    Home,
+    Library,
+    ListMusic,
+    PanelLeftClose,
+    PanelLeftOpen,
+    Search,
+    Settings,
 } from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import { useAppStatusStore } from '../../stores/app-status';
-import { useAuthStore } from '../../stores/auth';
-import { useSettingsStore } from '../../stores/settings';
-import { Avatar } from '../ui/Avatar';
-import { StarBadge, StarCard, StarModal, useStarSubscription } from './StarSubscription';
+import {useAppStatusStore} from '../../stores/app-status';
+import {useAuthStore} from '../../stores/auth';
+import {useSettingsStore} from '../../stores/settings';
+import {Avatar} from '../ui/Avatar';
+import {StarBadge, StarCard, StarModal, useStarSubscription} from './StarSubscription';
 
 type IconCmp = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
@@ -142,7 +142,7 @@ export const Sidebar = React.memo(() => {
 
   return (
     <aside
-        className="shrink-0 flex flex-col h-full overflow-hidden border-r border-white/[0.05] transition-[width] duration-300 ease-[var(--ease-apple)]"
+        className="shrink-0 flex flex-col h-full overflow-hidden border-r border-white/[0.05] pb-3 transition-[width] duration-300 ease-[var(--ease-apple)]"
         style={{
             width: collapsed ? 56 : 196,
             transitionDuration: perf.mode === 'light' ? '0ms' : undefined,
