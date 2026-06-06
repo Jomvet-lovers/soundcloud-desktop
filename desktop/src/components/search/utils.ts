@@ -103,6 +103,42 @@ export function vibeEnergy(topGenres: string[] | undefined): number {
     return sum / Math.min(topGenres.length, 4);
 }
 
+export interface GenreShare {
+    genre: string;
+    /** Fraction of the genre-tagged tracks this genre accounts for (0..1). */
+    share: number;
+    color: string;
+}
+
+/** The dominant genres of a track set by frequency, each with its share — the
+ *  raw material for an aura (top 3) or a full soundprint spectrum (top N). */
+export function topGenres(
+    tracks: ReadonlyArray<{ genre?: string | null }>,
+    n: number,
+    fallbackGenre?: string | null,
+): GenreShare[] {
+    const counts = new Map<string, number>();
+    let withGenre = 0;
+    for (const tr of tracks) {
+        const g = tr.genre?.trim();
+        if (!g) continue;
+        counts.set(g, (counts.get(g) ?? 0) + 1);
+        withGenre++;
+    }
+    if (counts.size === 0 && fallbackGenre?.trim()) {
+        counts.set(fallbackGenre.trim(), 1);
+        withGenre = 1;
+    }
+    return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([genre, c]) => ({
+            genre,
+            share: withGenre ? c / withGenre : 0,
+            color: genreColor(genre),
+        }));
+}
+
 const SC_URL = /^https?:\/\/(www\.|m\.|on\.)?soundcloud\.com\/.+/i;
 
 export function isSoundCloudUrl(input: string): boolean {

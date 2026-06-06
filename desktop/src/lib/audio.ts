@@ -253,6 +253,42 @@ async function resolveTrackMetadata(track: Track): Promise<Track> {
   }
 }
 
+/** True when a file path no longer exists on disk. */
+function isFileMissing(e: unknown): boolean {
+    const s = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
+    return /no such file|os error 2|cannot find the (file|path)|system cannot find/i.test(s);
+}
+
+/**
+ * Load a cached file, surviving the raw-А → clean-Б transcode swap: if the path
+ * was deleted between cache-resolve and read, re-resolve through the cache (the
+ * clean file now, or a fresh download) and retry once.
+ */
+async function loadCachedFile(
+    urn: string,
+    path: string,
+    startPaused: boolean,
+    reResolve: () => Promise<string | null>,
+): Promise<{ duration_secs: number | null }> {
+    try {
+        return await invoke<{ duration_secs: number | null }>('audio_load_file', {
+            path,
+            cacheKey: urn,
+            startPaused,
+        });
+    } catch (e) {
+        if (!isFileMissing(e)) throw e;
+        console.warn('[Audio] cached file vanished, re-resolving:', urn);
+        const fresh = await reResolve();
+        if (!fresh) throw e;
+        return await invoke<{ duration_secs: number | null }>('audio_load_file', {
+            path: fresh,
+            cacheKey: urn,
+            startPaused,
+        });
+    }
+}
+
 async function loadTrack(track: Track) {
   const gen = ++loadGen;
     const isNewTrack = currentUrn !== track.urn;
@@ -289,17 +325,30 @@ async function loadTrack(track: Track) {
   try {
     const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
 
+      // The cached file can be swapped (raw А → clean Б) or evicted between resolve
+      // and read; re-resolve through the cache to recover the current path.
+      const reResolve = async (): Promise<string | null> => {
+          const info = await getCacheInfo(urn);
+          if (info?.path) return info.path;
+          try {
+              return (await ensureTrackCached(urn, highQualityStreaming, track.duration)).path;
+          } catch {
+              return null;
+          }
+      };
+
     // Strategy 1: Cache hit — instant
     const cached = await getCacheInfo(urn);
     if (cached?.path) {
       if (gen !== loadGen) return;
       usePlayerStore.getState().setPlaybackTransport(cached.quality, cached.source);
       console.log('[Audio] Playing from cache:', urn);
-      const loadResult = await invoke<{ duration_secs: number | null }>('audio_load_file', {
-        path: cached.path,
-        cacheKey: urn,
-        startPaused: !usePlayerStore.getState().isPlaying,
-      });
+        const loadResult = await loadCachedFile(
+            urn,
+            cached.path,
+            !usePlayerStore.getState().isPlaying,
+            reResolve,
+        );
       if (gen !== loadGen) return;
       if (loadResult?.duration_secs) {
         fallbackDuration = loadResult.duration_secs;
@@ -316,11 +365,11 @@ async function loadTrack(track: Track) {
 
     let cachedInfo: TrackCacheInfo;
     try {
-      cachedInfo = await ensureTrackCached(urn, highQualityStreaming);
+        cachedInfo = await ensureTrackCached(urn, highQualityStreaming, track.duration);
     } catch (error) {
       if (!highQualityStreaming) throw error;
       console.warn('[Audio] HQ load failed, retrying without hq:', error);
-      cachedInfo = await ensureTrackCached(urn, false);
+        cachedInfo = await ensureTrackCached(urn, false, track.duration);
     }
 
     if (gen !== loadGen) return;
@@ -328,11 +377,12 @@ async function loadTrack(track: Track) {
     usePlayerStore.getState().setPlaybackTransport(cachedInfo.quality, cachedInfo.source);
 
     console.log('[Audio] Playing downloaded track:', urn);
-    const loadResult = await invoke<{ duration_secs: number | null }>('audio_load_file', {
-      path: cachedInfo.path,
-      cacheKey: urn,
-      startPaused: !usePlayerStore.getState().isPlaying,
-    });
+      const loadResult = await loadCachedFile(
+          urn,
+          cachedInfo.path,
+          !usePlayerStore.getState().isPlaying,
+          reResolve,
+      );
     if (loadResult?.duration_secs) {
       fallbackDuration = loadResult.duration_secs;
       cachedDuration = loadResult.duration_secs;
@@ -660,6 +710,7 @@ export function preloadQueue() {
     storageUrls: string[];
     sessionId: string | null;
     hq: boolean;
+      durationMs?: number;
   }> = [];
   const sessionId = getSessionId();
   const hq = useSettingsStore.getState().highQualityStreaming;
@@ -674,6 +725,7 @@ export function preloadQueue() {
         storageUrls: buildStorageUrls(queue[idx].urn),
         sessionId,
         hq,
+          durationMs: queue[idx].duration,
       });
     }
   }

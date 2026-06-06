@@ -31,33 +31,36 @@ export function getCacheInfo(urn: string): Promise<TrackCacheInfo | null> {
   return invoke<TrackCacheInfo | null>('track_get_cache_info', { urn });
 }
 
+/** Builds the Rust-side cache request (stream/download/storage fallbacks + the
+ *  API duration used to detect truncated downloads). `durationMs` is the track's
+ *  API-reported length in milliseconds. */
+async function buildCacheRequest(urn: string, hq: boolean, durationMs?: number) {
+    const {buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId} = await import(
+        './api'
+        );
+    return {
+        urn,
+        urls: streamFallbackUrls(urn, hq),
+        downloadUrls: downloadFallbackUrls(urn, hq),
+        storageUrls: buildStorageUrls(urn),
+        sessionId: getSessionId(),
+        hq,
+        durationMs,
+    };
+}
+
 export async function ensureTrackCached(
   urn: string,
   highQualityStreaming = useSettingsStore.getState().highQualityStreaming,
+  durationMs?: number,
 ): Promise<TrackCacheInfo> {
   const cached = await getCacheInfo(urn);
   if (cached) {
     return cached;
   }
 
-    const {buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId} = await import(
-        './api'
-        );
-  const sessionId = getSessionId();
-  const urls = streamFallbackUrls(urn, highQualityStreaming);
-  const downloadUrls = downloadFallbackUrls(urn, highQualityStreaming);
-  const storageUrls = buildStorageUrls(urn);
-
-  return invoke<TrackCacheInfo>('track_ensure_cached', {
-    request: {
-      urn,
-      urls,
-      downloadUrls,
-      storageUrls,
-      sessionId,
-      hq: highQualityStreaming,
-    },
-  });
+    const request = await buildCacheRequest(urn, highQualityStreaming, durationMs);
+    return invoke<TrackCacheInfo>('track_ensure_cached', {request});
 }
 
 export function getCacheSize(): Promise<number> {
@@ -249,19 +252,42 @@ function sanitizeFilename(name: string): string {
     .trim();
 }
 
-export async function downloadTrack(urn: string, artist: string, title: string): Promise<string> {
+/** Raw (un-proxied) SoundCloud artwork URL at high res, for Rust to fetch and
+ *  embed into the exported file. Returns null when the track has no artwork. */
+function coverSourceUrl(artworkUrl: string | null | undefined): string | null {
+    if (!artworkUrl) return null;
+    return artworkUrl.replace('-large', '-t500x500');
+}
+
+export interface DownloadTrackOptions {
+    artworkUrl?: string | null;
+    /** Track length in milliseconds (API `duration`). */
+    durationMs?: number;
+}
+
+/** Download-to-file: writes a clean m4a (transcoding/fetching as needed) with
+ *  the cover art embedded. Rust resolves the clean cache → raw cache → stream. */
+export async function downloadTrack(
+    urn: string,
+    artist: string,
+    title: string,
+    options: DownloadTrackOptions = {},
+): Promise<string> {
   const { save } = await import('@tauri-apps/plugin-dialog');
 
-  const filename = sanitizeFilename(`${artist} - ${title}.mp3`);
+    const filename = sanitizeFilename(`${artist} - ${title}.m4a`);
 
   const dest = await save({
     defaultPath: filename,
-    filters: [{ name: 'Audio', extensions: ['mp3'] }],
+      filters: [{name: 'Audio', extensions: ['m4a']}],
   });
   if (!dest) throw new Error('cancelled');
 
-  const cachedPath = (await ensureTrackCached(urn)).path;
-  if (!cachedPath) throw new Error('Failed to cache track');
-
-  return invoke<string>('save_track_to_path', { cachePath: cachedPath, destPath: dest });
+    const hq = useSettingsStore.getState().highQualityStreaming;
+    const request = await buildCacheRequest(urn, hq, options.durationMs);
+    return invoke<string>('track_export', {
+        request,
+        destPath: dest,
+        coverUrl: coverSourceUrl(options.artworkUrl),
+    });
 }

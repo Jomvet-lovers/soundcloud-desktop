@@ -43,6 +43,13 @@ function parseScDate(dateStr: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/** SoundCloud timestamp → epoch ms (handles "2024/05/28 12:00:00 +0000" and ISO).
+ *  Invalid/empty → 0, so it sorts last. Use this for chronological sorts; plain
+ *  Date.parse chokes on SC's slash+offset format and returns NaN. */
+export function scDateMs(dateStr: string | null | undefined): number {
+    return parseScDate(dateStr)?.getTime() ?? 0;
+}
+
 /** Relative time: "2026-01-01T00:00:00Z" → "2mo". Пустой/невалидный → ''. */
 export function ago(dateStr: string | null | undefined): string {
   const d = parseScDate(dateStr);

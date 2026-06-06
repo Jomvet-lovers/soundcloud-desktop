@@ -3,13 +3,9 @@ import {type Aura, auraFromHex} from '../../lib/aura';
 import {parseCssColor, rgbToHex} from '../../lib/genre-aura';
 import {useViewerAura} from '../../lib/useViewerAura';
 import type {Track} from '../../stores/player';
-import {genreColor, vibeEnergy} from '../search/utils';
+import {type GenreShare, topGenres, vibeEnergy} from '../search/utils';
 
-export interface GenreFleck {
-    genre: string;
-    share: number;
-    color: string;
-}
+export type GenreFleck = GenreShare;
 
 export interface PlaylistAura {
     /** Top genre hues, passed as separate orbs so Atmosphere blends them. */
@@ -35,21 +31,7 @@ export function usePlaylistAura(tracks: Track[], fallbackGenre?: string | null):
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the cheap signature
     return useMemo(() => {
-        const counts = new Map<string, number>();
-        let withGenre = 0;
-        for (const tr of tracks) {
-            const g = tr.genre?.trim();
-            if (!g) continue;
-            counts.set(g, (counts.get(g) ?? 0) + 1);
-            withGenre++;
-        }
-        if (counts.size === 0 && fallbackGenre?.trim()) {
-            counts.set(fallbackGenre.trim(), 1);
-            withGenre = 1;
-        }
-
-        const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-        const top = sorted.slice(0, 3);
+        const top = topGenres(tracks, 3, fallbackGenre);
 
         if (top.length === 0) {
             const [r, g, b] = viewer.accent;
@@ -62,19 +44,14 @@ export function usePlaylistAura(tracks: Track[], fallbackGenre?: string | null):
             };
         }
 
-        const topGenres: GenreFleck[] = top.map(([genre, n]) => ({
-            genre,
-            share: withGenre ? n / withGenre : 0,
-            color: genreColor(genre),
-        }));
-        const domRgb = parseCssColor(topGenres[0].color) ?? viewer.accent;
+        const domRgb = parseCssColor(top[0].color) ?? viewer.accent;
         const [r, g, b] = domRgb;
         return {
-            tint: topGenres.map((t) => t.color),
-            energy: vibeEnergy(top.map(([genre]) => genre)),
+            tint: top.map((t) => t.color),
+            energy: vibeEnergy(top.map((t) => t.genre)),
             aura: auraFromHex(rgbToHex(domRgb)) ?? viewer,
             accentGlow: `rgba(${r}, ${g}, ${b}, 0.32)`,
-            topGenres,
+            topGenres: top,
         };
     }, [sig, fallbackGenre, viewer]);
 }

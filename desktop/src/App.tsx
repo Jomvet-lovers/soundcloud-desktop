@@ -20,6 +20,9 @@ const Home = lazy(() => import('./pages/Home').then((module) => ({ default: modu
 const Library = lazy(() =>
   import('./pages/Library').then((module) => ({ default: module.Library })),
 );
+const LibraryCollection = lazy(() =>
+    import('./pages/LibraryCollection').then((module) => ({default: module.LibraryCollection})),
+);
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const PlaylistPage = lazy(() =>
   import('./pages/PlaylistPage').then((module) => ({ default: module.PlaylistPage })),
@@ -62,7 +65,7 @@ const STARTUP_PAGE_ROUTES: Record<StartupPage, string> = {
 
 function StartPageRedirect() {
   const startupPage = useSettingsStore((s) => s.startupPage);
-  return <Navigate to={STARTUP_PAGE_ROUTES[startupPage]} replace />;
+    return <Navigate to={STARTUP_PAGE_ROUTES[startupPage] ?? '/home'} replace/>;
 }
 
 export default function App() {
@@ -256,6 +259,14 @@ export default function App() {
                     <RouteLoader>
                       <Library />
                     </RouteLoader>
+                  }
+                />
+                  <Route
+                      path="library/:section"
+                      element={
+                          <RouteLoader>
+                              <LibraryCollection/>
+                          </RouteLoader>
                   }
                 />
                 <Route

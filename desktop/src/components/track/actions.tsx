@@ -6,7 +6,15 @@ import {api} from '../../lib/api';
 import {downloadTrack} from '../../lib/cache';
 import {fc} from '../../lib/formatters';
 import {invalidateAllLikesCache} from '../../lib/hooks';
-import {Check, Download, Heart, LinkIcon, Loader2, pauseCurrent16, playCurrent16,} from '../../lib/icons';
+import {
+    Check,
+    Download,
+    Heart,
+    LinkIcon,
+    Loader2,
+    pauseCurrent16,
+    playCurrent16,
+} from '../../lib/icons';
 import {optimisticToggleLike, setLikedUrn, useLiked} from '../../lib/likes';
 import type {Track} from '../../stores/player';
 
@@ -152,7 +160,10 @@ export const DownloadButton = React.memo(({track}: { track: Track }) => {
         if (loading) return;
         setLoading(true);
         try {
-            await downloadTrack(track.urn, track.user.username, track.title);
+            await downloadTrack(track.urn, track.user.username, track.title, {
+                artworkUrl: track.artwork_url,
+                durationMs: track.duration,
+            });
             toast.success(t('track.downloaded'));
         } catch (e: unknown) {
             if (e instanceof Error && e.message === 'cancelled') return;

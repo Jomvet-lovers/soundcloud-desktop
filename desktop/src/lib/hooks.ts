@@ -13,6 +13,7 @@ import type { Track } from '../stores/player';
 import { api } from './api';
 import { initLikedUrns } from './likes';
 import { rememberLikedTracks, rememberTracks } from './offline-index';
+import {fetchRelatedTracks} from './related';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -410,8 +411,7 @@ export function usePostComment(trackUrn: string | undefined) {
 export function useRelatedTracks(trackUrn: string | undefined, limit = 10) {
   return useQuery({
     queryKey: ['track', trackUrn, 'related', limit],
-    queryFn: () =>
-      api<TrackPage>(`/tracks/${encodeURIComponent(trackUrn!)}/related?limit=${limit}&page=0`),
+      queryFn: () => fetchRelatedTracks(trackUrn!, limit),
     enabled: !!trackUrn,
     staleTime: SHORT_CACHE_MS,
     gcTime: INFINITE_GC_MS,
@@ -1003,9 +1003,8 @@ export function useRelatedPool(likedTracks: Track[]) {
     queryFn: async () => {
       const results = await Promise.all(
         seedUrns.map((urn) =>
-          api<TrackPage>(`/tracks/${encodeURIComponent(urn)}/related?limit=20&page=0`).catch(
-            () =>
-              ({ collection: [] as Track[], page: 0, page_size: 20, has_more: false }) as TrackPage,
+            fetchRelatedTracks(urn, 20).catch(
+                () => ({collection: [], page: 0, page_size: 20, has_more: false}) as TrackPage,
           ),
         ),
       );
@@ -1075,6 +1074,19 @@ export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Trac
 
     return result;
   }, [pool, genreRanking]);
+}
+
+/**
+ * Общий related-pool фид: рекомендации + дискавери по жанрам, всё из лайков
+ * зрителя. Только данные (без рендера), чтобы полка «Recommended» на Home и
+ * призма Discover читали один источник, а не пересобирали пул каждая у себя.
+ */
+export function useDiscoverFeed() {
+    const {tracks: likedTracks} = useLikedTracks(100);
+    const {data: pool, isLoading} = useRelatedPool(likedTracks);
+    const recommended = useRecommendedTracks(pool, 40);
+    const byGenre = useDiscoverData(pool, likedTracks);
+    return {likedTracks, isLoading, recommended, byGenre};
 }
 
 /* ── Infinite scroll ───────────────────────────────────────────── */

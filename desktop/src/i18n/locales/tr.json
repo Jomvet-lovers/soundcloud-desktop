@@ -1,4 +1,10 @@
 {
+  "discover": {
+    "prismTitle": "Yenilikleri kesfet",
+    "prismSubtitle": "Zevkine gore",
+    "prismShuffle": "Karistir",
+    "prismGenresLabel": "Turlerin"
+  },
   "nav": {
     "home": "Ana Sayfa",
     "search": "Ara",
@@ -236,6 +242,19 @@
     }
   },
   "library": {
+    "soundprint": "Ses iziniz",
+    "playYourSound": "Sesini cal",
+    "greetMorning": "Gunaydin, {{name}}",
+    "greetDay": "Iyi gunler, {{name}}",
+    "greetEvening": "Iyi aksamlar, {{name}}",
+    "greetNight": "Iyi geceler, {{name}}",
+    "freshFromFollowing": "Takip ettiklerinden yeni",
+    "freshNew": "Yeni",
+    "freshEmpty": "Sanatcilari takip et — yeni cikislari burada gorunecek",
+    "freshQuiet": "Takip ettiklerinde son zamanlarda yeni cikis yok — sonra tekrar bak",
+    "continue": "Kaldigin yerden",
+    "seeAll": "Tumu",
+    "artists": "Sanatcilar",
     "likedTracks": "Begenilen Parcalar",
     "likedPlaylists": "Begenilen Calma Listeleri",
     "yourPlaylists": "Calma Listeleriniz",
@@ -254,14 +273,10 @@
     "noPlaylists": "Calma listesi bulunamadi"
   },
   "home": {
-    "goodMorning": "Gunaydin",
-    "goodAfternoon": "Iyi gunler",
-    "goodEvening": "Iyi aksamlar",
-    "goodNight": "Iyi geceler",
+    "yourWave": "Dalganiz",
     "freshReleases": "Yeni Yayinlar",
     "reposted": "Yeniden paylasildi",
     "recommended": "Sizin Icin Onerilenler",
-    "discover": "Kesfet",
     "startListening": "Dinlemeye Basla",
     "startLikingTitle": "Parçaları beğenin — burada daha fazla müzik görünecek",
     "startLikingDesc": "Ne kadar çok beğeni, o kadar iyi öneriler ve daha zengin ana sayfa"

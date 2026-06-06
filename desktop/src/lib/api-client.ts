@@ -66,19 +66,29 @@ function handleApiError(err: ApiError): void {
 
 // ─── Main API client ────────────────────────────────────────
 
+export type ApiRequestOptions = RequestInit & {
+    /**
+     * HTTP-статусы, которые считаем штатными: без error-тоста, без auth/rate-limit
+     * recovery и без error-лога. ApiError всё равно бросается — тихо, чтобы вызвавший
+     * мог свести его к дефолту (напр. 404 /related → пустой список похожих).
+     */
+    silentStatuses?: number[];
+};
+
 export async function apiRequest<T = unknown>(
   path: string,
-  options: RequestInit = {},
+  options: ApiRequestOptions = {},
   timeoutMs?: number,
 ): Promise<T> {
-  const headers = new Headers(options.headers);
+    const {silentStatuses, ...init} = options;
+    const headers = new Headers(init.headers);
   // Защита от попадания строки "undefined"/"null" в header при апгрейдах формата API.
   if (sessionId && sessionId !== 'undefined' && sessionId !== 'null') {
     headers.set('x-session-id', sessionId);
   }
-  if (!headers.has('Content-Type') && options.body) headers.set('Content-Type', 'application/json');
+    if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
 
-  const method = options.method ?? 'GET';
+    const method = init.method ?? 'GET';
   const label = `${method.toUpperCase()} ${path}`;
   const url = `${API_BASE}${path}`;
   const attemptStart = performance.now();
@@ -86,7 +96,7 @@ export async function apiRequest<T = unknown>(
   try {
     const res = await trackAsync(
       `http:${label}`,
-      fetchWithTimeout(url, { ...options, headers }, timeoutMs),
+        fetchWithTimeout(url, {...init, headers}, timeoutMs),
     );
 
     markHealthy(API_BASE);
@@ -95,6 +105,11 @@ export async function apiRequest<T = unknown>(
     if (!res.ok) {
       const body = await res.text();
       const err = new ApiError(res.status, body);
+
+        // Штатный по контракту статус (напр. 404 /related = соседей пока нет):
+        // глушим тихо — без тоста, без recovery, без error-лога.
+        if (silentStatuses?.includes(res.status)) throw err;
+
       logHttpError(label, res.status, url, body);
 
       // Rate-limit — копим, одиночный не дёргает recovery.

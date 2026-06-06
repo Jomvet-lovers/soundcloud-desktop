@@ -1,5 +1,6 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useMemo, useRef, useState} from 'react';
 import { useTranslation } from 'react-i18next';
+import {api} from '../../../lib/api';
 import {
   AudioLines,
   Compass,
@@ -21,7 +22,6 @@ import {
   type ClusterId,
   ClusterRow,
   ClusterSkeletonState,
-  fetchAndHydrateClusters,
   NeighborsRow,
   useClusterWave,
 } from '../cluster';
@@ -36,7 +36,6 @@ import { LiveWaveform } from './waveform';
 // `wave` всегда первый. Остальные — стандартный набор для home-страницы.
 const CLUSTER_ORDER: ClusterId[] = [
   'wave',
-  'for_you',
   'top_artists',
   'adjacent',
   'fresh_drops',
@@ -54,7 +53,11 @@ const CLUSTER_ICON: Partial<Record<ClusterId, React.ReactNode>> = {
   deep_cuts: <Star size={14} />,
 };
 
-export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
+export const SoundWaveBlock = React.memo(function SoundWaveBlock({
+                                                                     hideVibePortal = false,
+                                                                 }: {
+    hideVibePortal?: boolean;
+}) {
   const { t } = useTranslation();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const selectedLanguages = useSettingsStore((s) => s.soundwaveLanguages);
@@ -144,27 +147,34 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
     filterTrack: hideLiked ? hideLikedFilter : undefined,
   });
 
-  // "От любимых": click on a top-artist card → fetch same_artist similar cluster
-  // and play that as the queue, so next/prev stays within the artist's adjacent tracks.
-  const resolveSameArtistQueue = useCallback(async (track: Track) => {
+    // Клик по карточке артиста (top_artists/adjacent) → очередь из ЛУЧШИХ треков
+    // этого артиста (sort=popular), играем её — next/prev остаётся внутри артиста.
+    // Резолвер стабильный (useCallback []), artist_id берём из neighbors через ref.
+    const neighborArtistByTrack = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const c of orderedClusters) {
+            if (!c.neighbors) continue;
+            for (const n of c.neighbors) m.set(String(n.track_id), n.artist_id);
+        }
+        return m;
+    }, [orderedClusters]);
+    const neighborMapRef = useRef(neighborArtistByTrack);
+    neighborMapRef.current = neighborArtistByTrack;
+
+    const resolveArtistQueue = useCallback(async (track: Track): Promise<Track[]> => {
     const trackId = track.urn.split(':').pop();
-    if (!trackId) return [track];
+        const artistId = trackId ? neighborMapRef.current.get(trackId) : undefined;
+        if (!artistId) return [track];
     try {
-      const data = await fetchAndHydrateClusters(
-        `/recommendations/similar/${encodeURIComponent(trackId)}`,
+        const res = await api<{ collection: Track[] }>(
+            `/artists/${encodeURIComponent(artistId)}/tracks?role=primary&sort=popular&limit=60`,
       );
-      const sameArtist = data.clusters.find((c) => c.id === 'same_artist');
-      const tracks = sameArtist?.tracks ?? [];
-      const seen = new Set<string>();
-      const ordered: Track[] = [];
-      if (!seen.has(track.urn)) {
-        seen.add(track.urn);
-        ordered.push(track);
-      }
-      for (const t of tracks) {
-        if (!seen.has(t.urn)) {
-          seen.add(t.urn);
-          ordered.push(t);
+        const seen = new Set<string>([track.urn]);
+        const ordered: Track[] = [track];
+        for (const tr of res.collection ?? []) {
+            if (!seen.has(tr.urn)) {
+                seen.add(tr.urn);
+                ordered.push(tr);
         }
       }
       return ordered;
@@ -312,7 +322,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
           <LiveWaveform track={waveTrack} isCurrent={isCurrent} />
         </div>
 
-          <VibePortal/>
+          {!hideVibePortal && <VibePortal/>}
 
         <div className="min-h-[280px]">
             {isLoading ? (
@@ -335,7 +345,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock() {
                     index={idx}
                     cluster={c}
                     queue={c.tracks}
-                    resolveQueue={c.id === 'top_artists' ? resolveSameArtistQueue : undefined}
+                    resolveQueue={resolveArtistQueue}
                   />
                 ) : (
                   <ClusterRow

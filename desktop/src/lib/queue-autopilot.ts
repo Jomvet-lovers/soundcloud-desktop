@@ -15,7 +15,7 @@
  */
 
 import { setEndOfQueueFallback, type Track, usePlayerStore } from '../stores/player';
-import { api } from './api';
+import {fetchRelatedTracks} from './related';
 import { fetchSmartWave } from './soundwave';
 
 let inFlight = false;
@@ -81,10 +81,8 @@ async function fetchWaveContinuation(seed: Track): Promise<Track[]> {
 
 async function fetchScRelated(seed: Track): Promise<Track[]> {
   try {
-    const res = await api<{ collection: Track[] }>(
-      `/tracks/${encodeURIComponent(seed.urn)}/related?limit=20`,
-    );
-    return res.collection ?? [];
+      const res = await fetchRelatedTracks(seed.urn, 20);
+      return res.collection;
   } catch (e) {
     console.debug('[autopilot] SC related fetch failed:', e);
     return [];

@@ -42,7 +42,7 @@ export const useAuthStore = create<AuthState>()(
         const { sessionId } = get();
         if (!sessionId) return;
         setSessionId(sessionId);
-        const user = await fetchWithAuthFallback<User>('/me');
+          const user = await fetchWithAuthFallback<User>('/me/cold');
         set({ user, isAuthenticated: true });
       },
 

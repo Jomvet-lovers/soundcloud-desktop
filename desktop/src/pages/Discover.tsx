@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { AlbumsCatalog } from '../components/discover/AlbumsCatalog';
 import { ArtistsCatalog } from '../components/discover/ArtistsCatalog';
 import { DiscoverHero } from '../components/discover/DiscoverHero';
+import {DiscoverPrism} from '../components/discover/DiscoverPrism';
 import { DiscoverSpotlight } from '../components/discover/DiscoverSpotlight';
+import {FeaturedHero} from '../components/discover/FeaturedHero';
 import { useDebouncedValue } from '../components/discover/useDebouncedValue';
 import { AuraField } from '../components/user/AuraField';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
@@ -76,7 +78,11 @@ export const Discover = memo(function Discover() {
             isSurprising={isSurprising}
           />
 
+            <FeaturedHero/>
+
           <DiscoverSpotlight aura={aura} />
+
+            <DiscoverPrism/>
 
           <div className="flex flex-col gap-6">
             <div className="flex items-center justify-center gap-4 flex-wrap">

@@ -120,7 +120,9 @@ let endOfQueueFallback: ((lastTrack: Track) => void) | null = null;
 export function setEndOfQueueFallback(fn: (lastTrack: Track) => void): void {
   endOfQueueFallback = fn;
 }
-export type PlaybackSource = 'storage' | 'api';
+
+// Mirrors the Rust DownloadSource enum (serde rename_all = "lowercase").
+export type PlaybackSource = 'storage' | 'anon' | 'direct' | 'api';
 
 export const PLAYBACK_RATE_MIN = 0.5;
 export const PLAYBACK_RATE_MAX = 2.0;
