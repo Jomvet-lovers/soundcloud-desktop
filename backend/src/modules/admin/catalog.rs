@@ -548,3 +548,115 @@ pub async fn track_set_album(
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true, "album_id": body.album_id })))
 }
+
+// ───────────────────────── track credits (feat / co-artists) ─────────────────────────
+
+const CREDIT_ROLES: [&str; 4] = ["primary", "feature", "remixer", "producer"];
+
+fn default_feature_role() -> String {
+    "feature".to_string()
+}
+
+#[derive(Deserialize)]
+pub struct AddCredit {
+    pub artist_id: Uuid,
+    #[serde(default = "default_feature_role")]
+    pub role: String,
+    #[serde(default)]
+    pub position: Option<i16>,
+}
+
+/// POST /admin/tracks/{id}/credits — add/upsert a track credit (default role
+/// "feature" — featured artists). When role is "primary" it also syncs the
+/// denormalized `tracks.primary_artist_id` and drops any other primary credit.
+#[tracing::instrument(skip_all)]
+pub async fn track_add_credit(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    Path(track_id): Path<Uuid>,
+    Json(body): Json<AddCredit>,
+) -> AppResult<Json<Value>> {
+    let role = body.role.trim().to_lowercase();
+    if !CREDIT_ROLES.contains(&role.as_str()) {
+        return Err(AppError::bad_request("role must be one of: primary, feature, remixer, producer"));
+    }
+    let artist_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM artists WHERE id = $1)")
+        .bind(body.artist_id)
+        .fetch_one(&st.pg)
+        .await?;
+    if !artist_ok {
+        return Err(AppError::bad_request("artist not found"));
+    }
+
+    let mut tx = st.pg.begin().await?;
+    let track_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tracks WHERE id = $1)")
+        .bind(track_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if !track_ok {
+        return Err(AppError::not_found("track not found"));
+    }
+
+    sqlx::query(
+        "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence) \
+         VALUES ($1, $2, $3, COALESCE($4, 0), 'manual', 1.0) \
+         ON CONFLICT (track_id, artist_id, role) \
+         DO UPDATE SET position = EXCLUDED.position, source = 'manual', confidence = 1.0",
+    )
+        .bind(track_id)
+        .bind(body.artist_id)
+        .bind(&role)
+        .bind(body.position)
+        .execute(&mut *tx)
+        .await?;
+
+    if role == "primary" {
+        sqlx::query("DELETE FROM track_artists WHERE track_id = $1 AND role = 'primary' AND artist_id <> $2")
+            .bind(track_id)
+            .bind(body.artist_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE tracks SET primary_artist_id = $1 WHERE id = $2")
+            .bind(body.artist_id)
+            .bind(track_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(Json(serde_json::json!({ "ok": true, "role": role })))
+}
+
+#[derive(Deserialize)]
+pub struct CreditQuery {
+    #[serde(default = "default_feature_role")]
+    pub role: String,
+}
+
+/// DELETE /admin/tracks/{id}/credits/{artist_id}?role=feature — remove a credit.
+/// Removing the primary also clears `tracks.primary_artist_id` if it matched.
+#[tracing::instrument(skip_all)]
+pub async fn track_remove_credit(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    Path((track_id, artist_id)): Path<(Uuid, Uuid)>,
+    Query(q): Query<CreditQuery>,
+) -> AppResult<Json<Value>> {
+    let role = q.role.trim().to_lowercase();
+
+    let mut tx = st.pg.begin().await?;
+    let res = sqlx::query("DELETE FROM track_artists WHERE track_id = $1 AND artist_id = $2 AND role = $3")
+        .bind(track_id)
+        .bind(artist_id)
+        .bind(&role)
+        .execute(&mut *tx)
+        .await?;
+    if role == "primary" {
+        sqlx::query("UPDATE tracks SET primary_artist_id = NULL WHERE id = $1 AND primary_artist_id = $2")
+            .bind(track_id)
+            .bind(artist_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(Json(serde_json::json!({ "ok": true, "removed": res.rows_affected() })))
+}

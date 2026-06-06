@@ -4,7 +4,7 @@ pub mod stats;
 pub mod sync_queue;
 pub mod wanted;
 
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::state::AppState;
@@ -29,4 +29,6 @@ pub fn router() -> Router<AppState> {
         .route("/admin/tracks/{track_id}", get(catalog::track_detail))
         .route("/admin/tracks/{track_id}/primary-artist", patch(catalog::track_set_primary_artist))
         .route("/admin/tracks/{track_id}/album", patch(catalog::track_set_album))
+        .route("/admin/tracks/{track_id}/credits", post(catalog::track_add_credit))
+        .route("/admin/tracks/{track_id}/credits/{artist_id}", delete(catalog::track_remove_credit))
 }
