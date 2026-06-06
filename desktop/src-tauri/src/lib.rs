@@ -58,6 +58,11 @@ pub fn run() {
             let liked_audio_dir = cache_dir.join("audio_liked");
             std::fs::create_dir_all(&liked_audio_dir).ok();
 
+            // Raw staging ("А") for freshly downloaded bytes pending transcode
+            // into the clean m4a caches ("Б" = audio_dir / audio_liked).
+            let incoming_audio_dir = cache_dir.join("audio_incoming");
+            std::fs::create_dir_all(&incoming_audio_dir).ok();
+
             let assets_dir = cache_dir.join("assets");
             std::fs::create_dir_all(&assets_dir).ok();
 
@@ -107,9 +112,21 @@ pub fn run() {
                 client: Mutex::new(None),
             }));
 
-            let mut track_cache_state = track_cache::init(audio_dir, liked_audio_dir);
+            let ffmpeg_dir = cache_dir.join("ffmpeg");
+            std::fs::create_dir_all(&ffmpeg_dir).ok();
+
+            let mut track_cache_state =
+                track_cache::init(audio_dir, liked_audio_dir, incoming_audio_dir);
             track_cache_state.set_app_handle(app.handle().clone());
+            let recovery_state = track_cache_state.clone();
             app.manage(track_cache_state);
+            // Acquire ffmpeg (system PATH or one-time download) in the background,
+            // then sweep interrupted temps and resume transcoding raw files left
+            // by a previous crash/close.
+            rt_handle.spawn(async move {
+                recovery_state.init_ffmpeg(ffmpeg_dir).await;
+                recovery_state.recover_incoming().await;
+            });
 
             let audio_state = audio::init();
             let analyser_buffer = audio_state.analyser_buffer.clone();
@@ -169,6 +186,7 @@ pub fn run() {
             import::ym_import_start,
             import::ym_import_stop,
             track_cache::track_ensure_cached,
+            track_cache::track_export,
             track_cache::track_is_cached,
             track_cache::track_get_cache_path,
             track_cache::track_get_cache_info,

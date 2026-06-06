@@ -18,6 +18,20 @@ pub struct EnsureCachedRequest {
     pub session_id: Option<String>,
     #[serde(default)]
     pub hq: bool,
+    /// API-reported track length (ms) for truncated-download detection.
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+}
+
+impl EnsureCachedRequest {
+    /// Resolve the ordered `/stream` fallback URLs (`urls` preferred, else `url`).
+    fn fallback_urls(&self) -> Option<Vec<String>> {
+        match (&self.urls, &self.url) {
+            (Some(u), _) if !u.is_empty() => Some(u.clone()),
+            (_, Some(u)) => Some(vec![u.clone()]),
+            _ => None,
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -32,6 +46,8 @@ pub struct PreloadEntry {
     pub session_id: Option<String>,
     #[serde(default)]
     pub hq: bool,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
 }
 
 #[tauri::command]
@@ -39,33 +55,54 @@ pub async fn track_ensure_cached(
     request: EnsureCachedRequest,
     state: State<'_, TrackCacheState>,
 ) -> Result<TrackCacheEntry, String> {
-    let EnsureCachedRequest {
-        urn,
-        url,
-        urls,
-        download_urls,
-        storage_urls,
-        session_id,
-        hq,
-    } = request;
-
-    let fallback_urls: Vec<String> = match (urls, url) {
-        (Some(u), _) if !u.is_empty() => u,
-        (_, Some(u)) => vec![u],
-        _ => return Err("no stream URL provided".into()),
-    };
-    let storage_urls = storage_urls.unwrap_or_default();
-    let download_urls = download_urls.unwrap_or_default();
+    let fallback_urls = request
+        .fallback_urls()
+        .ok_or_else(|| "no stream URL provided".to_string())?;
+    let storage_urls = request.storage_urls.unwrap_or_default();
+    let download_urls = request.download_urls.unwrap_or_default();
     state
         .ensure_cached(CacheRequest {
-            urn: &urn,
+            urn: &request.urn,
             urls: &fallback_urls,
             download_urls: &download_urls,
             storage_urls: &storage_urls,
-            session_id: session_id.as_deref(),
-            hq,
+            session_id: request.session_id.as_deref(),
+            hq: request.hq,
             liked: false,
+            expected_duration_ms: request.duration_ms,
         })
+        .await
+}
+
+/// Download-to-file. Pulls from the clean m4a cache, transcoding raw bytes or
+/// fetching from streaming as needed, and embeds `cover_url` when possible.
+#[tauri::command]
+pub async fn track_export(
+    request: EnsureCachedRequest,
+    dest_path: String,
+    cover_url: Option<String>,
+    state: State<'_, TrackCacheState>,
+) -> Result<String, String> {
+    let fallback_urls = request
+        .fallback_urls()
+        .ok_or_else(|| "no stream URL provided".to_string())?;
+    let storage_urls = request.storage_urls.unwrap_or_default();
+    let download_urls = request.download_urls.unwrap_or_default();
+    state
+        .export_track(
+            CacheRequest {
+                urn: &request.urn,
+                urls: &fallback_urls,
+                download_urls: &download_urls,
+                storage_urls: &storage_urls,
+                session_id: request.session_id.as_deref(),
+                hq: request.hq,
+                liked: false,
+                expected_duration_ms: request.duration_ms,
+            },
+            dest_path,
+            cover_url,
+        )
         .await
 }
 
@@ -114,6 +151,7 @@ pub async fn track_preload(
         let download_urls = entry.download_urls.unwrap_or_default();
         let session_id = entry.session_id;
         let hq = entry.hq;
+        let duration_ms = entry.duration_ms;
 
         tokio::spawn(async move {
             let _permit = permit;
@@ -127,6 +165,7 @@ pub async fn track_preload(
                     session_id: session_id.as_deref(),
                     hq,
                     liked: false,
+                    expected_duration_ms: duration_ms,
                 })
                 .await
             {
