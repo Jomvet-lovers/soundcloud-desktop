@@ -17,12 +17,15 @@ use crate::modules::auth::health::{AuthHealthService, RefreshFailKind};
 use crate::modules::auth::model::{LoginRequest, Session};
 use crate::modules::oauth_apps::model::OAuthApp;
 use crate::modules::oauth_apps::OAuthAppsService;
+use crate::modules::resolve::anon::AnonResolveClient;
 use crate::sc::{self, OAuthCredentials, ScClient, ScMe};
+use serde_json::Value;
 
 pub const REFRESH_BUFFER: Duration = Duration::from_secs(60);
 
 const LOGIN_REQUEST_TTL_SECS: i64 = 15 * 60;
 const MAX_AUTH_RETRIES: i32 = 3;
+const PROFILE_TIMEOUT_SEC: u64 = 5;
 const REFRESH_LOCK_CAPACITY: u64 = 8192;
 const REFRESH_LOCK_TTL: Duration = Duration::from_secs(10 * 60);
 
@@ -54,11 +57,15 @@ pub struct LoginStatusResult {
     pub error: Option<String>,
     #[serde(rename = "redirectUrl", skip_serializing_if = "Option::is_none")]
     pub redirect_url: Option<String>,
+    /// Result of the best-effort profile extraction: "ok" | "failed" | None.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extract: Option<String>,
 }
 
 pub struct AuthService {
     pool: PgPool,
     sc: ScClient,
+    anon: AnonResolveClient,
     oauth_apps: Arc<OAuthAppsService>,
     config: Arc<AppConfig>,
     health: Arc<AuthHealthService>,
@@ -73,9 +80,11 @@ impl AuthService {
         config: Arc<AppConfig>,
         health: Arc<AuthHealthService>,
     ) -> Arc<Self> {
+        let anon = AnonResolveClient::new(sc.clone());
         Arc::new(Self {
             pool,
             sc,
+            anon,
             oauth_apps,
             config,
             health,
@@ -406,50 +415,76 @@ impl AuthService {
             }
         };
 
-        if let Err(e) = sqlx::query("UPDATE login_requests SET step = 'profile' WHERE id = $1")
+        if let Err(e) = sqlx::query("UPDATE login_requests SET step = 'extract' WHERE id = $1")
             .bind(lr.id)
             .execute(&self.pool)
             .await
         {
-            warn!(request = %lr.id, error = %e, "Failed to advance step to profile");
+            warn!(request = %lr.id, error = %e, "Failed to advance step to extract");
         }
 
-        // Identify the user. The SC access token is a JWT whose `sub` claim is
-        // the user urn — authoritative (minted by SC's token endpoint) and
-        // present even when /me is unreachable. So /me is only best-effort
-        // enrichment (username), not a hard login dependency.
-        let me_opt = match self.fetch_sc_me(&token.access_token).await {
-            MeOutcome::Found(me) => Some(me),
-            MeOutcome::Unauthorized => {
-                self.retry_with_new_app(&lr, "SoundCloud rejected the token")
-                    .await?;
-                return Ok(());
-            }
-            MeOutcome::Unreachable => None,
-        };
-        let urn = match me_opt
-            .as_ref()
-            .map(|m| m.urn.clone())
-            .or_else(|| urn_from_access_token(&token.access_token))
-        {
+        // Identify the user from the access-token JWT `sub` (authoritative, no
+        // network). Fall back to /me only if the token is not a readable JWT.
+        let mut profile: Option<Value> = None;
+        let urn = match urn_from_access_token(&token.access_token) {
             Some(u) if !u.is_empty() => u,
-            _ => {
-                self.retry_with_new_app(&lr, "Failed to identify SoundCloud user")
-                    .await?;
-                return Ok(());
-            }
+            _ => match self.fetch_sc_me(&token.access_token).await {
+                MeOutcome::Found(me) => {
+                    let u = me.urn.clone();
+                    profile = serde_json::to_value(&me).ok();
+                    u
+                }
+                MeOutcome::Unauthorized => {
+                    self.retry_with_new_app(&lr, "SoundCloud rejected the token")
+                        .await?;
+                    return Ok(());
+                }
+                MeOutcome::Unreachable => {
+                    self.retry_with_new_app(&lr, "Failed to identify SoundCloud user")
+                        .await?;
+                    return Ok(());
+                }
+            },
         };
-        let username: Option<String> = me_opt.as_ref().and_then(|m| m.username.clone());
 
-        if let Err(e) = sqlx::query("UPDATE login_requests SET step = 'session' WHERE id = $1")
+        // Best-effort avatar/username: race the working profile sources
+        // (v1 /me + anon v2 /users/{id}), bounded; never blocks login.
+        if profile.is_none() {
+            let nid = urn.rsplit(':').next().unwrap_or("");
+            profile = self.fetch_profile_fast(&token.access_token, nid).await;
+        }
+        let username: Option<String> = profile
+            .as_ref()
+            .and_then(|p| p.get("username").and_then(|v| v.as_str()))
+            .map(|s| s.to_string());
+        let profile_ok = profile.is_some();
+        if let Some(ref p) = profile {
+            let _ = sqlx::query(
+                "INSERT INTO user_profiles (soundcloud_user_id, profile_json, synced_at) \
+                 VALUES ($1, $2, now()) \
+                 ON CONFLICT (soundcloud_user_id) \
+                 DO UPDATE SET profile_json = EXCLUDED.profile_json, synced_at = now()",
+            )
+                .bind(&urn)
+                .bind(p)
+                .execute(&self.pool)
+                .await;
+        }
+
+        if let Err(e) = sqlx::query("UPDATE login_requests SET step = 'finalizing' WHERE id = $1")
             .bind(lr.id)
             .execute(&self.pool)
             .await
         {
-            warn!(request = %lr.id, error = %e, "Failed to advance step to session");
+            warn!(request = %lr.id, error = %e, "Failed to advance step to finalizing");
         }
 
-        let expires_at = (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc();
+        // Prefer the JWT `exp` (authoritative) for session expiry; fall back to
+        // the token-response `expires_in`.
+        let expires_at = exp_from_access_token(&token.access_token)
+            .and_then(|e| chrono::DateTime::from_timestamp(e, 0))
+            .map(|dt| dt.naive_utc())
+            .unwrap_or_else(|| (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc());
         let scope = token.scope.clone();
 
         let session: Session = if let Some(target) = lr.target_session_id {
@@ -499,12 +534,13 @@ impl AuthService {
 
         sqlx::query(
             "UPDATE login_requests SET status = 'completed', step = NULL, \
-                result_session_id = $2, username = $3 \
+                result_session_id = $2, username = $3, profile_ok = $4 \
              WHERE id = $1",
         )
         .bind(lr.id)
         .bind(session.id)
             .bind(&username)
+            .bind(profile_ok)
         .execute(&self.pool)
         .await?;
 
@@ -573,6 +609,27 @@ impl AuthService {
         MeOutcome::Unreachable
     }
 
+    /// Best-effort profile (avatar/username): race v1 /me (user token) against
+    /// anon v2 /users/{id} (scraped client_id) and take the first success within
+    /// a bound. Never blocks login — returns None if both are slow/unavailable.
+    async fn fetch_profile_fast(&self, token: &str, nid: &str) -> Option<Value> {
+        let me_fut: std::pin::Pin<
+            Box<dyn std::future::Future<Output=AppResult<Value>> + Send + '_>,
+        > = Box::pin(self.sc.api_get::<Value>("/me", token, None));
+        let anon_fut: std::pin::Pin<
+            Box<dyn std::future::Future<Output=AppResult<Value>> + Send + '_>,
+        > = Box::pin(self.anon.fetch_user(nid));
+        match tokio::time::timeout(
+            Duration::from_secs(PROFILE_TIMEOUT_SEC),
+            futures::future::select_ok(vec![me_fut, anon_fut]),
+        )
+            .await
+        {
+            Ok(Ok((v, _rest))) => Some(v),
+            _ => None,
+        }
+    }
+
     pub async fn get_login_request_status(
         &self,
         login_request_id: Uuid,
@@ -590,6 +647,7 @@ impl AuthService {
                 username: None,
                 error: Some("Unknown login request".into()),
                 redirect_url: None,
+                extract: None,
             });
         };
 
@@ -602,6 +660,7 @@ impl AuthService {
                 username: None,
                 error: Some("Login request expired".into()),
                 redirect_url: None,
+                extract: None,
             });
         }
 
@@ -618,6 +677,9 @@ impl AuthService {
             username: lr.username,
             error: lr.error,
             redirect_url: lr.redirect_url,
+            extract: lr
+                .profile_ok
+                .map(|ok| if ok { "ok".to_string() } else { "failed".to_string() }),
         })
     }
 
@@ -890,4 +952,14 @@ fn urn_from_access_token(token: &str) -> Option<String> {
     } else {
         Some(sub.to_string())
     }
+}
+
+/// Extract the token expiry (`exp`, unix seconds) from the access-token JWT.
+fn exp_from_access_token(token: &str) -> Option<i64> {
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims.get("exp")?.as_i64()
 }

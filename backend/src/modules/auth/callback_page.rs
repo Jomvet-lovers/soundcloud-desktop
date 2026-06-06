@@ -207,6 +207,12 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       box-shadow: 0 0 8px rgba(52, 199, 89, 0.4);
     }
 
+    .step.warn { color: rgba(255, 200, 120, 0.7); }
+    .step.warn .dot {
+      background: rgb(255, 159, 10);
+      box-shadow: 0 0 8px rgba(255, 159, 10, 0.45);
+    }
+
     @keyframes pulse {
       0%, 100% { transform: scale(1); opacity: 1; }
       50%      { transform: scale(1.4); opacity: 0.65; }
@@ -240,8 +246,8 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
 
     <div class="steps" id="steps">
       <div class="step active" data-step="token"><span class="dot"></span><span>Exchanging authorization code</span></div>
-      <div class="step" data-step="profile"><span class="dot"></span><span>Fetching your profile</span></div>
-      <div class="step" data-step="session"><span class="dot"></span><span>Finalizing session</span></div>
+      <div class="step" data-step="extract"><span class="dot"></span><span>Extracting account data</span></div>
+      <div class="step" data-step="finalizing"><span class="dot"></span><span>Finalizing session</span></div>
     </div>
 
     <div id="errorBox"></div>
@@ -283,17 +289,27 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     var stepsBox = document.getElementById('steps');
     var errorBox = document.getElementById('errorBox');
 
-    var STEP_ORDER = ['token', 'profile', 'session'];
+    var STEP_ORDER = ['token', 'extract', 'finalizing'];
 
     function setStep(name) {
       var idx = STEP_ORDER.indexOf(name);
       if (idx < 0) idx = 0;
       var nodes = stepsBox.querySelectorAll('.step');
       nodes.forEach(function (n, i) {
-        n.classList.remove('active', 'done');
-        if (i < idx) n.classList.add('done');
+        n.classList.remove('active');
+        if (i < idx) { if (!n.classList.contains('warn')) n.classList.add('done'); }
         else if (i === idx) n.classList.add('active');
       });
+    }
+
+    // Mark the extract step ok (done) or failed (warn) — profile extraction is
+    // best-effort, so a failure never blocks login.
+    function markExtract(result) {
+      var node = stepsBox.querySelector('.step[data-step="extract"]');
+      if (!node) return;
+      node.classList.remove('active');
+      if (result === 'failed') { node.classList.remove('done'); node.classList.add('warn'); }
+      else { node.classList.remove('warn'); node.classList.add('done'); }
     }
 
     function showError(msg) {
@@ -330,7 +346,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
       }
       stepsBox.querySelectorAll('.step').forEach(function (n) {
         n.classList.remove('active');
-        n.classList.add('done');
+        if (!n.classList.contains('warn')) n.classList.add('done');
       });
       hint.textContent = 'You can return to the app now.';
     }
@@ -350,6 +366,7 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
     var MAX_ATTEMPTS = 100;
     var INTERVAL_MS = 300;
     var redirecting = false;
+    var lastStep = null;
 
     function reconnect(url) {
       redirecting = true;
@@ -370,7 +387,11 @@ const TEMPLATE: &str = r#"<!DOCTYPE html>
           if (!s) { schedule(); return; }
           if (redirecting) return;
           if (s.redirectUrl) { reconnect(s.redirectUrl); return; }
-          if (s.step) setStep(s.step);
+          if (s.step) {
+            if (s.step !== lastStep) { lastStep = s.step; pollAttempts = 0; }
+            setStep(s.step);
+          }
+          if (s.extract) markExtract(s.extract);
           if (s.status === 'completed') {
             showSuccess(s.username || null);
             return;

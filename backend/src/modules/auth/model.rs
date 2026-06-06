@@ -30,6 +30,7 @@ pub struct LoginRequest {
     pub error: Option<String>,
     pub retry_count: i32,
     pub redirect_url: Option<String>,
+    pub profile_ok: Option<bool>,
     pub expires_at: NaiveDateTime,
 }
 
