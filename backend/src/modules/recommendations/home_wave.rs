@@ -15,15 +15,14 @@ use super::debias::ips_debias;
 use super::impressions::{log_clusters_async, ImpressionSource};
 use super::quality;
 use super::rerank_multi::RerankOptions;
+use super::service::util::user_id_variants;
 use super::service::{RecommendResult, RecommendationsService};
 use super::sessions::mix_centroids;
 use super::signal::{load_user_signals, SeedKind};
 use super::smart_wave::{self, SmartWaveSeed};
-use super::taste_modes::TasteMode;
 
 const ALL_CLUSTERS: &[&str] = &[
     "wave",
-    "for_you",
     "top_artists",
     "adjacent",
     "fresh_drops",
@@ -116,21 +115,6 @@ impl RecommendationsService {
         let mut builder = ClusterBuilder::new();
         builder.reserve(exclude_vec.iter().cloned());
         builder.push("wave", wave_ids);
-
-        let (for_you_ids, for_you_features) = self
-            .build_for_you_cluster(
-                &taste_modes,
-                &exclude_vec,
-                languages,
-                anti_centroid.as_deref(),
-                &recent_artists,
-                per_cluster,
-            )
-            .await;
-        for (id, feats) in for_you_features {
-            builder.attach_features(id, feats);
-        }
-        builder.push("for_you", for_you_ids);
 
         let top_artists = self
             .load_top_artists_cluster(&sc_user_id, builder.taken(), NEIGHBORS_TOP_LIMIT)
@@ -252,85 +236,6 @@ impl RecommendationsService {
         Ok(response)
     }
 
-    async fn build_for_you_cluster(
-        &self,
-        modes: &[TasteMode],
-        exclude: &[String],
-        languages: Option<&[String]>,
-        anti_centroid: Option<&[f32]>,
-        recent_artists: &HashSet<String>,
-        per_cluster: usize,
-    ) -> (Vec<String>, HashMap<String, Vec<f32>>) {
-        if modes.is_empty() {
-            return (Vec::new(), HashMap::new());
-        }
-        let filter = self.build_filter(exclude, languages);
-        let per_mode = (per_cluster.div_ceil(modes.len())) + 2;
-        let pool_per_mode = (per_mode * 8).max(60);
-
-        let mut futures = Vec::new();
-        for mode in modes {
-            let centroid = mode.centroid.clone();
-            let filter_clone = filter.clone();
-            futures.push(async move {
-                self.search_by_vector(
-                    collections::TRACKS_MERT,
-                    &centroid,
-                    filter_clone.as_ref(),
-                    pool_per_mode,
-                )
-                .await
-            });
-        }
-        let results = futures::future::join_all(futures).await;
-
-        let mut per_mode_ids: Vec<Vec<RecommendResult>> = results;
-
-        if let Some(anti) = anti_centroid {
-            for vec in per_mode_ids.iter_mut() {
-                let drop = self.filter_against_anti(vec, anti).await;
-                *vec = drop;
-            }
-        }
-
-        let mut taken = HashSet::<String>::new();
-        for id in exclude {
-            taken.insert(id.clone());
-        }
-
-        let mut out = Vec::with_capacity(per_cluster);
-        let mut features: HashMap<String, Vec<f32>> = HashMap::new();
-        let mut mode_cursors = vec![0usize; per_mode_ids.len()];
-        while out.len() < per_cluster {
-            let mut advanced = false;
-            for (mi, results) in per_mode_ids.iter().enumerate() {
-                if out.len() >= per_cluster {
-                    break;
-                }
-                while mode_cursors[mi] < results.len() {
-                    let candidate = &results[mode_cursors[mi]];
-                    mode_cursors[mi] += 1;
-                    let id = recommend_id_str(&candidate.id);
-                    if id.is_empty() || taken.contains(&id) {
-                        continue;
-                    }
-                    taken.insert(id.clone());
-                    features.insert(
-                        id.clone(),
-                        for_you_features(candidate, mi as f32, recent_artists),
-                    );
-                    out.push(id);
-                    advanced = true;
-                    break;
-                }
-            }
-            if !advanced {
-                break;
-            }
-        }
-        (out, features)
-    }
-
     /// Vibe = центральный микс audio-вкуса; deep = более разнообразный
     /// дозор за горизонт. Под обоими — пул из ТРЁХ коллекций (mert+clap+lyrics)
     /// со взвешенным слиянием, не одна mert как раньше.
@@ -435,35 +340,6 @@ impl RecommendationsService {
         (vibe_ids, deep_ids)
     }
 
-    async fn filter_against_anti(
-        &self,
-        pool: &[RecommendResult],
-        anti: &[f32],
-    ) -> Vec<RecommendResult> {
-        let numeric: Vec<u64> = pool
-            .iter()
-            .filter_map(|r| super::service::util::value_to_u64(&r.id))
-            .collect();
-        if numeric.is_empty() {
-            return pool.to_vec();
-        }
-        let vec_map = self
-            .retrieve_vectors(collections::TRACKS_MERT, &numeric)
-            .await;
-        pool.iter()
-            .filter(|r| {
-                let Some(n) = super::service::util::value_to_u64(&r.id) else {
-                    return true;
-                };
-                match vec_map.get(&n.to_string()) {
-                    Some(v) => crate::modules::centroids::cosine(v, anti) < 0.85,
-                    None => true,
-                }
-            })
-            .cloned()
-            .collect()
-    }
-
     async fn build_anti_centroid_from_negatives(
         &self,
         negatives: &[super::signal::WeightedTrack],
@@ -514,23 +390,41 @@ impl RecommendationsService {
         limit: i64,
     ) -> Vec<ClusterNeighbor> {
         let exclude_vec: Vec<String> = exclude.iter().cloned().collect();
-        // Источник лайков — `user_likes_tracks`, сортируем по свежести (created_at DESC,
-        // ctid DESC). Старые лайки годовой давности не должны портить волну.
+        let ids = user_id_variants(sc_user_id);
+        // Ранг артиста = лайки + плеи (раньше только лайки → play-heavy артисты
+        // типа Psychosis выпадали). Берём только playable треки
+        // (storage_state='ok'): иначе единственный выбранный недоступный трек
+        // режется s3-дропом и карточка артиста исчезает целиком.
         let rows: Vec<ArtistTrackRow> = match sqlx::query_as::<_, ArtistTrackRow>(
-            "WITH recent_likes AS ( \
+            "WITH liked AS ( \
                  SELECT sc_track_id FROM user_likes_tracks \
-                 WHERE user_id = $1 AND wanted_state = true \
+                 WHERE user_id = ANY($1) AND wanted_state = true \
                    AND created_at > NOW() - INTERVAL '180 days' \
                  ORDER BY created_at DESC, ctid DESC \
-                 LIMIT 200 \
+                 LIMIT 300 \
              ), \
-             top_artists AS ( \
-                 SELECT ta.artist_id, COUNT(*) AS cnt \
-                 FROM recent_likes rl \
-                 JOIN tracks it ON it.sc_track_id = rl.sc_track_id \
+             like_art AS ( \
+                 SELECT ta.artist_id, COUNT(*)::real AS lc \
+                 FROM liked l \
+                 JOIN tracks it ON it.sc_track_id = l.sc_track_id \
                  JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
                  GROUP BY ta.artist_id \
-                 ORDER BY cnt DESC \
+             ), \
+             play_art AS ( \
+                 SELECT ta.artist_id, COUNT(DISTINCT ue.sc_track_id)::real AS pc \
+                 FROM user_events ue \
+                 JOIN tracks it ON it.sc_track_id = ue.sc_track_id \
+                 JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
+                 WHERE ue.sc_user_id = ANY($1) \
+                   AND ue.event_type IN ('full_play','play_complete') \
+                   AND ue.created_at > NOW() - INTERVAL '180 days' \
+                 GROUP BY ta.artist_id \
+             ), \
+             top_artists AS ( \
+                 SELECT COALESCE(la.artist_id, pa.artist_id) AS artist_id, \
+                     (COALESCE(la.lc, 0) + 0.5 * COALESCE(pa.pc, 0)) AS score \
+                 FROM like_art la FULL OUTER JOIN play_art pa ON pa.artist_id = la.artist_id \
+                 ORDER BY score DESC \
                  LIMIT $2 \
              ), \
              ranked AS ( \
@@ -546,14 +440,16 @@ impl RecommendationsService {
                  JOIN track_artists ta ON ta.artist_id = tau.artist_id AND ta.role = 'primary' \
                  JOIN tracks it ON it.id = ta.track_id \
                  LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
-                 WHERE it.sharing = 'public' \
+                 WHERE it.sharing = 'public' AND it.storage_state = 'ok' \
              ) \
              SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
              FROM ranked r \
              JOIN artists a ON a.id = r.artist_id \
-             WHERE r.rn = 1 AND a.merged_into IS NULL",
+             JOIN top_artists tt ON tt.artist_id = r.artist_id \
+             WHERE r.rn = 1 AND a.merged_into IS NULL \
+             ORDER BY tt.score DESC",
         )
-        .bind(sc_user_id)
+            .bind(&ids)
         .bind(limit)
         .bind(&exclude_vec)
         .fetch_all(&self.pg)
@@ -579,13 +475,14 @@ impl RecommendationsService {
         limit: i64,
     ) -> Vec<ClusterNeighbor> {
         let exclude_vec: Vec<String> = exclude.iter().cloned().collect();
+        let ids = user_id_variants(sc_user_id);
         let rows: Vec<ArtistTrackRow> = match sqlx::query_as::<_, ArtistTrackRow>(
             "WITH recent_likes AS ( \
                  SELECT sc_track_id FROM user_likes_tracks \
-                 WHERE user_id = $1 AND wanted_state = true \
+                 WHERE user_id = ANY($1) AND wanted_state = true \
                    AND created_at > NOW() - INTERVAL '180 days' \
                  ORDER BY created_at DESC, ctid DESC \
-                 LIMIT 200 \
+                 LIMIT 300 \
              ), \
              user_artists AS ( \
                  SELECT DISTINCT ta.artist_id \
@@ -624,7 +521,7 @@ impl RecommendationsService {
                  JOIN track_artists ta ON ta.artist_id = co.co_id AND ta.role = 'primary' \
                  JOIN tracks it ON it.id = ta.track_id \
                  LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
-                 WHERE it.sharing = 'public' \
+                 WHERE it.sharing = 'public' AND it.storage_state = 'ok' \
              ) \
              SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id \
              FROM ranked r \
@@ -632,7 +529,7 @@ impl RecommendationsService {
              WHERE r.rn = 1 AND a.merged_into IS NULL \
              ORDER BY r.w DESC NULLS LAST",
         )
-        .bind(sc_user_id)
+            .bind(&ids)
         .bind(limit)
         .bind(&exclude_vec)
         .fetch_all(&self.pg)
@@ -658,19 +555,25 @@ impl RecommendationsService {
         limit: i64,
     ) -> Vec<String> {
         let exclude_vec: Vec<String> = exclude.iter().cloned().collect();
+        let ids = user_id_variants(sc_user_id);
+        // Артист попадает в «дропы» только если ты лайкнул его >=2 раз —
+        // один случайный лайк (напр. фит, который ты не следишь) больше не
+        // заливает ленту его релизами. Только playable треки.
         let rows: Vec<(String,)> = match sqlx::query_as(
             "WITH recent_likes AS ( \
                  SELECT sc_track_id FROM user_likes_tracks \
-                 WHERE user_id = $1 AND wanted_state = true \
+                 WHERE user_id = ANY($1) AND wanted_state = true \
                    AND created_at > NOW() - INTERVAL '120 days' \
                  ORDER BY created_at DESC, ctid DESC \
-                 LIMIT 150 \
+                 LIMIT 200 \
              ), \
              user_artists AS ( \
-                 SELECT DISTINCT ta.artist_id \
+                 SELECT ta.artist_id \
                  FROM recent_likes rl \
                  JOIN tracks it ON it.sc_track_id = rl.sc_track_id \
                  JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
+                 GROUP BY ta.artist_id \
+                 HAVING COUNT(*) >= 2 \
              ) \
              SELECT it.sc_track_id \
              FROM track_artists ta \
@@ -678,12 +581,13 @@ impl RecommendationsService {
              WHERE ta.artist_id IN (SELECT artist_id FROM user_artists) \
                AND ta.role = 'primary' \
                AND it.sharing = 'public' \
+               AND it.storage_state = 'ok' \
                AND it.sc_synced_at > NOW() - INTERVAL '30 days' \
                AND NOT (it.sc_track_id = ANY($2)) \
              ORDER BY it.sc_synced_at DESC \
              LIMIT $3",
         )
-        .bind(sc_user_id)
+            .bind(&ids)
         .bind(&exclude_vec)
         .bind(limit)
         .fetch_all(&self.pg)
@@ -770,24 +674,6 @@ impl RecommendationsService {
             }
         }
     }
-}
-
-fn for_you_features(
-    candidate: &RecommendResult,
-    mode_index: f32,
-    recent_artists: &HashSet<String>,
-) -> Vec<f32> {
-    let score = candidate.score.unwrap_or(0.0);
-    let log_plays = match candidate.playback_count {
-        Some(p) if p > 0 => ((p as f64).ln_1p() as f32) / 16.0,
-        _ => 0.0,
-    };
-    let novelty = match candidate.artist.as_deref() {
-        Some(a) if !a.is_empty() && !recent_artists.contains(&a.to_lowercase()) => 1.0,
-        Some(_) => 0.0,
-        None => 0.5,
-    };
-    vec![score, mode_index, 0.0, 0.0, log_plays, 0.0, novelty, 0.0]
 }
 
 fn dedupe_neighbors(

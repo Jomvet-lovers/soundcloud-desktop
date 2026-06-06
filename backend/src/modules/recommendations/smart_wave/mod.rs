@@ -1,24 +1,21 @@
-//! SmartWave — бесконечная волна. Один и тот же движок умеет три режима:
-//! `User` (home wave), `Track` (страница трека), `Artist` (страница артиста).
+//! Волна — бесконечный поток «сетка × MERT». Один движок, три режима seed:
+//! `User` (home), `Track` (страница трека), `Artist` (страница артиста).
 //!
-//! Внутри:
-//! 1. Собираем сигналы юзера (свежие лайки, дизы, скипы, played) —
-//!    [signals::load_recent_signals].
-//! 2. Строим граф артистов вокруг вкуса — [artist_graph::build_artist_affinity].
-//! 3. Параллельно гоняем три arm'а: track-arm (clap+lyrics+mert от seed-треков),
-//!    artist-arm (треки из графа), collab-arm (track2vec).
-//! 4. Blender смешивает с весами, адаптивными к недавнему фидбеку.
-//! 5. Курсор в Redis помнит уже отданное и негативные исходы для следующего
-//!    вызова — отсюда и "бесконечность" + "умнеет за сессию".
+//! Пайплайн:
+//! 1. signals — свежие лайки/дизы/скипы/played (оба формата `user_id`).
+//! 2. graph — сетка близости артистов вокруг вкуса (аддитивная пропагация).
+//! 3. MERT — qdrant-кандидаты от seed-треков (3 коллекции, z-norm merge).
+//! 4. rank — `score = mert·(1+λ·affinity)`: сетка наверх, чистый MERT в хвост.
+//! 5. cursor (Redis) помнит отданное; досев served-треками = бесконечность.
 
-pub mod artist_arm;
-pub mod artist_graph;
-pub mod blender;
 pub mod cursor;
+pub mod graph;
+pub mod rank;
 pub mod signals;
 pub mod track_arm;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 use sqlx::PgPool;
 use tracing::{debug, info};
@@ -28,15 +25,22 @@ use crate::error::AppResult;
 use crate::modules::recommendations::clusters::recommend_id_str;
 use crate::modules::recommendations::service::{RecommendResult, RecommendationsService};
 
-use blender::{BlendWeights, BlendedCandidate};
 use cursor::{SeedKind, WaveCursor};
+use graph::GraphSeed;
+use rank::TrackMeta;
 use signals::UserSignals;
 
 const ARTIST_CAP_IN_WINDOW: usize = 2;
-const SEED_TRACKS_FOR_USER_ARM: usize = 12;
+/// Сколько MERT-кандидатов тянем — «очень много», дальше rank режет до limit.
+const MERT_POOL: usize = 400;
+/// Сила буста сетки: aff=1.0 (TIER A) даёт ×(1+λ) над чистым MERT.
+const LAMBDA_GRAPH: f32 = 3.0;
+const SEED_LIKES_USER: usize = 14;
+/// Досев последними отданными треками — двигает MERT-пул вперёд (бесконечность).
+const SEED_SERVED_FORWARD: usize = 8;
 
 pub enum SmartWaveSeed<'a> {
-    /// Home — собираем волну вокруг свежих сигналов юзера.
+    /// Home — волна вокруг вкуса юзера.
     User,
     /// Страница трека — якорь = seed_track_id.
     Track(u64),
@@ -62,17 +66,17 @@ pub async fn build(
     req: SmartWaveRequest<'_>,
 ) -> AppResult<SmartWaveResponse> {
     let signals = signals::load_recent_signals(&svc.pg, req.sc_user_id).await?;
-    let seed_kind = match req.seed {
-        SmartWaveSeed::User => SeedKind::User,
-        SmartWaveSeed::Track(_) => SeedKind::Track,
-        SmartWaveSeed::Artist(_, _) => SeedKind::Artist,
+
+    let (seed_kind, graph_seed) = match &req.seed {
+        SmartWaveSeed::User => (SeedKind::User, GraphSeed::User),
+        SmartWaveSeed::Track(t) => (SeedKind::Track, GraphSeed::Track(*t)),
+        SmartWaveSeed::Artist(a, _) => (SeedKind::Artist, GraphSeed::Artist(*a)),
     };
     let seed_key = match &req.seed {
         SmartWaveSeed::User => req.sc_user_id.to_string(),
         SmartWaveSeed::Track(t) => format!("t{t}"),
         SmartWaveSeed::Artist(a, _) => format!("a{a}"),
     };
-
     let owner = if req.sc_user_id.is_empty() {
         "anon"
     } else {
@@ -81,80 +85,59 @@ pub async fn build(
     let mut wave_cursor =
         cursor::load_or_new(&svc.redis, owner, req.cursor_token, seed_kind, &seed_key).await;
 
+    let mert_seeds = pick_mert_seeds(&req.seed, &signals, &wave_cursor);
     let exclude = build_exclude(&signals, &wave_cursor, &req.seed);
-
-    let affinity_fut = async {
-        if matches!(req.seed, SmartWaveSeed::Track(_)) {
-            // Для track-seed артист-граф пользователя играет вспомогательную
-            // роль и весит меньше — но всё равно даёт расширение в "близкие миры".
-            artist_graph::build_artist_affinity(&svc.pg, &svc.redis, req.sc_user_id).await
-        } else {
-            artist_graph::build_artist_affinity(&svc.pg, &svc.redis, req.sc_user_id).await
-        }
-    };
-
-    let seeds_for_track_arm = pick_track_seeds(&req.seed, &signals);
     let negative_ids = negative_ids_for_qdrant(&signals);
     let filter = svc.build_filter(&exclude, req.languages);
-    let exclude_set: HashSet<String> = exclude.iter().cloned().collect();
 
-    let track_arm_fut = track_arm::recommend_from_many(
+    let graph_fut = graph::build_affinity(svc, req.sc_user_id, graph_seed);
+    let mert_fut = track_arm::recommend_from_many(
         svc,
-        &seeds_for_track_arm,
+        &mert_seeds,
         &negative_ids,
         filter.as_ref(),
-        80,
+        MERT_POOL,
     );
-    let collab_arm_fut = blender::collab_for_user(svc, req.sc_user_id, &exclude_set, 80);
+    let (graph_res, mert) = tokio::join!(graph_fut, mert_fut);
+    let disliked_set: HashSet<Uuid> = graph_res.disliked_artists.iter().copied().collect();
 
-    let (affinity, track_cands, collab_cands) =
-        tokio::join!(affinity_fut, track_arm_fut, collab_arm_fut);
+    let pool_ids: Vec<u64> = mert.iter().map(|c| c.sc_track_id).collect();
+    let meta = load_track_meta(&svc.pg, &pool_ids).await;
 
-    let artist_cands = artist_arm::pick_tracks(&svc.pg, &affinity, &exclude_set, 80).await;
-
-    let weights = pick_weights(&req.seed, wave_cursor.neg_rate());
-    let blended = blender::blend(&track_cands, &artist_cands, &collab_cands, weights);
-
-    let artist_by_track = load_artist_by_track(&svc.pg, &blended).await;
-
-    let picked = blender::pick_with_cap(
-        blended,
-        &artist_by_track,
+    // Берём с запасом (×2): дальше language-фильтр может срезать часть.
+    let picked = rank::rank_and_pick(
+        &mert,
+        &graph_res.affinity,
+        &disliked_set,
+        &meta,
         &wave_cursor,
-        // По-щедрому накидываем кандидатов с запасом — дальше language- и
-        // S3-фильтры режут часть, и без запаса до limit'а может не дойти.
-        req.limit * 3,
+        req.limit * 2,
         ARTIST_CAP_IN_WINDOW,
+        LAMBDA_GRAPH,
     );
 
-    let ids_after_cap: Vec<String> = picked.iter().map(|c| c.sc_track_id.to_string()).collect();
-    let lang_allowed = svc
-        .filter_tracks_by_language(&ids_after_cap, req.languages)
-        .await;
-    let missing = svc
-        .s3
-        .find_missing(&ids_after_cap)
-        .await
-        .unwrap_or_default();
+    let ids_after: Vec<String> = picked.iter().map(|p| p.sc_track_id.to_string()).collect();
+    let lang_allowed = svc.filter_tracks_by_language(&ids_after, req.languages).await;
+
     let mut tracks: Vec<RecommendResult> = Vec::with_capacity(req.limit);
-    for c in &picked {
+    for p in &picked {
         if tracks.len() >= req.limit {
             break;
         }
-        let id_str = c.sc_track_id.to_string();
-        if missing.contains(&id_str) || !lang_allowed.contains(&id_str) {
+        let id_str = p.sc_track_id.to_string();
+        if !lang_allowed.contains(&id_str) {
             continue;
         }
         tracks.push(RecommendResult {
-            id: serde_json::json!(c.sc_track_id),
-            score: Some(c.score),
+            id: serde_json::json!(p.sc_track_id),
+            score: Some(p.score),
             payload: None,
             artist: None,
             genre: None,
             playback_count: None,
             features: None,
         });
-        wave_cursor.mark_served(c.sc_track_id, artist_by_track.get(&c.sc_track_id).copied());
+        wave_cursor.mark_served(p.sc_track_id, p.artist);
     }
 
     let handle = cursor::save(&svc.redis, owner, &wave_cursor)
@@ -167,10 +150,9 @@ pub async fn build(
         kind = ?seed_kind,
         served_total = wave_cursor.served,
         returned = tracks.len(),
-        neg_rate = wave_cursor.neg_rate(),
-        weights = ?weights,
-        graph = affinity.len(),
-        "smartwave built"
+        graph = graph_res.affinity.len(),
+        mert_pool = mert.len(),
+        "wave built"
     );
 
     Ok(SmartWaveResponse {
@@ -179,8 +161,7 @@ pub async fn build(
     })
 }
 
-/// feedback от клиента: какие треки из текущего окна получили dislike/skip.
-/// Записываем в курсор, чтобы следующий build умнел.
+/// feedback от клиента — пишем dis/pos в курсор (для статистики и анти-моно).
 pub async fn record_feedback(
     svc: &RecommendationsService,
     sc_user_id: &str,
@@ -207,128 +188,8 @@ pub async fn record_feedback(
     Some(handle)
 }
 
-fn build_exclude(signals: &UserSignals, cursor: &WaveCursor, seed: &SmartWaveSeed) -> Vec<String> {
-    let mut excl = signals.exclude_set();
-    for t in cursor.seen_tracks.iter() {
-        excl.push(t.to_string());
-    }
-    if let SmartWaveSeed::Track(t) = seed {
-        excl.push(t.to_string());
-    }
-    excl.sort();
-    excl.dedup();
-    excl
-}
-
-fn pick_track_seeds(seed: &SmartWaveSeed, signals: &UserSignals) -> Vec<u64> {
-    let mut out: Vec<u64> = Vec::new();
-    match seed {
-        SmartWaveSeed::Track(t) => {
-            out.push(*t);
-            // Добавляем 3-5 свежих лайков как "контекст" — даёт волне
-            // расширение, а не только клон seed-трека.
-            for id in signals.fresh_likes.iter().take(5) {
-                if let Ok(n) = id.parse::<u64>() {
-                    if n != *t && !out.contains(&n) {
-                        out.push(n);
-                    }
-                }
-            }
-        }
-        SmartWaveSeed::Artist(_, tracks) => {
-            for t in tracks.iter().take(8) {
-                out.push(*t);
-            }
-            for id in signals.fresh_likes.iter().take(3) {
-                if let Ok(n) = id.parse::<u64>() {
-                    if !out.contains(&n) {
-                        out.push(n);
-                    }
-                }
-            }
-        }
-        SmartWaveSeed::User => {
-            for id in signals.fresh_likes.iter().take(SEED_TRACKS_FOR_USER_ARM) {
-                if let Ok(n) = id.parse::<u64>() {
-                    out.push(n);
-                }
-            }
-            // Если лайков мало — добиваем свежим played.
-            for id in signals.recent_played.iter() {
-                if out.len() >= SEED_TRACKS_FOR_USER_ARM {
-                    break;
-                }
-                if let Ok(n) = id.parse::<u64>() {
-                    if !out.contains(&n) {
-                        out.push(n);
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
-    let mut out: Vec<u64> = Vec::new();
-    for id in signals
-        .disliked_ids
-        .iter()
-        .chain(signals.recent_skips.iter())
-    {
-        if let Ok(n) = id.parse::<u64>() {
-            out.push(n);
-        }
-    }
-    out.sort();
-    out.dedup();
-    // Чтобы не раздуть payload запроса в qdrant — ограничиваем.
-    out.truncate(40);
-    out
-}
-
-fn pick_weights(seed: &SmartWaveSeed, neg_rate: f32) -> BlendWeights {
-    let base = match seed {
-        SmartWaveSeed::User => BlendWeights::default_user(),
-        SmartWaveSeed::Track(_) => BlendWeights::for_track_seed(),
-        SmartWaveSeed::Artist(_, _) => BlendWeights::for_artist_seed(),
-    };
-    base.adapt_to_negative(neg_rate)
-}
-
-async fn load_artist_by_track(pg: &PgPool, blended: &[BlendedCandidate]) -> HashMap<u64, Uuid> {
-    if blended.is_empty() {
-        return HashMap::new();
-    }
-    let ids: Vec<String> = blended.iter().map(|c| c.sc_track_id.to_string()).collect();
-    let rows: Vec<(String, Option<Uuid>)> = match sqlx::query_as(
-        "SELECT sc_track_id, primary_artist_id FROM tracks \
-         WHERE sc_track_id = ANY($1)",
-    )
-    .bind(&ids)
-    .fetch_all(pg)
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            debug!(error = %e, "smartwave: artist map load failed");
-            return HashMap::new();
-        }
-    };
-    let mut out: HashMap<u64, Uuid> = HashMap::new();
-    for (sc_id, artist) in rows {
-        let Ok(n) = sc_id.parse::<u64>() else {
-            continue;
-        };
-        if let Some(a) = artist {
-            out.insert(n, a);
-        }
-    }
-    out
-}
-
-/// Cluster-friendly обёртка: возвращает только track_ids, без cursor.
-/// Используется home/similar/artist wave при сборке cluster `wave` сверху.
+/// Cluster-friendly обёртка: только track_ids, без cursor. Используется
+/// home/similar/artist wave при сборке cluster `wave` сверху.
 pub async fn cluster_track_ids(
     svc: &RecommendationsService,
     sc_user_id: &str,
@@ -351,8 +212,118 @@ pub async fn cluster_track_ids(
             .filter(|s| !s.is_empty())
             .collect(),
         Err(e) => {
-            debug!(error = %e, "smartwave: cluster_track_ids failed");
+            debug!(error = %e, "wave: cluster_track_ids failed");
             Vec::new()
         }
     }
+}
+
+fn build_exclude(signals: &UserSignals, cursor: &WaveCursor, seed: &SmartWaveSeed) -> Vec<String> {
+    let mut excl = signals.exclude_set();
+    for t in cursor.seen_tracks.iter() {
+        excl.push(t.to_string());
+    }
+    if let SmartWaveSeed::Track(t) = seed {
+        excl.push(t.to_string());
+    }
+    excl.sort();
+    excl.dedup();
+    excl
+}
+
+/// seed-треки для MERT-руки. Хвост из последних отданных (`seen_tracks`)
+/// двигает пул вперёд — отсюда бесконечность волны.
+fn pick_mert_seeds(seed: &SmartWaveSeed, signals: &UserSignals, cursor: &WaveCursor) -> Vec<u64> {
+    let mut out: Vec<u64> = Vec::new();
+    let push = |n: u64, out: &mut Vec<u64>| {
+        if !out.contains(&n) {
+            out.push(n);
+        }
+    };
+    match seed {
+        SmartWaveSeed::Track(t) => {
+            out.push(*t);
+            for id in signals.fresh_likes.iter().take(5) {
+                if let Ok(n) = id.parse::<u64>() {
+                    if n != *t {
+                        push(n, &mut out);
+                    }
+                }
+            }
+        }
+        SmartWaveSeed::Artist(_, tracks) => {
+            for t in tracks.iter().take(8) {
+                push(*t, &mut out);
+            }
+            for id in signals.fresh_likes.iter().take(3) {
+                if let Ok(n) = id.parse::<u64>() {
+                    push(n, &mut out);
+                }
+            }
+        }
+        SmartWaveSeed::User => {
+            for id in signals.fresh_likes.iter().take(SEED_LIKES_USER) {
+                if let Ok(n) = id.parse::<u64>() {
+                    push(n, &mut out);
+                }
+            }
+            for id in signals.recent_played.iter() {
+                if out.len() >= SEED_LIKES_USER {
+                    break;
+                }
+                if let Ok(n) = id.parse::<u64>() {
+                    push(n, &mut out);
+                }
+            }
+        }
+    }
+    for t in cursor.seen_tracks.iter().rev().take(SEED_SERVED_FORWARD) {
+        push(*t, &mut out);
+    }
+    out
+}
+
+fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
+    let mut out: Vec<u64> = Vec::new();
+    for id in signals
+        .disliked_ids
+        .iter()
+        .chain(signals.recent_skips.iter())
+    {
+        if let Ok(n) = id.parse::<u64>() {
+            out.push(n);
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out.truncate(40);
+    out
+}
+
+async fn load_track_meta(pg: &PgPool, ids: &[u64]) -> HashMap<u64, TrackMeta> {
+    if ids.is_empty() {
+        return HashMap::new();
+    }
+    let id_strs: Vec<String> = ids.iter().map(|i| i.to_string()).collect();
+    let rows: Vec<(String, Option<Uuid>, bool)> = sqlx::query_as(
+        "SELECT sc_track_id, primary_artist_id, (storage_state = 'ok') AS ok \
+         FROM tracks WHERE sc_track_id = ANY($1)",
+    )
+        .bind(&id_strs)
+    .fetch_all(pg)
+    .await
+        .unwrap_or_default();
+    rows.into_iter()
+        .filter_map(|(id, pa, ok)| {
+            id.parse::<u64>().ok().map(|n| {
+                (
+                    n,
+                    TrackMeta {
+                        primary_artist: pa,
+                        storage_ok: ok,
+                    },
+                )
+            })
+        })
+        .collect()
 }
