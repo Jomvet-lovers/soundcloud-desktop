@@ -1,10 +1,10 @@
-import * as Dialog from '@radix-ui/react-dialog';
-import React, { useCallback, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { ExternalLink, Star, X } from '../../lib/icons';
+import React, {useCallback, useState} from 'react';
+import {useTranslation} from 'react-i18next';
+import {ExternalLink, Star, X} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import { useSubscription } from '../../lib/subscription';
-import { useAuthStore } from '../../stores/auth';
+import {useSubscription} from '../../lib/subscription';
+import {useAuthStore} from '../../stores/auth';
+import {Modal, ModalClose, ModalContent, ModalTitle} from '../ui/Modal';
 
 /* ── Animated star particles (CSS-only, GPU-composited) ─────────── */
 
@@ -266,154 +266,145 @@ export const StarModal = React.memo(
       const particleCount = perf.particles(MODAL_PARTICLES.length);
 
     return (
-      <Dialog.Root open={open} onOpenChange={onOpenChange}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" />
-          <Dialog.Content
-            className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[90vw] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 rounded-2xl overflow-hidden outline-none animate-in fade-in zoom-in-95 duration-200 flex flex-col"
-            style={{
-              background:
-                'linear-gradient(165deg, rgba(30,15,50,0.95), rgba(20,10,40,0.97), rgba(15,8,30,0.98))',
-              border: '0.5px solid rgba(168,85,247,0.25)',
-              boxShadow:
-                '0 25px 60px rgba(0,0,0,0.5), 0 0 40px rgba(139,92,246,0.15), inset 0 1px 0 rgba(255,255,255,0.05)',
-            }}
-          >
-            {/* Animated background particles */}
-              {particleCount > 0 && (
-                  <div
-                      className="absolute inset-0 overflow-hidden pointer-events-none"
-                      style={{contain: 'strict', transform: 'translateZ(0)'}}
-                  >
-                      {MODAL_PARTICLES.slice(0, particleCount).map((i) => (
-                          <div
-                              key={i}
-                              className="absolute rounded-full"
-                              style={{
-                                  width: `${2 + (i % 3)}px`,
-                                  height: `${2 + (i % 3)}px`,
-                                  background: `hsl(${250 + ((i * 15) % 70)}, 75%, ${65 + ((i * 7) % 30)}%)`,
-                                  left: `${5 + ((i * 31) % 90)}%`,
-                                  top: `${5 + ((i * 47) % 90)}%`,
-                                  opacity: 0.3 + (i % 4) * 0.15,
-                                  animation: perf.idleAnim
-                                      ? `star-float ${4 + (i % 4)}s ease-in-out ${(i * 0.3) % 4}s infinite alternate`
-                                      : undefined,
-                              }}
-                          />
-                      ))}
-                  </div>
-              )}
-
-            {/* Gradient glow top */}
-            <div
-              className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 pointer-events-none"
-              style={{
-                background: 'radial-gradient(ellipse, rgba(139,92,246,0.2) 0%, transparent 70%)',
-                transform: 'translateZ(0)',
-              }}
-            />
-
-            <div
-              className="relative overflow-y-auto p-6 star-scroll"
-              style={{ isolation: 'isolate' }}
+        <Modal open={open} onOpenChange={onOpenChange}>
+            <ModalContent
+                size="sm"
+                showClose={false}
+                zClass="z-[90]"
+                className="max-h-[85vh] flex flex-col"
             >
-              {/* Close */}
-              <Dialog.Close className="absolute top-4 right-4 p-1 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors cursor-pointer">
-                <X size={16} />
-              </Dialog.Close>
-
-              {/* Header */}
-              <div className="flex flex-col items-center text-center mb-6">
-                <span
-                  className="text-amber-400 mb-3"
-                  style={{ filter: 'drop-shadow(0 0 12px rgba(168,85,247,0.6))' }}
-                >
-                  <Star size={36} fill="currentColor" />
-                </span>
-                <Dialog.Title className="flex items-center gap-2 text-xl font-bold text-white/95 tracking-tight">
-                  <Star size={20} fill="currentColor" className="text-amber-400" />
-                  {t('star.modalTitle')}
-                </Dialog.Title>
-                <p className="text-[12px] text-purple-300/50 mt-1 font-medium">
-                  {t('star.modalSub')}
-                </p>
-              </div>
-
-              {/* Perks */}
-              <div className="space-y-2 mb-6">
-                {PERKS.map((perk) => (
-                  <div
-                    key={perk}
-                    className="flex items-start gap-3 px-3.5 py-2.5 rounded-xl"
-                    style={{
-                      background:
-                        'linear-gradient(135deg, rgba(139,92,246,0.1), rgba(168,85,247,0.05))',
-                      border: '0.5px solid rgba(168,85,247,0.12)',
-                    }}
-                  >
-                    <span className="text-purple-400/80 text-[13px] mt-px shrink-0">✦</span>
-                    <span className="text-[12.5px] text-white/75 leading-relaxed">{t(perk)}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Divider */}
-              <div
-                className="h-px mb-5"
-                style={{
-                  background:
-                    'linear-gradient(90deg, transparent, rgba(168,85,247,0.2), transparent)',
-                }}
-              />
-
-              {/* How to get */}
-              <div className="mb-2">
-                <h3 className="text-[12px] font-semibold text-white/60 uppercase tracking-wider mb-3">
-                  {t('star.howTo')}
-                </h3>
-                <div className="space-y-2.5">
-                  {STEPS.map((step, i) => (
-                    <div key={step.key} className="flex items-start gap-3">
-                      <span
-                        className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-purple-300/80 mt-0.5"
-                        style={{
-                          background:
-                            'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(168,85,247,0.1))',
-                          border: '0.5px solid rgba(168,85,247,0.2)',
-                        }}
-                      >
-                        {i + 1}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[12px] text-white/65 leading-relaxed">
-                          {t(step.key)}
-                        </span>
-                        {'link' in step && step.link && (
-                          <a
-                            href={step.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 mt-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-purple-300/80 hover:text-purple-200 transition-colors cursor-pointer"
-                            style={{
-                              background:
-                                'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(168,85,247,0.08))',
-                              border: '0.5px solid rgba(168,85,247,0.2)',
-                            }}
-                          >
-                            {t(i === 0 ? 'star.goBoosty' : 'star.goDiscord')}
-                            <ExternalLink size={10} />
-                          </a>
-                        )}
-                      </div>
+                {/* Animated background particles */}
+                {particleCount > 0 && (
+                    <div
+                        className="absolute inset-0 overflow-hidden pointer-events-none"
+                        style={{contain: 'strict', transform: 'translateZ(0)'}}
+                    >
+                        {MODAL_PARTICLES.slice(0, particleCount).map((i) => (
+                            <div
+                                key={i}
+                                className="absolute rounded-full"
+                                style={{
+                                    width: `${2 + (i % 3)}px`,
+                                    height: `${2 + (i % 3)}px`,
+                                    background: 'var(--color-accent)',
+                                    left: `${5 + ((i * 31) % 90)}%`,
+                                    top: `${5 + ((i * 47) % 90)}%`,
+                                    opacity: 0.3 + (i % 4) * 0.15,
+                                    animation: perf.idleAnim
+                                        ? `star-float ${4 + (i % 4)}s ease-in-out ${(i * 0.3) % 4}s infinite alternate`
+                                        : undefined,
+                                }}
+                            />
+                        ))}
                     </div>
-                  ))}
+                )}
+
+                {/* Gradient glow top */}
+                <div
+                    className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-32 pointer-events-none"
+                    style={{
+                        background: 'radial-gradient(ellipse, var(--color-accent-glow) 0%, transparent 70%)',
+                        transform: 'translateZ(0)',
+                    }}
+                />
+
+                <div
+                    className="relative overflow-y-auto p-6 star-scroll"
+                    style={{isolation: 'isolate'}}
+                >
+                    {/* Close */}
+                    <ModalClose
+                        className="absolute top-4 right-4 p-1 rounded-lg text-white/30 hover:text-white/70 hover:bg-white/[0.06] transition-colors cursor-pointer">
+                        <X size={16}/>
+                    </ModalClose>
+
+                    {/* Header */}
+                    <div className="flex flex-col items-center text-center mb-6">
+              <span
+                  className="text-amber-400 mb-3"
+                  style={{filter: 'drop-shadow(0 0 12px var(--color-accent-glow))'}}
+              >
+                <Star size={36} fill="currentColor"/>
+              </span>
+                        <ModalTitle className="flex items-center gap-2 text-xl font-bold text-white/95 tracking-tight">
+                            <Star size={20} fill="currentColor" className="text-amber-400"/>
+                            {t('star.modalTitle')}
+                        </ModalTitle>
+                        <p className="text-[12px] text-accent/50 mt-1 font-medium">{t('star.modalSub')}</p>
+                    </div>
+
+                    {/* Perks */}
+                    <div className="space-y-2 mb-6">
+                        {PERKS.map((perk) => (
+                            <div
+                                key={perk}
+                                className="flex items-start gap-3 px-3.5 py-2.5 rounded-xl"
+                                style={{
+                                    background: 'linear-gradient(135deg, var(--color-accent-glow), transparent)',
+                                    border: '0.5px solid var(--color-accent-glow)',
+                                }}
+                            >
+                                <span className="text-accent/80 text-[13px] mt-px shrink-0">✦</span>
+                                <span className="text-[12.5px] text-white/75 leading-relaxed">{t(perk)}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Divider */}
+                    <div
+                        className="h-px mb-5"
+                        style={{
+                            background:
+                                'linear-gradient(90deg, transparent, var(--color-accent-glow), transparent)',
+                        }}
+                    />
+
+                    {/* How to get */}
+                    <div className="mb-2">
+                        <h3 className="text-[12px] font-semibold text-white/60 uppercase tracking-wider mb-3">
+                            {t('star.howTo')}
+                        </h3>
+                        <div className="space-y-2.5">
+                            {STEPS.map((step, i) => (
+                                <div key={step.key} className="flex items-start gap-3">
+                    <span
+                        className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-accent/80 mt-0.5"
+                        style={{
+                            background:
+                                'linear-gradient(135deg, var(--color-accent-glow), transparent)',
+                            border: '0.5px solid var(--color-accent-glow)',
+                        }}
+                    >
+                      {i + 1}
+                    </span>
+                                    <div className="flex-1 min-w-0">
+                      <span className="text-[12px] text-white/65 leading-relaxed">
+                        {t(step.key)}
+                      </span>
+                                        {'link' in step && step.link && (
+                                            <a
+                                                href={step.link}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 mt-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-accent/80 hover:text-accent transition-colors cursor-pointer"
+                                                style={{
+                                                    background:
+                                                        'linear-gradient(135deg, var(--color-accent-glow), transparent)',
+                                                    border: '0.5px solid var(--color-accent-glow)',
+                                                }}
+                                            >
+                                                {t(i === 0 ? 'star.goBoosty' : 'star.goDiscord')}
+                                                <ExternalLink size={10}/>
+                                            </a>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
-              </div>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+            </ModalContent>
+        </Modal>
     );
   },
 );

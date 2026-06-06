@@ -321,6 +321,31 @@ select,
   animation: dialogContentOut 0.15s var(--ease-apple) forwards;
 }
 
+/* ── Custom modal shell (components/ui/Modal.tsx) — JS-toggled transitions ──
+ * data-state is flipped in JS (open ⇄ closed); plain CSS transitions do the
+ * animation. No Radix, no @keyframes — works reliably under WebKitGTK. */
+.modal-overlay {
+  opacity: 0;
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-overlay[data-state="open"] {
+  opacity: 1;
+}
+
+.modal-content {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.96);
+  transition: opacity 0.24s cubic-bezier(0.16, 1, 0.3, 1),
+  transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.modal-content[data-state="open"] {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 /* ── Featured card glass ──────────────────────────────────── */
 .glass-featured {
   background: rgba(255, 255, 255, 0.02);
