@@ -1,20 +1,20 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import React, {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react';
+import {useTranslation} from 'react-i18next';
 import {Outlet} from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
-import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
-import { getWallpaperUrl } from '../../lib/cache';
-import { art } from '../../lib/formatters';
+import {useShallow} from 'zustand/shallow';
+import {getCurrentTime, getDuration, handlePrev, seek} from '../../lib/audio';
+import {getWallpaperUrl} from '../../lib/cache';
+import {art} from '../../lib/formatters';
 import {usePerfMode} from '../../lib/perf';
-import { isMac } from '../../lib/platform';
-import { toggleWindowFullscreen } from '../../lib/window';
-import { useLyricsStore } from '../../stores/lyrics';
-import { usePlayerStore } from '../../stores/player';
-import { useSettingsStore } from '../../stores/settings';
-import { NowPlayingBar } from './NowPlayingBar';
-import { Sidebar } from './Sidebar';
-import { Titlebar } from './Titlebar';
+import {isMac} from '../../lib/platform';
+import {toggleWindowFullscreen} from '../../lib/window';
+import {useLyricsStore} from '../../stores/lyrics';
+import {usePlayerStore} from '../../stores/player';
+import {useSettingsStore} from '../../stores/settings';
+import {NowPlayingBar} from './NowPlayingBar';
+import {Sidebar} from './Sidebar';
+import {Titlebar} from './Titlebar';
 
 const LyricsPanel = lazy(() =>
   import('../music/LyricsPanel').then((module) => ({ default: module.LyricsPanel })),
@@ -146,52 +146,91 @@ const KeybindingsDialog = React.memo(
 
 /* ── Backgrounds ───────────────────────────────────────────── */
 
+// Fine film grain (SVG turbulence) — one static tile, no animation. Gives the
+// wallpaper a photographic, premium feel instead of a flat poster.
+const GRAIN_BG =
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+
+/** Wallpaper layer — the photo lives at the very back, full-bleed and crisp. A
+ *  cinematic vignette sinks the edges (so the page's aura orbs read as light
+ *  blooming from the corners) while the centre stays vivid; soft chrome
+ *  gradients keep the titlebar / dock / sidebar legible. The aura orbs and star
+ *  field still mount over this — wallpaper + glow + stars as one composition.
+ *  `bgOpacity` is the readability dim on top; no motion (it's a backdrop). */
 const CustomBackground = React.memo(() => {
     const perf = usePerfMode();
-  const { bgName, bgOpacity, bgBlur } = useSettingsStore(
+    const {bgName, bgOpacity, bgDim, bgBlur} = useSettingsStore(
     useShallow((s) => ({
       bgName: s.backgroundImage,
       bgOpacity: s.backgroundOpacity,
+        bgDim: s.backgroundDim,
       bgBlur: s.backgroundBlur,
     })),
   );
 
   const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
   if (!bgUrl) return null;
+
     const effBlur = perf.blur(bgBlur);
-    const blurInset = Math.max(24, effBlur * 2);
-    const blurScale = 1 + effBlur / 160;
+    const dim = bgOpacity; // edge/vignette + chrome readability framing
+
   return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden">
       <div
-        className="absolute transition-[filter,transform] duration-500 ease-out"
-        style={{
-          inset: -blurInset,
-          contain: 'paint',
-          transform: 'translateZ(0)',
-            // Beauty keeps the GPU-promotion hint (byte-identical); lighter modes drop
-            // the permanently-held buffer since blur is reduced/none.
-            willChange: perf.mode === 'beauty' ? 'filter' : undefined,
-        }}
+          className="absolute inset-0 pointer-events-none overflow-hidden"
+          style={{contain: 'strict', transform: 'translateZ(0)'}}
       >
-        <img
-          src={bgUrl}
-          alt=""
-          aria-hidden="true"
-          decoding="async"
-          className="w-full h-full object-cover select-none"
-          style={{
-            opacity: 0.18,
-              filter: effBlur > 0 ? `blur(${effBlur}px)` : 'none',
-            transform: `translateZ(0) scale(${blurScale})`,
-            transformOrigin: 'center',
-          }}
-        />
-      </div>
-      <div
-        className="absolute inset-0 bg-[rgb(8,8,10)] transition-opacity duration-300"
-        style={{ opacity: bgOpacity }}
-      />
+          <img
+              src={bgUrl}
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+              className="absolute inset-0 w-full h-full object-cover select-none"
+              style={{
+                  filter: effBlur > 0 ? `blur(${effBlur}px)` : undefined,
+                  transform: 'translateZ(0)',
+              }}
+          />
+
+          {/* cinematic vignette — vivid centre, sunken edges where the orbs glow */}
+          <div
+              className="absolute inset-0"
+              style={{
+                  background: `radial-gradient(125% 110% at 50% 38%, transparent 38%, rgba(6,6,9,${(0.4 + dim * 0.45).toFixed(3)}) 100%)`,
+              }}
+          />
+          {/* chrome legibility gradients */}
+          <div
+              className="absolute inset-x-0 top-0 h-36"
+              style={{
+                  background: `linear-gradient(to bottom, rgba(6,6,9,${(0.45 + dim * 0.4).toFixed(3)}), transparent)`,
+              }}
+          />
+          <div
+              className="absolute inset-x-0 bottom-0 h-52"
+              style={{
+                  background: `linear-gradient(to top, rgba(6,6,9,${(0.52 + dim * 0.4).toFixed(3)}), transparent)`,
+              }}
+          />
+          <div
+              className="absolute inset-y-0 left-0 w-40"
+              style={{
+                  background: `linear-gradient(to right, rgba(6,6,9,${(0.28 + dim * 0.35).toFixed(3)}), transparent)`,
+              }}
+          />
+          {/* uniform full-frame dim — tames very bright wallpapers everywhere,
+          not just the edges (separate from the vignette above) */}
+          {bgDim > 0 && (
+              <div
+                  className="absolute inset-0 bg-[rgb(6,6,9)] transition-opacity duration-300"
+                  style={{opacity: bgDim}}
+              />
+          )}
+          {perf.atmosphere && (
+              <div
+                  className="absolute inset-0 mix-blend-overlay opacity-[0.06]"
+                  style={{backgroundImage: GRAIN_BG, backgroundSize: '140px 140px'}}
+              />
+          )}
     </div>
   );
 });

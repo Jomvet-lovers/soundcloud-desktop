@@ -1,5 +1,5 @@
-import { getProxyPort, IMAGES_BASE } from './constants';
-import { isMac } from './platform';
+import {getProxyPort, IMAGES_BASE} from './constants';
+import {isMac} from './platform';
 
 const WHITELIST = [
   'localhost',
@@ -44,16 +44,24 @@ export function isWhitelistedAssetUrl(url: string): boolean {
 function buildEncodedPayload(
   url: string,
   bypassCache: boolean,
+  upstream: string = IMAGES_BASE,
 ): { encoded: string; target: string } {
   const target = bypassCache ? withCacheBust(url) : url;
   return {
-    encoded: encodeURIComponent(btoa(JSON.stringify([target, IMAGES_BASE]))),
+      encoded: encodeURIComponent(btoa(JSON.stringify([target, upstream]))),
     target,
   };
 }
 
-export function toScproxyUrl(url: string, { bypassCache = false } = {}): string {
-  const { encoded, target } = buildEncodedPayload(url, bypassCache);
+/** `direct` makes the local proxy fetch the target itself with a browser
+ *  User-Agent instead of relaying through the image CDN — needed for hosts that
+ *  403 non-browser clients (Wallhaven, Konachan). */
+export function toScproxyUrl(url: string, {bypassCache = false, direct = false} = {}): string {
+    const {encoded, target} = buildEncodedPayload(
+        url,
+        bypassCache,
+        direct ? 'direct' : IMAGES_BASE,
+    );
 
   const proxyPort = getProxyPort();
   if (proxyPort && !isMac()) {

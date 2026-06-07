@@ -209,6 +209,7 @@ pub fn run() {
             network::dpi::dpi_set_enabled,
             network::dpi::dpi_is_enabled,
             network::dpi::dpi_strategy,
+            network::wallpapers::wallpaper_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
