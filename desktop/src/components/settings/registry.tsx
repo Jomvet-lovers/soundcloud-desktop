@@ -10,6 +10,7 @@ import {LanguageCard} from './cards/LanguageCard';
 import {NetworkCard} from './cards/NetworkCard';
 import {PerformanceCard} from './cards/PerformanceCard';
 import {PlaybackCard} from './cards/PlaybackCard';
+import {SoundForgeCard} from './cards/SoundForgeCard';
 import {StartupCard} from './cards/StartupCard';
 import {ThemeCard} from './cards/ThemeCard';
 import {WallpaperCard} from './cards/WallpaperCard';
@@ -92,7 +93,12 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         id: 'storage',
         labelKey: 'settings.catStorage',
         icon: <Database size={17}/>,
-        Body: () => <CacheCard/>,
+        Body: () => (
+            <>
+                <SoundForgeCard/>
+                <CacheCard/>
+            </>
+        ),
     },
     {
         id: 'account',

@@ -1,4 +1,20 @@
 {
+  "forge": {
+    "title": "Transcode Forge",
+    "desc": "Raw downloads are forged into clean m4a",
+    "ready": "Ready",
+    "working": "Forging",
+    "preparing": "Preparing",
+    "unavailable": "Unavailable",
+    "raw": "Raw",
+    "engine": "Engine",
+    "clean": "Clean",
+    "empty": "empty",
+    "msgReady": "Engine ready. New tracks are automatically forged into clean m4a in the background.",
+    "msgPreparing": "Preparing the engine — a one-time ffmpeg download. Playback works meanwhile from the raw cache.",
+    "msgUnavailable": "Engine unavailable — tracks play straight from the raw cache and downloads are copied as-is.",
+    "msgWorking": "Forging {{active}} now · {{queued}} queued."
+  },
   "nav": {
     "home": "Home",
     "search": "Search",

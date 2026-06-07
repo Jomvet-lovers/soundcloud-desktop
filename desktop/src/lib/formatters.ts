@@ -1,4 +1,4 @@
-import { proxiedAssetUrl } from './asset-url';
+import {proxiedAssetUrl} from './asset-url';
 
 /** SoundCloud artwork URL: replace -large with desired size */
 export function art(url: string | null | undefined, size = 't500x500'): string | null {
@@ -11,6 +11,15 @@ export function fc(n?: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+/** Format a byte count: 0 → "0 B", 1536 → "1.5 KB", 1.5e9 → "1.40 GB" */
+export function formatBytes(bytes: number): string {
+    if (bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 /** Format duration from milliseconds: 185000 → "3:05" */

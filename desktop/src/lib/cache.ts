@@ -32,22 +32,41 @@ export function getCacheInfo(urn: string): Promise<TrackCacheInfo | null> {
   return invoke<TrackCacheInfo | null>('track_get_cache_info', { urn });
 }
 
+export type FfmpegState = 'ready' | 'preparing' | 'unavailable';
+
+/** Live snapshot of the А→Б transcode pipeline (Rust `TranscodeStatus`). */
+export interface TranscodeStatus {
+  ffmpeg: FfmpegState;
+  /** Raw files staged in folder А, awaiting transcode. */
+  incoming: number;
+  incomingBytes: number;
+  /** Transcodes running right now. */
+  transcoding: number;
+  /** Clean m4a files in folder Б (regular + liked). */
+  clean: number;
+  cleanBytes: number;
+}
+
+export function getTranscodeStatus(): Promise<TranscodeStatus> {
+  return invoke<TranscodeStatus>('track_transcode_status');
+}
+
 /** Builds the Rust-side cache request (stream/download/storage fallbacks + the
  *  API duration used to detect truncated downloads). `durationMs` is the track's
  *  API-reported length in milliseconds. */
 async function buildCacheRequest(urn: string, hq: boolean, durationMs?: number) {
-    const {buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId} = await import(
-        './api'
-        );
-    return {
-        urn,
-        urls: streamFallbackUrls(urn, hq),
-        downloadUrls: downloadFallbackUrls(urn, hq),
-        storageUrls: buildStorageUrls(urn),
-        sessionId: getSessionId(),
-        hq,
-        durationMs,
-    };
+  const {buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId} = await import(
+      './api'
+      );
+  return {
+    urn,
+    urls: streamFallbackUrls(urn, hq),
+    downloadUrls: downloadFallbackUrls(urn, hq),
+    storageUrls: buildStorageUrls(urn),
+    sessionId: getSessionId(),
+    hq,
+    durationMs,
+  };
 }
 
 export async function ensureTrackCached(
@@ -60,8 +79,8 @@ export async function ensureTrackCached(
     return cached;
   }
 
-    const request = await buildCacheRequest(urn, highQualityStreaming, durationMs);
-    return invoke<TrackCacheInfo>('track_ensure_cached', {request});
+  const request = await buildCacheRequest(urn, highQualityStreaming, durationMs);
+  return invoke<TrackCacheInfo>('track_ensure_cached', {request});
 }
 
 export function getCacheSize(): Promise<number> {
@@ -130,30 +149,30 @@ export function setupCacheMaintenance() {
     }
   });
 
-    // Pause maintenance while the window is hidden — the WebView does not throttle timers.
-    let maintenanceTimer: number | null = null;
-    const startTimer = () => {
-        if (maintenanceTimer !== null) return;
-        maintenanceTimer = window.setInterval(() => {
-            void enforceAudioCacheLimit();
-        }, CACHE_MAINTENANCE_INTERVAL_MS);
-    };
-    const stopTimer = () => {
-        if (maintenanceTimer === null) return;
-        window.clearInterval(maintenanceTimer);
-        maintenanceTimer = null;
-    };
+  // Pause maintenance while the window is hidden — the WebView does not throttle timers.
+  let maintenanceTimer: number | null = null;
+  const startTimer = () => {
+    if (maintenanceTimer !== null) return;
+    maintenanceTimer = window.setInterval(() => {
+      void enforceAudioCacheLimit();
+    }, CACHE_MAINTENANCE_INTERVAL_MS);
+  };
+  const stopTimer = () => {
+    if (maintenanceTimer === null) return;
+    window.clearInterval(maintenanceTimer);
+    maintenanceTimer = null;
+  };
 
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') {
-            stopTimer();
-        } else {
-            void enforceAudioCacheLimit();
-            startTimer();
-        }
-    });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      stopTimer();
+    } else {
+      void enforceAudioCacheLimit();
+      startTimer();
+    }
+  });
 
-    if (document.visibilityState !== 'hidden') startTimer();
+  if (document.visibilityState !== 'hidden') startTimer();
 }
 
 /* ── Image cache (permanent, Rust) ───────────────────────── */
@@ -190,7 +209,7 @@ function extensionFromType(mime: string): string {
  *  Идём через локальный прокси в режиме `direct` — он фетчит с браузерным UA
  *  (Wallhaven/Konachan 403-ят не-браузер), webview-fetch так не умеет. */
 export async function downloadWallpaper(url: string): Promise<string> {
-    const res = await tauriFetch(toScproxyUrl(url, {direct: true}));
+  const res = await tauriFetch(toScproxyUrl(url, {direct: true}));
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   const ct = res.headers.get('content-type') ?? 'image/jpeg';
   const ext = extensionFromType(ct);
@@ -258,14 +277,14 @@ function sanitizeFilename(name: string): string {
 /** Raw (un-proxied) SoundCloud artwork URL at high res, for Rust to fetch and
  *  embed into the exported file. Returns null when the track has no artwork. */
 function coverSourceUrl(artworkUrl: string | null | undefined): string | null {
-    if (!artworkUrl) return null;
-    return artworkUrl.replace('-large', '-t500x500');
+  if (!artworkUrl) return null;
+  return artworkUrl.replace('-large', '-t500x500');
 }
 
 export interface DownloadTrackOptions {
-    artworkUrl?: string | null;
-    /** Track length in milliseconds (API `duration`). */
-    durationMs?: number;
+  artworkUrl?: string | null;
+  /** Track length in milliseconds (API `duration`). */
+  durationMs?: number;
 }
 
 /** Download-to-file: writes a clean m4a (transcoding/fetching as needed) with
@@ -278,19 +297,19 @@ export async function downloadTrack(
 ): Promise<string> {
   const { save } = await import('@tauri-apps/plugin-dialog');
 
-    const filename = sanitizeFilename(`${artist} - ${title}.m4a`);
+  const filename = sanitizeFilename(`${artist} - ${title}.m4a`);
 
   const dest = await save({
     defaultPath: filename,
-      filters: [{name: 'Audio', extensions: ['m4a']}],
+    filters: [{name: 'Audio', extensions: ['m4a']}],
   });
   if (!dest) throw new Error('cancelled');
 
-    const hq = useSettingsStore.getState().highQualityStreaming;
-    const request = await buildCacheRequest(urn, hq, options.durationMs);
-    return invoke<string>('track_export', {
-        request,
-        destPath: dest,
-        coverUrl: coverSourceUrl(options.artworkUrl),
-    });
+  const hq = useSettingsStore.getState().highQualityStreaming;
+  const request = await buildCacheRequest(urn, hq, options.durationMs);
+  return invoke<string>('track_export', {
+    request,
+    destPath: dest,
+    coverUrl: coverSourceUrl(options.artworkUrl),
+  });
 }

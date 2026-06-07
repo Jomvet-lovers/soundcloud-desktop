@@ -188,6 +188,7 @@ pub fn run() {
             track_cache::track_ensure_cached,
             track_cache::track_export,
             track_cache::track_is_cached,
+            track_cache::track_transcode_status,
             track_cache::track_get_cache_path,
             track_cache::track_get_cache_info,
             track_cache::track_preload,

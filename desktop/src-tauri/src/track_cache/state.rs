@@ -322,6 +322,22 @@ impl TrackCacheEntry {
     }
 }
 
+/// Live snapshot of the А→Б transcode pipeline for the Settings UI.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscodeStatus {
+    /// "ready" | "preparing" | "unavailable".
+    pub ffmpeg: &'static str,
+    /// Raw files staged in А.
+    pub incoming: u32,
+    pub incoming_bytes: u64,
+    /// Transcodes in flight right now.
+    pub transcoding: u32,
+    /// Clean m4a files in Б (audio + liked).
+    pub clean: u32,
+    pub clean_bytes: u64,
+}
+
 enum DownloadError {
     Fatal(String),
     Retryable(String),
@@ -395,18 +411,25 @@ fn make_redirect_url(storage_url: &str) -> Option<String> {
     Some(parsed.to_string())
 }
 
-fn dir_size(dir: &Path) -> u64 {
+/// Count and total bytes of cached audio files in a dir.
+fn dir_stats(dir: &Path) -> (u32, u64) {
+    let mut count = 0u32;
     let mut total = 0u64;
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             if let Ok(meta) = entry.metadata() {
                 if meta.is_file() && is_audio_cache_file(&entry.path()) {
+                    count += 1;
                     total += meta.len();
                 }
             }
         }
     }
-    total
+    (count, total)
+}
+
+fn dir_size(dir: &Path) -> u64 {
+    dir_stats(dir).1
 }
 
 fn clear_audio_dir(dir: &Path) {
@@ -504,6 +527,9 @@ pub struct TrackCacheState {
     /// or download). Shared so the background acquire is visible to all clones.
     /// `None` disables transcoding (cache then serves raw bytes from `incoming_dir`).
     ffmpeg: Arc<StdMutex<Option<PathBuf>>>,
+    /// Set once the startup ffmpeg acquisition finishes (success or not), so the
+    /// UI can distinguish "still preparing" from "gave up / unavailable".
+    ffmpeg_probe_done: Arc<std::sync::atomic::AtomicBool>,
     active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
     preload_limiter: Arc<Semaphore>,
     likes_limiter: Arc<Semaphore>,
@@ -576,6 +602,7 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         direct_client,
         app_handle: None,
         ffmpeg: Arc::new(StdMutex::new(None)),
+        ffmpeg_probe_done: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         active: Arc::new(Mutex::new(HashMap::new())),
         preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
         likes_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_LIKES)),
@@ -921,6 +948,38 @@ impl TrackCacheState {
                 eprintln!("{line}");
                 self.diag("WARN", line);
             }
+        }
+        self.ffmpeg_probe_done
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Live snapshot of the А→Б pipeline for the Settings UI.
+    pub fn transcode_status(&self) -> TranscodeStatus {
+        let ffmpeg = if self.ffmpeg().is_some() {
+            "ready"
+        } else if self
+            .ffmpeg_probe_done
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            "unavailable"
+        } else {
+            "preparing"
+        };
+        let (incoming, incoming_bytes) = dir_stats(&self.incoming_dir);
+        let (audio_count, audio_bytes) = dir_stats(&self.audio_dir);
+        let (liked_count, liked_bytes) = dir_stats(&self.liked_dir);
+        let transcoding = self
+            .transcoding
+            .lock()
+            .map(|s| s.len() as u32)
+            .unwrap_or(0);
+        TranscodeStatus {
+            ffmpeg,
+            incoming,
+            incoming_bytes,
+            transcoding,
+            clean: audio_count + liked_count,
+            clean_bytes: audio_bytes + liked_bytes,
         }
     }
 

@@ -1,4 +1,20 @@
 {
+  "forge": {
+    "title": "Transkod Ocagi",
+    "desc": "Ham sesler temiz m4a'ya donusturulur",
+    "ready": "Hazir",
+    "working": "Isleniyor",
+    "preparing": "Hazirlaniyor",
+    "unavailable": "Kullanilamiyor",
+    "raw": "Ham",
+    "engine": "Motor",
+    "clean": "Temiz",
+    "empty": "bos",
+    "msgReady": "Motor hazir. Yeni parcalar arka planda otomatik olarak temiz m4a'ya donusturulur.",
+    "msgPreparing": "Motor hazirlaniyor — tek seferlik ffmpeg indirmesi. Bu sirada ham onbellekten calinir.",
+    "msgUnavailable": "Motor kullanilamiyor — parcalar ham onbellekten calinir, indirmeler oldugu gibi kopyalanir.",
+    "msgWorking": "{{active}} isleniyor · {{queued}} sirada."
+  },
   "discover": {
     "prismTitle": "Yenilikleri kesfet",
     "prismSubtitle": "Zevkine gore",

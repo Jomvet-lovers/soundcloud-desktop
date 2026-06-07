@@ -1,6 +1,8 @@
 use tauri::State;
 
-use crate::track_cache::state::{CacheRequest, LikeCacheEntry, TrackCacheEntry, TrackCacheState};
+use crate::track_cache::state::{
+    CacheRequest, LikeCacheEntry, TrackCacheEntry, TrackCacheState, TranscodeStatus,
+};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +111,11 @@ pub async fn track_export(
 #[tauri::command]
 pub fn track_is_cached(urn: String, state: State<'_, TrackCacheState>) -> bool {
     state.is_cached(&urn)
+}
+
+#[tauri::command]
+pub fn track_transcode_status(state: State<'_, TrackCacheState>) -> TranscodeStatus {
+    state.transcode_status()
 }
 
 #[tauri::command]
