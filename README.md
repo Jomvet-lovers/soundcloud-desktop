@@ -37,7 +37,7 @@
 
 ---
 
-![soundwave-banner](https://github.com/user-attachments/assets/826d01ed-71c3-4b35-9802-f82ac8cc28ab)
+![wave-net](https://github.com/user-attachments/assets/78629796-d6e5-4b3f-ba9b-81525cd7c3f2)
 
 ---
 
