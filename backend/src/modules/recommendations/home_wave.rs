@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
+use deadpool_redis::redis::AsyncCommands;
 use tracing::info;
 use uuid::Uuid;
 
@@ -30,6 +31,9 @@ const ALL_CLUSTERS: &[&str] = &[
     "deep_cuts",
 ];
 
+/// Короткий TTL кэша ответа главной — снимает повтор тяжёлой ANN-сборки
+/// кластеров при частых заходах, при этом главная не «застывает».
+const HOME_CACHE_TTL: u64 = 30;
 const WAVE_LIMIT: usize = 24;
 const POOL_FOR_VIBE_DEEP: usize = 500;
 const NEIGHBORS_TOP_LIMIT: i64 = 16;
@@ -206,6 +210,37 @@ impl RecommendationsService {
             "home_wave built"
         );
         Ok(response)
+    }
+
+    /// `home_wave` с коротким Redis-кэшем ответа (per user/lang/limit). На хит
+    /// отдаём готовый JSON, пропуская тяжёлую ANN-сборку (и её side-effects:
+    /// impression-лог + bandit-show — чтобы не двоить на повторном показе).
+    /// Возвращаем сериализованный JSON (Cluster.id = `&'static str`, поэтому
+    /// десериализовать ответ нельзя — кэшируем именно строку).
+    pub async fn home_wave_cached(&self, req: HomeRequest) -> AppResult<String> {
+        let lang = req
+            .languages
+            .as_ref()
+            .map(|l| l.join(","))
+            .unwrap_or_default();
+        let key = format!("rec:home:{}:{}:{}", req.sc_user_id, lang, req.per_cluster);
+
+        if let Ok(mut conn) = self.redis.get().await {
+            if let Ok(Some(cached)) = conn.get::<_, Option<String>>(&key).await {
+                return Ok(cached);
+            }
+        }
+
+        let resp = self.home_wave(req).await?;
+        let json = serde_json::to_string(&resp)
+            .unwrap_or_else(|_| String::from("{\"clusters\":[]}"));
+
+        if let Ok(mut conn) = self.redis.get().await {
+            let _: Result<(), _> = conn
+                .set_ex::<_, _, ()>(&key, json.as_str(), HOME_CACHE_TTL)
+                .await;
+        }
+        Ok(json)
     }
 
     async fn cold_start_response(

@@ -1,4 +1,6 @@
 use axum::extract::{Path, Query, State};
+use axum::http::header;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -52,11 +54,12 @@ async fn home(
     State(st): State<AppState>,
     ctx: SessionCtx,
     Query(q): Query<HomeQuery>,
-) -> AppResult<Json<ClusterResponse>> {
+) -> AppResult<Response> {
     if ctx.sc_user_id.is_empty() {
         return Ok(Json(
             crate::modules::recommendations::clusters::ClusterBuilder::new().finish(),
-        ));
+        )
+            .into_response());
     }
     let per_cluster = parse_limit(q.limit.as_deref(), 16);
     let languages = parse_languages(q.languages.as_deref());
@@ -65,8 +68,9 @@ async fn home(
         languages,
         per_cluster,
     };
-    let out = st.recommendations.home_wave(req).await?;
-    Ok(Json(out))
+    // Кэшированный JSON (короткий TTL) — снимает повтор ANN-сборки кластеров.
+    let json = st.recommendations.home_wave_cached(req).await?;
+    Ok(([(header::CONTENT_TYPE, "application/json")], json).into_response())
 }
 
 #[derive(Debug, Deserialize)]
