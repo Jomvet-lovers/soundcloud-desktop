@@ -37,7 +37,7 @@
 
 ---
 
-![wave-net](https://github.com/user-attachments/assets/78629796-d6e5-4b3f-ba9b-81525cd7c3f2)
+![wave-net](https://github.com/user-attachments/assets/616f80f0-c6d3-42ae-8093-0d2d3067cc17)
 
 ---
 
