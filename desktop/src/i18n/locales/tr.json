@@ -272,6 +272,14 @@
     "notFollowing": "Kimseyi takip etmiyorsunuz",
     "noPlaylists": "Calma listesi bulunamadi"
   },
+  "errors": {
+    "title": "Bir seyler ters gitti",
+    "subtitle": "Arayuz bir sorunla karsilasti. Tekrar deneyin veya uygulamayi yeniden yukleyin.",
+    "retry": "Tekrar dene",
+    "reload": "Yeniden yukle",
+    "home": "Ana sayfa",
+    "details": "Ayrintilar"
+  },
   "home": {
     "yourWave": "Dalganiz",
     "freshReleases": "Yeni Yayinlar",

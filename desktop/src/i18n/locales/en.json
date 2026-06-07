@@ -352,6 +352,14 @@
     "notFollowing": "You are not following anyone",
     "noPlaylists": "No playlists found"
   },
+  "errors": {
+    "title": "Something went wrong",
+    "subtitle": "The interface hit a snag. Try again or reload the app.",
+    "retry": "Try again",
+    "reload": "Reload",
+    "home": "Home",
+    "details": "Details"
+  },
   "home": {
     "yourWave": "Your wave",
     "freshReleases": "Fresh Releases",

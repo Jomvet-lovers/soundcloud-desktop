@@ -97,11 +97,14 @@ export async function fetchSmartWave(opts: {
     () => ({ tracks: [], cursor: '' }) as SmartWavePayload,
   );
 
-  if (!payload.tracks.length) {
-    return { tracks: [], cursor: payload.cursor };
+    // Don't trust the API shape: a resolved-but-null/garbage body must not crash.
+    const ids = Array.isArray(payload?.tracks) ? payload.tracks : [];
+    const cursor = payload?.cursor ?? '';
+    if (ids.length === 0) {
+        return {tracks: [], cursor};
   }
-  const tracks = await hydrateByIds(payload.tracks);
-  return { tracks, cursor: payload.cursor };
+    const tracks = await hydrateByIds(ids);
+    return {tracks, cursor};
 }
 
 /**
