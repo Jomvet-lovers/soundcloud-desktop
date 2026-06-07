@@ -3,6 +3,7 @@ use std::sync::Arc;
 use sqlx::PgPool;
 
 use crate::cache::{CacheService, ListCacheService};
+use crate::common::http_metrics::HttpMetrics;
 use crate::config::AppConfig;
 use crate::modules::auras::AurasService;
 use crate::modules::auth::{AuthService, LinkService};
@@ -31,6 +32,7 @@ use crate::modules::users::UsersService;
 pub struct AppState {
     pub config: Arc<AppConfig>,
     pub pg: PgPool,
+    pub http_metrics: Arc<HttpMetrics>,
     pub cache: Arc<CacheService>,
     pub list_cache: Arc<ListCacheService>,
     pub auth: Arc<AuthService>,

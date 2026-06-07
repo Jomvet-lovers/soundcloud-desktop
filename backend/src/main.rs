@@ -435,6 +435,7 @@ async fn main() {
     let state = AppState {
         config: config.clone(),
         pg,
+        http_metrics: std::sync::Arc::new(crate::common::http_metrics::HttpMetrics::new()),
         cache,
         list_cache,
         auth,

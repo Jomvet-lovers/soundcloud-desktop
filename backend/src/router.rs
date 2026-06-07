@@ -1,6 +1,9 @@
 use std::time::Duration;
 
+use axum::extract::{Request, State};
 use axum::http::{HeaderName, Method, StatusCode};
+use axum::middleware::{from_fn_with_state, Next};
+use axum::response::Response;
 use axum::Router;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -26,6 +29,8 @@ pub fn build(state: AppState) -> Router {
         .expose_headers([HeaderName::from_static("x-session-id")])
         .allow_credentials(false)
         .max_age(Duration::from_secs(3600));
+
+    let http_layer = from_fn_with_state(state.clone(), track_http);
 
     Router::new()
         .merge(modules::health::router())
@@ -60,5 +65,20 @@ pub fn build(state: AppState) -> Router {
             Duration::from_secs(60),
         ))
         .layer(TraceLayer::new_for_http())
+        .layer(http_layer)
         .layer(cors)
+}
+
+/// Records per-route request count + latency into AppState.http_metrics, powering
+/// the admin Observability "HTTP RPS / latency" panel.
+async fn track_http(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let method = req.method().as_str().to_owned();
+    let path = crate::common::http_metrics::normalize_path(req.uri().path());
+    let key = format!("{method} {path}");
+    let start = std::time::Instant::now();
+    let resp = next.run(req).await;
+    state
+        .http_metrics
+        .record(&key, start.elapsed().as_millis() as u64, resp.status().as_u16());
+    resp
 }

@@ -36,6 +36,17 @@ impl CacheService {
         Arc::new(Self { redis })
     }
 
+    /// Lightweight Redis liveness: a GET that confirms the pool can round-trip.
+    pub async fn ping(&self) -> bool {
+        self.get_raw("__healthcheck__").await.is_ok()
+    }
+
+    /// deadpool counters: (size = in-use + idle, available, max_size).
+    pub fn pool_status(&self) -> (usize, usize, usize) {
+        let s = self.redis.status();
+        (s.size, s.available, s.max_size)
+    }
+
     pub fn build_key(
         &self,
         method: &str,

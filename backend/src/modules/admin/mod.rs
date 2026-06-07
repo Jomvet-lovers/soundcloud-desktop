@@ -1,5 +1,6 @@
 pub mod auth_overview;
 pub mod catalog;
+pub mod infra;
 pub mod stats;
 pub mod sync_queue;
 pub mod wanted;
@@ -17,6 +18,9 @@ pub fn router() -> Router<AppState> {
         .route("/admin/sync-queue/purge", post(sync_queue::purge))
         .route("/admin/auth/overview", get(auth_overview::overview))
         .route("/admin/oauth-apps/health", get(auth_overview::oauth_health))
+        .route("/admin/infra", get(infra::get_infra))
+        .route("/admin/http-stats", get(infra::http_stats))
+        .route("/admin/slow-queries", get(infra::slow_queries))
         .route("/admin/wanted-tracks", get(wanted::list))
         .route("/admin/wanted-tracks/{id}/link", post(wanted::link))
         .route("/admin/wanted-tracks/{id}/status", patch(wanted::set_status))

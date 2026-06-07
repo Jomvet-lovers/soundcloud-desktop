@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod cache_helper;
 pub mod external_fetch;
+pub mod http_metrics;
 pub mod pagination;
 pub mod query;
 pub mod release_date;
