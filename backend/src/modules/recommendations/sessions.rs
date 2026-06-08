@@ -69,7 +69,7 @@ impl RecommendationsService {
         let dow = now.weekday().num_days_from_monday() as i32;
         let ids: Vec<String> = sqlx::query_scalar(
             "SELECT sc_track_id FROM user_events
-             WHERE sc_user_id = $1
+             WHERE sc_user_id = ANY($1)
                AND event_type IN ('full_play', 'like', 'playlist_add')
                AND created_at > NOW() - make_interval(weeks => $2::int)
                AND ABS(EXTRACT(HOUR FROM created_at)::int - $3) <= $4
@@ -77,7 +77,7 @@ impl RecommendationsService {
              ORDER BY created_at DESC
              LIMIT 60",
         )
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .bind(HOUR_LOOKBACK_WEEKS)
         .bind(hour as i32)
         .bind(HOUR_WINDOW as i32)
@@ -135,13 +135,13 @@ async fn recent_played_ids(
 ) -> AppResult<Vec<String>> {
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT sc_track_id FROM user_events
-         WHERE sc_user_id = $1
+         WHERE sc_user_id = ANY($1)
            AND event_type IN ('full_play', 'like', 'playlist_add')
            AND created_at > NOW() - make_interval(hours => $2::int)
          ORDER BY created_at DESC
          LIMIT $3",
     )
-    .bind(sc_user_id)
+        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
     .bind(hours)
     .bind(limit)
     .fetch_all(pg)

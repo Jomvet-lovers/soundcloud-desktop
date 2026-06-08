@@ -1,5 +1,6 @@
 import { useAuthStore } from '../stores/auth';
 import { useAuthRecoveryStore } from '../stores/auth-recovery';
+import {ApiError} from './api';
 import { queryClient } from './query-client';
 
 /**
@@ -43,12 +44,22 @@ async function runRenew(manual: boolean): Promise<void> {
       await useAuthStore.getState().renewSession();
       useAuthRecoveryStore.getState().markRecovered();
       queryClient.invalidateQueries();
-    } catch {
+    } catch (e) {
       // Само-восстановилось параллельным успешным запросом — модалку не лепим.
       if (cancelledGen === myGen) return;
       const s = useAuthRecoveryStore.getState();
-      s.setPhase('modal');
       s.setBusy(false);
+        // Модалку поднимаем ТОЛЬКО на подлинный re-auth (бэк: 401 = SC отверг
+        // refresh_token). Транзиент (502 «renewing») и rate-limit (429) — тихо:
+        // сессию не трогаем, ретраит следующий /me. Иначе сбой роута = ложный
+        // «перелогинься».
+        const needsReauth = e instanceof ApiError && e.status === 401;
+        if (needsReauth) {
+            s.setPhase('modal');
+        } else if (!manual) {
+            s.setPhase('idle');
+        }
+        // manual + транзиент: модалка остаётся открытой (busy уже сброшен).
     } finally {
       inFlight = null;
     }
@@ -100,9 +111,12 @@ export function retryRenew(): Promise<void> {
 
 /** Успешный полный re-login (OAuth). */
 export function completeReauth(sessionId: string): void {
-  const auth = useAuthStore.getState();
-  auth.setSession(sessionId);
-  auth.fetchUser().catch(() => {});
-  useAuthRecoveryStore.getState().markRecovered();
-  queryClient.invalidateQueries();
+    void (async () => {
+        const auth = useAuthStore.getState();
+        await auth.setSession(sessionId);
+        await auth.fetchUser().catch(() => {
+        });
+        useAuthRecoveryStore.getState().markRecovered();
+        queryClient.invalidateQueries();
+    })();
 }

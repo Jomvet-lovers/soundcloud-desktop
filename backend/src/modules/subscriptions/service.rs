@@ -42,9 +42,11 @@ impl SubscriptionsService {
             return Ok(true);
         }
         let now = chrono::Utc::now().timestamp();
+        // user_urn на проде хранится URN; ctx.sc_user_id теперь bare → матчим оба
+        // варианта, иначе премиум «пропадёт» у платящих. Write канонизируем в bare.
         let row: Option<(i64,)> =
-            sqlx::query_as("SELECT exp_date FROM subscriptions WHERE user_urn = $1")
-                .bind(user_urn)
+            sqlx::query_as("SELECT exp_date FROM subscriptions WHERE user_urn = ANY($1)")
+                .bind(crate::common::sc_ids::user_id_variants(user_urn))
                 .fetch_optional(&self.pg)
                 .await?;
         Ok(row.map(|(exp,)| exp > now).unwrap_or(false))
@@ -63,7 +65,7 @@ impl SubscriptionsService {
             "INSERT INTO subscriptions (user_urn, exp_date) VALUES ($1, $2) \
              ON CONFLICT (user_urn) DO UPDATE SET exp_date = EXCLUDED.exp_date",
         )
-        .bind(user_urn)
+            .bind(crate::common::sc_ids::extract_sc_id(user_urn))
         .bind(exp_date)
         .execute(&self.pg)
         .await?;
@@ -77,8 +79,8 @@ impl SubscriptionsService {
     }
 
     pub async fn remove(self: &Arc<Self>, user_urn: &str) -> AppResult<u64> {
-        let result = sqlx::query("DELETE FROM subscriptions WHERE user_urn = $1")
-            .bind(user_urn)
+        let result = sqlx::query("DELETE FROM subscriptions WHERE user_urn = ANY($1)")
+            .bind(crate::common::sc_ids::user_id_variants(user_urn))
             .execute(&self.pg)
             .await?;
         let n = result.rows_affected();

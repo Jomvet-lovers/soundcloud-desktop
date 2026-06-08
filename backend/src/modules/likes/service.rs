@@ -95,9 +95,9 @@ impl LikesService {
     ) -> AppResult<Value> {
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM user_likes_playlists \
-             WHERE user_id = $1 AND playlist_urn = $2 AND wanted_state = true)",
+             WHERE user_id = ANY($1) AND playlist_urn = $2 AND wanted_state = true)",
         )
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .bind(playlist_urn)
         .fetch_one(&self.pg)
         .await?;

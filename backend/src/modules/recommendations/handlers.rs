@@ -9,7 +9,6 @@ use uuid::Uuid;
 use crate::common::query::parse_languages;
 use crate::common::session::SessionCtx;
 use crate::error::AppResult;
-use crate::modules::recommendations::clusters::ClusterResponse;
 use crate::modules::recommendations::home_wave::HomeRequest;
 use crate::modules::recommendations::service::RecommendResult;
 use crate::modules::recommendations::smart_wave::{
@@ -86,19 +85,14 @@ async fn similar(
     ctx: SessionCtx,
     Path(track_id): Path<String>,
     Query(q): Query<SimilarQuery>,
-) -> AppResult<Json<ClusterResponse>> {
+) -> AppResult<Response> {
     let per_cluster = parse_limit(q.limit.as_deref(), 12);
     let languages = parse_languages(q.languages.as_deref());
-    let out = st
+    let json = st
         .recommendations
-        .similar_wave(
-            &track_id,
-            &ctx.sc_user_id,
-            languages.as_deref(),
-            per_cluster,
-        )
+        .similar_wave_cached(&track_id, &ctx.sc_user_id, languages.as_deref(), per_cluster)
         .await?;
-    Ok(Json(out))
+    Ok(([(header::CONTENT_TYPE, "application/json")], json).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,13 +106,13 @@ async fn artist(
     ctx: SessionCtx,
     Path(artist_id): Path<Uuid>,
     Query(q): Query<ArtistQuery>,
-) -> AppResult<Json<ClusterResponse>> {
+) -> AppResult<Response> {
     let per_cluster = parse_limit(q.limit.as_deref(), 14);
-    let out = st
+    let json = st
         .recommendations
-        .artist_wave(artist_id, &ctx.sc_user_id, per_cluster)
+        .artist_wave_cached(artist_id, &ctx.sc_user_id, per_cluster)
         .await?;
-    Ok(Json(out))
+    Ok(([(header::CONTENT_TYPE, "application/json")], json).into_response())
 }
 
 #[derive(Debug, Deserialize)]

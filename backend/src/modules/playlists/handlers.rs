@@ -7,8 +7,9 @@ use serde_json::Value;
 use crate::cache::ListPageResult;
 use crate::common::pagination::PaginationQuery;
 use crate::common::session::SessionCtx;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::modules::enrich::dto as enrich_dto;
+use crate::modules::playlists::TrackEdit;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -18,7 +19,10 @@ pub fn router() -> Router<AppState> {
             "/playlists/{playlist_urn}",
             get(get_by_id).put(update_playlist).delete(delete_playlist),
         )
-        .route("/playlists/{playlist_urn}/tracks", get(get_tracks))
+        .route(
+            "/playlists/{playlist_urn}/tracks",
+            get(get_tracks).post(edit_tracks),
+        )
         .route(
             "/playlists/{playlist_urn}/sharing",
             put(set_playlist_sharing),
@@ -130,11 +134,13 @@ async fn update_playlist(
     State(st): State<AppState>,
     ctx: SessionCtx,
     Path(playlist_urn): Path<String>,
+    Query(q): Query<ReplaceQuery>,
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
+    let replace = q.replace.as_deref() == Some("true");
     let v = st
         .playlists
-        .update(&ctx.sc_user_id, &playlist_urn, &body)
+        .update(ctx.session_id, &ctx.sc_user_id, &playlist_urn, &body, replace)
         .await?;
     let session_id = ctx.session_id.to_string();
     let tracks_key = format!("playlist-tracks:{playlist_urn}");
@@ -147,6 +153,71 @@ async fn update_playlist(
         .invalidate_by_prefixes(&["me-playlists"], Some(&session_id))
         .await;
     Ok(Json(v))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReplaceQuery {
+    #[serde(default)]
+    replace: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MoveBody {
+    track: String,
+    to: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct EditBody {
+    #[serde(default)]
+    add: Option<String>,
+    #[serde(default)]
+    remove: Option<String>,
+    #[serde(default, rename = "move")]
+    move_op: Option<MoveBody>,
+    #[serde(default)]
+    order: Option<Vec<String>>,
+}
+
+/// POST /playlists/{urn}/tracks — одна дельта membership. Ровно одно из
+/// add|remove|move|order. Возвращает свежий авторитетный список.
+async fn edit_tracks(
+    State(st): State<AppState>,
+    ctx: SessionCtx,
+    Path(playlist_urn): Path<String>,
+    Query(p): Query<PaginationQuery>,
+    Json(body): Json<EditBody>,
+) -> AppResult<Json<ListPageResult<Value>>> {
+    let edit = match (body.add, body.remove, body.move_op, body.order) {
+        (Some(track_urn), None, None, None) => TrackEdit::Add { track_urn },
+        (None, Some(track_urn), None, None) => TrackEdit::Remove { track_urn },
+        (None, None, Some(m), None) => TrackEdit::Move {
+            track_urn: m.track,
+            to_index: m.to,
+        },
+        (None, None, None, Some(track_urns)) => TrackEdit::SetOrder { track_urns },
+        _ => {
+            return Err(AppError::bad_request(
+                "provide exactly one of add|remove|move|order",
+            ))
+        }
+    };
+    let (page, limit) = p.resolved();
+    let mut result = st
+        .playlists
+        .edit_tracks(ctx.session_id, &ctx.sc_user_id, &playlist_urn, edit, page, limit)
+        .await?;
+    enrich_dto::apply_to_tracks(&st.pg, &mut result.collection).await?;
+    let session_id = ctx.session_id.to_string();
+    let _ = st
+        .list_cache
+        .invalidate_by_cache_keys(&[format!("playlist-tracks:{playlist_urn}")], Some(&session_id))
+        .await;
+    let _ = st
+        .list_cache
+        .invalidate_by_prefixes(&["me-playlists"], Some(&session_id))
+        .await;
+    Ok(Json(result))
 }
 
 async fn set_playlist_sharing(

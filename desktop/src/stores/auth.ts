@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
-import { fetchWithAuthFallback, setSessionId } from '../lib/api';
-import { tauriStorage } from '../lib/tauri-storage';
+import {fetchWithAuthFallback, getSessionId} from '../lib/api';
+import {applyAuthFromServer} from '../lib/auth-session';
+import {API_BASE} from '../lib/constants';
+import {trackedInvoke as invoke} from '../lib/diagnostics';
 
 interface User {
   id: number;
@@ -17,54 +18,45 @@ interface User {
 }
 
 interface AuthState {
-  sessionId: string | null;
-  user: User | null;
+    /** Validated session — `/me` resolved. Gates premium/auth-only UI. */
   isAuthenticated: boolean;
-  setSession: (sessionId: string) => void;
+    /** Token present (Rust-owned). Lets the shell render before `/me` lands. */
+    hasSession: boolean;
+    user: User | null;
+    setSession: (token: string) => Promise<void>;
   fetchUser: () => Promise<void>;
   renewSession: () => Promise<void>;
-  logout: () => void;
+    logout: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      sessionId: null,
-      user: null,
-      isAuthenticated: false,
+export const useAuthStore = create<AuthState>()((set, get) => ({
+    isAuthenticated: false,
+    hasSession: false,
+    user: null,
 
-      setSession: (sessionId: string) => {
-        setSessionId(sessionId);
-        set({ sessionId, isAuthenticated: true });
-      },
-
-      fetchUser: async () => {
-        const { sessionId } = get();
-        if (!sessionId) return;
-        setSessionId(sessionId);
-          const user = await fetchWithAuthFallback<User>('/me/cold');
-        set({ user, isAuthenticated: true });
-      },
-
-      renewSession: async () => {
-        await fetchWithAuthFallback('/auth/refresh', { method: 'POST' });
-        await get().fetchUser();
-      },
-
-      logout: () => {
-        setSessionId(null);
-        set({ sessionId: null, user: null, isAuthenticated: false });
-      },
-    }),
-    {
-      name: 'sc-auth',
-      storage: createJSONStorage(() => tauriStorage),
-      partialize: (state) => ({ sessionId: state.sessionId }),
-      onRehydrateStorage: () => (state) => {
-        if (state?.sessionId) {
-          setSessionId(state.sessionId);
-        }
-      },
+    setSession: async (token: string) => {
+        await invoke('auth_set_session', {token});
+        // Apply synchronously so the mirror is set before any fetchUser() that
+        // follows — the auth:changed broadcast may not have landed yet.
+        applyAuthFromServer(token);
     },
-  ),
-);
+
+    fetchUser: async () => {
+        const token = getSessionId();
+        if (!token) return;
+        const user = await fetchWithAuthFallback<User>('/me/cold');
+        // Session changed (logout / re-login) while we awaited — drop the result.
+        if (getSessionId() !== token) return;
+        set({user, isAuthenticated: true});
+    },
+
+    renewSession: async () => {
+        await fetchWithAuthFallback('/auth/refresh', {method: 'POST'});
+        await get().fetchUser();
+    },
+
+    logout: async () => {
+        await invoke('auth_logout', {apiBase: API_BASE});
+        applyAuthFromServer(null);
+    },
+}));

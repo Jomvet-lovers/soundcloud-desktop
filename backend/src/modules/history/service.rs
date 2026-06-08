@@ -57,10 +57,10 @@ impl HistoryService {
         let cutoff = chrono::Utc::now().naive_utc() - Duration::seconds(60);
         let recent: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM listening_history \
-             WHERE soundcloud_user_id = $1 AND sc_track_id = $2 AND played_at > $3 \
+             WHERE soundcloud_user_id = ANY($1) AND sc_track_id = $2 AND played_at > $3 \
              ORDER BY played_at DESC LIMIT 1",
         )
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .bind(&data.sc_track_id)
         .bind(cutoff)
         .fetch_optional(&self.pg)
@@ -91,20 +91,22 @@ impl HistoryService {
         limit: i64,
         offset: i64,
     ) -> AppResult<HistoryPage> {
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
         let collection: Vec<ListeningHistory> = sqlx::query_as(
-            "SELECT * FROM listening_history WHERE soundcloud_user_id = $1 \
+            "SELECT * FROM listening_history WHERE soundcloud_user_id = ANY($1) \
              ORDER BY played_at DESC LIMIT $2 OFFSET $3",
         )
-        .bind(sc_user_id)
+            .bind(&variants)
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pg)
         .await?;
-        let total: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM listening_history WHERE soundcloud_user_id = $1")
-                .bind(sc_user_id)
-                .fetch_one(&self.pg)
-                .await?;
+        let total: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM listening_history WHERE soundcloud_user_id = ANY($1)",
+        )
+            .bind(&variants)
+            .fetch_one(&self.pg)
+            .await?;
         Ok(HistoryPage {
             collection,
             total: total.0,
@@ -112,8 +114,8 @@ impl HistoryService {
     }
 
     pub async fn clear(&self, sc_user_id: &str) -> AppResult<()> {
-        sqlx::query("DELETE FROM listening_history WHERE soundcloud_user_id = $1")
-            .bind(sc_user_id)
+        sqlx::query("DELETE FROM listening_history WHERE soundcloud_user_id = ANY($1)")
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
             .execute(&self.pg)
             .await?;
         Ok(())

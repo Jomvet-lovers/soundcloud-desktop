@@ -21,13 +21,19 @@ use crate::modules::resolve::anon::AnonResolveClient;
 use crate::sc::{self, OAuthCredentials, ScClient, ScMe};
 use serde_json::Value;
 
-pub const REFRESH_BUFFER: Duration = Duration::from_secs(60);
+/// За сколько до экспайра считаем токен «пора рефрешить». Широкий буфер =
+/// renew-on-open: открывший аппу юзер получает токен на всю сессию, а не
+/// рефреш за 60с до протухания посреди работы. Рефреш всё равно условный.
+pub const REFRESH_BUFFER: Duration = Duration::from_secs(5 * 60);
 
 const LOGIN_REQUEST_TTL_SECS: i64 = 15 * 60;
 const MAX_AUTH_RETRIES: i32 = 3;
 const PROFILE_TIMEOUT_SEC: u64 = 5;
 const REFRESH_LOCK_CAPACITY: u64 = 8192;
 const REFRESH_LOCK_TTL: Duration = Duration::from_secs(10 * 60);
+/// Мягкий потолок выпуска токенов на app за 12ч (SC-лимит 50/12ч/app) — новые
+/// логины предпочитают apps под этим порогом. Рефреши привязаны к issuing-app.
+const PER_APP_ISSUE_SOFT_CAP: i64 = 45;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LoginInitResult {
@@ -137,11 +143,14 @@ impl AuthService {
     /// устройств) и возвращает валидный access_token. Нужен sync-воркеру: action в
     /// очереди привязан к пользователю, а не к конкретной сессии.
     pub async fn get_valid_access_token_for_user(&self, sc_user_id: &str) -> AppResult<String> {
+        // sync_queue.user_id канонизирован в bare, а sessions.soundcloud_user_id —
+        // JWT sub (URN). Матчим по обоим вариантам, иначе воркер не найдёт токен
+        // и все queued-действия отвалятся (обязательно в одном релизе с каноном).
         let row: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM sessions WHERE soundcloud_user_id = $1 \
+            "SELECT id FROM sessions WHERE soundcloud_user_id = ANY($1) \
              ORDER BY updated_at DESC LIMIT 1",
         )
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .fetch_optional(&self.pool)
         .await?;
         let session_id = row
@@ -169,8 +178,8 @@ impl AuthService {
         // снова (защита от retry-storm на стороне фронта/прокси, который дёргает
         // /refresh на каждую 401-ошибку). TTL ключа = REFRESH_FAIL_TTL_SEC.
         let session_key = session.id.to_string();
-        if let Ok(Some(cached)) = self.health.get_cached_refresh_failure(&session_key).await {
-            return Err(AppError::unauthorized(cached));
+        if let Ok(Some((kind, msg))) = self.health.get_cached_refresh_failure(&session_key).await {
+            return Err(refresh_err(kind, msg));
         }
 
         let creds = self
@@ -185,34 +194,41 @@ impl AuthService {
             Ok(t) => {
                 if let Some(app_id) = session.oauth_app_id.as_deref() {
                     let _ = self.health.record_app_success(app_id).await;
+                    let _ = self.health.record_token_issue(app_id).await;
                 }
                 let _ = self.health.clear_refresh_failure(&session_key).await;
                 t
             }
             Err(err) => {
-                let public = public_error_message(&err, "Refresh failed");
-                let kind = if sc::is_rate_limited(&err) {
-                    RefreshFailKind::RateLimit
+                // rate-limit / явный отказ гранта (re-auth) / транзиент (роут
+                // лёг — НЕ перелогинивать, тихо ретраить). Дефолт — транзиент:
+                // неизвестная ошибка НЕ должна выкидывать юзера на ре-логин.
+                let (kind, user_msg) = if sc::is_rate_limited(&err) {
+                    (
+                        RefreshFailKind::RateLimit,
+                        "SoundCloud rate-limited the refresh. Try again in a few minutes."
+                            .to_string(),
+                    )
+                } else if sc::is_invalid_grant(&err) {
+                    (
+                        RefreshFailKind::ReAuth,
+                        "Session expired. Please sign in again.".to_string(),
+                    )
                 } else {
-                    RefreshFailKind::Generic
+                    (
+                        RefreshFailKind::Transient,
+                        "Renewing your session, try again shortly.".to_string(),
+                    )
                 };
                 let _ = self
                     .health
-                    .cache_refresh_failure(&session_key, &public, kind)
+                    .cache_refresh_failure(&session_key, &user_msg, kind)
                     .await;
                 if let Some(app_id) = session.oauth_app_id.as_deref() {
                     let _ = self.health.record_app_failure(app_id).await;
                 }
-                warn!(session = %session.id, error = %err, "Refresh failed");
-                let user_msg = if sc::is_rate_limited(&err) {
-                    "SoundCloud rate-limited the refresh request. Try again in a few minutes."
-                        .to_string()
-                } else if sc::is_ban_error(&err) {
-                    "SoundCloud temporarily blocked this request. Try again later.".to_string()
-                } else {
-                    "Refresh token expired or invalid. Please re-authenticate.".to_string()
-                };
-                return Err(AppError::unauthorized(user_msg));
+                warn!(session = %session.id, error = %err, ?kind, "Refresh failed");
+                return Err(refresh_err(kind, user_msg));
             }
         };
 
@@ -404,6 +420,7 @@ impl AuthService {
             Ok(t) => {
                 if let Some(app_id) = lr.oauth_app_id.as_deref() {
                     let _ = self.health.record_app_success(app_id).await;
+                    let _ = self.health.record_token_issue(app_id).await;
                 }
                 t
             }
@@ -716,6 +733,38 @@ impl AuthService {
         Ok(())
     }
 
+    /// Реапер мёртвых сессий: (1) истёкшие и нетронутые >7д; (2) истёкшие
+    /// дубли (оставляем свежайшую на `soundcloud_user_id`). Живые и недавно-
+    /// активные истёкшие НЕ трогаем — их оживит renew-on-open.
+    pub async fn reap_dead_sessions(&self) -> AppResult<()> {
+        let stale = sqlx::query(
+            "DELETE FROM sessions \
+             WHERE expires_at <= now() AND updated_at < now() - interval '7 days'",
+        )
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+
+        let dupes = sqlx::query(
+            "DELETE FROM sessions WHERE id IN ( \
+                SELECT id FROM ( \
+                    SELECT id, row_number() OVER ( \
+                        PARTITION BY soundcloud_user_id ORDER BY updated_at DESC \
+                    ) AS rn \
+                    FROM sessions WHERE soundcloud_user_id IS NOT NULL \
+                ) t WHERE t.rn > 1 \
+             ) AND expires_at <= now()",
+        )
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+
+        if stale > 0 || dupes > 0 {
+            info!(stale, dupes, "reaped dead sessions");
+        }
+        Ok(())
+    }
+
     async fn pick_healthy_app(&self, exclude: Option<Uuid>) -> AppResult<OAuthApp> {
         let all = self.oauth_apps.find_all().await?;
         let active: Vec<OAuthApp> = all
@@ -729,16 +778,29 @@ impl AuthService {
         let ids: Vec<String> = active.iter().map(|a| a.id.to_string()).collect();
         let healths = self.health.app_healths(&ids).await.unwrap_or_default();
         let penalties = self.health.app_penalties(&ids).await.unwrap_or_default();
+        let issued = self.health.tokens_issued_12h(&ids).await.unwrap_or_default();
 
-        let preferred: Vec<Uuid> = active
-            .iter()
-            .filter(|a| {
-                let key = a.id.to_string();
-                let healthy = healths.get(&key).map(|h| !h.unhealthy()).unwrap_or(true);
-                healthy && !penalties.contains_key(&key)
-            })
-            .map(|a| a.id)
-            .collect();
+        // Предпочитаем чистые apps под per-app 12ч-бюджетом; если таких нет —
+        // деградируем без бюджет-фильтра (он мягкий — рефреши всё равно
+        // привязаны к issuing-app и не редистрибутируются).
+        let pick = |require_budget: bool| -> Vec<Uuid> {
+            active
+                .iter()
+                .filter(|a| {
+                    let key = a.id.to_string();
+                    let healthy = healths.get(&key).map(|h| !h.unhealthy()).unwrap_or(true);
+                    let clean = healthy && !penalties.contains_key(&key);
+                    let budget_ok = !require_budget
+                        || issued.get(&key).copied().unwrap_or(0) < PER_APP_ISSUE_SOFT_CAP;
+                    clean && budget_ok
+                })
+                .map(|a| a.id)
+                .collect()
+        };
+        let mut preferred = pick(true);
+        if preferred.is_empty() {
+            preferred = pick(false);
+        }
         if !preferred.is_empty() {
             return self.oauth_apps.pick_lru_from(&preferred).await;
         }
@@ -906,6 +968,19 @@ fn random_bytes(n: usize) -> Vec<u8> {
 
 fn base64_url(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+/// Вид фейла рефреша → AppError с правильным HTTP-статусом для фронта:
+/// transient→502 (тихий ретрай), rate→429 (без модалки), re-auth→401 (модалка).
+fn refresh_err(kind: RefreshFailKind, msg: String) -> AppError {
+    match kind {
+        RefreshFailKind::ReAuth => AppError::unauthorized(msg),
+        RefreshFailKind::RateLimit => AppError::ScApi {
+            status: 429,
+            body: serde_json::json!({ "message": msg }),
+        },
+        RefreshFailKind::Transient => AppError::ScUnreachable(msg),
+    }
 }
 
 fn public_error_message(err: &AppError, default: &str) -> String {

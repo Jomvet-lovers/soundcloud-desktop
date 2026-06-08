@@ -39,6 +39,8 @@ pub struct SyncQueueRow {
     pub last_error: Option<String>,
     pub next_run_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub dead: bool,
+    pub failed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,11 +87,11 @@ impl SyncQueueService {
 
         let (pending, failed): (i64, i64) = sqlx::query_as(
             "SELECT \
-                 COUNT(*) FILTER (WHERE retry_count = 0)::bigint, \
-                 COUNT(*) FILTER (WHERE retry_count > 0)::bigint \
-             FROM sync_queue WHERE user_id = $1",
+                 COUNT(*) FILTER (WHERE retry_count = 0 AND dead = false)::bigint, \
+                 COUNT(*) FILTER (WHERE retry_count > 0 OR dead = true)::bigint \
+             FROM sync_queue WHERE user_id = ANY($1)",
         )
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .fetch_one(&self.pg)
         .await?;
 
@@ -164,10 +166,17 @@ impl SyncQueueService {
                 let _permit = sem.acquire().await;
                 match self.execute_one(&row).await {
                     Ok(()) => {
-                        if let Err(e) = sqlx::query("DELETE FROM sync_queue WHERE id = $1")
-                            .bind(row.id)
-                            .execute(&self.pg)
-                            .await
+                        // Optimistic delete: только если строку не «тронул» enqueue
+                        // конкурентной правки (locked_at не изменился с момента
+                        // claim). Иначе строка переживает и переотправит свежий
+                        // стейт следующим тиком — фикс lost-write под гонкой
+                        // (в т.ч. playlist_sync при правке во время in-flight PUT).
+                        if let Err(e) =
+                            sqlx::query("DELETE FROM sync_queue WHERE id = $1 AND locked_at = $2")
+                                .bind(row.id)
+                                .bind(row.locked_at)
+                                .execute(&self.pg)
+                                .await
                         {
                             warn!(error = %e, "sync_queue delete failed");
                         }
@@ -188,15 +197,114 @@ impl SyncQueueService {
         Ok(FlushStats { synced, failed })
     }
 
+    /// Heal-свип (отдельный тик, не из flush): делает permanent loss
+    /// невозможным. Реэнкюивает намерение из mirror/desired-state, которое могло
+    /// не доехать (потерянный когда-то action или зависший progress=true), и
+    /// оживляет dead-строки, пока их намерение ещё актуально (ON CONFLICT).
+    /// NOT EXISTS гейтит только по ЖИВЫМ (dead=false) queue-row, поэтому
+    /// конфликт всегда попадает на dead-строку → полное оживление. Каждый
+    /// стейтмент с LIMIT — тик дёшев.
+    pub async fn heal(&self) -> AppResult<()> {
+        let revive = "ON CONFLICT (user_id, action_type, target_urn) DO UPDATE SET \
+                      next_run_at = now(), locked_at = NULL, dead = false, \
+                      retry_count = 0, last_error = NULL";
+
+        // Лайки треков (bare sc_track_id → urn для совпадения с enqueue call-site).
+        sqlx::query(&format!(
+            "INSERT INTO sync_queue (user_id, action_type, target_urn) \
+             SELECT m.user_id, \
+                    CASE WHEN m.wanted_state THEN 'like_track' ELSE 'unlike_track' END, \
+                    'soundcloud:tracks:' || m.sc_track_id \
+             FROM user_likes_tracks m \
+             WHERE m.progress = true \
+               AND COALESCE(m.synced_at, m.created_at) < now() - interval '15 minutes' \
+               AND NOT EXISTS ( SELECT 1 FROM sync_queue q \
+                   WHERE q.user_id = m.user_id AND q.dead = false \
+                     AND q.target_urn = 'soundcloud:tracks:' || m.sc_track_id \
+                     AND q.action_type IN ('like_track','unlike_track') ) \
+             LIMIT 500 {revive}"
+        ))
+            .execute(&self.pg)
+            .await?;
+
+        // Лайки плейлистов (key = playlist_urn).
+        sqlx::query(&format!(
+            "INSERT INTO sync_queue (user_id, action_type, target_urn) \
+             SELECT m.user_id, \
+                    CASE WHEN m.wanted_state THEN 'like_playlist' ELSE 'unlike_playlist' END, \
+                    m.playlist_urn \
+             FROM user_likes_playlists m \
+             WHERE m.progress = true \
+               AND COALESCE(m.synced_at, m.created_at) < now() - interval '15 minutes' \
+               AND NOT EXISTS ( SELECT 1 FROM sync_queue q \
+                   WHERE q.user_id = m.user_id AND q.dead = false \
+                     AND q.target_urn = m.playlist_urn \
+                     AND q.action_type IN ('like_playlist','unlike_playlist') ) \
+             LIMIT 500 {revive}"
+        ))
+            .execute(&self.pg)
+            .await?;
+
+        // Фолловинги (key = target_user_urn).
+        sqlx::query(&format!(
+            "INSERT INTO sync_queue (user_id, action_type, target_urn) \
+             SELECT m.user_id, \
+                    CASE WHEN m.wanted_state THEN 'follow_user' ELSE 'unfollow_user' END, \
+                    m.target_user_urn \
+             FROM user_followings m \
+             WHERE m.progress = true \
+               AND COALESCE(m.synced_at, m.created_at) < now() - interval '15 minutes' \
+               AND NOT EXISTS ( SELECT 1 FROM sync_queue q \
+                   WHERE q.user_id = m.user_id AND q.dead = false \
+                     AND q.target_urn = m.target_user_urn \
+                     AND q.action_type IN ('follow_user','unfollow_user') ) \
+             LIMIT 500 {revive}"
+        ))
+            .execute(&self.pg)
+            .await?;
+
+        // Owned-плейлисты с pending desired_rev > synced_rev без живого sync.
+        sqlx::query(&format!(
+            "INSERT INTO sync_queue (user_id, action_type, target_urn) \
+             SELECT p.owner_sc_user_id, 'playlist_sync', p.urn \
+             FROM playlists p \
+             WHERE p.desired_rev > p.synced_rev AND p.owner_sc_user_id IS NOT NULL \
+               AND NOT EXISTS ( SELECT 1 FROM sync_queue q \
+                   WHERE q.user_id = p.owner_sc_user_id AND q.dead = false \
+                     AND q.target_urn = p.urn AND q.action_type = 'playlist_sync' ) \
+             LIMIT 500 {revive}"
+        ))
+            .execute(&self.pg)
+            .await?;
+
+        // Гигиена: очень старые dead-строки (>30 дней) — аудит-след исчерпан.
+        let _ = sqlx::query(
+            "DELETE FROM sync_queue WHERE dead = true AND failed_at < now() - interval '30 days'",
+        )
+            .execute(&self.pg)
+            .await;
+
+        Ok(())
+    }
+
     async fn claim_batch(&self, limit: i64) -> AppResult<Vec<SyncQueueRow>> {
         let lock_timeout = Utc::now() - chrono::Duration::from_std(LOCK_TIMEOUT).unwrap();
+        // Не берём dead-строки; не берём таргет, у которого уже есть живой lease
+        // другого воркера (per-(user,target) сериализация: like→unlike и
+        // последовательные правки одного таргета не выполняются параллельно).
         let rows: Vec<SyncQueueRow> = sqlx::query_as(
             "UPDATE sync_queue SET locked_at = now() \
              WHERE id IN ( \
-                 SELECT id FROM sync_queue \
-                 WHERE (locked_at IS NULL OR locked_at < $1) \
-                   AND next_run_at <= now() \
-                 ORDER BY next_run_at ASC, created_at ASC \
+                 SELECT q.id FROM sync_queue q \
+                 WHERE q.dead = false \
+                   AND (q.locked_at IS NULL OR q.locked_at < $1) \
+                   AND q.next_run_at <= now() \
+                   AND NOT EXISTS ( \
+                       SELECT 1 FROM sync_queue s \
+                       WHERE s.user_id = q.user_id AND s.target_urn = q.target_urn \
+                         AND s.id <> q.id \
+                         AND s.locked_at IS NOT NULL AND s.locked_at >= $1 ) \
+                 ORDER BY q.next_run_at ASC, q.created_at ASC \
                  FOR UPDATE SKIP LOCKED \
                  LIMIT $2 \
              ) RETURNING *",
@@ -205,7 +313,28 @@ impl SyncQueueService {
         .bind(limit)
         .fetch_all(&self.pg)
         .await?;
-        Ok(rows)
+
+        // В пределах одного батча anti-join не спасает (ни одна строка ещё не
+        // была locked в снапшоте). Оставляем на исполнение только самую раннюю
+        // строку на (user_id, target_urn), остальным сразу снимаем lock —
+        // выполнятся следующим тиком после первой.
+        let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+        let mut keep: Vec<SyncQueueRow> = Vec::with_capacity(rows.len());
+        let mut release: Vec<Uuid> = Vec::new();
+        for row in rows {
+            if seen.insert((row.user_id.clone(), row.target_urn.clone())) {
+                keep.push(row);
+            } else {
+                release.push(row.id);
+            }
+        }
+        if !release.is_empty() {
+            let _ = sqlx::query("UPDATE sync_queue SET locked_at = NULL WHERE id = ANY($1)")
+                .bind(&release)
+                .execute(&self.pg)
+                .await;
+        }
+        Ok(keep)
     }
 
     async fn execute_one(&self, row: &SyncQueueRow) -> AppResult<()> {
@@ -213,11 +342,14 @@ impl SyncQueueService {
             .auth
             .get_valid_access_token_for_user(&row.user_id)
             .await?;
+        // Канон user_id для mirror-апдейтов экшенов — bare (совпадает с тем, что
+        // пишут set_wanted/refresh). Token lookup выше берёт raw (variant-tolerant).
+        let action_user_id = crate::common::sc_ids::extract_sc_id(&row.user_id);
         let ctx = ActionCtx {
             sc: &self.sc,
             pg: &self.pg,
             token: &token,
-            user_id: &row.user_id,
+            user_id: action_user_id,
             target_urn: &row.target_urn,
             payload: row.payload.as_ref(),
         };
@@ -244,7 +376,16 @@ impl SyncQueueService {
             // инкремента, чтобы первая ошибка дала 2 мин, не 1.
             let next = row.retry_count + 1;
             if next >= MAX_RETRIES {
-                sqlx::query("DELETE FROM sync_queue WHERE id = $1")
+                // НЕ удаляем — паркуем (dead). Намерение durable, видно в admin/
+                // badge, heal-свип оживит его пока desired-state его хочет.
+                sqlx::query(
+                    "UPDATE sync_queue SET \
+                        dead = true, failed_at = now(), locked_at = NULL, \
+                        last_error = $1, retry_count = $2, next_run_at = 'infinity' \
+                     WHERE id = $3",
+                )
+                    .bind(&msg)
+                    .bind(next)
                     .bind(row.id)
                     .execute(&self.pg)
                     .await?;
@@ -254,7 +395,7 @@ impl SyncQueueService {
                     user = %row.user_id,
                     retries = next,
                     error = %msg,
-                    "sync_queue action gave up after MAX_RETRIES"
+                    "sync_queue action parked as dead after MAX_RETRIES"
                 );
                 return Ok(());
             }

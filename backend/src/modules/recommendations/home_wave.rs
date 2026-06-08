@@ -31,9 +31,10 @@ const ALL_CLUSTERS: &[&str] = &[
     "deep_cuts",
 ];
 
-/// Короткий TTL кэша ответа главной — снимает повтор тяжёлой ANN-сборки
-/// кластеров при частых заходах, при этом главная не «застывает».
-const HOME_CACHE_TTL: u64 = 30;
+/// TTL кэша ответов кластерных страниц (home/similar/artist). Длинный, т.к.
+/// волна реально меняется редко; инвалидация по «отпечатку вкуса» (лайки/дизы)
+/// делает выдачу свежей мгновенно, TTL лишь бьёт play-stale + брошенные ключи.
+const CLUSTER_CACHE_TTL: u64 = 600;
 const WAVE_LIMIT: usize = 24;
 const POOL_FOR_VIBE_DEEP: usize = 500;
 const NEIGHBORS_TOP_LIMIT: i64 = 16;
@@ -212,35 +213,98 @@ impl RecommendationsService {
         Ok(response)
     }
 
-    /// `home_wave` с коротким Redis-кэшем ответа (per user/lang/limit). На хит
-    /// отдаём готовый JSON, пропуская тяжёлую ANN-сборку (и её side-effects:
+    /// `home_wave` с Redis-кэшем ответа (per user/fingerprint/lang/limit). На
+    /// хит отдаём готовый JSON, пропуская тяжёлую ANN-сборку (и её side-effects:
     /// impression-лог + bandit-show — чтобы не двоить на повторном показе).
-    /// Возвращаем сериализованный JSON (Cluster.id = `&'static str`, поэтому
-    /// десериализовать ответ нельзя — кэшируем именно строку).
+    /// Кэшируем JSON-строку: `Cluster.id = &'static str` не десериализуется.
     pub async fn home_wave_cached(&self, req: HomeRequest) -> AppResult<String> {
+        let fp = self.taste_fingerprint(&req.sc_user_id).await;
         let lang = req
             .languages
             .as_ref()
             .map(|l| l.join(","))
             .unwrap_or_default();
-        let key = format!("rec:home:{}:{}:{}", req.sc_user_id, lang, req.per_cluster);
-
-        if let Ok(mut conn) = self.redis.get().await {
-            if let Ok(Some(cached)) = conn.get::<_, Option<String>>(&key).await {
-                return Ok(cached);
-            }
+        let key = format!("rec:home:{}:{}:{}:{}", req.sc_user_id, fp, lang, req.per_cluster);
+        if let Some(cached) = self.cluster_cache_get(&key).await {
+            return Ok(cached);
         }
-
         let resp = self.home_wave(req).await?;
-        let json = serde_json::to_string(&resp)
-            .unwrap_or_else(|_| String::from("{\"clusters\":[]}"));
-
-        if let Ok(mut conn) = self.redis.get().await {
-            let _: Result<(), _> = conn
-                .set_ex::<_, _, ()>(&key, json.as_str(), HOME_CACHE_TTL)
-                .await;
-        }
+        let json =
+            serde_json::to_string(&resp).unwrap_or_else(|_| String::from("{\"clusters\":[]}"));
+        self.cluster_cache_put(&key, &json, CLUSTER_CACHE_TTL).await;
         Ok(json)
+    }
+
+    /// `similar_wave` (страница трека) с тем же кэшем (per user-fp/track/lang/limit).
+    pub async fn similar_wave_cached(
+        &self,
+        sc_track_id: &str,
+        sc_user_id: &str,
+        languages: Option<&[String]>,
+        per_cluster: usize,
+    ) -> AppResult<String> {
+        let fp = self.taste_fingerprint(sc_user_id).await;
+        let lang = languages.map(|l| l.join(",")).unwrap_or_default();
+        let key = format!("rec:sim:{sc_user_id}:{fp}:{sc_track_id}:{lang}:{per_cluster}");
+        if let Some(cached) = self.cluster_cache_get(&key).await {
+            return Ok(cached);
+        }
+        let resp = self
+            .similar_wave(sc_track_id, sc_user_id, languages, per_cluster)
+            .await?;
+        let json =
+            serde_json::to_string(&resp).unwrap_or_else(|_| String::from("{\"clusters\":[]}"));
+        self.cluster_cache_put(&key, &json, CLUSTER_CACHE_TTL).await;
+        Ok(json)
+    }
+
+    /// `artist_wave` (страница артиста) с тем же кэшем (per user-fp/artist/limit).
+    pub async fn artist_wave_cached(
+        &self,
+        artist_id: Uuid,
+        sc_user_id: &str,
+        per_cluster: usize,
+    ) -> AppResult<String> {
+        let fp = self.taste_fingerprint(sc_user_id).await;
+        let key = format!("rec:art:{sc_user_id}:{fp}:{artist_id}:{per_cluster}");
+        if let Some(cached) = self.cluster_cache_get(&key).await {
+            return Ok(cached);
+        }
+        let resp = self.artist_wave(artist_id, sc_user_id, per_cluster).await?;
+        let json =
+            serde_json::to_string(&resp).unwrap_or_else(|_| String::from("{\"clusters\":[]}"));
+        self.cluster_cache_put(&key, &json, CLUSTER_CACHE_TTL).await;
+        Ok(json)
+    }
+
+    /// «Отпечаток вкуса» — дешёвый индексный запрос. Меняется при лайке/анлайке
+    /// (count+max лайков) и дизлайке (count дизов) → ключ кэша протухает сам,
+    /// без проводки инвалидации в event-сервис. Плеи в отпечаток НЕ входят
+    /// (слишком часто) → сыгранное может повисеть в снапшоте ≤TTL (ок).
+    pub(crate) async fn taste_fingerprint(&self, sc_user_id: &str) -> String {
+        let ids = user_id_variants(sc_user_id);
+        let row: (i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+                (SELECT COUNT(*) FROM user_likes_tracks WHERE user_id = ANY($1) AND wanted_state = true), \
+                (SELECT COALESCE(EXTRACT(EPOCH FROM MAX(created_at))::bigint, 0) FROM user_likes_tracks WHERE user_id = ANY($1) AND wanted_state = true), \
+                (SELECT COUNT(*) FROM disliked_tracks WHERE sc_user_id = ANY($1))",
+        )
+            .bind(&ids)
+            .fetch_one(&self.pg)
+            .await
+            .unwrap_or((0, 0, 0));
+        format!("{}-{}-{}", row.0, row.1, row.2)
+    }
+
+    pub(crate) async fn cluster_cache_get(&self, key: &str) -> Option<String> {
+        let mut conn = self.redis.get().await.ok()?;
+        conn.get::<_, Option<String>>(key).await.ok().flatten()
+    }
+
+    pub(crate) async fn cluster_cache_put(&self, key: &str, json: &str, ttl: u64) {
+        if let Ok(mut conn) = self.redis.get().await {
+            let _: Result<(), _> = conn.set_ex::<_, _, ()>(key, json, ttl).await;
+        }
     }
 
     async fn cold_start_response(
@@ -406,12 +470,12 @@ impl RecommendationsService {
              JOIN tracks it ON it.sc_track_id = ue.sc_track_id \
              JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
              JOIN artists a ON a.id = ta.artist_id \
-             WHERE ue.sc_user_id = $1 \
+             WHERE ue.sc_user_id = ANY($1) \
                AND ue.created_at > NOW() - INTERVAL '14 days' \
              ORDER BY ue.created_at DESC \
              LIMIT $2",
         )
-        .bind(sc_user_id)
+            .bind(user_id_variants(sc_user_id))
         .bind(limit)
         .fetch_all(&self.pg)
         .await?;

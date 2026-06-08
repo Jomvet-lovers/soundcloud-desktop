@@ -23,9 +23,9 @@ pub async fn load_stats(pg: &PgPool, sc_user_id: &str) -> AppResult<HashMap<Stri
     let rows: Vec<ClusterStat> = sqlx::query_as(
         "SELECT cluster_id, shows, clicks, completes
          FROM cluster_bandit_stats
-         WHERE sc_user_id = $1",
+         WHERE sc_user_id = ANY($1)",
     )
-    .bind(sc_user_id)
+        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
     .fetch_all(pg)
     .await?;
     Ok(rows

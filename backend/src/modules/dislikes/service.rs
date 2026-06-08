@@ -68,8 +68,8 @@ impl DislikesService {
                 status: "invalid".into(),
             });
         };
-        sqlx::query("DELETE FROM disliked_tracks WHERE sc_user_id = $1 AND sc_track_id = $2")
-            .bind(sc_user_id)
+        sqlx::query("DELETE FROM disliked_tracks WHERE sc_user_id = ANY($1) AND sc_track_id = $2")
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
             .bind(&id)
             .execute(&self.pg)
             .await?;
@@ -95,9 +95,9 @@ impl DislikesService {
         };
         let row: Option<(uuid::Uuid,)> = sqlx::query_as(
             "SELECT id FROM disliked_tracks \
-             WHERE sc_user_id = $1 AND sc_track_id = $2 LIMIT 1",
+             WHERE sc_user_id = ANY($1) AND sc_track_id = $2 LIMIT 1",
         )
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .bind(&id)
         .fetch_optional(&self.pg)
         .await?;
@@ -111,9 +111,9 @@ impl DislikesService {
     ) -> AppResult<Vec<String>> {
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT sc_track_id FROM disliked_tracks \
-             WHERE sc_user_id = $1 ORDER BY created_at DESC LIMIT $2",
+             WHERE sc_user_id = ANY($1) ORDER BY created_at DESC LIMIT $2",
         )
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .bind(limit)
         .fetch_all(&self.pg)
         .await?;
@@ -131,13 +131,14 @@ impl DislikesService {
             None => None,
         };
 
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
         let rows: Vec<(Option<Value>, NaiveDateTime)> = if let Some(dt) = cursor_dt {
             sqlx::query_as(
                 "SELECT track_data, created_at FROM disliked_tracks \
-                 WHERE sc_user_id = $1 AND created_at < $2 \
+                 WHERE sc_user_id = ANY($1) AND created_at < $2 \
                  ORDER BY created_at DESC LIMIT $3",
             )
-            .bind(sc_user_id)
+                .bind(&variants)
             .bind(dt)
             .bind(limit + 1)
             .fetch_all(&self.pg)
@@ -145,10 +146,10 @@ impl DislikesService {
         } else {
             sqlx::query_as(
                 "SELECT track_data, created_at FROM disliked_tracks \
-                 WHERE sc_user_id = $1 \
+                 WHERE sc_user_id = ANY($1) \
                  ORDER BY created_at DESC LIMIT $2",
             )
-            .bind(sc_user_id)
+                .bind(&variants)
             .bind(limit + 1)
             .fetch_all(&self.pg)
             .await?

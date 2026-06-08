@@ -16,26 +16,35 @@ pub struct ActionCount {
 pub struct SyncQueueStats {
     pub pending: i64,
     pub failed: i64,
+    pub dead: i64,
     pub oldest_pending_at: Option<chrono::DateTime<chrono::Utc>>,
     pub by_action: Vec<ActionCount>,
     pub recent_errors: Vec<String>,
 }
 
-/// GET /admin/sync-queue — outbox health. Every row is pending work (removed on
-/// success); `failed` counts rows that have errored at least once, and
-/// `recent_errors` samples their `last_error` so a stuck queue is diagnosable here.
+/// GET /admin/sync-queue — outbox health. A live row is pending work (removed on
+/// success); after MAX_RETRIES it is parked (`dead=true`) rather than dropped, so
+/// user intent is never lost. `failed` counts errored-or-dead rows; `dead` counts
+/// parked ones; `recent_errors` samples `last_error` so a stuck queue is diagnosable.
 #[tracing::instrument(skip_all)]
 pub async fn get_stats(
     _: AdminAuth,
     State(state): State<AppState>,
 ) -> AppResult<Json<SyncQueueStats>> {
-    let (pending, failed, oldest_pending_at): (i64, i64, Option<chrono::DateTime<chrono::Utc>>) =
-        sqlx::query_as(
-            "SELECT COUNT(*)::int8, COUNT(*) FILTER (WHERE retry_count > 0)::int8, MIN(created_at) \
-             FROM sync_queue",
-        )
-            .fetch_one(&state.pg)
-            .await?;
+    let (pending, failed, dead, oldest_pending_at): (
+        i64,
+        i64,
+        i64,
+        Option<chrono::DateTime<chrono::Utc>>,
+    ) = sqlx::query_as(
+        "SELECT COUNT(*) FILTER (WHERE dead = false)::int8, \
+                COUNT(*) FILTER (WHERE retry_count > 0 OR dead = true)::int8, \
+                COUNT(*) FILTER (WHERE dead = true)::int8, \
+                MIN(created_at) FILTER (WHERE dead = false) \
+         FROM sync_queue",
+    )
+        .fetch_one(&state.pg)
+        .await?;
     let rows: Vec<(String, i64)> = sqlx::query_as(
         "SELECT action_type, COUNT(*)::int8 FROM sync_queue GROUP BY action_type ORDER BY COUNT(*) DESC",
     )
@@ -55,6 +64,7 @@ pub async fn get_stats(
     Ok(Json(SyncQueueStats {
         pending,
         failed,
+        dead,
         oldest_pending_at,
         by_action,
         recent_errors,
@@ -90,8 +100,9 @@ pub struct PurgeQuery {
 }
 
 fn default_min_retries() -> i32 {
-    // A row hitting MAX_RETRIES is deleted on the failure that would set the count,
-    // so the highest observable retry_count is MAX_RETRIES - 1.
+    // A row hitting MAX_RETRIES is parked (dead=true, retry_count=MAX_RETRIES),
+    // not deleted — so min_retries <= MAX_RETRIES catches both about-to-die and
+    // parked rows. Default trims everything from the last retry onward.
     crate::modules::sync_queue::service::MAX_RETRIES - 1
 }
 

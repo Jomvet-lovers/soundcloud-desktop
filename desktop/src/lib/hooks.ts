@@ -627,13 +627,15 @@ export function useMyPlaylists(limit = 30) {
 
 /* ── Playlist Mutations ────────────────────────────────────────── */
 
+// Полная перестановка/удаление из свежей загруженной вью — шлём `{order}`-дельту
+// (а не PUT всего списка): backend применяет к desired-state и пушит в SC фоном.
 export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (trackUrns: string[]) =>
-      api(`/playlists/${encodeURIComponent(playlistUrn!)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ playlist: { tracks: trackUrns.map((urn) => ({ urn })) } }),
+        api(`/playlists/${encodeURIComponent(playlistUrn!)}/tracks`, {
+            method: 'POST',
+            body: JSON.stringify({order: trackUrns}),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['playlist', playlistUrn] });
@@ -643,23 +645,27 @@ export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   });
 }
 
+// Добавление — `{add}`-дельты (по одной на трек). Backend дедупит и считает
+// дельту против сохранённого desired-state, поэтому устаревшая клиентская вью
+// НЕ может уронить уже лежащие треки (прежний full-list PUT мог).
 export function useAddToPlaylist() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
       playlistUrn,
-      existingTrackUrns,
-      newTrackUrns,
+                           trackUrns,
     }: {
       playlistUrn: string;
-      existingTrackUrns: string[];
-      newTrackUrns: string[];
+        trackUrns: string[];
     }) => {
-      const allUrns = [...existingTrackUrns, ...newTrackUrns];
-      return api<Playlist>(`/playlists/${encodeURIComponent(playlistUrn)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ playlist: { tracks: allUrns.map((urn) => ({ urn })) } }),
-      });
+        let last: unknown;
+        for (const urn of trackUrns) {
+            last = await api(`/playlists/${encodeURIComponent(playlistUrn)}/tracks`, {
+                method: 'POST',
+                body: JSON.stringify({add: urn}),
+            });
+        }
+        return last;
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['playlist', vars.playlistUrn] });

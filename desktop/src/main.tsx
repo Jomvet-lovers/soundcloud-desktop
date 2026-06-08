@@ -4,9 +4,10 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import {ErrorBoundary} from './components/ErrorBoundary';
 import {changeAppLanguage} from './i18n';
+import {initAuthBridge} from './lib/auth-session';
 import {setupCacheMaintenance} from './lib/cache';
 import {setServerPorts} from './lib/constants';
-import {setupUiWatchdog, trackedInvoke as invoke} from './lib/diagnostics';
+import {trackedInvoke as invoke, setupUiWatchdog} from './lib/diagnostics';
 import {queryClient} from './lib/query-client';
 import './index.css';
 import {useSettingsStore} from './stores/settings';
@@ -70,6 +71,10 @@ async function bootstrap() {
 
   const [staticPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
   setServerPorts(staticPort, proxyPort);
+
+    // Seed the Rust-owned session into the frontend mirror + subscribe to
+    // auth:changed before the first render so the shell/login gate is correct.
+    await initAuthBridge();
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

@@ -7,7 +7,7 @@ use sqlx::PgPool;
 
 use crate::common::release_date;
 use crate::common::sc_payload::{parse_dt, parse_id_or_string, string_field};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::modules::tracks::normalize::normalize_title;
 
 #[derive(Debug, Clone, FromRow)]
@@ -42,6 +42,8 @@ pub struct PlaylistRow {
     pub last_read_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub desired_rev: i64,
+    pub synced_rev: i64,
 }
 
 pub struct PlaylistRepository {
@@ -165,6 +167,18 @@ impl PlaylistRepository {
             .bind(format!("playlist_tracks:{playlist_urn}"))
             .execute(&mut *tx)
             .await?;
+        // Local-first гейт: pending локальная правка (desired_rev > synced_rev) —
+        // SC-pull НЕ перетирает desired-state, наше побеждает. Для non-owned /
+        // в-синке плейлистов (desired_rev == synced_rev) — обычный replace.
+        let pending: Option<bool> =
+            sqlx::query_scalar("SELECT desired_rev > synced_rev FROM playlists WHERE urn = $1")
+                .bind(playlist_urn)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if pending.unwrap_or(false) {
+            tx.rollback().await?;
+            return Ok(());
+        }
         sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
             .bind(playlist_urn)
             .execute(&mut *tx)
@@ -213,6 +227,201 @@ impl PlaylistRepository {
         .await?;
         Ok(rows.into_iter().map(|(t,)| t).collect())
     }
+
+    /// Все sc_track_id плейлиста по порядку (без пагинации) — для sync-экшена.
+    pub async fn all_track_ids(&self, playlist_urn: &str) -> AppResult<Vec<String>> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT sc_track_id FROM playlist_tracks WHERE playlist_urn = $1 ORDER BY position",
+        )
+            .bind(playlist_urn)
+            .fetch_all(&self.pg)
+            .await?;
+        Ok(ids)
+    }
+
+    /// Owner-guard для write-операций. `me_bare` = extract_sc_id(session urn).
+    /// Истина владения: user_owned_playlists (сидится /me/playlists reconcile)
+    /// ИЛИ playlists.owner_sc_user_id (bare). Любой источник подтверждает.
+    pub async fn assert_owner(&self, me_bare: &str, urn: &str) -> AppResult<()> {
+        // user_owned_playlists.user_id на проде расщеплён URN/bare → матчим оба
+        // ($3). owner_sc_user_id — bare entity-колонка, остаётся $1.
+        let owns: bool = sqlx::query_scalar(
+            "SELECT EXISTS ( \
+                 SELECT 1 FROM user_owned_playlists WHERE user_id = ANY($3) AND playlist_urn = $2 \
+                 UNION ALL \
+                 SELECT 1 FROM playlists WHERE urn = $2 AND owner_sc_user_id = $1 \
+             )",
+        )
+            .bind(me_bare)
+            .bind(urn)
+            .bind(crate::common::sc_ids::user_id_variants(me_bare))
+            .fetch_one(&self.pg)
+            .await?;
+        if !owns {
+            return Err(AppError::not_found("Playlist not found"));
+        }
+        Ok(())
+    }
+
+    /// Применяет мутацию membership к DESIRED-состоянию в одной транзакции:
+    /// advisory-lock (сериализует против SC-refresh) → читает текущий порядок →
+    /// `transform` (server-computed delta) → DELETE+bulk INSERT нового порядка →
+    /// desired_rev++ → `(new_desired_rev, new_ordered_ids)`. SC не трогает.
+    async fn mutate_desired<F>(&self, urn: &str, transform: F) -> AppResult<(i64, Vec<String>)>
+    where
+        F: FnOnce(Vec<String>) -> Vec<String>,
+    {
+        let mut tx = self.pg.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("playlist_tracks:{urn}"))
+            .execute(&mut *tx)
+            .await?;
+        let current: Vec<String> = sqlx::query_scalar(
+            "SELECT sc_track_id FROM playlist_tracks WHERE playlist_urn = $1 ORDER BY position",
+        )
+            .bind(urn)
+            .fetch_all(&mut *tx)
+            .await?;
+        let next = transform(current);
+        sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
+            .bind(urn)
+            .execute(&mut *tx)
+            .await?;
+        if !next.is_empty() {
+            let positions: Vec<i32> = (0..next.len() as i32).collect();
+            let urns: Vec<&str> = std::iter::repeat(urn).take(next.len()).collect();
+            sqlx::query(
+                "INSERT INTO playlist_tracks (playlist_urn, position, sc_track_id) \
+                 SELECT p, pos, t FROM UNNEST($1::text[], $2::int[], $3::text[]) AS u(p, pos, t)",
+            )
+                .bind(&urns as &[&str])
+                .bind(&positions)
+                .bind(&next)
+                .execute(&mut *tx)
+                .await?;
+        }
+        let new_rev: i64 = sqlx::query_scalar(
+            "UPDATE playlists \
+                SET track_count = $2, tracks_synced_at = now(), \
+                    desired_rev = desired_rev + 1, updated_at = now() \
+              WHERE urn = $1 RETURNING desired_rev",
+        )
+            .bind(urn)
+            .bind(next.len() as i32)
+            .fetch_one(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok((new_rev, next))
+    }
+
+    /// Добавить трек в конец (dedup — у SC нет дублей membership).
+    pub async fn add_track(&self, urn: &str, sc_id: String) -> AppResult<(i64, Vec<String>)> {
+        self.mutate_desired(urn, move |mut ids| {
+            if !ids.iter().any(|t| t == &sc_id) {
+                ids.push(sc_id);
+            }
+            ids
+        })
+            .await
+    }
+
+    pub async fn remove_track(&self, urn: &str, sc_id: String) -> AppResult<(i64, Vec<String>)> {
+        self.mutate_desired(urn, move |ids| {
+            ids.into_iter().filter(|t| t != &sc_id).collect()
+        })
+            .await
+    }
+
+    /// Переместить существующий трек на индекс `to` (clamp). No-op если отсутствует.
+    pub async fn move_track(
+        &self,
+        urn: &str,
+        sc_id: String,
+        to: usize,
+    ) -> AppResult<(i64, Vec<String>)> {
+        self.mutate_desired(urn, move |mut ids| {
+            if let Some(from) = ids.iter().position(|t| t == &sc_id) {
+                let v = ids.remove(from);
+                let to = to.min(ids.len());
+                ids.insert(to, v);
+            }
+            ids
+        })
+            .await
+    }
+
+    /// Полная перестановка из свежей вью (dedup, сохраняя первое вхождение).
+    pub async fn set_order(&self, urn: &str, ordered: Vec<String>) -> AppResult<(i64, Vec<String>)> {
+        self.mutate_desired(urn, move |_old| dedup_keep_first(ordered))
+            .await
+    }
+
+    /// merge: submitted-порядок (дедуп) вперёд, затем current-only id, которых
+    /// клиент не знал — устаревшая клиентская вью не дропает треки.
+    pub async fn merge_order(
+        &self,
+        urn: &str,
+        submitted: Vec<String>,
+    ) -> AppResult<(i64, Vec<String>)> {
+        self.mutate_desired(urn, move |current| {
+            // submitted вперёд, затем current — dedup сохраняет первое вхождение.
+            dedup_keep_first(submitted.into_iter().chain(current).collect())
+        })
+            .await
+    }
+
+    /// Снапшот для sync-экшена: (desired_rev, ordered ids). None если строки нет.
+    pub async fn desired_snapshot(&self, urn: &str) -> AppResult<Option<(i64, Vec<String>)>> {
+        let rev: Option<i64> =
+            sqlx::query_scalar("SELECT desired_rev FROM playlists WHERE urn = $1")
+                .bind(urn)
+                .fetch_optional(&self.pg)
+                .await?;
+        let Some(rev) = rev else {
+            return Ok(None);
+        };
+        let ids = self.all_track_ids(urn).await?;
+        Ok(Some((rev, ids)))
+    }
+
+    /// На SC-ack: synced_rev = pushed_rev ТОЛЬКО если desired_rev не ушёл вперёд
+    /// под нами. `true` = зафиксировали (конкурентной правки не было).
+    pub async fn mark_synced_if_unchanged(&self, urn: &str, pushed_rev: i64) -> AppResult<bool> {
+        let r =
+            sqlx::query("UPDATE playlists SET synced_rev = $2 WHERE urn = $1 AND desired_rev = $2")
+                .bind(urn)
+                .bind(pushed_rev)
+                .execute(&self.pg)
+                .await?;
+        Ok(r.rows_affected() > 0)
+    }
+
+    /// Есть ли pending локальная правка (desired_rev > synced_rev)?
+    pub async fn has_pending_intent(&self, urn: &str) -> AppResult<bool> {
+        let pending: Option<bool> =
+            sqlx::query_scalar("SELECT desired_rev > synced_rev FROM playlists WHERE urn = $1")
+                .bind(urn)
+                .fetch_optional(&self.pg)
+                .await?;
+        Ok(pending.unwrap_or(false))
+    }
+
+    /// URN-ы плейлистов юзера с pending-intent — reconcile их пропускает.
+    pub async fn pending_owned_urns(&self, owner_bare: &str) -> AppResult<Vec<String>> {
+        let urns: Vec<String> = sqlx::query_scalar(
+            "SELECT urn FROM playlists \
+             WHERE owner_sc_user_id = $1 AND desired_rev > synced_rev",
+        )
+            .bind(owner_bare)
+            .fetch_all(&self.pg)
+            .await?;
+        Ok(urns)
+    }
+}
+
+fn dedup_keep_first(items: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    items.into_iter().filter(|t| seen.insert(t.clone())).collect()
 }
 
 struct ScPlaylistFields {

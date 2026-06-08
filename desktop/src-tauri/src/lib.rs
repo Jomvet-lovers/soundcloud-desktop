@@ -1,5 +1,6 @@
 mod app;
 mod audio;
+mod auth;
 mod discord;
 mod import;
 mod network;
@@ -73,6 +74,7 @@ pub fn run() {
             std::fs::create_dir_all(&images_dir).ok();
 
             let http_client = reqwest::Client::new();
+            let auth_http_client = http_client.clone();
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
             network::proxy::STATE
@@ -138,6 +140,10 @@ pub fn run() {
 
             app.manage(app::popover::TrayState::default());
             app::tray::setup_tray(app).expect("failed to setup tray");
+
+            let auth_state =
+                auth::SessionStore::init(data_dir.clone(), auth_http_client, rt_handle.clone());
+            app.manage(auth_state);
 
             let call_state = network::call::CallState::init(data_dir.clone(), rt_handle);
             network::call::manage_state(app.handle(), call_state.clone());
@@ -220,6 +226,9 @@ pub fn run() {
             network::call::call_set_enabled,
             network::call::call_is_enabled,
             network::call::call_status,
+            auth::auth_status,
+            auth::auth_set_session,
+            auth::auth_logout,
             network::dpi::dpi_set_enabled,
             network::dpi::dpi_is_enabled,
             network::dpi::dpi_strategy,

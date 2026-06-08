@@ -28,9 +28,16 @@ impl FromRequestParts<AppState> for SessionCtx {
 
         let session = state.auth.get_valid_session(session_id).await?;
 
-        let sc_user_id = session.soundcloud_user_id.ok_or_else(|| {
+        let raw = session.soundcloud_user_id.ok_or_else(|| {
             AppError::unauthorized("Session missing SoundCloud user info, please re-authenticate")
         })?;
+        // Канон идентичности — bare numeric ВЕЗДЕ. На проде per-user таблицы были
+        // расщеплены URN/bare (likes/followings/owned — оба варианта). Канонизируем
+        // на входе → все write'ы bare; per-user РИДЫ — variant-tolerant (ANY) на
+        // переходный период; бэкфилл собирает существующее. sessions.soundcloud_user_id
+        // (JWT sub) и user_profiles остаются URN (write на login не трогаем) —
+        // их читаем через ANY / token lookup ANY.
+        let sc_user_id = crate::common::sc_ids::extract_sc_id(&raw).to_string();
 
         Ok(SessionCtx {
             session_id,
@@ -59,9 +66,10 @@ impl FromRequestParts<AppState> for OptionalSession {
         let Ok(session) = state.auth.get_valid_session(session_id).await else {
             return Ok(OptionalSession(None));
         };
-        let Some(sc_user_id) = session.soundcloud_user_id else {
+        let Some(raw) = session.soundcloud_user_id else {
             return Ok(OptionalSession(None));
         };
+        let sc_user_id = crate::common::sc_ids::extract_sc_id(&raw).to_string();
         Ok(OptionalSession(Some(SessionCtx {
             session_id,
             access_token: session.access_token,

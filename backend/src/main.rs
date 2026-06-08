@@ -58,6 +58,7 @@ use crate::sc::ScClient;
 use crate::state::AppState;
 
 const BG_TICK: Duration = Duration::from_secs(60);
+const HEAL_TICK: Duration = Duration::from_secs(300);
 const BG_WORK_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[tokio::main(flavor = "multi_thread")]
@@ -426,6 +427,24 @@ async fn main() {
 
     if !reserve {
         let token = shutdown.clone();
+        let sq = sync_queue.clone();
+        tasks.spawn(async move {
+            run_periodic(
+                "sync_queue.heal",
+                token,
+                HEAL_TICK,
+                BG_WORK_TIMEOUT,
+                move || {
+                    let sq = sq.clone();
+                    async move { sq.heal().await }
+                },
+            )
+                .await;
+        });
+    }
+
+    if !reserve {
+        let token = shutdown.clone();
         let auth = auth.clone();
         tasks.spawn(async move {
             run_periodic(
@@ -457,6 +476,24 @@ async fn main() {
                 },
             )
             .await;
+        });
+    }
+
+    if !reserve {
+        let token = shutdown.clone();
+        let auth = auth.clone();
+        tasks.spawn(async move {
+            run_periodic(
+                "auth.reap_sessions",
+                token,
+                BG_TICK,
+                BG_WORK_TIMEOUT,
+                move || {
+                    let auth = auth.clone();
+                    async move { auth.reap_dead_sessions().await }
+                },
+            )
+                .await;
         });
     }
 

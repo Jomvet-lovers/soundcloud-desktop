@@ -70,10 +70,10 @@ function StartPageRedirect() {
 }
 
 export default function App() {
-  const { isAuthenticated, sessionId, fetchUser } = useAuthStore(
+    const {isAuthenticated, hasSession, fetchUser} = useAuthStore(
     useShallow((s) => ({
       isAuthenticated: s.isAuthenticated,
-      sessionId: s.sessionId,
+        hasSession: s.hasSession,
       fetchUser: s.fetchUser,
     })),
   );
@@ -88,9 +88,11 @@ export default function App() {
   const appMode = useAppStatusStore((s) =>
     s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
   );
-  const hasLocalSession = Boolean(sessionId);
-  const canUseMainShell = isAuthenticated || hasLocalSession;
-  const showOfflineOnlyShell = !canUseMainShell && appMode !== 'online';
+    const offlineBypass = useAppStatusStore((s) => s.offlineBypass);
+    const canUseMainShell = isAuthenticated || hasSession;
+    // Offline-only shell is the explicit "browse offline" choice from Login — NOT
+    // a fallback for being logged out. An explicit logout always lands on <Login/>.
+    const showOfflineOnlyShell = !canUseMainShell && offlineBypass;
 
   useEffect(() => {
     useYmImportStore.getState().initBridge();
@@ -117,7 +119,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId || appMode !== 'online') {
+      if (!hasSession || appMode !== 'online') {
       return;
     }
 
@@ -134,6 +136,9 @@ export default function App() {
         return;
       }
 
+        // Logged out while /me was in flight — don't resurrect the session.
+        if (!useAuthStore.getState().hasSession) return;
+
       console.warn('[Auth] Keeping local session after /me bootstrap failure:', error);
       useAuthStore.setState({ isAuthenticated: true });
     });
@@ -145,7 +150,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [appMode, fetchUser, sessionId]);
+  }, [appMode, fetchUser, hasSession]);
 
   useEffect(() => {
     if (!CHECK_UPDATES || !isAuthenticated || appMode !== 'online') {

@@ -8,14 +8,26 @@ use crate::cache::cache_service::CacheScope;
 use crate::cache::{
     build_list_cache_key, sc_list_page, ListCacheService, ListPageResult, ScListPageArgs,
 };
+use crate::common::sc_ids::extract_sc_id;
 use crate::error::{AppError, AppResult};
 use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::cold_refresh::ColdRefreshService;
+use crate::modules::playlists::PlaylistRepository;
 use crate::modules::sync_queue::SyncQueueService;
 use crate::sc::{self, ScClient};
 
 const TTL_SEARCH: u64 = 300;
 const TTL_REPOSTERS: u64 = 600;
+
+/// Одна правка membership плейлиста. Дельты считаются на сервере против
+/// сохранённого desired-state, поэтому устаревшая клиентская вью не может
+/// уронить треки (в отличие от слепого full-list replace).
+pub enum TrackEdit {
+    Add { track_urn: String },
+    Remove { track_urn: String },
+    Move { track_urn: String, to_index: i64 },
+    SetOrder { track_urns: Vec<String> },
+}
 
 pub struct PlaylistsService {
     sc: ScClient,
@@ -89,7 +101,36 @@ impl PlaylistsService {
         .await;
 
         match res {
-            Ok(v) => Ok(v),
+            Ok(v) => {
+                // Сразу сидим локально, чтобы /me/playlists, assert_owner и
+                // немедленный последующий add видели плейлист до /me/playlists
+                // reconcile. owner_sc_user_id (bare из upsert) — основа assert_owner.
+                if let Some(urn) = v.get("urn").and_then(|u| u.as_str()) {
+                    let repo = PlaylistRepository::new(self.pg.clone());
+                    let _ = repo.upsert_from_sc(&v).await;
+                    let _ = sqlx::query(
+                        "INSERT INTO user_owned_playlists (user_id, playlist_urn, progress, synced_at) \
+                         VALUES ($1, $2, false, now()) \
+                         ON CONFLICT (user_id, playlist_urn) DO UPDATE SET synced_at = now()",
+                    )
+                        .bind(extract_sc_id(sc_user_id))
+                        .bind(urn)
+                        .execute(&self.pg)
+                        .await;
+                    // Сидим playlist_tracks только если SC вернул tracks (даже
+                    // пустой массив — валидный seed). Если поля нет — оставляем
+                    // tracks_synced_at NULL, чтобы get_tracks дотянул из SC.
+                    if let Some(tracks) = v.get("tracks").and_then(|t| t.as_array()) {
+                        let ids: Vec<String> = tracks
+                            .iter()
+                            .filter_map(|t| t.get("urn").and_then(|u| u.as_str()))
+                            .map(|u| extract_sc_id(u).to_string())
+                            .collect();
+                        let _ = repo.replace_tracks(urn, &ids).await;
+                    }
+                }
+                Ok(v)
+            }
             Err(e) if sc::is_ban_error(&e) => {
                 let nonce = format!("new:{}", Uuid::new_v4());
                 self.sync_queue
@@ -176,22 +217,165 @@ impl PlaylistsService {
         Ok(fetched)
     }
 
-    /// Оптимистичный update: только enqueue. SC-вызов и инвалидация
-    /// нормализованной `playlists`-строки произойдут в action handler'е.
+    /// Legacy `PUT /playlists/{urn}` с `{ playlist: { tracks: [...] } }`.
+    /// Local-first: пишем desired-state в нашу БД, sync в SC — фоном. По
+    /// умолчанию MERGE (submitted ∪ current) — устаревшая клиентская вью не
+    /// дропает треки; `?replace=true` — честная перестановка из свежей вью.
     pub async fn update(
         &self,
+        session_id: Uuid,
         sc_user_id: &str,
         playlist_urn: &str,
         body: &Value,
+        replace: bool,
     ) -> AppResult<Value> {
-        self.sync_queue
-            .enqueue(sc_user_id, "playlist_update", playlist_urn, Some(body))
+        let me = extract_sc_id(sc_user_id);
+        let repo = PlaylistRepository::new(self.pg.clone());
+        repo.assert_owner(me, playlist_urn).await?;
+        self.ensure_desired_seeded(session_id, playlist_urn, &repo)
             .await?;
-        Ok(json!({
-            "status": "queued",
-            "actionType": "playlist_update",
-            "targetUrn": playlist_urn,
-        }))
+
+        let tracks = body
+            .get("playlist")
+            .and_then(|p| p.get("tracks"))
+            .and_then(|t| t.as_array());
+        if let Some(tracks) = tracks {
+            let ids: Vec<String> = tracks
+                .iter()
+                .filter_map(|t| t.get("urn").and_then(|v| v.as_str()))
+                .map(|u| extract_sc_id(u).to_string())
+                .collect();
+            if replace {
+                repo.set_order(playlist_urn, ids).await?;
+            } else {
+                repo.merge_order(playlist_urn, ids).await?;
+            }
+            self.sync_queue
+                .enqueue(sc_user_id, "playlist_sync", playlist_urn, None)
+                .await?;
+        }
+        Ok(json!({ "status": "ok", "targetUrn": playlist_urn }))
+    }
+
+    /// Применяет одну дельту membership к desired-state и возвращает свежий
+    /// авторитетный список. Owner-check по нашей БД; дельта считается на сервере
+    /// против сохранённого desired-state. Sync в SC — фоном через `playlist_sync`.
+    pub async fn edit_tracks(
+        &self,
+        session_id: Uuid,
+        sc_user_id: &str,
+        playlist_urn: &str,
+        edit: TrackEdit,
+        page: i64,
+        limit: i64,
+    ) -> AppResult<ListPageResult<Value>> {
+        let me = extract_sc_id(sc_user_id);
+        let repo = PlaylistRepository::new(self.pg.clone());
+        repo.assert_owner(me, playlist_urn).await?;
+        self.ensure_desired_seeded(session_id, playlist_urn, &repo)
+            .await?;
+
+        match edit {
+            TrackEdit::Add { track_urn } => {
+                repo.add_track(playlist_urn, extract_sc_id(&track_urn).to_string())
+                    .await?;
+            }
+            TrackEdit::Remove { track_urn } => {
+                repo.remove_track(playlist_urn, extract_sc_id(&track_urn).to_string())
+                    .await?;
+            }
+            TrackEdit::Move {
+                track_urn,
+                to_index,
+            } => {
+                repo.move_track(
+                    playlist_urn,
+                    extract_sc_id(&track_urn).to_string(),
+                    to_index.max(0) as usize,
+                )
+                    .await?;
+            }
+            TrackEdit::SetOrder { track_urns } => {
+                let ids = track_urns
+                    .iter()
+                    .map(|u| extract_sc_id(u).to_string())
+                    .collect();
+                repo.set_order(playlist_urn, ids).await?;
+            }
+        }
+
+        self.sync_queue
+            .enqueue(sc_user_id, "playlist_sync", playlist_urn, None)
+            .await?;
+        // Owner всегда видит private-членов своего плейлиста.
+        self.project_page(playlist_urn, true, page, limit).await
+    }
+
+    /// Гарантирует, что desired-state (`playlist_tracks`) засижен — у дельты
+    /// должна быть база. Нет строки → UPSERT меты из SC; tracks_synced_at IS NULL
+    /// и нет pending → один синхронный refresh. При pending-intent ничего не
+    /// трогаем: desired-state уже наш.
+    async fn ensure_desired_seeded(
+        &self,
+        session_id: Uuid,
+        playlist_urn: &str,
+        repo: &PlaylistRepository,
+    ) -> AppResult<()> {
+        let row = repo.find_by_urn(playlist_urn).await?;
+        let needs_meta = row.is_none();
+        let needs_tracks = match &row {
+            None => true,
+            Some(r) => r.tracks_synced_at.is_none(),
+        };
+        if !needs_meta && !needs_tracks {
+            return Ok(());
+        }
+        if repo.has_pending_intent(playlist_urn).await? {
+            return Ok(());
+        }
+        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+        if needs_meta {
+            let fetched: Value = try_with_chain(&chain, |tok| {
+                let sc = self.sc.clone();
+                let path = format!("/playlists/{playlist_urn}");
+                async move { sc.api_get_value(&path, &tok, None).await }
+            })
+                .await?;
+            repo.upsert_from_sc(&fetched).await?;
+        }
+        if needs_tracks {
+            self.cold_refresh
+                .refresh_playlist_tracks(playlist_urn, &chain)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Проекция страницы из `playlist_tracks` (desired-state) в SC-shape.
+    async fn project_page(
+        &self,
+        playlist_urn: &str,
+        can_see_private: bool,
+        page: i64,
+        limit: i64,
+    ) -> AppResult<ListPageResult<Value>> {
+        let repo = PlaylistRepository::new(self.pg.clone());
+        let offset = page.max(0) * limit;
+        let ids = repo.page_track_ids(playlist_urn, offset, limit + 1).await?;
+        let has_more = ids.len() as i64 > limit;
+        let page_ids: Vec<String> = ids.into_iter().take(limit as usize).collect();
+        let projected = if can_see_private {
+            crate::modules::tracks::project_many(&self.pg, &page_ids).await?
+        } else {
+            crate::modules::tracks::project_many_public(&self.pg, &page_ids).await?
+        };
+        let collection: Vec<Value> = projected.into_iter().flatten().collect();
+        Ok(ListPageResult {
+            collection,
+            page,
+            page_size: limit,
+            has_more,
+        })
     }
 
     /// Смена приватности своего плейлиста. Owner-check по нашей БД, optimistic
@@ -240,8 +424,10 @@ impl PlaylistsService {
     /// playlist_tracks. SC delete — фоном через worker.
     pub async fn delete(&self, sc_user_id: &str, playlist_urn: &str) -> AppResult<Value> {
         let mut tx = self.pg.begin().await?;
-        sqlx::query("DELETE FROM user_owned_playlists WHERE user_id = $1 AND playlist_urn = $2")
-            .bind(sc_user_id)
+        // owned-mirror ключуется bare; чистим оба варианта на случай старой
+        // URN-строки до бэкфилла (удаляем плейлист — сносим все owned-рефы).
+        sqlx::query("DELETE FROM user_owned_playlists WHERE user_id = ANY($1) AND playlist_urn = $2")
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
             .bind(playlist_urn)
             .execute(&mut *tx)
             .await?;
@@ -321,7 +507,11 @@ impl PlaylistsService {
                 }
             }
         } else if let Some(row) = &playlist_row {
-            if self.cold_refresh.is_playlist_stale(row.tracks_synced_at) {
+            // Owner: desired-state — истина, фоновый re-pull НЕ нужен (и затёр бы
+            // pending-правку через replace_tracks, хоть тот и гейтит). Non-owner —
+            // обычный SWR из SC.
+            let is_owner = row.owner_sc_user_id.as_deref() == Some(viewer);
+            if !is_owner && self.cold_refresh.is_playlist_stale(row.tracks_synced_at) {
                 let refresh = self.cold_refresh.clone();
                 let tokens = self.tokens.clone();
                 let urn = playlist_urn.to_string();
@@ -344,22 +534,8 @@ impl PlaylistsService {
             r.sharing != "public" || r.owner_sc_user_id.as_deref() == Some(viewer)
         });
 
-        let offset = page.max(0) * limit;
-        let ids = repo.page_track_ids(playlist_urn, offset, limit + 1).await?;
-        let has_more = ids.len() as i64 > limit;
-        let page_ids: Vec<String> = ids.into_iter().take(limit as usize).collect();
-        let projected = if can_see_private {
-            crate::modules::tracks::project_many(&self.pg, &page_ids).await?
-        } else {
-            crate::modules::tracks::project_many_public(&self.pg, &page_ids).await?
-        };
-        let collection: Vec<Value> = projected.into_iter().flatten().collect();
-        Ok(ListPageResult {
-            collection,
-            page,
-            page_size: limit,
-            has_more,
-        })
+        self.project_page(playlist_urn, can_see_private, page, limit)
+            .await
     }
 
     pub async fn get_reposters(

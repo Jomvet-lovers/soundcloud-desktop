@@ -43,10 +43,10 @@ async fn log_hard_negative_inline(
 ) -> Result<(), sqlx::Error> {
     let predicted: Option<f32> = sqlx::query_scalar(
         "SELECT score FROM rec_impressions
-         WHERE sc_user_id = $1 AND sc_track_id = $2
+         WHERE sc_user_id = ANY($1) AND sc_track_id = $2
          ORDER BY shown_at DESC LIMIT 1",
     )
-    .bind(sc_user_id)
+        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
     .bind(sc_track_id)
     .fetch_optional(pg)
     .await?

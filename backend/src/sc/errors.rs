@@ -37,3 +37,10 @@ pub fn is_rate_limited(err: &AppError) -> bool {
         _ => false,
     }
 }
+
+/// SC-токен-эндпоинт ответил 400/401 — грант/refresh_token отвергнут, нужен
+/// ре-логин. В отличие от транзиентных сбоев роута (`ScUnreachable`/5xx/сеть),
+/// которые НЕ требуют ре-логина: токен-эндпоинт не отдаёт 400/401 при недоступности.
+pub fn is_invalid_grant(err: &AppError) -> bool {
+    matches!(err, AppError::ScApi { status: 400 | 401, .. })
+}

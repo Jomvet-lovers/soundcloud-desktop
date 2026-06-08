@@ -11,6 +11,7 @@ pub mod like_track;
 pub mod playlist_create;
 pub mod playlist_delete;
 pub mod playlist_sharing;
+pub mod playlist_sync;
 pub mod playlist_update;
 pub mod track_sharing;
 pub mod unfollow_user;
@@ -39,7 +40,10 @@ pub async fn dispatch(ctx: &ActionCtx<'_>, action_type: &str) -> AppResult<()> {
         follow_user::KIND => follow_user::execute(ctx).await,
         unfollow_user::KIND => unfollow_user::execute(ctx).await,
         playlist_create::KIND => playlist_create::execute(ctx).await,
-        playlist_update::KIND => playlist_update::execute(ctx).await,
+        // playlist_sync — новый невырушающий путь; playlist_update — legacy-алиас
+        // для дренажа in-flight прод-строк на тот же execute.
+        playlist_sync::KIND => playlist_sync::execute(ctx).await,
+        playlist_update::KIND => playlist_sync::execute(ctx).await,
         playlist_delete::KIND => playlist_delete::execute(ctx).await,
         track_sharing::KIND => track_sharing::execute(ctx).await,
         playlist_sharing::KIND => playlist_sharing::execute(ctx).await,

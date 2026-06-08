@@ -19,6 +19,13 @@ use crate::sc::ScClient;
 
 const REFRESH_PAGE_LIMIT: u64 = 200;
 
+/// Grace перед orphan-delete: строку, синканную позже `reconcile_started_at -
+/// ORPHAN_GRACE`, не удаляем, даже если её нет в авторитетном SC-снапшоте —
+/// у SC-листинга есть лаг распространения, свежесинканный из очереди лайк
+/// ещё может не попасть в листинг. Настоящий orphan (юзер снял лайк на вебе)
+/// имеет старый synced_at (перестал обновляться) и проходит фильтр.
+const ORPHAN_GRACE_SEC: i64 = 300;
+
 /// Per-user коллекция из SC, которую мы зеркалируем в свою БД.
 ///
 /// `mirror_table` хранит "что юзер хочет" — like/follow/own state, с
@@ -226,10 +233,10 @@ impl ColdRefreshService {
         extra_params: &[(String, String)],
     ) -> AppResult<()> {
         let max_synced: Option<DateTime<Utc>> = sqlx::query_scalar(&format!(
-            "SELECT MAX(synced_at) FROM {} WHERE user_id = $1",
+            "SELECT MAX(synced_at) FROM {} WHERE user_id = ANY($1)",
             coll.mirror_table
         ))
-        .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .fetch_one(&self.pg)
         .await?;
 
@@ -273,7 +280,10 @@ impl ColdRefreshService {
         };
         let _permit = self.sem.acquire().await.ok();
         let path = resolve_sc_path(&coll, sc_user_id, viewer_is_owner);
-        let items = self.fetch_all_pages(&path, chain, extra_params).await?;
+        // Старт фиксируем ДО фетча: orphan-delete не трогает строки, синканные
+        // после этого момента (см. delete_orphans grace-window).
+        let reconcile_started_at = Utc::now();
+        let (items, complete) = self.fetch_all_pages(&path, chain, extra_params).await?;
 
         // SC отдаёт новые сверху; разворачиваем под наш ORDER BY created_at DESC.
         let ordered: Vec<(String, &Value)> = items
@@ -292,11 +302,28 @@ impl ColdRefreshService {
             })
             .collect();
 
+        // Owned-плейлисты с pending локальной правкой (desired_rev > synced_rev)
+        // НЕ перезатираем из SC — наш track_count/мета побеждают до синка.
+        let pending_skip: std::collections::HashSet<String> =
+            if coll.lock_kind == OWNED_PLAYLISTS.lock_kind {
+                self.playlists
+                    .pending_owned_urns(extract_sc_id(sc_user_id))
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect()
+            } else {
+                std::collections::HashSet::new()
+            };
+
         // Сначала — все entity UPSERT'ы (ingest_track кикает пайплайн).
         // Параллелизм отсутствует намеренно: на коллекции в 10к треков
         // создавать 10к тасок и одновременно дёргать transcode/enrich — это
         // pile-up. Sequential UPSERT держит pressure под semaphore'ом.
-        for (_, item) in &ordered {
+        for (key_value, item) in &ordered {
+            if pending_skip.contains(key_value) {
+                continue;
+            }
             if let Err(e) = self.ingest_entity(coll, item).await {
                 warn!(error = %e, kind = coll.lock_kind, "entity ingest failed");
             }
@@ -312,12 +339,32 @@ impl ColdRefreshService {
 
         if !mirror_keys.is_empty() {
             let mut tx = self.pg.begin().await?;
-            batch_upsert_mirror(&mut tx, &coll, sc_user_id, &mirror_keys, &mirror_payloads).await?;
+            // Канон ключа mirror — bare (закрываем URN/bare split на write-path).
+            batch_upsert_mirror(
+                &mut tx,
+                &coll,
+                extract_sc_id(sc_user_id),
+                &mirror_keys,
+                &mirror_payloads,
+            )
+                .await?;
             tx.commit().await?;
         }
 
-        if !items.is_empty() {
-            delete_orphans(&self.pg, &coll, sc_user_id, &mirror_keys).await?;
+        // Additive+guarded. Orphan-delete ТОЛЬКО когда: пагинация дошла до конца
+        // авторитетно (complete), это owner-вью /me/* (публичный /users/{id}/*
+        // снапшот не содержит private — не может авторизовать удаление из общего
+        // mirror), и снапшот непустой. Иначе обрезанный/лагающий ответ молча
+        // затёр бы свежий лайк — это и был баг «лайк пропал».
+        if complete && viewer_is_owner && !items.is_empty() {
+            delete_orphans(
+                &self.pg,
+                &coll,
+                extract_sc_id(sc_user_id),
+                &mirror_keys,
+                reconcile_started_at,
+            )
+                .await?;
         }
         Ok(())
     }
@@ -429,7 +476,7 @@ impl ColdRefreshService {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let items = self
+        let (items, complete) = self
             .fetch_all_pages(&format!("/playlists/{playlist_urn}/tracks"), chain, &[])
             .await?;
 
@@ -448,6 +495,26 @@ impl ColdRefreshService {
                 }
             }
         }
+        // На обрезанном снапшоте не даём replace_tracks УКОРОТИТЬ уже собранный
+        // плейлист (truncation затёрла бы треки). Рост/равенство — ок (заодно
+        // покрывает ровно-200-трековый плейлист, который эвристика complete
+        // помечает false). replace_tracks дополнительно гейтит pending-intent.
+        if !complete {
+            let current: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_urn = $1")
+                    .bind(playlist_urn)
+                    .fetch_one(&self.pg)
+                    .await?;
+            if (ordered_ids.len() as i64) < current {
+                debug!(
+                    urn = %playlist_urn,
+                    got = ordered_ids.len(),
+                    current,
+                    "incomplete playlist snapshot; skip replace to avoid shrink"
+                );
+                return Ok(());
+            }
+        }
         self.playlists
             .replace_tracks(playlist_urn, &ordered_ids)
             .await?;
@@ -459,15 +526,19 @@ impl ColdRefreshService {
     /// `/playlists/{urn}/tracks` на первых 200 треках). На первой странице
     /// формируем params сами; дальше SC отдаёт абсолютный URL, на который
     /// идём как есть.
+    /// Возвращает `(items, complete)`. `complete=false` сигналит, что пагинация
+    /// оборвалась неавторитетно (обрезка/зацикливание) и снапшот НЕ полный —
+    /// caller не имеет права на его основе удалять локальные строки. Жёсткая
+    /// ошибка по-прежнему прерывает через `?` (до delete-логики не доходит).
     async fn fetch_all_pages(
         &self,
         path: &str,
         chain: &[String],
         extra_params: &[(String, String)],
-    ) -> AppResult<Vec<Value>> {
+    ) -> AppResult<(Vec<Value>, bool)> {
         let mut acc: Vec<Value> = Vec::new();
         let mut next: Option<String> = None;
-        loop {
+        let complete = loop {
             let resp: Value = match &next {
                 None => {
                     let mut params: Vec<(String, String)> =
@@ -497,18 +568,22 @@ impl ColdRefreshService {
                 .and_then(|v| v.as_array().cloned())
                 .unwrap_or_default();
             if items.is_empty() {
-                break;
+                // Пустая ПЕРВАЯ страница — легитимный «нет элементов» (complete).
+                // Пустая промежуточная (идём по next_href) — обрыв (incomplete).
+                break next.is_none();
             }
+            let full_page = items.len() as u64 == REFRESH_PAGE_LIMIT;
             acc.extend(items);
-            let Some(next_href) = resp.get("next_href").and_then(|v| v.as_str()) else {
-                break;
-            };
-            if next_href.is_empty() || Some(next_href) == next.as_deref() {
-                break;
+            match resp.get("next_href").and_then(|v| v.as_str()) {
+                // Нет/пустой курсор после ПОЛНОЙ страницы — SC обрезал пагинацию,
+                // хотя элементы ещё есть. После короткой — естественный конец.
+                None | Some("") => break !full_page,
+                // Курсор не сдвинулся — зацикливание, бьёмся об тот же href.
+                Some(href) if Some(href) == next.as_deref() => break false,
+                Some(href) => next = Some(href.to_string()),
             }
-            next = Some(next_href.to_string());
-        }
-        Ok(acc)
+        };
+        Ok((acc, complete))
     }
 
     async fn try_lock(&self, key: &str) -> AppResult<Option<()>> {
@@ -551,12 +626,23 @@ async fn batch_upsert_mirror(
     } else if coll.has_wanted_state {
         (
             "$1, t.k, true, false, now(), clock_timestamp()".to_string(),
-            "synced_at = now()".to_string(),
+            // SC показывает этот ключ как активный лайк. Сбрасываем progress в
+            // false ТОЛЬКО для строк, чьё локальное намерение всё ещё «лайкнуто»
+            // (synced/pending like). Pending-unlike (wanted_state=false) НЕ
+            // воскрешаем — только synced_at, чтобы unlike доехал, а delete_orphans
+            // (только полный снапшот) был единственным, кто его уберёт.
+            format!(
+                "synced_at = now(), \
+                 progress = CASE WHEN {table}.wanted_state = true \
+                                 THEN false ELSE {table}.progress END"
+            ),
         )
     } else {
         (
             "$1, t.k, false, now(), clock_timestamp()".to_string(),
-            "synced_at = now()".to_string(),
+            // Owned не имеет pending-unlike; SC показал строку — создание
+            // подтверждено, чистим progress.
+            "synced_at = now(), progress = false".to_string(),
         )
     };
 
@@ -605,15 +691,25 @@ async fn delete_orphans(
     coll: &UserCollection,
     sc_user_id: &str,
     seen: &[String],
+    started: DateTime<Utc>,
 ) -> AppResult<()> {
-    let extra_filter = if coll.has_wanted_state {
-        "AND wanted_state = true AND progress = false"
+    let cutoff = started - chrono::Duration::seconds(ORPHAN_GRACE_SEC);
+    let wanted_filter = if coll.has_wanted_state {
+        "AND wanted_state = true"
     } else {
-        "AND progress = false"
+        ""
     };
+    // progress=false — никогда не трогаем pending локальную запись (намерение).
+    // synced_at < cutoff — подтверждённую достаточно давно (SC успел распространить);
+    // свежесинканную (в пределах grace) оставляем. Вызывается только на полном
+    // owner-снапшоте (см. refresh_collection).
     let sql = format!(
         "DELETE FROM {table} \
-         WHERE user_id = $1 {extra_filter} \
+         WHERE user_id = $1 \
+           {wanted_filter} \
+           AND progress = false \
+           AND synced_at IS NOT NULL \
+           AND synced_at < $3 \
            AND NOT ({key_col} = ANY($2))",
         table = coll.mirror_table,
         key_col = coll.mirror_key_col,
@@ -621,6 +717,7 @@ async fn delete_orphans(
     sqlx::query(&sql)
         .bind(sc_user_id)
         .bind(seen)
+        .bind(cutoff)
         .execute(pg)
         .await?;
     Ok(())
@@ -651,14 +748,18 @@ pub async fn read_collection_page(
     };
 
     // Берём ключи постранично, дальше bulk-проекция через shared таблицы.
+    // user_id = ANY(variants) + GROUP BY: до бэкфилла 0042 строки могут жить и
+    // под URN, и под bare — видим объединение и схлопываем дубль по ключу
+    // (берём самый свежий created_at для порядка).
     let key_sql = format!(
         "SELECT m.{key_col} FROM {table} m \
-         WHERE m.user_id = $1 {wanted_filter} \
-         ORDER BY m.created_at DESC, m.{key_col} DESC \
+         WHERE m.user_id = ANY($1) {wanted_filter} \
+         GROUP BY m.{key_col} \
+         ORDER BY MAX(m.created_at) DESC, m.{key_col} DESC \
          LIMIT $2 OFFSET $3"
     );
     let keys: Vec<(String,)> = sqlx::query_as(&key_sql)
-        .bind(sc_user_id)
+        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .bind(limit + 1)
         .bind(offset)
         .fetch_all(pg)

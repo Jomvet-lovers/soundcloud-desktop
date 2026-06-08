@@ -53,10 +53,13 @@ impl MeService {
     /// DB-backed profile for Library: serve the mirror immediately, revalidate
     /// from SC in the background when stale; synchronous seed on first read.
     pub async fn get_profile_cold(self: &Arc<Self>, sc_user_id: &str, token: &str) -> AppResult<Value> {
+        // user_profiles ключ — URN (пишет login); ctx.sc_user_id теперь bare →
+        // матчим оба варианта, LIMIT 1 по свежести (дубль URN+bare до бэкфилла).
         let row: Option<(Value, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT profile_json, synced_at FROM user_profiles WHERE soundcloud_user_id = $1",
+            "SELECT profile_json, synced_at FROM user_profiles WHERE soundcloud_user_id = ANY($1) \
+             ORDER BY synced_at DESC LIMIT 1",
         )
-            .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
             .fetch_one(&self.pg)
             .await
             .ok();
@@ -127,10 +130,10 @@ impl MeService {
         }
 
         let username: Option<String> = sqlx::query_scalar(
-            "SELECT username FROM sessions WHERE soundcloud_user_id = $1 AND username IS NOT NULL \
+            "SELECT username FROM sessions WHERE soundcloud_user_id = ANY($1) AND username IS NOT NULL \
              ORDER BY updated_at DESC LIMIT 1",
         )
-            .bind(sc_user_id)
+            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
             .fetch_optional(&self.pg)
             .await
             .ok()

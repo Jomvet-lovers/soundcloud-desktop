@@ -34,6 +34,10 @@ pub const FOLLOWINGS: WantedMirror = WantedMirror {
 ///   (progress=false); inverse-dedup в sync_queue снимет парную мутацию.
 /// - Уже wanted=true → no-op (синканный или ожидающий).
 pub async fn set_wanted(pg: &PgPool, m: WantedMirror, user_id: &str, key: &str) -> AppResult<()> {
+    // Канон ключа mirror — bare numeric (закрывает URN/bare split: /me/* раньше
+    // писал URN, /users/{self}/* читал bare). Сессия НЕ канонизируется глобально,
+    // чтобы не задеть history/dislikes/subscriptions — только эти таблицы.
+    let user_id = crate::common::sc_ids::extract_sc_id(user_id);
     let sql = format!(
         "INSERT INTO {table} (user_id, {key_col}, wanted_state, progress) \
          VALUES ($1, $2, true, true) \
@@ -60,6 +64,7 @@ pub async fn set_wanted(pg: &PgPool, m: WantedMirror, user_id: &str, key: &str) 
 ///   Phase-3 refresh её не воскресит, в read-path она не попадает.
 /// - wanted=false — уже pending unwant, no-op.
 pub async fn clear_wanted(pg: &PgPool, m: WantedMirror, user_id: &str, key: &str) -> AppResult<()> {
+    let user_id = crate::common::sc_ids::extract_sc_id(user_id);
     let select_sql = format!(
         "SELECT progress, wanted_state FROM {table} WHERE user_id = $1 AND {key_col} = $2",
         table = m.table,

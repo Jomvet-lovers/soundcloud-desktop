@@ -23,6 +23,8 @@ const UNHEALTHY_RATIO: f64 = 0.5;
 const PENALTY_BASE_SEC: u64 = 60;
 const PENALTY_MAX_SEC: u64 = 30 * 60;
 const PENALTY_STRIKE_TTL_SEC: i64 = 60 * 60;
+/// Окно per-app счётчика выпущенных токенов (SC-лимит 50/12ч/app).
+const ISSUE_WINDOW_SEC: i64 = 12 * 60 * 60;
 
 #[derive(Debug, Clone, Default)]
 pub struct AppHealth {
@@ -148,21 +150,32 @@ impl AuthHealthService {
         kind: RefreshFailKind,
     ) -> AppResult<()> {
         let mut conn = self.redis.get().await?;
-        let ttl = match kind {
-            RefreshFailKind::Generic => REFRESH_FAIL_TTL_SEC,
-            RefreshFailKind::RateLimit => RATE_LIMIT_FAIL_TTL_SEC,
-        };
         let trimmed: String = error.chars().take(500).collect();
+        // Кодируем вид в значение (`<tag>:<msg>`), чтобы cached-hit вернул
+        // правильный HTTP-статус (502/429/401), а не всегда 401.
+        let value = format!("{}:{}", kind.tag(), trimmed);
         let _: () = conn
-            .set_ex(format!("auth:refresh-fail:{session_id}"), trimmed, ttl)
+            .set_ex(
+                format!("auth:refresh-fail:{session_id}"),
+                value,
+                kind.ttl_sec(),
+            )
             .await?;
         Ok(())
     }
 
-    pub async fn get_cached_refresh_failure(&self, session_id: &str) -> AppResult<Option<String>> {
+    pub async fn get_cached_refresh_failure(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<(RefreshFailKind, String)>> {
         let mut conn = self.redis.get().await?;
         let v: Option<String> = conn.get(format!("auth:refresh-fail:{session_id}")).await?;
-        Ok(v)
+        Ok(v.map(|s| {
+            let mut chars = s.chars();
+            let tag = chars.next().unwrap_or('T');
+            let msg = chars.as_str().strip_prefix(':').unwrap_or("").to_string();
+            (RefreshFailKind::from_tag(tag), msg)
+        }))
     }
 
     pub async fn clear_refresh_failure(&self, session_id: &str) -> AppResult<()> {
@@ -170,9 +183,74 @@ impl AuthHealthService {
         let _: () = conn.del(format!("auth:refresh-fail:{session_id}")).await?;
         Ok(())
     }
+
+    /// Инкремент 12ч-счётчика выпущенных токенов на app (SC per-app 50/12ч).
+    pub async fn record_token_issue(&self, app_id: &str) -> AppResult<()> {
+        let mut conn = self.redis.get().await?;
+        let key = format!("auth:app:{app_id}:issued12h");
+        let n: i64 = conn.incr(&key, 1).await?;
+        if n == 1 {
+            let _: () = conn.expire(&key, ISSUE_WINDOW_SEC).await?;
+        }
+        Ok(())
+    }
+
+    /// Batch-чтение 12ч-issuance по apps — для распределения новых логинов
+    /// под per-app бюджет (рефреш привязан к issuing-app и не редистрибутируется).
+    pub async fn tokens_issued_12h(&self, app_ids: &[String]) -> AppResult<HashMap<String, i64>> {
+        if app_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut conn = self.redis.get().await?;
+        let mut pipe = deadpool_redis::redis::pipe();
+        for id in app_ids {
+            pipe.get(format!("auth:app:{id}:issued12h"));
+        }
+        let vals: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
+        let mut out = HashMap::with_capacity(app_ids.len());
+        for (i, id) in app_ids.iter().enumerate() {
+            let c = vals
+                .get(i)
+                .and_then(|v| v.as_ref())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            out.insert(id.clone(), c);
+        }
+        Ok(out)
+    }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum RefreshFailKind {
-    Generic,
+    /// Транзиентный сбой роута/сети — тихо ретраить, НЕ ре-логин (фронту 502).
+    Transient,
+    /// SC rate-limit (429) — подождать (фронту 429, без модалки).
     RateLimit,
+    /// SC отверг refresh_token (400/401) — нужен ре-логин (фронту 401 → модалка).
+    ReAuth,
+}
+
+impl RefreshFailKind {
+    fn tag(self) -> char {
+        match self {
+            Self::Transient => 'T',
+            Self::RateLimit => 'R',
+            Self::ReAuth => 'A',
+        }
+    }
+
+    fn from_tag(c: char) -> Self {
+        match c {
+            'R' => Self::RateLimit,
+            'A' => Self::ReAuth,
+            _ => Self::Transient,
+        }
+    }
+
+    fn ttl_sec(self) -> u64 {
+        match self {
+            Self::Transient => REFRESH_FAIL_TTL_SEC,
+            Self::RateLimit | Self::ReAuth => RATE_LIMIT_FAIL_TTL_SEC,
+        }
+    }
 }

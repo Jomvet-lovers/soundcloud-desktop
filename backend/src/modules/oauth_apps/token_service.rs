@@ -37,6 +37,10 @@ const REFRESH_GAP: Duration = Duration::from_millis(1500);
 /// Сколько последовательных фейлов рефреша терпим — после circuit-breaker до
 /// следующего successful refresh'а.
 const MAX_REFRESH_ATTEMPTS: i32 = 5;
+/// После исчерпания `MAX_REFRESH_ATTEMPTS` app паркуется; повтор разрешаем
+/// спустя этот кулдаун. Транзиентный аутэйдж SC-роута не должен убивать app
+/// навсегда — именно это (без сброса счётчика) положило 12/13 app-токенов.
+const RETRY_COOLDOWN_SECS: i64 = 15 * 60;
 
 pub struct OAuthAppTokenService {
     pg: PgPool,
@@ -269,11 +273,13 @@ impl OAuthAppTokenService {
              WHERE a.id = ANY($1) AND a.active = true \
                AND (t.oauth_app_id IS NULL \
                     OR (t.expires_at < now() + ($2 || ' seconds')::interval \
-                        AND t.refresh_attempts < $3))",
+                        AND (t.refresh_attempts < $3 \
+                             OR t.refreshed_at < now() - ($4 || ' seconds')::interval)))",
         )
         .bind(&active_ids)
         .bind(lead.to_string())
         .bind(MAX_REFRESH_ATTEMPTS)
+            .bind(RETRY_COOLDOWN_SECS.to_string())
         .fetch_all(&self.pg)
         .await?;
 

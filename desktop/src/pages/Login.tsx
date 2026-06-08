@@ -5,7 +5,14 @@ import {AuthBackdrop} from '../components/auth/AuthBackdrop';
 import {BrandMark} from '../components/auth/BrandMark';
 import {OfflineEntryCard} from '../components/auth/OfflineEntryCard';
 import {QrLinkSheet} from '../components/auth/QrLinkSheet';
-import {AlertCircle, Check, ChevronRight, ClipboardCopy, RefreshCw, Smartphone,} from '../lib/icons';
+import {
+    AlertCircle,
+    Check,
+    ChevronRight,
+    ClipboardCopy,
+    RefreshCw,
+    Smartphone,
+} from '../lib/icons';
 import {usePerfMode} from '../lib/perf';
 import {queryClient} from '../lib/query-client';
 import {useOAuthFlow} from '../lib/use-oauth-flow';
@@ -28,7 +35,7 @@ export function Login() {
   };
 
   const onLoginSuccess = async (sessionId: string) => {
-    setSession(sessionId);
+      await setSession(sessionId);
     await fetchUser();
     queryClient.invalidateQueries();
   };

@@ -140,6 +140,10 @@ fn show(app: &AppHandle, cursor: Option<(f64, f64)>, pinned: bool) {
         return;
     };
     app.state::<TrayState>().set_pinned(pinned);
+    // Re-assert on every show — keeps the flyout above other windows even after a
+    // re-open (honored on Win/Mac; on Wayland/Hyprland the compositor owns stacking,
+    // so pair this with a `pin` windowrule).
+    let _ = win.set_always_on_top(true);
     place(&win, cursor);
     let _ = win.show();
     let _ = win.set_focus();

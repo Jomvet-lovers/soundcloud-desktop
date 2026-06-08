@@ -3,10 +3,22 @@ import {useTranslation} from 'react-i18next';
 import {toast} from 'sonner';
 import {api} from '../../lib/api';
 import {fc} from '../../lib/formatters';
-import {type Playlist, useAddToPlaylist, useCreatePlaylist, useMyPlaylists,} from '../../lib/hooks';
+import {
+  type Playlist,
+  useAddToPlaylist,
+  useCreatePlaylist,
+  useMyPlaylists,
+} from '../../lib/hooks';
 import {Globe, ListMusic, ListPlus, Loader2, Lock, Plus, X} from '../../lib/icons';
 import {playlistCoverUrl} from '../../lib/playlist-cover';
-import {Modal, ModalClose, ModalContent, ModalDescription, ModalTitle, ModalTrigger,} from '../ui/Modal';
+import {
+  Modal,
+  ModalClose,
+  ModalContent,
+  ModalDescription,
+  ModalTitle,
+  ModalTrigger,
+} from '../ui/Modal';
 
 interface AddToPlaylistDialogProps {
   trackUrns: string[];
@@ -27,7 +39,7 @@ const PlaylistOption = React.memo(function PlaylistOption({
   containsSome: boolean;
 }) {
   const { t } = useTranslation();
-    const cover = playlistCoverUrl(playlist.artwork_url, playlist.tracks, 'small');
+  const cover = playlistCoverUrl(playlist.artwork_url, playlist.tracks, 'small');
 
   return (
     <button
@@ -194,7 +206,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
             if (cancelled) return;
             setPlaylistTrackMap((prev) => ({ ...prev, [playlistUrn]: [] }));
           } finally {
-              if (!cancelled) setLoadingPlaylistUrns((prev) => ({...prev, [playlistUrn]: false}));
+            if (!cancelled) setLoadingPlaylistUrns((prev) => ({...prev, [playlistUrn]: false}));
           }
         }),
       );
@@ -225,11 +237,10 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
   }, [playlists, playlistTrackMap, normalizedTrackUrns]);
 
   const handleSelect = async (playlist: Playlist) => {
+    // existingUrns — только для UX-хинта «уже в плейлисте»; в мутацию идут
+    // `{add}`-дельты, backend дедупит, полный список не реконструируем.
     const existingUrns = playlistTrackMap[playlist.urn] ?? playlist.tracks?.map((t) => t.urn) ?? [];
-    const finalExistingUrns = existingUrns;
-
-    // Filter out duplicates
-    const existingSet = new Set(finalExistingUrns);
+    const existingSet = new Set(existingUrns);
     const newUrns = trackUrns.filter((u) => !existingSet.has(u));
 
     if (newUrns.length === 0) {
@@ -239,7 +250,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
     }
 
     addToPlaylist.mutate(
-      { playlistUrn: playlist.urn, existingTrackUrns: finalExistingUrns, newTrackUrns: newUrns },
+        {playlistUrn: playlist.urn, trackUrns: newUrns},
       {
         onSuccess: () => {
           toast.success(t('playlist.addedToPlaylist'));

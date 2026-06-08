@@ -47,7 +47,7 @@ export const SessionRecoveryModal = React.memo(() => {
 
   const handleLogout = () => {
     reset();
-    logout();
+      void logout();
   };
 
   let bodyState: 'oauth' | 'renewing' | 'actions';

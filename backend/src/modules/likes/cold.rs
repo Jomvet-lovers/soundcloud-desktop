@@ -16,9 +16,9 @@ async fn fetch_liked_playlist_urns(
     }
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT playlist_urn FROM user_likes_playlists \
-         WHERE user_id = $1 AND wanted_state = true AND playlist_urn = ANY($2)",
+         WHERE user_id = ANY($1) AND wanted_state = true AND playlist_urn = ANY($2)",
     )
-    .bind(sc_user_id)
+        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
     .bind(urns)
     .fetch_all(pg)
     .await?;
@@ -68,9 +68,9 @@ async fn fetch_liked_ids(
     }
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT sc_track_id FROM user_likes_tracks \
-         WHERE user_id = $1 AND wanted_state = true AND sc_track_id = ANY($2)",
+         WHERE user_id = ANY($1) AND wanted_state = true AND sc_track_id = ANY($2)",
     )
-    .bind(sc_user_id)
+        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
     .bind(sc_track_ids)
     .fetch_all(pg)
     .await?;

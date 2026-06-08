@@ -28,8 +28,8 @@ impl AurasService {
 
     pub async fn get(&self, user_urn: &str) -> AppResult<Option<Aura>> {
         let row: Option<Aura> =
-            sqlx::query_as("SELECT aura_id, custom_hex FROM user_auras WHERE user_urn = $1")
-                .bind(user_urn)
+            sqlx::query_as("SELECT aura_id, custom_hex FROM user_auras WHERE user_urn = ANY($1)")
+                .bind(crate::common::sc_ids::user_id_variants(user_urn))
                 .fetch_optional(&self.pg)
                 .await?;
         Ok(row)
@@ -64,7 +64,7 @@ impl AurasService {
              ON CONFLICT (user_urn) DO UPDATE \
              SET aura_id = EXCLUDED.aura_id, custom_hex = EXCLUDED.custom_hex, updated_at = NOW()",
         )
-        .bind(user_urn)
+            .bind(crate::common::sc_ids::extract_sc_id(user_urn))
         .bind(aura_id)
         .bind(stored_hex)
         .execute(&self.pg)

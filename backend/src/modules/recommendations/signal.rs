@@ -102,10 +102,11 @@ struct EventRow {
 }
 
 pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserSignals> {
+    let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
     let disliked_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT sc_track_id FROM disliked_tracks WHERE sc_user_id = $1 LIMIT 500",
+        "SELECT sc_track_id FROM disliked_tracks WHERE sc_user_id = ANY($1) LIMIT 500",
     )
-    .bind(sc_user_id)
+        .bind(&variants)
     .fetch_all(pg)
     .await
     .unwrap_or_default();
@@ -117,13 +118,13 @@ pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserS
         "SELECT sc_track_id, event_type, weight, position_pct, \
                 (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
          FROM user_events \
-         WHERE sc_user_id = $1 \
+         WHERE sc_user_id = ANY($1) \
            AND event_type = ANY($2) \
            AND created_at > NOW() - INTERVAL '180 days' \
          ORDER BY created_at DESC \
          LIMIT $3",
     )
-    .bind(sc_user_id)
+        .bind(&variants)
     .bind(&[IMPLICIT_POSITIVE, "skip", "dislike"][..])
     .bind(NEGATIVE_LIMIT + PLAYED_LIMIT)
     .fetch_all(pg)
@@ -203,18 +204,19 @@ async fn load_strong_positives(
 ) -> Vec<WeightedTrack> {
     let mut out: Vec<WeightedTrack> = Vec::with_capacity(POSITIVE_LIMIT as usize);
     let mut seen: HashSet<String> = HashSet::new();
+    let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
 
     let event_likes: Vec<EventLikeRow> = sqlx::query_as(
         "SELECT sc_track_id, weight, \
                 (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
          FROM user_events \
-         WHERE sc_user_id = $1 \
+         WHERE sc_user_id = ANY($1) \
            AND event_type IN ('like', 'playlist_add') \
            AND created_at > NOW() - INTERVAL '365 days' \
          ORDER BY created_at DESC \
          LIMIT $2",
     )
-    .bind(sc_user_id)
+        .bind(&variants)
     .bind(POSITIVE_LIMIT)
     .fetch_all(pg)
     .await
@@ -245,12 +247,12 @@ async fn load_strong_positives(
         "SELECT sc_track_id, \
                 (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
          FROM user_likes_tracks \
-         WHERE user_id = $1 AND wanted_state = true \
+         WHERE user_id = ANY($1) AND wanted_state = true \
            AND created_at > NOW() - INTERVAL '365 days' \
          ORDER BY created_at DESC, ctid DESC \
          LIMIT $2",
     )
-    .bind(sc_user_id)
+        .bind(&variants)
     .bind(need_more as i64)
     .fetch_all(pg)
     .await
