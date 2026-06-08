@@ -7,14 +7,23 @@
  *   1) трек докрутился до конца естественно → audio:ended → handleTrackEnd → next()
  *   2) юзер вручную клацнул "Next" на последнем треке → next()
  *
- * Стратегия: сначала наша "волна от трека" (Qdrant + bandit). Если ничего не
- * отдала — фоллбек на SC `/tracks/{urn}/related`. Одинаково для всех источников
- * (home, артист, лайки, поиск, плейлист).
+ * Стратегия (по приоритету):
+ *   0) контекстный источник (лайки/плейлист/…), если активен — доигрываем его
+ *      ДО КОНЦА, подкачивая страницы (см. lib/queue-continuation.ts);
+ *   1) "волна от трека" (Qdrant + bandit);
+ *   2) фоллбек на SC `/tracks/{urn}/related`.
+ * Волна одинакова для всех источников (home, артист, лайки, поиск, плейлист).
  *
  * Не вызывать параллельно: повторный вызов пока летит первый — игнор.
  */
 
-import { setEndOfQueueFallback, type Track, usePlayerStore } from '../stores/player';
+import {
+    setEndOfQueueFallback,
+    setPlaybackContextResetHandler,
+    type Track,
+    usePlayerStore,
+} from '../stores/player';
+import {getQueueContinuationSource, setQueueContinuationSource} from './queue-continuation';
 import {fetchRelatedTracks} from './related';
 import { fetchSmartWave } from './soundwave';
 
@@ -26,16 +35,20 @@ export async function autopilotContinueFromTrack(lastTrack: Track): Promise<void
     return;
   }
   inFlight = true;
-  console.debug('[autopilot] continuation from', lastTrack.urn, lastTrack.title);
 
   try {
+      // 0) Контекст (лайки/…) доигрывается до конца перед волной.
+      if (await continueFromContextSource()) return;
+
+      // 1–2) Источник иссяк или его нет → волна от последнего трека.
+      console.debug('[autopilot] wave continuation from', lastTrack.urn, lastTrack.title);
     const fresh = await fetchContinuation(lastTrack);
     if (fresh.length === 0) {
       console.warn('[autopilot] no continuation tracks (wave + SC related both empty)');
       usePlayerStore.getState().pause();
       return;
     }
-    console.debug('[autopilot] adding', fresh.length, 'tracks to queue');
+      console.debug('[autopilot] adding', fresh.length, 'wave tracks to queue');
     usePlayerStore.getState().addToQueue(fresh);
     usePlayerStore.getState().next();
   } catch (e) {
@@ -44,6 +57,43 @@ export async function autopilotContinueFromTrack(lastTrack: Track): Promise<void
   } finally {
     inFlight = false;
   }
+}
+
+/**
+ * Дотягивает очередь из активного контекстного источника.
+ * @returns true — добавили порцию свежих треков и поехали дальше; false —
+ *   источника нет / он исчерпан / упал (тогда вызывающий уходит в волну).
+ */
+async function continueFromContextSource(): Promise<boolean> {
+    const source = getQueueContinuationSource();
+    if (!source) return false;
+
+    const existing = new Set(usePlayerStore.getState().queue.map((t) => t.urn));
+    // Тянем страницы пока не наберём свежие треки либо источник не кончится
+    // (страница может оказаться целиком из дублей, уже доскролленных в очередь).
+    for (; ;) {
+        let batch: Track[];
+        try {
+            batch = await source.next();
+        } catch (e) {
+            console.debug(`[autopilot] source "${source.kind}" failed → wave:`, e);
+            setQueueContinuationSource(null);
+            return false;
+        }
+        if (batch.length === 0) {
+            console.debug(`[autopilot] source "${source.kind}" exhausted → wave`);
+            setQueueContinuationSource(null);
+            return false;
+        }
+        const freshOnes = batch.filter((t) => !existing.has(t.urn));
+        if (freshOnes.length > 0) {
+            console.debug(`[autopilot] source "${source.kind}" +${freshOnes.length} tracks`);
+            usePlayerStore.getState().addToQueue(freshOnes);
+            usePlayerStore.getState().next();
+            return true;
+        }
+        for (const t of batch) existing.add(t.urn);
+    }
 }
 
 async function fetchContinuation(seed: Track): Promise<Track[]> {
@@ -89,5 +139,7 @@ async function fetchScRelated(seed: Track): Promise<Track[]> {
   }
 }
 
-// Регистрируем при загрузке модуля. Сторе пнёт сюда при end-of-queue.
+// Регистрируем при загрузке модуля. Сторе пнёт сюда при end-of-queue,
+// а при старте нового play() — сбросит контекстный источник.
 setEndOfQueueFallback(autopilotContinueFromTrack);
+setPlaybackContextResetHandler(() => setQueueContinuationSource(null));

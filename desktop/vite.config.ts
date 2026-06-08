@@ -14,6 +14,11 @@ export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
+        // Two HTML entries: the main app + the lightweight tray-popover mini-player.
+        input: {
+            main: "index.html",
+            tray: "tray.html",
+        },
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return;

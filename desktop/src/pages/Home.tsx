@@ -16,6 +16,7 @@ import {
 } from '../lib/hooks';
 import {ChevronRight, Headphones, Heart, Music, Sparkles} from '../lib/icons';
 import {usePerfMode} from '../lib/perf';
+import {armLikesContinuation} from '../lib/queue-continuation';
 import {useScdMeta} from '../lib/scdMeta';
 import { useAuthStore } from '../stores/auth';
 import type { Track } from '../stores/player';
@@ -155,7 +156,7 @@ const LikedShelf = React.memo(function LikedShelf({
         ) : (
             likedTracks.slice(0, shelfCap).map((track) => (
             <div key={track.urn} className="w-[180px] shrink-0">
-              <TrackCard track={track} queue={likedTracks} />
+                <TrackCard track={track} queue={likedTracks} onPlay={armLikesContinuation}/>
             </div>
           ))
         )}

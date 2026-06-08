@@ -32,13 +32,8 @@ export const LibraryTrackRow = React.memo(
         onPlay?: () => void;
     }) {
         const {t} = useTranslation();
-        const {isThis, isThisPlaying, togglePlay: baseToggle} = useTrackPlay(track, queue);
+        const {isThis, isThisPlaying, togglePlay} = useTrackPlay(track, queue, onPlay);
         const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
-
-        const togglePlay = () => {
-            baseToggle();
-            if (!isThis && onPlay) onPlay();
-        };
 
         const handleAddToQueue = (e: React.MouseEvent) => {
             e.stopPropagation();

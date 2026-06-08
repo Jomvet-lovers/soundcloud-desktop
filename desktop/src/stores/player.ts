@@ -121,6 +121,17 @@ export function setEndOfQueueFallback(fn: (lastTrack: Track) => void): void {
   endOfQueueFallback = fn;
 }
 
+/**
+ * Слот «началось новое воспроизведение из UI» — сбрасывает контекстный источник
+ * дозагрузки очереди (см. lib/queue-continuation.ts), чтобы прошлый контекст
+ * (напр. лайки) не дотягивался в чужую очередь. Регистрирует queue-autopilot.ts.
+ */
+let onPlaybackContextReset: (() => void) | null = null;
+
+export function setPlaybackContextResetHandler(fn: () => void): void {
+    onPlaybackContextReset = fn;
+}
+
 // Mirrors the Rust DownloadSource enum (serde rename_all = "lowercase").
 export type PlaybackSource = 'storage' | 'anon' | 'direct' | 'api';
 
@@ -240,6 +251,7 @@ export const usePlayerStore = create<PlayerState>()(
       pitchControlMode: 'auto',
 
       play: (track, queue) => {
+          onPlaybackContextReset?.();
         if (queue) {
           const { shuffle } = get();
           const idx = queue.findIndex((t) => t.urn === track.urn);

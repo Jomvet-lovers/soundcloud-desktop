@@ -1,0 +1,277 @@
+/* Tray-popover styling. Reuses index.css tokens, glass recipe (.npb-glass),
+   the spinning-vinyl + eq treatment (.npb-art/.npb-ring/.npb-eq) and the play
+   orb (.npb-play); adds only the compact flyout layout (.tp-*).
+   The window itself is transparent — the dock floats on the desktop. */
+
+html,
+body,
+#tray-root {
+    margin: 0;
+    height: 100%;
+    width: 100%;
+    background: transparent;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.tp {
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    padding: 14px;
+}
+
+.tp-dock {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 24px;
+    box-shadow: 0 26px 60px -20px rgba(0, 0, 0, 0.82),
+    0 0 60px -20px var(--color-accent-glow);
+    animation: tp-in 0.42s var(--ease-apple) both;
+}
+
+@keyframes tp-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* frosted album-art aura sitting behind the glass (perf-gated in JS: off in light) */
+.tp-aura {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-size: cover;
+    background-position: center;
+    filter: blur(36px) saturate(1.5);
+    transform: scale(1.3) translateZ(0);
+    opacity: 0.24;
+    pointer-events: none;
+    z-index: 0;
+    contain: strict;
+}
+
+.tp-content {
+    position: relative;
+    z-index: 1;
+    isolation: isolate;
+    box-sizing: border-box;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 13px 15px;
+}
+
+/* ── header ──────────────────────────────────────────────────── */
+.tp-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.tp-art {
+    width: 48px;
+    height: 48px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+}
+
+.tp-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.tp-title {
+    font-size: 13.5px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: rgba(255, 255, 255, 0.96);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tp-artist {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* vinyl ring + eq active state (keyframes live in index.css) */
+.tp[data-playing="true"] .npb-ring {
+    opacity: 0.5;
+    animation: npb-spin 7s linear infinite;
+}
+
+.tp[data-playing="true"] .npb-eq {
+    opacity: 1;
+}
+
+.tp[data-playing="true"] .npb-eq i {
+    animation: npb-eq 900ms ease-in-out infinite;
+}
+
+/* ── generic icon button ─────────────────────────────────────── */
+.tp-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    flex: 0 0 auto;
+    transition: color 0.18s var(--ease-apple),
+    background 0.18s var(--ease-apple),
+    transform 0.18s var(--ease-apple);
+}
+
+.tp-icon-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-1px);
+}
+
+.tp-icon-btn:active {
+    transform: scale(0.9);
+}
+
+.tp-icon-btn.is-active {
+    color: var(--color-accent);
+}
+
+.tp-icon-btn.is-like {
+    color: var(--color-accent);
+}
+
+.tp-icon-btn.is-dislike {
+    color: #fb7185;
+}
+
+.tp-open {
+    margin-left: auto;
+}
+
+/* ── scrubber ────────────────────────────────────────────────── */
+.tp-lane {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.tp-scrub {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 14px;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.tp-scrub-track {
+    position: relative;
+    width: 100%;
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    transition: height 0.15s var(--ease-apple);
+}
+
+.tp-scrub.group:hover .tp-scrub-track {
+    height: 5px;
+}
+
+.tp-scrub-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 10px var(--color-accent-glow);
+    will-change: width;
+}
+
+.tp-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+/* ── transport ───────────────────────────────────────────────── */
+.tp-transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.tp-play {
+    width: 44px;
+    height: 44px;
+    margin: 0 4px;
+    color: var(--color-accent-contrast);
+}
+
+/* ── footer ──────────────────────────────────────────────────── */
+.tp-foot {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tp-vol {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    margin-left: 4px;
+}
+
+.tp-vol-track {
+    position: relative;
+    flex: 1;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.tp-vol-track::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    top: 50%;
+    height: 3px;
+    transform: translateY(-50%);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.tp-vol-fill {
+    position: relative;
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.6);
+}

@@ -11,6 +11,7 @@ import { PlaylistCard } from '../components/music/PlaylistCard';
 import {TrackCard} from '../components/music/TrackCard';
 import {useLikedTracks, useMyFollowings, useMyPlaylists} from '../lib/hooks';
 import {Heart, ListMusic, Users} from '../lib/icons';
+import {armLikesContinuation} from '../lib/queue-continuation';
 import { useAuthStore } from '../stores/auth';
 
 /** Library "Hub" — a living home base. Your identity up top, then the reason to
@@ -91,7 +92,11 @@ export const Library = React.memo(() => {
                   >
                       {likesPreview.map((tr) => (
                           <div key={tr.urn} className="w-[150px] shrink-0">
-                              <TrackCard track={tr} queue={likesPreview}/>
+                              <TrackCard
+                                  track={tr}
+                                  queue={likesPreview}
+                                  onPlay={genre ? undefined : armLikesContinuation}
+                              />
                           </div>
                       ))}
                   </CollectionRail>

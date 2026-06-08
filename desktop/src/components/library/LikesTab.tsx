@@ -1,8 +1,8 @@
 import React, {useEffect, useMemo} from 'react';
 import {useTranslation} from 'react-i18next';
-import {fetchAllLikedTracks, useInfiniteScroll, useLikedTracks} from '../../lib/hooks';
+import {useInfiniteScroll, useLikedTracks} from '../../lib/hooks';
 import {Loader2} from '../../lib/icons';
-import {usePlayerStore} from '../../stores/player';
+import {armLikesContinuation} from '../../lib/queue-continuation';
 import {VirtualList} from '../ui/VirtualList';
 import {LibraryTrackRow} from './LibraryTrackRow';
 
@@ -31,14 +31,16 @@ export const LikesTab = React.memo(function LikesTab({filter}: { filter: string 
         );
     }, [likedTracks, filter]);
 
-    const expandQueue = React.useCallback(() => {
-        const seen = new Set<string>(usePlayerStore.getState().queue.map((tr) => tr.urn));
-        fetchAllLikedTracks(200, (page) => {
-            const fresh = page.filter((tr) => !seen.has(tr.urn));
-            for (const tr of fresh) seen.add(tr.urn);
-            if (fresh.length > 0) usePlayerStore.getState().addToQueue(fresh);
-        }).catch(() => {
-        });
+    // Включили трек из лайков → ставим прослойку: она доиграет ВСЕ лайки,
+    // подкачивая страницы по мере опустошения очереди, а как кончатся — отдаст
+    // управление волне (lib/queue-autopilot.ts). Под активным фильтром очередь
+    // уже = весь матч (страницы дотянуты выше), источник не нужен (play() и так
+    // сбросил прошлый) → сразу волна. filterRef — чтобы колбэк был стабильным
+    // для memo'нутых строк и при этом видел свежий фильтр.
+    const filterRef = React.useRef(filter);
+    filterRef.current = filter;
+    const onLikePlay = React.useCallback(() => {
+        if (!filterRef.current) armLikesContinuation();
     }, []);
 
     return (
@@ -57,7 +59,7 @@ export const LikesTab = React.memo(function LikesTab({filter}: { filter: string 
                         disabled={filtered.length < 40}
                         getItemKey={(track) => track.urn}
                         renderItem={(track, i) => (
-                            <LibraryTrackRow track={track} index={i} queue={filtered} onPlay={expandQueue}/>
+                            <LibraryTrackRow track={track} index={i} queue={filtered} onPlay={onLikePlay}/>
                         )}
                     />
                 ) : (

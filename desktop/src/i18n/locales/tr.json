@@ -43,6 +43,8 @@
     "nowPlaying": "Simdi Calan",
     "upNext": "Siradaki",
     "clearQueue": "Kuyrugu Temizle",
+    "queueEmpty": "Kuyruk bos",
+    "queueEmptyHint": "Siradaki calacak parcalar burada gorunur",
     "addToQueue": "Kuyruga Ekle",
     "shuffle": "Karistir",
     "repeat": "Tekrar",

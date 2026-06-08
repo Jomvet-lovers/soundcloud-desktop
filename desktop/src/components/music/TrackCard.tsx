@@ -18,13 +18,15 @@ import {UploadKindDot} from './UploadKindDot';
 interface TrackCardProps {
   track: Track;
   queue?: Track[];
+    /** Fires after a new track starts — e.g. arm «лайки до конца». Keep stable. */
+    onPlay?: () => void;
 }
 
 export const TrackCard = React.memo(
-  function TrackCard({ track, queue }: TrackCardProps) {
+    function TrackCard({track, queue, onPlay}: TrackCardProps) {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue);
+        const {isThisPlaying, togglePlay: togglePlayRaw} = useTrackPlay(track, queue, onPlay);
     const showPlayingOverlay = useAutoHide(isThisPlaying);
     const clusterId = useClusterFeedback();
     const togglePlay = React.useCallback(() => {

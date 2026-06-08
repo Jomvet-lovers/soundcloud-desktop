@@ -38,6 +38,8 @@
     "nowPlaying": "Now Playing",
     "upNext": "Up Next",
     "clearQueue": "Clear Queue",
+    "queueEmpty": "Queue is empty",
+    "queueEmptyHint": "Tracks you play next will show up here",
     "addToQueue": "Add to Queue",
     "shuffle": "Shuffle",
     "repeat": "Repeat",
@@ -56,6 +58,9 @@
     "abLoopSetA": "Loop best part: set start (A)",
     "abLoopSetB": "Loop best part: set end (B)",
     "abLoopClear": "Clear A-B loop",
+    "previous": "Previous",
+    "next": "Next",
+    "openApp": "Open SoundCloud",
     "notPlaying": "Not playing"
   },
   "auth": {
@@ -631,6 +636,7 @@
     "retry": "Retry",
     "seeAll": "See All",
     "cancel": "Cancel",
+    "close": "Close",
     "back": "Back",
     "empty": "Nothing here yet",
     "expand": "Read more",
