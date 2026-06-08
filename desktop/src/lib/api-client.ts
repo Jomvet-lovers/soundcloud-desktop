@@ -1,11 +1,12 @@
-import { fetch } from '@tauri-apps/plugin-http';
-import { toast } from 'sonner';
-import { useAppStatusStore } from '../stores/app-status';
-import { useAuthStore } from '../stores/auth';
-import { noteAuthGap, noteRateLimit, noteSuccess } from './auth-recovery';
-import { API_BASE } from './constants';
-import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
-import { markHealthy, markUnhealthy } from './host-health';
+import {fetch} from '@tauri-apps/plugin-http';
+import {toast} from 'sonner';
+import {useAppStatusStore} from '../stores/app-status';
+import {useAuthStore} from '../stores/auth';
+import {noteAuthGap, noteRateLimit, noteSuccess} from './auth-recovery';
+import {API_BASE, API_STAR_BASE} from './constants';
+import {logHttpError, logHttpFailure, trackAsync} from './diagnostics';
+import {isHealthy, markHealthy, markUnhealthy} from './host-health';
+import {getIsPremium} from './premium-cache';
 
 // ─── Session ────────────────────────────────────────────────
 
@@ -75,6 +76,28 @@ export type ApiRequestOptions = RequestInit & {
     silentStatuses?: number[];
 };
 
+/**
+ * Базы запроса, primary первой. Премиум → star, фейловер на основной только для
+ * GET/HEAD (мутации не ретраим — риск двойного применения). Control-plane
+ * (`/me/subscription`, `/auth/*`) всегда на основной: иначе chicken-and-egg —
+ * star 403-ит не-премиума, а премиум-статус и есть вход роутинга.
+ */
+function apiBasesFor(path: string, method: string): string[] {
+    if (path === '/me/subscription' || path.startsWith('/auth/')) {
+        return [API_BASE];
+    }
+    if (getIsPremium() && sessionId && isHealthy(API_STAR_BASE)) {
+        const idempotent = method === 'GET' || method === 'HEAD';
+        return idempotent ? [API_STAR_BASE, API_BASE] : [API_STAR_BASE];
+    }
+    return [API_BASE];
+}
+
+/** Host-фейл → фейловер. 4xx-контракты (400/404/…) — валидный ответ, не фейлим. */
+function isHostFailover(status: number): boolean {
+    return status >= 500 || status === 401 || status === 403;
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
   options: ApiRequestOptions = {},
@@ -90,69 +113,91 @@ export async function apiRequest<T = unknown>(
 
     const method = init.method ?? 'GET';
   const label = `${method.toUpperCase()} ${path}`;
-  const url = `${API_BASE}${path}`;
-  const attemptStart = performance.now();
+    const bases = apiBasesFor(path, method);
+    let lastError: unknown = null;
 
-  try {
-    const res = await trackAsync(
-      `http:${label}`,
-        fetchWithTimeout(url, {...init, headers}, timeoutMs),
-    );
+    for (let i = 0; i < bases.length; i++) {
+        const base = bases[i];
+        const isLast = i === bases.length - 1;
+        const url = `${base}${path}`;
+        const attemptStart = performance.now();
 
-    markHealthy(API_BASE);
-    useAppStatusStore.getState().setBackendReachable(true);
+        try {
+            const res = await trackAsync(
+                `http:${label}`,
+                fetchWithTimeout(url, {...init, headers}, timeoutMs),
+            );
 
-    if (!res.ok) {
-      const body = await res.text();
-      const err = new ApiError(res.status, body);
+            markHealthy(base);
+            useAppStatusStore.getState().setBackendReachable(true);
+
+            if (!res.ok) {
+                const body = await res.text();
+                const err = new ApiError(res.status, body);
 
         // Штатный по контракту статус (напр. 404 /related = соседей пока нет):
         // глушим тихо — без тоста, без recovery, без error-лога.
         if (silentStatuses?.includes(res.status)) throw err;
 
-      logHttpError(label, res.status, url, body);
+                // star host-фейл → нездоров (следующие премиум-запросы уйдут на основной).
+                if (base === API_STAR_BASE && isHostFailover(res.status)) markUnhealthy(base);
 
-      // Rate-limit — копим, одиночный не дёргает recovery.
-      if (isRateLimitError(res.status, body)) {
-        noteRateLimit();
-        console.error(`HTTP ERROR: url: ${path}, `, err);
-        throw err;
-      }
+                if (!isLast && isHostFailover(res.status)) {
+                    lastError = err;
+                    continue;
+                }
 
-      // Протухший токен (401) либо юзер пропал из сайдбара — сильный
-      // сигнал, silent renew сразу.
-      if (res.status === 401 || useAuthStore.getState().user == null) {
-        noteAuthGap();
-        console.error(`HTTP ERROR: url: ${path}, `, err);
-        throw err;
-      }
+                logHttpError(label, res.status, url, body);
 
-      handleApiError(err);
-      console.error(`HTTP ERROR: url: ${path}, `, err);
-      throw err;
+                // Rate-limit — копим, одиночный не дёргает recovery.
+                if (isRateLimitError(res.status, body)) {
+                    noteRateLimit();
+                    console.error(`HTTP ERROR: url: ${path}, `, err);
+                    throw err;
+                }
+
+                // Протухший токен (401) либо юзер пропал из сайдбара — сильный
+                // сигнал, silent renew сразу.
+                if (res.status === 401 || useAuthStore.getState().user == null) {
+                    noteAuthGap();
+                    console.error(`HTTP ERROR: url: ${path}, `, err);
+                    throw err;
+                }
+
+                handleApiError(err);
+                console.error(`HTTP ERROR: url: ${path}, `, err);
+                throw err;
+            }
+
+            // Успешный ответ — чистит rate-limit накопитель и само-гасит recovery,
+            // если всё ожило само.
+            noteSuccess();
+
+            const ct = res.headers.get('content-type');
+            const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
+
+            if (typeof reply === 'string') {
+                try {
+                    return JSON.parse(reply) as T;
+                } catch {
+                }
+            }
+
+            return reply;
+        } catch (error) {
+            if (error instanceof ApiError) throw error;
+            markUnhealthy(base);
+            if (!isLast) {
+                lastError = error;
+                continue;
+            }
+            logHttpFailure(label, url, error, performance.now() - attemptStart);
+            useAppStatusStore.getState().setBackendReachable(false);
+            throw error;
+        }
     }
 
-    // Успешный ответ — чистит rate-limit накопитель и само-гасит recovery,
-    // если всё ожило само.
-    noteSuccess();
-
-    const ct = res.headers.get('content-type');
-    const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
-
-    if (typeof reply === 'string') {
-      try {
-        return JSON.parse(reply) as T;
-      } catch {}
-    }
-
-    return reply;
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    logHttpFailure(label, url, error, performance.now() - attemptStart);
-    markUnhealthy(API_BASE);
-    useAppStatusStore.getState().setBackendReachable(false);
-    throw error;
-  }
+    throw lastError ?? new Error('Request failed');
 }
 
 // ─── Aliases ────────────────────────────────────────────────

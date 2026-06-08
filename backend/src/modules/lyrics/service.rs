@@ -131,6 +131,7 @@ pub struct LyricsService {
     verifier: Arc<S3VerifierService>,
     inflight: Cache<String, Arc<Mutex<Option<LyricsResponse>>>>,
     indexing_sem: Arc<Semaphore>,
+    reserve: bool,
 }
 
 impl LyricsService {
@@ -147,6 +148,7 @@ impl LyricsService {
         trigger: Arc<TranscodeTriggerService>,
         verifier: Arc<S3VerifierService>,
         indexing_concurrency: usize,
+        reserve: bool,
     ) -> Arc<Self> {
         Arc::new(Self {
             pg,
@@ -164,6 +166,7 @@ impl LyricsService {
                 .time_to_idle(INFLIGHT_TTL)
                 .build(),
             indexing_sem: Arc::new(Semaphore::new(indexing_concurrency.max(1))),
+            reserve,
         })
     }
 
@@ -770,6 +773,10 @@ impl LyricsService {
         sc_track_id_raw: &str,
         storage_url: Option<String>,
     ) {
+        // Self-gen транскрайб (тяжёлый GPU-джоб) — только на основном хосте.
+        if self.reserve {
+            return;
+        }
         let sc_track_id = normalize(sc_track_id_raw);
         if sc_track_id.is_empty() {
             return;

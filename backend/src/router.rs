@@ -31,6 +31,9 @@ pub fn build(state: AppState) -> Router {
         .max_age(Duration::from_secs(3600));
 
     let http_layer = from_fn_with_state(state.clone(), track_http);
+    // Сразу под cors, чтобы 401/403 гейта несли CORS-хедеры.
+    let premium_layer =
+        from_fn_with_state(state.clone(), crate::common::premium_gate::premium_gate);
 
     Router::new()
         .merge(modules::health::router())
@@ -66,6 +69,7 @@ pub fn build(state: AppState) -> Router {
         ))
         .layer(TraceLayer::new_for_http())
         .layer(http_layer)
+        .layer(premium_layer)
         .layer(cors)
 }
 

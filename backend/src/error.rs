@@ -12,6 +12,9 @@ pub enum AppError {
     #[error("unauthorized: {0}")]
     Unauthorized(String),
 
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("not found: {0}")]
     NotFound(String),
 
@@ -42,6 +45,10 @@ impl AppError {
         Self::Unauthorized(msg.into())
     }
 
+    pub fn forbidden(msg: impl Into<String>) -> Self {
+        Self::Forbidden(msg.into())
+    }
+
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::BadRequest(msg.into())
     }
@@ -58,6 +65,7 @@ impl AppError {
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::ScApi { status, .. } => {
                 StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY)
@@ -116,6 +124,7 @@ impl AppError {
         match self {
             Self::BadRequest(m)
             | Self::Unauthorized(m)
+            | Self::Forbidden(m)
             | Self::NotFound(m)
             | Self::ScUnreachable(m)
             | Self::Internal(m) => m.clone(),

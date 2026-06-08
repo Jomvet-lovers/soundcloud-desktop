@@ -25,6 +25,8 @@ pub struct AppConfig {
     pub discovery: DiscoveryCfg,
     pub cold: ColdCfg,
     pub max_track_duration_ms: i32,
+    /// Нода-резерв для премиума: фоновые пайплайны off, ендпоинты только премиум.
+    pub premium_reserve: bool,
 }
 
 /// TTL'и для cold-cache. Если sc_synced_at старше TTL — на чтении спавним
@@ -322,6 +324,7 @@ impl AppConfig {
             },
 
             max_track_duration_ms: (env_u64("MAX_TRACK_DURATION_SEC", 420) * 1000) as i32,
+            premium_reserve: env_str("PREMIUM_RESERVE", "false") == "true",
         }
     }
 }

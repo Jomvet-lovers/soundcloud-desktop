@@ -79,6 +79,7 @@ pub struct WorkerClient {
     nats: Arc<NatsService>,
     cache: Arc<CacheService>,
     qdrant: Arc<QdrantService>,
+    reserve: bool,
 }
 
 impl WorkerClient {
@@ -86,11 +87,13 @@ impl WorkerClient {
         nats: Arc<NatsService>,
         cache: Arc<CacheService>,
         qdrant: Arc<QdrantService>,
+        reserve: bool,
     ) -> Arc<Self> {
         Arc::new(Self {
             nats,
             cache,
             qdrant,
+            reserve,
         })
     }
 
@@ -197,6 +200,11 @@ impl WorkerClient {
                 self.store_vector(&cache_key, &v).await;
                 return Ok(EncodeOutcome::Ready(v));
             }
+        }
+        // Резерв не публикует encode-джоб: иначе воркер записал бы вектор в
+        // Qdrant основного (done.encode), а резерв туда только читает.
+        if self.reserve {
+            return Ok(EncodeOutcome::Preparing);
         }
         // 3. Промах → диспатчим джоб (single-flight) и коротко поллим кэш.
         let inflight_key = format!("encjob:{}:{}", m.model, hash);

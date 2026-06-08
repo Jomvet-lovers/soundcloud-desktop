@@ -3,6 +3,7 @@ pub mod cache_helper;
 pub mod external_fetch;
 pub mod http_metrics;
 pub mod pagination;
+pub mod premium_gate;
 pub mod query;
 pub mod release_date;
 pub mod response;

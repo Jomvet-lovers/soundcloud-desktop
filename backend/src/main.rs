@@ -66,6 +66,10 @@ async fn main() {
 
     let config = Arc::new(AppConfig::from_env());
     info!(port = config.port, "backend starting");
+    let reserve = config.premium_reserve;
+    if reserve {
+        info!("premium_reserve mode ON: background pipelines disabled");
+    }
 
     let pg = db::connect(&config)
         .await
@@ -115,8 +119,10 @@ async fn main() {
     );
 
     let oauth_apps = OAuthAppsService::new(pg.clone(), config.clone());
-    if let Err(e) = oauth_apps.migrate_env_app().await {
-        warn!(error = %e, "OAuthApps env migration failed");
+    if !reserve {
+        if let Err(e) = oauth_apps.migrate_env_app().await {
+            warn!(error = %e, "OAuthApps env migration failed");
+        }
     }
     match oauth_apps.count_active().await {
         Ok(n) => info!(active = n, "Active OAuth apps"),
@@ -134,9 +140,11 @@ async fn main() {
     let link = LinkService::new(pg.clone(), auth.clone());
 
     let oauth_app_tokens = OAuthAppTokenService::new(pg.clone(), sc.clone(), oauth_apps.clone());
-    oauth_app_tokens
-        .clone()
-        .spawn_refresh_loop(shutdown.clone());
+    if !reserve {
+        oauth_app_tokens
+            .clone()
+            .spawn_refresh_loop(shutdown.clone());
+    }
     let tokens = TokenProvider::new(auth.clone(), oauth_app_tokens.clone());
 
     let cache = CacheService::new(redis_pool.clone());
@@ -150,7 +158,9 @@ async fn main() {
     if let Err(e) = subscriptions.restore_from_snapshot().await {
         warn!(error = %e, "subscriptions restore failed");
     }
-    subscriptions.spawn_snapshot_loop(shutdown.clone());
+    if !reserve {
+        subscriptions.spawn_snapshot_loop(shutdown.clone());
+    }
     let auras = AurasService::new(pg.clone(), subscriptions.clone());
     let sync_queue =
         SyncQueueService::new(pg.clone(), sc.clone(), auth.clone(), redis_pool.clone());
@@ -198,8 +208,10 @@ async fn main() {
         nats.clone(),
         s3_verifier.clone(),
     );
-    let worker = WorkerClient::new(nats.clone(), cache.clone(), qdrant.clone());
-    worker.spawn_done_consumer();
+    let worker = WorkerClient::new(nats.clone(), cache.clone(), qdrant.clone(), reserve);
+    if !reserve {
+        worker.spawn_done_consumer();
+    }
     let lrclib = LrclibService::new(external_fetcher.clone());
     let mxm = MusixmatchService::new(external_fetcher.clone(), config.mxm.api_base.clone());
     let genius = GeniusService::new(external_fetcher.clone(), config.genius.clone());
@@ -216,9 +228,12 @@ async fn main() {
         transcode.clone(),
         s3_verifier.clone(),
         config.lyrics.indexing_concurrency,
+        reserve,
     );
-    lyrics.spawn_consumers();
-    lyrics.spawn_reap_loops(shutdown.clone());
+    if !reserve {
+        lyrics.spawn_consumers();
+        lyrics.spawn_reap_loops(shutdown.clone());
+    }
 
     let collab_vector = CollabVectorService::new(qdrant.clone());
     let collab_trainer = CollabTrainerService::new(
@@ -228,7 +243,9 @@ async fn main() {
         collab_vector.clone(),
         config.collab.clone(),
     );
-    collab_trainer.spawn_bootstrap_and_cron(shutdown.clone());
+    if !reserve {
+        collab_trainer.spawn_bootstrap_and_cron(shutdown.clone());
+    }
 
     let indexing = IndexingService::new(
         pg.clone(),
@@ -238,7 +255,9 @@ async fn main() {
         transcode.clone(),
         config.max_track_duration_ms,
     );
-    indexing.spawn(shutdown.clone());
+    if !reserve {
+        indexing.spawn(shutdown.clone());
+    }
     cold_refresh.install_indexing(indexing.clone());
 
     let duration_resolver = crate::modules::indexing::DurationResolver::new(
@@ -246,7 +265,9 @@ async fn main() {
         resolve.clone(),
         config.max_track_duration_ms,
     );
-    duration_resolver.spawn(shutdown.clone());
+    if !reserve {
+        duration_resolver.spawn(shutdown.clone());
+    }
 
     let artist_account_walker = crate::modules::enrich::ArtistAccountWalker::new(
         pg.clone(),
@@ -284,8 +305,10 @@ async fn main() {
         ai_resolver,
         config.enrich.clone(),
     );
-    if let Some(kicker) = enrich.spawn(shutdown.clone()) {
-        indexing.install_enrich_kicker(kicker);
+    if !reserve {
+        if let Some(kicker) = enrich.spawn(shutdown.clone()) {
+            indexing.install_enrich_kicker(kicker);
+        }
     }
 
     let artist_crawl = ArtistCrawlService::new(
@@ -325,25 +348,29 @@ async fn main() {
         ai_matcher.clone(),
         &config.enrich_crawl,
     );
-    wanted_resolver.spawn(shutdown.clone());
+    if !reserve {
+        wanted_resolver.spawn(shutdown.clone());
+    }
     let wanted_resolver_state = wanted_resolver.clone();
 
     let discover = DiscoverService::new(pg.clone(), cache.clone(), subscriptions.clone());
-    discover.clone().spawn_refresh_loop(shutdown.clone());
+    if !reserve {
+        discover.clone().spawn_refresh_loop(shutdown.clone());
 
-    // Catalog discovery (crawl every artist on Genius/MB) on the work pool.
-    crate::modules::discovery::spawn(
-        pg.clone(),
-        artist_crawl.clone(),
-        artist_account_walker.clone(),
-        wanted_resolver.clone(),
-        &config.discovery,
-        shutdown.clone(),
-    );
+        // Catalog discovery (crawl every artist on Genius/MB) on the work pool.
+        crate::modules::discovery::spawn(
+            pg.clone(),
+            artist_crawl.clone(),
+            artist_account_walker.clone(),
+            wanted_resolver.clone(),
+            &config.discovery,
+            shutdown.clone(),
+        );
 
-    let track_discovery =
-        crate::modules::indexing::TrackDiscoveryService::new(sc.clone(), indexing.clone());
-    sc.install_track_observer(track_discovery.clone());
+        let track_discovery =
+            crate::modules::indexing::TrackDiscoveryService::new(sc.clone(), indexing.clone());
+        sc.install_track_observer(track_discovery.clone());
+    }
 
     let recommendations = RecommendationsService::new(
         qdrant.clone(),
@@ -369,15 +396,17 @@ async fn main() {
         collab_trainer.clone(),
     );
 
-    crate::modules::recommendations::cron::spawn_cron_loops(
-        recommendations.clone(),
-        nats.clone(),
-        shutdown.clone(),
-    );
+    if !reserve {
+        crate::modules::recommendations::cron::spawn_cron_loops(
+            recommendations.clone(),
+            nats.clone(),
+            shutdown.clone(),
+        );
+    }
 
     let mut tasks = JoinSet::new();
 
-    {
+    if !reserve {
         let token = shutdown.clone();
         let sq = sync_queue.clone();
         tasks.spawn(async move {
@@ -395,7 +424,7 @@ async fn main() {
         });
     }
 
-    {
+    if !reserve {
         let token = shutdown.clone();
         let auth = auth.clone();
         tasks.spawn(async move {
@@ -413,7 +442,7 @@ async fn main() {
         });
     }
 
-    {
+    if !reserve {
         let token = shutdown.clone();
         let auth = auth.clone();
         tasks.spawn(async move {
