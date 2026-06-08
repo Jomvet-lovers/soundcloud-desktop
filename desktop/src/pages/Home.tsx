@@ -1,25 +1,20 @@
-import React, { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import React, {useMemo, useState} from 'react';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
 import {WaveFrame} from '../components/home/WaveFrame';
 import {WaveMasthead} from '../components/home/WaveMasthead';
 import {useSoundprint} from '../components/library/useSoundprint';
-import { SoundWaveBlock, SoundWaveLockOverlay } from '../components/music/soundwave';
-import { TrackCard } from '../components/music/TrackCard';
-import { HorizontalScroll } from '../components/ui/HorizontalScroll';
-import { Skeleton } from '../components/ui/Skeleton';
-import {
-    useDiscoverFeed,
-  useFallbackTracks,
-  useFollowingTracks,
-  useLikedTracks,
-} from '../lib/hooks';
-import {ChevronRight, Headphones, Heart, Music, Sparkles} from '../lib/icons';
+import {SoundWaveBlock, SoundWaveLockOverlay} from '../components/music/soundwave';
+import {TrackCard} from '../components/music/TrackCard';
+import {HorizontalScroll} from '../components/ui/HorizontalScroll';
+import {Skeleton} from '../components/ui/Skeleton';
+import {useDiscoverFeed, useLikedTracks,} from '../lib/hooks';
+import {ChevronRight, Heart, Sparkles} from '../lib/icons';
 import {usePerfMode} from '../lib/perf';
 import {armLikesContinuation} from '../lib/queue-continuation';
 import {useScdMeta} from '../lib/scdMeta';
-import { useAuthStore } from '../stores/auth';
-import type { Track } from '../stores/player';
+import {useAuthStore} from '../stores/auth';
+import type {Track} from '../stores/player';
 
 /* ── Helpers ──────────────────────────────────────────────── */
 
@@ -83,53 +78,6 @@ function ShelfSkeleton({ count = 8 }: { count?: number }) {
 
 /* ── Isolated Sections ────────────────────────────────────── */
 
-const FallbackShelf = React.memo(function FallbackShelf() {
-  const { t } = useTranslation();
-    const shelfCap = useShelfCap();
-  const user = useAuthStore((s) => s.user);
-
-  // If user has any likes or followings, they're not a new user — no fallback needed
-  const hasActivity = (user?.public_favorites_count ?? 0) > 0 || (user?.followings_count ?? 0) > 0;
-
-  const { data: fallbackData, isLoading: fallbackLoading } = useFallbackTracks();
-  const fallbackTracks = useMemo(() => fallbackData?.collection ?? [], [fallbackData]);
-
-  if (hasActivity || (!fallbackLoading && fallbackTracks.length === 0)) return null;
-
-  return (
-    <>
-      {/* Hint to start liking */}
-      <section className="glass-flat rounded-2xl p-5 flex items-center gap-4">
-        <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-          <Heart size={18} className="text-accent" />
-        </div>
-        <div>
-          <p className="text-[13px] font-medium text-white/80">{t('home.startLikingTitle')}</p>
-          <p className="text-[11px] text-white/35 mt-0.5">{t('home.startLikingDesc')}</p>
-        </div>
-      </section>
-
-      <section>
-        <SectionHeader
-          title={t('home.startListening', 'Start Listening')}
-          icon={<Headphones size={15} className="text-accent" />}
-        />
-        <HorizontalScroll>
-          {fallbackLoading ? (
-            <ShelfSkeleton count={6} />
-          ) : (
-              fallbackTracks.slice(0, shelfCap).map((track) => (
-              <div key={track.urn} className="w-[180px] shrink-0">
-                <TrackCard track={track} queue={fallbackTracks} />
-              </div>
-            ))
-          )}
-        </HorizontalScroll>
-      </section>
-    </>
-  );
-});
-
 const LikedShelf = React.memo(function LikedShelf({
   likedTracks,
   isLoading,
@@ -157,39 +105,6 @@ const LikedShelf = React.memo(function LikedShelf({
             likedTracks.slice(0, shelfCap).map((track) => (
             <div key={track.urn} className="w-[180px] shrink-0">
                 <TrackCard track={track} queue={likedTracks} onPlay={armLikesContinuation}/>
-            </div>
-          ))
-        )}
-      </HorizontalScroll>
-    </section>
-  );
-});
-
-const FollowingShelf = React.memo(function FollowingShelf({
-  followingTracks,
-  isLoading,
-}: {
-  followingTracks: Track[];
-  isLoading: boolean;
-}) {
-  const { t } = useTranslation();
-    const shelfCap = useShelfCap();
-
-  if (!isLoading && followingTracks.length === 0) return null;
-
-  return (
-    <section>
-      <SectionHeader
-        title={t('home.freshReleases')}
-        icon={<Music size={15} className="text-white/50" />}
-      />
-      <HorizontalScroll>
-        {isLoading ? (
-          <ShelfSkeleton />
-        ) : (
-            followingTracks.slice(0, shelfCap).map((track) => (
-            <div key={track.urn} className="w-[180px] shrink-0">
-              <TrackCard track={track} queue={followingTracks} />
             </div>
           ))
         )}
@@ -232,16 +147,11 @@ const RecommendedSection = React.memo(function RecommendedSection() {
 export function Home() {
   const user = useAuthStore((s) => s.user);
   const likedTracksQuery = useLikedTracks(100);
-  const followingQuery = useFollowingTracks(20);
 
     // Picked genre tag — retints the whole room (atmosphere, stars, masthead).
     const [genre, setGenre] = useState<string | null>(null);
     const sound = useSoundprint(likedTracksQuery.tracks, genre);
 
-  const followingTracks = useMemo(
-    () => followingQuery.data?.collection ?? [],
-    [followingQuery.data],
-  );
   const likedShelfTracks = useMemo(
     () => likedTracksQuery.tracks.slice(0, 50),
     [likedTracksQuery.tracks],
@@ -266,9 +176,7 @@ export function Home() {
       </div>
 
           {/* Manual rivers under the wave — each isolated (own hooks, own boundary) */}
-      <FallbackShelf />
       <LikedShelf likedTracks={likedShelfTracks} isLoading={likedTracksQuery.isLoading} />
-      <FollowingShelf followingTracks={followingTracks} isLoading={followingQuery.isLoading} />
           <RecommendedSection/>
       </WaveFrame>
   );
