@@ -682,8 +682,7 @@
     "seconds": "сек"
   },
   "news": {
-    "dismissOnce": "Закрыть",
-    "dismissForever": "Больше не показывать",
+    "close": "Закрыть",
     "discord": {
       "title": "У нас появился Discord!",
       "description": "Присоединяйся — обсуждения, предложения, баг-репорты",

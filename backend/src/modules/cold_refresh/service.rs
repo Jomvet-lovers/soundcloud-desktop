@@ -700,20 +700,43 @@ async fn delete_orphans(
     } else {
         ""
     };
-    // progress=false — никогда не трогаем pending локальную запись (намерение).
-    // synced_at < cutoff — подтверждённую достаточно давно (SC успел распространить);
-    // свежесинканную (в пределах grace) оставляем. Вызывается только на полном
-    // owner-снапшоте (см. refresh_collection).
-    let sql = format!(
-        "DELETE FROM {table} \
-         WHERE user_id = $1 \
-           {wanted_filter} \
-           AND progress = false \
-           AND synced_at IS NOT NULL \
-           AND synced_at < $3 \
-           AND NOT ({key_col} = ANY($2))",
-        table = coll.mirror_table,
+    // Кандидат на удаление:
+    //  - progress=false — никогда не трогаем pending локальную запись (намерение);
+    //  - synced_at < cutoff — подтверждённую достаточно давно (SC успел распространить);
+    //  - created_at < cutoff — только что (пере)лайкнутый трек (created_at=now())
+    //    защищён, даже если SC-листинг его пока не отдаёт (лаг like-churn);
+    //  - нет в авторитетном снапшоте. Вызывается только на полном owner-снапшоте.
+    let where_clause = format!(
+        "user_id = $1 {wanted_filter} \
+         AND progress = false \
+         AND synced_at IS NOT NULL AND synced_at < $3 \
+         AND created_at < $3 \
+         AND NOT ({key_col} = ANY($2))",
         key_col = coll.mirror_key_col,
+    );
+
+    // Safety-guard от неполного снапшота: если SC вернул заметно меньше, чем у нас
+    // подтверждённых строк, это почти наверняка обрезанный листинг — НЕ массово
+    // стираем лайки. Малые легитимные web-unlike'и (snapshot ≈ confirmed) проходят.
+    let confirmed: i64 = sqlx::query_scalar(&format!(
+        "SELECT count(*) FROM {table} WHERE user_id = $1 {wanted_filter} AND progress = false",
+        table = coll.mirror_table,
+    ))
+    .bind(sc_user_id)
+    .fetch_one(pg)
+    .await?;
+    if (seen.len() as i64) * 2 < confirmed {
+        warn!(
+            user = %sc_user_id, kind = %coll.lock_kind,
+            snapshot = seen.len(), confirmed,
+            "delete_orphans: snapshot < 50% of confirmed — likely incomplete, skipping deletes"
+        );
+        return Ok(());
+    }
+
+    let sql = format!(
+        "DELETE FROM {table} WHERE {where_clause}",
+        table = coll.mirror_table,
     );
     sqlx::query(&sql)
         .bind(sc_user_id)

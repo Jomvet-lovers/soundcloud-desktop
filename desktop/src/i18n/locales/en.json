@@ -674,8 +674,7 @@
     "seconds": "s"
   },
   "news": {
-    "dismissOnce": "Close",
-    "dismissForever": "Don't show again",
+    "close": "Close",
     "discord": {
       "title": "We have a Discord server!",
       "description": "Join our community — discuss, suggest features, report bugs",

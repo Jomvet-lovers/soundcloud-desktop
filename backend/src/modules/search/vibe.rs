@@ -155,7 +155,7 @@ impl VibeSearchService {
     where
         T: Serialize + serde::de::DeserializeOwned,
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output=AppResult<Cacheable<T>>>,
+        Fut: std::future::Future<Output = AppResult<Cacheable<T>>>,
     {
         if let Ok(Some(raw)) = self.cache.get_raw(key).await {
             if let Ok(v) = serde_json::from_str::<T>(&raw) {
@@ -223,7 +223,7 @@ impl VibeSearchService {
                 status: "ready".into(),
             }))
         })
-            .await
+        .await
     }
 
     // --- /search/lyrics -----------------------------------------------------
@@ -263,7 +263,7 @@ impl VibeSearchService {
                 cache: fetch.cacheable,
             })
         })
-            .await
+        .await
     }
 
     /// mode=text: PG FTS по lyrics_cache (LYRICS_FTS_EXPR), websearch_to_tsquery('simple'),
@@ -276,8 +276,8 @@ impl VibeSearchService {
         sqlx::query(&format!(
             "SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}"
         ))
-            .execute(&mut *tx)
-            .await?;
+        .execute(&mut *tx)
+        .await?;
 
         // ts_headline по plain_text/synced — отдаём строку с матчем, маркеры
         // настраиваем минимальные (>>/<<), вычищаем в snippet ниже. Матч-условие
@@ -396,7 +396,7 @@ impl VibeSearchService {
 
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut merged: Vec<RawLyricsHit> = Vec::with_capacity(full as usize + 1);
-        for h in text.hits.into_iter().chain(sem.hits.into_iter()) {
+        for h in text.hits.into_iter().chain(sem.hits) {
             if seen.insert(h.sc_track_id.clone()) {
                 merged.push(h);
             }
@@ -426,9 +426,9 @@ impl VibeSearchService {
         let rows: Vec<TrackRow> = sqlx::query_as(
             "SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'",
         )
-            .bind(ids)
-            .fetch_all(&self.pg)
-            .await?;
+        .bind(ids)
+        .fetch_all(&self.pg)
+        .await?;
         let by_id: HashMap<String, TrackRow> = rows
             .into_iter()
             .map(|r| (r.sc_track_id.clone(), r))
@@ -467,9 +467,9 @@ impl VibeSearchService {
         let rows: Vec<TrackRow> = sqlx::query_as(
             "SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'",
         )
-            .bind(&ids)
-            .fetch_all(&self.pg)
-            .await?;
+        .bind(&ids)
+        .fetch_all(&self.pg)
+        .await?;
         let by_id: HashMap<String, TrackRow> = rows
             .into_iter()
             .map(|r| (r.sc_track_id.clone(), r))
@@ -625,7 +625,7 @@ fn top_genres_of(
         })
         .collect();
     // Частота убыванием; при равенстве — стабильно по первому появлению.
-    ranked.sort_by(|a, b| b.1.cmp(&a.1));
+    ranked.sort_by_key(|b| std::cmp::Reverse(b.1));
     ranked.into_iter().take(n).map(|(g, _)| g).collect()
 }
 

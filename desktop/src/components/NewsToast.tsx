@@ -38,35 +38,39 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
 }) {
   const { t } = useTranslation();
   const [modalOpen, setModalOpen] = useState(false);
-  const dismissOnce = useNewsStore((s) => s.dismissOnce);
-  const dismissForever = useNewsStore((s) => s.dismissForever);
+  const dismiss = useNewsStore((s) => s.dismiss);
 
   const accent = item.accent ?? 'violet';
   const border = accentBorder[accent] ?? accentBorder.violet;
   const glow = accentGlow[accent] ?? accentGlow.violet;
   const dot = accentDot[accent] ?? accentDot.violet;
 
-  const handleDismissOnce = useCallback(
+  // Dismiss from the toast cross — never opens the modal.
+  const handleDismiss = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      dismissOnce(item.id);
+      dismiss(item.id);
     },
-    [dismissOnce, item.id],
+    [dismiss, item.id],
   );
 
-  const handleDismissForever = useCallback(() => {
-    dismissForever(item.id);
-    setModalOpen(false);
-  }, [dismissForever, item.id]);
+  // Any modal close (button, header cross, escape, click-outside) dismisses for good.
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      setModalOpen(open);
+      if (!open) dismiss(item.id);
+    },
+    [dismiss, item.id],
+  );
 
   return (
-      <Modal open={modalOpen} onOpenChange={setModalOpen}>
+    <Modal open={modalOpen} onOpenChange={handleOpenChange}>
       {/* Toast */}
       <div
         className={`group relative animate-in slide-in-from-left-4 fade-in duration-500 fill-mode-both`}
         style={{ animationDelay: `${index * 120}ms` }}
       >
-          <ModalTrigger asChild>
+        <ModalTrigger asChild>
           <button
             type="button"
             className={`relative flex w-[340px] cursor-pointer items-start gap-3.5 rounded-2xl border bg-[#1a1a1e]/90 px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-[var(--ease-apple)] ${border} ${glow} hover:bg-[#1e1e24]/95 hover:scale-[1.01]`}
@@ -92,12 +96,12 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
               />
             )}
           </button>
-          </ModalTrigger>
+        </ModalTrigger>
 
-        {/* Close (dismiss once) — вне триггера, чтобы избежать <button> в <button> */}
+        {/* Close — вне триггера, чтобы избежать <button> в <button> */}
         <button
           type="button"
-          onClick={handleDismissOnce}
+          onClick={handleDismiss}
           className="absolute right-2 top-2 z-10 flex size-6 items-center justify-center rounded-lg bg-white/0 text-white/0 transition-all group-hover:bg-white/[0.06] group-hover:text-white/40 hover:!bg-white/[0.1] hover:!text-white/60"
         >
           <X size={12} />
@@ -105,74 +109,58 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
       </div>
 
       {/* Modal */}
-          <ModalContent size="md" showClose={false} zClass="z-[100]">
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 pt-5 pb-3">
-                  <div className="flex items-center gap-2.5">
-                      <div className={`size-2.5 rounded-full ${dot}`}/>
-                      <ModalTitle className="text-[15px] font-semibold text-white/92">
-                          {t(item.titleKey)}
-                      </ModalTitle>
-                  </div>
-                  <ModalClose
-                      className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-white/[0.05] text-white/40 transition-colors hover:bg-white/[0.1] hover:text-white/60">
-                      <X size={14}/>
-                  </ModalClose>
-              </div>
+      <ModalContent size="md" showClose={false} zClass="z-[100]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`size-2.5 rounded-full ${dot}`} />
+            <ModalTitle className="text-[15px] font-semibold text-white/92">
+              {t(item.titleKey)}
+            </ModalTitle>
+          </div>
+          <ModalClose className="flex size-7 cursor-pointer items-center justify-center rounded-lg bg-white/[0.05] text-white/40 transition-colors hover:bg-white/[0.1] hover:text-white/60">
+            <X size={14} />
+          </ModalClose>
+        </div>
 
-              {/* Image */}
-              {item.image && (
-                  <div className="px-5 pb-3">
-                      <img
-                          src={proxiedAssetUrl(item.image) ?? item.image}
-                          alt=""
-                          className="w-full rounded-xl object-cover ring-1 ring-white/[0.06]"
-                          decoding="async"
-                      />
-                  </div>
-              )}
+        {/* Image */}
+        {item.image && (
+          <div className="px-5 pb-3">
+            <img
+              src={proxiedAssetUrl(item.image) ?? item.image}
+              alt=""
+              className="w-full rounded-xl object-cover ring-1 ring-white/[0.06]"
+              decoding="async"
+            />
+          </div>
+        )}
 
-              {/* Body */}
-              <div className="px-5 pb-4">
-                  <p className="selectable text-[13px] leading-relaxed text-white/60 whitespace-pre-line">
-                      {t(item.bodyKey)}
-                  </p>
-              </div>
+        {/* Body */}
+        <div className="px-5 pb-4">
+          <p className="selectable text-[13px] leading-relaxed text-white/60 whitespace-pre-line">
+            {t(item.bodyKey)}
+          </p>
+        </div>
 
-              {/* Actions */}
-              <div className="flex gap-2 px-5 pb-5">
-                  <ModalClose
-                      className="flex-1 cursor-pointer rounded-xl bg-white/[0.05] py-2.5 text-[13px] font-medium text-white/50 transition-colors hover:bg-white/[0.08]">
-                      {t('news.dismissOnce')}
-                  </ModalClose>
-                  <button
-                      type="button"
-                      onClick={handleDismissForever}
-                      className="flex-1 cursor-pointer rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white/70 transition-colors hover:bg-white/[0.12]"
-                  >
-                      {t('news.dismissForever')}
-                  </button>
-              </div>
-          </ModalContent>
-      </Modal>
+        {/* Actions */}
+        <div className="px-5 pb-5">
+          <ModalClose className="w-full cursor-pointer rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white/70 transition-colors hover:bg-white/[0.12]">
+            {t('news.close')}
+          </ModalClose>
+        </div>
+      </ModalContent>
+    </Modal>
   );
 });
 
 // ─── Container ──────────────────────────────────────────────
 
 export const NewsToast = React.memo(function NewsToast() {
-  const permanentlyDismissed = useNewsStore((s) => s.permanentlyDismissed);
-  const sessionDismissed = useNewsStore((s) => s.sessionDismissed);
+  const dismissed = useNewsStore((s) => s.dismissed);
 
   const visible = useMemo(
-    () =>
-      SHOW_NEWS
-        ? NEWS.filter(
-            (item) =>
-              !permanentlyDismissed.includes(item.id) && !sessionDismissed.includes(item.id),
-          )
-        : [],
-    [permanentlyDismissed, sessionDismissed],
+    () => (SHOW_NEWS ? NEWS.filter((item) => !dismissed.includes(item.id)) : []),
+    [dismissed],
   );
 
   if (visible.length === 0) return null;

@@ -80,12 +80,12 @@ pub async fn http_stats(_: AdminAuth, State(state): State<AppState>) -> AppResul
         .map(|(route, s)| EndpointStat {
             route,
             count: s.count,
-            avg_ms: if s.count > 0 { s.total_ms / s.count } else { 0 },
+            avg_ms: s.total_ms.checked_div(s.count).unwrap_or(0),
             max_ms: s.max_ms,
             errors: s.errors,
         })
         .collect();
-    endpoints.sort_by(|a, b| b.count.cmp(&a.count));
+    endpoints.sort_by_key(|b| std::cmp::Reverse(b.count));
     endpoints.truncate(30);
 
     Ok(Json(HttpStats {

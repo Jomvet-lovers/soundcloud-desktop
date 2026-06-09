@@ -38,6 +38,10 @@ pub async fn set_wanted(pg: &PgPool, m: WantedMirror, user_id: &str, key: &str) 
     // писал URN, /users/{self}/* читал bare). Сессия НЕ канонизируется глобально,
     // чтобы не задеть history/dislikes/subscriptions — только эти таблицы.
     let user_id = crate::common::sc_ids::extract_sc_id(user_id);
+    // created_at = now() и на ON CONFLICT: повторный лайк (в т.ч. после unlike)
+    // должен всплывать наверх ленты (read-path сортирует created_at DESC) —
+    // как на SC. set_wanted зовётся только из user-like пути; reconcile/seed
+    // идут через batch_upsert_mirror и сохраняют SC-порядок отдельно.
     let sql = format!(
         "INSERT INTO {table} (user_id, {key_col}, wanted_state, progress) \
          VALUES ($1, $2, true, true) \
@@ -45,7 +49,8 @@ pub async fn set_wanted(pg: &PgPool, m: WantedMirror, user_id: &str, key: &str) 
              wanted_state = true, \
              progress = CASE WHEN {table}.wanted_state = false \
                              THEN false \
-                             ELSE {table}.progress END",
+                             ELSE {table}.progress END, \
+             created_at = now()",
         table = m.table,
         key_col = m.key_col,
     );

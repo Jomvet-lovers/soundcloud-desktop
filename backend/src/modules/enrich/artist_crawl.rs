@@ -271,8 +271,7 @@ impl ArtistCrawlService {
     }
 
     async fn discover_genius_albums(&self, artist_id: Uuid, genius_id: i64) -> AppResult<()> {
-        let mut page = 1u32;
-        for _ in 0..10 {
+        for page in (1u32..).take(10) {
             let (albums, has_more) = self.genius.list_artist_albums(genius_id, page, 20).await?;
             if albums.is_empty() {
                 break;
@@ -304,7 +303,6 @@ impl ArtistCrawlService {
             if !has_more {
                 return Ok(());
             }
-            page += 1;
         }
         Ok(())
     }
