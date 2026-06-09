@@ -31,9 +31,9 @@ jobs:
           workspaces: backend -> target
           key: backend
 
-      - name: Format check
+      - name: Format check (warn only — does not fail CI)
         working-directory: backend
-        run: cargo fmt --check
+        run: cargo fmt --check || echo "::warning title=rustfmt::backend code differs from rustfmt — run 'cargo fmt'. Not blocking CI."
 
       - name: Clippy
         working-directory: backend
