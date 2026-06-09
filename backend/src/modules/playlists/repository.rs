@@ -268,7 +268,7 @@ impl PlaylistRepository {
             .await?;
         if !next.is_empty() {
             let positions: Vec<i32> = (0..next.len() as i32).collect();
-            let urns: Vec<&str> = std::iter::repeat(urn).take(next.len()).collect();
+            let urns: Vec<&str> = vec![urn; next.len()];
             sqlx::query_file!(
                 "queries/playlists/insert_tracks.sql",
                 &urns as &[&str],

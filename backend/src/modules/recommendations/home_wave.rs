@@ -545,7 +545,7 @@ impl RecommendationsService {
         // Артист попадает в «дропы» только если ты лайкнул его >=2 раз —
         // один случайный лайк (напр. фит, который ты не следишь) больше не
         // заливает ленту его релизами. Только playable треки.
-        match sqlx::query_file_scalar!(
+        sqlx::query_file_scalar!(
             "queries/recommendations/home_wave/fresh_drops.sql",
             &ids,
             &exclude_vec,
@@ -553,10 +553,7 @@ impl RecommendationsService {
         )
         .fetch_all(&self.pg)
         .await
-        {
-            Ok(v) => v,
-            Err(_) => Vec::new(),
-        }
+        .unwrap_or_default()
     }
 
     async fn apply_quality_filter(&self, builder: &mut ClusterBuilder) {

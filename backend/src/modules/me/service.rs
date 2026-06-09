@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tracing::debug;
