@@ -17,6 +17,20 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: dev
+          POSTGRES_USER: scd
+          POSTGRES_DB: scd
+        ports: [ '5432:5432' ]
+        options: >-
+          --health-cmd "pg_isready -U scd"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      # query_file! макросы проверяются ONLINE против поднятой тест-БД — без .sqlx-кэша.
+      DATABASE_URL: postgres://scd:dev@localhost:5432/scd
     steps:
       - uses: actions/checkout@v4
 
@@ -30,6 +44,11 @@ jobs:
         with:
           workspaces: backend -> target
           key: backend
+
+      - name: Apply migrations (sqlx online check)
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          for f in backend/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"; done
 
       - name: Format check (warn only — does not fail CI)
         working-directory: backend
@@ -281,6 +300,19 @@ jobs:
     needs: prod-guard
     if: needs.prod-guard.outputs.ok == 'true'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: dev
+          POSTGRES_USER: scd
+          POSTGRES_DB: scd
+        ports: [ '5432:5432' ]
+        options: >-
+          --health-cmd "pg_isready -U scd"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgres://scd:dev@localhost:5432/scd
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -306,6 +338,11 @@ jobs:
             streaming -> target
             utils/call -> target
           key: prod-rust
+
+      - name: Apply migrations (sqlx online check)
+        run: |
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          for f in backend/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"; done
 
       - run: cargo build --release --manifest-path backend/Cargo.toml
       - run: cargo build --release --manifest-path streaming/Cargo.toml

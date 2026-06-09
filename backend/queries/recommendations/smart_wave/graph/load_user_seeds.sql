@@ -3,7 +3,7 @@ WITH rl AS (SELECT sc_track_id,
             FROM user_likes_tracks
             WHERE user_id = ANY ($1)
               AND wanted_state = true
-              AND created_at > now() - make_interval(days = > $2::int)
+              AND created_at > now() - make_interval(days => $2::int)
             ORDER BY created_at DESC, ctid DESC
     LIMIT 200
     )
@@ -41,8 +41,7 @@ WHERE ue.sc_user_id = ANY ($1)
   AND ue.event_type IN ('full_play'
     , 'play_complete')
   AND ue.created_at
-    > now() - make_interval(days =
-    > $3:: int)
+    > now() - make_interval(days => $3:: int)
 GROUP BY ta.artist_id
     ),
     merged AS (
