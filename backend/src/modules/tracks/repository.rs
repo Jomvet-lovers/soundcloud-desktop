@@ -7,7 +7,6 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::{json, Map, Value};
-use sqlx::types::Json;
 use sqlx::FromRow;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -144,6 +143,10 @@ impl TrackRepository {
         new_index_priority: TrackPriority,
         new_storage_priority: TrackPriority,
     ) -> AppResult<IngestResult> {
+        // NB: оставлено на runtime query_as. sqlx query! для большого INSERT выводит
+        // bind-параметры как non-null (&str), а ScTrackFields несёт ~12 nullable-полей
+        // как Option<String> → конфликт. Чинится не тут, а аудитом nullability
+        // ScTrackFields↔схема — отдельной задачей; до тех пор не трогаем рабочий upsert.
         let row: (Uuid, bool) = sqlx::query_as(
             "INSERT INTO tracks (
                 sc_track_id, urn, title, title_normalized, description, genre, tags,
@@ -233,25 +236,19 @@ impl TrackRepository {
     }
 
     pub async fn find_by_sc_track_id(&self, sc_track_id: &str) -> AppResult<Option<TrackRow>> {
-        let row: Option<TrackRow> = sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = $1")
-            .bind(sc_track_id)
-            .fetch_optional(&self.pg)
-            .await?;
+        let row = sqlx::query_file_as!(
+            TrackRow,
+            "queries/tracks/repository/find_by_sc_track_id.sql",
+            sc_track_id
+        )
+        .fetch_optional(&self.pg)
+        .await?;
         Ok(row)
     }
 
     /// Terminal `too_long`: excluded from storage/index/transcribe pickup queues.
     pub async fn mark_too_long(&self, sc_track_id: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE tracks SET \
-                 storage_state = 'too_long', \
-                 index_state = 'too_long', \
-                 transcribe_state = 'disabled', \
-                 updated_at = now() \
-             WHERE sc_track_id = $1 \
-               AND (storage_state <> 'too_long' OR index_state <> 'too_long')",
-        )
-            .bind(sc_track_id)
+        sqlx::query_file!("queries/tracks/mark_too_long.sql", sc_track_id)
             .execute(&self.pg)
             .await?;
         Ok(())
@@ -268,25 +265,9 @@ impl TrackRepository {
         sc_track_id: &str,
         quality: Option<&str>,
     ) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE tracks SET \
-                 storage_state = 'ok', \
-                 storage_quality = COALESCE($2, storage_quality), \
-                 s3_verified_at = now(), \
-                 s3_missing_at = NULL, \
-                 storage_attempts = 0, \
-                 hq_upgrade_pending = CASE \
-                     WHEN $2 = 'hq' THEN false \
-                     WHEN $2 = 'sq' AND tracks.storage_quality IS DISTINCT FROM 'hq' THEN true \
-                     ELSE hq_upgrade_pending \
-                 END, \
-                 updated_at = now() \
-             WHERE sc_track_id = $1",
-        )
-        .bind(sc_track_id)
-        .bind(quality)
-        .execute(&self.pg)
-        .await?;
+        sqlx::query_file!("queries/tracks/mark_storage_done.sql", sc_track_id, quality)
+            .execute(&self.pg)
+            .await?;
         Ok(())
     }
 
@@ -294,16 +275,10 @@ impl TrackRepository {
     /// (sentinel 30000ms без full_duration). Cron перечитывает через apiv2
     /// и фиксит duration_ms.
     pub async fn pick_duration_resolve(&self, limit: i64) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM tracks \
-             WHERE needs_duration_resolve = true \
-             ORDER BY sc_synced_at \
-             LIMIT $1",
-        )
-        .bind(limit)
-        .fetch_all(&self.pg)
-        .await?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        let rows = sqlx::query_file_scalar!("queries/tracks/pick_duration_resolve.sql", limit)
+            .fetch_all(&self.pg)
+            .await?;
+        Ok(rows)
     }
 
     pub async fn apply_resolved_duration(
@@ -311,42 +286,28 @@ impl TrackRepository {
         sc_track_id: &str,
         duration_ms: i32,
     ) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE tracks SET duration_ms = $2, needs_duration_resolve = false, \
-                 updated_at = now() \
-             WHERE sc_track_id = $1",
+        sqlx::query_file!(
+            "queries/tracks/apply_resolved_duration.sql",
+            sc_track_id,
+            duration_ms
         )
-        .bind(sc_track_id)
-        .bind(duration_ms)
         .execute(&self.pg)
         .await?;
         Ok(())
     }
 
     pub async fn clear_duration_resolve(&self, sc_track_id: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE tracks SET needs_duration_resolve = false, updated_at = now() \
-             WHERE sc_track_id = $1",
-        )
-        .bind(sc_track_id)
-        .execute(&self.pg)
-        .await?;
+        sqlx::query_file!("queries/tracks/clear_duration_resolve.sql", sc_track_id)
+            .execute(&self.pg)
+            .await?;
         Ok(())
     }
 
     /// Воркер qdrant'а сообщает: indexing завершён. Снимает pending → indexed.
     pub async fn mark_indexed(&self, sc_track_id: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE tracks SET \
-                 index_state = 'indexed', \
-                 indexed_at = now(), \
-                 index_attempts = 0, \
-                 updated_at = now() \
-             WHERE sc_track_id = $1 AND index_state <> 'indexed'",
-        )
-        .bind(sc_track_id)
-        .execute(&self.pg)
-        .await?;
+        sqlx::query_file!("queries/tracks/mark_indexed.sql", sc_track_id)
+            .execute(&self.pg)
+            .await?;
         Ok(())
     }
 
@@ -357,44 +318,41 @@ impl TrackRepository {
         sc_track_id: &str,
         fingerprint: &str,
     ) -> AppResult<Option<Uuid>> {
-        let row: Option<(Uuid, Option<Uuid>)> =
-            sqlx::query_as("SELECT id, canonical_track_id FROM tracks WHERE sc_track_id = $1")
-                .bind(sc_track_id)
+        let Some(row) =
+            sqlx::query_file!("queries/tracks/find_id_canonical_by_sc.sql", sc_track_id)
                 .fetch_optional(&self.pg)
-                .await?;
-        let Some((track_id, current_canonical)) = row else {
+                .await?
+        else {
             return Ok(None);
         };
+        let track_id = row.id;
+        let current_canonical = row.canonical_track_id;
 
-        sqlx::query("UPDATE tracks SET audio_fingerprint = $2, updated_at = now() WHERE id = $1")
-            .bind(track_id)
-            .bind(fingerprint)
+        sqlx::query_file!("queries/tracks/set_fingerprint.sql", track_id, fingerprint)
             .execute(&self.pg)
             .await?;
 
         let prefix: String = fingerprint.chars().take(64).collect();
-        let neighbour: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
-            "SELECT id, canonical_track_id FROM tracks \
-             WHERE substr(audio_fingerprint, 1, 64) = $1 AND id <> $2 LIMIT 1",
+        let Some(neighbour) = sqlx::query_file!(
+            "queries/tracks/find_fingerprint_neighbour.sql",
+            prefix,
+            track_id
         )
-        .bind(&prefix)
-        .bind(track_id)
         .fetch_optional(&self.pg)
-        .await?;
-        let Some((other_id, other_canonical)) = neighbour else {
+        .await?
+        else {
             return Ok(current_canonical);
         };
 
         let canonical_id = current_canonical
-            .or(other_canonical)
+            .or(neighbour.canonical_track_id)
             .unwrap_or_else(Uuid::new_v4);
-        sqlx::query(
-            "UPDATE tracks SET canonical_track_id = $1, updated_at = now() \
-             WHERE id IN ($2, $3) AND (canonical_track_id IS NULL OR canonical_track_id <> $1)",
+        sqlx::query_file!(
+            "queries/tracks/link_canonical.sql",
+            canonical_id,
+            track_id,
+            neighbour.id
         )
-        .bind(canonical_id)
-        .bind(track_id)
-        .bind(other_id)
         .execute(&self.pg)
         .await?;
         Ok(Some(canonical_id))
@@ -542,12 +500,23 @@ async fn project_many_filtered(
     if sc_track_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let sql = if public_only {
-        "SELECT * FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'"
+    let rows: Vec<TrackRow> = if public_only {
+        sqlx::query_file_as!(
+            TrackRow,
+            "queries/tracks/repository/project_many_public.sql",
+            sc_track_ids
+        )
+        .fetch_all(pg)
+        .await?
     } else {
-        "SELECT * FROM tracks WHERE sc_track_id = ANY($1)"
+        sqlx::query_file_as!(
+            TrackRow,
+            "queries/tracks/repository/project_many.sql",
+            sc_track_ids
+        )
+        .fetch_all(pg)
+        .await?
     };
-    let rows: Vec<TrackRow> = sqlx::query_as(sql).bind(sc_track_ids).fetch_all(pg).await?;
     let by_id: std::collections::HashMap<String, TrackRow> = rows
         .into_iter()
         .map(|r| (r.sc_track_id.clone(), r))
@@ -565,28 +534,15 @@ async fn project_many_filtered(
     let users: std::collections::HashMap<String, Value> = if uploader_ids.is_empty() {
         Default::default()
     } else {
-        let rows: Vec<(String, Json<Value>)> = sqlx::query_as(
-            "SELECT sc_user_id, jsonb_build_object(
-                 'kind','user',
-                 'id', sc_user_id,
-                 'urn', urn,
-                 'username', username,
-                 'avatar_url', avatar_url,
-                 'permalink_url', permalink_url,
-                 'verified', verified,
-                 'country_code', country,
-                 'city', city,
-                 'description', description,
-                 'followers_count', followers_count,
-                 'followings_count', followings_count,
-                 'track_count', tracks_count
-             ) AS u
-             FROM users WHERE sc_user_id = ANY($1)",
+        sqlx::query_file!(
+            "queries/tracks/repository/project_many_uploaders.sql",
+            &uploader_ids
         )
-        .bind(&uploader_ids)
         .fetch_all(pg)
-        .await?;
-        rows.into_iter().map(|(k, j)| (k, j.0)).collect()
+        .await?
+        .into_iter()
+        .map(|r| (r.sc_user_id, r.u))
+        .collect()
     };
 
     Ok(sc_track_ids

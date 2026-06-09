@@ -53,16 +53,12 @@ impl ArtistAccountWalker {
     }
 
     pub async fn walk_artist(&self, artist_id: Uuid, artist_name: &str) -> AppResult<()> {
-        let accounts: Vec<String> = sqlx::query_as(
-            "SELECT sc_user_id FROM artist_sc_accounts \
-             WHERE artist_id = $1 AND role IN ('main', 'alt', 'demo')",
+        let accounts: Vec<String> = sqlx::query_file_scalar!(
+            "queries/enrich/artist_account_walker/list_accounts.sql",
+            artist_id
         )
-        .bind(artist_id)
         .fetch_all(&self.pg)
-        .await?
-        .into_iter()
-        .map(|(s,): (String,)| s)
-        .collect();
+        .await?;
         if accounts.is_empty() {
             return Ok(());
         }
@@ -106,21 +102,18 @@ impl ArtistAccountWalker {
                 }
                 if let Some(track_row) = self.tracks.find_by_sc_track_id(&sc_track_id).await? {
                     if track_row.primary_artist_id.is_none() {
-                        let _ = sqlx::query(
-                            "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence) \
-                             VALUES ($1, $2, 'primary', 0, 'walker', 0.85) \
-                             ON CONFLICT (track_id, artist_id, role) DO NOTHING",
+                        let _ = sqlx::query_file!(
+                            "queries/enrich/artist_account_walker/insert_track_artist.sql",
+                            track_row.id,
+                            artist_id
                         )
-                        .bind(track_row.id)
-                        .bind(artist_id)
                         .execute(&self.pg)
                         .await;
-                        let _ = sqlx::query(
-                            "UPDATE tracks SET primary_artist_id = $2, updated_at = now() \
-                             WHERE id = $1 AND primary_artist_id IS NULL",
+                        let _ = sqlx::query_file!(
+                            "queries/enrich/artist_account_walker/set_primary_artist.sql",
+                            track_row.id,
+                            artist_id
                         )
-                        .bind(track_row.id)
-                        .bind(artist_id)
                         .execute(&self.pg)
                         .await;
                         new_count += 1;
@@ -129,14 +122,13 @@ impl ArtistAccountWalker {
             }
         }
         if let Some(a) = avatar {
-            let _ = sqlx::query(
-                "UPDATE artists SET avatar_url = COALESCE(avatar_url, $2), updated_at = now()
-                 WHERE id = $1",
+            let _ = sqlx::query_file!(
+                "queries/enrich/artist_account_walker/set_avatar.sql",
+                artist_id,
+                &a
             )
-                .bind(artist_id)
-                .bind(&a)
-                .execute(&self.pg)
-                .await;
+            .execute(&self.pg)
+            .await;
         }
         if new_count > 0 {
             info!(%artist_id, attached = new_count, "artist_account_walker: linked");

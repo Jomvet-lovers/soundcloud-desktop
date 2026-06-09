@@ -151,16 +151,15 @@ impl IndexingService {
     }
 
     pub async fn get_stats(&self) -> AppResult<IndexingStats> {
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*)::int8 FROM tracks")
+        let total = sqlx::query_file_scalar!("queries/indexing/service/count_tracks.sql")
             .fetch_one(&self.pg)
             .await?;
-        let indexed: (i64,) =
-            sqlx::query_as("SELECT COUNT(*)::int8 FROM tracks WHERE index_state = 'indexed'")
-                .fetch_one(&self.pg)
-                .await?;
+        let indexed = sqlx::query_file_scalar!("queries/indexing/service/count_indexed.sql")
+            .fetch_one(&self.pg)
+            .await?;
         Ok(IndexingStats {
-            indexed: indexed.0,
-            pending: total.0 - indexed.0,
+            indexed,
+            pending: total - indexed,
         })
     }
 
@@ -299,20 +298,11 @@ impl IndexingService {
     ///   уйдёт заново, streaming не дёргаем.
     async fn reap(self: &Arc<Self>) -> AppResult<()> {
         let cutoff = chrono::Utc::now() - chrono::Duration::from_std(REAP_AGE).unwrap_or_default();
-        let stuck: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM tracks \
-             WHERE created_at < $1 \
-               AND ( \
-                   storage_state = 'pending' \
-                   OR (index_state = 'pending' \
-                       AND storage_state = 'ok' \
-                       AND s3_verified_at IS NOT NULL) \
-               ) \
-             ORDER BY index_priority, created_at \
-             LIMIT $2",
+        let stuck = sqlx::query_file_scalar!(
+            "queries/indexing/service/reap_stuck.sql",
+            cutoff,
+            REAP_BATCH
         )
-        .bind(cutoff)
-        .bind(REAP_BATCH)
         .fetch_all(&self.pg)
         .await?;
         if stuck.is_empty() {
@@ -322,7 +312,7 @@ impl IndexingService {
             count = stuck.len(),
             "indexing reap: retriggering stuck tracks"
         );
-        for (id,) in stuck {
+        for id in stuck {
             self.trigger.trigger(&id);
         }
         Ok(())

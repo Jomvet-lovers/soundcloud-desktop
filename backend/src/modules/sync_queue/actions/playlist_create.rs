@@ -23,15 +23,13 @@ pub async fn execute(ctx: &ActionCtx<'_>) -> AppResult<()> {
         let repo = crate::modules::playlists::PlaylistRepository::new(ctx.pg.clone());
         let _ = repo.upsert_from_sc(&created).await;
     }
-    sqlx::query(
-        "INSERT INTO user_owned_playlists (user_id, playlist_urn, payload, progress, synced_at) \
-         VALUES ($1, $2, $3, false, now()) \
-         ON CONFLICT (user_id, playlist_urn) DO UPDATE SET \
-             payload = EXCLUDED.payload, synced_at = now()",
+    // Миграция 0019 дропнула колонку `payload`; зеркало владения просто фиксирует
+    // (user_id, playlist_urn) — приватные поля уже легли в playlists через upsert.
+    sqlx::query_file!(
+        "queries/sync_queue/actions/playlist_create/upsert_owned.sql",
+        ctx.user_id,
+        urn
     )
-    .bind(ctx.user_id)
-    .bind(urn)
-    .bind(&created)
     .execute(ctx.pg)
     .await?;
     Ok(())

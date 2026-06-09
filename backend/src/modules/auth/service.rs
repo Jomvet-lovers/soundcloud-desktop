@@ -102,8 +102,7 @@ impl AuthService {
     }
 
     pub async fn get_session(&self, session_id: Uuid) -> AppResult<Option<Session>> {
-        let row: Option<Session> = sqlx::query_as("SELECT * FROM sessions WHERE id = $1")
-            .bind(session_id)
+        let row = sqlx::query_file_as!(Session, "queries/auth/service/get_session.sql", session_id)
             .fetch_optional(&self.pool)
             .await?;
         Ok(row)
@@ -146,16 +145,14 @@ impl AuthService {
         // sync_queue.user_id канонизирован в bare, а sessions.soundcloud_user_id —
         // JWT sub (URN). Матчим по обоим вариантам, иначе воркер не найдёт токен
         // и все queued-действия отвалятся (обязательно в одном релизе с каноном).
-        let row: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM sessions WHERE soundcloud_user_id = ANY($1) \
-             ORDER BY updated_at DESC LIMIT 1",
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let session_id = sqlx::query_file_scalar!(
+            "queries/auth/service/pick_session_id_for_user.sql",
+            &variants
         )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .fetch_optional(&self.pool)
-        .await?;
-        let session_id = row
-            .map(|(id,)| id)
-            .ok_or_else(|| AppError::unauthorized("No active session for user"))?;
+        .await?
+        .ok_or_else(|| AppError::unauthorized("No active session for user"))?;
         self.get_valid_access_token(session_id).await
     }
 
@@ -244,20 +241,15 @@ impl AuthService {
             token.scope.clone()
         };
 
-        let updated: Session = sqlx::query_as(
-            "UPDATE sessions SET \
-                access_token = $2, \
-                refresh_token = $3, \
-                expires_at = $4, \
-                scope = $5, \
-                updated_at = now() \
-             WHERE id = $1 RETURNING *",
+        let updated = sqlx::query_file_as!(
+            Session,
+            "queries/auth/service/refresh_session_update.sql",
+            session.id,
+            token.access_token,
+            new_refresh,
+            new_expires,
+            new_scope,
         )
-        .bind(session.id)
-        .bind(&token.access_token)
-        .bind(&new_refresh)
-        .bind(new_expires)
-        .bind(&new_scope)
         .fetch_one(&self.pool)
         .await?;
 
@@ -322,12 +314,11 @@ impl AuthService {
         let prefix_len = state.len().min(8);
         info!(state_prefix = %&state[..prefix_len], "Callback received");
 
-        let claimed: Option<LoginRequest> = sqlx::query_as(
-            "UPDATE login_requests SET status = 'processing', step = 'token', \
-                redirect_url = NULL \
-             WHERE state = $1 AND status = 'pending' RETURNING *",
+        let claimed = sqlx::query_file_as!(
+            LoginRequest,
+            "queries/auth/service/claim_login_request.sql",
+            state
         )
-        .bind(state)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -346,11 +337,13 @@ impl AuthService {
             });
         }
 
-        let existing: Option<LoginRequest> =
-            sqlx::query_as("SELECT * FROM login_requests WHERE state = $1")
-                .bind(state)
-                .fetch_optional(&self.pool)
-                .await?;
+        let existing = sqlx::query_file_as!(
+            LoginRequest,
+            "queries/auth/service/get_login_request_by_state.sql",
+            state
+        )
+        .fetch_optional(&self.pool)
+        .await?;
         let Some(existing) = existing else {
             warn!("Callback state not found");
             return Ok(CallbackResult {
@@ -432,10 +425,10 @@ impl AuthService {
             }
         };
 
-        if let Err(e) = sqlx::query("UPDATE login_requests SET step = 'extract' WHERE id = $1")
-            .bind(lr.id)
-            .execute(&self.pool)
-            .await
+        if let Err(e) =
+            sqlx::query_file!("queries/auth/service/login_request_step_extract.sql", lr.id)
+                .execute(&self.pool)
+                .await
         {
             warn!(request = %lr.id, error = %e, "Failed to advance step to extract");
         }
@@ -476,22 +469,17 @@ impl AuthService {
             .map(|s| s.to_string());
         let profile_ok = profile.is_some();
         if let Some(ref p) = profile {
-            let _ = sqlx::query(
-                "INSERT INTO user_profiles (soundcloud_user_id, profile_json, synced_at) \
-                 VALUES ($1, $2, now()) \
-                 ON CONFLICT (soundcloud_user_id) \
-                 DO UPDATE SET profile_json = EXCLUDED.profile_json, synced_at = now()",
-            )
-                .bind(&urn)
-                .bind(p)
+            let _ = sqlx::query_file!("queries/auth/service/upsert_user_profile.sql", &urn, p)
                 .execute(&self.pool)
                 .await;
         }
 
-        if let Err(e) = sqlx::query("UPDATE login_requests SET step = 'finalizing' WHERE id = $1")
-            .bind(lr.id)
-            .execute(&self.pool)
-            .await
+        if let Err(e) = sqlx::query_file!(
+            "queries/auth/service/login_request_step_finalizing.sql",
+            lr.id
+        )
+        .execute(&self.pool)
+        .await
         {
             warn!(request = %lr.id, error = %e, "Failed to advance step to finalizing");
         }
@@ -501,7 +489,9 @@ impl AuthService {
         let expires_at = exp_from_access_token(&token.access_token)
             .and_then(|e| chrono::DateTime::from_timestamp(e, 0))
             .map(|dt| dt.naive_utc())
-            .unwrap_or_else(|| (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc());
+            .unwrap_or_else(|| {
+                (Utc::now() + chrono::Duration::seconds(token.expires_in)).naive_utc()
+            });
         let scope = token.scope.clone();
 
         let session: Session = if let Some(target) = lr.target_session_id {
@@ -518,8 +508,8 @@ impl AuthService {
             .bind(&token.refresh_token)
             .bind(expires_at)
             .bind(&scope)
-                .bind(&urn)
-                .bind(&username)
+            .bind(&urn)
+            .bind(&username)
             .bind(&lr.oauth_app_id)
             .fetch_optional(&self.pool)
             .await?;
@@ -534,7 +524,7 @@ impl AuthService {
                         username.as_deref(),
                         &lr.oauth_app_id,
                     )
-                        .await?
+                    .await?
                 }
             }
         } else {
@@ -546,18 +536,16 @@ impl AuthService {
                 username.as_deref(),
                 &lr.oauth_app_id,
             )
-                .await?
+            .await?
         };
 
-        sqlx::query(
-            "UPDATE login_requests SET status = 'completed', step = NULL, \
-                result_session_id = $2, username = $3, profile_ok = $4 \
-             WHERE id = $1",
+        sqlx::query_file!(
+            "queries/auth/service/login_request_completed.sql",
+            lr.id,
+            session.id,
+            username,
+            profile_ok
         )
-        .bind(lr.id)
-        .bind(session.id)
-            .bind(&username)
-            .bind(profile_ok)
         .execute(&self.pool)
         .await?;
 
@@ -590,8 +578,8 @@ impl AuthService {
         .bind(&token.refresh_token)
         .bind(expires_at)
         .bind(scope)
-            .bind(urn)
-            .bind(username)
+        .bind(urn)
+        .bind(username)
         .bind(oauth_app_id)
         .fetch_one(&self.pool)
         .await?;
@@ -599,9 +587,7 @@ impl AuthService {
     }
 
     async fn mark_request_failed(&self, id: Uuid, err: &str) -> AppResult<()> {
-        sqlx::query("UPDATE login_requests SET status = 'failed', error = $2 WHERE id = $1")
-            .bind(id)
-            .bind(err)
+        sqlx::query_file!("queries/auth/service/login_request_failed.sql", id, err)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -631,16 +617,16 @@ impl AuthService {
     /// a bound. Never blocks login — returns None if both are slow/unavailable.
     async fn fetch_profile_fast(&self, token: &str, nid: &str) -> Option<Value> {
         let me_fut: std::pin::Pin<
-            Box<dyn std::future::Future<Output=AppResult<Value>> + Send + '_>,
+            Box<dyn std::future::Future<Output = AppResult<Value>> + Send + '_>,
         > = Box::pin(self.sc.api_get::<Value>("/me", token, None));
         let anon_fut: std::pin::Pin<
-            Box<dyn std::future::Future<Output=AppResult<Value>> + Send + '_>,
+            Box<dyn std::future::Future<Output = AppResult<Value>> + Send + '_>,
         > = Box::pin(self.anon.fetch_user(nid));
         match tokio::time::timeout(
             Duration::from_secs(PROFILE_TIMEOUT_SEC),
             futures::future::select_ok(vec![me_fut, anon_fut]),
         )
-            .await
+        .await
         {
             Ok(Ok((v, _rest))) => Some(v),
             _ => None,
@@ -651,11 +637,13 @@ impl AuthService {
         &self,
         login_request_id: Uuid,
     ) -> AppResult<LoginStatusResult> {
-        let row: Option<LoginRequest> =
-            sqlx::query_as("SELECT * FROM login_requests WHERE id = $1")
-                .bind(login_request_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = sqlx::query_file_as!(
+            LoginRequest,
+            "queries/auth/service/get_login_request.sql",
+            login_request_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
         let Some(lr) = row else {
             return Ok(LoginStatusResult {
                 status: "expired".into(),
@@ -694,9 +682,13 @@ impl AuthService {
             username: lr.username,
             error: lr.error,
             redirect_url: lr.redirect_url,
-            extract: lr
-                .profile_ok
-                .map(|ok| if ok { "ok".to_string() } else { "failed".to_string() }),
+            extract: lr.profile_ok.map(|ok| {
+                if ok {
+                    "ok".to_string()
+                } else {
+                    "failed".to_string()
+                }
+            }),
         })
     }
 
@@ -707,8 +699,7 @@ impl AuthService {
         if !session.access_token.is_empty() {
             self.sc.sign_out(&session.access_token).await;
         }
-        sqlx::query("DELETE FROM sessions WHERE id = $1")
-            .bind(session_id)
+        sqlx::query_file!("queries/auth/service/delete_session.sql", session_id)
             .execute(&self.pool)
             .await?;
         self.refresh_locks.invalidate(&session_id);
@@ -717,17 +708,18 @@ impl AuthService {
 
     pub async fn cleanup_expired_login_requests(&self) -> AppResult<()> {
         let now = Utc::now().naive_utc();
-        sqlx::query("DELETE FROM login_requests WHERE expires_at < $1")
-            .bind(now)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query_file!(
+            "queries/auth/service/delete_expired_login_requests.sql",
+            now
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
     pub async fn cleanup_expired_link_requests(&self) -> AppResult<()> {
         let now = Utc::now().naive_utc();
-        sqlx::query("DELETE FROM link_requests WHERE expires_at < $1")
-            .bind(now)
+        sqlx::query_file!("queries/auth/service/delete_expired_link_requests.sql", now)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -737,24 +729,12 @@ impl AuthService {
     /// дубли (оставляем свежайшую на `soundcloud_user_id`). Живые и недавно-
     /// активные истёкшие НЕ трогаем — их оживит renew-on-open.
     pub async fn reap_dead_sessions(&self) -> AppResult<()> {
-        let stale = sqlx::query(
-            "DELETE FROM sessions \
-             WHERE expires_at <= now() AND updated_at < now() - interval '7 days'",
-        )
+        let stale = sqlx::query_file!("queries/auth/service/reap_stale_sessions.sql")
             .execute(&self.pool)
             .await?
             .rows_affected();
 
-        let dupes = sqlx::query(
-            "DELETE FROM sessions WHERE id IN ( \
-                SELECT id FROM ( \
-                    SELECT id, row_number() OVER ( \
-                        PARTITION BY soundcloud_user_id ORDER BY updated_at DESC \
-                    ) AS rn \
-                    FROM sessions WHERE soundcloud_user_id IS NOT NULL \
-                ) t WHERE t.rn > 1 \
-             ) AND expires_at <= now()",
-        )
+        let dupes = sqlx::query_file!("queries/auth/service/reap_duplicate_sessions.sql")
             .execute(&self.pool)
             .await?
             .rows_affected();
@@ -778,7 +758,11 @@ impl AuthService {
         let ids: Vec<String> = active.iter().map(|a| a.id.to_string()).collect();
         let healths = self.health.app_healths(&ids).await.unwrap_or_default();
         let penalties = self.health.app_penalties(&ids).await.unwrap_or_default();
-        let issued = self.health.tokens_issued_12h(&ids).await.unwrap_or_default();
+        let issued = self
+            .health
+            .tokens_issued_12h(&ids)
+            .await
+            .unwrap_or_default();
 
         // Предпочитаем чистые apps под per-app 12ч-бюджетом; если таких нет —
         // деградируем без бюджет-фильтра (он мягкий — рефреши всё равно

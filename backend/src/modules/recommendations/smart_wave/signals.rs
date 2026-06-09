@@ -71,84 +71,65 @@ pub async fn load_recent_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<Use
 }
 
 async fn load_fresh_likes(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id \
-         FROM user_likes_tracks \
-         WHERE user_id = ANY($1) AND wanted_state = true \
-           AND created_at > NOW() - INTERVAL '365 days' \
-         ORDER BY created_at DESC, ctid DESC \
-         LIMIT $2",
+    let rows = sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/signals/fresh_likes.sql",
+        ids,
+        FRESH_LIKES_LIMIT
     )
-        .bind(ids)
-    .bind(FRESH_LIKES_LIMIT)
     .fetch_all(pg)
     .await?;
     Ok(dedup_keep_order(rows))
 }
 
 async fn load_dislikes(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM disliked_tracks WHERE sc_user_id = ANY($1) LIMIT $2",
+    let rows = sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/signals/dislikes.sql",
+        ids,
+        DISLIKES_LIMIT
     )
-        .bind(ids)
-        .bind(DISLIKES_LIMIT)
-        .fetch_all(pg)
-        .await?;
+    .fetch_all(pg)
+    .await?;
     Ok(dedup_keep_order(rows))
 }
 
 async fn load_recent_skips(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM user_events \
-         WHERE sc_user_id = ANY($1) AND event_type = 'skip' \
-           AND created_at > NOW() - make_interval(days => $2::int) \
-         ORDER BY created_at DESC LIMIT $3",
+    let rows = sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/signals/recent_skips.sql",
+        ids,
+        RECENT_SKIPS_DAYS,
+        RECENT_SKIPS_LIMIT
     )
-        .bind(ids)
-    .bind(RECENT_SKIPS_DAYS)
-    .bind(RECENT_SKIPS_LIMIT)
     .fetch_all(pg)
     .await?;
     Ok(dedup_keep_order(rows))
 }
 
 async fn load_recent_played(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id \
-         FROM user_events \
-         WHERE sc_user_id = ANY($1) AND event_type IN ('full_play', 'play_complete') \
-           AND created_at > NOW() - make_interval(days => $2::int) \
-         GROUP BY sc_track_id \
-         ORDER BY MAX(created_at) DESC \
-         LIMIT $3",
+    let rows = sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/signals/recent_played.sql",
+        ids,
+        RECENT_PLAYED_DAYS,
+        RECENT_PLAYED_LIMIT
     )
-        .bind(ids)
-    .bind(RECENT_PLAYED_DAYS)
-    .bind(RECENT_PLAYED_LIMIT)
     .fetch_all(pg)
     .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(rows)
 }
 
 async fn load_played_dedupe(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT sc_track_id FROM user_events \
-         WHERE sc_user_id = ANY($1) \
-           AND created_at > NOW() - INTERVAL '180 days' \
-         ORDER BY sc_track_id \
-         LIMIT $2",
+    let rows = sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/signals/played_dedupe.sql",
+        ids,
+        PLAYED_DEDUPE_LIMIT
     )
-        .bind(ids)
-    .bind(PLAYED_DEDUPE_LIMIT)
     .fetch_all(pg)
     .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(rows)
 }
 
-fn dedup_keep_order(rows: Vec<(String,)>) -> Vec<String> {
+fn dedup_keep_order(rows: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     rows.into_iter()
-        .map(|(id, )| id)
         .filter(|id| seen.insert(id.clone()))
         .collect()
 }

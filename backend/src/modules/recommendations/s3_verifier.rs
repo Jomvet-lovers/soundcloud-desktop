@@ -66,19 +66,17 @@ impl S3VerifierService {
 
         let ttl_cutoff = Utc::now() - chrono::Duration::from_std(MISS_TTL).unwrap();
 
-        type VerifyRow = (String, Option<DateTime<Utc>>, Option<DateTime<Utc>>);
         type VerifyMap =
             std::collections::HashMap<String, (Option<DateTime<Utc>>, Option<DateTime<Utc>>)>;
-        let rows: Vec<VerifyRow> = sqlx::query_as(
-            "SELECT sc_track_id, s3_verified_at, s3_missing_at FROM tracks \
-             WHERE sc_track_id = ANY($1)",
+        let rows = sqlx::query_file!(
+            "queries/recommendations/s3_verifier/select_verify_rows.sql",
+            sc_track_ids
         )
-        .bind(sc_track_ids)
         .fetch_all(&self.pg)
         .await?;
         let mut by_id: VerifyMap = std::collections::HashMap::new();
-        for (id, v, m) in rows {
-            by_id.insert(id, (v, m));
+        for row in rows {
+            by_id.insert(row.sc_track_id, (row.s3_verified_at, row.s3_missing_at));
         }
 
         let mut to_check: Vec<String> = Vec::new();
@@ -121,28 +119,15 @@ impl S3VerifierService {
         }
 
         if !ok_ids.is_empty() {
-            sqlx::query(
-                "UPDATE tracks SET \
-                     storage_state = 'ok', \
-                     s3_verified_at = now(), \
-                     s3_missing_at = NULL \
-                 WHERE sc_track_id = ANY($1)",
-            )
-            .bind(&ok_ids)
-            .execute(&self.pg)
-            .await?;
+            sqlx::query_file!("queries/recommendations/s3_verifier/mark_ok.sql", &ok_ids)
+                .execute(&self.pg)
+                .await?;
         }
         if !miss_ids.is_empty() {
-            sqlx::query(
-                "UPDATE tracks SET \
-                     storage_state = CASE \
-                         WHEN storage_state = 'pending' THEN 'pending' \
-                         ELSE 'missing' \
-                     END, \
-                     s3_missing_at = now() \
-                 WHERE sc_track_id = ANY($1)",
+            sqlx::query_file!(
+                "queries/recommendations/s3_verifier/mark_missing.sql",
+                &miss_ids
             )
-            .bind(&miss_ids)
             .execute(&self.pg)
             .await?;
             debug!(

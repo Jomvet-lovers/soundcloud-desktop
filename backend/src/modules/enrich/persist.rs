@@ -29,13 +29,11 @@ pub async fn apply(
     let remixer_ids = upsert_artists(&mut tx, &res.remixers, ResolveSource::Heuristic, 0.4).await?;
 
     let prior_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::int8 FROM track_artists WHERE track_id = $1")
-            .bind(track_id)
+        sqlx::query_file_scalar!("queries/enrich/persist/count_track_artists.sql", track_id)
             .fetch_one(&mut *tx)
             .await?;
 
-    sqlx::query("DELETE FROM track_artists WHERE track_id = $1")
-        .bind(track_id)
+    sqlx::query_file!("queries/enrich/persist/delete_track_artists.sql", track_id)
         .execute(&mut *tx)
         .await?;
 
@@ -119,12 +117,11 @@ pub async fn apply(
     if let (Some(artist_id), Some(sc_id)) = (primary_artist_id, uploader_sc_user_id) {
         // Сохраняем uploader_sc_user_id в tracks, чтобы reupload-pattern
         // увидел текущий трек в счётчике сразу.
-        sqlx::query(
-            "UPDATE tracks SET uploader_sc_user_id = COALESCE(uploader_sc_user_id, $2)
-             WHERE id = $1",
+        sqlx::query_file!(
+            "queries/enrich/persist/set_uploader_sc_user_id.sql",
+            track_id,
+            sc_id
         )
-        .bind(track_id)
-        .bind(sc_id)
         .execute(&mut *tx)
         .await?;
 
@@ -155,41 +152,20 @@ pub async fn apply(
     //   3. fallback на sc_created_at::date — дата заливки на SoundCloud.
     // release_year — синхронно через тот же приоритет. Используется в sort
     // "новые" и в group-by-year на странице артиста.
-    sqlx::query(
-        "UPDATE tracks
-         SET primary_artist_id = $2,
-             album_id = $3,
-             isrc = $4,
-             canonical_track_id = COALESCE($5, canonical_track_id),
-             cover_of_artist_id = $6,
-             release_date = COALESCE($10, release_date, sc_created_at::date),
-             release_year = COALESCE(
-                 $11,
-                 EXTRACT(YEAR FROM $10::date)::smallint,
-                 release_year,
-                 EXTRACT(YEAR FROM sc_created_at)::smallint
-             ),
-             enrich_state = 'done',
-             enrich_source = $7,
-             enrich_confidence = $8,
-             enrich_attempts = 0,
-             enrich_locked_at = NULL,
-             enrich_error = NULL,
-             enriched_at = now(),
-             upload_kind = $9
-         WHERE id = $1",
+    sqlx::query_file!(
+        "queries/enrich/persist/finalize_track.sql",
+        track_id,
+        primary_artist_id,
+        album_id,
+        res.isrc.as_deref(),
+        canonical_id,
+        cover_of_artist_id,
+        source,
+        confidence,
+        upload_kind,
+        res.release_date,
+        res.release_year
     )
-    .bind(track_id)
-    .bind(primary_artist_id)
-    .bind(album_id)
-    .bind(res.isrc.as_deref())
-    .bind(canonical_id)
-    .bind(cover_of_artist_id)
-    .bind(source)
-    .bind(confidence)
-    .bind(upload_kind)
-    .bind(res.release_date)
-    .bind(res.release_year)
     .execute(&mut *tx)
     .await?;
 
@@ -207,17 +183,14 @@ async fn calibrate_confidence(
     source: &str,
     raw: f32,
 ) -> AppResult<f32> {
-    let row: Option<(f32,)> = sqlx::query_as(
-        "SELECT calibrated FROM enrich_calibration
-         WHERE source = $1 AND raw_bin_low <= $2 AND $2 < raw_bin_high
-         ORDER BY raw_bin_low DESC
-         LIMIT 1",
+    let row: Option<f32> = sqlx::query_file_scalar!(
+        "queries/enrich/persist/calibrated_confidence.sql",
+        source,
+        raw
     )
-    .bind(source)
-    .bind(raw)
     .fetch_optional(&mut **tx)
     .await?;
-    Ok(row.map(|(v,)| v.clamp(0.0, 1.0)).unwrap_or(raw))
+    Ok(row.map(|v| v.clamp(0.0, 1.0)).unwrap_or(raw))
 }
 
 async fn maybe_auto_attach_sc_account(
@@ -230,11 +203,11 @@ async fn maybe_auto_attach_sc_account(
     if sc_user_id.is_empty() || uploader_username.is_empty() || artist_name.is_empty() {
         return Ok(());
     }
-    let exists: Option<(String,)> = sqlx::query_as(
-        "SELECT role FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2",
+    let exists: Option<String> = sqlx::query_file_scalar!(
+        "queries/enrich/persist/sc_account_role.sql",
+        artist_id,
+        sc_user_id
     )
-    .bind(artist_id)
-    .bind(sc_user_id)
     .fetch_optional(&mut **tx)
     .await?;
     if exists.is_some() {
@@ -250,50 +223,41 @@ async fn maybe_auto_attach_sc_account(
     if !exact && !strong_substring {
         return Ok(());
     }
-    let has_main: Option<(i64,)> = sqlx::query_as(
-        "SELECT COUNT(*)::int8 FROM artist_sc_accounts WHERE artist_id = $1 AND role = 'main'",
+    let has_main: Option<i64> = sqlx::query_file_scalar!(
+        "queries/enrich/persist/count_main_sc_accounts.sql",
+        artist_id
     )
-    .bind(artist_id)
     .fetch_optional(&mut **tx)
     .await?;
     let role = match has_main {
-        Some((n,)) if n == 0 && exact => "main",
+        Some(n) if n == 0 && exact => "main",
         _ => "alt",
     };
-    sqlx::query(
-        "INSERT INTO artist_sc_accounts (artist_id, sc_user_id, role, source, verified)
-         VALUES ($1, $2, $3, 'auto_match', false)
-         ON CONFLICT (artist_id, sc_user_id) DO NOTHING",
+    sqlx::query_file!(
+        "queries/enrich/persist/insert_auto_match_account.sql",
+        artist_id,
+        sc_user_id,
+        role
     )
-    .bind(artist_id)
-    .bind(sc_user_id)
-    .bind(role)
     .execute(&mut **tx)
     .await?;
-    sqlx::query(
-        "UPDATE artists SET sc_user_id = COALESCE(sc_user_id, $2), updated_at = now()
-         WHERE id = $1",
+    sqlx::query_file!(
+        "queries/enrich/persist/set_artist_sc_user_id.sql",
+        artist_id,
+        sc_user_id
     )
-    .bind(artist_id)
-    .bind(sc_user_id)
     .execute(&mut **tx)
     .await?;
     // Re-point this uploader's already-enriched tracks to the newly matched artist
     // (skip in-flight/locked). Jitter next_run_at so a prolific reupload channel
     // doesn't make its whole catalog claimable at once and swamp the enrich pool.
-    sqlx::query(
-        "UPDATE tracks
-         SET enrich_state = 'pending',
-             enrich_next_run_at = now() + (random() * interval '15 minutes')
-         WHERE uploader_sc_user_id = $1
-           AND enrich_locked_at IS NULL
-           AND enrich_state IN ('done', 'failed')
-           AND (primary_artist_id IS NULL OR primary_artist_id <> $2)",
+    sqlx::query_file!(
+        "queries/enrich/persist/repoint_uploader_tracks.sql",
+        sc_user_id,
+        artist_id
     )
-        .bind(sc_user_id)
-        .bind(artist_id)
-        .execute(&mut **tx)
-        .await?;
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -311,35 +275,31 @@ async fn maybe_attach_reupload_account(
     if sc_user_id.is_empty() {
         return Ok(());
     }
-    let exists: Option<(i32,)> =
-        sqlx::query_as("SELECT 1 FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2")
-            .bind(artist_id)
-            .bind(sc_user_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+    let exists: Option<i32> = sqlx::query_file_scalar!(
+        "queries/enrich/persist/sc_account_exists.sql",
+        artist_id,
+        sc_user_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
     if exists.is_some() {
         return Ok(());
     }
-    let count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT it.id)::int8
-         FROM tracks it
-         JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary'
-         WHERE it.uploader_sc_user_id = $1 AND ta.artist_id = $2",
+    let count: i64 = sqlx::query_file_scalar!(
+        "queries/enrich/persist/count_reupload_tracks.sql",
+        sc_user_id,
+        artist_id
     )
-    .bind(sc_user_id)
-    .bind(artist_id)
     .fetch_one(&mut **tx)
     .await?;
-    if count.0 < REUPLOAD_THRESHOLD {
+    if count < REUPLOAD_THRESHOLD {
         return Ok(());
     }
-    sqlx::query(
-        "INSERT INTO artist_sc_accounts (artist_id, sc_user_id, role, source, verified)
-         VALUES ($1, $2, 'alt', 'reupload_pattern', false)
-         ON CONFLICT (artist_id, sc_user_id) DO NOTHING",
+    sqlx::query_file!(
+        "queries/enrich/persist/insert_reupload_account.sql",
+        artist_id,
+        sc_user_id
     )
-    .bind(artist_id)
-    .bind(sc_user_id)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -356,15 +316,15 @@ async fn compute_upload_kind(
     };
     if let Some(sc_id) = uploader_sc_user_id {
         if !sc_id.is_empty() {
-            let row: Option<(String, bool)> = sqlx::query_as(
-                "SELECT role, verified FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2",
+            let row = sqlx::query_file!(
+                "queries/enrich/persist/sc_account_role_verified.sql",
+                artist_id,
+                sc_id
             )
-            .bind(artist_id)
-            .bind(sc_id)
             .fetch_optional(&mut **tx)
             .await?;
-            if let Some((role, verified)) = row {
-                return Ok(match (role.as_str(), verified) {
+            if let Some(r) = row {
+                return Ok(match (r.role.as_str(), r.verified) {
                     ("main", true) => "original",
                     ("demo", _) => "demo",
                     ("main", false) => "alt",
@@ -418,36 +378,34 @@ async fn upsert_one_artist(
     confidence: f32,
 ) -> AppResult<Uuid> {
     if let Some(mb_id) = cand.mb_id.as_deref() {
-        let existing: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM artists WHERE mb_artist_id = $1 LIMIT 1")
-                .bind(mb_id)
+        let existing: Option<Uuid> =
+            sqlx::query_file_scalar!("queries/enrich/persist/artist_by_mb_id.sql", mb_id)
                 .fetch_optional(&mut **tx)
                 .await?;
-        if let Some((id,)) = existing {
+        if let Some(id) = existing {
             maybe_promote(tx, id, cand, source, confidence).await?;
             return resolve_merged(tx, id).await;
         }
     }
 
     if let Some(genius_id) = cand.genius_id.as_deref() {
-        let existing: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM artists WHERE genius_artist_id = $1 LIMIT 1")
-                .bind(genius_id)
+        let existing: Option<Uuid> =
+            sqlx::query_file_scalar!("queries/enrich/persist/artist_by_genius_id.sql", genius_id)
                 .fetch_optional(&mut **tx)
                 .await?;
-        if let Some((id,)) = existing {
+        if let Some(id) = existing {
             maybe_promote(tx, id, cand, source, confidence).await?;
             return resolve_merged(tx, id).await;
         }
     }
 
-    let existing: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM artists WHERE normalized_name = $1 AND merged_into IS NULL LIMIT 1",
+    let existing: Option<Uuid> = sqlx::query_file_scalar!(
+        "queries/enrich/persist/artist_by_normalized_name.sql",
+        normalized
     )
-    .bind(normalized)
     .fetch_optional(&mut **tx)
     .await?;
-    if let Some((id,)) = existing {
+    if let Some(id) = existing {
         maybe_promote(tx, id, cand, source, confidence).await?;
         return resolve_merged(tx, id).await;
     }
@@ -469,8 +427,6 @@ async fn upsert_one_artist(
     Ok(inserted.0)
 }
 
-type ArtistPromoteRow = (String, f32, Option<String>, Option<String>, Option<String>);
-
 async fn maybe_promote(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
@@ -478,15 +434,19 @@ async fn maybe_promote(
     source: ResolveSource,
     confidence: f32,
 ) -> AppResult<()> {
-    let row: Option<ArtistPromoteRow> = sqlx::query_as(
-        "SELECT source, confidence, mb_artist_id, genius_artist_id, sc_user_id FROM artists WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    let Some((cur_source, cur_conf, cur_mb, cur_genius, cur_sc)) = row else {
+    let row = sqlx::query_file!("queries/enrich/persist/artist_promote_row.sql", id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let Some(r) = row else {
         return Ok(());
     };
+    let (cur_source, cur_conf, cur_mb, cur_genius, cur_sc) = (
+        r.source,
+        r.confidence,
+        r.mb_artist_id,
+        r.genius_artist_id,
+        r.sc_user_id,
+    );
     let new_priority = source.priority();
     let cur_priority = ResolveSource::priority_of(&cur_source);
     let stronger = new_priority > cur_priority
@@ -497,23 +457,16 @@ async fn maybe_promote(
     if !stronger && mb_to_set.is_none() && genius_to_set.is_none() && sc_to_set.is_none() {
         return Ok(());
     }
-    sqlx::query(
-        "UPDATE artists
-         SET mb_artist_id     = COALESCE(mb_artist_id,     $2),
-             genius_artist_id = COALESCE(genius_artist_id, $3),
-             sc_user_id       = COALESCE(sc_user_id,       $4),
-             source           = CASE WHEN $5 THEN $6 ELSE source END,
-             confidence       = CASE WHEN $5 THEN $7 ELSE confidence END,
-             updated_at       = now()
-         WHERE id = $1",
+    sqlx::query_file!(
+        "queries/enrich/persist/promote_artist.sql",
+        id,
+        mb_to_set.as_deref(),
+        genius_to_set.as_deref(),
+        sc_to_set.as_deref(),
+        stronger,
+        source.as_str(),
+        confidence
     )
-    .bind(id)
-    .bind(mb_to_set.as_deref())
-    .bind(genius_to_set.as_deref())
-    .bind(sc_to_set.as_deref())
-    .bind(stronger)
-    .bind(source.as_str())
-    .bind(confidence)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -522,13 +475,12 @@ async fn maybe_promote(
 async fn resolve_merged(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> AppResult<Uuid> {
     let mut current = id;
     for _ in 0..4 {
-        let next: Option<(Option<Uuid>,)> =
-            sqlx::query_as("SELECT merged_into FROM artists WHERE id = $1")
-                .bind(current)
+        let next: Option<Option<Uuid>> =
+            sqlx::query_file_scalar!("queries/enrich/persist/artist_merged_into.sql", current)
                 .fetch_optional(&mut **tx)
                 .await?;
         match next {
-            Some((Some(parent),)) => current = parent,
+            Some(Some(parent)) => current = parent,
             _ => break,
         }
     }
@@ -545,20 +497,15 @@ async fn insert_track_artists(
     accum: &mut Vec<Uuid>,
 ) -> AppResult<()> {
     for (pos, id) in artist_ids.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (track_id, artist_id, role) DO UPDATE
-             SET position = EXCLUDED.position,
-                 source = EXCLUDED.source,
-                 confidence = EXCLUDED.confidence",
+        sqlx::query_file!(
+            "queries/enrich/persist/insert_track_artist.sql",
+            track_id,
+            id,
+            role,
+            pos as i16,
+            source.as_str(),
+            confidence
         )
-        .bind(track_id)
-        .bind(id)
-        .bind(role)
-        .bind(pos as i16)
-        .bind(source.as_str())
-        .bind(confidence)
         .execute(&mut **tx)
         .await?;
         if !accum.contains(id) {
@@ -575,22 +522,18 @@ async fn upsert_album(
     confidence: f32,
 ) -> AppResult<Uuid> {
     if let Some(mb_id) = album.mb_id.as_deref() {
-        let existing: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM albums WHERE mb_release_id = $1 LIMIT 1")
-                .bind(mb_id)
+        let existing: Option<Uuid> =
+            sqlx::query_file_scalar!("queries/enrich/persist/album_by_mb_id.sql", mb_id)
                 .fetch_optional(&mut **tx)
                 .await?;
-        if let Some((id,)) = existing {
+        if let Some(id) = existing {
             if let Some(cover) = album.cover_url.as_deref() {
-                sqlx::query(
-                    "UPDATE albums SET cover_url = COALESCE(cover_url, $2),
-                                       release_year = COALESCE(release_year, $3),
-                                       updated_at = now()
-                     WHERE id = $1",
+                sqlx::query_file!(
+                    "queries/enrich/persist/album_fill_cover_mb.sql",
+                    id,
+                    cover,
+                    album.year
                 )
-                .bind(id)
-                .bind(cover)
-                .bind(album.year)
                 .execute(&mut **tx)
                 .await?;
             }
@@ -598,21 +541,17 @@ async fn upsert_album(
         }
     }
     if let Some(g_id) = album.genius_id.as_deref() {
-        let existing: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM albums WHERE genius_album_id = $1 LIMIT 1")
-                .bind(g_id)
+        let existing: Option<Uuid> =
+            sqlx::query_file_scalar!("queries/enrich/persist/album_by_genius_id.sql", g_id)
                 .fetch_optional(&mut **tx)
                 .await?;
-        if let Some((id,)) = existing {
-            sqlx::query(
-                "UPDATE albums SET cover_url = COALESCE(cover_url, $2),
-                                   release_year = COALESCE(release_year, $3),
-                                   updated_at = now()
-                 WHERE id = $1",
+        if let Some(id) = existing {
+            sqlx::query_file!(
+                "queries/enrich/persist/album_fill_cover_genius.sql",
+                id,
+                album.cover_url.as_deref(),
+                album.year
             )
-            .bind(id)
-            .bind(album.cover_url.as_deref())
-            .bind(album.year)
             .execute(&mut **tx)
             .await?;
             return Ok(id);
@@ -658,13 +597,11 @@ async fn upsert_album(
     .await?;
 
     if let Some(pa_id) = primary_artist_id {
-        sqlx::query(
-            "INSERT INTO album_artists (album_id, artist_id, role)
-             VALUES ($1, $2, 'primary')
-             ON CONFLICT DO NOTHING",
+        sqlx::query_file!(
+            "queries/enrich/persist/insert_album_artist.sql",
+            inserted.0,
+            pa_id
         )
-        .bind(inserted.0)
-        .bind(pa_id)
         .execute(&mut **tx)
         .await?;
     }
@@ -676,12 +613,11 @@ async fn link_album_track(
     album_id: Uuid,
     track_id: Uuid,
 ) -> AppResult<()> {
-    sqlx::query(
-        "INSERT INTO album_tracks (album_id, track_id) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING",
+    sqlx::query_file!(
+        "queries/enrich/persist/insert_album_track.sql",
+        album_id,
+        track_id
     )
-    .bind(album_id)
-    .bind(track_id)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -696,30 +632,25 @@ async fn resolve_canonical_for_isrc(
     // same-ISRC enrichments cannot each mint a different canonical id and split
     // the group. DB-only lock, released at commit; no .await on external work
     // is held under it.
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
-        .bind(isrc)
+    sqlx::query_file!("queries/enrich/persist/isrc_advisory_lock.sql", isrc)
         .execute(&mut **tx)
         .await?;
-    let existing: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT canonical_track_id FROM tracks
-         WHERE isrc = $1 AND canonical_track_id IS NOT NULL AND id <> $2
-         LIMIT 1",
+    let existing: Option<Uuid> = sqlx::query_file_scalar!(
+        "queries/enrich/persist/existing_canonical_for_isrc.sql",
+        isrc,
+        track_id
     )
-    .bind(isrc)
-    .bind(track_id)
     .fetch_optional(&mut **tx)
     .await?;
     match existing {
-        Some((cid,)) => Ok(cid),
+        Some(cid) => Ok(cid),
         None => {
             let new_id = Uuid::new_v4();
-            sqlx::query(
-                "UPDATE tracks
-                 SET canonical_track_id = $1
-                 WHERE isrc = $2 AND canonical_track_id IS NULL",
+            sqlx::query_file!(
+                "queries/enrich/persist/assign_canonical_for_isrc.sql",
+                new_id,
+                isrc
             )
-            .bind(new_id)
-            .bind(isrc)
             .execute(&mut **tx)
             .await?;
             Ok(new_id)

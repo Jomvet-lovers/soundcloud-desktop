@@ -19,19 +19,6 @@ const FANS_ALSO_LIMIT: usize = 120;
 const SAME_VIBE_POOL: usize = 160;
 const WAVE_LIMIT: usize = 24;
 
-#[derive(Debug, sqlx::FromRow)]
-struct ArtistTrackRow {
-    artist_id: Uuid,
-    artist_name: String,
-    avatar_url: Option<String>,
-    sc_track_id: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct PrimaryArtistRow {
-    primary_artist_id: Uuid,
-}
-
 impl RecommendationsService {
     pub async fn similar_wave(
         &self,
@@ -195,17 +182,14 @@ impl RecommendationsService {
     }
 
     async fn load_primary_artist_id(&self, sc_track_id: &str) -> Option<Uuid> {
-        sqlx::query_as::<_, PrimaryArtistRow>(
-            "SELECT primary_artist_id FROM tracks
-             WHERE sc_track_id = $1 AND primary_artist_id IS NOT NULL
-             LIMIT 1",
+        sqlx::query_file_scalar!(
+            "queries/recommendations/similar_wave/load_primary_artist_id.sql",
+            sc_track_id
         )
-        .bind(sc_track_id)
         .fetch_optional(&self.pg)
         .await
         .ok()
         .flatten()
-        .map(|r| r.primary_artist_id)
     }
 
     async fn load_same_artist_tracks(
@@ -215,25 +199,15 @@ impl RecommendationsService {
         mert_seed: Option<&[f32]>,
         limit: usize,
     ) -> Vec<String> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT it.sc_track_id
-             FROM track_artists ta
-             JOIN tracks it ON it.id = ta.track_id
-             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-             WHERE ta.artist_id = $1
-               AND ta.role = 'primary'
-               AND it.sharing = 'public'
-               AND it.sc_track_id <> $2
-             ORDER BY COALESCE(c.play_count, 0) DESC
-             LIMIT $3",
+        let pool: Vec<String> = sqlx::query_file_scalar!(
+            "queries/recommendations/similar_wave/load_same_artist_tracks.sql",
+            artist_id,
+            anchor_track_id,
+            SAME_ARTIST_POOL
         )
-        .bind(artist_id)
-        .bind(anchor_track_id)
-        .bind(SAME_ARTIST_POOL)
         .fetch_all(&self.pg)
         .await
         .unwrap_or_default();
-        let pool: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
         if pool.is_empty() {
             return Vec::new();
         }
@@ -257,45 +231,11 @@ impl RecommendationsService {
     }
 
     async fn load_featured_with(&self, anchor_track_id: &str, limit: i64) -> Vec<ClusterNeighbor> {
-        let rows: Vec<ArtistTrackRow> = sqlx::query_as::<_, ArtistTrackRow>(
-            "WITH anchor_artists AS (
-                 SELECT artist_id FROM track_artists ta
-                 JOIN tracks it ON it.id = ta.track_id
-                 WHERE it.sc_track_id = $1
-             ),
-             feat_artists AS (
-                 SELECT DISTINCT ta.artist_id
-                 FROM track_artists ta
-                 JOIN tracks it ON it.id = ta.track_id
-                 WHERE ta.role IN ('featured', 'remixer')
-                   AND it.id IN (
-                       SELECT track_id FROM track_artists
-                       WHERE artist_id IN (SELECT artist_id FROM anchor_artists)
-                   )
-                   AND ta.artist_id NOT IN (SELECT artist_id FROM anchor_artists)
-             ),
-             ranked AS (
-                 SELECT
-                     ta.artist_id, it.sc_track_id,
-                     ROW_NUMBER() OVER (
-                         PARTITION BY ta.artist_id
-                         ORDER BY COALESCE(c.play_count, 0) DESC
-                     ) AS rn
-                 FROM feat_artists fa
-                 JOIN track_artists ta ON ta.artist_id = fa.artist_id AND ta.role = 'primary'
-                 JOIN tracks it ON it.id = ta.track_id
-                 LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.sc_track_id <> $1
-                   AND it.sharing = 'public'
-             )
-             SELECT a.id AS artist_id, a.name AS artist_name, a.avatar_url, r.sc_track_id
-             FROM ranked r
-             JOIN artists a ON a.id = r.artist_id
-             WHERE r.rn = 1 AND a.merged_into IS NULL
-             LIMIT $2",
+        let rows = sqlx::query_file!(
+            "queries/recommendations/similar_wave/load_featured_with.sql",
+            anchor_track_id,
+            limit
         )
-        .bind(anchor_track_id)
-        .bind(limit)
         .fetch_all(&self.pg)
         .await
         .unwrap_or_default();

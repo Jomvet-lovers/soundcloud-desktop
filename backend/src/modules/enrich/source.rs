@@ -47,36 +47,21 @@ impl WorkSource for EnrichSource {
     }
 
     async fn claim(&self, batch: i64, lease_timeout: Duration) -> AppResult<Vec<EnrichItem>> {
-        let lease_secs = lease_timeout.as_secs() as i64;
-        let rows: Vec<(Uuid, String, i16)> = sqlx::query_as(
-            "WITH picked AS (
-                 SELECT id FROM tracks
-                 WHERE enrich_state IN ('pending', 'failed')
-                   AND enrich_next_run_at <= now()
-                   AND (enrich_locked_at IS NULL
-                        OR enrich_locked_at < now() - ($1 * interval '1 second'))
-                   AND enrich_attempts < $2
-                 ORDER BY index_priority, enrich_next_run_at
-                 LIMIT $3
-                 FOR UPDATE SKIP LOCKED
-             )
-             UPDATE tracks t
-             SET enrich_locked_at = now(), enrich_attempts = t.enrich_attempts + 1
-             FROM picked
-             WHERE t.id = picked.id
-             RETURNING t.id, t.sc_track_id, t.enrich_attempts",
+        let lease_secs = lease_timeout.as_secs() as f64;
+        let rows = sqlx::query_file!(
+            "queries/enrich/source/claim_batch.sql",
+            lease_secs,
+            self.max_attempts,
+            batch
         )
-            .bind(lease_secs)
-            .bind(self.max_attempts)
-            .bind(batch)
-            .fetch_all(&self.pg)
-            .await?;
+        .fetch_all(&self.pg)
+        .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, sc_track_id, attempts)| EnrichItem {
-                id,
-                sc_track_id,
-                attempts,
+            .map(|r| EnrichItem {
+                id: r.id,
+                sc_track_id: r.sc_track_id,
+                attempts: r.enrich_attempts,
             })
             .collect())
     }
@@ -85,36 +70,19 @@ impl WorkSource for EnrichSource {
         let Some(sc_id) = normalize_sc_track_id(key) else {
             return Ok(None);
         };
-        let lease_secs = lease_timeout.as_secs() as i64;
-        let row: Option<(Uuid, String, i16)> = sqlx::query_as(
-            "WITH picked AS (
-                 SELECT id FROM tracks
-                 WHERE sc_track_id = $3
-                   AND (enrich_locked_at IS NULL
-                        OR enrich_locked_at < now() - ($1 * interval '1 second'))
-                   AND enrich_attempts < $2
-                   AND ( enrich_state IN ('pending', 'failed')
-                         OR (enrich_state = 'done'
-                             AND (enriched_at IS NULL
-                                  OR enriched_at < now() - interval '24 hours')) )
-                 LIMIT 1
-                 FOR UPDATE SKIP LOCKED
-             )
-             UPDATE tracks t
-             SET enrich_locked_at = now(), enrich_attempts = t.enrich_attempts + 1
-             FROM picked
-             WHERE t.id = picked.id
-             RETURNING t.id, t.sc_track_id, t.enrich_attempts",
+        let lease_secs = lease_timeout.as_secs() as f64;
+        let row = sqlx::query_file!(
+            "queries/enrich/source/claim_one.sql",
+            lease_secs,
+            self.max_attempts,
+            sc_id
         )
-            .bind(lease_secs)
-            .bind(self.max_attempts)
-            .bind(&sc_id)
-            .fetch_optional(&self.pg)
-            .await?;
-        Ok(row.map(|(id, sc_track_id, attempts)| EnrichItem {
-            id,
-            sc_track_id,
-            attempts,
+        .fetch_optional(&self.pg)
+        .await?;
+        Ok(row.map(|r| EnrichItem {
+            id: r.id,
+            sc_track_id: r.sc_track_id,
+            attempts: r.enrich_attempts,
         }))
     }
 
@@ -138,29 +106,23 @@ impl WorkSource for EnrichSource {
             _ => None,
         };
         if item.attempts >= self.max_attempts {
-            sqlx::query(
-                "UPDATE tracks
-                 SET enrich_state = 'dead', enrich_locked_at = NULL,
-                     enrich_error = $2, enriched_at = now()
-                 WHERE id = $1",
+            sqlx::query_file!(
+                "queries/enrich/source/mark_dead.sql",
+                item.id,
+                err.as_deref()
             )
-                .bind(item.id)
-                .bind(err.as_deref())
-                .execute(&self.pg)
-                .await?;
+            .execute(&self.pg)
+            .await?;
         } else {
             let next = next_run_after(item.attempts as i32, BACKOFF_BASE, BACKOFF_CAP);
-            sqlx::query(
-                "UPDATE tracks
-                 SET enrich_state = 'failed', enrich_locked_at = NULL,
-                     enrich_next_run_at = $2, enrich_error = $3
-                 WHERE id = $1",
+            sqlx::query_file!(
+                "queries/enrich/source/mark_failed.sql",
+                item.id,
+                next,
+                err.as_deref()
             )
-                .bind(item.id)
-                .bind(next)
-                .bind(err.as_deref())
-                .execute(&self.pg)
-                .await?;
+            .execute(&self.pg)
+            .await?;
         }
         Ok(())
     }

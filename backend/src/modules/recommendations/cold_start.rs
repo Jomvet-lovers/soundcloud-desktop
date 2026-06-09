@@ -4,7 +4,7 @@ use crate::error::AppResult;
 
 use super::service::RecommendationsService;
 
-const FRESH_DAYS: i64 = 14;
+const FRESH_DAYS: i32 = 14;
 const POOL_FRESH: i64 = 80;
 const POOL_POPULAR: i64 = 80;
 
@@ -48,91 +48,62 @@ impl RecommendationsService {
 }
 
 async fn load_fresh(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = if let Some(langs) = languages {
+    let rows: Vec<String> = if let Some(langs) = languages {
         if !langs.is_empty() {
-            sqlx::query_as(
-                "SELECT sc_track_id FROM tracks
-                 WHERE sc_synced_at > NOW() - make_interval(days => $2::int)
-                   AND language = ANY($1)
-                   AND sharing = 'public'
-                 ORDER BY sc_synced_at DESC
-                 LIMIT $3",
+            sqlx::query_file_scalar!(
+                "queries/recommendations/cold_start/fresh_lang.sql",
+                langs,
+                FRESH_DAYS,
+                POOL_FRESH
             )
-            .bind(langs)
-            .bind(FRESH_DAYS)
-            .bind(POOL_FRESH)
             .fetch_all(pg)
             .await?
         } else {
-            sqlx::query_as(
-                "SELECT sc_track_id FROM tracks
-                 WHERE sc_synced_at > NOW() - make_interval(days => $1::int)
-                   AND sharing = 'public'
-                 ORDER BY sc_synced_at DESC
-                 LIMIT $2",
+            sqlx::query_file_scalar!(
+                "queries/recommendations/cold_start/fresh_nolang.sql",
+                FRESH_DAYS,
+                POOL_FRESH
             )
-            .bind(FRESH_DAYS)
-            .bind(POOL_FRESH)
             .fetch_all(pg)
             .await?
         }
     } else {
-        sqlx::query_as(
-            "SELECT sc_track_id FROM tracks
-             WHERE sc_synced_at > NOW() - make_interval(days => $1::int)
-               AND sharing = 'public'
-             ORDER BY sc_synced_at DESC
-             LIMIT $2",
+        sqlx::query_file_scalar!(
+            "queries/recommendations/cold_start/fresh_nolang.sql",
+            FRESH_DAYS,
+            POOL_FRESH
         )
-        .bind(FRESH_DAYS)
-        .bind(POOL_FRESH)
         .fetch_all(pg)
         .await?
     };
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(rows)
 }
 
 async fn load_popular(pg: &PgPool, languages: Option<&[String]>) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = if let Some(langs) = languages {
+    let rows: Vec<String> = if let Some(langs) = languages {
         if !langs.is_empty() {
-            sqlx::query_as(
-                "SELECT it.sc_track_id
-                 FROM tracks it
-                 JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.language = ANY($1)
-                   AND it.sharing = 'public'
-                 ORDER BY COALESCE(c.play_count, 0) DESC
-                 LIMIT $2",
+            sqlx::query_file_scalar!(
+                "queries/recommendations/cold_start/popular_lang.sql",
+                langs,
+                POOL_POPULAR
             )
-            .bind(langs)
-            .bind(POOL_POPULAR)
             .fetch_all(pg)
             .await?
         } else {
-            sqlx::query_as(
-                "SELECT it.sc_track_id
-                 FROM tracks it
-                 JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-                 WHERE it.sharing = 'public'
-                 ORDER BY COALESCE(c.play_count, 0) DESC
-                 LIMIT $1",
+            sqlx::query_file_scalar!(
+                "queries/recommendations/cold_start/popular_nolang.sql",
+                POOL_POPULAR
             )
-            .bind(POOL_POPULAR)
             .fetch_all(pg)
             .await?
         }
     } else {
-        sqlx::query_as(
-            "SELECT it.sc_track_id
-             FROM tracks it
-             JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-             WHERE it.sharing = 'public'
-             ORDER BY COALESCE(c.play_count, 0) DESC
-             LIMIT $1",
+        sqlx::query_file_scalar!(
+            "queries/recommendations/cold_start/popular_nolang.sql",
+            POOL_POPULAR
         )
-        .bind(POOL_POPULAR)
         .fetch_all(pg)
         .await?
     };
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(rows)
 }

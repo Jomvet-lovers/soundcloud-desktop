@@ -19,16 +19,6 @@ use crate::modules::indexing::IndexingService;
 use crate::modules::tracks::TrackPriority;
 use crate::sc::ScClient;
 
-/// Сырой ряд выборки `wanted_tracks` (см. `fetch_wanted_by_ids`).
-type WantedSqlRow = (
-    Uuid,
-    String,
-    String,
-    Option<i32>,
-    Option<String>,
-    Option<Uuid>,
-);
-
 const BATCH_SIZE: i64 = 30;
 const SEARCH_LIMIT: usize = 10;
 const STAGE2_CONCURRENCY: usize = 8;
@@ -107,129 +97,78 @@ impl WantedResolverService {
     }
 
     async fn claim_batch(&self, batch: i64) -> AppResult<Vec<Uuid>> {
-        let rows: Vec<(Uuid,)> = sqlx::query_as(
-            "WITH picked AS (
-                 SELECT id FROM wanted_tracks
-                 WHERE status = 'wanted' AND track_id IS NULL
-                   AND resolve_next_run_at <= now()
-                   AND (resolve_locked_at IS NULL
-                        OR resolve_locked_at < now() - interval '10 minutes')
-                 ORDER BY resolve_next_run_at
-                 LIMIT $1 FOR UPDATE SKIP LOCKED
-             )
-             UPDATE wanted_tracks w
-             SET resolve_locked_at = now(), resolve_attempts = w.resolve_attempts + 1
-             FROM picked WHERE w.id = picked.id
-             RETURNING w.id",
-        )
-            .bind(batch)
-            .fetch_all(&self.pg)
-            .await?;
-        Ok(rows.into_iter().map(|(id, )| id).collect())
+        let rows =
+            sqlx::query_file_scalar!("queries/enrich/wanted_resolver/claim_batch.sql", batch)
+                .fetch_all(&self.pg)
+                .await?;
+        Ok(rows)
     }
 
     async fn fetch_wanted_by_ids(&self, ids: &[Uuid]) -> AppResult<Vec<WantedRecord>> {
-        let rows: Vec<WantedSqlRow> =
-            sqlx::query_as(
-                "SELECT wt.id, wt.title, COALESCE(a.name, ''), wt.duration_ms, wt.isrc, wt.primary_artist_id
-                 FROM wanted_tracks wt
-                 LEFT JOIN artists a ON a.id = wt.primary_artist_id
-                 WHERE wt.id = ANY($1)",
-            )
-                .bind(ids)
-                .fetch_all(&self.pg)
-            .await?;
+        let rows = sqlx::query_file!(
+            "queries/enrich/wanted_resolver/fetch_wanted_by_ids.sql",
+            ids
+        )
+        .fetch_all(&self.pg)
+        .await?;
         Ok(rows
             .into_iter()
-            .filter(|(_, t, _, _, _, _)| !t.trim().is_empty())
-            .map(
-                |(id, title, artist, duration_ms, isrc, primary_artist_id)| WantedRecord {
-                    id,
-                    title,
-                    artist_name: artist,
-                    duration_ms,
-                    isrc,
-                    primary_artist_id,
-                },
-            )
+            .filter(|r| !r.title.trim().is_empty())
+            .map(|r| WantedRecord {
+                id: r.id,
+                title: r.title,
+                artist_name: r.artist_name,
+                duration_ms: r.duration_ms,
+                isrc: r.isrc,
+                primary_artist_id: r.primary_artist_id,
+            })
             .collect())
     }
 
     /// Clear leases on the whole claimed batch; for rows that stayed unresolved,
     /// back off (exp on resolve_attempts, capped) or retire at the cap.
     async fn finalize_claimed(&self, ids: &[Uuid]) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE wanted_tracks
-             SET resolve_locked_at = NULL,
-                 resolve_next_run_at = now()
-                     + LEAST(interval '7 days',
-                             interval '10 minutes' * power(2, LEAST(resolve_attempts, 10))),
-                 status = CASE WHEN resolve_attempts >= 8 THEN 'unresolvable' ELSE status END
-             WHERE id = ANY($1) AND status = 'wanted' AND track_id IS NULL",
+        sqlx::query_file!("queries/enrich/wanted_resolver/finalize_backoff.sql", ids)
+            .execute(&self.pg)
+            .await?;
+        sqlx::query_file!(
+            "queries/enrich/wanted_resolver/finalize_clear_locks.sql",
+            ids
         )
-            .bind(ids)
-            .execute(&self.pg)
-            .await?;
-        sqlx::query("UPDATE wanted_tracks SET resolve_locked_at = NULL WHERE id = ANY($1)")
-            .bind(ids)
-            .execute(&self.pg)
-            .await?;
+        .execute(&self.pg)
+        .await?;
         Ok(())
     }
 
     pub async fn run_for_artist(&self, artist_id: Uuid, max: i64) -> AppResult<()> {
-        let rows = self
-            .fetch_wanted(
-                "SELECT wt.id, wt.title, COALESCE(a.name, ''), wt.duration_ms, wt.isrc, wt.primary_artist_id
-                 FROM wanted_tracks wt
-                 LEFT JOIN artists a ON a.id = wt.primary_artist_id
-                 WHERE wt.status = 'wanted'
-                   AND wt.track_id IS NULL
-                   AND wt.primary_artist_id = $2
-                 ORDER BY wt.updated_at NULLS FIRST
-                 LIMIT $1",
-                max,
-                Some(artist_id),
-            )
-            .await?;
+        let rows = self.fetch_wanted_for_artist(max, artist_id).await?;
         self.process_batch(rows, Some(artist_id)).await
     }
 
-    async fn fetch_wanted(
+    async fn fetch_wanted_for_artist(
         &self,
-        sql: &str,
         limit: i64,
-        artist_id: Option<Uuid>,
+        artist_id: Uuid,
     ) -> AppResult<Vec<WantedRecord>> {
-        let mut q = sqlx::query_as::<
-            _,
-            (
-                Uuid,
-                String,
-                String,
-                Option<i32>,
-                Option<String>,
-                Option<Uuid>,
-            ),
-        >(sql)
-        .bind(limit);
-        if let Some(aid) = artist_id {
-            q = q.bind(aid);
-        }
-        let rows = q.fetch_all(&self.pg).await?;
+        let rows = sqlx::query_file_as!(
+            WantedRecordRow,
+            "queries/enrich/wanted_resolver/fetch_wanted_for_artist.sql",
+            limit,
+            artist_id
+        )
+        .fetch_all(&self.pg)
+        .await?;
         Ok(rows
             .into_iter()
-            .filter(|(_, t, _, _, _, _)| !t.trim().is_empty())
-            .map(
-                |(id, title, artist, duration_ms, isrc, primary_artist_id)| WantedRecord {
-                    id,
-                    title,
-                    artist_name: artist,
-                    duration_ms,
-                    isrc,
-                    primary_artist_id,
-                },
-            )
+            .filter(|r| !r.title.trim().is_empty())
+            .map(|r| WantedRecord {
+                id: r.id,
+                title: r.title,
+                artist_name: r.artist_name,
+                duration_ms: r.duration_ms,
+                isrc: r.isrc,
+                primary_artist_id: r.primary_artist_id,
+            })
             .collect())
     }
 
@@ -298,18 +237,18 @@ impl WantedResolverService {
                 match self.resolve_one(r, chain).await {
                     Ok(true) => {}
                     Ok(false) => {
-                        let _ = sqlx::query(
-                            "UPDATE wanted_tracks SET updated_at = now() WHERE id = $1",
+                        let _ = sqlx::query_file!(
+                            "queries/enrich/wanted_resolver/touch_updated_at.sql",
+                            r.id
                         )
-                            .bind(r.id)
-                            .execute(&self.pg)
-                            .await;
+                        .execute(&self.pg)
+                        .await;
                     }
                     Err(e) => warn!(error = %e, %r.id, "wanted-resolver: resolve_one failed"),
                 }
             }
         }))
-            .await;
+        .await;
         Ok(())
     }
 
@@ -486,12 +425,13 @@ impl WantedResolverService {
         title: &str,
         _artist_name: &str,
     ) -> AppResult<Option<String>> {
-        let primary_artist_id: Option<(Option<Uuid>,)> =
-            sqlx::query_as("SELECT primary_artist_id FROM wanted_tracks WHERE id = $1")
-                .bind(wanted_id)
-                .fetch_optional(&self.pg)
-                .await?;
-        let Some((Some(artist_id),)) = primary_artist_id else {
+        let primary_artist_id = sqlx::query_file_scalar!(
+            "queries/enrich/wanted_resolver/primary_artist_id.sql",
+            wanted_id
+        )
+        .fetch_optional(&self.pg)
+        .await?;
+        let Some(Some(artist_id)) = primary_artist_id else {
             return Ok(None);
         };
         Ok(
@@ -537,33 +477,28 @@ pub async fn find_best_indexed_for_artist_title(
         .map(|w| format!("{w}%"))
         .unwrap_or_else(|| format!("{normalized}%"));
 
-    let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
-        "SELECT it.id, it.sc_track_id, COALESCE(it.title, '')
-         FROM tracks it
-         JOIN track_artists ta ON ta.track_id = it.id
-         WHERE ta.artist_id = $1
-           AND ta.role = 'primary'
-           AND (it.title_normalized = $2 OR it.title_normalized LIKE $3)",
+    let rows = sqlx::query_file!(
+        "queries/enrich/wanted_resolver/indexed_candidates_by_artist_title.sql",
+        artist_id,
+        &normalized,
+        &first_word_prefix
     )
-    .bind(artist_id)
-    .bind(&normalized)
-    .bind(&first_word_prefix)
     .fetch_all(pg)
     .await?;
 
     let mut best: Option<IndexedMatch> = None;
-    for (track_id, sc_track_id, raw_title) in rows {
-        if raw_title.is_empty() {
+    for row in rows {
+        if row.title.is_empty() {
             continue;
         }
-        let s = crate::modules::enrich::matcher::title_score(target_title, &raw_title, None);
+        let s = crate::modules::enrich::matcher::title_score(target_title, &row.title, None);
         if s < INDEXED_TITLE_THRESHOLD {
             continue;
         }
         if best.as_ref().map(|b| s > b.score).unwrap_or(true) {
             best = Some(IndexedMatch {
-                track_id,
-                sc_track_id,
+                track_id: row.id,
+                sc_track_id: row.sc_track_id,
                 score: s,
             });
         }
@@ -578,48 +513,37 @@ pub async fn find_best_indexed_for_artist_title(
 /// Без совпадения статус НЕ трогаем — строка остаётся `wanted` и в очереди
 /// резолвера (иначе orphan `linked` + `track_id IS NULL`, который пикап не берёт).
 pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) -> AppResult<bool> {
-    let row: Option<(Option<Uuid>,)> = sqlx::query_as(
-        "UPDATE wanted_tracks
-         SET track_id = t.id,
-             status = 'linked',
-             updated_at = now()
-         FROM (SELECT id FROM tracks WHERE sc_track_id = $2 LIMIT 1) t
-         WHERE wanted_tracks.id = $1
-         RETURNING track_id",
+    let row = sqlx::query_file_scalar!(
+        "queries/enrich/wanted_resolver/link_to_indexed.sql",
+        wanted_id,
+        sc_track_id
     )
-    .bind(wanted_id)
-    .bind(sc_track_id)
     .fetch_optional(pg)
     .await?;
-    let Some((Some(indexed_id),)) = row else {
+    let Some(Some(indexed_id)) = row else {
         return Ok(false);
     };
-    let albums: Vec<(Uuid, i16)> = sqlx::query_as(
-        "SELECT album_id, position FROM wanted_track_albums WHERE wanted_track_id = $1",
+    let albums = sqlx::query_file!(
+        "queries/enrich/wanted_resolver/wanted_albums.sql",
+        wanted_id
     )
-    .bind(wanted_id)
     .fetch_all(pg)
     .await?;
-    for (album_id, position) in albums {
-        sqlx::query(
-            "UPDATE tracks
-             SET album_id = COALESCE(album_id, $2),
-                 album_position = COALESCE(album_position, $3)
-             WHERE id = $1",
+    for album in albums {
+        sqlx::query_file!(
+            "queries/enrich/wanted_resolver/inherit_track_album.sql",
+            indexed_id,
+            album.album_id,
+            album.position
         )
-        .bind(indexed_id)
-        .bind(album_id)
-        .bind(position)
         .execute(pg)
         .await?;
-        sqlx::query(
-            "INSERT INTO album_tracks (album_id, track_id, position)
-             VALUES ($1, $2, $3)
-             ON CONFLICT DO NOTHING",
+        sqlx::query_file!(
+            "queries/enrich/wanted_resolver/insert_album_track.sql",
+            album.album_id,
+            indexed_id,
+            album.position
         )
-        .bind(album_id)
-        .bind(indexed_id)
-        .bind(position)
         .execute(pg)
         .await?;
     }
@@ -628,6 +552,17 @@ pub async fn link_wanted_to_sc(pg: &PgPool, wanted_id: Uuid, sc_track_id: &str) 
 
 #[derive(Debug, Clone)]
 struct WantedRecord {
+    id: Uuid,
+    title: String,
+    artist_name: String,
+    duration_ms: Option<i32>,
+    isrc: Option<String>,
+    primary_artist_id: Option<Uuid>,
+}
+
+// Row shape for fetch_wanted_for_artist.sql (id, title, artist_name, duration_ms, isrc, primary_artist_id).
+#[derive(sqlx::FromRow)]
+struct WantedRecordRow {
     id: Uuid,
     title: String,
     artist_name: String,

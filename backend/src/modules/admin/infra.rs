@@ -117,7 +117,10 @@ pub struct SlowQueries {
 /// pg_stat_statements. Degrades to `enabled:false` when the extension isn't
 /// preloaded (set `shared_preload_libraries=pg_stat_statements` on Postgres).
 #[tracing::instrument(skip_all)]
-pub async fn slow_queries(_: AdminAuth, State(state): State<AppState>) -> AppResult<Json<SlowQueries>> {
+pub async fn slow_queries(
+    _: AdminAuth,
+    State(state): State<AppState>,
+) -> AppResult<Json<SlowQueries>> {
     // Best-effort: no-op once enabled, errors (ignored) if the lib isn't preloaded.
     let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
         .execute(&state.pg)
@@ -128,11 +131,55 @@ pub async fn slow_queries(_: AdminAuth, State(state): State<AppState>) -> AppRes
                 total_exec_time AS total_ms, rows::int8 AS rows \
          FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 30",
     )
-        .fetch_all(&state.pg)
-        .await;
+    .fetch_all(&state.pg)
+    .await;
 
     match res {
-        Ok(queries) => Ok(Json(SlowQueries { enabled: true, queries })),
-        Err(_) => Ok(Json(SlowQueries { enabled: false, queries: Vec::new() })),
+        Ok(queries) => Ok(Json(SlowQueries {
+            enabled: true,
+            queries,
+        })),
+        Err(_) => Ok(Json(SlowQueries {
+            enabled: false,
+            queries: Vec::new(),
+        })),
     }
+}
+
+// ───────────────────────── index usage (pg_stat_user_indexes) ─────────────────────────
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct IndexUsage {
+    pub table: String,
+    pub index: String,
+    pub idx_scan: i64,
+    pub size_bytes: i64,
+    pub is_unique: bool,
+    pub is_primary: bool,
+}
+
+#[derive(Serialize)]
+pub struct IndexUsageReport {
+    pub indexes: Vec<IndexUsage>,
+}
+
+/// GET /admin/index-usage — per-index scan counts + size from pg_stat_user_indexes,
+/// least-used first. A non-unique/non-pk index with idx_scan≈0 is a drop candidate:
+/// it earns nothing on reads but is rewritten on every insert/update of a hot table.
+#[tracing::instrument(skip_all)]
+pub async fn index_usage(
+    _: AdminAuth,
+    State(state): State<AppState>,
+) -> AppResult<Json<IndexUsageReport>> {
+    let indexes = sqlx::query_as::<_, IndexUsage>(
+        "SELECT relname AS \"table\", indexrelname AS \"index\", \
+                idx_scan::int8 AS idx_scan, \
+                pg_relation_size(indexrelid)::int8 AS size_bytes, \
+                indisunique AS is_unique, indisprimary AS is_primary \
+         FROM pg_stat_user_indexes JOIN pg_index USING (indexrelid) \
+         ORDER BY idx_scan ASC, pg_relation_size(indexrelid) DESC",
+    )
+    .fetch_all(&state.pg)
+    .await?;
+    Ok(Json(IndexUsageReport { indexes }))
 }

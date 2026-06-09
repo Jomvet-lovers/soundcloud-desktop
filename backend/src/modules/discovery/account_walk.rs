@@ -47,31 +47,20 @@ impl WorkSource for AccountWalkSource {
 
     async fn claim(&self, batch: i64, lease_timeout: Duration) -> AppResult<Vec<AccountWalkItem>> {
         let lease_secs = lease_timeout.as_secs() as i64;
-        let rows: Vec<(Uuid, String)> = sqlx::query_as(
-            "WITH picked AS (
-                 SELECT ar.id FROM artists ar
-                 WHERE ar.merged_into IS NULL
-                   AND (ar.last_account_walk_at IS NULL
-                        OR ar.last_account_walk_at < now() - ($1 * interval '1 day'))
-                   AND (ar.account_walk_locked_at IS NULL
-                        OR ar.account_walk_locked_at < now() - ($2 * interval '1 second'))
-                   AND ar.has_sc_account
-                 ORDER BY ar.last_account_walk_at NULLS FIRST
-                 LIMIT $3
-                 FOR UPDATE SKIP LOCKED
-             )
-             UPDATE artists ar SET account_walk_locked_at = now()
-             FROM picked WHERE ar.id = picked.id
-             RETURNING ar.id, ar.name",
+        let rows = sqlx::query_file!(
+            "queries/discovery/account_walk/claim.sql",
+            self.walk_days,
+            lease_secs,
+            batch,
         )
-            .bind(self.walk_days)
-            .bind(lease_secs)
-            .bind(batch)
-            .fetch_all(&self.pg)
-            .await?;
+        .fetch_all(&self.pg)
+        .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, name)| AccountWalkItem { id, name })
+            .map(|r| AccountWalkItem {
+                id: r.id,
+                name: r.name,
+            })
             .collect())
     }
 
@@ -89,31 +78,33 @@ impl WorkSource for AccountWalkSource {
                 error: e.to_string(),
             };
         }
-        if let Err(e) = self.wanted.run_for_artist(item.id, POST_WALK_WANTED_MAX).await {
+        if let Err(e) = self
+            .wanted
+            .run_for_artist(item.id, POST_WALK_WANTED_MAX)
+            .await
+        {
             tracing::debug!(artist = %item.id, error = %e, "post-walk wanted resolve failed");
         }
         WorkOutcome::Done
     }
 
     async fn on_success(&self, item: &AccountWalkItem) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE artists SET last_account_walk_at = now(), account_walk_locked_at = NULL
-             WHERE id = $1",
+        sqlx::query_file!(
+            "queries/discovery/account_walk/clear_lock_success.sql",
+            item.id,
         )
-            .bind(item.id)
-            .execute(&self.pg)
-            .await?;
+        .execute(&self.pg)
+        .await?;
         Ok(())
     }
 
     async fn on_failure(&self, item: &AccountWalkItem, _outcome: &WorkOutcome) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE artists SET last_account_walk_at = now(), account_walk_locked_at = NULL
-             WHERE id = $1",
+        sqlx::query_file!(
+            "queries/discovery/account_walk/clear_lock_success.sql",
+            item.id,
         )
-            .bind(item.id)
-            .execute(&self.pg)
-            .await?;
+        .execute(&self.pg)
+        .await?;
         Ok(())
     }
 }

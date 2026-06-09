@@ -101,11 +101,13 @@ impl TracksService {
             })
             .await?
         } else {
-            let row: Option<crate::modules::tracks::TrackRow> =
-                sqlx::query_as("SELECT * FROM tracks WHERE sc_track_id = $1")
-                    .bind(&sc_track_id)
-                    .fetch_optional(&self.pg)
-                    .await?;
+            let row: Option<crate::modules::tracks::TrackRow> = sqlx::query_file_as!(
+                crate::modules::tracks::TrackRow,
+                "queries/tracks/service/find_by_sc_track_id.sql",
+                &sc_track_id
+            )
+            .fetch_optional(&self.pg)
+            .await?;
             if let Some(track_row) = row {
                 // Sharing-guard: приватные треки видит только uploader. Owner
                 // зайдёт сюда же — мы не отдаём `/me/track-by-id` отдельным
@@ -126,15 +128,9 @@ impl TracksService {
                 let pg = self.pg.clone();
                 let id = sc_track_id.clone();
                 tokio::spawn(async move {
-                    let _ = sqlx::query(
-                        "UPDATE tracks SET last_read_at = now() \
-                         WHERE sc_track_id = $1 \
-                           AND (last_read_at IS NULL \
-                                OR last_read_at < now() - INTERVAL '5 minutes')",
-                    )
-                    .bind(&id)
-                    .execute(&pg)
-                    .await;
+                    let _ = sqlx::query_file!("queries/tracks/service/touch_last_read.sql", &id)
+                        .execute(&pg)
+                        .await;
                 });
                 if self.cold_refresh.is_track_stale(Some(synced_at)) {
                     let refresh = self.cold_refresh.clone();
@@ -198,7 +194,7 @@ impl TracksService {
             let body = body.clone();
             async move { sc.api_put_value(&path, &tok, Some(&body)).await }
         })
-            .await?;
+        .await?;
 
         // Reconcile приватности локально: дженерик-PUT с `{track:{sharing}}` (или
         // плоским `{sharing}`) меняет SC, а наш read-фильтр (project_many_public)
@@ -210,13 +206,13 @@ impl TracksService {
             .or_else(|| body.get("sharing"))
             .and_then(|v| v.as_str());
         if let Some(s) = sharing.filter(|s| *s == "public" || *s == "private") {
-            let _ = sqlx::query(
-                "UPDATE tracks SET sharing = $2, updated_at = now() WHERE sc_track_id = $1",
+            let _ = sqlx::query_file!(
+                "queries/tracks/service/reconcile_sharing.sql",
+                extract_sc_id(track_urn),
+                s
             )
-                .bind(extract_sc_id(track_urn))
-                .bind(s)
-                .execute(&self.pg)
-                .await;
+            .execute(&self.pg)
+            .await;
         }
         Ok(resp)
     }
@@ -239,8 +235,7 @@ impl TracksService {
         let me = extract_sc_id(sc_user_id);
 
         let uploader: Option<Option<String>> =
-            sqlx::query_scalar("SELECT uploader_sc_user_id FROM tracks WHERE sc_track_id = $1")
-                .bind(&sc_track_id)
+            sqlx::query_file_scalar!("queries/tracks/service/find_uploader.sql", &sc_track_id)
                 .fetch_optional(&self.pg)
                 .await?;
         // 404 (а не 403) для чужого/несуществующего — не палим факт наличия.
@@ -249,11 +244,13 @@ impl TracksService {
             _ => return Err(crate::error::AppError::not_found("Track not found")),
         }
 
-        sqlx::query("UPDATE tracks SET sharing = $2, updated_at = now() WHERE sc_track_id = $1")
-            .bind(&sc_track_id)
-            .bind(sharing)
-            .execute(&self.pg)
-            .await?;
+        sqlx::query_file!(
+            "queries/tracks/service/reconcile_sharing.sql",
+            &sc_track_id,
+            sharing
+        )
+        .execute(&self.pg)
+        .await?;
         self.sync_queue
             .enqueue(
                 sc_user_id,

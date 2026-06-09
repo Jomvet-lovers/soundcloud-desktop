@@ -128,7 +128,7 @@ pub async fn build(
         GRAPH_PER_ARTIST,
         GRAPH_TRACKS_TOTAL,
     )
-        .await;
+    .await;
 
     let pool_ids: Vec<u64> = mert.iter().map(|c| c.sc_track_id).collect();
     let meta = load_track_meta(&svc.pg, &pool_ids).await;
@@ -212,7 +212,9 @@ pub async fn build(
     );
 
     let ids_after: Vec<String> = picked.iter().map(|p| p.sc_track_id.to_string()).collect();
-    let lang_allowed = svc.filter_tracks_by_language(&ids_after, req.languages).await;
+    let lang_allowed = svc
+        .filter_tracks_by_language(&ids_after, req.languages)
+        .await;
 
     let mut tracks: Vec<RecommendResult> = Vec::with_capacity(req.limit);
     for p in &picked {
@@ -505,7 +507,11 @@ fn sim(centroid: Option<&[f32]>, vec: Option<&Vec<f32>>) -> Option<f32> {
 /// топит. Лирика часто отсутствует → считаем по тем осям, что есть. Нет ни
 /// одной → 1.0 (нейтрально, рулят граф+присутствие).
 fn geomean(sims: &[Option<f32>]) -> f32 {
-    let xs: Vec<f32> = sims.iter().filter_map(|x| *x).filter(|x| *x > 0.0).collect();
+    let xs: Vec<f32> = sims
+        .iter()
+        .filter_map(|x| *x)
+        .filter(|x| *x > 0.0)
+        .collect();
     if xs.is_empty() {
         return 1.0;
     }
@@ -547,14 +553,14 @@ async fn filter_indexed(pg: &PgPool, ids: &[u64]) -> Vec<u64> {
         return Vec::new();
     }
     let strs: Vec<String> = ids.iter().map(|i| i.to_string()).collect();
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM tracks WHERE sc_track_id = ANY($1) AND index_state = 'indexed'",
+    let rows: Vec<String> = sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/mod/filter_indexed.sql",
+        &strs
     )
-        .bind(&strs)
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default();
-    let set: HashSet<String> = rows.into_iter().map(|(s, )| s).collect();
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
+    let set: HashSet<String> = rows.into_iter().collect();
     ids.iter()
         .copied()
         .filter(|i| set.contains(&i.to_string()))
@@ -566,22 +572,21 @@ async fn load_track_meta(pg: &PgPool, ids: &[u64]) -> HashMap<u64, TrackMeta> {
         return HashMap::new();
     }
     let id_strs: Vec<String> = ids.iter().map(|i| i.to_string()).collect();
-    let rows: Vec<(String, Option<Uuid>, bool)> = sqlx::query_as(
-        "SELECT sc_track_id, primary_artist_id, (storage_state = 'ok') AS ok \
-         FROM tracks WHERE sc_track_id = ANY($1)",
+    let rows = sqlx::query_file!(
+        "queries/recommendations/smart_wave/mod/load_track_meta.sql",
+        &id_strs
     )
-        .bind(&id_strs)
     .fetch_all(pg)
     .await
-        .unwrap_or_default();
+    .unwrap_or_default();
     rows.into_iter()
-        .filter_map(|(id, pa, ok)| {
-            id.parse::<u64>().ok().map(|n| {
+        .filter_map(|r| {
+            r.sc_track_id.parse::<u64>().ok().map(|n| {
                 (
                     n,
                     TrackMeta {
-                        primary_artist: pa,
-                        storage_ok: ok,
+                        primary_artist: r.primary_artist_id,
+                        storage_ok: r.ok,
                     },
                 )
             })

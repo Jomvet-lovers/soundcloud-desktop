@@ -202,141 +202,72 @@ async fn anti_spread(pg: &PgPool, affinity: &mut Affinity, disliked: &[Uuid]) {
 }
 
 async fn load_user_seeds(pg: &PgPool, variants: &[String]) -> Affinity {
-    let rows: Vec<(Uuid, f32)> = sqlx::query_as(
-        "WITH rl AS ( \
-             SELECT sc_track_id, \
-                 EXP(-EXTRACT(EPOCH FROM (now()-created_at))/86400.0/60.0)::real AS rec \
-             FROM user_likes_tracks \
-             WHERE user_id = ANY($1) AND wanted_state = true \
-               AND created_at > now() - make_interval(days => $2::int) \
-             ORDER BY created_at DESC, ctid DESC \
-             LIMIT 200 \
-         ), \
-         parts AS ( \
-             SELECT ta.artist_id, rl.rec, \
-                 (CASE ta.role WHEN 'primary' THEN 1.0 WHEN 'featured' THEN 0.6 ELSE 0.5 END)::real AS rw \
-             FROM rl \
-             JOIN tracks it ON it.sc_track_id = rl.sc_track_id \
-             JOIN track_artists ta ON ta.track_id = it.id AND ta.role IN ('primary','featured','remixer') \
-             UNION ALL \
-             SELECT aa.artist_id, rl.rec, 0.8::real \
-             FROM rl \
-             JOIN tracks it ON it.sc_track_id = rl.sc_track_id \
-             JOIN album_artists aa ON aa.album_id = it.album_id \
-             WHERE NOT EXISTS ( \
-                 SELECT 1 FROM track_artists ta2 \
-                 WHERE ta2.track_id = it.id AND ta2.role IN ('primary','featured','remixer') \
-             ) \
-         ), \
-         like_w AS (SELECT artist_id, SUM(rec*rw)::real AS w FROM parts GROUP BY artist_id), \
-         play_w AS ( \
-             SELECT ta.artist_id, \
-                 SUM(EXP(-EXTRACT(EPOCH FROM (now()-ue.created_at))/86400.0/60.0))::real AS w \
-             FROM user_events ue \
-             JOIN tracks it ON it.sc_track_id = ue.sc_track_id \
-             JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
-             WHERE ue.sc_user_id = ANY($1) \
-               AND ue.event_type IN ('full_play','play_complete') \
-               AND ue.created_at > now() - make_interval(days => $3::int) \
-             GROUP BY ta.artist_id \
-         ), \
-         merged AS ( \
-             SELECT COALESCE(l.artist_id, p.artist_id) AS artist_id, \
-                 (COALESCE(l.w,0) + $4::real * COALESCE(p.w,0))::real AS weight \
-             FROM like_w l FULL OUTER JOIN play_w p ON p.artist_id = l.artist_id \
-         ) \
-         SELECT m.artist_id, m.weight \
-         FROM merged m JOIN artists a ON a.id = m.artist_id \
-         WHERE a.merged_into IS NULL AND m.weight > 0 \
-         ORDER BY m.weight DESC \
-         LIMIT $5",
+    let rows = sqlx::query_file!(
+        "queries/recommendations/smart_wave/graph/load_user_seeds.sql",
+        variants,
+        LIKES_WINDOW_DAYS,
+        PLAYS_WINDOW_DAYS,
+        PLAY_BOOST,
+        SEED_LIMIT
     )
-        .bind(variants)
-        .bind(LIKES_WINDOW_DAYS)
-        .bind(PLAYS_WINDOW_DAYS)
-        .bind(PLAY_BOOST)
-        .bind(SEED_LIMIT)
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default();
-    rows.into_iter().collect()
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
+    rows.into_iter().map(|r| (r.artist_id, r.weight)).collect()
 }
 
 async fn load_track_seeds(pg: &PgPool, sc_track_id: u64) -> Affinity {
-    let rows: Vec<(Uuid, f32)> = sqlx::query_as(
-        "SELECT ta.artist_id, \
-             (CASE ta.role WHEN 'primary' THEN 1.0 WHEN 'featured' THEN 0.6 ELSE 0.5 END)::real AS w \
-         FROM tracks it \
-         JOIN track_artists ta ON ta.track_id = it.id AND ta.role IN ('primary','featured','remixer') \
-         JOIN artists a ON a.id = ta.artist_id \
-         WHERE it.sc_track_id = $1 AND a.merged_into IS NULL",
+    let scid = sc_track_id.to_string();
+    let rows = sqlx::query_file!(
+        "queries/recommendations/smart_wave/graph/load_track_seeds.sql",
+        &scid
     )
-        .bind(sc_track_id.to_string())
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default();
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
     if !rows.is_empty() {
-        return rows.into_iter().collect();
+        return rows.into_iter().map(|r| (r.artist_id, r.w)).collect();
     }
     // Фолбэк: трек без кредитов → через альбом.
-    let rows: Vec<(Uuid, f32)> = sqlx::query_as(
-        "SELECT aa.artist_id, 0.8::real AS w \
-         FROM tracks it \
-         JOIN album_artists aa ON aa.album_id = it.album_id \
-         JOIN artists a ON a.id = aa.artist_id \
-         WHERE it.sc_track_id = $1 AND a.merged_into IS NULL",
+    let rows = sqlx::query_file!(
+        "queries/recommendations/smart_wave/graph/load_track_seeds_via_album.sql",
+        &scid
     )
-        .bind(sc_track_id.to_string())
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default();
-    rows.into_iter().collect()
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
+    rows.into_iter().map(|r| (r.artist_id, r.w)).collect()
 }
 
 async fn load_disliked_artists(pg: &PgPool, variants: &[String]) -> Vec<Uuid> {
     // Артист «дизнут» только если дизов >= порога И дизов БОЛЬШЕ, чем лайков на
     // нём: 0 лайков + 3 диза → дизнут; 5 лайков + 3 диза → нет (ты его любишь).
-    sqlx::query_scalar(
-        "WITH disl AS ( \
-             SELECT ta.artist_id, COUNT(*) AS dc \
-             FROM disliked_tracks dt \
-             JOIN tracks it ON it.sc_track_id = dt.sc_track_id \
-             JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
-             WHERE dt.sc_user_id = ANY($1) \
-             GROUP BY ta.artist_id \
-         ), \
-         lik AS ( \
-             SELECT ta.artist_id, COUNT(*) AS lc \
-             FROM user_likes_tracks ul \
-             JOIN tracks it ON it.sc_track_id = ul.sc_track_id \
-             JOIN track_artists ta ON ta.track_id = it.id AND ta.role = 'primary' \
-             WHERE ul.user_id = ANY($1) AND ul.wanted_state = true \
-             GROUP BY ta.artist_id \
-         ) \
-         SELECT d.artist_id \
-         FROM disl d \
-         LEFT JOIN lik l ON l.artist_id = d.artist_id \
-         WHERE d.dc >= $2 AND d.dc > COALESCE(l.lc, 0)",
+    sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/graph/load_disliked_artists.sql",
+        variants,
+        DISLIKE_ARTIST_MIN
     )
-        .bind(variants)
-        .bind(DISLIKE_ARTIST_MIN)
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default()
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default()
 }
 
 async fn load_coplay_edges(pg: &PgPool, nodes: &[Uuid]) -> Vec<(Uuid, Uuid, f32)> {
     if nodes.is_empty() {
         return Vec::new();
     }
-    sqlx::query_as(
-        "SELECT a_id, b_id, weight FROM artist_coplay \
-         WHERE (a_id = ANY($1) OR b_id = ANY($1)) AND weight > 0",
+    sqlx::query_file!(
+        "queries/recommendations/smart_wave/graph/load_coplay_edges.sql",
+        nodes
     )
-        .bind(nodes)
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default()
+    .fetch_all(pg)
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|r| (r.a_id, r.b_id, r.weight))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// Треки близких артистов — сетка как ИСТОЧНИК кандидатов (не только ре-ранкер).
@@ -352,31 +283,18 @@ pub async fn collect_artist_tracks(
     if artist_ids.is_empty() {
         return Vec::new();
     }
-    let rows: Vec<(Uuid, String)> = sqlx::query_as(
-        "WITH ranked AS ( \
-             SELECT ta.artist_id, it.sc_track_id, \
-                 ROW_NUMBER() OVER ( \
-                     PARTITION BY ta.artist_id ORDER BY COALESCE(c.play_count, 0) DESC \
-                 ) AS rn \
-             FROM track_artists ta \
-             JOIN tracks it ON it.id = ta.track_id \
-             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
-             WHERE ta.artist_id = ANY($1) AND ta.role = 'primary' \
-               AND it.sharing = 'public' AND it.storage_state = 'ok' \
-               AND it.index_state = 'indexed' \
-               AND NOT (it.sc_track_id = ANY($2)) \
-         ) \
-         SELECT artist_id, sc_track_id FROM ranked WHERE rn <= $3 LIMIT $4",
+    let rows = sqlx::query_file!(
+        "queries/recommendations/smart_wave/graph/collect_artist_tracks.sql",
+        artist_ids,
+        exclude,
+        per_artist,
+        total
     )
-        .bind(artist_ids)
-        .bind(exclude)
-        .bind(per_artist)
-        .bind(total)
-        .fetch_all(pg)
-        .await
-        .unwrap_or_default();
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default();
     rows.into_iter()
-        .filter_map(|(a, s)| s.parse::<u64>().ok().map(|n| (n, a)))
+        .filter_map(|r| r.sc_track_id.parse::<u64>().ok().map(|n| (n, r.artist_id)))
         .collect()
 }
 

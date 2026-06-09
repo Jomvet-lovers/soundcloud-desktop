@@ -63,38 +63,27 @@ pub async fn search_tracks(
         // Per-user scope: фильтр на uploader_sc_user_id первый, потом ILIKE.
         // Индекс `tracks_uploader_popular_idx` даёт быстрый старт по uploader'у,
         // фильтр trgm применяется по уже отрезанному набору.
-        sqlx::query_as(
-            "SELECT * FROM tracks \
-             WHERE uploader_sc_user_id = $1 \
-               AND sharing = 'public' \
-               AND (title_normalized LIKE $2 OR LOWER(title) LIKE $2) \
-             ORDER BY play_count_sc DESC NULLS LAST, sc_synced_at DESC, id DESC \
-             LIMIT $3 OFFSET $4",
+        sqlx::query_file_as!(
+            TrackRow,
+            "queries/search/repository/search_tracks_by_uploader.sql",
+            uid,
+            &needle,
+            fetch_limit,
+            offset
         )
-        .bind(uid)
-        .bind(&needle)
-        .bind(fetch_limit)
-        .bind(offset)
         .fetch_all(&mut *tx)
         .await?
     } else {
         // Глобальный поиск. trgm-индекс `tracks_search_title_norm_trgm`
         // подхватывается планировщиком на `title_normalized LIKE`, аплоадер —
         // вспомогательный матч (`tracks_search_uploader_username_trgm`).
-        sqlx::query_as(
-            "SELECT * FROM tracks \
-             WHERE sharing = 'public' \
-               AND ( \
-                   title_normalized LIKE $1 \
-                   OR LOWER(title) LIKE $1 \
-                   OR LOWER(uploader_username) LIKE $1 \
-               ) \
-             ORDER BY play_count_sc DESC NULLS LAST, sc_synced_at DESC, id DESC \
-             LIMIT $2 OFFSET $3",
+        sqlx::query_file_as!(
+            TrackRow,
+            "queries/search/repository/search_tracks_global.sql",
+            &needle,
+            fetch_limit,
+            offset
         )
-        .bind(&needle)
-        .bind(fetch_limit)
-        .bind(offset)
         .fetch_all(&mut *tx)
         .await?
     };
@@ -123,10 +112,13 @@ async fn project_tracks_with_uploaders(pg: &PgPool, rows: Vec<TrackRow>) -> AppR
     let user_map: std::collections::HashMap<String, Value> = if uploader_ids.is_empty() {
         Default::default()
     } else {
-        let users: Vec<UserRow> = sqlx::query_as("SELECT * FROM users WHERE sc_user_id = ANY($1)")
-            .bind(&uploader_ids)
-            .fetch_all(pg)
-            .await?;
+        let users: Vec<UserRow> = sqlx::query_file_as!(
+            UserRow,
+            "queries/search/repository/users_by_sc_ids.sql",
+            &uploader_ids
+        )
+        .fetch_all(pg)
+        .await?;
         users
             .into_iter()
             .map(|u| (u.sc_user_id.clone(), project_user(&u)))
@@ -162,35 +154,24 @@ pub async fn search_playlists(
     let fetch_limit = limit + 1;
 
     let rows: Vec<PlaylistRow> = if let Some(uid) = user_sc_id_filter {
-        sqlx::query_as(
-            "SELECT * FROM playlists \
-             WHERE owner_sc_user_id = $1 \
-               AND sharing = 'public' \
-               AND (title_normalized LIKE $2 OR LOWER(title) LIKE $2) \
-             ORDER BY likes_count_sc DESC NULLS LAST, sc_synced_at DESC, urn DESC \
-             LIMIT $3 OFFSET $4",
+        sqlx::query_file_as!(
+            PlaylistRow,
+            "queries/search/repository/search_playlists_by_owner.sql",
+            uid,
+            &needle,
+            fetch_limit,
+            offset
         )
-        .bind(uid)
-        .bind(&needle)
-        .bind(fetch_limit)
-        .bind(offset)
         .fetch_all(&mut *tx)
         .await?
     } else {
-        sqlx::query_as(
-            "SELECT * FROM playlists \
-             WHERE sharing = 'public' \
-               AND ( \
-                   title_normalized LIKE $1 \
-                   OR LOWER(title) LIKE $1 \
-                   OR LOWER(owner_username) LIKE $1 \
-               ) \
-             ORDER BY likes_count_sc DESC NULLS LAST, sc_synced_at DESC, urn DESC \
-             LIMIT $2 OFFSET $3",
+        sqlx::query_file_as!(
+            PlaylistRow,
+            "queries/search/repository/search_playlists_global.sql",
+            &needle,
+            fetch_limit,
+            offset
         )
-        .bind(&needle)
-        .bind(fetch_limit)
-        .bind(offset)
         .fetch_all(&mut *tx)
         .await?
     };
@@ -220,10 +201,13 @@ async fn project_playlists_with_owners(
     let owner_map: std::collections::HashMap<String, Value> = if owner_ids.is_empty() {
         Default::default()
     } else {
-        let users: Vec<UserRow> = sqlx::query_as("SELECT * FROM users WHERE sc_user_id = ANY($1)")
-            .bind(&owner_ids)
-            .fetch_all(pg)
-            .await?;
+        let users: Vec<UserRow> = sqlx::query_file_as!(
+            UserRow,
+            "queries/search/repository/users_by_sc_ids.sql",
+            &owner_ids
+        )
+        .fetch_all(pg)
+        .await?;
         users
             .into_iter()
             .map(|u| (u.sc_user_id.clone(), project_user(&u)))
@@ -257,16 +241,13 @@ pub async fn search_users(
 
     let fetch_limit = limit + 1;
 
-    let rows: Vec<UserRow> = sqlx::query_as(
-        "SELECT * FROM users \
-         WHERE username_normalized LIKE $1 \
-            OR LOWER(username) LIKE $1 \
-         ORDER BY followers_count DESC NULLS LAST, sc_synced_at DESC, sc_user_id DESC \
-         LIMIT $2 OFFSET $3",
+    let rows: Vec<UserRow> = sqlx::query_file_as!(
+        UserRow,
+        "queries/search/repository/search_users.sql",
+        &needle,
+        fetch_limit,
+        offset
     )
-    .bind(&needle)
-    .bind(fetch_limit)
-    .bind(offset)
     .fetch_all(&mut *tx)
     .await?;
 
@@ -315,21 +296,13 @@ pub async fn search_artists(
 
     let fetch_limit = limit + 1;
 
-    let rows: Vec<ArtistSearchRow> = sqlx::query_as(
-        "SELECT id, name, country, avatar_url, confidence, \
-                track_count_primary, track_count_featured, album_count_denorm, \
-                monthly_listeners, trending_score, tags, \
-                is_star, star_aura_id, star_custom_hex \
-         FROM artists \
-         WHERE merged_into IS NULL \
-           AND (track_count_primary > 0 OR track_count_featured > 0) \
-           AND (normalized_name LIKE $1 OR LOWER(name) LIKE $1) \
-         ORDER BY monthly_listeners DESC, trending_score DESC, normalized_name ASC, id ASC \
-         LIMIT $2 OFFSET $3",
+    let rows: Vec<ArtistSearchRow> = sqlx::query_file_as!(
+        ArtistSearchRow,
+        "queries/search/repository/search_artists.sql",
+        &needle,
+        fetch_limit,
+        offset
     )
-    .bind(&needle)
-    .bind(fetch_limit)
-    .bind(offset)
     .fetch_all(&mut *tx)
     .await?;
 
@@ -373,25 +346,13 @@ pub async fn search_albums(
 
     let fetch_limit = limit + 1;
 
-    let rows: Vec<AlbumSearchRow> = sqlx::query_as(
-        "SELECT al.id, al.title, al.type AS kind, al.release_year, al.release_date, \
-                al.cover_url, al.confidence, al.track_count, al.total_duration_ms, \
-                al.popularity_score, al.is_star_artist, al.primary_artist_id, \
-                a.name AS primary_artist_name, a.avatar_url AS primary_artist_avatar \
-         FROM albums al \
-         LEFT JOIN artists a ON a.id = al.primary_artist_id AND a.merged_into IS NULL \
-         WHERE al.track_count > 0 \
-           AND ( \
-               al.normalized_title LIKE $1 \
-               OR LOWER(al.title) LIKE $1 \
-               OR LOWER(COALESCE(a.name, '')) LIKE $1 \
-           ) \
-         ORDER BY al.popularity_score DESC, al.normalized_title ASC, al.id ASC \
-         LIMIT $2 OFFSET $3",
+    let rows: Vec<AlbumSearchRow> = sqlx::query_file_as!(
+        AlbumSearchRow,
+        "queries/search/repository/search_albums.sql",
+        &needle,
+        fetch_limit,
+        offset
     )
-    .bind(&needle)
-    .bind(fetch_limit)
-    .bind(offset)
     .fetch_all(&mut *tx)
     .await?;
 
@@ -404,11 +365,11 @@ pub async fn search_albums(
 /// Резолв `user_urn` → `sc_user_id`. Возвращает None если такого юзера у нас
 /// в зеркале нет (тогда фильтр по user_urn равнозначен пустой выдаче).
 pub async fn resolve_user_sc_id(pg: &PgPool, user_urn: &str) -> AppResult<Option<String>> {
-    let row: Option<(String,)> = sqlx::query_as("SELECT sc_user_id FROM users WHERE urn = $1")
-        .bind(user_urn)
-        .fetch_optional(pg)
-        .await?;
-    Ok(row.map(|(id,)| id))
+    let row =
+        sqlx::query_file_scalar!("queries/search/repository/resolve_user_sc_id.sql", user_urn)
+            .fetch_optional(pg)
+            .await?;
+    Ok(row)
 }
 
 /// Хелпер для frontend: вернуть `synced_at` репозиториев — фронт может
@@ -416,9 +377,8 @@ pub async fn resolve_user_sc_id(pg: &PgPool, user_urn: &str) -> AppResult<Option
 /// используем, но полезный seam.
 #[allow(dead_code)]
 pub async fn db_last_synced(pg: &PgPool) -> AppResult<Option<DateTime<Utc>>> {
-    let row: Option<(Option<DateTime<Utc>>,)> =
-        sqlx::query_as("SELECT MAX(sc_synced_at) FROM tracks")
-            .fetch_optional(pg)
-            .await?;
-    Ok(row.and_then(|(t,)| t))
+    let row = sqlx::query_file_scalar!("queries/search/repository/db_last_synced.sql")
+        .fetch_optional(pg)
+        .await?;
+    Ok(row.flatten())
 }

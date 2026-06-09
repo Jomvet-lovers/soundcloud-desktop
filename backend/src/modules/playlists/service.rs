@@ -108,15 +108,13 @@ impl PlaylistsService {
                 if let Some(urn) = v.get("urn").and_then(|u| u.as_str()) {
                     let repo = PlaylistRepository::new(self.pg.clone());
                     let _ = repo.upsert_from_sc(&v).await;
-                    let _ = sqlx::query(
-                        "INSERT INTO user_owned_playlists (user_id, playlist_urn, progress, synced_at) \
-                         VALUES ($1, $2, false, now()) \
-                         ON CONFLICT (user_id, playlist_urn) DO UPDATE SET synced_at = now()",
+                    let _ = sqlx::query_file!(
+                        "queries/playlists/service/insert_owned_playlist.sql",
+                        extract_sc_id(sc_user_id),
+                        urn,
                     )
-                        .bind(extract_sc_id(sc_user_id))
-                        .bind(urn)
-                        .execute(&self.pg)
-                        .await;
+                    .execute(&self.pg)
+                    .await;
                     // Сидим playlist_tracks только если SC вернул tracks (даже
                     // пустой массив — валидный seed). Если поля нет — оставляем
                     // tracks_synced_at NULL, чтобы get_tracks дотянул из SC.
@@ -293,7 +291,7 @@ impl PlaylistsService {
                     extract_sc_id(&track_urn).to_string(),
                     to_index.max(0) as usize,
                 )
-                    .await?;
+                .await?;
             }
             TrackEdit::SetOrder { track_urns } => {
                 let ids = track_urns
@@ -340,7 +338,7 @@ impl PlaylistsService {
                 let path = format!("/playlists/{playlist_urn}");
                 async move { sc.api_get_value(&path, &tok, None).await }
             })
-                .await?;
+            .await?;
             repo.upsert_from_sc(&fetched).await?;
         }
         if needs_tracks {
@@ -394,8 +392,7 @@ impl PlaylistsService {
         }
         let me = crate::common::sc_ids::extract_sc_id(sc_user_id);
         let owner: Option<Option<String>> =
-            sqlx::query_scalar("SELECT owner_sc_user_id FROM playlists WHERE urn = $1")
-                .bind(playlist_urn)
+            sqlx::query_file_scalar!("queries/playlists/service/select_owner.sql", playlist_urn)
                 .fetch_optional(&self.pg)
                 .await?;
         match owner {
@@ -403,11 +400,13 @@ impl PlaylistsService {
             _ => return Err(AppError::not_found("Playlist not found")),
         }
 
-        sqlx::query("UPDATE playlists SET sharing = $2 WHERE urn = $1")
-            .bind(playlist_urn)
-            .bind(sharing)
-            .execute(&self.pg)
-            .await?;
+        sqlx::query_file!(
+            "queries/playlists/service/update_sharing.sql",
+            playlist_urn,
+            sharing
+        )
+        .execute(&self.pg)
+        .await?;
         self.sync_queue
             .enqueue(
                 sc_user_id,
@@ -426,19 +425,26 @@ impl PlaylistsService {
         let mut tx = self.pg.begin().await?;
         // owned-mirror ключуется bare; чистим оба варианта на случай старой
         // URN-строки до бэкфилла (удаляем плейлист — сносим все owned-рефы).
-        sqlx::query("DELETE FROM user_owned_playlists WHERE user_id = ANY($1) AND playlist_urn = $2")
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-            .bind(playlist_urn)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM playlists WHERE urn = $1")
-            .bind(playlist_urn)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
-            .bind(playlist_urn)
-            .execute(&mut *tx)
-            .await?;
+        let user_variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        sqlx::query_file!(
+            "queries/playlists/service/delete_owned.sql",
+            &user_variants,
+            playlist_urn
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query_file!(
+            "queries/playlists/service/delete_playlist.sql",
+            playlist_urn
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query_file!(
+            "queries/playlists/service/delete_playlist_tracks.sql",
+            playlist_urn
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         self.sync_queue
             .enqueue(sc_user_id, "playlist_delete", playlist_urn, None)

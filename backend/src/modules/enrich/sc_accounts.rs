@@ -39,42 +39,34 @@ pub async fn upsert(
     if sc_user_id.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "INSERT INTO artist_sc_accounts (artist_id, sc_user_id, role, source, verified)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (artist_id, sc_user_id) DO UPDATE
-            SET role     = CASE WHEN EXCLUDED.verified AND NOT artist_sc_accounts.verified
-                                THEN EXCLUDED.role ELSE artist_sc_accounts.role END,
-                verified = artist_sc_accounts.verified OR EXCLUDED.verified,
-                source   = CASE WHEN artist_sc_accounts.source = 'manual'
-                                THEN artist_sc_accounts.source ELSE EXCLUDED.source END,
-                updated_at = now()",
+    sqlx::query_file!(
+        "queries/enrich/sc_accounts/upsert_account.sql",
+        artist_id,
+        sc_user_id,
+        role.as_str(),
+        source,
+        verified
     )
-    .bind(artist_id)
-    .bind(sc_user_id)
-    .bind(role.as_str())
-    .bind(source)
-    .bind(verified)
     .execute(pg)
     .await?;
-    sqlx::query(
-        "UPDATE artists SET sc_user_id = COALESCE(sc_user_id, $2), updated_at = now()
-         WHERE id = $1",
+    sqlx::query_file!(
+        "queries/enrich/sc_accounts/backfill_artist_sc_user_id.sql",
+        artist_id,
+        sc_user_id
     )
-    .bind(artist_id)
-    .bind(sc_user_id)
     .execute(pg)
     .await?;
     Ok(())
 }
 
 pub async fn delete(pg: &PgPool, artist_id: Uuid, sc_user_id: &str) -> AppResult<bool> {
-    let res =
-        sqlx::query("DELETE FROM artist_sc_accounts WHERE artist_id = $1 AND sc_user_id = $2")
-            .bind(artist_id)
-            .bind(sc_user_id)
-            .execute(pg)
-            .await?;
+    let res = sqlx::query_file!(
+        "queries/enrich/sc_accounts/delete_account.sql",
+        artist_id,
+        sc_user_id
+    )
+    .execute(pg)
+    .await?;
     Ok(res.rows_affected() > 0)
 }
 

@@ -24,10 +24,12 @@ pub async fn execute(ctx: &ActionCtx<'_>) -> AppResult<()> {
             Some(&body),
         )
         .await?;
-    sqlx::query("UPDATE tracks SET sharing = $2, updated_at = now() WHERE sc_track_id = $1")
-        .bind(extract_sc_id(ctx.target_urn))
-        .bind(sharing)
-        .execute(ctx.pg)
-        .await?;
+    sqlx::query_file!(
+        "queries/sync_queue/actions/track_sharing/update_sharing.sql",
+        extract_sc_id(ctx.target_urn),
+        sharing
+    )
+    .execute(ctx.pg)
+    .await?;
     Ok(())
 }

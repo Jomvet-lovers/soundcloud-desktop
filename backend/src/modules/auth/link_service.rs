@@ -71,16 +71,15 @@ impl LinkService {
         let expires_at =
             (Utc::now() + chrono::Duration::seconds(LINK_REQUEST_TTL_SECS)).naive_utc();
 
-        let row: LinkRequestRow = sqlx::query_as(
-            "INSERT INTO link_requests \
-                (id, claim_token, mode, source_session_id, target_session_id, status, expires_at) \
-             VALUES ($1, $2, $3, $4, NULL, 'pending', $5) RETURNING *",
+        let row = sqlx::query_file_as!(
+            LinkRequestRow,
+            "queries/auth/link_service/insert.sql",
+            Uuid::now_v7(),
+            claim_token,
+            mode,
+            source_session_id,
+            expires_at
         )
-        .bind(Uuid::now_v7())
-        .bind(&claim_token)
-        .bind(mode)
-        .bind(source_session_id)
-        .bind(expires_at)
         .fetch_one(&self.pool)
         .await?;
 
@@ -97,11 +96,13 @@ impl LinkService {
         claim_token: &str,
         source_session_id_from_caller: Option<Uuid>,
     ) -> AppResult<ClaimResult> {
-        let link: Option<LinkRequestRow> =
-            sqlx::query_as("SELECT * FROM link_requests WHERE claim_token = $1")
-                .bind(claim_token)
-                .fetch_optional(&self.pool)
-                .await?;
+        let link = sqlx::query_file_as!(
+            LinkRequestRow,
+            "queries/auth/link_service/by_claim_token.sql",
+            claim_token
+        )
+        .fetch_optional(&self.pool)
+        .await?;
         let Some(link) = link else {
             return Err(AppError::not_found("Invalid or already used link token"));
         };
@@ -113,11 +114,13 @@ impl LinkService {
         }
         let now = Utc::now().naive_utc();
         if link.expires_at < now {
-            sqlx::query("UPDATE link_requests SET status = 'failed', error = $2 WHERE id = $1")
-                .bind(link.id)
-                .bind("Expired")
-                .execute(&self.pool)
-                .await?;
+            sqlx::query_file!(
+                "queries/auth/link_service/mark_expired.sql",
+                link.id,
+                "Expired"
+            )
+            .execute(&self.pool)
+            .await?;
             return Err(AppError::bad_request("Link token expired"));
         }
 
@@ -139,30 +142,27 @@ impl LinkService {
             }
         };
 
-        let target: crate::modules::auth::model::Session = sqlx::query_as(
-            "INSERT INTO sessions \
-                (id, access_token, refresh_token, expires_at, scope, \
-                 soundcloud_user_id, username, oauth_app_id) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+        let target = sqlx::query_file_as!(
+            crate::modules::auth::model::Session,
+            "queries/auth/link_service/insert_target_session.sql",
+            Uuid::now_v7(),
+            refreshed.access_token,
+            refreshed.refresh_token,
+            refreshed.expires_at,
+            refreshed.scope,
+            refreshed.soundcloud_user_id,
+            refreshed.username,
+            refreshed.oauth_app_id
         )
-        .bind(Uuid::now_v7())
-        .bind(&refreshed.access_token)
-        .bind(&refreshed.refresh_token)
-        .bind(refreshed.expires_at)
-        .bind(&refreshed.scope)
-        .bind(&refreshed.soundcloud_user_id)
-        .bind(&refreshed.username)
-        .bind(&refreshed.oauth_app_id)
         .fetch_one(&self.pool)
         .await?;
 
-        sqlx::query(
-            "UPDATE link_requests SET source_session_id = $2, target_session_id = $3, status = 'claimed' \
-             WHERE id = $1",
+        sqlx::query_file!(
+            "queries/auth/link_service/mark_claimed.sql",
+            link.id,
+            source_session_id,
+            target.id
         )
-        .bind(link.id)
-        .bind(source_session_id)
-        .bind(target.id)
         .execute(&self.pool)
         .await?;
 
@@ -180,11 +180,13 @@ impl LinkService {
     }
 
     pub async fn get_status(&self, link_request_id: Uuid) -> AppResult<LinkStatusResult> {
-        let row: Option<LinkRequestRow> =
-            sqlx::query_as("SELECT * FROM link_requests WHERE id = $1")
-                .bind(link_request_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row = sqlx::query_file_as!(
+            LinkRequestRow,
+            "queries/auth/link_service/by_id.sql",
+            link_request_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
         let Some(link) = row else {
             return Ok(LinkStatusResult {
                 status: "expired".into(),

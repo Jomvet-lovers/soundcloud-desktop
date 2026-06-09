@@ -44,29 +44,33 @@ impl SubscriptionsService {
         let now = chrono::Utc::now().timestamp();
         // user_urn на проде хранится URN; ctx.sc_user_id теперь bare → матчим оба
         // варианта, иначе премиум «пропадёт» у платящих. Write канонизируем в bare.
-        let row: Option<(i64,)> =
-            sqlx::query_as("SELECT exp_date FROM subscriptions WHERE user_urn = ANY($1)")
-                .bind(crate::common::sc_ids::user_id_variants(user_urn))
+        let variants = crate::common::sc_ids::user_id_variants(user_urn);
+        let row =
+            sqlx::query_file_scalar!("queries/subscriptions/service/get_exp_date.sql", &variants)
                 .fetch_optional(&self.pg)
                 .await?;
-        Ok(row.map(|(exp,)| exp > now).unwrap_or(false))
+        Ok(row.map(|exp| exp > now).unwrap_or(false))
     }
 
     pub async fn list(&self) -> AppResult<Vec<Subscription>> {
-        let rows: Vec<Subscription> =
-            sqlx::query_as("SELECT user_urn, exp_date FROM subscriptions ORDER BY exp_date DESC")
-                .fetch_all(&self.pg)
-                .await?;
-        Ok(rows)
+        let rows = sqlx::query_file!("queries/subscriptions/service/list_all.sql")
+            .fetch_all(&self.pg)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| Subscription {
+                user_urn: r.user_urn,
+                exp_date: r.exp_date,
+            })
+            .collect())
     }
 
     pub async fn upsert(self: &Arc<Self>, user_urn: &str, exp_date: i64) -> AppResult<()> {
-        sqlx::query(
-            "INSERT INTO subscriptions (user_urn, exp_date) VALUES ($1, $2) \
-             ON CONFLICT (user_urn) DO UPDATE SET exp_date = EXCLUDED.exp_date",
+        sqlx::query_file!(
+            "queries/subscriptions/service/upsert.sql",
+            crate::common::sc_ids::extract_sc_id(user_urn),
+            exp_date
         )
-            .bind(crate::common::sc_ids::extract_sc_id(user_urn))
-        .bind(exp_date)
         .execute(&self.pg)
         .await?;
         let svc = self.clone();
@@ -79,8 +83,8 @@ impl SubscriptionsService {
     }
 
     pub async fn remove(self: &Arc<Self>, user_urn: &str) -> AppResult<u64> {
-        let result = sqlx::query("DELETE FROM subscriptions WHERE user_urn = ANY($1)")
-            .bind(crate::common::sc_ids::user_id_variants(user_urn))
+        let variants = crate::common::sc_ids::user_id_variants(user_urn);
+        let result = sqlx::query_file!("queries/subscriptions/service/remove.sql", &variants)
             .execute(&self.pg)
             .await?;
         let n = result.rows_affected();
@@ -96,14 +100,11 @@ impl SubscriptionsService {
     }
 
     pub async fn restore_from_snapshot(&self) -> AppResult<()> {
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*)::int8 FROM subscriptions")
+        let count = sqlx::query_file_scalar!("queries/subscriptions/service/count_all.sql")
             .fetch_one(&self.pg)
             .await?;
-        if count.0 > 0 {
-            info!(
-                n = count.0,
-                "Subscriptions table populated, skipping restore"
-            );
+        if count > 0 {
+            info!(n = count, "Subscriptions table populated, skipping restore");
             return Ok(());
         }
         let path = self.snapshot_dir.join(SNAPSHOT_FILE);
@@ -130,13 +131,11 @@ impl SubscriptionsService {
         }
         let urns: Vec<String> = subs.iter().map(|s| s.user_urn.clone()).collect();
         let exps: Vec<i64> = subs.iter().map(|s| s.exp_date).collect();
-        sqlx::query(
-            "INSERT INTO subscriptions (user_urn, exp_date) \
-             SELECT * FROM UNNEST($1::text[], $2::int8[]) \
-             ON CONFLICT (user_urn) DO UPDATE SET exp_date = EXCLUDED.exp_date",
+        sqlx::query_file!(
+            "queries/subscriptions/service/restore_from_snapshot.sql",
+            &urns,
+            &exps
         )
-        .bind(&urns)
-        .bind(&exps)
         .execute(&self.pg)
         .await?;
         info!(count = subs.len(), "Restored subscriptions from snapshot");
@@ -144,10 +143,16 @@ impl SubscriptionsService {
     }
 
     pub async fn export_snapshot(&self) -> AppResult<()> {
-        let subs: Vec<Subscription> =
-            sqlx::query_as("SELECT user_urn, exp_date FROM subscriptions")
-                .fetch_all(&self.pg)
-                .await?;
+        let rows = sqlx::query_file!("queries/subscriptions/service/export_all.sql")
+            .fetch_all(&self.pg)
+            .await?;
+        let subs: Vec<Subscription> = rows
+            .into_iter()
+            .map(|r| Subscription {
+                user_urn: r.user_urn,
+                exp_date: r.exp_date,
+            })
+            .collect();
         if let Err(e) = tokio::fs::create_dir_all(&self.snapshot_dir).await {
             warn!(dir = ?self.snapshot_dir, error = %e, "snapshot mkdir failed");
             return Ok(());

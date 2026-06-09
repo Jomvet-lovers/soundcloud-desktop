@@ -93,12 +93,12 @@ impl LikesService {
         sc_user_id: &str,
         playlist_urn: &str,
     ) -> AppResult<Value> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM user_likes_playlists \
-             WHERE user_id = ANY($1) AND playlist_urn = $2 AND wanted_state = true)",
+        let uid_variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let exists = sqlx::query_file_scalar!(
+            "queries/likes/service/is_playlist_liked.sql",
+            &uid_variants,
+            playlist_urn
         )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-        .bind(playlist_urn)
         .fetch_one(&self.pg)
         .await?;
         Ok(json!({ "liked": exists }))

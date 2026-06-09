@@ -51,22 +51,16 @@ impl UserRepository {
     }
 
     pub async fn find_by_urn(&self, urn: &str) -> AppResult<Option<UserRow>> {
-        let row: Option<UserRow> = sqlx::query_as("SELECT * FROM users WHERE urn = $1")
-            .bind(urn)
+        let row = sqlx::query_file_as!(UserRow, "queries/users/repository/find_by_urn.sql", urn)
             .fetch_optional(&self.pg)
             .await?;
         Ok(row)
     }
 
     pub async fn touch_last_read(&self, urn: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE users SET last_read_at = now() \
-             WHERE urn = $1 \
-               AND (last_read_at IS NULL OR last_read_at < now() - INTERVAL '5 minutes')",
-        )
-        .bind(urn)
-        .execute(&self.pg)
-        .await?;
+        sqlx::query_file!("queries/users/repository/touch_last_read.sql", urn)
+            .execute(&self.pg)
+            .await?;
         Ok(())
     }
 

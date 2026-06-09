@@ -37,16 +37,9 @@ async fn retry_crawl(
     State(st): State<AppState>,
     Path(artist_id): Path<Uuid>,
 ) -> AppResult<Json<Value>> {
-    let r = sqlx::query(
-        "UPDATE artists
-         SET crawl_dead = false, crawl_fail_count = 0,
-             genius_next_run_at = now(), mb_next_run_at = now(),
-             genius_locked_at = NULL, mb_locked_at = NULL, updated_at = now()
-         WHERE id = $1 AND merged_into IS NULL",
-    )
-    .bind(artist_id)
-    .execute(&st.pg)
-    .await?;
+    let r = sqlx::query_file!("queries/enrich/handlers/retry_crawl_reset.sql", artist_id)
+        .execute(&st.pg)
+        .await?;
     Ok(Json(json!({ "reset": r.rows_affected() })))
 }
 
@@ -95,28 +88,15 @@ async fn post_retry(
     if let Some(raw) = req.sc_track_id.as_deref() {
         let sc = normalize_sc_track_id(raw)
             .ok_or_else(|| AppError::bad_request("invalid sc_track_id"))?;
-        let r = sqlx::query(
-            "UPDATE tracks
-             SET enrich_state = 'pending', enrich_attempts = 0, enriched_at = NULL,
-                 enrich_source = NULL, enrich_confidence = NULL,
-                 enrich_next_run_at = now(), enrich_locked_at = NULL, enrich_error = NULL
-             WHERE sc_track_id = $1",
-        )
-        .bind(&sc)
-        .execute(&st.pg)
-        .await?;
+        let r = sqlx::query_file!("queries/enrich/handlers/retry_by_sc_track_id.sql", &sc)
+            .execute(&st.pg)
+            .await?;
         reset += r.rows_affected();
     }
     if req.all_failed {
-        let r = sqlx::query(
-            "UPDATE tracks
-             SET enrich_state = 'pending', enrich_attempts = 0, enriched_at = NULL,
-                 enrich_source = NULL, enrich_confidence = NULL,
-                 enrich_next_run_at = now(), enrich_locked_at = NULL, enrich_error = NULL
-             WHERE enrich_state IN ('failed', 'dead')",
-        )
-        .execute(&st.pg)
-        .await?;
+        let r = sqlx::query_file!("queries/enrich/handlers/retry_all_failed.sql")
+            .execute(&st.pg)
+            .await?;
         reset += r.rows_affected();
     }
     Ok(Json(RetryResponse { reset }))
@@ -149,13 +129,12 @@ async fn upsert_account(
     }
     sc_accounts::upsert(&st.pg, artist_id, sc, role, "manual", true).await?;
     if let Some(notes) = req.notes.as_deref() {
-        sqlx::query(
-            "UPDATE artist_sc_accounts SET notes = $3, updated_at = now()
-             WHERE artist_id = $1 AND sc_user_id = $2",
+        sqlx::query_file!(
+            "queries/enrich/handlers/update_account_notes.sql",
+            artist_id,
+            sc,
+            notes
         )
-        .bind(artist_id)
-        .bind(sc)
-        .bind(notes)
         .execute(&st.pg)
         .await?;
     }
@@ -189,95 +168,90 @@ async fn merge_artists(
     }
     let mut tx = st.pg.begin().await?;
 
-    sqlx::query(
-        "UPDATE artists SET merged_into = $1, updated_at = now()
-         WHERE id = $2 AND merged_into IS NULL",
-    )
-    .bind(dst)
-    .bind(src)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence)
-         SELECT track_id, $1, role, position, source, confidence
-         FROM track_artists WHERE artist_id = $2
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(dst)
-    .bind(src)
-    .execute(&mut *tx)
-    .await?;
-    let track_artists_moved = sqlx::query("DELETE FROM track_artists WHERE artist_id = $1")
-        .bind(src)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-
-    sqlx::query(
-        "INSERT INTO album_artists (album_id, artist_id, role)
-         SELECT album_id, $1, role FROM album_artists WHERE artist_id = $2
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(dst)
-    .bind(src)
-    .execute(&mut *tx)
-    .await?;
-    let album_artists_moved = sqlx::query("DELETE FROM album_artists WHERE artist_id = $1")
-        .bind(src)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-
-    sqlx::query("UPDATE albums SET primary_artist_id = $1 WHERE primary_artist_id = $2")
-        .bind(dst)
-        .bind(src)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("UPDATE tracks SET primary_artist_id = $1 WHERE primary_artist_id = $2")
-        .bind(dst)
-        .bind(src)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("UPDATE wanted_tracks SET primary_artist_id = $1 WHERE primary_artist_id = $2")
-        .bind(dst)
-        .bind(src)
+    sqlx::query_file!("queries/enrich/handlers/merge_mark_artist.sql", dst, src)
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query(
-        "INSERT INTO artist_sc_accounts (artist_id, sc_user_id, role, source, verified, notes)
-         SELECT $1, sc_user_id, role, source, verified, notes
-         FROM artist_sc_accounts WHERE artist_id = $2
-         ON CONFLICT DO NOTHING",
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_copy_track_artists.sql",
+        dst,
+        src
     )
-    .bind(dst)
-    .bind(src)
     .execute(&mut *tx)
     .await?;
-    let sc_accounts_moved = sqlx::query("DELETE FROM artist_sc_accounts WHERE artist_id = $1")
-        .bind(src)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-
-    sqlx::query(
-        "INSERT INTO wanted_track_artists (wanted_track_id, artist_id, role, position)
-         SELECT wanted_track_id, $1, role, position
-         FROM wanted_track_artists WHERE artist_id = $2
-         ON CONFLICT DO NOTHING",
+    let track_artists_moved = sqlx::query_file!(
+        "queries/enrich/handlers/merge_delete_track_artists.sql",
+        src
     )
-    .bind(dst)
-    .bind(src)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_copy_album_artists.sql",
+        dst,
+        src
+    )
     .execute(&mut *tx)
     .await?;
-    sqlx::query("DELETE FROM wanted_track_artists WHERE artist_id = $1")
-        .bind(src)
-        .execute(&mut *tx)
-        .await?;
+    let album_artists_moved = sqlx::query_file!(
+        "queries/enrich/handlers/merge_delete_album_artists.sql",
+        src
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
 
-    let coplay_dropped = sqlx::query("DELETE FROM artist_coplay WHERE a_id = $1 OR b_id = $1")
-        .bind(src)
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_update_albums_primary.sql",
+        dst,
+        src
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_update_tracks_primary.sql",
+        dst,
+        src
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_update_wanted_primary.sql",
+        dst,
+        src
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_copy_sc_accounts.sql",
+        dst,
+        src
+    )
+    .execute(&mut *tx)
+    .await?;
+    let sc_accounts_moved =
+        sqlx::query_file!("queries/enrich/handlers/merge_delete_sc_accounts.sql", src)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_copy_wanted_track_artists.sql",
+        dst,
+        src
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query_file!(
+        "queries/enrich/handlers/merge_delete_wanted_track_artists.sql",
+        src
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let coplay_dropped = sqlx::query_file!("queries/enrich/handlers/merge_delete_coplay.sql", src)
         .execute(&mut *tx)
         .await?
         .rows_affected();

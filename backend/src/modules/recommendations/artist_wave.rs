@@ -223,22 +223,14 @@ impl RecommendationsService {
     }
 
     async fn load_artist_top_tracks(&self, artist_id: Uuid, limit: i64) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT it.sc_track_id \
-             FROM track_artists ta \
-             JOIN tracks it ON it.id = ta.track_id \
-             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id \
-             WHERE ta.artist_id = $1 \
-               AND ta.role = 'primary' \
-               AND it.sharing = 'public' \
-             ORDER BY COALESCE(c.play_count, 0) DESC, it.created_at DESC \
-             LIMIT $2",
+        let rows = sqlx::query_file_scalar!(
+            "queries/recommendations/artist_wave/load_artist_top_tracks.sql",
+            artist_id,
+            limit
         )
-        .bind(artist_id)
-        .bind(limit)
         .fetch_all(&self.pg)
         .await?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows)
     }
 
     /// Публичный helper для handlers::wave_artist — нужен seed-список треков
@@ -260,18 +252,20 @@ impl RecommendationsService {
         artist_id: Uuid,
         limit: i64,
     ) -> AppResult<Vec<RelatedArtistRow>> {
-        let rows: Vec<RelatedArtistRow> = sqlx::query_as(
-            "SELECT a.id, a.name, a.avatar_url
-             FROM artist_coplay ac
-             JOIN artists a ON a.id = CASE WHEN ac.a_id = $1 THEN ac.b_id ELSE ac.a_id END
-             WHERE (ac.a_id = $1 OR ac.b_id = $1) AND a.merged_into IS NULL
-             ORDER BY ac.weight DESC
-             LIMIT $2",
+        let rows = sqlx::query_file!(
+            "queries/recommendations/artist_wave/load_related_artists.sql",
+            artist_id,
+            limit
         )
-        .bind(artist_id)
-        .bind(limit)
         .fetch_all(&self.pg)
-        .await?;
+        .await?
+        .into_iter()
+        .map(|r| RelatedArtistRow {
+            id: r.id,
+            name: r.name,
+            avatar_url: r.avatar_url,
+        })
+        .collect();
         Ok(rows)
     }
 
@@ -288,24 +282,22 @@ impl RecommendationsService {
             None => return Vec::new(),
         };
         let ids: Vec<Uuid> = related.iter().map(|r| r.id).collect();
-        let rows: Vec<NeighborTrackRow> = match sqlx::query_as::<_, NeighborTrackRow>(
-            "SELECT DISTINCT ON (ta.artist_id, it.sc_track_id)
-                    ta.artist_id, it.sc_track_id
-             FROM track_artists ta
-             JOIN tracks it ON it.id = ta.track_id
-             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-             WHERE ta.artist_id = ANY($1)
-               AND ta.role = 'primary'
-               AND it.sharing = 'public'
-             ORDER BY ta.artist_id, it.sc_track_id, COALESCE(c.play_count, 0) DESC
-             LIMIT $2",
+        let limit = related.len() as i64 * PER_NEIGHBOR_PROBE;
+        let rows: Vec<NeighborTrackRow> = match sqlx::query_file!(
+            "queries/recommendations/artist_wave/load_neighbor_tracks.sql",
+            &ids,
+            limit
         )
-        .bind(&ids)
-        .bind(related.len() as i64 * PER_NEIGHBOR_PROBE)
         .fetch_all(&self.pg)
         .await
         {
-            Ok(v) => v,
+            Ok(v) => v
+                .into_iter()
+                .map(|r| NeighborTrackRow {
+                    artist_id: r.artist_id,
+                    sc_track_id: r.sc_track_id,
+                })
+                .collect(),
             Err(e) => {
                 warn!(error = %e, "artist_wave: neighbors query failed");
                 return Vec::new();

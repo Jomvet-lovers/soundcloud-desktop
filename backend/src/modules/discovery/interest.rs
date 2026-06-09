@@ -28,32 +28,14 @@ pub fn spawn(pg: PgPool, interval_sec: u64, shutdown: CancellationToken) {
 }
 
 async fn recompute(pg: &PgPool) -> AppResult<()> {
-    let updated = sqlx::query(
-        "WITH agg AS (
-             SELECT ta.artist_id, COUNT(*)::real AS score
-             FROM user_events ue
-             JOIN tracks it ON it.sc_track_id = ue.sc_track_id
-             JOIN track_artists ta ON ta.track_id = it.id
-             WHERE ue.created_at > now() - interval '30 days'
-             GROUP BY ta.artist_id
-         )
-         UPDATE artists a
-         SET interest_score = agg.score
-         FROM agg
-         WHERE a.id = agg.artist_id AND a.interest_score IS DISTINCT FROM agg.score",
-    )
+    let updated = sqlx::query_file!("queries/discovery/interest/recompute_scores.sql")
         .execute(pg)
         .await?;
 
     // Surface active-but-never-crawled artists immediately (one-shot per artist:
     // gated on *_crawled_at IS NULL so already-crawled popular artists keep the
     // normal cadence and are not re-crawled every tick).
-    sqlx::query(
-        "UPDATE artists SET genius_next_run_at = now()
-         WHERE interest_score > 0 AND merged_into IS NULL AND NOT crawl_dead
-           AND genius_artist_id IS NOT NULL AND genius_crawled_at IS NULL
-           AND genius_next_run_at > now()",
-    )
+    sqlx::query_file!("queries/discovery/interest/surface_never_crawled.sql")
         .execute(pg)
         .await?;
 

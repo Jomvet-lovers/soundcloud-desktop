@@ -14,13 +14,11 @@ pub async fn execute(ctx: &ActionCtx<'_>) -> AppResult<()> {
             None,
         )
         .await?;
-    sqlx::query(
-        "UPDATE user_likes_playlists \
-         SET progress = false, synced_at = now() \
-         WHERE user_id = $1 AND playlist_urn = $2 AND wanted_state = true",
+    sqlx::query_file!(
+        "queries/sync_queue/actions/like_playlist/update_synced.sql",
+        ctx.user_id,
+        ctx.target_urn,
     )
-    .bind(ctx.user_id)
-    .bind(ctx.target_urn)
     .execute(ctx.pg)
     .await?;
     Ok(())

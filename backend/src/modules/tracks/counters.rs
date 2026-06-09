@@ -92,17 +92,20 @@ pub async fn sync(pg: &PgPool, tracks: &mut [Value]) -> AppResult<()> {
         // ORDER BY u.id keeps row-level locks in the same order across
         // concurrent transactions inserting overlapping key sets — without it
         // UNNEST'd batches deadlock under load.
+        // Runtime query: nullable count arrays (Vec<Option<i64>>) into bigint[] —
+        // query! infers array elements as non-null (&[i64]); a NULL count means
+        // "keep existing" (COALESCE below), so the Option must survive. Kept runtime.
         sqlx::query(
-            "INSERT INTO sc_track_counters (sc_track_id, play_count, likes_count, reposts_count, comment_count, fetched_at)
-             SELECT u.id, u.p, u.l, u.r, u.c, now()
-             FROM UNNEST($1::text[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[]) AS u(id, p, l, r, c)
-             ORDER BY u.id
-             ON CONFLICT (sc_track_id) DO UPDATE SET
-                play_count    = COALESCE(EXCLUDED.play_count, sc_track_counters.play_count),
-                likes_count   = COALESCE(EXCLUDED.likes_count, sc_track_counters.likes_count),
-                reposts_count = COALESCE(EXCLUDED.reposts_count, sc_track_counters.reposts_count),
-                comment_count = COALESCE(EXCLUDED.comment_count, sc_track_counters.comment_count),
-                fetched_at    = now()",
+            "INSERT INTO sc_track_counters (sc_track_id, play_count, likes_count, reposts_count, comment_count, fetched_at) \
+             SELECT u.id, u.p, u.l, u.r, u.c, now() \
+             FROM UNNEST($1::text[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[]) AS u(id, p, l, r, c) \
+             ORDER BY u.id \
+             ON CONFLICT (sc_track_id) DO UPDATE SET \
+                 play_count    = COALESCE(EXCLUDED.play_count, sc_track_counters.play_count), \
+                 likes_count   = COALESCE(EXCLUDED.likes_count, sc_track_counters.likes_count), \
+                 reposts_count = COALESCE(EXCLUDED.reposts_count, sc_track_counters.reposts_count), \
+                 comment_count = COALESCE(EXCLUDED.comment_count, sc_track_counters.comment_count), \
+                 fetched_at    = now()",
         )
         .bind(&ids)
         .bind(&play)
@@ -113,37 +116,25 @@ pub async fn sync(pg: &PgPool, tracks: &mut [Value]) -> AppResult<()> {
         .await?;
     }
 
-    type CountersRow = (
-        String,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        chrono::DateTime<chrono::Utc>,
-    );
-    let rows: Vec<CountersRow> = sqlx::query_as(
-        "SELECT sc_track_id, play_count, likes_count, reposts_count, comment_count, fetched_at
-             FROM sc_track_counters WHERE sc_track_id = ANY($1)",
-    )
-    .bind(&sc_ids)
-    .fetch_all(pg)
-    .await?;
+    let rows = sqlx::query_file!("queries/tracks/counters/select_counters.sql", &sc_ids,)
+        .fetch_all(pg)
+        .await?;
     if rows.is_empty() {
         return Ok(());
     }
     let now = chrono::Utc::now();
     let stored: HashMap<String, (Counters, i64)> = rows
         .into_iter()
-        .map(|(id, p, l, r, c, fetched)| {
-            let age = (now - fetched).num_seconds();
+        .map(|row| {
+            let age = (now - row.fetched_at).num_seconds();
             (
-                id,
+                row.sc_track_id,
                 (
                     Counters {
-                        play_count: p,
-                        likes_count: l,
-                        reposts_count: r,
-                        comment_count: c,
+                        play_count: row.play_count,
+                        likes_count: row.likes_count,
+                        reposts_count: row.reposts_count,
+                        comment_count: row.comment_count,
                     },
                     age,
                 ),

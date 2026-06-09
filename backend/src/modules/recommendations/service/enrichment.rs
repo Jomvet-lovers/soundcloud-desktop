@@ -27,24 +27,21 @@ impl RecommendationsService {
         // т.к. publisher_metadata/artist у нас уже нет: эту инфу теперь
         // выводит enrich-pipeline через track_artists; для denorm-минимума
         // достаточно uploader_username).
-        type TrackMetaRow = (
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-        );
         type TrackMeta = (Option<String>, Option<String>, Option<String>, Option<i64>);
-        let tracks: Vec<TrackMetaRow> = sqlx::query_as(
-            "SELECT sc_track_id, uploader_username, genre, language, play_count_sc \
-                 FROM tracks WHERE sc_track_id = ANY($1)",
+        let tracks = sqlx::query_file!(
+            "queries/recommendations/service/enrichment/track_meta_by_ids.sql",
+            &ids
         )
-        .bind(&ids)
         .fetch_all(&self.pg)
         .await?;
         let by_id: HashMap<String, TrackMeta> = tracks
             .into_iter()
-            .map(|(id, uploader, genre, lang, plays)| (id, (uploader, genre, lang, plays)))
+            .map(|r| {
+                (
+                    r.sc_track_id,
+                    (r.uploader_username, r.genre, r.language, r.play_count_sc),
+                )
+            })
             .collect();
         let boost = self.cfg.popularity_boost as f32;
         let user_lang_set: HashSet<String> = user_languages
@@ -151,16 +148,14 @@ impl RecommendationsService {
         if sc_track_ids.is_empty() {
             return std::collections::HashSet::new();
         }
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM tracks \
-             WHERE sc_track_id = ANY($1) \
-               AND (language IS NULL OR language = ANY($2))",
+        let rows: Vec<String> = sqlx::query_file_scalar!(
+            "queries/recommendations/service/enrichment/filter_track_ids_by_language.sql",
+            sc_track_ids,
+            langs
         )
-        .bind(sc_track_ids)
-        .bind(langs)
         .fetch_all(&self.pg)
         .await
         .unwrap_or_default();
-        rows.into_iter().map(|(id,)| id).collect()
+        rows.into_iter().collect()
     }
 }

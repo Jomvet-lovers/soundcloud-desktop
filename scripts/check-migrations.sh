@@ -54,6 +54,15 @@ for f in "${added[@]:-}"; do
   fi
 done
 
+# Advisory: eugene светит опасные локи в новых миграциях (НЕ блокирует — repo-паттерн
+# pre-apply CONCURRENTLY делает не-concurrent DDL no-op'ом на проде, см. 0030/0036).
+if command -v eugene >/dev/null 2>&1; then
+  for f in "${added[@]:-}"; do
+    [[ -z "$f" || ! -f "$f" ]] && continue
+    eugene lint "$f" 2>&1 | sed 's/^/  [eugene] /' >&2 || true
+  done
+fi
+
 if [[ "$fail" == "1" ]]; then
   cat >&2 <<'EOF'
 

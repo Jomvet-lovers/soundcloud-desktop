@@ -841,12 +841,6 @@ struct SpotlightResponse {
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct PromotedRow {
-    entity_type: String,
-    entity_id: Uuid,
-}
-
-#[derive(Debug, sqlx::FromRow)]
 struct SettingsRow {
     show_star: bool,
     star_strategy: String,
@@ -854,12 +848,9 @@ struct SettingsRow {
 }
 
 async fn load_settings(pg: &PgPool) -> AppResult<SettingsRow> {
-    let row: Option<SettingsRow> = sqlx::query_as(
-        r#"SELECT show_star, star_strategy, star_limit
-           FROM discover_settings WHERE id = 1"#,
-    )
-    .fetch_optional(pg)
-    .await?;
+    let row = sqlx::query_file_as!(SettingsRow, "queries/discover/handlers/load_settings.sql")
+        .fetch_optional(pg)
+        .await?;
     Ok(row.unwrap_or(SettingsRow {
         show_star: true,
         star_strategy: "popular".into(),
@@ -871,15 +862,11 @@ async fn fetch_artists_by_ids(pg: &PgPool, ids: &[Uuid]) -> AppResult<Vec<Artist
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<ArtistRow> = sqlx::query_as(
-        r#"SELECT id, name, normalized_name, country, avatar_url, confidence,
-                  track_count_primary, track_count_featured, album_count_denorm,
-                  monthly_listeners, trending_score, popularity_score, tags,
-                  is_star, star_aura_id, star_custom_hex
-           FROM artists
-           WHERE id = ANY($1) AND merged_into IS NULL"#,
+    let rows = sqlx::query_file_as!(
+        ArtistRow,
+        "queries/discover/handlers/artists_by_ids.sql",
+        ids
     )
-    .bind(ids)
     .fetch_all(pg)
     .await?;
     Ok(rows)
@@ -889,20 +876,9 @@ async fn fetch_albums_by_ids(pg: &PgPool, ids: &[Uuid]) -> AppResult<Vec<AlbumRo
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<AlbumRow> = sqlx::query_as(
-        r#"SELECT al.id, al.title, al.normalized_title, al.type AS kind, al.release_year,
-                  al.release_date, al.cover_url, al.confidence,
-                  al.track_count, al.total_duration_ms, al.popularity_score, al.is_star_artist,
-                  al.primary_artist_id,
-                  a.name AS primary_artist_name,
-                  a.avatar_url AS primary_artist_avatar
-           FROM albums al
-           LEFT JOIN artists a ON a.id = al.primary_artist_id AND a.merged_into IS NULL
-           WHERE al.id = ANY($1)"#,
-    )
-    .bind(ids)
-    .fetch_all(pg)
-    .await?;
+    let rows = sqlx::query_file_as!(AlbumRow, "queries/discover/handlers/albums_by_ids.sql", ids)
+        .fetch_all(pg)
+        .await?;
     Ok(rows)
 }
 
@@ -915,57 +891,36 @@ async fn fetch_star_artists(
     if limit <= 0 {
         return Ok(Vec::new());
     }
-    let select_cols = r#"id, name, normalized_name, country, avatar_url, confidence,
-                  track_count_primary, track_count_featured, album_count_denorm,
-                  monthly_listeners, trending_score, popularity_score, tags,
-                  is_star, star_aura_id, star_custom_hex"#;
 
     if strategy == "random" {
-        let rows: Vec<ArtistRow> = sqlx::query_as(&format!(
-            r#"SELECT {select_cols}
-               FROM artists TABLESAMPLE BERNOULLI(5)
-               WHERE merged_into IS NULL
-                 AND is_star = TRUE
-                 AND (track_count_primary > 0 OR track_count_featured > 0)
-                 AND id <> ALL($1)
-               LIMIT $2"#,
-        ))
-        .bind(exclude)
-        .bind(limit)
+        let rows = sqlx::query_file_as!(
+            ArtistRow,
+            "queries/discover/handlers/star_artists_random_sample.sql",
+            exclude,
+            limit
+        )
         .fetch_all(pg)
         .await?;
         if !rows.is_empty() {
             return Ok(rows);
         }
-        let rows: Vec<ArtistRow> = sqlx::query_as(&format!(
-            r#"SELECT {select_cols}
-               FROM artists
-               WHERE merged_into IS NULL
-                 AND is_star = TRUE
-                 AND (track_count_primary > 0 OR track_count_featured > 0)
-                 AND id <> ALL($1)
-               ORDER BY random()
-               LIMIT $2"#,
-        ))
-        .bind(exclude)
-        .bind(limit)
+        let rows = sqlx::query_file_as!(
+            ArtistRow,
+            "queries/discover/handlers/star_artists_random_fallback.sql",
+            exclude,
+            limit
+        )
         .fetch_all(pg)
         .await?;
         return Ok(rows);
     }
 
-    let rows: Vec<ArtistRow> = sqlx::query_as(&format!(
-        r#"SELECT {select_cols}
-           FROM artists
-           WHERE merged_into IS NULL
-             AND is_star = TRUE
-             AND (track_count_primary > 0 OR track_count_featured > 0)
-             AND id <> ALL($1)
-           ORDER BY popularity_score DESC, monthly_listeners DESC, normalized_name
-           LIMIT $2"#,
-    ))
-    .bind(exclude)
-    .bind(limit)
+    let rows = sqlx::query_file_as!(
+        ArtistRow,
+        "queries/discover/handlers/star_artists_popular.sql",
+        exclude,
+        limit
+    )
     .fetch_all(pg)
     .await?;
     Ok(rows)
@@ -1002,14 +957,10 @@ async fn spotlight(
         return Ok(Json(SpotlightResponse { items: Vec::new() }));
     }
 
-    let promoted: Vec<PromotedRow> = sqlx::query_as(
-        r#"SELECT entity_type, entity_id
-           FROM discover_promoted
-           WHERE active = TRUE
-           ORDER BY position ASC, created_at ASC
-           LIMIT $1"#,
+    let promoted = sqlx::query_file!(
+        "queries/discover/handlers/spotlight_promoted.sql",
+        requested
     )
-    .bind(requested)
     .fetch_all(&st.pg)
     .await?;
 
@@ -1113,10 +1064,9 @@ async fn admin_promoted_list(
     _: AdminAuth,
     State(st): State<AppState>,
 ) -> AppResult<Json<Vec<AdminPromotedRow>>> {
-    let rows: Vec<AdminPromotedRow> = sqlx::query_as(
-        r#"SELECT id, entity_type, entity_id, position, active, note, created_at, updated_at
-           FROM discover_promoted
-           ORDER BY active DESC, position ASC, created_at ASC"#,
+    let rows = sqlx::query_file_as!(
+        AdminPromotedRow,
+        "queries/discover/handlers/admin_promoted_list.sql"
     )
     .fetch_all(&st.pg)
     .await?;
@@ -1186,8 +1136,7 @@ async fn admin_promoted_delete(
     State(st): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let n = sqlx::query("DELETE FROM discover_promoted WHERE id = $1")
-        .bind(id)
+    let n = sqlx::query_file!("queries/discover/handlers/promoted_delete.sql", id)
         .execute(&st.pg)
         .await?
         .rows_affected();
@@ -1216,9 +1165,9 @@ async fn admin_settings_get(
     _: AdminAuth,
     State(st): State<AppState>,
 ) -> AppResult<Json<AdminSettingsRow>> {
-    let row: AdminSettingsRow = sqlx::query_as(
-        r#"SELECT show_star, star_strategy, star_limit, updated_at
-           FROM discover_settings WHERE id = 1"#,
+    let row = sqlx::query_file_as!(
+        AdminSettingsRow,
+        "queries/discover/handlers/admin_settings_get.sql"
     )
     .fetch_one(&st.pg)
     .await?;
@@ -1340,49 +1289,29 @@ async fn random(
 }
 
 async fn pick_random_album(pg: &PgPool) -> AppResult<Option<Uuid>> {
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT id FROM albums TABLESAMPLE BERNOULLI(2)
-           WHERE track_count > 0 AND popularity_score > 0
-             AND primary_artist_id IS NOT NULL
-           LIMIT 1"#,
-    )
-    .fetch_optional(pg)
-    .await?;
-    if let Some((id,)) = row {
+    let row = sqlx::query_file_scalar!("queries/discover/handlers/pick_random_album_sample.sql")
+        .fetch_optional(pg)
+        .await?;
+    if let Some(id) = row {
         return Ok(Some(id));
     }
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT id FROM albums
-           WHERE track_count > 0 AND popularity_score > 0
-             AND primary_artist_id IS NOT NULL
-           ORDER BY id LIMIT 1"#,
-    )
-    .fetch_optional(pg)
-    .await?;
-    Ok(row.map(|(id,)| id))
+    let row = sqlx::query_file_scalar!("queries/discover/handlers/pick_random_album_fallback.sql")
+        .fetch_optional(pg)
+        .await?;
+    Ok(row)
 }
 
 async fn pick_random_artist(pg: &PgPool) -> AppResult<Option<Uuid>> {
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT id FROM artists TABLESAMPLE BERNOULLI(2)
-           WHERE merged_into IS NULL
-             AND (track_count_primary > 0 OR track_count_featured > 0)
-           LIMIT 1"#,
-    )
-    .fetch_optional(pg)
-    .await?;
-    if let Some((id,)) = row {
+    let row = sqlx::query_file_scalar!("queries/discover/handlers/pick_random_artist_sample.sql")
+        .fetch_optional(pg)
+        .await?;
+    if let Some(id) = row {
         return Ok(Some(id));
     }
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        r#"SELECT id FROM artists
-           WHERE merged_into IS NULL
-             AND (track_count_primary > 0 OR track_count_featured > 0)
-           ORDER BY id LIMIT 1"#,
-    )
-    .fetch_optional(pg)
-    .await?;
-    Ok(row.map(|(id,)| id))
+    let row = sqlx::query_file_scalar!("queries/discover/handlers/pick_random_artist_fallback.sql")
+        .fetch_optional(pg)
+        .await?;
+    Ok(row)
 }
 
 async fn read_cached<T: for<'de> serde::Deserialize<'de>>(st: &AppState, key: &str) -> Option<T> {

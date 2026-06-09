@@ -67,21 +67,15 @@ impl RecommendationsService {
     ) -> AppResult<Option<HourContext>> {
         let hour = now.hour();
         let dow = now.weekday().num_days_from_monday() as i32;
-        let ids: Vec<String> = sqlx::query_scalar(
-            "SELECT sc_track_id FROM user_events
-             WHERE sc_user_id = ANY($1)
-               AND event_type IN ('full_play', 'like', 'playlist_add')
-               AND created_at > NOW() - make_interval(weeks => $2::int)
-               AND ABS(EXTRACT(HOUR FROM created_at)::int - $3) <= $4
-               AND EXTRACT(DOW FROM created_at)::int = $5
-             ORDER BY created_at DESC
-             LIMIT 60",
+        let user_ids = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let ids: Vec<String> = sqlx::query_file_scalar!(
+            "queries/recommendations/sessions/hour_context_ids.sql",
+            &user_ids,
+            HOUR_LOOKBACK_WEEKS as i32,
+            hour as i32,
+            HOUR_WINDOW as i32,
+            dow,
         )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-        .bind(HOUR_LOOKBACK_WEEKS)
-        .bind(hour as i32)
-        .bind(HOUR_WINDOW as i32)
-        .bind(dow)
         .fetch_all(&self.pg)
         .await
         .unwrap_or_default();
@@ -133,20 +127,16 @@ async fn recent_played_ids(
     hours: i64,
     limit: i64,
 ) -> AppResult<Vec<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM user_events
-         WHERE sc_user_id = ANY($1)
-           AND event_type IN ('full_play', 'like', 'playlist_add')
-           AND created_at > NOW() - make_interval(hours => $2::int)
-         ORDER BY created_at DESC
-         LIMIT $3",
+    let user_ids = crate::common::sc_ids::user_id_variants(sc_user_id);
+    let rows = sqlx::query_file_scalar!(
+        "queries/recommendations/sessions/recent_played_ids.sql",
+        &user_ids,
+        hours as i32,
+        limit,
     )
-        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-    .bind(hours)
-    .bind(limit)
     .fetch_all(pg)
     .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(rows)
 }
 
 pub fn mix_centroids(

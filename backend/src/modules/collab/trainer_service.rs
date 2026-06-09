@@ -276,14 +276,12 @@ impl CollabTrainerService {
         let session_events: Vec<String> = SESSION_EVENTS.iter().map(|s| s.to_string()).collect();
         // Стримим, а не fetch_all: весь 90д-набор не материализуем в RAM и не
         // пиним коннект под огромный буфер. event_type фильтруем в SQL.
-        let mut stream = sqlx::query_as::<_, (String, String, chrono::NaiveDateTime, String)>(
-            "SELECT sc_user_id, sc_track_id, created_at, event_type FROM user_events \
-             WHERE created_at >= $1 AND event_type = ANY($2) \
-             ORDER BY sc_user_id ASC, created_at ASC",
+        let mut stream = sqlx::query_file!(
+            "queries/collab/trainer_service/build_sessions.sql",
+            since,
+            &session_events
         )
-        .bind(since)
-            .bind(&session_events)
-            .fetch(&self.pg);
+        .fetch(&self.pg);
         let mut total_rows = 0usize;
 
         let mut sessions: Vec<Vec<u64>> = Vec::new();
@@ -308,9 +306,13 @@ impl CollabTrainerService {
             seen.clear();
         };
 
-        while let Some((sc_user_id, sc_track_id, created_at, event_type)) =
-            stream.try_next().await?
-        {
+        while let Some(row) = stream.try_next().await? {
+            let (sc_user_id, sc_track_id, created_at, event_type) = (
+                row.sc_user_id,
+                row.sc_track_id,
+                row.created_at,
+                row.event_type,
+            );
             total_rows += 1;
             if !session_set.contains(event_type.as_str()) {
                 continue;

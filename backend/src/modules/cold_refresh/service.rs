@@ -236,7 +236,7 @@ impl ColdRefreshService {
             "SELECT MAX(synced_at) FROM {} WHERE user_id = ANY($1)",
             coll.mirror_table
         ))
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
+        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .fetch_one(&self.pg)
         .await?;
 
@@ -347,7 +347,7 @@ impl ColdRefreshService {
                 &mirror_keys,
                 &mirror_payloads,
             )
-                .await?;
+            .await?;
             tx.commit().await?;
         }
 
@@ -364,7 +364,7 @@ impl ColdRefreshService {
                 &mirror_keys,
                 reconcile_started_at,
             )
-                .await?;
+            .await?;
         }
         Ok(())
     }
@@ -500,11 +500,12 @@ impl ColdRefreshService {
         // покрывает ровно-200-трековый плейлист, который эвристика complete
         // помечает false). replace_tracks дополнительно гейтит pending-intent.
         if !complete {
-            let current: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM playlist_tracks WHERE playlist_urn = $1")
-                    .bind(playlist_urn)
-                    .fetch_one(&self.pg)
-                    .await?;
+            let current: i64 = sqlx::query_file_scalar!(
+                "queries/cold_refresh/service/count_playlist_tracks.sql",
+                playlist_urn
+            )
+            .fetch_one(&self.pg)
+            .await?;
             if (ordered_ids.len() as i64) < current {
                 debug!(
                     urn = %playlist_urn,
@@ -781,11 +782,13 @@ pub async fn read_collection_page(
             projected.into_iter().flatten().collect()
         }
         EntityKind::User => {
-            let rows: Vec<crate::modules::users::UserRow> =
-                sqlx::query_as("SELECT * FROM users WHERE urn = ANY($1)")
-                    .bind(&page_keys)
-                    .fetch_all(pg)
-                    .await?;
+            let rows: Vec<crate::modules::users::UserRow> = sqlx::query_file_as!(
+                crate::modules::users::UserRow,
+                "queries/cold_refresh/service/users_by_urns.sql",
+                &page_keys
+            )
+            .fetch_all(pg)
+            .await?;
             let map: std::collections::HashMap<String, crate::modules::users::UserRow> =
                 rows.into_iter().map(|u| (u.urn.clone(), u)).collect();
             page_keys
@@ -794,15 +797,24 @@ pub async fn read_collection_page(
                 .collect()
         }
         EntityKind::Playlist => {
-            let pl_sql = if public_only {
-                "SELECT * FROM playlists WHERE urn = ANY($1) AND sharing = 'public'"
-            } else {
-                "SELECT * FROM playlists WHERE urn = ANY($1)"
-            };
-            let rows: Vec<crate::modules::playlists::PlaylistRow> = sqlx::query_as(pl_sql)
-                .bind(&page_keys)
+            // public_only фильтрует приватные плейлисты владельца для чужого вьювера.
+            let rows: Vec<crate::modules::playlists::PlaylistRow> = if public_only {
+                sqlx::query_file_as!(
+                    crate::modules::playlists::PlaylistRow,
+                    "queries/cold_refresh/service/playlists_by_urns_public.sql",
+                    &page_keys
+                )
                 .fetch_all(pg)
-                .await?;
+                .await?
+            } else {
+                sqlx::query_file_as!(
+                    crate::modules::playlists::PlaylistRow,
+                    "queries/cold_refresh/service/playlists_by_urns.sql",
+                    &page_keys
+                )
+                .fetch_all(pg)
+                .await?
+            };
             let map: std::collections::HashMap<String, crate::modules::playlists::PlaylistRow> =
                 rows.into_iter().map(|p| (p.urn.clone(), p)).collect();
             page_keys

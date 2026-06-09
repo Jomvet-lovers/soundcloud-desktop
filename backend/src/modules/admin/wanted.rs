@@ -64,39 +64,55 @@ pub async fn list(
     let offset = (page - 1) * limit;
     let status = q.status.filter(|s| !s.is_empty());
 
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::int8 FROM wanted_tracks WHERE ($1::text IS NULL OR status = $1)",
-    )
-        .bind(&status)
-        .fetch_one(&state.pg)
-        .await?;
+    let total: i64 =
+        sqlx::query_file_scalar!("queries/admin/wanted/count_total.sql", status.as_deref())
+            .fetch_one(&state.pg)
+            .await?;
 
-    let items = sqlx::query_as::<_, WantedTrackRow>(
-        "SELECT w.id, w.title, w.status, w.source, w.external_id, w.isrc, w.release_year, \
-                w.primary_artist_id, a.name AS primary_artist_name, w.track_id, \
-                w.resolve_attempts, w.resolve_error, w.discovered_at, w.updated_at \
-         FROM wanted_tracks w \
-         LEFT JOIN artists a ON a.id = w.primary_artist_id \
-         WHERE ($1::text IS NULL OR w.status = $1) \
-         ORDER BY w.discovered_at DESC \
-         LIMIT $2 OFFSET $3",
+    let items = sqlx::query_file!(
+        "queries/admin/wanted/list_page.sql",
+        status.as_deref(),
+        limit,
+        offset
     )
-        .bind(&status)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.pg)
-        .await?;
+    .fetch_all(&state.pg)
+    .await?
+    .into_iter()
+    .map(|r| WantedTrackRow {
+        id: r.id,
+        title: r.title,
+        status: r.status,
+        source: r.source,
+        external_id: r.external_id,
+        isrc: r.isrc,
+        release_year: r.release_year,
+        primary_artist_id: r.primary_artist_id,
+        primary_artist_name: r.primary_artist_name,
+        track_id: r.track_id,
+        resolve_attempts: r.resolve_attempts,
+        resolve_error: r.resolve_error,
+        discovered_at: r.discovered_at,
+        updated_at: r.updated_at,
+    })
+    .collect();
 
-    let by_status: Vec<StatusCount> = sqlx::query_as::<_, (String, i64)>(
-        "SELECT status, COUNT(*)::int8 FROM wanted_tracks GROUP BY status ORDER BY COUNT(*) DESC",
-    )
+    let by_status: Vec<StatusCount> = sqlx::query_file!("queries/admin/wanted/count_by_status.sql")
         .fetch_all(&state.pg)
         .await?
         .into_iter()
-        .map(|(status, count)| StatusCount { status, count })
+        .map(|r| StatusCount {
+            status: r.status,
+            count: r.count,
+        })
         .collect();
 
-    Ok(Json(WantedTracksPage { items, total, page, limit, by_status }))
+    Ok(Json(WantedTracksPage {
+        items,
+        total,
+        page,
+        limit,
+        by_status,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -120,21 +136,19 @@ pub async fn link(
     }
     let linked = link_wanted_to_sc(&state.pg, id, sc).await?;
 
-    let row: Option<(String, Option<Uuid>)> =
-        sqlx::query_as("SELECT status, track_id FROM wanted_tracks WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&state.pg)
-            .await?;
+    let row = sqlx::query_file!("queries/admin/wanted/get_status_track.sql", id)
+        .fetch_optional(&state.pg)
+        .await?;
     match row {
         None => Err(AppError::not_found("wanted track not found")),
         Some(_) if !linked => Err(AppError::bad_request(
             "no tracks row matches sc_track_id; wanted track left unlinked",
         )),
-        Some((status, track_id)) => Ok(Json(serde_json::json!({
+        Some(r) => Ok(Json(serde_json::json!({
             "ok": true,
-            "linked": track_id.is_some(),
-            "status": status,
-            "track_id": track_id,
+            "linked": r.track_id.is_some(),
+            "status": r.status,
+            "track_id": r.track_id,
         }))),
     }
 }
@@ -160,9 +174,7 @@ pub async fn set_status(
             "status must be one of: wanted, linked, unresolvable, skipped",
         ));
     }
-    let res = sqlx::query("UPDATE wanted_tracks SET status = $1, updated_at = now() WHERE id = $2")
-        .bind(status)
-        .bind(id)
+    let res = sqlx::query_file!("queries/admin/wanted/update_status.sql", status, id)
         .execute(&state.pg)
         .await?;
     if res.rows_affected() == 0 {

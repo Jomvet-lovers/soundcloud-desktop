@@ -52,19 +52,21 @@ impl MeService {
 
     /// DB-backed profile for Library: serve the mirror immediately, revalidate
     /// from SC in the background when stale; synchronous seed on first read.
-    pub async fn get_profile_cold(self: &Arc<Self>, sc_user_id: &str, token: &str) -> AppResult<Value> {
+    pub async fn get_profile_cold(
+        self: &Arc<Self>,
+        sc_user_id: &str,
+        token: &str,
+    ) -> AppResult<Value> {
         // user_profiles ключ — URN (пишет login); ctx.sc_user_id теперь bare →
         // матчим оба варианта, LIMIT 1 по свежести (дубль URN+bare до бэкфилла).
-        let row: Option<(Value, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT profile_json, synced_at FROM user_profiles WHERE soundcloud_user_id = ANY($1) \
-             ORDER BY synced_at DESC LIMIT 1",
-        )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let row = sqlx::query_file!("queries/me/service/profile_cold_fetch.sql", &variants)
             .fetch_one(&self.pg)
             .await
             .ok();
 
-        if let Some((profile, synced_at)) = row {
+        if let Some(row) = row {
+            let (profile, synced_at) = (row.profile_json, row.synced_at);
             if Utc::now() - synced_at > Duration::seconds(PROFILE_TTL_SEC) {
                 let me = Arc::clone(self);
                 let uid = sc_user_id.to_string();
@@ -82,7 +84,12 @@ impl MeService {
         // unreachable, serve a session/users-derived stub now and finish seeding
         // in the background so Library/auth boot without blocking.
         let seed = self.refresh_profile(sc_user_id, token);
-        match tokio::time::timeout(std::time::Duration::from_secs(PROFILE_SEED_TIMEOUT_SEC), seed).await {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(PROFILE_SEED_TIMEOUT_SEC),
+            seed,
+        )
+        .await
+        {
             Ok(Ok(profile)) => Ok(profile),
             other => {
                 if let Ok(Err(e)) = other {
@@ -108,36 +115,25 @@ impl MeService {
 
         // Prefer the users mirror (carries avatar/counts); fall back to the
         // session row (username only) when the user was never synced.
-        let mirrored: Option<Value> = sqlx::query_scalar(
-            "SELECT jsonb_build_object( \
-                 'id', $2::int8, 'urn', urn, 'username', username, 'full_name', full_name, \
-                 'avatar_url', COALESCE(avatar_url, ''), 'permalink_url', COALESCE(permalink_url, ''), \
-                 'followers_count', COALESCE(followers_count, 0), \
-                 'followings_count', COALESCE(followings_count, 0), \
-                 'track_count', COALESCE(tracks_count, 0), \
-                 'playlist_count', COALESCE(playlists_count, 0), \
-                 'public_favorites_count', 0) \
-             FROM users WHERE sc_user_id = $1",
-        )
-            .bind(sc_user_id)
-            .bind(id)
-            .fetch_optional(&self.pg)
-            .await
-            .ok()
-            .flatten();
+        let mirrored: Option<Value> =
+            sqlx::query_file_scalar!("queries/me/service/stub_from_users.sql", sc_user_id, id)
+                .fetch_optional(&self.pg)
+                .await
+                .ok()
+                .flatten();
         if let Some(profile) = mirrored {
             return profile;
         }
 
-        let username: Option<String> = sqlx::query_scalar(
-            "SELECT username FROM sessions WHERE soundcloud_user_id = ANY($1) AND username IS NOT NULL \
-             ORDER BY updated_at DESC LIMIT 1",
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let username: Option<String> = sqlx::query_file_scalar!(
+            "queries/me/service/stub_username_from_sessions.sql",
+            &variants
         )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-            .fetch_optional(&self.pg)
-            .await
-            .ok()
-            .flatten();
+        .fetch_optional(&self.pg)
+        .await
+        .ok()
+        .flatten();
         json!({
             "id": id,
             "urn": sc_user_id,
@@ -154,16 +150,13 @@ impl MeService {
 
     async fn refresh_profile(&self, sc_user_id: &str, token: &str) -> AppResult<Value> {
         let profile = self.sc.api_get_value("/me", token, None).await?;
-        sqlx::query(
-            "INSERT INTO user_profiles (soundcloud_user_id, profile_json, synced_at)
-             VALUES ($1, $2, now())
-             ON CONFLICT (soundcloud_user_id)
-             DO UPDATE SET profile_json = EXCLUDED.profile_json, synced_at = now()",
+        sqlx::query_file!(
+            "queries/me/service/upsert_profile.sql",
+            sc_user_id,
+            &profile
         )
-            .bind(sc_user_id)
-            .bind(&profile)
-            .execute(&self.pg)
-            .await?;
+        .execute(&self.pg)
+        .await?;
         Ok(profile)
     }
 

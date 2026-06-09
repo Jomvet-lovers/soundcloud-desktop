@@ -200,13 +200,9 @@ impl LyricsService {
                             svc.qdrant.upsert_lyrics(num_id, vec, language).await?;
                         }
                     }
-                    sqlx::query(
-                        "UPDATE lyrics_cache SET embedded_at = now() \
-                         WHERE sc_track_id = $1 AND embedded_at IS NULL",
-                    )
-                    .bind(&id)
-                    .execute(&svc.pg)
-                    .await?;
+                    sqlx::query_file!("queries/lyrics/service/mark_embedded.sql", &id)
+                        .execute(&svc.pg)
+                        .await?;
                     Ok(())
                 }
             },
@@ -243,11 +239,13 @@ impl LyricsService {
     ) -> AppResult<LyricsResponse> {
         let sc_track_id = normalize(sc_track_id_raw);
 
-        let cached: Option<LyricsCacheRow> =
-            sqlx::query_as("SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at FROM lyrics_cache WHERE sc_track_id = $1")
-                .bind(&sc_track_id)
-                .fetch_optional(&self.pg)
-                .await?;
+        let cached: Option<LyricsCacheRow> = sqlx::query_file_as!(
+            LyricsCacheRow,
+            "queries/lyrics/service/lyrics_cache_by_id.sql",
+            &sc_track_id
+        )
+        .fetch_optional(&self.pg)
+        .await?;
         if let Some(row) = cached {
             if row.embedded_at.is_none() {
                 if let Some(text) =
@@ -370,14 +368,14 @@ impl LyricsService {
         }
         let sc_track_id = sc_track_id.unwrap();
 
-        let row: LyricsCacheRow = sqlx::query_as(
-            "INSERT INTO lyrics_cache (sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at) \
-             VALUES ($1, $2, $3, $4, NULL, NULL, NULL) RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at",
+        let row: LyricsCacheRow = sqlx::query_file_as!(
+            LyricsCacheRow,
+            "queries/lyrics/service/insert_lyrics_cache.sql",
+            sc_track_id,
+            picked.synced_lrc,
+            picked.plain_text,
+            picked.source
         )
-        .bind(sc_track_id)
-        .bind(&picked.synced_lrc)
-        .bind(&picked.plain_text)
-        .bind(&picked.source)
         .fetch_one(&self.pg)
         .await?;
 
@@ -403,17 +401,16 @@ impl LyricsService {
         // 1. metadata_artist из SC payload (наиболее каноничный для лейбловых
         //    upload'ов; раньше брался из publisher_metadata.artist);
         // 2. uploader_username (= user.username).
-        let row: Option<(String, i32, Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT title, duration_ms, metadata_artist, uploader_username \
-             FROM tracks WHERE sc_track_id = $1",
-        )
-        .bind(sc_track_id)
-        .fetch_optional(&self.pg)
-        .await?;
+        let row = sqlx::query_file!("queries/lyrics/service/load_track_hints.sql", sc_track_id)
+            .fetch_optional(&self.pg)
+            .await?;
         let (title, dur_ms, artist) = match row {
-            Some((t, d, meta, uploader)) => {
-                let artist = meta.or(uploader).unwrap_or_default();
-                (t, d as i64, artist)
+            Some(r) => {
+                let artist = r
+                    .metadata_artist
+                    .or(r.uploader_username)
+                    .unwrap_or_default();
+                (r.title, r.duration_ms as i64, artist)
             }
             None => (String::new(), 0i64, String::new()),
         };
@@ -807,10 +804,11 @@ impl LyricsService {
 
         // Режим из текущего состояния lyrics_cache: есть synced — делать нечего;
         // есть plain (агрегатор) — align (досинхронизировать); пусто — full.
-        let row: Option<LyricsCacheRow> = match sqlx::query_as(
-            "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at FROM lyrics_cache WHERE sc_track_id = $1",
+        let row: Option<LyricsCacheRow> = match sqlx::query_file_as!(
+            LyricsCacheRow,
+            "queries/lyrics/service/lyrics_cache_by_id.sql",
+            &sc_track_id
         )
-        .bind(&sc_track_id)
         .fetch_optional(&self.pg)
         .await
         {
@@ -823,11 +821,11 @@ impl LyricsService {
         let (mode, language, initial_prompt) = match row {
             Some(r) if r.synced_lrc.is_some() => return, // уже полностью готово
             Some(r)
-            if r.plain_text
-                .as_deref()
-                .map(|p| !p.is_empty())
-                .unwrap_or(false) =>
-                {
+                if r.plain_text
+                    .as_deref()
+                    .map(|p| !p.is_empty())
+                    .unwrap_or(false) =>
+            {
                 let plain = r.plain_text.unwrap_or_default();
                 let initial = plain.chars().take(2000).collect::<String>();
                 ("align", r.language, Some(initial))
@@ -864,15 +862,13 @@ impl LyricsService {
     /// true если трек можно ставить в транскрайб: `transcribe_state` IS NULL или
     /// «зависший» pending. done/disabled/свежий pending → false.
     async fn transcribe_eligible(&self, sc_track_id: &str) -> AppResult<bool> {
-        let row: Option<(Option<String>, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-            "SELECT transcribe_state, transcribe_at FROM tracks WHERE sc_track_id = $1",
-        )
-            .bind(sc_track_id)
+        let row = sqlx::query_file!("queries/lyrics/service/transcribe_state.sql", sc_track_id)
             .fetch_optional(&self.pg)
             .await?;
-        let Some((state, at)) = row else {
+        let Some(r) = row else {
             return Ok(false); // нет трека — нечего транскрайбить
         };
+        let (state, at) = (r.transcribe_state, r.transcribe_at);
         Ok(match state.as_deref() {
             None => true,
             Some("pending") => {
@@ -888,14 +884,11 @@ impl LyricsService {
     /// (публикуем джоб), false → опередили / state терминальный.
     async fn claim_transcribe(&self, sc_track_id: &str) -> AppResult<bool> {
         let cutoff = chrono::Utc::now() - chrono::Duration::from_std(TRANSCRIBE_STALE).unwrap();
-        let res = sqlx::query(
-            "UPDATE tracks SET transcribe_state = 'pending', transcribe_at = now() \
-             WHERE sc_track_id = $1 \
-               AND (transcribe_state IS NULL \
-                    OR (transcribe_state = 'pending' AND transcribe_at < $2))",
+        let res = sqlx::query_file!(
+            "queries/lyrics/service/claim_transcribe.sql",
+            sc_track_id,
+            cutoff
         )
-        .bind(sc_track_id)
-        .bind(cutoff)
         .execute(&self.pg)
         .await?;
         Ok(res.rows_affected() > 0)
@@ -941,10 +934,10 @@ impl LyricsService {
 
         if synced.is_none() && plain.is_none() {
             // self-gen-disable: whisper нечего дал — больше не берём этот трек.
-            sqlx::query(
-                "UPDATE tracks SET transcribe_state = 'disabled', transcribe_at = now() WHERE sc_track_id = $1",
+            sqlx::query_file!(
+                "queries/lyrics/service/disable_transcribe.sql",
+                &sc_track_id
             )
-            .bind(&sc_track_id)
             .execute(&self.pg)
             .await?;
             info!(track = %sc_track_id, mode, "self-gen disabled (whisper empty)");
@@ -952,11 +945,11 @@ impl LyricsService {
         }
 
         if mode == "align" {
-            sqlx::query(
-                "UPDATE lyrics_cache SET synced_lrc = $2 WHERE sc_track_id = $1 AND synced_lrc IS NULL",
+            sqlx::query_file!(
+                "queries/lyrics/service/align_synced_lrc.sql",
+                &sc_track_id,
+                synced
             )
-            .bind(&sc_track_id)
-            .bind(synced)
             .execute(&self.pg)
             .await?;
             self.mark_transcribe_done(&sc_track_id).await?;
@@ -965,15 +958,13 @@ impl LyricsService {
         }
 
         // full: не затираем реальный источник, если агрегатор успел вписаться.
-        let inserted: Option<LyricsCacheRow> = sqlx::query_as(
-            "INSERT INTO lyrics_cache (sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at) \
-             VALUES ($1, $2, $3, 'self_gen', NULL, NULL, NULL) \
-             ON CONFLICT (sc_track_id) DO NOTHING \
-             RETURNING sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at",
+        let inserted: Option<LyricsCacheRow> = sqlx::query_file_as!(
+            LyricsCacheRow,
+            "queries/lyrics/service/insert_self_gen_lyrics.sql",
+            &sc_track_id,
+            synced,
+            plain
         )
-        .bind(&sc_track_id)
-        .bind(synced)
-        .bind(plain)
         .fetch_optional(&self.pg)
         .await?;
         self.mark_transcribe_done(&sc_track_id).await?;
@@ -998,10 +989,10 @@ impl LyricsService {
     }
 
     async fn mark_transcribe_done(&self, sc_track_id: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE tracks SET transcribe_state = 'done', transcribe_at = now() WHERE sc_track_id = $1",
+        sqlx::query_file!(
+            "queries/lyrics/service/mark_transcribe_done.sql",
+            sc_track_id
         )
-        .bind(sc_track_id)
         .execute(&self.pg)
         .await?;
         Ok(())
@@ -1033,20 +1024,20 @@ impl LyricsService {
         }
         let final_lang = lang.as_ref().map(|l| l.language.clone());
         if let Some(l) = &lang {
-            sqlx::query(
-                "UPDATE lyrics_cache SET language = $2, language_confidence = $3 WHERE sc_track_id = $1",
+            sqlx::query_file!(
+                "queries/lyrics/service/update_lyrics_language.sql",
+                &entity.sc_track_id,
+                &l.language,
+                l.confidence
             )
-            .bind(&entity.sc_track_id)
-            .bind(&l.language)
-            .bind(l.confidence)
             .execute(&self.pg)
             .await?;
-            sqlx::query(
-                "UPDATE tracks SET language = $2, language_confidence = $3 WHERE sc_track_id = $1",
+            sqlx::query_file!(
+                "queries/lyrics/service/update_track_language.sql",
+                &entity.sc_track_id,
+                &l.language,
+                l.confidence
             )
-            .bind(&entity.sc_track_id)
-            .bind(&l.language)
-            .bind(l.confidence)
             .execute(&self.pg)
             .await?;
         }
@@ -1063,8 +1054,11 @@ impl LyricsService {
     }
 
     async fn reap_whisper(self: &Arc<Self>) -> AppResult<()> {
+        // align гейтит по lyrics_cache.created_at (timestamp, naive); full — по
+        // tracks.created_at (timestamptz). Одно и то же wall-clock, разные типы.
         let cutoff =
             chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
+        let cutoff_tz = chrono::Utc::now() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
 
         // Зависшие pending перевыставляем только после TRANSCRIBE_STALE; свежий
         // pending и disabled/done реап пропускает (иначе HEAD'ил бы инструменталы
@@ -1072,30 +1066,21 @@ impl LyricsService {
         let stale_cutoff =
             chrono::Utc::now() - chrono::Duration::from_std(TRANSCRIBE_STALE).unwrap();
 
-        let need_align: Vec<(String,)> = sqlx::query_as(
-            "SELECT lc.sc_track_id FROM lyrics_cache lc \
-             JOIN tracks t ON t.sc_track_id = lc.sc_track_id \
-             WHERE lc.plain_text IS NOT NULL AND length(lc.plain_text) > 0 AND lc.synced_lrc IS NULL \
-               AND lc.created_at < $1 \
-               AND (t.transcribe_state IS NULL OR (t.transcribe_state = 'pending' AND t.transcribe_at < $3)) \
-             ORDER BY lc.created_at ASC LIMIT $2",
+        let need_align = sqlx::query_file_scalar!(
+            "queries/lyrics/service/reap_need_align.sql",
+            cutoff,
+            REAP_LIMIT_ALIGN,
+            stale_cutoff
         )
-        .bind(cutoff)
-        .bind(REAP_LIMIT_ALIGN)
-        .bind(stale_cutoff)
         .fetch_all(&self.pg)
         .await?;
 
-        let need_full: Vec<(String,)> = sqlx::query_as(
-            "SELECT it.sc_track_id FROM tracks it \
-             LEFT JOIN lyrics_cache lc ON lc.sc_track_id = it.sc_track_id \
-             WHERE it.storage_state = 'ok' AND lc.sc_track_id IS NULL AND it.created_at < $1 \
-               AND (it.transcribe_state IS NULL OR (it.transcribe_state = 'pending' AND it.transcribe_at < $3)) \
-             ORDER BY it.created_at ASC LIMIT $2",
+        let need_full = sqlx::query_file_scalar!(
+            "queries/lyrics/service/reap_need_full.sql",
+            cutoff_tz,
+            REAP_LIMIT_FULL,
+            stale_cutoff
         )
-        .bind(cutoff)
-        .bind(REAP_LIMIT_FULL)
-        .bind(stale_cutoff)
         .fetch_all(&self.pg)
         .await?;
 
@@ -1108,7 +1093,7 @@ impl LyricsService {
             full = need_full.len(),
             "[lyrics-reap] retrying whisper"
         );
-        for (id,) in need_align.into_iter().chain(need_full) {
+        for id in need_align.into_iter().chain(need_full) {
             let svc = self.clone();
             tokio::spawn(async move {
                 svc.enqueue_transcribe(&id, None).await;
@@ -1120,14 +1105,12 @@ impl LyricsService {
     async fn reap_embeds(self: &Arc<Self>) -> AppResult<()> {
         let cutoff =
             chrono::Utc::now().naive_utc() - chrono::Duration::from_std(REAP_MIN_AGE).unwrap();
-        let stuck: Vec<LyricsCacheRow> = sqlx::query_as(
-            "SELECT sc_track_id, synced_lrc, plain_text, source, language, language_confidence, embedded_at FROM lyrics_cache \
-             WHERE embedded_at IS NULL AND created_at < $1 \
-             AND length(coalesce(plain_text, synced_lrc, '')) > 30 \
-             ORDER BY created_at ASC LIMIT $2",
+        let stuck: Vec<LyricsCacheRow> = sqlx::query_file_as!(
+            LyricsCacheRow,
+            "queries/lyrics/service/reap_embeds_stuck.sql",
+            cutoff,
+            REAP_LIMIT_FULL
         )
-        .bind(cutoff)
-        .bind(REAP_LIMIT_FULL)
         .fetch_all(&self.pg)
         .await?;
         if stuck.is_empty() {

@@ -64,12 +64,20 @@ impl FeaturedService {
     }
 
     pub async fn find_all(&self) -> AppResult<Vec<FeaturedItem>> {
-        let rows: Vec<FeaturedItem> = sqlx::query_as(
-            r#"SELECT id, "type", sc_urn, weight, active, created_at FROM featured_items ORDER BY created_at DESC"#,
-        )
-        .fetch_all(&self.pg)
-        .await?;
-        Ok(rows)
+        let rows = sqlx::query_file!("queries/featured/service/find_all.sql")
+            .fetch_all(&self.pg)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| FeaturedItem {
+                id: r.id,
+                type_: r.item_type,
+                sc_urn: r.sc_urn,
+                weight: r.weight,
+                active: r.active,
+                created_at: r.created_at,
+            })
+            .collect())
     }
 
     pub async fn create(
@@ -84,16 +92,23 @@ impl FeaturedService {
                 "type must be one of: track, playlist, user",
             ));
         }
-        let row: FeaturedItem = sqlx::query_as(
-            r#"INSERT INTO featured_items ("type", sc_urn, weight, active) VALUES ($1, $2, $3, $4) RETURNING id, "type", sc_urn, weight, active, created_at"#,
+        let row = sqlx::query_file!(
+            "queries/featured/service/create.sql",
+            type_,
+            sc_urn,
+            weight.unwrap_or(1),
+            active.unwrap_or(true)
         )
-        .bind(type_)
-        .bind(sc_urn)
-        .bind(weight.unwrap_or(1))
-        .bind(active.unwrap_or(true))
         .fetch_one(&self.pg)
         .await?;
-        Ok(row)
+        Ok(FeaturedItem {
+            id: row.id,
+            type_: row.item_type,
+            sc_urn: row.sc_urn,
+            weight: row.weight,
+            active: row.active,
+            created_at: row.created_at,
+        })
     }
 
     pub async fn update(
@@ -137,8 +152,7 @@ impl FeaturedService {
             Ok(u) => u,
             Err(_) => return Ok(()),
         };
-        sqlx::query("DELETE FROM featured_items WHERE id = $1")
-            .bind(uuid)
+        sqlx::query_file!("queries/featured/service/remove.sql", uuid)
             .execute(&self.pg)
             .await?;
         Ok(())
@@ -149,11 +163,20 @@ impl FeaturedService {
         session_id: &str,
         sc_user_id: &str,
     ) -> AppResult<Option<FeaturedResult>> {
-        let items: Vec<FeaturedItem> = sqlx::query_as(
-            r#"SELECT id, "type", sc_urn, weight, active, created_at FROM featured_items WHERE active = true"#,
-        )
-        .fetch_all(&self.pg)
-        .await?;
+        let items: Vec<FeaturedItem> =
+            sqlx::query_file!("queries/featured/service/pick_active.sql")
+                .fetch_all(&self.pg)
+                .await?
+                .into_iter()
+                .map(|r| FeaturedItem {
+                    id: r.id,
+                    type_: r.item_type,
+                    sc_urn: r.sc_urn,
+                    weight: r.weight,
+                    active: r.active,
+                    created_at: r.created_at,
+                })
+                .collect();
         if items.is_empty() {
             return Ok(None);
         }

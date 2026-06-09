@@ -16,37 +16,26 @@ pub async fn load_track_meta(pg: &PgPool, ids: &[String]) -> HashMap<String, Tra
     if ids.is_empty() {
         return HashMap::new();
     }
-    type TrackMetaRow = (
-        String,
-        String,
-        Option<String>,
-        i32,
-        Option<i64>,
-        Option<i64>,
-    );
-    let rows: Vec<TrackMetaRow> = sqlx::query_as(
-        "SELECT it.sc_track_id, it.title, it.genre, it.duration_ms, c.play_count, c.likes_count
-             FROM tracks it
-             LEFT JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-             WHERE it.sc_track_id = ANY($1)",
+    let rows = sqlx::query_file!(
+        "queries/recommendations/quality_features/load_track_meta.sql",
+        ids
     )
-    .bind(ids)
     .fetch_all(pg)
     .await
     .unwrap_or_default();
 
     let mut out = HashMap::with_capacity(rows.len());
-    for (id, title, genre, duration_ms, plays, likes) in rows {
-        let lower = title.to_lowercase();
-        let has_genre = genre.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+    for row in rows {
+        let lower = row.title.to_lowercase();
+        let has_genre = row.genre.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
         let is_preview = lower.contains("preview") || lower.contains("teaser");
         out.insert(
-            id,
+            row.sc_track_id,
             TrackMeta {
-                plays: plays.unwrap_or(0),
-                likes: likes.unwrap_or(0),
-                duration_ms: duration_ms as i64,
-                title,
+                plays: row.play_count.unwrap_or(0),
+                likes: row.likes_count.unwrap_or(0),
+                duration_ms: row.duration_ms as i64,
+                title: row.title,
                 has_genre,
                 is_preview,
             },

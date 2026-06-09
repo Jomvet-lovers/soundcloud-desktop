@@ -20,14 +20,19 @@ pub struct ClusterStat {
 }
 
 pub async fn load_stats(pg: &PgPool, sc_user_id: &str) -> AppResult<HashMap<String, ClusterStat>> {
-    let rows: Vec<ClusterStat> = sqlx::query_as(
-        "SELECT cluster_id, shows, clicks, completes
-         FROM cluster_bandit_stats
-         WHERE sc_user_id = ANY($1)",
-    )
-        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-    .fetch_all(pg)
-    .await?;
+    let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+    let rows: Vec<ClusterStat> =
+        sqlx::query_file!("queries/recommendations/bandits/load_stats.sql", &variants)
+            .fetch_all(pg)
+            .await?
+            .into_iter()
+            .map(|r| ClusterStat {
+                cluster_id: r.cluster_id,
+                shows: r.shows,
+                clicks: r.clicks,
+                completes: r.completes,
+            })
+            .collect();
     Ok(rows
         .into_iter()
         .map(|r| (r.cluster_id.clone(), r))
@@ -83,18 +88,14 @@ pub async fn record_shows(
     if clusters.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "INSERT INTO cluster_bandit_stats (sc_user_id, cluster_id, shows, updated_at)
-         SELECT $1, c, s, NOW() FROM UNNEST($2::text[], $3::bigint[]) AS t(c, s)
-         ON CONFLICT (sc_user_id, cluster_id)
-         DO UPDATE SET shows = cluster_bandit_stats.shows + EXCLUDED.shows,
-                       updated_at = NOW()",
+    sqlx::query_file!(
+        "queries/recommendations/bandits/record_shows.sql",
+        sc_user_id,
+        &clusters as &[&str],
+        &shows
     )
-        .bind(sc_user_id)
-        .bind(&clusters)
-        .bind(&shows)
-        .execute(pg)
-        .await?;
+    .execute(pg)
+    .await?;
     Ok(())
 }
 
@@ -105,18 +106,13 @@ pub async fn record_outcome(
     clicks: i64,
     completes: i64,
 ) -> AppResult<()> {
-    sqlx::query(
-        "INSERT INTO cluster_bandit_stats (sc_user_id, cluster_id, clicks, completes, updated_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (sc_user_id, cluster_id)
-         DO UPDATE SET clicks = cluster_bandit_stats.clicks + EXCLUDED.clicks,
-                       completes = cluster_bandit_stats.completes + EXCLUDED.completes,
-                       updated_at = NOW()",
+    sqlx::query_file!(
+        "queries/recommendations/bandits/record_outcome.sql",
+        sc_user_id,
+        cluster_id,
+        clicks,
+        completes
     )
-    .bind(sc_user_id)
-    .bind(cluster_id)
-    .bind(clicks)
-    .bind(completes)
     .execute(pg)
     .await?;
     Ok(())

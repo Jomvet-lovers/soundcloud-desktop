@@ -31,15 +31,6 @@ pub struct ArtistCrawlService {
     resolve: Arc<ResolveService>,
 }
 
-type ArtistRow = (
-    Uuid,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    i32,
-    i32,
-);
-
 #[derive(Debug, Clone, Copy)]
 enum CrawlSource {
     Mb,
@@ -66,27 +57,19 @@ impl ArtistCrawlService {
     }
 
     pub async fn run_for_artist(self: &Arc<Self>, artist_id: Uuid) -> AppResult<()> {
-        let claim: Option<ArtistRow> = sqlx::query_as(
-            "UPDATE artists
-             SET last_crawled_at = now(), crawl_attempts = crawl_attempts + 1
-             WHERE id = $1
-               AND merged_into IS NULL
-               AND (last_crawled_at IS NULL OR last_crawled_at < now() - interval '5 minutes')
-             RETURNING id, mb_artist_id, genius_artist_id, sc_user_id, mb_crawl_offset, genius_crawl_offset",
-        )
-        .bind(artist_id)
-        .fetch_optional(&self.pg)
-        .await?;
-        let Some((id, mb_id, genius_id, sc_user_id, mb_off, genius_off)) = claim else {
+        let claim = sqlx::query_file!("queries/enrich/artist_crawl/claim_for_crawl.sql", artist_id)
+            .fetch_optional(&self.pg)
+            .await?;
+        let Some(row) = claim else {
             return Ok(());
         };
         self.crawl_one(
-            id,
-            mb_id.as_deref(),
-            genius_id.as_deref(),
-            sc_user_id.as_deref(),
-            mb_off as u32,
-            genius_off as u32,
+            row.id,
+            row.mb_artist_id.as_deref(),
+            row.genius_artist_id.as_deref(),
+            row.sc_user_id.as_deref(),
+            row.mb_crawl_offset as u32,
+            row.genius_crawl_offset as u32,
         )
         .await
     }
@@ -238,15 +221,26 @@ impl ArtistCrawlService {
         source: CrawlSource,
         offset: u32,
     ) -> AppResult<()> {
-        let sql = match source {
-            CrawlSource::Mb => "UPDATE artists SET mb_crawl_offset = $2 WHERE id = $1",
-            CrawlSource::Genius => "UPDATE artists SET genius_crawl_offset = $2 WHERE id = $1",
-        };
-        sqlx::query(sql)
-            .bind(artist_id)
-            .bind(offset as i32)
-            .execute(&self.pg)
-            .await?;
+        match source {
+            CrawlSource::Mb => {
+                sqlx::query_file!(
+                    "queries/enrich/artist_crawl/set_mb_crawl_offset.sql",
+                    artist_id,
+                    offset as i32
+                )
+                .execute(&self.pg)
+                .await?;
+            }
+            CrawlSource::Genius => {
+                sqlx::query_file!(
+                    "queries/enrich/artist_crawl/set_genius_crawl_offset.sql",
+                    artist_id,
+                    offset as i32
+                )
+                .execute(&self.pg)
+                .await?;
+            }
+        }
         Ok(())
     }
 
@@ -428,21 +422,20 @@ impl ArtistCrawlService {
         album_id: Uuid,
         position: i16,
     ) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE tracks SET album_id = COALESCE(album_id, $2), album_position = COALESCE(album_position, $3) WHERE id = $1",
+        sqlx::query_file!(
+            "queries/enrich/artist_crawl/link_track_album_with_position.sql",
+            track_id,
+            album_id,
+            position
         )
-        .bind(track_id)
-        .bind(album_id)
-        .bind(position)
         .execute(&self.pg)
         .await?;
-        sqlx::query(
-            "INSERT INTO album_tracks (album_id, track_id, position) VALUES ($1, $2, $3)
-             ON CONFLICT DO NOTHING",
+        sqlx::query_file!(
+            "queries/enrich/artist_crawl/insert_album_track_with_position.sql",
+            album_id,
+            track_id,
+            position
         )
-        .bind(album_id)
-        .bind(track_id)
-        .bind(position)
         .execute(&self.pg)
         .await?;
         Ok(())
@@ -467,7 +460,7 @@ impl ArtistCrawlService {
                     .into_iter()
                     .map(|song| self.persist_genius_song(artist_id, genius_id, song)),
             )
-                .await;
+            .await;
             for r in results {
                 if let Err(e) = r {
                     debug!(error = %e, "wanted_track upsert (genius) failed");
@@ -562,12 +555,13 @@ impl ArtistCrawlService {
         rel: &crate::modules::enrich::mb::MbReleaseBrief,
         primary_artist_id: Option<Uuid>,
     ) -> AppResult<Option<Uuid>> {
-        let row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM albums WHERE mb_release_id = $1 LIMIT 1")
-                .bind(&rel.mb_id)
-                .fetch_optional(&self.pg)
-                .await?;
-        if let Some((id,)) = row {
+        let row = sqlx::query_file_scalar!(
+            "queries/enrich/artist_crawl/album_id_by_mb_release_id.sql",
+            &rel.mb_id
+        )
+        .fetch_optional(&self.pg)
+        .await?;
+        if let Some(id) = row {
             return Ok(Some(id));
         }
         let normalized_title = normalize_title(&rel.title);
@@ -596,24 +590,23 @@ impl ArtistCrawlService {
         .await?;
         if let Some((id,)) = inserted {
             if let Some(pa) = primary_artist_id {
-                let _ = sqlx::query(
-                    "INSERT INTO album_artists (album_id, artist_id, role)
-                     VALUES ($1, $2, 'primary')
-                     ON CONFLICT DO NOTHING",
+                let _ = sqlx::query_file!(
+                    "queries/enrich/artist_crawl/insert_album_artist_primary.sql",
+                    id,
+                    pa
                 )
-                .bind(id)
-                .bind(pa)
                 .execute(&self.pg)
                 .await?;
             }
             return Ok(Some(id));
         }
-        let again: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM albums WHERE mb_release_id = $1 LIMIT 1")
-                .bind(&rel.mb_id)
-                .fetch_optional(&self.pg)
-                .await?;
-        Ok(again.map(|(id,)| id))
+        let again = sqlx::query_file_scalar!(
+            "queries/enrich/artist_crawl/album_id_by_mb_release_id.sql",
+            &rel.mb_id
+        )
+        .fetch_optional(&self.pg)
+        .await?;
+        Ok(again)
     }
 
     async fn insert_wanted_artist(
@@ -623,15 +616,13 @@ impl ArtistCrawlService {
         role: &str,
         position: i16,
     ) -> AppResult<()> {
-        sqlx::query(
-            "INSERT INTO wanted_track_artists (wanted_track_id, artist_id, role, position)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT DO NOTHING",
+        sqlx::query_file!(
+            "queries/enrich/artist_crawl/insert_wanted_track_artist.sql",
+            wanted_track_id,
+            artist_id,
+            role,
+            position
         )
-        .bind(wanted_track_id)
-        .bind(artist_id)
-        .bind(role)
-        .bind(position)
         .execute(&self.pg)
         .await?;
         Ok(())
@@ -643,14 +634,12 @@ impl ArtistCrawlService {
         album_id: Uuid,
         position: i16,
     ) -> AppResult<()> {
-        sqlx::query(
-            "INSERT INTO wanted_track_albums (wanted_track_id, album_id, position)
-             VALUES ($1, $2, $3)
-             ON CONFLICT DO NOTHING",
+        sqlx::query_file!(
+            "queries/enrich/artist_crawl/insert_wanted_track_album.sql",
+            wanted_track_id,
+            album_id,
+            position
         )
-        .bind(wanted_track_id)
-        .bind(album_id)
-        .bind(position)
         .execute(&self.pg)
         .await?;
         Ok(())
@@ -764,31 +753,27 @@ impl ArtistCrawlService {
         song_year: Option<i16>,
     ) -> AppResult<Option<Uuid>> {
         let genius_id_str = album_ref.genius_album_id.to_string();
-        let row: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM albums WHERE genius_album_id = $1 LIMIT 1")
-                .bind(&genius_id_str)
-                .fetch_optional(&self.pg)
-                .await?;
-        if let Some((id,)) = row {
-            sqlx::query(
-                "UPDATE albums SET cover_url = COALESCE(cover_url, $2),
-                                   release_year = COALESCE(release_year, $3),
-                                   updated_at = now()
-                 WHERE id = $1",
+        let row = sqlx::query_file_scalar!(
+            "queries/enrich/artist_crawl/album_id_by_genius_album_id.sql",
+            &genius_id_str
+        )
+        .fetch_optional(&self.pg)
+        .await?;
+        if let Some(id) = row {
+            sqlx::query_file!(
+                "queries/enrich/artist_crawl/update_album_cover_year.sql",
+                id,
+                album_ref.cover_url.as_deref(),
+                album_ref.year.or(song_year)
             )
-            .bind(id)
-            .bind(album_ref.cover_url.as_deref())
-            .bind(album_ref.year.or(song_year))
             .execute(&self.pg)
             .await?;
             if let Some(pa_id) = primary_artist_id {
-                let _ = sqlx::query(
-                    "INSERT INTO album_artists (album_id, artist_id, role)
-                     VALUES ($1, $2, 'primary')
-                     ON CONFLICT DO NOTHING",
+                let _ = sqlx::query_file!(
+                    "queries/enrich/artist_crawl/insert_album_artist_primary.sql",
+                    id,
+                    pa_id
                 )
-                .bind(id)
-                .bind(pa_id)
                 .execute(&self.pg)
                 .await?;
             }
@@ -814,24 +799,23 @@ impl ArtistCrawlService {
         .await?;
         if let Some((id,)) = inserted {
             if let Some(pa_id) = primary_artist_id {
-                let _ = sqlx::query(
-                    "INSERT INTO album_artists (album_id, artist_id, role)
-                     VALUES ($1, $2, 'primary')
-                     ON CONFLICT DO NOTHING",
+                let _ = sqlx::query_file!(
+                    "queries/enrich/artist_crawl/insert_album_artist_primary.sql",
+                    id,
+                    pa_id
                 )
-                .bind(id)
-                .bind(pa_id)
                 .execute(&self.pg)
                 .await?;
             }
             return Ok(Some(id));
         }
-        let again: Option<(Uuid,)> =
-            sqlx::query_as("SELECT id FROM albums WHERE genius_album_id = $1 LIMIT 1")
-                .bind(&genius_id_str)
-                .fetch_optional(&self.pg)
-                .await?;
-        Ok(again.map(|(id,)| id))
+        let again = sqlx::query_file_scalar!(
+            "queries/enrich/artist_crawl/album_id_by_genius_album_id.sql",
+            &genius_id_str
+        )
+        .fetch_optional(&self.pg)
+        .await?;
+        Ok(again)
     }
 
     async fn ensure_external_artist(
@@ -841,22 +825,24 @@ impl ArtistCrawlService {
         name: &str,
     ) -> AppResult<Option<Uuid>> {
         if let Some(mb) = mb_id {
-            let row: Option<(Uuid,)> =
-                sqlx::query_as("SELECT id FROM artists WHERE mb_artist_id = $1 LIMIT 1")
-                    .bind(mb)
-                    .fetch_optional(&self.pg)
-                    .await?;
-            if let Some((id,)) = row {
+            let row = sqlx::query_file_scalar!(
+                "queries/enrich/artist_crawl/artist_id_by_mb_artist_id.sql",
+                mb
+            )
+            .fetch_optional(&self.pg)
+            .await?;
+            if let Some(id) = row {
                 return Ok(Some(id));
             }
         }
         if let Some(gid) = genius_id {
-            let row: Option<(Uuid,)> =
-                sqlx::query_as("SELECT id FROM artists WHERE genius_artist_id = $1 LIMIT 1")
-                    .bind(gid)
-                    .fetch_optional(&self.pg)
-                    .await?;
-            if let Some((id,)) = row {
+            let row = sqlx::query_file_scalar!(
+                "queries/enrich/artist_crawl/artist_id_by_genius_artist_id.sql",
+                gid
+            )
+            .fetch_optional(&self.pg)
+            .await?;
+            if let Some(id) = row {
                 return Ok(Some(id));
             }
         }
@@ -868,24 +854,20 @@ impl ArtistCrawlService {
         if normalized.is_empty() {
             return Ok(None);
         }
-        let row: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM artists WHERE normalized_name = $1 AND merged_into IS NULL LIMIT 1",
+        let row = sqlx::query_file_scalar!(
+            "queries/enrich/artist_crawl/artist_id_by_normalized_name.sql",
+            &normalized
         )
-        .bind(&normalized)
         .fetch_optional(&self.pg)
         .await?;
-        if let Some((id,)) = row {
+        if let Some(id) = row {
             if mb_id.is_some() || genius_id.is_some() {
-                sqlx::query(
-                    "UPDATE artists
-                     SET mb_artist_id     = COALESCE(mb_artist_id, $2),
-                         genius_artist_id = COALESCE(genius_artist_id, $3),
-                         updated_at = now()
-                     WHERE id = $1",
+                sqlx::query_file!(
+                    "queries/enrich/artist_crawl/update_artist_external_ids.sql",
+                    id,
+                    mb_id,
+                    genius_id
                 )
-                .bind(id)
-                .bind(mb_id)
-                .bind(genius_id)
                 .execute(&self.pg)
                 .await?;
             }
@@ -906,20 +888,20 @@ impl ArtistCrawlService {
         if let Some((id,)) = inserted {
             return Ok(Some(id));
         }
-        let again: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM artists WHERE normalized_name = $1 AND merged_into IS NULL LIMIT 1",
+        let again = sqlx::query_file_scalar!(
+            "queries/enrich/artist_crawl/artist_id_by_normalized_name.sql",
+            &normalized
         )
-        .bind(&normalized)
         .fetch_optional(&self.pg)
         .await?;
-        Ok(again.map(|(id,)| id))
+        Ok(again)
     }
 
     async fn indexed_track_has_isrc(&self, isrc: &str) -> AppResult<bool> {
-        let row: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM tracks WHERE isrc = $1 LIMIT 1")
-            .bind(isrc)
-            .fetch_optional(&self.pg)
-            .await?;
+        let row =
+            sqlx::query_file_scalar!("queries/enrich/artist_crawl/track_id_by_isrc.sql", isrc)
+                .fetch_optional(&self.pg)
+                .await?;
         Ok(row.is_some())
     }
 
@@ -940,17 +922,18 @@ impl ArtistCrawlService {
     }
 
     async fn link_indexed_album(&self, track_id: Uuid, album_id: Uuid) -> AppResult<()> {
-        sqlx::query("UPDATE tracks SET album_id = COALESCE(album_id, $2) WHERE id = $1")
-            .bind(track_id)
-            .bind(album_id)
-            .execute(&self.pg)
-            .await?;
-        sqlx::query(
-            "INSERT INTO album_tracks (album_id, track_id) VALUES ($1, $2)
-             ON CONFLICT DO NOTHING",
+        sqlx::query_file!(
+            "queries/enrich/artist_crawl/link_track_album.sql",
+            track_id,
+            album_id
         )
-        .bind(album_id)
-        .bind(track_id)
+        .execute(&self.pg)
+        .await?;
+        sqlx::query_file!(
+            "queries/enrich/artist_crawl/insert_album_track.sql",
+            album_id,
+            track_id
+        )
         .execute(&self.pg)
         .await?;
         Ok(())
@@ -986,18 +969,13 @@ impl ArtistCrawlService {
         rows: &[(String, String, String)],
     ) -> AppResult<()> {
         for (kind, url, source) in rows {
-            sqlx::query(
-                "INSERT INTO artist_socials (artist_id, kind, url, source)
-                 VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (artist_id, url) DO UPDATE
-                   SET kind = EXCLUDED.kind,
-                       source = EXCLUDED.source,
-                       updated_at = now()",
+            sqlx::query_file!(
+                "queries/enrich/artist_crawl/upsert_artist_social.sql",
+                artist_id,
+                kind,
+                url,
+                source
             )
-            .bind(artist_id)
-            .bind(kind)
-            .bind(url)
-            .bind(source)
             .execute(&self.pg)
             .await?;
         }
@@ -1014,18 +992,13 @@ impl ArtistCrawlService {
         if country.is_none() && avatar_url.is_none() && bio.is_none() {
             return Ok(());
         }
-        sqlx::query(
-            "UPDATE artists
-             SET country    = COALESCE(country,    $2),
-                 avatar_url = COALESCE(avatar_url, $3),
-                 bio        = COALESCE(bio,        $4),
-                 updated_at = now()
-             WHERE id = $1",
+        sqlx::query_file!(
+            "queries/enrich/artist_crawl/update_artist_metadata.sql",
+            artist_id,
+            country,
+            avatar_url,
+            bio
         )
-        .bind(artist_id)
-        .bind(country)
-        .bind(avatar_url)
-        .bind(bio)
         .execute(&self.pg)
         .await?;
         Ok(())

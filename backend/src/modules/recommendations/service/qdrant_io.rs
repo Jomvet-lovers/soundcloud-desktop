@@ -95,14 +95,14 @@ impl RecommendationsService {
         if ids.is_empty() {
             return HashSet::new();
         }
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM tracks WHERE sc_track_id = ANY($1) AND sharing = 'public'",
+        let rows: Vec<String> = sqlx::query_file_scalar!(
+            "queries/recommendations/service/qdrant_io/public_track_ids.sql",
+            ids
         )
-            .bind(ids)
-            .fetch_all(&self.pg)
-            .await
-            .unwrap_or_default();
-        rows.into_iter().map(|(id, )| id).collect()
+        .fetch_all(&self.pg)
+        .await
+        .unwrap_or_default();
+        rows.into_iter().collect()
     }
 
     pub(crate) async fn retrieve_vector(&self, collection: &str, id: u64) -> Option<Vec<f32>> {

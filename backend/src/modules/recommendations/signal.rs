@@ -79,54 +79,24 @@ pub enum SeedKind {
     ColdStart,
 }
 
-#[derive(Debug, sqlx::FromRow)]
-struct EventLikeRow {
-    sc_track_id: String,
-    weight: f64,
-    age_days: f32,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct MirrorLikeRow {
-    sc_track_id: String,
-    age_days: f32,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct EventRow {
-    sc_track_id: String,
-    event_type: String,
-    weight: f64,
-    position_pct: Option<f32>,
-    age_days: f32,
-}
-
 pub async fn load_user_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserSignals> {
     let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
-    let disliked_ids: Vec<String> = sqlx::query_scalar(
-        "SELECT sc_track_id FROM disliked_tracks WHERE sc_user_id = ANY($1) LIMIT 500",
-    )
-        .bind(&variants)
-    .fetch_all(pg)
-    .await
-    .unwrap_or_default();
+    let disliked_ids: Vec<String> =
+        sqlx::query_file_scalar!("queries/recommendations/signal/disliked_ids.sql", &variants)
+            .fetch_all(pg)
+            .await
+            .unwrap_or_default();
     let disliked_set: HashSet<String> = disliked_ids.iter().cloned().collect();
 
     let strong_positives = load_strong_positives(pg, sc_user_id, &disliked_set).await;
 
-    let event_rows: Vec<EventRow> = sqlx::query_as(
-        "SELECT sc_track_id, event_type, weight, position_pct, \
-                (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
-         FROM user_events \
-         WHERE sc_user_id = ANY($1) \
-           AND event_type = ANY($2) \
-           AND created_at > NOW() - INTERVAL '180 days' \
-         ORDER BY created_at DESC \
-         LIMIT $3",
+    let event_filter: &[&str] = &[IMPLICIT_POSITIVE, "skip", "dislike"];
+    let event_rows = sqlx::query_file!(
+        "queries/recommendations/signal/event_rows.sql",
+        &variants,
+        event_filter as &[&str],
+        NEGATIVE_LIMIT + PLAYED_LIMIT
     )
-        .bind(&variants)
-    .bind(&[IMPLICIT_POSITIVE, "skip", "dislike"][..])
-    .bind(NEGATIVE_LIMIT + PLAYED_LIMIT)
     .fetch_all(pg)
     .await
     .unwrap_or_default();
@@ -206,18 +176,11 @@ async fn load_strong_positives(
     let mut seen: HashSet<String> = HashSet::new();
     let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
 
-    let event_likes: Vec<EventLikeRow> = sqlx::query_as(
-        "SELECT sc_track_id, weight, \
-                (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
-         FROM user_events \
-         WHERE sc_user_id = ANY($1) \
-           AND event_type IN ('like', 'playlist_add') \
-           AND created_at > NOW() - INTERVAL '365 days' \
-         ORDER BY created_at DESC \
-         LIMIT $2",
+    let event_likes = sqlx::query_file!(
+        "queries/recommendations/signal/event_likes.sql",
+        &variants,
+        POSITIVE_LIMIT
     )
-        .bind(&variants)
-    .bind(POSITIVE_LIMIT)
     .fetch_all(pg)
     .await
     .unwrap_or_default();
@@ -243,17 +206,11 @@ async fn load_strong_positives(
     // Fallback: зеркало `/me/likes/tracks`. Сортируем как зеркало
     // (ORDER BY created_at DESC, ctid DESC) — свежий лайк приоритетный.
     let need_more = (POSITIVE_LIMIT as usize).saturating_sub(out.len());
-    let mirror_likes: Vec<MirrorLikeRow> = sqlx::query_as(
-        "SELECT sc_track_id, \
-                (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0)::real AS age_days \
-         FROM user_likes_tracks \
-         WHERE user_id = ANY($1) AND wanted_state = true \
-           AND created_at > NOW() - INTERVAL '365 days' \
-         ORDER BY created_at DESC, ctid DESC \
-         LIMIT $2",
+    let mirror_likes = sqlx::query_file!(
+        "queries/recommendations/signal/mirror_likes.sql",
+        &variants,
+        need_more as i64
     )
-        .bind(&variants)
-    .bind(need_more as i64)
     .fetch_all(pg)
     .await
     .unwrap_or_default();

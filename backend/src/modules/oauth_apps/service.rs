@@ -21,7 +21,7 @@ impl OAuthAppsService {
 
     /// Разово: если таблица пустая — вставить env-кредов под именем `default`.
     pub async fn migrate_env_app(&self) -> AppResult<()> {
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::int8 FROM oauth_apps")
+        let total: i64 = sqlx::query_file_scalar!("queries/oauth_apps/service/count_all.sql")
             .fetch_one(&self.pool)
             .await?;
         if total > 0 {
@@ -31,19 +31,19 @@ impl OAuthAppsService {
         if sc.client_id.is_empty() || sc.client_secret.is_empty() {
             return Ok(());
         }
-        sqlx::query(
-            "INSERT INTO oauth_apps (id, name, client_id, client_secret, redirect_uri, active) \
-             VALUES ($1, $2, $3, $4, $5, true)",
-        )
-        .bind(Uuid::now_v7())
-        .bind("default")
-        .bind(&sc.client_id)
-        .bind(&sc.client_secret)
-        .bind(if sc.redirect_uri.is_empty() {
+        let redirect_uri = if sc.redirect_uri.is_empty() {
             "http://localhost:3000/auth/callback"
         } else {
             &sc.redirect_uri
-        })
+        };
+        sqlx::query_file!(
+            "queries/oauth_apps/service/insert_env_app.sql",
+            Uuid::now_v7(),
+            "default",
+            &sc.client_id,
+            &sc.client_secret,
+            redirect_uri
+        )
         .execute(&self.pool)
         .await?;
         info!("Migrated env OAuth credentials to oauth_apps table");
@@ -51,10 +51,9 @@ impl OAuthAppsService {
     }
 
     pub async fn count_active(&self) -> AppResult<i64> {
-        let n: i64 =
-            sqlx::query_scalar("SELECT COUNT(*)::int8 FROM oauth_apps WHERE active = true")
-                .fetch_one(&self.pool)
-                .await?;
+        let n: i64 = sqlx::query_file_scalar!("queries/oauth_apps/service/count_active.sql")
+            .fetch_one(&self.pool)
+            .await?;
         Ok(n)
     }
 
@@ -63,24 +62,22 @@ impl OAuthAppsService {
             return Err(AppError::not_found("No OAuth apps in filter set"));
         }
         let mut tx = self.pool.begin().await?;
-        let app: Option<OAuthApp> = sqlx::query_as(
-            "SELECT * FROM oauth_apps \
-             WHERE active = true AND id = ANY($1) \
-             ORDER BY last_used_at ASC NULLS FIRST, created_at ASC \
-             LIMIT 1 FOR UPDATE SKIP LOCKED",
+        let app: Option<OAuthApp> = sqlx::query_file_as!(
+            OAuthApp,
+            "queries/oauth_apps/service/pick_lru_from.sql",
+            ids
         )
-        .bind(ids)
         .fetch_optional(&mut *tx)
         .await?;
 
         let app = app.ok_or_else(|| AppError::not_found("No active OAuth apps available"))?;
 
-        let updated: OAuthApp = sqlx::query_as(
-            "UPDATE oauth_apps SET last_used_at = $1, updated_at = now() \
-             WHERE id = $2 RETURNING *",
+        let updated: OAuthApp = sqlx::query_file_as!(
+            OAuthApp,
+            "queries/oauth_apps/service/touch_last_used.sql",
+            Utc::now(),
+            app.id
         )
-        .bind(Utc::now())
-        .bind(app.id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -94,16 +91,16 @@ impl OAuthAppsService {
             Ok(u) => u,
             Err(_) => return Ok(None),
         };
-        let row: Option<OAuthApp> = sqlx::query_as("SELECT * FROM oauth_apps WHERE id = $1")
-            .bind(uuid)
-            .fetch_optional(&self.pool)
-            .await?;
+        let row: Option<OAuthApp> =
+            sqlx::query_file_as!(OAuthApp, "queries/oauth_apps/service/get_by_id.sql", uuid)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row)
     }
 
     pub async fn find_all(&self) -> AppResult<Vec<OAuthApp>> {
         let rows: Vec<OAuthApp> =
-            sqlx::query_as("SELECT * FROM oauth_apps ORDER BY created_at ASC")
+            sqlx::query_file_as!(OAuthApp, "queries/oauth_apps/service/find_all.sql")
                 .fetch_all(&self.pool)
                 .await?;
         Ok(rows)
@@ -117,16 +114,16 @@ impl OAuthAppsService {
         redirect_uri: &str,
         active: Option<bool>,
     ) -> AppResult<OAuthApp> {
-        let row: OAuthApp = sqlx::query_as(
-            "INSERT INTO oauth_apps (id, name, client_id, client_secret, redirect_uri, active) \
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+        let row: OAuthApp = sqlx::query_file_as!(
+            OAuthApp,
+            "queries/oauth_apps/service/create.sql",
+            Uuid::now_v7(),
+            name,
+            client_id,
+            client_secret,
+            redirect_uri,
+            active.unwrap_or(true)
         )
-        .bind(Uuid::now_v7())
-        .bind(name)
-        .bind(client_id)
-        .bind(client_secret)
-        .bind(redirect_uri)
-        .bind(active.unwrap_or(true))
         .fetch_one(&self.pool)
         .await?;
         Ok(row)
@@ -142,22 +139,16 @@ impl OAuthAppsService {
         active: Option<bool>,
     ) -> AppResult<OAuthApp> {
         let uuid = Uuid::parse_str(id).map_err(|_| AppError::not_found("OAuth app not found"))?;
-        let row: Option<OAuthApp> = sqlx::query_as(
-            "UPDATE oauth_apps SET \
-                name = COALESCE($2, name), \
-                client_id = COALESCE($3, client_id), \
-                client_secret = COALESCE($4, client_secret), \
-                redirect_uri = COALESCE($5, redirect_uri), \
-                active = COALESCE($6, active), \
-                updated_at = now() \
-             WHERE id = $1 RETURNING *",
+        let row: Option<OAuthApp> = sqlx::query_file_as!(
+            OAuthApp,
+            "queries/oauth_apps/service/update.sql",
+            uuid,
+            name,
+            client_id,
+            client_secret,
+            redirect_uri,
+            active
         )
-        .bind(uuid)
-        .bind(name)
-        .bind(client_id)
-        .bind(client_secret)
-        .bind(redirect_uri)
-        .bind(active)
         .fetch_optional(&self.pool)
         .await?;
         row.ok_or_else(|| AppError::not_found("OAuth app not found"))
@@ -168,8 +159,7 @@ impl OAuthAppsService {
             Ok(u) => u,
             Err(_) => return Ok(()),
         };
-        sqlx::query("DELETE FROM oauth_apps WHERE id = $1")
-            .bind(uuid)
+        sqlx::query_file!("queries/oauth_apps/service/delete_by_id.sql", uuid)
             .execute(&self.pool)
             .await?;
         Ok(())

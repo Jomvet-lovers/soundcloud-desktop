@@ -93,90 +93,79 @@ struct TracksQuery {
     sort: Option<String>,
 }
 
-type ArtistDetailRow = (String, Option<String>, Option<String>, Option<String>, f32);
-
 async fn detail(
     State(st): State<AppState>,
     _ctx: SessionCtx,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ArtistDetailDto>> {
-    let row: Option<ArtistDetailRow> = sqlx::query_as(
-        "SELECT name, country, bio, avatar_url, confidence
-         FROM artists WHERE id = $1 AND merged_into IS NULL",
-    )
-    .bind(id)
-    .fetch_optional(&st.pg)
-    .await?;
-    let Some((name, country, bio, avatar_url, confidence)) = row else {
+    let row = sqlx::query_file!("queries/artists/handlers/detail_artist.sql", id)
+        .fetch_optional(&st.pg)
+        .await?;
+    let Some(row) = row else {
         return Err(AppError::not_found("artist not found"));
     };
+    let (name, country, bio, avatar_url, confidence) = (
+        row.name,
+        row.country,
+        row.bio,
+        row.avatar_url,
+        row.confidence,
+    );
 
-    let socials: Vec<SocialDto> = sqlx::query_as(
-        "SELECT kind, url, source, verified FROM artist_socials WHERE artist_id = $1
-         ORDER BY kind, url",
-    )
-    .bind(id)
-    .fetch_all(&st.pg)
-    .await?;
+    let socials: Vec<SocialDto> =
+        sqlx::query_file!("queries/artists/handlers/detail_socials.sql", id)
+            .fetch_all(&st.pg)
+            .await?
+            .into_iter()
+            .map(|r| SocialDto {
+                kind: r.kind,
+                url: r.url,
+                source: r.source,
+                verified: r.verified,
+            })
+            .collect();
 
-    let sc_accounts: Vec<ScAccountDto> = sqlx::query_as(
-        "SELECT sc_user_id, role, source, verified
-         FROM artist_sc_accounts
-         WHERE artist_id = $1 AND role IN ('main', 'demo')
-         ORDER BY verified DESC,
-                  CASE role   WHEN 'main' THEN 0 WHEN 'demo' THEN 1 ELSE 2 END,
-                  CASE source WHEN 'manual' THEN 0
-                              WHEN 'auto_match' THEN 1
-                              WHEN 'mb_resolve' THEN 2
-                              ELSE 3 END,
-                  sc_user_id",
-    )
-    .bind(id)
-    .fetch_all(&st.pg)
-    .await?;
+    let sc_accounts: Vec<ScAccountDto> =
+        sqlx::query_file!("queries/artists/handlers/detail_sc_accounts.sql", id)
+            .fetch_all(&st.pg)
+            .await?
+            .into_iter()
+            .map(|r| ScAccountDto {
+                sc_user_id: r.sc_user_id,
+                role: r.role,
+                source: r.source,
+                verified: r.verified,
+            })
+            .collect();
 
-    let track_counts: (i64, i64) = sqlx::query_as(
-        "SELECT
-            (SELECT COUNT(*)::bigint FROM track_artists
-              WHERE artist_id = $1 AND role = 'primary'),
-            (SELECT COUNT(DISTINCT track_id)::bigint FROM track_artists
-              WHERE artist_id = $1 AND role IN ('featured', 'remixer'))",
-    )
-    .bind(id)
-    .fetch_one(&st.pg)
-    .await?;
-    let (track_count_primary, track_count_featured) = track_counts;
+    let track_counts = sqlx::query_file!("queries/artists/handlers/detail_track_counts.sql", id)
+        .fetch_one(&st.pg)
+        .await?;
+    let track_count_primary = track_counts.primary;
+    let track_count_featured = track_counts.featured;
     let track_count = track_count_primary + track_count_featured;
 
-    let album_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*)::bigint FROM (
-             SELECT id FROM albums WHERE primary_artist_id = $1
-             UNION
-             SELECT album_id FROM album_artists WHERE artist_id = $1
-             UNION
-             SELECT wta.album_id FROM wanted_track_albums wta
-                JOIN wanted_tracks wt ON wt.id = wta.wanted_track_id
-                WHERE wt.primary_artist_id = $1
-         ) a",
-    )
-    .bind(id)
-    .fetch_one(&st.pg)
-    .await?;
+    let album_count =
+        sqlx::query_file_scalar!("queries/artists/handlers/detail_album_count.sql", id)
+            .fetch_one(&st.pg)
+            .await?;
 
     let mut popular_tracks = fetch_artist_tracks(&st.pg, id, "any", "popular", 1, 6).await?;
     enrich_dto::apply_to_tracks(&st.pg, &mut popular_tracks).await?;
 
-    let related_artists: Vec<RelatedArtistDto> = sqlx::query_as(
-        "SELECT a.id, a.name, a.country, a.avatar_url, ac.weight
-         FROM artist_coplay ac
-         JOIN artists a ON a.id = CASE WHEN ac.a_id = $1 THEN ac.b_id ELSE ac.a_id END
-         WHERE (ac.a_id = $1 OR ac.b_id = $1) AND a.merged_into IS NULL
-         ORDER BY ac.weight DESC
-         LIMIT 12",
-    )
-    .bind(id)
-    .fetch_all(&st.pg)
-    .await?;
+    let related_artists: Vec<RelatedArtistDto> =
+        sqlx::query_file!("queries/artists/handlers/detail_related.sql", id)
+            .fetch_all(&st.pg)
+            .await?
+            .into_iter()
+            .map(|r| RelatedArtistDto {
+                id: r.id,
+                name: r.name,
+                country: r.country,
+                avatar_url: r.avatar_url,
+                weight: r.weight,
+            })
+            .collect();
 
     Ok(Json(ArtistDetailDto {
         id,
@@ -190,7 +179,7 @@ async fn detail(
         track_count,
         track_count_primary,
         track_count_featured,
-        album_count: album_count.0,
+        album_count,
         popular_tracks,
         related_artists,
     }))
@@ -229,18 +218,14 @@ async fn covers(
 ) -> AppResult<Json<Value>> {
     let (page, limit) = p.resolved();
     let offset = page.max(0) * limit;
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM tracks \
-         WHERE cover_of_artist_id = $1 AND upload_kind = 'cover' \
-         ORDER BY COALESCE(play_count_sc, 0) DESC, sc_synced_at DESC \
-         LIMIT $2 OFFSET $3",
+    let ids: Vec<String> = sqlx::query_file_scalar!(
+        "queries/artists/handlers/covers_track_ids.sql",
+        id,
+        limit,
+        offset
     )
-    .bind(id)
-    .bind(limit)
-    .bind(offset)
     .fetch_all(&st.pg)
     .await?;
-    let ids: Vec<String> = rows.into_iter().map(|(t,)| t).collect();
     let mut items: Vec<Value> = crate::modules::tracks::project_many_public(&st.pg, &ids)
         .await?
         .into_iter()
@@ -259,23 +244,20 @@ async fn albums(
     _ctx: SessionCtx,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Vec<AlbumListItem>>> {
-    let rows: Vec<AlbumListItem> = sqlx::query_as(
-        "SELECT al.id, al.title, al.type AS kind, al.release_year, al.cover_url,
-                CASE WHEN al.primary_artist_id = $1 THEN 'primary' ELSE COALESCE(aa.role, 'featured') END AS role
-         FROM albums al
-         LEFT JOIN album_artists aa ON aa.album_id = al.id AND aa.artist_id = $1
-         WHERE al.primary_artist_id = $1
-            OR aa.artist_id = $1
-            OR al.id IN (
-                SELECT wta.album_id FROM wanted_track_albums wta
-                JOIN wanted_tracks wt ON wt.id = wta.wanted_track_id
-                WHERE wt.primary_artist_id = $1
-            )
-         ORDER BY COALESCE(al.release_year, 0) DESC, al.title",
-    )
-    .bind(id)
-    .fetch_all(&st.pg)
-    .await?;
+    let rows: Vec<AlbumListItem> =
+        sqlx::query_file!("queries/artists/handlers/albums_list.sql", id)
+            .fetch_all(&st.pg)
+            .await?
+            .into_iter()
+            .map(|r| AlbumListItem {
+                id: r.id,
+                title: r.title,
+                kind: r.kind,
+                release_year: r.release_year,
+                cover_url: r.cover_url,
+                role: r.role,
+            })
+            .collect();
     Ok(Json(rows))
 }
 
@@ -324,14 +306,18 @@ async fn star(
     _ctx: SessionCtx,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ArtistStarResponse>> {
-    let mut accounts: Vec<ScAccountTrustRow> = sqlx::query_as(
-        "SELECT sc_user_id, role, source, verified
-         FROM artist_sc_accounts
-         WHERE artist_id = $1 AND role IN ('main', 'demo')",
-    )
-    .bind(id)
-    .fetch_all(&st.pg)
-    .await?;
+    let mut accounts: Vec<ScAccountTrustRow> =
+        sqlx::query_file!("queries/artists/handlers/star_sc_accounts.sql", id)
+            .fetch_all(&st.pg)
+            .await?
+            .into_iter()
+            .map(|r| ScAccountTrustRow {
+                sc_user_id: r.sc_user_id,
+                role: r.role,
+                source: r.source,
+                verified: r.verified,
+            })
+            .collect();
 
     accounts.sort_by_key(|a| {
         (
@@ -373,45 +359,34 @@ async fn by_name(
     if n.is_empty() {
         return Err(AppError::bad_request("empty name"));
     }
-    let row: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, name FROM artists WHERE normalized_name = $1 AND merged_into IS NULL LIMIT 1",
-    )
-    .bind(&n)
-    .fetch_optional(&st.pg)
-    .await?;
+    let row = sqlx::query_file!("queries/artists/handlers/by_name.sql", &n)
+        .fetch_optional(&st.pg)
+        .await?;
     match row {
-        Some((id, name)) => Ok(Json(serde_json::json!({ "id": id, "name": name }))),
+        Some(row) => Ok(Json(serde_json::json!({ "id": row.id, "name": row.name }))),
         None => Err(AppError::not_found("artist not found")),
     }
 }
 
-type WantedStubRow = (
-    Uuid,
-    String,
-    Option<i32>,
-    Option<i16>,
-    Option<String>,
-    Option<String>,
-);
-
 async fn fetch_wanted_stubs(pg: &PgPool, artist_id: Uuid, limit: i64) -> AppResult<Vec<Value>> {
-    let rows: Vec<WantedStubRow> = sqlx::query_as(
-        "SELECT wt.id, wt.title, wt.duration_ms, wt.release_year, wt.isrc, a.name
-             FROM wanted_tracks wt
-             LEFT JOIN artists a ON a.id = wt.primary_artist_id
-             WHERE wt.primary_artist_id = $1
-               AND wt.track_id IS NULL
-               AND wt.status = 'wanted'
-             ORDER BY wt.discovered_at DESC
-             LIMIT $2",
+    let rows = sqlx::query_file!(
+        "queries/artists/handlers/wanted_stubs.sql",
+        artist_id,
+        limit
     )
-    .bind(artist_id)
-    .bind(limit)
     .fetch_all(pg)
     .await?;
     let out = rows
         .into_iter()
-        .map(|(wid, title, dur_ms, year, isrc, artist_name)| {
+        .map(|r| {
+            let (wid, title, dur_ms, year, isrc, artist_name) = (
+                r.id,
+                r.title,
+                r.duration_ms,
+                r.release_year,
+                r.isrc,
+                r.artist_name,
+            );
             serde_json::json!({
                 "urn": format!("wanted:tracks:{}", wid),
                 "id": 0,
@@ -454,32 +429,76 @@ async fn fetch_artist_tracks(
     limit: i64,
 ) -> AppResult<Vec<Value>> {
     let offset = page.max(0) * limit;
-    let role_filter = match role {
-        "primary" => "ta.role = 'primary'",
-        "featured" => "ta.role IN ('featured', 'remixer')",
-        _ => "TRUE",
-    };
-    let order_clause = match sort {
-        "recent" => "t.release_date DESC NULLS LAST, t.release_year DESC NULLS LAST, t.created_at DESC, t.id DESC",
-        _ => "COALESCE(c.play_count, 0) DESC, t.created_at DESC",
-    };
-    let sql = format!(
-        "SELECT t.sc_track_id
-         FROM track_artists ta
-         JOIN tracks t ON t.id = ta.track_id
-         LEFT JOIN sc_track_counters c ON c.sc_track_id = t.sc_track_id
-         WHERE ta.artist_id = $1
-           AND {role_filter}
-         ORDER BY {order_clause}
-         LIMIT $2 OFFSET $3"
-    );
-    let rows: Vec<(String,)> = sqlx::query_as(&sql)
-        .bind(artist_id)
-        .bind(limit)
-        .bind(offset)
+    // static arm per (role, sort) — keeps dropped columns failing at compile
+    let recent = sort == "recent";
+    let ids: Vec<String> = match (role, recent) {
+        ("primary", false) => sqlx::query_file!(
+            "queries/artists/handlers/tracks_primary_popular.sql",
+            artist_id,
+            limit,
+            offset
+        )
         .fetch_all(pg)
-        .await?;
-    let ids: Vec<String> = rows.into_iter().map(|(t,)| t).collect();
+        .await?
+        .into_iter()
+        .map(|r| r.sc_track_id)
+        .collect(),
+        ("primary", true) => sqlx::query_file!(
+            "queries/artists/handlers/tracks_primary_recent.sql",
+            artist_id,
+            limit,
+            offset
+        )
+        .fetch_all(pg)
+        .await?
+        .into_iter()
+        .map(|r| r.sc_track_id)
+        .collect(),
+        ("featured", false) => sqlx::query_file!(
+            "queries/artists/handlers/tracks_featured_popular.sql",
+            artist_id,
+            limit,
+            offset
+        )
+        .fetch_all(pg)
+        .await?
+        .into_iter()
+        .map(|r| r.sc_track_id)
+        .collect(),
+        ("featured", true) => sqlx::query_file!(
+            "queries/artists/handlers/tracks_featured_recent.sql",
+            artist_id,
+            limit,
+            offset
+        )
+        .fetch_all(pg)
+        .await?
+        .into_iter()
+        .map(|r| r.sc_track_id)
+        .collect(),
+        (_, false) => sqlx::query_file!(
+            "queries/artists/handlers/tracks_any_popular.sql",
+            artist_id,
+            limit,
+            offset
+        )
+        .fetch_all(pg)
+        .await?
+        .into_iter()
+        .map(|r| r.sc_track_id)
+        .collect(),
+        (_, true) => sqlx::query_file!(
+            "queries/artists/handlers/tracks_any_recent.sql",
+            artist_id,
+            limit,
+            offset
+        )
+        .fetch_all(pg)
+        .await?
+        .into_iter()
+        .map(|r| r.sc_track_id)
+        .collect(),
+    };
     let projected = crate::modules::tracks::project_many_public(pg, &ids).await?;
     Ok(projected.into_iter().flatten().collect())
 }

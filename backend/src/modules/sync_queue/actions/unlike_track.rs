@@ -13,12 +13,11 @@ pub async fn execute(ctx: &ActionCtx<'_>) -> AppResult<()> {
     // wanted_state=false → строка остаётся только если юзер всё ещё хочет
     // unlike. Если за время лока юзер перевернул обратно в liked
     // (wanted_state=true), мы её не трогаем.
-    sqlx::query(
-        "DELETE FROM user_likes_tracks \
-         WHERE user_id = $1 AND sc_track_id = $2 AND wanted_state = false",
+    sqlx::query_file!(
+        "queries/sync_queue/actions/unlike_track/delete_like.sql",
+        ctx.user_id,
+        sc_track_id,
     )
-    .bind(ctx.user_id)
-    .bind(sc_track_id)
     .execute(ctx.pg)
     .await?;
     Ok(())

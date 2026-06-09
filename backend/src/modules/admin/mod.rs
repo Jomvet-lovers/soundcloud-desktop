@@ -21,20 +21,48 @@ pub fn router() -> Router<AppState> {
         .route("/admin/infra", get(infra::get_infra))
         .route("/admin/http-stats", get(infra::http_stats))
         .route("/admin/slow-queries", get(infra::slow_queries))
+        .route("/admin/index-usage", get(infra::index_usage))
         .route("/admin/wanted-tracks", get(wanted::list))
         .route("/admin/wanted-tracks/{id}/link", post(wanted::link))
-        .route("/admin/wanted-tracks/{id}/status", patch(wanted::set_status))
+        .route(
+            "/admin/wanted-tracks/{id}/status",
+            patch(wanted::set_status),
+        )
         // catalog management
         .route("/admin/resolve", get(catalog::resolve))
-        .route("/admin/artists", get(catalog::artists_search).post(catalog::artist_create))
-        .route("/admin/artists/{artist_id}", get(catalog::artist_detail).patch(catalog::artist_update))
+        .route(
+            "/admin/artists",
+            get(catalog::artists_search).post(catalog::artist_create),
+        )
+        .route(
+            "/admin/artists/{artist_id}",
+            get(catalog::artist_detail).patch(catalog::artist_update),
+        )
         .route("/admin/albums", get(catalog::albums_search))
         .route("/admin/tracks", get(catalog::tracks_search))
         .route("/admin/tracks/{track_id}", get(catalog::track_detail))
-        .route("/admin/tracks/{track_id}/primary-artist", patch(catalog::track_set_primary_artist))
-        .route("/admin/tracks/{track_id}/album", patch(catalog::track_set_album))
-        .route("/admin/tracks/{track_id}/credits", post(catalog::track_add_credit))
-        .route("/admin/tracks/{track_id}/credits/{artist_id}", delete(catalog::track_remove_credit))
-        .route("/admin/tracks/{track_id}/detach-artist", post(catalog::track_detach_artist))
-        .route("/admin/tracks/{track_id}/blocks/{artist_id}", delete(catalog::track_unblock_artist))
+        .route(
+            "/admin/tracks/{track_id}/primary-artist",
+            patch(catalog::track_set_primary_artist),
+        )
+        .route(
+            "/admin/tracks/{track_id}/album",
+            patch(catalog::track_set_album),
+        )
+        .route(
+            "/admin/tracks/{track_id}/credits",
+            post(catalog::track_add_credit),
+        )
+        .route(
+            "/admin/tracks/{track_id}/credits/{artist_id}",
+            delete(catalog::track_remove_credit),
+        )
+        .route(
+            "/admin/tracks/{track_id}/detach-artist",
+            post(catalog::track_detach_artist),
+        )
+        .route(
+            "/admin/tracks/{track_id}/blocks/{artist_id}",
+            delete(catalog::track_unblock_artist),
+        )
 }

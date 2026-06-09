@@ -68,9 +68,8 @@ impl DislikesService {
                 status: "invalid".into(),
             });
         };
-        sqlx::query("DELETE FROM disliked_tracks WHERE sc_user_id = ANY($1) AND sc_track_id = $2")
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-            .bind(&id)
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        sqlx::query_file!("queries/dislikes/service/remove.sql", &variants, &id)
             .execute(&self.pg)
             .await?;
         Ok(StatusResult {
@@ -93,12 +92,12 @@ impl DislikesService {
         let Some(id) = normalize_sc_track_id(sc_track_id) else {
             return Ok(false);
         };
-        let row: Option<(uuid::Uuid,)> = sqlx::query_as(
-            "SELECT id FROM disliked_tracks \
-             WHERE sc_user_id = ANY($1) AND sc_track_id = $2 LIMIT 1",
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let row = sqlx::query_file_scalar!(
+            "queries/dislikes/service/is_disliked_by_user_id.sql",
+            &variants,
+            &id
         )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-        .bind(&id)
         .fetch_optional(&self.pg)
         .await?;
         Ok(row.is_some())
@@ -109,15 +108,15 @@ impl DislikesService {
         sc_user_id: &str,
         limit: i64,
     ) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM disliked_tracks \
-             WHERE sc_user_id = ANY($1) ORDER BY created_at DESC LIMIT $2",
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let rows = sqlx::query_file_scalar!(
+            "queries/dislikes/service/list_ids_by_user_id.sql",
+            &variants,
+            limit
         )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-        .bind(limit)
         .fetch_all(&self.pg)
         .await?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows)
     }
 
     pub async fn find_all(
@@ -133,26 +132,28 @@ impl DislikesService {
 
         let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
         let rows: Vec<(Option<Value>, NaiveDateTime)> = if let Some(dt) = cursor_dt {
-            sqlx::query_as(
-                "SELECT track_data, created_at FROM disliked_tracks \
-                 WHERE sc_user_id = ANY($1) AND created_at < $2 \
-                 ORDER BY created_at DESC LIMIT $3",
+            sqlx::query_file!(
+                "queries/dislikes/service/find_all_after_cursor.sql",
+                &variants,
+                dt,
+                limit + 1
             )
-                .bind(&variants)
-            .bind(dt)
-            .bind(limit + 1)
             .fetch_all(&self.pg)
             .await?
+            .into_iter()
+            .map(|r| (r.track_data, r.created_at))
+            .collect()
         } else {
-            sqlx::query_as(
-                "SELECT track_data, created_at FROM disliked_tracks \
-                 WHERE sc_user_id = ANY($1) \
-                 ORDER BY created_at DESC LIMIT $2",
+            sqlx::query_file!(
+                "queries/dislikes/service/find_all.sql",
+                &variants,
+                limit + 1
             )
-                .bind(&variants)
-            .bind(limit + 1)
             .fetch_all(&self.pg)
             .await?
+            .into_iter()
+            .map(|r| (r.track_data, r.created_at))
+            .collect()
         };
 
         let has_more = rows.len() as i64 > limit;

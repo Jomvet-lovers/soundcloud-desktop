@@ -69,48 +69,6 @@ pub struct AlbumDto {
     pub primary_artist: Option<ArtistDto>,
 }
 
-#[derive(sqlx::FromRow)]
-struct TrackJoinRow {
-    sc_track_id: String,
-    track_id: Uuid,
-    enrich_state: String,
-    enrich_source: Option<String>,
-    enrich_confidence: Option<f32>,
-    upload_kind: String,
-    it_release_year: Option<i16>,
-    it_release_date: Option<chrono::NaiveDate>,
-    pa_id: Option<Uuid>,
-    pa_name: Option<String>,
-    pa_avatar_url: Option<String>,
-    pa_sc_user_id: Option<String>,
-    pa_source: Option<String>,
-    pa_confidence: Option<f32>,
-    al_id: Option<Uuid>,
-    al_title: Option<String>,
-    al_release_year: Option<i16>,
-    al_cover_url: Option<String>,
-    al_kind: Option<String>,
-    aa_id: Option<Uuid>,
-    aa_name: Option<String>,
-    aa_avatar_url: Option<String>,
-    aa_sc_user_id: Option<String>,
-    aa_source: Option<String>,
-    aa_confidence: Option<f32>,
-}
-
-#[derive(sqlx::FromRow)]
-struct ParticipantJoinRow {
-    track_id: Uuid,
-    role: String,
-    ta_confidence: f32,
-    artist_id: Uuid,
-    artist_name: String,
-    artist_avatar_url: Option<String>,
-    artist_sc_user_id: Option<String>,
-    artist_source: String,
-    artist_confidence: f32,
-}
-
 pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, EnrichmentDto>> {
     let sc_ids: Vec<String> = urns
         .iter()
@@ -120,77 +78,18 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
         return Ok(HashMap::new());
     }
 
-    let rows: Vec<TrackJoinRow> = sqlx::query_as(
-        "SELECT
-             it.sc_track_id            AS sc_track_id,
-             it.id                     AS track_id,
-             it.enrich_state           AS enrich_state,
-             it.enrich_source          AS enrich_source,
-             it.enrich_confidence      AS enrich_confidence,
-             it.upload_kind            AS upload_kind,
-             it.release_year           AS it_release_year,
-             it.release_date           AS it_release_date,
-             a.id                      AS pa_id,
-             a.name                    AS pa_name,
-             a.avatar_url              AS pa_avatar_url,
-             a.sc_user_id              AS pa_sc_user_id,
-             a.source                  AS pa_source,
-             a.confidence              AS pa_confidence,
-             al.id                     AS al_id,
-             al.title                  AS al_title,
-             al.release_year           AS al_release_year,
-             al.cover_url              AS al_cover_url,
-             al.type                   AS al_kind,
-             aa.id                     AS aa_id,
-             aa.name                   AS aa_name,
-             aa.avatar_url             AS aa_avatar_url,
-             aa.sc_user_id             AS aa_sc_user_id,
-             aa.source                 AS aa_source,
-             aa.confidence             AS aa_confidence
-         FROM tracks it
-         LEFT JOIN artists a  ON a.id  = it.primary_artist_id
-         LEFT JOIN albums  al ON al.id = it.album_id
-         LEFT JOIN artists aa ON aa.id = al.primary_artist_id
-         WHERE it.sc_track_id = ANY($1)",
-    )
-    .bind(&sc_ids)
-    .fetch_all(pg)
-    .await?;
+    let rows = sqlx::query_file!("queries/enrich/dto/lookup_tracks.sql", &sc_ids)
+        .fetch_all(pg)
+        .await?;
 
     if rows.is_empty() {
         return Ok(HashMap::new());
     }
 
     let track_ids: Vec<Uuid> = rows.iter().map(|r| r.track_id).collect();
-    let participants: Vec<ParticipantJoinRow> = sqlx::query_as(
-        "SELECT
-             ta.track_id  AS track_id,
-             ta.role              AS role,
-             ta.confidence        AS ta_confidence,
-             a.id                 AS artist_id,
-             a.name               AS artist_name,
-             a.avatar_url         AS artist_avatar_url,
-             a.sc_user_id         AS artist_sc_user_id,
-             a.source             AS artist_source,
-             a.confidence         AS artist_confidence
-         FROM track_artists ta
-         JOIN artists a ON a.id = ta.artist_id
-         WHERE ta.track_id = ANY($1)
-           AND ta.role <> 'primary'
-         ORDER BY ta.track_id,
-                  CASE ta.role
-                      WHEN 'featured' THEN 1
-                      WHEN 'remixer'  THEN 2
-                      WHEN 'producer' THEN 3
-                      WHEN 'composer' THEN 4
-                      WHEN 'vocal'    THEN 5
-                      ELSE 6
-                  END,
-                  ta.position",
-    )
-    .bind(&track_ids)
-    .fetch_all(pg)
-    .await?;
+    let participants = sqlx::query_file!("queries/enrich/dto/lookup_participants.sql", &track_ids)
+        .fetch_all(pg)
+        .await?;
 
     let mut by_track: HashMap<Uuid, Vec<ParticipantDto>> = HashMap::new();
     for p in participants {

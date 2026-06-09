@@ -49,7 +49,11 @@ pub async fn resolve(
         return Err(AppError::bad_request("url is required"));
     }
     let v: Value = st.resolve.resolve(TokenKind::PublicPool, url).await?;
-    let kind = v.get("kind").and_then(Value::as_str).unwrap_or("").to_string();
+    let kind = v
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let id = value_id(&v);
     let collection = match kind.as_str() {
         "track" => "tracks",
@@ -67,8 +71,14 @@ pub async fn resolve(
         id,
         urn,
         title: v.get("title").and_then(Value::as_str).map(str::to_string),
-        username: v.get("username").and_then(Value::as_str).map(str::to_string),
-        permalink_url: v.get("permalink_url").and_then(Value::as_str).map(str::to_string),
+        username: v
+            .get("username")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        permalink_url: v
+            .get("permalink_url")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         artwork_url: v
             .get("artwork_url")
             .and_then(Value::as_str)
@@ -110,21 +120,15 @@ pub async fn artists_search(
     let term = q.q.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let like = term.as_ref().map(|s| format!("%{s}%"));
 
-    let rows = sqlx::query_as::<_, ArtistListRow>(
-        "SELECT a.id, a.name, a.country, a.avatar_url, a.confidence, a.sc_user_id, a.source, \
-                (SELECT COUNT(*)::int8 FROM track_artists ta WHERE ta.artist_id = a.id) AS track_count, \
-                (SELECT COUNT(*)::int8 FROM artist_sc_accounts s WHERE s.artist_id = a.id) AS sc_accounts_count \
-         FROM artists a \
-         WHERE a.merged_into IS NULL \
-           AND ($1::text IS NULL OR a.name ILIKE $1 OR a.sc_user_id = $2) \
-         ORDER BY a.confidence DESC, a.name ASC \
-         LIMIT $3",
+    let rows = sqlx::query_file_as!(
+        ArtistListRow,
+        "queries/admin/catalog/artists_search.sql",
+        like,
+        term,
+        limit
     )
-        .bind(&like)
-        .bind(&term)
-        .bind(limit)
-        .fetch_all(&st.pg)
-        .await?;
+    .fetch_all(&st.pg)
+    .await?;
     Ok(Json(rows))
 }
 
@@ -174,32 +178,34 @@ pub async fn artist_detail(
     State(st): State<AppState>,
     Path(artist_id): Path<Uuid>,
 ) -> AppResult<Json<ArtistDetail>> {
-    let artist = sqlx::query_as::<_, ArtistRow>(&format!("SELECT {ARTIST_COLS} FROM artists WHERE id = $1"))
-        .bind(artist_id)
+    let artist = sqlx::query_file_as!(ArtistRow, "queries/admin/catalog/artist_get.sql", artist_id)
         .fetch_optional(&st.pg)
         .await?
         .ok_or_else(|| AppError::not_found("artist not found"))?;
 
-    let sc_accounts = sqlx::query_as::<_, ScAccountRow>(
-        "SELECT sc_user_id, role, source, verified, notes FROM artist_sc_accounts \
-         WHERE artist_id = $1 ORDER BY role, sc_user_id",
+    let sc_accounts = sqlx::query_file_as!(
+        ScAccountRow,
+        "queries/admin/catalog/artist_sc_accounts.sql",
+        artist_id
     )
-        .bind(artist_id)
-        .fetch_all(&st.pg)
-        .await?;
+    .fetch_all(&st.pg)
+    .await?;
 
     let track_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::int8 FROM track_artists WHERE artist_id = $1")
-            .bind(artist_id)
+        sqlx::query_file_scalar!("queries/admin/catalog/artist_track_count.sql", artist_id)
             .fetch_one(&st.pg)
             .await?;
     let album_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::int8 FROM album_artists WHERE artist_id = $1")
-            .bind(artist_id)
+        sqlx::query_file_scalar!("queries/admin/catalog/artist_album_count.sql", artist_id)
             .fetch_one(&st.pg)
             .await?;
 
-    Ok(Json(ArtistDetail { artist, sc_accounts, track_count, album_count }))
+    Ok(Json(ArtistDetail {
+        artist,
+        sc_accounts,
+        track_count,
+        album_count,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -230,14 +236,14 @@ pub async fn artist_create(
         return Err(AppError::bad_request("name normalizes to empty"));
     }
 
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM artists WHERE normalized_name = $1 AND merged_into IS NULL)",
-    )
-        .bind(&normalized)
-        .fetch_one(&st.pg)
-        .await?;
+    let exists: bool =
+        sqlx::query_file_scalar!("queries/admin/catalog/artist_name_exists.sql", &normalized)
+            .fetch_one(&st.pg)
+            .await?;
     if exists {
-        return Err(AppError::bad_request("artist with this name already exists"));
+        return Err(AppError::bad_request(
+            "artist with this name already exists",
+        ));
     }
 
     let row = sqlx::query_as::<_, ArtistRow>(&format!(
@@ -278,32 +284,28 @@ pub async fn artist_update(
     Path(artist_id): Path<Uuid>,
     Json(body): Json<UpdateArtist>,
 ) -> AppResult<Json<ArtistRow>> {
-    let name = body.name.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let name = body
+        .name
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let normalized = name.as_deref().map(normalize_name);
 
-    let row = sqlx::query_as::<_, ArtistRow>(&format!(
-        "UPDATE artists SET \
-            name = COALESCE($2, name), \
-            normalized_name = COALESCE($3, normalized_name), \
-            country = COALESCE($4, country), \
-            bio = COALESCE($5, bio), \
-            avatar_url = COALESCE($6, avatar_url), \
-            sc_user_id = COALESCE($7, sc_user_id), \
-            confidence = COALESCE($8, confidence), \
-            updated_at = now() \
-         WHERE id = $1 RETURNING {ARTIST_COLS}"
-    ))
-        .bind(artist_id)
-        .bind(&name)
-        .bind(&normalized)
-        .bind(&body.country)
-        .bind(&body.bio)
-        .bind(&body.avatar_url)
-        .bind(&body.sc_user_id)
-        .bind(body.confidence)
-        .fetch_optional(&st.pg)
-        .await?
-        .ok_or_else(|| AppError::not_found("artist not found"))?;
+    let row = sqlx::query_file_as!(
+        ArtistRow,
+        "queries/admin/catalog/artist_update.sql",
+        artist_id,
+        name.as_deref(),
+        normalized.as_deref(),
+        body.country.as_deref(),
+        body.bio.as_deref(),
+        body.avatar_url.as_deref(),
+        body.sc_user_id.as_deref(),
+        body.confidence
+    )
+    .fetch_optional(&st.pg)
+    .await?
+    .ok_or_else(|| AppError::not_found("artist not found"))?;
     Ok(Json(row))
 }
 
@@ -336,20 +338,19 @@ pub async fn albums_search(
     Query(q): Query<AlbumsQuery>,
 ) -> AppResult<Json<Vec<AlbumListRow>>> {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
-    let like = q.q.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
+    let like =
+        q.q.map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{s}%"));
 
-    let rows = sqlx::query_as::<_, AlbumListRow>(
-        "SELECT al.id, al.title, al.type AS type_, al.release_year, al.primary_artist_id, \
-                a.name AS primary_artist_name, \
-                (SELECT COUNT(*)::int8 FROM album_tracks t WHERE t.album_id = al.id) AS track_count \
-         FROM albums al LEFT JOIN artists a ON a.id = al.primary_artist_id \
-         WHERE ($1::text IS NULL OR al.title ILIKE $1) \
-         ORDER BY al.title ASC LIMIT $2",
+    let rows = sqlx::query_file_as!(
+        AlbumListRow,
+        "queries/admin/catalog/albums_search.sql",
+        like,
+        limit
     )
-        .bind(&like)
-        .bind(limit)
-        .fetch_all(&st.pg)
-        .await?;
+    .fetch_all(&st.pg)
+    .await?;
     Ok(Json(rows))
 }
 
@@ -378,13 +379,6 @@ pub struct TrackListRow {
     pub release_year: Option<i16>,
 }
 
-const TRACK_SELECT: &str = "SELECT t.id, t.sc_track_id, t.title, t.metadata_artist, t.artwork_url, \
-        t.primary_artist_id, a.name AS primary_artist_name, t.album_id, al.title AS album_title, \
-        t.enrich_state, t.release_year \
-     FROM tracks t \
-     LEFT JOIN artists a ON a.id = t.primary_artist_id \
-     LEFT JOIN albums al ON al.id = t.album_id";
-
 #[tracing::instrument(skip_all)]
 pub async fn tracks_search(
     _: AdminAuth,
@@ -395,16 +389,15 @@ pub async fn tracks_search(
     let term = q.q.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let like = term.as_ref().map(|s| format!("%{s}%"));
 
-    let rows = sqlx::query_as::<_, TrackListRow>(&format!(
-        "{TRACK_SELECT} \
-         WHERE ($1::text IS NULL OR t.title ILIKE $1 OR t.metadata_artist ILIKE $1 OR t.sc_track_id = $2) \
-         ORDER BY t.sc_created_at DESC NULLS LAST LIMIT $3"
-    ))
-        .bind(&like)
-        .bind(&term)
-        .bind(limit)
-        .fetch_all(&st.pg)
-        .await?;
+    let rows = sqlx::query_file_as!(
+        TrackListRow,
+        "queries/admin/catalog/tracks_search.sql",
+        like,
+        term,
+        limit
+    )
+    .fetch_all(&st.pg)
+    .await?;
     Ok(Json(rows))
 }
 
@@ -439,31 +432,32 @@ pub async fn track_detail(
     State(st): State<AppState>,
     Path(track_id): Path<Uuid>,
 ) -> AppResult<Json<TrackDetail>> {
-    let track = sqlx::query_as::<_, TrackListRow>(&format!("{TRACK_SELECT} WHERE t.id = $1"))
-        .bind(track_id)
-        .fetch_optional(&st.pg)
-        .await?
-        .ok_or_else(|| AppError::not_found("track not found"))?;
-
-    let credits = sqlx::query_as::<_, TrackCreditRow>(
-        "SELECT ta.artist_id, a.name, ta.role, ta.position, ta.source \
-         FROM track_artists ta LEFT JOIN artists a ON a.id = ta.artist_id \
-         WHERE ta.track_id = $1 ORDER BY ta.role, ta.position",
+    let track = sqlx::query_file_as!(
+        TrackListRow,
+        "queries/admin/catalog/track_get.sql",
+        track_id
     )
-        .bind(track_id)
+    .fetch_optional(&st.pg)
+    .await?
+    .ok_or_else(|| AppError::not_found("track not found"))?;
+
+    let credits = sqlx::query_file_as!(
+        TrackCreditRow,
+        "queries/admin/catalog/track_credits.sql",
+        track_id
+    )
+    .fetch_all(&st.pg)
+    .await?;
+
+    let blocks = sqlx::query_file_as!(BlockRow, "queries/admin/catalog/track_blocks.sql", track_id)
         .fetch_all(&st.pg)
         .await?;
 
-    let blocks = sqlx::query_as::<_, BlockRow>(
-        "SELECT b.artist_id, a.name, b.note, b.created_at \
-         FROM track_artist_blocks b LEFT JOIN artists a ON a.id = b.artist_id \
-         WHERE b.track_id = $1 ORDER BY b.created_at DESC",
-    )
-        .bind(track_id)
-        .fetch_all(&st.pg)
-        .await?;
-
-    Ok(Json(TrackDetail { track, credits, blocks }))
+    Ok(Json(TrackDetail {
+        track,
+        credits,
+        blocks,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -481,41 +475,46 @@ pub async fn track_set_primary_artist(
     Path(track_id): Path<Uuid>,
     Json(body): Json<SetPrimaryArtist>,
 ) -> AppResult<Json<Value>> {
-    let artist_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM artists WHERE id = $1)")
-        .bind(body.artist_id)
-        .fetch_one(&st.pg)
-        .await?;
+    let artist_ok: bool =
+        sqlx::query_file_scalar!("queries/admin/catalog/artist_exists.sql", body.artist_id)
+            .fetch_one(&st.pg)
+            .await?;
     if !artist_ok {
         return Err(AppError::bad_request("artist not found"));
     }
 
     let mut tx = st.pg.begin().await?;
     // An explicit manual assignment lifts any detach-block for this pair.
-    sqlx::query("DELETE FROM track_artist_blocks WHERE track_id = $1 AND artist_id = $2")
-        .bind(track_id)
-        .bind(body.artist_id)
-        .execute(&mut *tx)
-        .await?;
-    let updated = sqlx::query("UPDATE tracks SET primary_artist_id = $1 WHERE id = $2")
-        .bind(body.artist_id)
-        .bind(track_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query_file!(
+        "queries/admin/catalog/block_delete_pair.sql",
+        track_id,
+        body.artist_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    let updated = sqlx::query_file!(
+        "queries/admin/catalog/track_set_primary_artist.sql",
+        body.artist_id,
+        track_id
+    )
+    .execute(&mut *tx)
+    .await?;
     if updated.rows_affected() == 0 {
         return Err(AppError::not_found("track not found"));
     }
-    sqlx::query("DELETE FROM track_artists WHERE track_id = $1 AND role = 'primary'")
-        .bind(track_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query(
-        "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence) \
-         VALUES ($1, $2, 'primary', 0, 'manual', 1.0) ON CONFLICT DO NOTHING",
+    sqlx::query_file!(
+        "queries/admin/catalog/track_artists_delete_primary.sql",
+        track_id
     )
-        .bind(track_id)
-        .bind(body.artist_id)
-        .execute(&mut *tx)
-        .await?;
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/catalog/track_artists_insert_primary.sql",
+        track_id,
+        body.artist_id
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -537,40 +536,45 @@ pub async fn track_set_album(
     Json(body): Json<SetAlbum>,
 ) -> AppResult<Json<Value>> {
     if let Some(album_id) = body.album_id {
-        let album_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM albums WHERE id = $1)")
-            .bind(album_id)
-            .fetch_one(&st.pg)
-            .await?;
+        let album_ok: bool =
+            sqlx::query_file_scalar!("queries/admin/catalog/album_exists.sql", album_id)
+                .fetch_one(&st.pg)
+                .await?;
         if !album_ok {
             return Err(AppError::bad_request("album not found"));
         }
     }
 
     let mut tx = st.pg.begin().await?;
-    let updated = sqlx::query("UPDATE tracks SET album_id = $1 WHERE id = $2")
-        .bind(body.album_id)
-        .bind(track_id)
-        .execute(&mut *tx)
-        .await?;
+    let updated = sqlx::query_file!(
+        "queries/admin/catalog/track_set_album.sql",
+        body.album_id,
+        track_id
+    )
+    .execute(&mut *tx)
+    .await?;
     if updated.rows_affected() == 0 {
         return Err(AppError::not_found("track not found"));
     }
-    sqlx::query("DELETE FROM album_tracks WHERE track_id = $1")
-        .bind(track_id)
+    sqlx::query_file!(
+        "queries/admin/catalog/album_tracks_delete_by_track.sql",
+        track_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    if let Some(album_id) = body.album_id {
+        sqlx::query_file!(
+            "queries/admin/catalog/album_tracks_insert.sql",
+            album_id,
+            track_id
+        )
         .execute(&mut *tx)
         .await?;
-    if let Some(album_id) = body.album_id {
-        sqlx::query(
-            "INSERT INTO album_tracks (album_id, track_id, position) VALUES ($1, $2, NULL) \
-             ON CONFLICT DO NOTHING",
-        )
-            .bind(album_id)
-            .bind(track_id)
-            .execute(&mut *tx)
-            .await?;
     }
     tx.commit().await?;
-    Ok(Json(serde_json::json!({ "ok": true, "album_id": body.album_id })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "album_id": body.album_id }),
+    ))
 }
 
 // ───────────────────────── track credits (feat / co-artists) ─────────────────────────
@@ -602,56 +606,61 @@ pub async fn track_add_credit(
 ) -> AppResult<Json<Value>> {
     let role = body.role.trim().to_lowercase();
     if !CREDIT_ROLES.contains(&role.as_str()) {
-        return Err(AppError::bad_request("role must be one of: primary, feature, remixer, producer"));
+        return Err(AppError::bad_request(
+            "role must be one of: primary, feature, remixer, producer",
+        ));
     }
-    let artist_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM artists WHERE id = $1)")
-        .bind(body.artist_id)
-        .fetch_one(&st.pg)
-        .await?;
+    let artist_ok: bool =
+        sqlx::query_file_scalar!("queries/admin/catalog/artist_exists.sql", body.artist_id)
+            .fetch_one(&st.pg)
+            .await?;
     if !artist_ok {
         return Err(AppError::bad_request("artist not found"));
     }
 
     let mut tx = st.pg.begin().await?;
-    let track_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tracks WHERE id = $1)")
-        .bind(track_id)
-        .fetch_one(&mut *tx)
-        .await?;
+    let track_ok: bool =
+        sqlx::query_file_scalar!("queries/admin/catalog/track_exists.sql", track_id)
+            .fetch_one(&mut *tx)
+            .await?;
     if !track_ok {
         return Err(AppError::not_found("track not found"));
     }
 
     // An explicit manual credit lifts any detach-block for this pair.
-    sqlx::query("DELETE FROM track_artist_blocks WHERE track_id = $1 AND artist_id = $2")
-        .bind(track_id)
-        .bind(body.artist_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query(
-        "INSERT INTO track_artists (track_id, artist_id, role, position, source, confidence) \
-         VALUES ($1, $2, $3, COALESCE($4, 0), 'manual', 1.0) \
-         ON CONFLICT (track_id, artist_id, role) \
-         DO UPDATE SET position = EXCLUDED.position, source = 'manual', confidence = 1.0",
+    sqlx::query_file!(
+        "queries/admin/catalog/block_delete_pair.sql",
+        track_id,
+        body.artist_id
     )
-        .bind(track_id)
-        .bind(body.artist_id)
-        .bind(&role)
-        .bind(body.position)
-        .execute(&mut *tx)
-        .await?;
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query_file!(
+        "queries/admin/catalog/track_artists_upsert_credit.sql",
+        track_id,
+        body.artist_id,
+        &role,
+        body.position.map(i32::from)
+    )
+    .execute(&mut *tx)
+    .await?;
 
     if role == "primary" {
-        sqlx::query("DELETE FROM track_artists WHERE track_id = $1 AND role = 'primary' AND artist_id <> $2")
-            .bind(track_id)
-            .bind(body.artist_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE tracks SET primary_artist_id = $1 WHERE id = $2")
-            .bind(body.artist_id)
-            .bind(track_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query_file!(
+            "queries/admin/catalog/track_artists_delete_other_primary.sql",
+            track_id,
+            body.artist_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query_file!(
+            "queries/admin/catalog/track_set_primary_artist_id.sql",
+            body.artist_id,
+            track_id
+        )
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true, "role": role })))
@@ -675,21 +684,27 @@ pub async fn track_remove_credit(
     let role = q.role.trim().to_lowercase();
 
     let mut tx = st.pg.begin().await?;
-    let res = sqlx::query("DELETE FROM track_artists WHERE track_id = $1 AND artist_id = $2 AND role = $3")
-        .bind(track_id)
-        .bind(artist_id)
-        .bind(&role)
+    let res = sqlx::query_file!(
+        "queries/admin/catalog/track_artists_delete_credit.sql",
+        track_id,
+        artist_id,
+        &role
+    )
+    .execute(&mut *tx)
+    .await?;
+    if role == "primary" {
+        sqlx::query_file!(
+            "queries/admin/catalog/track_clear_primary_if_match.sql",
+            track_id,
+            artist_id
+        )
         .execute(&mut *tx)
         .await?;
-    if role == "primary" {
-        sqlx::query("UPDATE tracks SET primary_artist_id = NULL WHERE id = $1 AND primary_artist_id = $2")
-            .bind(track_id)
-            .bind(artist_id)
-            .execute(&mut *tx)
-            .await?;
     }
     tx.commit().await?;
-    Ok(Json(serde_json::json!({ "ok": true, "removed": res.rows_affected() })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "removed": res.rows_affected() }),
+    ))
 }
 
 // ───────────────────────── detach (sticky unlink) ─────────────────────────
@@ -712,32 +727,38 @@ pub async fn track_detach_artist(
     Json(body): Json<DetachArtist>,
 ) -> AppResult<Json<Value>> {
     let mut tx = st.pg.begin().await?;
-    let track_ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tracks WHERE id = $1)")
-        .bind(track_id)
-        .fetch_one(&mut *tx)
-        .await?;
+    let track_ok: bool =
+        sqlx::query_file_scalar!("queries/admin/catalog/track_exists.sql", track_id)
+            .fetch_one(&mut *tx)
+            .await?;
     if !track_ok {
         return Err(AppError::not_found("track not found"));
     }
+    // Runtime query: nullable `note` ($3) — sqlx query! infers INSERT params as
+    // non-null (&str), conflicting with Option<String>. Kept on runtime.
     sqlx::query(
         "INSERT INTO track_artist_blocks (track_id, artist_id, note) VALUES ($1, $2, $3) \
          ON CONFLICT (track_id, artist_id) DO UPDATE SET note = EXCLUDED.note",
     )
-        .bind(track_id)
-        .bind(body.artist_id)
-        .bind(&body.note)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM track_artists WHERE track_id = $1 AND artist_id = $2")
-        .bind(track_id)
-        .bind(body.artist_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("UPDATE tracks SET primary_artist_id = NULL WHERE id = $1 AND primary_artist_id = $2")
-        .bind(track_id)
-        .bind(body.artist_id)
-        .execute(&mut *tx)
-        .await?;
+    .bind(track_id)
+    .bind(body.artist_id)
+    .bind(&body.note)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/catalog/track_artists_delete_pair.sql",
+        track_id,
+        body.artist_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/catalog/track_clear_primary_if_match.sql",
+        track_id,
+        body.artist_id
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -749,10 +770,14 @@ pub async fn track_unblock_artist(
     State(st): State<AppState>,
     Path((track_id, artist_id)): Path<(Uuid, Uuid)>,
 ) -> AppResult<Json<Value>> {
-    let res = sqlx::query("DELETE FROM track_artist_blocks WHERE track_id = $1 AND artist_id = $2")
-        .bind(track_id)
-        .bind(artist_id)
-        .execute(&st.pg)
-        .await?;
-    Ok(Json(serde_json::json!({ "ok": true, "removed": res.rows_affected() })))
+    let res = sqlx::query_file!(
+        "queries/admin/catalog/block_delete_pair.sql",
+        track_id,
+        artist_id
+    )
+    .execute(&st.pg)
+    .await?;
+    Ok(Json(
+        serde_json::json!({ "ok": true, "removed": res.rows_affected() }),
+    ))
 }

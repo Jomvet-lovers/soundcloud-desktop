@@ -41,25 +41,23 @@ async fn log_hard_negative_inline(
     sc_track_id: &str,
     position_pct: f32,
 ) -> Result<(), sqlx::Error> {
-    let predicted: Option<f32> = sqlx::query_scalar(
-        "SELECT score FROM rec_impressions
-         WHERE sc_user_id = ANY($1) AND sc_track_id = $2
-         ORDER BY shown_at DESC LIMIT 1",
+    let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+    let predicted: Option<f32> = sqlx::query_file_scalar!(
+        "queries/events/service/latest_impression_score.sql",
+        &variants,
+        sc_track_id,
     )
-        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-    .bind(sc_track_id)
     .fetch_optional(pg)
     .await?
     .flatten();
     let predicted = predicted.unwrap_or(0.0);
-    sqlx::query(
-        "INSERT INTO rec_hard_negatives (sc_user_id, sc_track_id, predicted_score, position_pct)
-         VALUES ($1, $2, $3, $4)",
+    sqlx::query_file!(
+        "queries/events/service/insert_hard_negative.sql",
+        sc_user_id,
+        sc_track_id,
+        predicted,
+        position_pct,
     )
-    .bind(sc_user_id)
-    .bind(sc_track_id)
-    .bind(predicted)
-    .bind(position_pct)
     .execute(pg)
     .await?;
     Ok(())

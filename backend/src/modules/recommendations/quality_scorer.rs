@@ -14,22 +14,16 @@ use super::service::RecommendationsService;
 const BATCH: i64 = 100;
 
 pub async fn backfill_missing_scores(service: Arc<RecommendationsService>) -> AppResult<usize> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM tracks
-         WHERE indexed_at IS NOT NULL
-           AND quality_score IS NULL
-         ORDER BY indexed_at DESC
-         LIMIT $1",
+    let ids: Vec<String> = sqlx::query_file_scalar!(
+        "queries/recommendations/quality_scorer/select_missing_scores.sql",
+        BATCH
     )
-    .bind(BATCH)
     .fetch_all(&service.pg)
     .await?;
 
-    if rows.is_empty() {
+    if ids.is_empty() {
         return Ok(0);
     }
-
-    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
     let meta = load_track_meta(&service.pg, &ids).await;
 
     let numeric_ids: Vec<u64> = ids.iter().filter_map(|s| s.parse::<u64>().ok()).collect();
@@ -80,14 +74,11 @@ async fn persist_scores(pg: &PgPool, ids: &[String], scores: &[f32]) -> AppResul
     if ids.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "UPDATE tracks AS it
-         SET quality_score = data.score
-         FROM (SELECT * FROM UNNEST($1::text[], $2::real[]) AS t(sc_track_id, score)) AS data
-         WHERE it.sc_track_id = data.sc_track_id",
+    sqlx::query_file!(
+        "queries/recommendations/quality_scorer/persist_scores.sql",
+        ids,
+        scores
     )
-    .bind(ids)
-    .bind(scores)
     .execute(pg)
     .await?;
     Ok(())

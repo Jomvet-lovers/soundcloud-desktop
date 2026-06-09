@@ -297,28 +297,19 @@ impl ScAccountScanner {
     }
 
     async fn fetch_accounts(&self, artist_id: Uuid) -> AppResult<Vec<AttachedAccount>> {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT sc_user_id, role, source
-             FROM artist_sc_accounts
-             WHERE artist_id = $1
-             ORDER BY verified DESC,
-                      CASE role
-                          WHEN 'main' THEN 0
-                          WHEN 'demo' THEN 1
-                          WHEN 'alt'  THEN 2
-                          ELSE 3
-                      END",
+        let rows = sqlx::query_file!(
+            "queries/enrich/sc_account_scan/fetch_accounts.sql",
+            artist_id
         )
-        .bind(artist_id)
         .fetch_all(&self.pg)
         .await?;
         Ok(rows
             .into_iter()
-            .filter(|(id, _, _)| !id.is_empty())
-            .map(|(sc_user_id, role, source)| AttachedAccount {
-                sc_user_id,
-                role,
-                source,
+            .filter(|r| !r.sc_user_id.is_empty())
+            .map(|r| AttachedAccount {
+                sc_user_id: r.sc_user_id,
+                role: r.role,
+                source: r.source,
             })
             .collect())
     }

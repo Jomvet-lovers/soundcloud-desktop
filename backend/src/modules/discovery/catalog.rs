@@ -13,17 +13,6 @@ const POST_CRAWL_WANTED_MAX: i64 = 500;
 const BACKOFF_BASE: Duration = Duration::from_secs(60 * 60);
 const BACKOFF_CAP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-/// Сырой ряд lease-выборки artists для краула (см. `claim`).
-type CrawlSqlRow = (
-    Uuid,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    i32,
-    i32,
-    i16,
-);
-
 #[derive(Clone, Copy)]
 pub enum Lane {
     /// Wide proxy-parallel lane over artists with a genius_artist_id (crawls
@@ -88,60 +77,44 @@ impl WorkSource for CatalogSource {
     }
 
     async fn claim(&self, batch: i64, lease_timeout: Duration) -> AppResult<Vec<CatalogItem>> {
-        let lease_secs = lease_timeout.as_secs() as i64;
-        let sql = match self.lane {
-            Lane::Genius => {
-                "WITH picked AS (
-                     SELECT id FROM artists
-                     WHERE merged_into IS NULL AND NOT crawl_dead
-                       AND genius_artist_id IS NOT NULL
-                       AND genius_next_run_at <= now()
-                       AND (genius_locked_at IS NULL
-                            OR genius_locked_at < now() - ($1 * interval '1 second'))
-                     ORDER BY genius_next_run_at
-                     LIMIT $2 FOR UPDATE SKIP LOCKED
-                 )
-                 UPDATE artists a SET genius_locked_at = now()
-                 FROM picked WHERE a.id = picked.id
-                 RETURNING a.id, a.mb_artist_id, a.genius_artist_id, a.sc_user_id,
-                           a.mb_crawl_offset, a.genius_crawl_offset, a.crawl_fail_count"
-            }
+        let lease_secs = lease_timeout.as_secs() as f64;
+        let items = match self.lane {
+            Lane::Genius => sqlx::query_file!(
+                "queries/discovery/catalog/claim_genius.sql",
+                lease_secs,
+                batch
+            )
+            .fetch_all(&self.pg)
+            .await?
+            .into_iter()
+            .map(|r| CatalogItem {
+                id: r.id,
+                mb_id: r.mb_artist_id,
+                genius_id: r.genius_artist_id,
+                sc_user_id: r.sc_user_id,
+                mb_off: r.mb_crawl_offset,
+                genius_off: r.genius_crawl_offset,
+                fail_count: r.crawl_fail_count,
+            })
+            .collect(),
             Lane::Mb => {
-                "WITH picked AS (
-                     SELECT id FROM artists
-                     WHERE merged_into IS NULL AND NOT crawl_dead
-                       AND mb_artist_id IS NOT NULL AND genius_artist_id IS NULL
-                       AND mb_next_run_at <= now()
-                       AND (mb_locked_at IS NULL
-                            OR mb_locked_at < now() - ($1 * interval '1 second'))
-                     ORDER BY mb_next_run_at
-                     LIMIT $2 FOR UPDATE SKIP LOCKED
-                 )
-                 UPDATE artists a SET mb_locked_at = now()
-                 FROM picked WHERE a.id = picked.id
-                 RETURNING a.id, a.mb_artist_id, a.genius_artist_id, a.sc_user_id,
-                           a.mb_crawl_offset, a.genius_crawl_offset, a.crawl_fail_count"
+                sqlx::query_file!("queries/discovery/catalog/claim_mb.sql", lease_secs, batch)
+                    .fetch_all(&self.pg)
+                    .await?
+                    .into_iter()
+                    .map(|r| CatalogItem {
+                        id: r.id,
+                        mb_id: r.mb_artist_id,
+                        genius_id: r.genius_artist_id,
+                        sc_user_id: r.sc_user_id,
+                        mb_off: r.mb_crawl_offset,
+                        genius_off: r.genius_crawl_offset,
+                        fail_count: r.crawl_fail_count,
+                    })
+                    .collect()
             }
         };
-        let rows: Vec<CrawlSqlRow> = sqlx::query_as(sql)
-            .bind(lease_secs)
-            .bind(batch)
-            .fetch_all(&self.pg)
-            .await?;
-        Ok(rows
-            .into_iter()
-            .map(
-                |(id, mb_id, genius_id, sc_user_id, mb_off, genius_off, fail_count)| CatalogItem {
-                    id,
-                    mb_id,
-                    genius_id,
-                    sc_user_id,
-                    mb_off,
-                    genius_off,
-                    fail_count,
-                },
-            )
-            .collect())
+        Ok(items)
     }
 
     async fn claim_one(
@@ -168,7 +141,9 @@ impl WorkSource for CatalogSource {
             Ok(()) => {
                 if item.sc_user_id.is_some() {
                     if let Some(resolver) = &self.wanted {
-                        if let Err(e) = resolver.run_for_artist(item.id, POST_CRAWL_WANTED_MAX).await
+                        if let Err(e) = resolver
+                            .run_for_artist(item.id, POST_CRAWL_WANTED_MAX)
+                            .await
                         {
                             tracing::debug!(artist = %item.id, error = %e, "post-crawl wanted resolve failed");
                         }
@@ -185,71 +160,76 @@ impl WorkSource for CatalogSource {
     async fn on_success(&self, item: &CatalogItem) -> AppResult<()> {
         // Genius lane crawled the artist's MB too (crawl_one branches), so it
         // refreshes both cursors; MB lane only owns MB-only artists.
-        let sql = match self.lane {
+        match self.lane {
             Lane::Genius => {
-                "UPDATE artists
-                 SET genius_crawled_at = now(),
-                     genius_next_run_at = now() + ($2 * interval '1 day'),
-                     genius_locked_at = NULL,
-                     mb_crawled_at = CASE WHEN mb_artist_id IS NOT NULL THEN now() ELSE mb_crawled_at END,
-                     mb_next_run_at = CASE WHEN mb_artist_id IS NOT NULL
-                                          THEN now() + ($2 * interval '1 day') ELSE mb_next_run_at END,
-                     crawl_fail_count = 0
-                 WHERE id = $1"
+                sqlx::query_file!(
+                    "queries/discovery/catalog/on_success_genius.sql",
+                    item.id,
+                    self.recrawl_days as f64
+                )
+                .execute(&self.pg)
+                .await?;
             }
             Lane::Mb => {
-                "UPDATE artists
-                 SET mb_crawled_at = now(),
-                     mb_next_run_at = now() + ($2 * interval '1 day'),
-                     mb_locked_at = NULL,
-                     crawl_fail_count = 0
-                 WHERE id = $1"
+                sqlx::query_file!(
+                    "queries/discovery/catalog/on_success_mb.sql",
+                    item.id,
+                    self.recrawl_days as f64
+                )
+                .execute(&self.pg)
+                .await?;
             }
-        };
-        sqlx::query(sql)
-            .bind(item.id)
-            .bind(self.recrawl_days)
-            .execute(&self.pg)
-            .await?;
+        }
         Ok(())
     }
 
     async fn on_failure(&self, item: &CatalogItem, _outcome: &WorkOutcome) -> AppResult<()> {
         let fail_count = item.fail_count + 1;
         if fail_count >= self.max_fails {
-            let sql = match self.lane {
+            match self.lane {
                 Lane::Genius => {
-                    "UPDATE artists SET crawl_dead = true, crawl_fail_count = $2,
-                         genius_locked_at = NULL WHERE id = $1"
+                    sqlx::query_file!(
+                        "queries/discovery/catalog/fail_dead_genius.sql",
+                        item.id,
+                        fail_count
+                    )
+                    .execute(&self.pg)
+                    .await?;
                 }
                 Lane::Mb => {
-                    "UPDATE artists SET crawl_dead = true, crawl_fail_count = $2,
-                         mb_locked_at = NULL WHERE id = $1"
+                    sqlx::query_file!(
+                        "queries/discovery/catalog/fail_dead_mb.sql",
+                        item.id,
+                        fail_count
+                    )
+                    .execute(&self.pg)
+                    .await?;
                 }
-            };
-            sqlx::query(sql)
-                .bind(item.id)
-                .bind(fail_count)
-                .execute(&self.pg)
-                .await?;
+            }
         } else {
             let next = next_run_after(fail_count as i32, BACKOFF_BASE, BACKOFF_CAP);
-            let sql = match self.lane {
+            match self.lane {
                 Lane::Genius => {
-                    "UPDATE artists SET genius_next_run_at = $3, crawl_fail_count = $2,
-                         genius_locked_at = NULL WHERE id = $1"
+                    sqlx::query_file!(
+                        "queries/discovery/catalog/fail_backoff_genius.sql",
+                        item.id,
+                        fail_count,
+                        next
+                    )
+                    .execute(&self.pg)
+                    .await?;
                 }
                 Lane::Mb => {
-                    "UPDATE artists SET mb_next_run_at = $3, crawl_fail_count = $2,
-                         mb_locked_at = NULL WHERE id = $1"
+                    sqlx::query_file!(
+                        "queries/discovery/catalog/fail_backoff_mb.sql",
+                        item.id,
+                        fail_count,
+                        next
+                    )
+                    .execute(&self.pg)
+                    .await?;
                 }
-            };
-            sqlx::query(sql)
-                .bind(item.id)
-                .bind(fail_count)
-                .bind(next)
-                .execute(&self.pg)
-                .await?;
+            }
         }
         Ok(())
     }

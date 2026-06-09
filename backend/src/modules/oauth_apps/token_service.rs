@@ -107,14 +107,12 @@ impl OAuthAppTokenService {
 
     async fn reload_snapshot(&self) -> AppResult<()> {
         let cutoff = Utc::now() + MIN_FRESH;
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT access_token FROM oauth_app_tokens \
-             WHERE expires_at > $1 AND access_token IS NOT NULL",
+        let tokens: Vec<String> = sqlx::query_file_scalar!(
+            "queries/oauth_apps/token_service/reload_snapshot.sql",
+            cutoff
         )
-        .bind(cutoff)
         .fetch_all(&self.pg)
         .await?;
-        let tokens: Vec<String> = rows.into_iter().map(|(t,)| t).collect();
         if let Ok(mut g) = self.snapshot.write() {
             *g = Arc::new(tokens);
         }
@@ -137,13 +135,15 @@ impl OAuthAppTokenService {
     async fn next_app_to_refresh(&self) -> AppResult<Uuid> {
         let mut ranked: Vec<(Uuid, Option<DateTime<Utc>>, i32)> = Vec::new();
         for app in self.apps.find_all().await?.into_iter().filter(|a| a.active) {
-            let row: Option<(DateTime<Utc>, i32)> = sqlx::query_as(
-                "SELECT expires_at, refresh_attempts FROM oauth_app_tokens WHERE oauth_app_id = $1",
+            let row = sqlx::query_file!(
+                "queries/oauth_apps/token_service/find_app_token_state.sql",
+                app.id
             )
-            .bind(app.id)
             .fetch_optional(&self.pg)
             .await?;
-            let (exp, attempts) = row.map(|(e, a)| (Some(e), a)).unwrap_or((None, 0));
+            let (exp, attempts) = row
+                .map(|r| (Some(r.expires_at), r.refresh_attempts))
+                .unwrap_or((None, 0));
             if attempts >= MAX_REFRESH_ATTEMPTS {
                 continue;
             }
@@ -208,18 +208,11 @@ impl OAuthAppTokenService {
             }
             Err(e) => {
                 let msg = e.to_string();
-                sqlx::query(
-                    "INSERT INTO oauth_app_tokens \
-                        (oauth_app_id, access_token, expires_at, \
-                         refreshed_at, refresh_attempts, last_refresh_error) \
-                     VALUES ($1, NULL, now(), now(), 1, $2) \
-                     ON CONFLICT (oauth_app_id) DO UPDATE SET \
-                         refresh_attempts = oauth_app_tokens.refresh_attempts + 1, \
-                         last_refresh_error = EXCLUDED.last_refresh_error, \
-                         refreshed_at = now()",
+                sqlx::query_file!(
+                    "queries/oauth_apps/token_service/record_refresh_error.sql",
+                    app_id,
+                    msg
                 )
-                .bind(app_id)
-                .bind(&msg)
                 .execute(&self.pg)
                 .await?;
                 warn!(app = %app.name, error = %msg, "client_credentials refresh failed");
@@ -267,19 +260,13 @@ impl OAuthAppTokenService {
             return Ok(());
         }
         let lead = REFRESH_LEAD.num_seconds();
-        let due: Vec<Uuid> = sqlx::query_scalar::<_, Uuid>(
-            "SELECT a.id FROM oauth_apps a \
-             LEFT JOIN oauth_app_tokens t ON t.oauth_app_id = a.id \
-             WHERE a.id = ANY($1) AND a.active = true \
-               AND (t.oauth_app_id IS NULL \
-                    OR (t.expires_at < now() + ($2 || ' seconds')::interval \
-                        AND (t.refresh_attempts < $3 \
-                             OR t.refreshed_at < now() - ($4 || ' seconds')::interval)))",
+        let due: Vec<Uuid> = sqlx::query_file_scalar!(
+            "queries/oauth_apps/token_service/due_apps.sql",
+            &active_ids,
+            lead as f64,
+            MAX_REFRESH_ATTEMPTS,
+            RETRY_COOLDOWN_SECS as f64
         )
-        .bind(&active_ids)
-        .bind(lead.to_string())
-        .bind(MAX_REFRESH_ATTEMPTS)
-            .bind(RETRY_COOLDOWN_SECS.to_string())
         .fetch_all(&self.pg)
         .await?;
 

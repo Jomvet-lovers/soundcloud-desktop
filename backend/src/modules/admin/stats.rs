@@ -29,22 +29,15 @@ pub async fn get_stats(
         }
     }
 
-    let (a24, a7, a30, total): (i64, i64, i64, i64) = sqlx::query_as(
-        "SELECT \
-             COUNT(*) FILTER (WHERE updated_at > (now() at time zone 'utc') - interval '24 hours')::int8, \
-             COUNT(*) FILTER (WHERE updated_at > (now() at time zone 'utc') - interval '7 days')::int8, \
-             COUNT(*) FILTER (WHERE updated_at > (now() at time zone 'utc') - interval '30 days')::int8, \
-             COUNT(*)::int8 \
-         FROM sessions",
-    )
+    let row = sqlx::query_file!("queries/admin/stats/sessions.sql")
         .fetch_one(&state.pg)
         .await?;
 
     let resp = StatsResponse {
-        active_24h: a24,
-        active_7d: a7,
-        active_30d: a30,
-        total_sessions: total,
+        active_24h: row.active_24h,
+        active_7d: row.active_7d,
+        active_30d: row.active_30d,
+        total_sessions: row.total,
     };
 
     if let Ok(payload) = serde_json::to_string(&resp) {

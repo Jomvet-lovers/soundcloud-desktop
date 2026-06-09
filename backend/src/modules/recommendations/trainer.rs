@@ -44,39 +44,28 @@ pub async fn kick_off_quality(
 }
 
 async fn build_quality_dataset(service: &RecommendationsService) -> AppResult<Vec<QualityExample>> {
-    let pos_rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT it.sc_track_id
-         FROM tracks it
-         JOIN sc_track_counters c ON c.sc_track_id = it.sc_track_id
-         WHERE it.indexed_at IS NOT NULL
-           AND COALESCE(c.play_count, 0) >= $1
-           AND COALESCE(c.likes_count, 0) >= $2
-         ORDER BY COALESCE(c.play_count, 0) DESC
-         LIMIT 800",
+    let pos_rows: Vec<String> = sqlx::query_file_scalar!(
+        "queries/recommendations/trainer/quality_positives.sql",
+        QUALITY_POS_PLAYS,
+        QUALITY_POS_LIKES,
     )
-    .bind(QUALITY_POS_PLAYS)
-    .bind(QUALITY_POS_LIKES)
     .fetch_all(&service.pg)
     .await
     .unwrap_or_default();
 
-    let neg_rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT d.sc_track_id
-         FROM disliked_tracks d
-         JOIN tracks it ON it.sc_track_id = d.sc_track_id
-         WHERE it.indexed_at IS NOT NULL
-         LIMIT $1",
+    let neg_rows: Vec<String> = sqlx::query_file_scalar!(
+        "queries/recommendations/trainer/quality_negatives.sql",
+        QUALITY_NEG_LIMIT,
     )
-    .bind(QUALITY_NEG_LIMIT)
     .fetch_all(&service.pg)
     .await
     .unwrap_or_default();
 
     let mut entries: Vec<(String, f32)> = Vec::new();
-    for (id,) in pos_rows {
+    for id in pos_rows {
         entries.push((id, 1.0));
     }
-    for (id,) in neg_rows {
+    for id in neg_rows {
         entries.push((id, 0.0));
     }
     if entries.is_empty() {

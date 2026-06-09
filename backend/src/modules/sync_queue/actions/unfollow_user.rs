@@ -8,12 +8,11 @@ pub async fn execute(ctx: &ActionCtx<'_>) -> AppResult<()> {
     ctx.sc
         .api_delete(&format!("/me/followings/{}", ctx.target_urn), ctx.token)
         .await?;
-    sqlx::query(
-        "DELETE FROM user_followings \
-         WHERE user_id = $1 AND target_user_urn = $2 AND wanted_state = false",
+    sqlx::query_file!(
+        "queries/sync_queue/actions/unfollow_user/delete.sql",
+        ctx.user_id,
+        ctx.target_urn
     )
-    .bind(ctx.user_id)
-    .bind(ctx.target_urn)
     .execute(ctx.pg)
     .await?;
     Ok(())

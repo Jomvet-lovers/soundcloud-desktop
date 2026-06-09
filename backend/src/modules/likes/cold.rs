@@ -14,15 +14,15 @@ async fn fetch_liked_playlist_urns(
     if urns.is_empty() {
         return Ok(HashSet::new());
     }
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT playlist_urn FROM user_likes_playlists \
-         WHERE user_id = ANY($1) AND wanted_state = true AND playlist_urn = ANY($2)",
+    let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+    let rows = sqlx::query_file_scalar!(
+        "queries/likes/cold/fetch_liked_playlist_urns.sql",
+        &variants,
+        urns,
     )
-        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-    .bind(urns)
     .fetch_all(pg)
     .await?;
-    Ok(rows.into_iter().map(|(u,)| u).collect())
+    Ok(rows.into_iter().collect())
 }
 
 /// Подмешать `user_favorite=true` к плейлистам, лайкнутым юзером
@@ -66,15 +66,15 @@ async fn fetch_liked_ids(
     if sc_track_ids.is_empty() {
         return Ok(HashSet::new());
     }
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT sc_track_id FROM user_likes_tracks \
-         WHERE user_id = ANY($1) AND wanted_state = true AND sc_track_id = ANY($2)",
+    let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+    let rows = sqlx::query_file_scalar!(
+        "queries/likes/cold/fetch_liked_ids.sql",
+        &variants,
+        sc_track_ids,
     )
-        .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-    .bind(sc_track_ids)
     .fetch_all(pg)
     .await?;
-    Ok(rows.into_iter().map(|(id,)| id).collect())
+    Ok(rows.into_iter().collect())
 }
 
 /// Подмешать `user_favorite=true` к трекам, которые есть в user_likes_tracks.

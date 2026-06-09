@@ -55,14 +55,13 @@ impl HistoryService {
 
     pub async fn record(&self, sc_user_id: &str, data: &RecordHistoryDto) -> AppResult<()> {
         let cutoff = chrono::Utc::now().naive_utc() - Duration::seconds(60);
-        let recent: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM listening_history \
-             WHERE soundcloud_user_id = ANY($1) AND sc_track_id = $2 AND played_at > $3 \
-             ORDER BY played_at DESC LIMIT 1",
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        let recent = sqlx::query_file_scalar!(
+            "queries/history/service/find_recent_play.sql",
+            &variants,
+            &data.sc_track_id,
+            cutoff
         )
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
-        .bind(&data.sc_track_id)
-        .bind(cutoff)
         .fetch_optional(&self.pg)
         .await?;
         if recent.is_some() {
@@ -92,30 +91,25 @@ impl HistoryService {
         offset: i64,
     ) -> AppResult<HistoryPage> {
         let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
-        let collection: Vec<ListeningHistory> = sqlx::query_as(
-            "SELECT * FROM listening_history WHERE soundcloud_user_id = ANY($1) \
-             ORDER BY played_at DESC LIMIT $2 OFFSET $3",
+        let collection: Vec<ListeningHistory> = sqlx::query_file_as!(
+            ListeningHistory,
+            "queries/history/service/find_all_by_user.sql",
+            &variants,
+            limit,
+            offset
         )
-            .bind(&variants)
-        .bind(limit)
-        .bind(offset)
         .fetch_all(&self.pg)
         .await?;
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM listening_history WHERE soundcloud_user_id = ANY($1)",
-        )
-            .bind(&variants)
-            .fetch_one(&self.pg)
-            .await?;
-        Ok(HistoryPage {
-            collection,
-            total: total.0,
-        })
+        let total =
+            sqlx::query_file_scalar!("queries/history/service/count_by_user.sql", &variants)
+                .fetch_one(&self.pg)
+                .await?;
+        Ok(HistoryPage { collection, total })
     }
 
     pub async fn clear(&self, sc_user_id: &str) -> AppResult<()> {
-        sqlx::query("DELETE FROM listening_history WHERE soundcloud_user_id = ANY($1)")
-            .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
+        let variants = crate::common::sc_ids::user_id_variants(sc_user_id);
+        sqlx::query_file!("queries/history/service/clear_by_user.sql", &variants)
             .execute(&self.pg)
             .await?;
         Ok(())

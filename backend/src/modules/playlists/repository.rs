@@ -56,22 +56,16 @@ impl PlaylistRepository {
     }
 
     pub async fn find_by_urn(&self, urn: &str) -> AppResult<Option<PlaylistRow>> {
-        let row: Option<PlaylistRow> = sqlx::query_as("SELECT * FROM playlists WHERE urn = $1")
-            .bind(urn)
+        let row = sqlx::query_file_as!(PlaylistRow, "queries/playlists/find_by_urn.sql", urn)
             .fetch_optional(&self.pg)
             .await?;
         Ok(row)
     }
 
     pub async fn touch_last_read(&self, urn: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE playlists SET last_read_at = now() \
-             WHERE urn = $1 \
-               AND (last_read_at IS NULL OR last_read_at < now() - INTERVAL '5 minutes')",
-        )
-        .bind(urn)
-        .execute(&self.pg)
-        .await?;
+        sqlx::query_file!("queries/playlists/touch_last_read.sql", urn)
+            .execute(&self.pg)
+            .await?;
         Ok(())
     }
 
@@ -163,24 +157,22 @@ impl PlaylistRepository {
         ordered_sc_track_ids: &[String],
     ) -> AppResult<()> {
         let mut tx = self.pg.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(format!("playlist_tracks:{playlist_urn}"))
+        let lock_key = format!("playlist_tracks:{playlist_urn}");
+        sqlx::query_file!("queries/playlists/lock_tracks.sql", lock_key)
             .execute(&mut *tx)
             .await?;
         // Local-first гейт: pending локальная правка (desired_rev > synced_rev) —
         // SC-pull НЕ перетирает desired-state, наше побеждает. Для non-owned /
         // в-синке плейлистов (desired_rev == synced_rev) — обычный replace.
-        let pending: Option<bool> =
-            sqlx::query_scalar("SELECT desired_rev > synced_rev FROM playlists WHERE urn = $1")
-                .bind(playlist_urn)
+        let pending =
+            sqlx::query_file_scalar!("queries/playlists/has_pending_intent.sql", playlist_urn)
                 .fetch_optional(&mut *tx)
                 .await?;
         if pending.unwrap_or(false) {
             tx.rollback().await?;
             return Ok(());
         }
-        sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
-            .bind(playlist_urn)
+        sqlx::query_file!("queries/playlists/delete_tracks.sql", playlist_urn)
             .execute(&mut *tx)
             .await?;
         if !ordered_sc_track_ids.is_empty() {
@@ -188,22 +180,20 @@ impl PlaylistRepository {
             let playlist_urns: Vec<&str> = (0..ordered_sc_track_ids.len())
                 .map(|_| playlist_urn)
                 .collect();
-            sqlx::query(
-                "INSERT INTO playlist_tracks (playlist_urn, position, sc_track_id) \
-                 SELECT p, pos, t FROM UNNEST($1::text[], $2::int[], $3::text[]) AS u(p, pos, t)",
+            sqlx::query_file!(
+                "queries/playlists/insert_tracks.sql",
+                &playlist_urns as &[&str],
+                &positions,
+                ordered_sc_track_ids
             )
-            .bind(&playlist_urns as &[&str])
-            .bind(&positions)
-            .bind(ordered_sc_track_ids)
             .execute(&mut *tx)
             .await?;
         }
-        sqlx::query(
-            "UPDATE playlists SET track_count = $2, tracks_synced_at = now(), updated_at = now() \
-             WHERE urn = $1",
+        sqlx::query_file!(
+            "queries/playlists/set_track_count.sql",
+            playlist_urn,
+            ordered_sc_track_ids.len() as i32
         )
-        .bind(playlist_urn)
-        .bind(ordered_sc_track_ids.len() as i32)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -216,24 +206,20 @@ impl PlaylistRepository {
         offset: i64,
         limit: i64,
     ) -> AppResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT sc_track_id FROM playlist_tracks \
-             WHERE playlist_urn = $1 ORDER BY position OFFSET $2 LIMIT $3",
+        let rows = sqlx::query_file_scalar!(
+            "queries/playlists/page_track_ids.sql",
+            playlist_urn,
+            offset,
+            limit
         )
-        .bind(playlist_urn)
-        .bind(offset)
-        .bind(limit)
         .fetch_all(&self.pg)
         .await?;
-        Ok(rows.into_iter().map(|(t,)| t).collect())
+        Ok(rows)
     }
 
     /// Все sc_track_id плейлиста по порядку (без пагинации) — для sync-экшена.
     pub async fn all_track_ids(&self, playlist_urn: &str) -> AppResult<Vec<String>> {
-        let ids: Vec<String> = sqlx::query_scalar(
-            "SELECT sc_track_id FROM playlist_tracks WHERE playlist_urn = $1 ORDER BY position",
-        )
-            .bind(playlist_urn)
+        let ids = sqlx::query_file_scalar!("queries/playlists/all_track_ids.sql", playlist_urn)
             .fetch_all(&self.pg)
             .await?;
         Ok(ids)
@@ -245,18 +231,15 @@ impl PlaylistRepository {
     pub async fn assert_owner(&self, me_bare: &str, urn: &str) -> AppResult<()> {
         // user_owned_playlists.user_id на проде расщеплён URN/bare → матчим оба
         // ($3). owner_sc_user_id — bare entity-колонка, остаётся $1.
-        let owns: bool = sqlx::query_scalar(
-            "SELECT EXISTS ( \
-                 SELECT 1 FROM user_owned_playlists WHERE user_id = ANY($3) AND playlist_urn = $2 \
-                 UNION ALL \
-                 SELECT 1 FROM playlists WHERE urn = $2 AND owner_sc_user_id = $1 \
-             )",
+        let variants = crate::common::sc_ids::user_id_variants(me_bare);
+        let owns = sqlx::query_file_scalar!(
+            "queries/playlists/assert_owner.sql",
+            me_bare,
+            urn,
+            &variants
         )
-            .bind(me_bare)
-            .bind(urn)
-            .bind(crate::common::sc_ids::user_id_variants(me_bare))
-            .fetch_one(&self.pg)
-            .await?;
+        .fetch_one(&self.pg)
+        .await?;
         if !owns {
             return Err(AppError::not_found("Playlist not found"));
         }
@@ -272,44 +255,36 @@ impl PlaylistRepository {
         F: FnOnce(Vec<String>) -> Vec<String>,
     {
         let mut tx = self.pg.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(format!("playlist_tracks:{urn}"))
+        let lock_key = format!("playlist_tracks:{urn}");
+        sqlx::query_file!("queries/playlists/lock_tracks.sql", lock_key)
             .execute(&mut *tx)
             .await?;
-        let current: Vec<String> = sqlx::query_scalar(
-            "SELECT sc_track_id FROM playlist_tracks WHERE playlist_urn = $1 ORDER BY position",
-        )
-            .bind(urn)
+        let current = sqlx::query_file_scalar!("queries/playlists/all_track_ids.sql", urn)
             .fetch_all(&mut *tx)
             .await?;
         let next = transform(current);
-        sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
-            .bind(urn)
+        sqlx::query_file!("queries/playlists/delete_tracks.sql", urn)
             .execute(&mut *tx)
             .await?;
         if !next.is_empty() {
             let positions: Vec<i32> = (0..next.len() as i32).collect();
             let urns: Vec<&str> = std::iter::repeat(urn).take(next.len()).collect();
-            sqlx::query(
-                "INSERT INTO playlist_tracks (playlist_urn, position, sc_track_id) \
-                 SELECT p, pos, t FROM UNNEST($1::text[], $2::int[], $3::text[]) AS u(p, pos, t)",
+            sqlx::query_file!(
+                "queries/playlists/insert_tracks.sql",
+                &urns as &[&str],
+                &positions,
+                &next
             )
-                .bind(&urns as &[&str])
-                .bind(&positions)
-                .bind(&next)
-                .execute(&mut *tx)
-                .await?;
-        }
-        let new_rev: i64 = sqlx::query_scalar(
-            "UPDATE playlists \
-                SET track_count = $2, tracks_synced_at = now(), \
-                    desired_rev = desired_rev + 1, updated_at = now() \
-              WHERE urn = $1 RETURNING desired_rev",
-        )
-            .bind(urn)
-            .bind(next.len() as i32)
-            .fetch_one(&mut *tx)
+            .execute(&mut *tx)
             .await?;
+        }
+        let new_rev = sqlx::query_file_scalar!(
+            "queries/playlists/bump_desired_rev.sql",
+            urn,
+            next.len() as i32
+        )
+        .fetch_one(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok((new_rev, next))
     }
@@ -322,14 +297,14 @@ impl PlaylistRepository {
             }
             ids
         })
-            .await
+        .await
     }
 
     pub async fn remove_track(&self, urn: &str, sc_id: String) -> AppResult<(i64, Vec<String>)> {
         self.mutate_desired(urn, move |ids| {
             ids.into_iter().filter(|t| t != &sc_id).collect()
         })
-            .await
+        .await
     }
 
     /// Переместить существующий трек на индекс `to` (clamp). No-op если отсутствует.
@@ -347,11 +322,15 @@ impl PlaylistRepository {
             }
             ids
         })
-            .await
+        .await
     }
 
     /// Полная перестановка из свежей вью (dedup, сохраняя первое вхождение).
-    pub async fn set_order(&self, urn: &str, ordered: Vec<String>) -> AppResult<(i64, Vec<String>)> {
+    pub async fn set_order(
+        &self,
+        urn: &str,
+        ordered: Vec<String>,
+    ) -> AppResult<(i64, Vec<String>)> {
         self.mutate_desired(urn, move |_old| dedup_keep_first(ordered))
             .await
     }
@@ -367,16 +346,14 @@ impl PlaylistRepository {
             // submitted вперёд, затем current — dedup сохраняет первое вхождение.
             dedup_keep_first(submitted.into_iter().chain(current).collect())
         })
-            .await
+        .await
     }
 
     /// Снапшот для sync-экшена: (desired_rev, ordered ids). None если строки нет.
     pub async fn desired_snapshot(&self, urn: &str) -> AppResult<Option<(i64, Vec<String>)>> {
-        let rev: Option<i64> =
-            sqlx::query_scalar("SELECT desired_rev FROM playlists WHERE urn = $1")
-                .bind(urn)
-                .fetch_optional(&self.pg)
-                .await?;
+        let rev = sqlx::query_file_scalar!("queries/playlists/desired_rev_by_urn.sql", urn)
+            .fetch_optional(&self.pg)
+            .await?;
         let Some(rev) = rev else {
             return Ok(None);
         };
@@ -387,32 +364,27 @@ impl PlaylistRepository {
     /// На SC-ack: synced_rev = pushed_rev ТОЛЬКО если desired_rev не ушёл вперёд
     /// под нами. `true` = зафиксировали (конкурентной правки не было).
     pub async fn mark_synced_if_unchanged(&self, urn: &str, pushed_rev: i64) -> AppResult<bool> {
-        let r =
-            sqlx::query("UPDATE playlists SET synced_rev = $2 WHERE urn = $1 AND desired_rev = $2")
-                .bind(urn)
-                .bind(pushed_rev)
-                .execute(&self.pg)
-                .await?;
+        let r = sqlx::query_file!(
+            "queries/playlists/mark_synced_if_unchanged.sql",
+            urn,
+            pushed_rev
+        )
+        .execute(&self.pg)
+        .await?;
         Ok(r.rows_affected() > 0)
     }
 
     /// Есть ли pending локальная правка (desired_rev > synced_rev)?
     pub async fn has_pending_intent(&self, urn: &str) -> AppResult<bool> {
-        let pending: Option<bool> =
-            sqlx::query_scalar("SELECT desired_rev > synced_rev FROM playlists WHERE urn = $1")
-                .bind(urn)
-                .fetch_optional(&self.pg)
-                .await?;
+        let pending = sqlx::query_file_scalar!("queries/playlists/has_pending_intent.sql", urn)
+            .fetch_optional(&self.pg)
+            .await?;
         Ok(pending.unwrap_or(false))
     }
 
     /// URN-ы плейлистов юзера с pending-intent — reconcile их пропускает.
     pub async fn pending_owned_urns(&self, owner_bare: &str) -> AppResult<Vec<String>> {
-        let urns: Vec<String> = sqlx::query_scalar(
-            "SELECT urn FROM playlists \
-             WHERE owner_sc_user_id = $1 AND desired_rev > synced_rev",
-        )
-            .bind(owner_bare)
+        let urns = sqlx::query_file_scalar!("queries/playlists/pending_owned_urns.sql", owner_bare)
             .fetch_all(&self.pg)
             .await?;
         Ok(urns)
@@ -421,7 +393,10 @@ impl PlaylistRepository {
 
 fn dedup_keep_first(items: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    items.into_iter().filter(|t| seen.insert(t.clone())).collect()
+    items
+        .into_iter()
+        .filter(|t| seen.insert(t.clone()))
+        .collect()
 }
 
 struct ScPlaylistFields {

@@ -10,18 +10,25 @@ pub async fn execute(ctx: &ActionCtx<'_>) -> AppResult<()> {
         .await?;
     // Сервис уже удалил user_owned_playlists + playlists в момент запроса;
     // добиваем на случай race с другим юзером/refresh'ем.
-    sqlx::query("DELETE FROM playlists WHERE urn = $1")
-        .bind(ctx.target_urn)
-        .execute(ctx.pg)
-        .await?;
-    sqlx::query("DELETE FROM playlist_tracks WHERE playlist_urn = $1")
-        .bind(ctx.target_urn)
-        .execute(ctx.pg)
-        .await?;
-    sqlx::query("DELETE FROM user_owned_playlists WHERE user_id = ANY($1) AND playlist_urn = $2")
-        .bind(crate::common::sc_ids::user_id_variants(ctx.user_id))
-        .bind(ctx.target_urn)
-        .execute(ctx.pg)
-        .await?;
+    sqlx::query_file!(
+        "queries/sync_queue/actions/playlist_delete/delete_playlist.sql",
+        ctx.target_urn
+    )
+    .execute(ctx.pg)
+    .await?;
+    sqlx::query_file!(
+        "queries/sync_queue/actions/playlist_delete/delete_playlist_tracks.sql",
+        ctx.target_urn
+    )
+    .execute(ctx.pg)
+    .await?;
+    let variants = crate::common::sc_ids::user_id_variants(ctx.user_id);
+    sqlx::query_file!(
+        "queries/sync_queue/actions/playlist_delete/delete_user_owned.sql",
+        &variants,
+        ctx.target_urn
+    )
+    .execute(ctx.pg)
+    .await?;
     Ok(())
 }
