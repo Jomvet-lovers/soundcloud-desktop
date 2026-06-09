@@ -110,6 +110,7 @@ impl StorageClient {
         let filename = Self::track_filename(&track_urn);
         let consec = self.consecutive_unavailable.clone();
         let until = self.unavailable_until.clone();
+        let verify_target = self.internal_url(&track_urn);
 
         tokio::spawn(async move {
             let cdn_path = Self::track_path(&track_urn);
@@ -122,8 +123,17 @@ impl StorageClient {
                 }
             };
 
-            match upload_to_storage(&client, &upload_url, &auth_token, &filename, &data, quality)
-                .await
+            let expected_ms = lookup_expected_duration_ms(&pg, &track_urn).await;
+            match upload_to_storage(
+                &client,
+                &upload_url,
+                &auth_token,
+                &filename,
+                &data,
+                quality,
+                expected_ms,
+            )
+            .await
             {
                 Ok(()) => {
                     consec.store(0, Ordering::Relaxed);
@@ -136,6 +146,14 @@ impl StorageClient {
                         data.len() as f64 / 1024.0 / 1024.0
                     );
                 }
+                Err(UploadError::Rejected { status, body }) => {
+                    // Storage жив и осознанно забраковал файл — breaker сбрасываем.
+                    consec.store(0, Ordering::Relaxed);
+                    until.store(0, Ordering::Relaxed);
+                    info!("[storage] upload rejected for {filename} ({status}): {body}");
+                    let st = settle_failed_status(&client, &verify_target).await;
+                    let _ = pg.update_cdn_track_status(&id, st).await;
+                }
                 Err(e) => {
                     let prev = consec.fetch_add(1, Ordering::Relaxed);
                     let cur_until = until.load(Ordering::Relaxed);
@@ -147,7 +165,8 @@ impl StorageClient {
                         );
                     }
                     warn!("[storage] upload failed for {filename}: {e}");
-                    let _ = pg.update_cdn_track_status(&id, "error").await;
+                    let st = settle_failed_status(&client, &verify_target).await;
+                    let _ = pg.update_cdn_track_status(&id, st).await;
                 }
             }
         });
@@ -218,33 +237,107 @@ enum VerifyResult {
     Unavailable,
 }
 
-async fn upload_to_storage(
+#[derive(Debug)]
+pub(crate) enum UploadError {
+    /// Storage осознанно забраковал файл (409) — сервис жив, мимо breaker'а.
+    Rejected { status: u16, body: String },
+    /// Транспорт / не-409 — считается в breaker.
+    Transport(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl std::fmt::Display for UploadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rejected { status, body } => write!(f, "rejected ({status}): {body}"),
+            Self::Transport(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+/// Статус cdn-строки после неудачного аплоада: безусловный 'error' выбивал бы
+/// из try_serve живой объект (hq-upgrade поверх sq). HEAD решает.
+async fn settle_failed_status(client: &Client, verify_url: &str) -> &'static str {
+    let head = client
+        .head(verify_url)
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await;
+    match head {
+        Ok(resp) if resp.status().is_success() => "ok",
+        _ => "error",
+    }
+}
+
+/// Доверенная SC-длительность для duration-гейта storage'а. Ошибка/таймаут БД
+/// → None: аплоад важнее гейта, повисший пул не должен держать пайплайн.
+pub(crate) async fn lookup_expected_duration_ms(pg: &PgPool, track_urn: &str) -> Option<i64> {
+    let lookup = pg.get_trusted_duration_ms(track_urn);
+    match tokio::time::timeout(std::time::Duration::from_secs(3), lookup).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            warn!("[storage] expected duration lookup failed for {track_urn}: {e}");
+            None
+        }
+        Err(_) => {
+            warn!("[storage] expected duration lookup timed out for {track_urn}");
+            None
+        }
+    }
+}
+
+pub(crate) async fn upload_to_storage(
     client: &Client,
     base_url: &str,
     auth_token: &str,
     filename: &str,
     data: &Bytes,
     quality: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    expected_duration_ms: Option<i64>,
+) -> Result<(), UploadError> {
     let file_part = reqwest::multipart::Part::bytes(data.to_vec())
         .file_name("audio")
-        .mime_str("audio/mpeg")?;
+        .mime_str("audio/mpeg")
+        .map_err(|e| UploadError::Transport(e.into()))?;
 
-    let form = reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .text("filename", filename.to_string())
         .text("quality", quality.to_string())
         .part("file", file_part);
+    if let Some(ms) = expected_duration_ms {
+        form = form.text("expected_duration_ms", ms.to_string());
+    }
 
-    client
+    let resp = client
         .post(format!("{base_url}/upload"))
         .header("Authorization", format!("Bearer {auth_token}"))
         .multipart(form)
         .timeout(std::time::Duration::from_secs(600))
         .send()
-        .await?
-        .error_for_status()?;
+        .await
+        .map_err(|e| UploadError::Transport(e.into()))?;
 
-    Ok(())
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    // Rejected — только 409; прочие 4xx (битый токен, имя) — misconfig,
+    // пусть громко падают в breaker.
+    if status == reqwest::StatusCode::CONFLICT {
+        let body: String = resp
+            .text()
+            .await
+            .unwrap_or_default()
+            .chars()
+            .take(300)
+            .collect();
+        return Err(UploadError::Rejected {
+            status: status.as_u16(),
+            body,
+        });
+    }
+    Err(UploadError::Transport(
+        format!("storage responded {status}").into(),
+    ))
 }
 
 /// A well-formed SC track URN: `soundcloud:tracks:<digits>`. The S3 object name

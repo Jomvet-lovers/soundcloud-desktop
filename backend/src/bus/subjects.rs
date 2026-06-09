@@ -36,6 +36,9 @@ pub const DONE_ENCODE: &str = "done.encode";
 pub const COLLAB_DATA_BUCKET: &str = "COLLAB_DATA";
 
 pub const STORAGE_TRACK_UPLOADED: &str = "storage.track_uploaded";
+/// Storage забраковал /upload: duration mismatch с SC-метаданными / too short /
+/// too long. Используется чтобы терминалить storage_state после N реджектов.
+pub const STORAGE_TRACK_REJECTED: &str = "storage.track_rejected";
 
 pub struct StreamCfg {
     pub name: &'static str,

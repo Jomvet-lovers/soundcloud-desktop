@@ -46,6 +46,12 @@ impl TranscodeTriggerService {
         })
     }
 
+    /// Снять inflight-дедуп после реджекта: reap читает кэш каждые 5 мин и
+    /// продлевает time_to_idle (15 мин) — без инвалидации ретрая не будет.
+    pub fn invalidate_inflight(&self, sc_track_id: &str) {
+        self.inflight.invalidate(&sc_track_id.to_string());
+    }
+
     /// Короткий HTTP-kick на streaming: streaming сразу 202 Accepted и фоном
     /// качает + заливает в storage. Storage по завершении сам публикует
     /// `storage.track_uploaded` в NATS — backend ловит и обновляет state.

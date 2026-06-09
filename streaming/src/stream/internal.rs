@@ -17,7 +17,10 @@ use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
-use crate::stream::storage::{is_canonical_track_urn, StorageClient};
+use crate::stream::storage::{
+    is_canonical_track_urn, lookup_expected_duration_ms, upload_to_storage, StorageClient,
+    UploadError,
+};
 use crate::AppState;
 
 /// Глобальный лимит одновременно качающихся треков. Backend дедупит триггеры
@@ -88,23 +91,27 @@ pub async fn transcode_upload(
             }
         };
         let upload_base = task_state.config.storage_upload_url.trim_end_matches('/');
-        if let Err(e) = upload_to_storage(
+        let expected_ms = lookup_expected_duration_ms(&task_state.pg, &task_urn).await;
+        match upload_to_storage(
             &task_state.http_client,
             upload_base,
             &task_state.config.storage_token,
             &task_filename,
             &data,
             quality,
+            expected_ms,
         )
         .await
         {
-            warn!("[internal/transcode-upload] upload {task_urn} failed: {e}");
-            return;
+            Ok(()) => info!(
+                "[internal/transcode-upload] {task_urn} uploaded {:.1}MB",
+                data.len() as f64 / 1024.0 / 1024.0
+            ),
+            Err(UploadError::Rejected { status, body }) => {
+                info!("[internal/transcode-upload] {task_urn} rejected ({status}): {body}");
+            }
+            Err(e) => warn!("[internal/transcode-upload] upload {task_urn} failed: {e}"),
         }
-        info!(
-            "[internal/transcode-upload] {task_urn} uploaded {:.1}MB",
-            data.len() as f64 / 1024.0 / 1024.0
-        );
     });
 
     Ok(Json(TranscodeUploadResponse {
@@ -171,31 +178,3 @@ async fn fetch_track(state: &AppState, track_urn: &str) -> Option<(Bytes, &'stat
     None
 }
 
-async fn upload_to_storage(
-    client: &Client,
-    base_url: &str,
-    auth_token: &str,
-    filename: &str,
-    data: &Bytes,
-    quality: &'static str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let file_part = reqwest::multipart::Part::bytes(data.to_vec())
-        .file_name("audio")
-        .mime_str("audio/mpeg")?;
-
-    let form = reqwest::multipart::Form::new()
-        .text("filename", filename.to_string())
-        .text("quality", quality)
-        .part("file", file_part);
-
-    client
-        .post(format!("{base_url}/upload"))
-        .header("Authorization", format!("Bearer {auth_token}"))
-        .multipart(form)
-        .timeout(std::time::Duration::from_secs(600))
-        .send()
-        .await?
-        .error_for_status()?;
-
-    Ok(())
-}

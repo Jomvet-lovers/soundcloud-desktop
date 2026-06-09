@@ -36,6 +36,50 @@ impl BusClient {
         self.js.is_some()
     }
 
+    /// Fire-and-forget publish to `storage.track_rejected`: /upload забраковал
+    /// файл (duration mismatch / too short / too long). По этим событиям
+    /// backend копит страйки и уводит трек в редкий ретрай вместо перекачки
+    /// с SC каждые 5 минут.
+    pub fn publish_track_rejected(
+        &self,
+        sc_track_id: String,
+        reason: &'static str,
+        actual_secs: f64,
+        expected_duration_ms: Option<i64>,
+    ) {
+        let Some(js) = self.js.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            #[derive(Serialize)]
+            struct Payload {
+                sc_track_id: String,
+                reason: &'static str,
+                actual_secs: f64,
+                expected_duration_ms: Option<i64>,
+            }
+            let body = match serde_json::to_vec(&Payload {
+                sc_track_id,
+                reason,
+                actual_secs,
+                expected_duration_ms,
+            }) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!("[bus] encode storage.track_rejected: {e}");
+                    return;
+                }
+            };
+            match js.publish("storage.track_rejected", body.into()).await {
+                Ok(ack) => match ack.await {
+                    Ok(_) => debug!("[bus] storage.track_rejected published"),
+                    Err(e) => warn!("[bus] storage.track_rejected ack failed: {e}"),
+                },
+                Err(e) => warn!("[bus] storage.track_rejected publish failed: {e}"),
+            }
+        });
+    }
+
     /// Fire-and-forget publish to `storage.track_uploaded` jetstream subject.
     /// No await on the ack — backend has its own dedup; payload loss is recoverable
     /// via the periodic reaper in `IndexingService.reap`.

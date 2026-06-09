@@ -101,6 +101,18 @@ fn is_sc_id(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
+pub fn content_type_for(key: &str) -> &'static str {
+    if key.ends_with(".m4a") {
+        "audio/mp4"
+    } else if key.ends_with(".ogg") {
+        "audio/ogg"
+    } else if key.ends_with(".mp3") {
+        "audio/mpeg"
+    } else {
+        "application/octet-stream"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::canonical_track_filename as canon;
@@ -124,17 +136,5 @@ mod tests {
         assert!(canon("soundcloud_tracks_").is_none());
         assert!(canon("").is_none());
         assert!(canon("hello").is_none());
-    }
-}
-
-pub fn content_type_for(key: &str) -> &'static str {
-    if key.ends_with(".m4a") {
-        "audio/mp4"
-    } else if key.ends_with(".ogg") {
-        "audio/ogg"
-    } else if key.ends_with(".mp3") {
-        "audio/mpeg"
-    } else {
-        "application/octet-stream"
     }
 }

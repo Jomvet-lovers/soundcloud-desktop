@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use mini_moka::sync::Cache;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -22,6 +23,15 @@ use crate::qdrant::{parse_f32_vec, QdrantService};
 const REAP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const REAP_AGE: Duration = Duration::from_secs(5 * 60);
 const REAP_BATCH: i64 = 50;
+/// Сколько storage-реджектов подряд переводят трек в `storage_state='failed'`.
+const STORAGE_REJECT_MAX_ATTEMPTS: i32 = 3;
+/// Дедуп редоставок rejected-события (NATS at-least-once, ack_wait 120s);
+/// реальные повторные реджекты идут реже — не глушатся.
+const STORAGE_REJECT_DEDUP_TTL: Duration = Duration::from_secs(240);
+/// `failed` ретраим редко: реджект сам обновляет updated_at и отодвигает
+/// следующую попытку, так что один трек стоит максимум скачку в сутки.
+const FAILED_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+const FAILED_RETRY_BATCH: i64 = 10;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexingStats {
@@ -59,6 +69,7 @@ pub struct IndexingService {
     tracks: TrackRepository,
     max_track_duration_ms: i32,
     enrich_kick: OnceCell<Kicker>,
+    rejected_dedup: Cache<String, ()>,
 }
 
 impl IndexingService {
@@ -80,6 +91,10 @@ impl IndexingService {
             tracks,
             max_track_duration_ms,
             enrich_kick: OnceCell::new(),
+            rejected_dedup: Cache::builder()
+                .max_capacity(16_384)
+                .time_to_live(STORAGE_REJECT_DEDUP_TTL)
+                .build(),
         })
     }
 
@@ -91,6 +106,7 @@ impl IndexingService {
     pub fn spawn(self: &Arc<Self>, shutdown: CancellationToken) {
         self.subscribe_done();
         self.subscribe_storage_uploaded();
+        self.subscribe_storage_rejected();
         self.spawn_reap_loop(shutdown);
     }
 
@@ -226,6 +242,58 @@ impl IndexingService {
         );
     }
 
+    /// `storage.track_rejected` — storage забраковал скачанный файл (duration
+    /// mismatch / too short / too long). Копим страйки до 'failed', чтобы не
+    /// жечь SC-квоту перекачкой заведомо бракуемого файла каждые 5 минут.
+    fn subscribe_storage_rejected(self: &Arc<Self>) {
+        let svc = self.clone();
+        self.nats.consume(
+            streams::STORAGE_EVENTS.name,
+            "backend-storage-rejected",
+            Some(subjects::STORAGE_TRACK_REJECTED),
+            16,
+            move |data| {
+                let svc = svc.clone();
+                async move {
+                    let raw_id = data
+                        .get("sc_track_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let Some(sc_track_id) = normalize_sc_track_id(raw_id) else {
+                        return Ok(());
+                    };
+                    let reason = data
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    let actual_secs = data
+                        .get("actual_secs")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    let expected_ms = data.get("expected_duration_ms").and_then(|v| v.as_i64());
+                    if svc.rejected_dedup.get(&sc_track_id).is_some() {
+                        return Ok(());
+                    }
+                    svc.tracks
+                        .mark_storage_rejected(&sc_track_id, STORAGE_REJECT_MAX_ATTEMPTS)
+                        .await?;
+                    // В дедуп только после успешного UPDATE — ошибка должна
+                    // редоставиться и досчитаться.
+                    svc.rejected_dedup.insert(sc_track_id.clone(), ());
+                    svc.trigger.invalidate_inflight(&sc_track_id);
+                    warn!(
+                        track = %sc_track_id,
+                        reason,
+                        actual_secs,
+                        expected_ms = ?expected_ms,
+                        "storage rejected upload"
+                    );
+                    Ok(())
+                }
+            },
+        );
+    }
+
     fn subscribe_done(self: &Arc<Self>) {
         let svc = self.clone();
         self.nats.consume(
@@ -285,7 +353,7 @@ impl IndexingService {
         });
     }
 
-    /// Реап «зависших» треков. Два сценария:
+    /// Реап «зависших» треков. Три сценария:
     /// * `storage_state='pending'` дольше REAP_AGE — transcode-trigger не дошёл
     ///   (streaming был занят / упал HTTP) или storage не ответил. Триггерим
     ///   повторно — TranscodeTriggerService сам дедупит inflight и сначала
@@ -296,6 +364,9 @@ impl IndexingService {
     ///   qdrant не доехал. Trigger пройдёт по тому же S3-probe path'у и
     ///   опубликует `STORAGE_TRACK_UPLOADED` синтетически → `INDEX_AUDIO`
     ///   уйдёт заново, streaming не дёргаем.
+    /// * `storage_state='failed'` тише суток — редкий ретрай: SC мог сменить
+    ///   отдачу (Go+ открылся, файл заменён). Повторный реджект снова отодвинет
+    ///   updated_at, успех снимет failed через mark_storage_done.
     async fn reap(self: &Arc<Self>) -> AppResult<()> {
         let cutoff = chrono::Utc::now() - chrono::Duration::from_std(REAP_AGE).unwrap_or_default();
         let stuck = sqlx::query_file_scalar!(
@@ -305,14 +376,24 @@ impl IndexingService {
         )
         .fetch_all(&self.pg)
         .await?;
-        if stuck.is_empty() {
+        let retry_cutoff =
+            chrono::Utc::now() - chrono::Duration::from_std(FAILED_RETRY_AFTER).unwrap_or_default();
+        let failed = sqlx::query_file_scalar!(
+            "queries/indexing/service/reap_failed_retry.sql",
+            retry_cutoff,
+            FAILED_RETRY_BATCH
+        )
+        .fetch_all(&self.pg)
+        .await?;
+        if stuck.is_empty() && failed.is_empty() {
             return Ok(());
         }
         info!(
-            count = stuck.len(),
-            "indexing reap: retriggering stuck tracks"
+            stuck = stuck.len(),
+            failed_retries = failed.len(),
+            "indexing reap: retriggering tracks"
         );
-        for id in stuck {
+        for id in stuck.into_iter().chain(failed) {
             self.trigger.trigger(&id);
         }
         Ok(())

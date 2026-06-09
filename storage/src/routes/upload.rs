@@ -122,6 +122,7 @@ pub async fn upload(
 
     let mut filename: Option<String> = None;
     let mut quality: Option<String> = None;
+    let mut expected_duration_ms: Option<i64> = None;
     let mut tmp_file_path: Option<std::path::PathBuf> = None;
     let mut reservation = TmpReservation::new(&state);
     let source_dir = state.config.source_path();
@@ -149,6 +150,18 @@ pub async fn upload(
                         .await
                         .map_err(|e| (StatusCode::BAD_REQUEST, format!("read quality: {e}")))?,
                 );
+            }
+            "expected_duration_ms" => {
+                let raw = field.text().await.map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("read expected_duration_ms: {e}"),
+                    )
+                })?;
+                expected_duration_ms = raw.trim().parse::<i64>().ok().filter(|v| *v > 0);
+                if expected_duration_ms.is_none() && !raw.trim().is_empty() {
+                    warn!("[upload] ignoring bad expected_duration_ms {raw:?} — gate disabled");
+                }
             }
             "file" => {
                 let id = uuid::Uuid::new_v4();
@@ -245,7 +258,7 @@ pub async fn upload(
 
     let result = state
         .pipeline
-        .submit(tmp_path, filename.clone(), quality)
+        .submit(tmp_path, filename.clone(), quality, expected_duration_ms)
         .await;
     drop(reservation);
 
@@ -263,6 +276,20 @@ pub async fn upload(
             return Err((
                 StatusCode::CONFLICT,
                 format!("transcode skipped: long track ({duration_secs:.3}s)"),
+            ));
+        }
+        Err(PipelineError::DurationMismatch {
+            actual_secs,
+            expected_secs,
+        }) => {
+            info!(
+                "[upload] rejected {filename}: duration {actual_secs:.3}s vs expected {expected_secs:.3}s"
+            );
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "transcode skipped: duration mismatch ({actual_secs:.3}s vs expected {expected_secs:.3}s)"
+                ),
             ));
         }
         Err(PipelineError::Ffmpeg(msg)) => {

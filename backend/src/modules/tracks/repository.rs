@@ -133,7 +133,9 @@ impl TrackRepository {
     /// UPSERT из SC payload. Сохраняет owned-поля (primary_artist_id, album_id,
     /// canonical_track_id, audio_fingerprint, *_state, *_at, *_priority) —
     /// они находятся под управлением enrich/indexing/storage пайплайнов и
-    /// не должны затираться при каждом cold-refresh'е.
+    /// не должны затираться при каждом cold-refresh'е. Исключение: смена
+    /// duration_ms снимает `storage_state='failed'` — реджекты duration-гейта
+    /// считались против устаревшего expected.
     ///
     /// Возвращает [`IngestResult`] с флагом `was_new`. true — это значит
     /// строка только что создана и каллер должен kick-нуть пайплайны.
@@ -169,6 +171,20 @@ impl TrackRepository {
                 duration_ms = CASE
                     WHEN EXCLUDED.duration_ms > 0 THEN EXCLUDED.duration_ms
                     ELSE tracks.duration_ms
+                END,
+                storage_state = CASE
+                    WHEN tracks.storage_state = 'failed'
+                         AND EXCLUDED.duration_ms > 0
+                         AND EXCLUDED.duration_ms IS DISTINCT FROM tracks.duration_ms
+                        THEN 'pending'
+                    ELSE tracks.storage_state
+                END,
+                storage_attempts = CASE
+                    WHEN tracks.storage_state = 'failed'
+                         AND EXCLUDED.duration_ms > 0
+                         AND EXCLUDED.duration_ms IS DISTINCT FROM tracks.duration_ms
+                        THEN 0
+                    ELSE tracks.storage_attempts
                 END,
                 artwork_url = EXCLUDED.artwork_url,
                 permalink_url = EXCLUDED.permalink_url,
@@ -268,6 +284,25 @@ impl TrackRepository {
         sqlx::query_file!("queries/tracks/mark_storage_done.sql", sc_track_id, quality)
             .execute(&self.pg)
             .await?;
+        Ok(())
+    }
+
+    /// Storage отверг аплоад. pending/missing копят `storage_attempts`
+    /// (после `max_attempts` → 'failed', дальше только суточный ретрай реапа);
+    /// 'ok' не трогаем, `hq_upgrade_pending` снимаем — иначе hq-cron крутил бы
+    /// бракуемый апгрейд каждые 6 часов. mark_storage_done всё сбрасывает.
+    pub async fn mark_storage_rejected(
+        &self,
+        sc_track_id: &str,
+        max_attempts: i32,
+    ) -> AppResult<()> {
+        sqlx::query_file!(
+            "queries/tracks/mark_storage_rejected.sql",
+            sc_track_id,
+            max_attempts
+        )
+        .execute(&self.pg)
+        .await?;
         Ok(())
     }
 

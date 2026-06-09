@@ -22,6 +22,11 @@ pub enum PipelineError {
         duration_secs: f64,
         max_duration_secs: f64,
     },
+    #[error("duration mismatch: {actual_secs:.3}s vs expected {expected_secs:.3}s")]
+    DurationMismatch {
+        actual_secs: f64,
+        expected_secs: f64,
+    },
     #[error("ffmpeg: {0}")]
     Ffmpeg(String),
     #[error("backend: {0}")]
@@ -44,6 +49,9 @@ struct PipelineJob {
     /// `sq`/`hq` — forwarded into the `storage.track_uploaded` event so the
     /// backend records `storage_quality` correctly.
     quality: &'static str,
+    /// SC-длительность по мнению вызывающего: probe обязан попасть в
+    /// `duration_tolerance_secs`, иначе реджект. `None` — только min/max гейты.
+    expected_duration_ms: Option<i64>,
     reply: oneshot::Sender<Result<PipelineOutput, PipelineError>>,
 }
 
@@ -62,6 +70,7 @@ impl Pipeline {
         source: PathBuf,
         filename: String,
         quality: &'static str,
+        expected_duration_ms: Option<i64>,
     ) -> Result<PipelineOutput, PipelineError> {
         let (tx, rx) = oneshot::channel();
         if self
@@ -70,6 +79,7 @@ impl Pipeline {
                 source: source.clone(),
                 filename,
                 quality,
+                expected_duration_ms,
                 reply: tx,
             })
             .await
@@ -147,28 +157,21 @@ async fn run_batch(
     )
     .await;
 
-    let mut accepted: Vec<(PipelineJob, f64, PathBuf)> = Vec::with_capacity(jobs.len());
+    let mut accepted: Vec<(PipelineJob, PathBuf)> = Vec::with_capacity(jobs.len());
     for (job, dur) in jobs.into_iter().zip(durations) {
-        let secs = dur.unwrap_or(0.0);
-        if secs > 0.0 && secs <= transcode::MIN_UPLOAD_DURATION_SECS {
-            let _ = tokio::fs::remove_file(&job.source).await;
-            let _ = job.reply.send(Err(PipelineError::TrackTooShort {
-                duration_secs: secs,
-                min_duration_secs: transcode::MIN_UPLOAD_DURATION_SECS,
-            }));
+        // Probe не отработал — это не «ноль секунд»: пускаем в ffmpeg, судит
+        // output-гейт по готовому m4a.
+        let Some(secs) = dur else {
+            let out = transcode::stage_output(&config.result_path(), &job.filename);
+            accepted.push((job, out));
             continue;
-        }
-        let max = config.max_upload_duration_secs;
-        if max > 0.0 && secs > max {
-            let _ = tokio::fs::remove_file(&job.source).await;
-            let _ = job.reply.send(Err(PipelineError::TrackTooLong {
-                duration_secs: secs,
-                max_duration_secs: max,
-            }));
+        };
+        if let Some(err) = gate_duration(&config, job.expected_duration_ms, secs) {
+            reject(&bus, job, err).await;
             continue;
         }
         let out = transcode::stage_output(&config.result_path(), &job.filename);
-        accepted.push((job, secs, out));
+        accepted.push((job, out));
     }
     if accepted.is_empty() {
         return;
@@ -178,9 +181,9 @@ async fn run_batch(
     let started = Instant::now();
     let inputs: Vec<&Path> = accepted
         .iter()
-        .map(|(j, _, _)| j.source.as_path())
+        .map(|(j, _)| j.source.as_path())
         .collect();
-    let outputs: Vec<PathBuf> = accepted.iter().map(|(_, _, o)| o.clone()).collect();
+    let outputs: Vec<PathBuf> = accepted.iter().map(|(_, o)| o.clone()).collect();
 
     let batch_res = transcode::run_ffmpeg_batch(&config.ffmpeg_bin, &inputs, &outputs).await;
 
@@ -192,13 +195,13 @@ async fn run_batch(
                 n,
                 started.elapsed().as_millis()
             );
-            for (job, secs, out) in accepted {
-                spawn_commit(&backend, &writer, &config, &bus, job, secs, out);
+            for (job, out) in accepted {
+                spawn_commit(&backend, &writer, &config, &bus, job, out);
             }
         }
         Err(err) if n > 1 => {
             warn!("[batch] ffmpeg failed n={n}: {err}; retrying per-file");
-            for (job, secs, out) in accepted {
+            for (job, out) in accepted {
                 let cfg = config.clone();
                 let bk = backend.clone();
                 let wp = writer.clone();
@@ -211,7 +214,7 @@ async fn run_batch(
                     )
                     .await;
                     match single {
-                        Ok(()) => spawn_commit(&bk, &wp, &cfg, &bs, job, secs, out),
+                        Ok(()) => spawn_commit(&bk, &wp, &cfg, &bs, job, out),
                         Err(e) => {
                             let _ = tokio::fs::remove_file(&job.source).await;
                             warn!("[batch] single ffmpeg failed for {}: {e}", job.filename);
@@ -223,7 +226,7 @@ async fn run_batch(
         }
         Err(err) => {
             // n == 1: clean up and report
-            for (job, _, _) in accepted {
+            for (job, _) in accepted {
                 let _ = tokio::fs::remove_file(&job.source).await;
                 let _ = job.reply.send(Err(PipelineError::Ffmpeg(err.to_string())));
             }
@@ -237,7 +240,6 @@ fn spawn_commit(
     config: &Arc<Config>,
     bus: &BusClient,
     job: PipelineJob,
-    duration_secs: f64,
     out: PathBuf,
 ) {
     let bk = backend.clone();
@@ -245,15 +247,99 @@ fn spawn_commit(
     let cfg = config.clone();
     let bs = bus.clone();
     tokio::spawn(async move {
+        // Финальная проверка по готовому m4a перед заливкой: source-probe у
+        // склеенного HLS оценочный, у m4a длительность из moov точная.
+        let probed = transcode::probe_duration(&out, &cfg.ffprobe_bin).await;
+        let Some(out_secs) = probed.filter(|s| *s > 0.0) else {
+            // Свой же m4a не читается — брак, но без rejected-страйка:
+            // неотличимо от transient-проблем хоста.
+            let _ = tokio::fs::remove_file(&out).await;
+            let _ = tokio::fs::remove_file(&job.source).await;
+            let _ = job.reply.send(Err(PipelineError::Ffmpeg(
+                "transcoded output is unreadable for ffprobe".into(),
+            )));
+            return;
+        };
+        if let Some(err) = gate_duration(&cfg, job.expected_duration_ms, out_secs) {
+            let _ = tokio::fs::remove_file(&out).await;
+            reject(&bs, job, err).await;
+            return;
+        }
         let res = commit_single(&bk, &wp, &cfg, &job.filename, out).await;
         let _ = tokio::fs::remove_file(&job.source).await;
         if res.is_ok() {
             publish_uploaded(&bs, &cfg, &job.filename, job.quality);
         }
-        let _ = job
-            .reply
-            .send(res.map(|()| PipelineOutput { duration_secs }));
+        let _ = job.reply.send(res.map(|()| PipelineOutput {
+            duration_secs: out_secs,
+        }));
     });
+}
+
+fn gate_duration(cfg: &Config, expected_ms: Option<i64>, secs: f64) -> Option<PipelineError> {
+    if let Some(exp_ms) = expected_ms {
+        let expected_secs = exp_ms as f64 / 1000.0;
+        if (secs - expected_secs).abs() > cfg.duration_tolerance_secs {
+            return Some(PipelineError::DurationMismatch {
+                actual_secs: secs,
+                expected_secs,
+            });
+        }
+    }
+    if secs > 0.0 && secs <= transcode::MIN_UPLOAD_DURATION_SECS {
+        return Some(PipelineError::TrackTooShort {
+            duration_secs: secs,
+            min_duration_secs: transcode::MIN_UPLOAD_DURATION_SECS,
+        });
+    }
+    if cfg.max_upload_duration_secs > 0.0 && secs > cfg.max_upload_duration_secs {
+        return Some(PipelineError::TrackTooLong {
+            duration_secs: secs,
+            max_duration_secs: cfg.max_upload_duration_secs,
+        });
+    }
+    None
+}
+
+async fn reject(bus: &BusClient, job: PipelineJob, err: PipelineError) {
+    let _ = tokio::fs::remove_file(&job.source).await;
+    if let Some((reason, actual_secs)) = reject_event(&err) {
+        publish_rejected(
+            bus,
+            &job.filename,
+            reason,
+            actual_secs,
+            job.expected_duration_ms,
+        );
+    }
+    let _ = job.reply.send(Err(err));
+}
+
+fn reject_event(err: &PipelineError) -> Option<(&'static str, f64)> {
+    match err {
+        PipelineError::DurationMismatch { actual_secs, .. } => {
+            Some(("duration_mismatch", *actual_secs))
+        }
+        PipelineError::TrackTooShort { duration_secs, .. } => Some(("too_short", *duration_secs)),
+        PipelineError::TrackTooLong { duration_secs, .. } => Some(("too_long", *duration_secs)),
+        _ => None,
+    }
+}
+
+fn publish_rejected(
+    bus: &BusClient,
+    filename: &str,
+    reason: &'static str,
+    actual_secs: f64,
+    expected_duration_ms: Option<i64>,
+) {
+    if !bus.enabled() {
+        return;
+    }
+    let Some(sc_track_id) = bus::sc_track_id_from_filename(filename) else {
+        return;
+    };
+    bus.publish_track_rejected(sc_track_id, reason, actual_secs, expected_duration_ms);
 }
 
 fn publish_uploaded(bus: &BusClient, config: &Config, filename: &str, quality: &'static str) {

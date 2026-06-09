@@ -248,6 +248,23 @@ impl PgPool {
         Ok(())
     }
 
+    /// Ожидаемая длительность трека для duration-гейта storage-аплоада.
+    /// None — трека нет либо длительность недоверенная. 30000 ровно — SC-шный
+    /// preview-sentinel, исключаем всегда: needs_duration_resolve снимается и
+    /// при transient-ошибках резолва, не исправив значение.
+    pub async fn get_trusted_duration_ms(&self, track_urn: &str) -> Result<Option<i64>, PgError> {
+        let client = self.pool.get().await?;
+        let row = client
+            .query_opt(
+                r#"SELECT duration_ms FROM tracks
+                   WHERE urn = $1 AND needs_duration_resolve = false
+                     AND duration_ms > 0 AND duration_ms <> 30000"#,
+                &[&track_urn],
+            )
+            .await?;
+        Ok(row.map(|r| r.get::<_, i32>(0) as i64))
+    }
+
     /// Check if user has an active subscription
     pub async fn is_premium(&self, user_urn: &str) -> Result<bool, PgError> {
         let client = self.pool.get().await?;
