@@ -18,7 +18,7 @@ enriches it (artists/albums/lyrics), embeds it for a vector-based recommendation
 - **MinIO/S3** — transcoded audio (`soundcloud_tracks_<id>.m4a`).
 - Sibling services (separate repos/images): **streaming** (SC→S3 download/transcode), **worker** (Python:
   whisper/demucs/embeddings/LLM RPC over NATS), **call** (relay through user clients to dodge SC bans —
-  `../SoundCloud-Desktop-Internal`), **proxy-systems** (`../Proxy-Systems`: intermediate + simple + ipv6 rotating
+  `../SoundCloud-Internal`), **proxy-systems** (`../Proxy-Systems`: intermediate + simple + ipv6 rotating
   proxies for external APIs), **tls-common** (`utils/tls-common`, shared TLS/ACME/PROXY-protocol).
 
 ## Track lifecycle (the spine)

@@ -148,7 +148,7 @@ jobs:
         if: ${{ env.HAS_INTERNAL_PAT == 'true' && (matrix.name == 'backend' || matrix.name == 'streaming') }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/SoundCloud-Desktop-Internal
+          repository: ${{ github.repository_owner }}/SoundCloud-Internal
           token: ${{ secrets.INTERNAL_PAT }}
           path: _internal
 
@@ -301,7 +301,7 @@ jobs:
         if: ${{ env.HAS_INTERNAL_PAT == 'true' }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/SoundCloud-Desktop-Internal
+          repository: ${{ github.repository_owner }}/SoundCloud-Internal
           token: ${{ secrets.INTERNAL_PAT }}
           path: _internal
 

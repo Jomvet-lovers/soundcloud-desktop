@@ -10,6 +10,8 @@ import { markHealthy, markUnhealthy } from './host-health';
 
 export type ResolvedStreamingTrack = Partial<Track> & {
   full_duration?: number;
+  /// SC resolve отдаёт любую сущность: track / user / playlist (включая альбомы).
+  kind?: string;
 };
 
 // ─── Host resolution ────────────────────────────────────────
