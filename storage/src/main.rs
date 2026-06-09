@@ -51,6 +51,7 @@ impl AppState {
 
 #[tokio::main]
 async fn main() {
+    tls_common::init_crypto();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

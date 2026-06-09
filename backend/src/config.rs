@@ -25,8 +25,18 @@ pub struct AppConfig {
     pub discovery: DiscoveryCfg,
     pub cold: ColdCfg,
     pub max_track_duration_ms: i32,
-    /// Нода-резерв для премиума: фоновые пайплайны off, ендпоинты только премиум.
+    /// Резерв-нода для премиума: фоновые пайплайны off + ендпоинты только премиум.
     pub premium_reserve: bool,
+    /// Как `premium_reserve`, но БЕЗ премиум-гейта (ходят обычные юзеры). Кроны
+    /// глушит любой из двух (`premium_reserve` его подразумевает).
+    pub reserve_backend: bool,
+}
+
+impl AppConfig {
+    /// Нода не гоняет фоновую работу пайплайна (кроны/консьюмеры/обсёрверы).
+    pub fn is_reserve(&self) -> bool {
+        self.premium_reserve || self.reserve_backend
+    }
 }
 
 /// TTL'и для cold-cache. Если sc_synced_at старше TTL — на чтении спавним
@@ -325,6 +335,7 @@ impl AppConfig {
 
             max_track_duration_ms: (env_u64("MAX_TRACK_DURATION_SEC", 420) * 1000) as i32,
             premium_reserve: env_str("PREMIUM_RESERVE", "false") == "true",
+            reserve_backend: env_str("RESERVE_BACKEND", "false") == "true",
         }
     }
 }

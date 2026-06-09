@@ -15,7 +15,7 @@ use crate::redirect::redirect_router;
 use crate::shutdown::shutdown_signal;
 
 pub async fn serve(cfg: TlsConfig, app: Router) {
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    crate::init_crypto();
 
     if let Err(e) = tokio::fs::create_dir_all(&cfg.cache_dir).await {
         warn!("failed to create ACME cache dir {:?}: {}", cfg.cache_dir, e);

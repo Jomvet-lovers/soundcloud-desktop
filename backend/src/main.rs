@@ -63,13 +63,18 @@ const BG_WORK_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    tls_common::init_crypto();
     telemetry::init();
 
     let config = Arc::new(AppConfig::from_env());
     info!(port = config.port, "backend starting");
-    let reserve = config.premium_reserve;
+    let reserve = config.is_reserve();
     if reserve {
-        info!("premium_reserve mode ON: background pipelines disabled");
+        info!(
+            premium_reserve = config.premium_reserve,
+            reserve_backend = config.reserve_backend,
+            "reserve mode ON: background pipelines disabled"
+        );
     }
 
     let pg = db::connect(&config)
