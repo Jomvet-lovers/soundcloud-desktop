@@ -26,6 +26,7 @@ impl RecommendationsService {
         sc_user_id: &str,
         languages: Option<&[String]>,
         per_cluster: usize,
+        hide_listened: bool,
     ) -> AppResult<ClusterResponse> {
         let per_cluster = per_cluster.clamp(4, 24);
         let anchor = match parse_id_or_null(sc_track_id) {
@@ -49,6 +50,7 @@ impl RecommendationsService {
             languages,
             SmartWaveSeed::Track(anchor),
             WAVE_LIMIT,
+            hide_listened,
         );
 
         let same_artist_fut = async {

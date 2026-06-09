@@ -23,6 +23,7 @@ export function useInfiniteWave(opts: {
   initialCursor: string | null;
   languages?: string[];
   filterTrack?: (t: Track) => boolean;
+  hideListened?: boolean;
   minTail?: number;
   batchLimit?: number;
 }) {
@@ -34,6 +35,7 @@ export function useInfiniteWave(opts: {
     initialCursor,
     languages,
     filterTrack,
+    hideListened,
     minTail = 5,
     batchLimit = 20,
   } = opts;
@@ -45,6 +47,7 @@ export function useInfiniteWave(opts: {
   const posCountRef = useRef(0);
   const languagesRef = useRef(languages);
   const filterRef = useRef(filterTrack);
+  const hideListenedRef = useRef(hideListened);
 
   useEffect(() => {
     languagesRef.current = languages;
@@ -52,6 +55,9 @@ export function useInfiniteWave(opts: {
   useEffect(() => {
     filterRef.current = filterTrack;
   }, [filterTrack]);
+  useEffect(() => {
+    hideListenedRef.current = hideListened;
+  }, [hideListened]);
 
   useEffect(() => {
     if (initialCursor) cursorRef.current = initialCursor;
@@ -64,17 +70,17 @@ export function useInfiniteWave(opts: {
   useEffect(() => {
     if (!enabled) return;
 
-      return usePlayerStore.subscribe((state, prev) => {
+    return usePlayerStore.subscribe((state, prev) => {
       const { queue, queueIndex, currentTrack, isPlaying } = state;
-          // Narrowed: only react to refill-relevant fields.
-          if (
-              queueIndex === prev.queueIndex &&
-              queue.length === prev.queue.length &&
-              currentTrack?.urn === prev.currentTrack?.urn &&
-              isPlaying === prev.isPlaying
-          ) {
-              return;
-          }
+      // Narrowed: only react to refill-relevant fields.
+      if (
+        queueIndex === prev.queueIndex &&
+        queue.length === prev.queue.length &&
+        currentTrack?.urn === prev.currentTrack?.urn &&
+        isPlaying === prev.isPlaying
+      ) {
+        return;
+      }
       if (!currentTrack) return;
       if (!ownedRef.current.has(currentTrack.urn)) return;
 
@@ -102,6 +108,7 @@ export function useInfiniteWave(opts: {
             cursor: cursorRef.current || undefined,
             limit: batchLimit,
             languages: languagesRef.current,
+            hideListened: hideListenedRef.current,
           });
           if (batch.cursor) cursorRef.current = batch.cursor;
           const filterFn = filterRef.current;

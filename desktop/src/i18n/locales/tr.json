@@ -340,7 +340,10 @@
     "similarCold": "AI parçayı indeksledikçe burada öneriler görünür",
     "hideLikedLabel": "Begenileri gizle",
     "hideLikedOn": "Begenilen parcalar dalgaya dahil edilmez",
-    "hideLikedOff": "Begenilen parcalari dalgadan cikarmak icin ac"
+    "hideLikedOff": "Begenilen parcalari dalgadan cikarmak icin ac",
+    "hideListenedLabel": "Taze",
+    "hideListenedOn": "Yakinda dinlenenler gizli: begeniler 7 gun, bitirilenler 14, digerleri 30",
+    "hideListenedOff": "Daha once dinlediklerini gizlemek icin ac"
   },
   "offline": {
     "offlineBadge": "Ag yok",

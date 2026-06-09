@@ -13,7 +13,7 @@ import {
   Sparkles,
   Star,
 } from '../../../lib/icons';
-import {usePerfMode} from '../../../lib/perf';
+import { usePerfMode } from '../../../lib/perf';
 import { usePlayerStore } from '../../../stores/player';
 import { useSettingsStore } from '../../../stores/settings';
 import {
@@ -90,21 +90,24 @@ export const ArtistSoundWave = React.memo(function ArtistSoundWave({
   const { t } = useTranslation();
   const collapsed = useSettingsStore((s) => s.artistWaveCollapsed);
   const setCollapsed = useSettingsStore((s) => s.setArtistWaveCollapsed);
+  const hideListened = useSettingsStore((s) => s.soundwaveHideListened);
 
   const { data, isLoading } = useClusterWave({
-    queryKey: ['cluster-wave', 'artist', artistId],
-    url: artistId ? `/recommendations/artist/${encodeURIComponent(artistId)}` : null,
+    queryKey: ['cluster-wave', 'artist', artistId, hideListened],
+    url: artistId
+      ? `/recommendations/artist/${encodeURIComponent(artistId)}?hide_listened=${hideListened ? '1' : '0'}`
+      : null,
   });
 
   const currentUrn = usePlayerStore((s) => s.currentTrack?.urn);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
 
-    const clusters = useMemo(() => data?.clusters ?? [], [data]);
+  const clusters = useMemo(() => data?.clusters ?? [], [data]);
   const allTracks = useMemo(() => data?.allTracks ?? [], [data]);
   const waveUrns = useMemo(() => new Set(allTracks.map((t) => t.urn)), [allTracks]);
   const isPlayingFromWave = isPlaying && !!currentUrn && waveUrns.has(currentUrn);
-    const perf = usePerfMode();
-    const sectionBlur = perf.blur(40);
+  const perf = usePerfMode();
+  const sectionBlur = perf.blur(40);
 
   const orderedClusters = useMemo(() => {
     const byId = new Map(clusters.map((c) => [c.id, c]));
@@ -122,6 +125,7 @@ export const ArtistSoundWave = React.memo(function ArtistSoundWave({
     seedId: artistId,
     initialTracks: waveCluster?.tracks ?? [],
     initialCursor: null,
+    hideListened,
   });
 
   const handlePlay = useCallback(() => {
@@ -159,12 +163,12 @@ export const ArtistSoundWave = React.memo(function ArtistSoundWave({
           '--color-accent-glow': auraRgba(aura, 0.32),
           '--color-accent-hover': auraRgb(aura),
           '--color-accent-contrast': lightAura ? '#000' : '#fff',
-            background: sectionBlur
-                ? `linear-gradient(135deg, ${auraRgba(aura, 0.16)} 0%, rgba(255,255,255,0.025) 45%, ${auraRgba(aura, 0.1)} 100%)`
-                : `linear-gradient(135deg, ${auraRgba(aura, 0.16)} 0%, rgba(255,255,255,0.025) 45%, ${auraRgba(aura, 0.1)} 100%), rgba(16,16,20,0.86)`,
+          background: sectionBlur
+            ? `linear-gradient(135deg, ${auraRgba(aura, 0.16)} 0%, rgba(255,255,255,0.025) 45%, ${auraRgba(aura, 0.1)} 100%)`
+            : `linear-gradient(135deg, ${auraRgba(aura, 0.16)} 0%, rgba(255,255,255,0.025) 45%, ${auraRgba(aura, 0.1)} 100%), rgba(16,16,20,0.86)`,
           border: `0.5px solid ${auraRgba(aura, 0.26)}`,
-            backdropFilter: sectionBlur ? `blur(${sectionBlur}px) saturate(160%)` : undefined,
-            WebkitBackdropFilter: sectionBlur ? `blur(${sectionBlur}px) saturate(160%)` : undefined,
+          backdropFilter: sectionBlur ? `blur(${sectionBlur}px) saturate(160%)` : undefined,
+          WebkitBackdropFilter: sectionBlur ? `blur(${sectionBlur}px) saturate(160%)` : undefined,
           boxShadow: `0 30px 90px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.07), 0 0 80px ${auraRgba(aura, 0.22)}`,
           transition: `box-shadow 0.6s ${EASE}`,
         } as React.CSSProperties
@@ -180,28 +184,28 @@ export const ArtistSoundWave = React.memo(function ArtistSoundWave({
         }}
       />
       {/* aura orbs (decorative, clipped by section overflow:hidden) */}
-        {perf.bloom && (
-            <>
-                <div
-                    className="absolute left-[-40px] top-1/2 w-40 h-40 rounded-full pointer-events-none opacity-50"
-                    style={{
-                        background: auraRgba(aura, 0.5),
-                        filter: `blur(${perf.blur(60)}px)`,
-                        contain: 'strict',
-                        transform: 'translateZ(0) translateY(-50%)',
-                    }}
-                />
-                <div
-                    className="absolute right-[-30px] top-1/2 w-32 h-32 rounded-full pointer-events-none opacity-40"
-                    style={{
-                        background: auraRgba(aura, 0.4),
-                        filter: `blur(${perf.blur(56)}px)`,
-                        contain: 'strict',
-                        transform: 'translateZ(0) translateY(-50%)',
-                    }}
-                />
-            </>
-        )}
+      {perf.bloom && (
+        <>
+          <div
+            className="absolute left-[-40px] top-1/2 w-40 h-40 rounded-full pointer-events-none opacity-50"
+            style={{
+              background: auraRgba(aura, 0.5),
+              filter: `blur(${perf.blur(60)}px)`,
+              contain: 'strict',
+              transform: 'translateZ(0) translateY(-50%)',
+            }}
+          />
+          <div
+            className="absolute right-[-30px] top-1/2 w-32 h-32 rounded-full pointer-events-none opacity-40"
+            style={{
+              background: auraRgba(aura, 0.4),
+              filter: `blur(${perf.blur(56)}px)`,
+              contain: 'strict',
+              transform: 'translateZ(0) translateY(-50%)',
+            }}
+          />
+        </>
+      )}
 
       <div className="relative" style={{ isolation: 'isolate' }}>
         {/* HEADER — always visible */}
@@ -267,16 +271,16 @@ export const ArtistSoundWave = React.memo(function ArtistSoundWave({
             }}
           >
             <span
-                className="artist-wave-sheen absolute inset-0 pointer-events-none"
+              className="artist-wave-sheen absolute inset-0 pointer-events-none"
               style={{
                 background:
                   'linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent)',
-                  // Beauty/medium keep the original always-on idle sheen; light
-                  // drops it to playing-only (hover still triggers it via CSS).
-                  animation:
-                      perf.idleAnim || isPlayingFromWave
-                          ? 'artistWaveSheen 2.6s ease-in-out infinite'
-                          : undefined,
+                // Beauty/medium keep the original always-on idle sheen; light
+                // drops it to playing-only (hover still triggers it via CSS).
+                animation:
+                  perf.idleAnim || isPlayingFromWave
+                    ? 'artistWaveSheen 2.6s ease-in-out infinite'
+                    : undefined,
               }}
             />
             <span
@@ -326,12 +330,12 @@ export const ArtistSoundWave = React.memo(function ArtistSoundWave({
           }}
         >
           <div className="overflow-hidden min-h-0">
-              {/* Subtree stays mounted across the collapse so grid-template-rows has
+            {/* Subtree stays mounted across the collapse so grid-template-rows has
                 real content height to animate against; opacity fades it out. */}
             <div
               style={{
                 transition: `opacity 0.4s ${EASE}`,
-                  transitionDelay: '0.12s',
+                transitionDelay: '0.12s',
                 opacity: collapsed ? 0 : 1,
               }}
             >

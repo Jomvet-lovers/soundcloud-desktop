@@ -39,6 +39,7 @@ impl RecommendationsService {
         artist_id: Uuid,
         sc_user_id: &str,
         per_cluster: usize,
+        hide_listened: bool,
     ) -> AppResult<ClusterResponse> {
         let per_cluster = per_cluster.clamp(4, 24);
 
@@ -77,6 +78,7 @@ impl RecommendationsService {
             None,
             SmartWaveSeed::Artist(artist_id, &top_ids),
             WAVE_LIMIT,
+            hide_listened,
         );
 
         let vibe_fut = async {

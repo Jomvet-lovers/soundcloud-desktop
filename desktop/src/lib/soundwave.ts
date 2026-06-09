@@ -1,7 +1,7 @@
-import {useQuery} from '@tanstack/react-query';
-import {useCallback, useEffect, useRef, useState} from 'react';
-import type {Track} from '../stores/player';
-import {api} from './api';
+import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Track } from '../stores/player';
+import { api } from './api';
 
 export interface RecommendResult {
   id: string | number;
@@ -86,25 +86,28 @@ export async function fetchSmartWave(opts: {
   cursor?: string;
   limit?: number;
   languages?: string[];
+  hideListened?: boolean;
 }): Promise<SmartWaveBatch> {
   const qs = new URLSearchParams();
   qs.set('limit', String(opts.limit ?? 20));
   if (opts.cursor) qs.set('cursor', opts.cursor);
   const languages = normLanguages(opts.languages);
   if (languages) qs.set('languages', languages);
+  // Бэк дефолтит hide_listened=ON; шлём явный флаг только когда он задан.
+  if (opts.hideListened !== undefined) qs.set('hide_listened', opts.hideListened ? '1' : '0');
 
   const payload = await api<SmartWavePayload>(smartWaveUrl(opts.seedKind, opts.seedId, qs)).catch(
     () => ({ tracks: [], cursor: '' }) as SmartWavePayload,
   );
 
-    // Don't trust the API shape: a resolved-but-null/garbage body must not crash.
-    const ids = Array.isArray(payload?.tracks) ? payload.tracks : [];
-    const cursor = payload?.cursor ?? '';
-    if (ids.length === 0) {
-        return {tracks: [], cursor};
+  // Don't trust the API shape: a resolved-but-null/garbage body must not crash.
+  const ids = Array.isArray(payload?.tracks) ? payload.tracks : [];
+  const cursor = payload?.cursor ?? '';
+  if (ids.length === 0) {
+    return { tracks: [], cursor };
   }
-    const tracks = await hydrateByIds(ids);
-    return {tracks, cursor};
+  const tracks = await hydrateByIds(ids);
+  return { tracks, cursor };
 }
 
 /**
@@ -143,6 +146,7 @@ export function useSmartWave(opts: {
   languages?: string[];
   enabled?: boolean;
   limit?: number;
+  hideListened?: boolean;
 }) {
   const enabled = opts.enabled !== false && (opts.seedKind === 'user' || !!opts.seedId);
   const languages = normLanguages(opts.languages);
@@ -154,6 +158,7 @@ export function useSmartWave(opts: {
       opts.seedId ?? 'self',
       languages ?? 'all',
       opts.limit ?? 20,
+      opts.hideListened ?? 'default',
     ],
     enabled,
     staleTime: SW_STALE_MS,
@@ -164,6 +169,7 @@ export function useSmartWave(opts: {
         seedId: opts.seedId,
         languages: opts.languages,
         limit: opts.limit,
+        hideListened: opts.hideListened,
       }),
   });
 }
@@ -177,87 +183,96 @@ export function useSmartWave(opts: {
  * пагинируем ВРУЧНУЮ: только вперёд, append, без рефетча. Плюс при КАЖДОМ заходе
  * стартуем СВЕЖУЮ волну (топ-треки), а не доигрываем посредственный хвост.
  */
-export function useWaveBoard(opts?: { enabled?: boolean; languages?: string[] }) {
-    const enabled = opts?.enabled !== false;
-    const langKey = normLanguages(opts?.languages) ?? 'all';
-    const languagesRef = useRef(opts?.languages);
-    languagesRef.current = opts?.languages;
+export function useWaveBoard(opts?: {
+  enabled?: boolean;
+  languages?: string[];
+  hideListened?: boolean;
+}) {
+  const enabled = opts?.enabled !== false;
+  const langKey = normLanguages(opts?.languages) ?? 'all';
+  const hideListened = opts?.hideListened;
+  const languagesRef = useRef(opts?.languages);
+  languagesRef.current = opts?.languages;
+  const hideListenedRef = useRef(hideListened);
+  hideListenedRef.current = hideListened;
 
-    const [tracks, setTracks] = useState<Track[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
-    const [hasNextPage, setHasNextPage] = useState(true);
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false);
+  const [hasNextPage, setHasNextPage] = useState(true);
 
-    const cursorRef = useRef<string | undefined>(undefined);
-    const seenRef = useRef<Set<string>>(new Set());
-    const fetchingRef = useRef(false);
+  const cursorRef = useRef<string | undefined>(undefined);
+  const seenRef = useRef<Set<string>>(new Set());
+  const fetchingRef = useRef(false);
 
-    // Свежий старт при каждом заходе / смене языка: топ волны, не хвост.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: langKey намеренно триггерит fresh-волну при смене языка (значение читаем через ref, чтобы не словить stale-замыкание).
-    useEffect(() => {
-        if (!enabled) {
-            setTracks([]);
-            setHasNextPage(true);
-            return;
-        }
-        let cancelled = false;
-        cursorRef.current = undefined;
-        seenRef.current = new Set();
-        fetchingRef.current = true;
-        setTracks([]);
-        setHasNextPage(true);
-        setIsLoading(true);
-        (async () => {
-            const batch = await fetchSmartWave({
-                seedKind: 'user',
-                limit: 24,
-                languages: languagesRef.current,
-            });
-            if (cancelled) return;
-            cursorRef.current = batch.cursor || undefined;
-            setTracks(dedupeNew(batch.tracks, seenRef.current));
-            setHasNextPage(batch.tracks.length > 0 && !!batch.cursor);
-            setIsLoading(false);
-            fetchingRef.current = false;
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [enabled, langKey]);
+  // Свежий старт при каждом заходе / смене языка: топ волны, не хвост.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: langKey намеренно триггерит fresh-волну при смене языка (значение читаем через ref, чтобы не словить stale-замыкание).
+  useEffect(() => {
+    if (!enabled) {
+      setTracks([]);
+      setHasNextPage(true);
+      return;
+    }
+    let cancelled = false;
+    cursorRef.current = undefined;
+    seenRef.current = new Set();
+    fetchingRef.current = true;
+    setTracks([]);
+    setHasNextPage(true);
+    setIsLoading(true);
+    (async () => {
+      const batch = await fetchSmartWave({
+        seedKind: 'user',
+        limit: 24,
+        languages: languagesRef.current,
+        hideListened: hideListenedRef.current,
+      });
+      if (cancelled) return;
+      cursorRef.current = batch.cursor || undefined;
+      setTracks(dedupeNew(batch.tracks, seenRef.current));
+      setHasNextPage(batch.tracks.length > 0 && !!batch.cursor);
+      setIsLoading(false);
+      fetchingRef.current = false;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, langKey, hideListened]);
 
-    const fetchNextPage = useCallback(async () => {
-        if (!enabled || fetchingRef.current || !hasNextPage) return;
-        fetchingRef.current = true;
-        setIsFetchingNextPage(true);
-        try {
-            const batch = await fetchSmartWave({
-                seedKind: 'user',
-                cursor: cursorRef.current,
-                limit: 24,
-                languages: languagesRef.current,
-            });
-            cursorRef.current = batch.cursor || cursorRef.current;
-            const fresh = dedupeNew(batch.tracks, seenRef.current);
-            if (fresh.length > 0) setTracks((prev) => [...prev, ...fresh]);
-            setHasNextPage(batch.tracks.length > 0); // пусто = волна иссякла
-        } finally {
-            fetchingRef.current = false;
-            setIsFetchingNextPage(false);
-        }
-    }, [enabled, hasNextPage]);
+  const fetchNextPage = useCallback(async () => {
+    if (!enabled || fetchingRef.current || !hasNextPage) return;
+    fetchingRef.current = true;
+    setIsFetchingNextPage(true);
+    try {
+      const batch = await fetchSmartWave({
+        seedKind: 'user',
+        cursor: cursorRef.current,
+        limit: 24,
+        languages: languagesRef.current,
+        hideListened: hideListenedRef.current,
+      });
+      cursorRef.current = batch.cursor || cursorRef.current;
+      const fresh = dedupeNew(batch.tracks, seenRef.current);
+      if (fresh.length > 0) setTracks((prev) => [...prev, ...fresh]);
+      setHasNextPage(batch.tracks.length > 0); // пусто = волна иссякла
+    } finally {
+      fetchingRef.current = false;
+      setIsFetchingNextPage(false);
+    }
+  }, [enabled, hasNextPage]);
 
-    return {tracks, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage};
+  return { tracks, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage };
 }
 
 function dedupeNew(batch: Track[], seen: Set<string>): Track[] {
-    const out: Track[] = [];
-    for (const t of batch) {
-        if (t?.urn && !seen.has(t.urn)) {
-            seen.add(t.urn);
-            out.push(t);
-        }
+  const out: Track[] = [];
+  for (const t of batch) {
+    if (t?.urn && !seen.has(t.urn)) {
+      seen.add(t.urn);
+      out.push(t);
     }
-    return out;
+  }
+  return out;
 }
 
 /** Optional lightweight poll of indexing stats. Fails silently if endpoint absent. */

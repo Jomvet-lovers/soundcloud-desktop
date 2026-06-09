@@ -19,7 +19,6 @@ const RECENT_SKIPS_DAYS: i32 = 30;
 const RECENT_SKIPS_LIMIT: i64 = 60;
 const RECENT_PLAYED_DAYS: i32 = 30;
 const RECENT_PLAYED_LIMIT: i64 = 200;
-const PLAYED_DEDUPE_LIMIT: i64 = 500;
 
 #[derive(Debug, Default)]
 pub struct UserSignals {
@@ -31,19 +30,14 @@ pub struct UserSignals {
     pub recent_skips: Vec<String>,
     /// Сыгранное в последнее окно — контекст «что сейчас слушает».
     pub recent_played: Vec<String>,
-    /// Всё сыгранное за окно дедупа — чтобы волна не зацикливалась.
-    pub played_dedupe: Vec<String>,
 }
 
 impl UserSignals {
-    /// IDs, которые волна не должна повторять (дизы + сыгранное + скипы).
-    pub fn exclude_set(&self) -> Vec<String> {
-        let mut v: Vec<String> = Vec::with_capacity(
-            self.disliked_ids.len() + self.played_dedupe.len() + self.recent_skips.len(),
-        );
-        v.extend(self.disliked_ids.iter().cloned());
-        v.extend(self.played_dedupe.iter().cloned());
-        v.extend(self.recent_skips.iter().cloned());
+    /// Жёсткое исключение ВСЕГДА — только дизы. «Прослушанное» добавляется
+    /// отдельно в build по тогглу `hide_listened` (тиерно 7/14/30д); скипы
+    /// остаются мягким негативом для qdrant, но из выдачи не режутся.
+    pub fn always_exclude(&self) -> Vec<String> {
+        let mut v = self.disliked_ids.clone();
         v.sort();
         v.dedup();
         v
@@ -53,12 +47,11 @@ impl UserSignals {
 pub async fn load_recent_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<UserSignals> {
     let ids = user_id_variants(sc_user_id);
 
-    let (fresh_likes, disliked_ids, recent_skips, recent_played, played_dedupe) = tokio::try_join!(
+    let (fresh_likes, disliked_ids, recent_skips, recent_played) = tokio::try_join!(
         load_fresh_likes(pg, &ids),
         load_dislikes(pg, &ids),
         load_recent_skips(pg, &ids),
         load_recent_played(pg, &ids),
-        load_played_dedupe(pg, &ids),
     )?;
 
     Ok(UserSignals {
@@ -66,8 +59,19 @@ pub async fn load_recent_signals(pg: &PgPool, sc_user_id: &str) -> AppResult<Use
         disliked_ids,
         recent_skips,
         recent_played,
-        played_dedupe,
     })
+}
+
+/// «Скрыть прослушанное» — тиерный сет id (лайк 7д · full_play 14д · skip 30д
+/// от последнего прослуша). Пусто = тоггл выключен или нечего скрывать.
+pub(crate) async fn load_hidden_by_listen(pg: &PgPool, ids: &[String]) -> Vec<String> {
+    sqlx::query_file_scalar!(
+        "queries/recommendations/smart_wave/signals/hidden_by_listen.sql",
+        ids
+    )
+    .fetch_all(pg)
+    .await
+    .unwrap_or_default()
 }
 
 async fn load_fresh_likes(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String>> {
@@ -110,17 +114,6 @@ async fn load_recent_played(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String
         ids,
         RECENT_PLAYED_DAYS,
         RECENT_PLAYED_LIMIT
-    )
-    .fetch_all(pg)
-    .await?;
-    Ok(rows)
-}
-
-async fn load_played_dedupe(pg: &PgPool, ids: &[String]) -> AppResult<Vec<String>> {
-    let rows = sqlx::query_file_scalar!(
-        "queries/recommendations/smart_wave/signals/played_dedupe.sql",
-        ids,
-        PLAYED_DEDUPE_LIMIT
     )
     .fetch_all(pg)
     .await?;

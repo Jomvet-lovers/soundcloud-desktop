@@ -1,6 +1,6 @@
-import React, {useCallback, useMemo, useRef, useState} from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {api} from '../../../lib/api';
+import { api } from '../../../lib/api';
 import {
   AudioLines,
   Compass,
@@ -11,7 +11,7 @@ import {
   Sparkles,
   Star,
 } from '../../../lib/icons';
-import {isUrnLiked, useLiked} from '../../../lib/likes';
+import { isUrnLiked, useLiked } from '../../../lib/likes';
 import { useAuthStore } from '../../../stores/auth';
 import type { Track } from '../../../stores/player';
 import { usePlayerStore } from '../../../stores/player';
@@ -27,10 +27,11 @@ import {
 } from '../cluster';
 import { AmbientLayer } from './ambient';
 import { HideLikedToggle } from './hide-liked-toggle';
+import { HideListenedToggle } from './hide-listened-toggle';
 import { LanguageFilter } from './language-filter';
 import { WaveTrackHeader } from './track-header';
 import { useInfiniteWave } from './use-infinite-wave';
-import {VibePortal} from './vibe-portal';
+import { VibePortal } from './vibe-portal';
 import { LiveWaveform } from './waveform';
 
 // `wave` всегда первый. Остальные — стандартный набор для home-страницы.
@@ -54,9 +55,9 @@ const CLUSTER_ICON: Partial<Record<ClusterId, React.ReactNode>> = {
 };
 
 export const SoundWaveBlock = React.memo(function SoundWaveBlock({
-                                                                     hideVibePortal = false,
-                                                                 }: {
-    hideVibePortal?: boolean;
+  hideVibePortal = false,
+}: {
+  hideVibePortal?: boolean;
 }) {
   const { t } = useTranslation();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -64,6 +65,8 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
   const setSelectedLanguages = useSettingsStore((s) => s.setSoundwaveLanguages);
   const hideLiked = useSettingsStore((s) => s.soundwaveHideLiked);
   const setHideLiked = useSettingsStore((s) => s.setSoundwaveHideLiked);
+  const hideListened = useSettingsStore((s) => s.soundwaveHideListened);
+  const setHideListened = useSettingsStore((s) => s.setSoundwaveHideListened);
 
   const currentTrack = usePlayerStore((s) => s.currentTrack);
 
@@ -76,12 +79,13 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
     if (!isAuthenticated) return null;
     const qs = new URLSearchParams();
     if (stableLanguages.length > 0) qs.set('languages', stableLanguages.join(','));
+    qs.set('hide_listened', hideListened ? '1' : '0');
     const suffix = qs.toString() ? `?${qs}` : '';
     return `/recommendations${suffix}`;
-  }, [isAuthenticated, stableLanguages]);
+  }, [isAuthenticated, stableLanguages, hideListened]);
 
   const { data, isLoading, isFetching, refetch } = useClusterWave({
-    queryKey: ['cluster-wave', 'home', langKey],
+    queryKey: ['cluster-wave', 'home', langKey, hideListened],
     url,
     enabled: isAuthenticated,
   });
@@ -89,39 +93,39 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
   const rawClusters = useMemo(() => data?.clusters ?? [], [data]);
   const rawAllTracks = useMemo(() => data?.allTracks ?? [], [data]);
 
-    // Recompute the hide-liked filters when the current track's like state flips
-    // (the primary like target from this surface). Reads stay live via isUrnLiked.
-    const likesVersion = useLiked(currentTrack?.urn ?? '');
+  // Recompute the hide-liked filters when the current track's like state flips
+  // (the primary like target from this surface). Reads stay live via isUrnLiked.
+  const likesVersion = useLiked(currentTrack?.urn ?? '');
 
-    // Stable predicate for the infinite-wave refill (reads live like state at call time).
+  // Stable predicate for the infinite-wave refill (reads live like state at call time).
   const hideLikedFilter = useCallback((tr: Track) => !tr.user_favorite && !isUrnLiked(tr.urn), []);
 
-    // biome-ignore lint/correctness/useExhaustiveDependencies: likesVersion ticks the live isUrnLiked read.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: likesVersion ticks the live isUrnLiked read.
   const filteredAllTracks = useMemo(() => {
     if (!hideLiked) return rawAllTracks;
-      return rawAllTracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn));
+    return rawAllTracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn));
   }, [rawAllTracks, hideLiked, likesVersion]);
 
-    // biome-ignore lint/correctness/useExhaustiveDependencies: likesVersion ticks the live isUrnLiked read.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: likesVersion ticks the live isUrnLiked read.
   const filteredClusters = useMemo(() => {
     if (!hideLiked) return rawClusters;
     return rawClusters
-        .map((c) => {
-            const trackById = new Map<string, Track>();
-            for (const tr of c.tracks) {
-                const id = tr.urn.split(':').pop();
-                if (id) trackById.set(id, tr);
-            }
-            return {
-                ...c,
-                tracks: c.tracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn)),
-                neighbors: c.neighbors?.filter((n) => {
-                    const matchTrack = trackById.get(String(n.track_id));
-                    if (!matchTrack) return true;
-                    return !matchTrack.user_favorite && !isUrnLiked(matchTrack.urn);
-                }),
-            };
-        })
+      .map((c) => {
+        const trackById = new Map<string, Track>();
+        for (const tr of c.tracks) {
+          const id = tr.urn.split(':').pop();
+          if (id) trackById.set(id, tr);
+        }
+        return {
+          ...c,
+          tracks: c.tracks.filter((tr) => !tr.user_favorite && !isUrnLiked(tr.urn)),
+          neighbors: c.neighbors?.filter((n) => {
+            const matchTrack = trackById.get(String(n.track_id));
+            if (!matchTrack) return true;
+            return !matchTrack.user_favorite && !isUrnLiked(matchTrack.urn);
+          }),
+        };
+      })
       .filter((c) => c.tracks.length > 0) as ClusterHydrated[];
   }, [rawClusters, hideLiked, likesVersion]);
 
@@ -139,42 +143,43 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
   const isCurrent = !!currentTrack && waveTrack?.urn === currentTrack.urn;
 
   useInfiniteWave({
-      enabled: isAuthenticated,
+    enabled: isAuthenticated,
     seedKind: 'user',
     initialTracks: waveCluster?.tracks ?? [],
     initialCursor: null,
     languages: stableLanguages,
     filterTrack: hideLiked ? hideLikedFilter : undefined,
+    hideListened,
   });
 
-    // Клик по карточке артиста (top_artists/adjacent) → очередь из ЛУЧШИХ треков
-    // этого артиста (sort=popular), играем её — next/prev остаётся внутри артиста.
-    // Резолвер стабильный (useCallback []), artist_id берём из neighbors через ref.
-    const neighborArtistByTrack = useMemo(() => {
-        const m = new Map<string, string>();
-        for (const c of orderedClusters) {
-            if (!c.neighbors) continue;
-            for (const n of c.neighbors) m.set(String(n.track_id), n.artist_id);
-        }
-        return m;
-    }, [orderedClusters]);
-    const neighborMapRef = useRef(neighborArtistByTrack);
-    neighborMapRef.current = neighborArtistByTrack;
+  // Клик по карточке артиста (top_artists/adjacent) → очередь из ЛУЧШИХ треков
+  // этого артиста (sort=popular), играем её — next/prev остаётся внутри артиста.
+  // Резолвер стабильный (useCallback []), artist_id берём из neighbors через ref.
+  const neighborArtistByTrack = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of orderedClusters) {
+      if (!c.neighbors) continue;
+      for (const n of c.neighbors) m.set(String(n.track_id), n.artist_id);
+    }
+    return m;
+  }, [orderedClusters]);
+  const neighborMapRef = useRef(neighborArtistByTrack);
+  neighborMapRef.current = neighborArtistByTrack;
 
-    const resolveArtistQueue = useCallback(async (track: Track): Promise<Track[]> => {
+  const resolveArtistQueue = useCallback(async (track: Track): Promise<Track[]> => {
     const trackId = track.urn.split(':').pop();
-        const artistId = trackId ? neighborMapRef.current.get(trackId) : undefined;
-        if (!artistId) return [track];
+    const artistId = trackId ? neighborMapRef.current.get(trackId) : undefined;
+    if (!artistId) return [track];
     try {
-        const res = await api<{ collection: Track[] }>(
-            `/artists/${encodeURIComponent(artistId)}/tracks?role=primary&sort=popular&limit=60`,
+      const res = await api<{ collection: Track[] }>(
+        `/artists/${encodeURIComponent(artistId)}/tracks?role=primary&sort=popular&limit=60`,
       );
-        const seen = new Set<string>([track.urn]);
-        const ordered: Track[] = [track];
-        for (const tr of res.collection ?? []) {
-            if (!seen.has(tr.urn)) {
-                seen.add(tr.urn);
-                ordered.push(tr);
+      const seen = new Set<string>([track.urn]);
+      const ordered: Track[] = [track];
+      for (const tr of res.collection ?? []) {
+        if (!seen.has(tr.urn)) {
+          seen.add(tr.urn);
+          ordered.push(tr);
         }
       }
       return ordered;
@@ -200,7 +205,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
   };
 
   const spinning = isRefreshing || isFetching;
-    const showCold = !isLoading && orderedClusters.length === 0;
+  const showCold = !isLoading && orderedClusters.length === 0;
 
   return (
     <section
@@ -257,6 +262,7 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
           </div>
 
           <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <HideListenedToggle value={hideListened} onChange={setHideListened} />
             <HideLikedToggle value={hideLiked} onChange={setHideLiked} />
             <LanguageFilter selected={selectedLanguages} onChange={setSelectedLanguages} />
             <button
@@ -299,8 +305,8 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
               queue={
                 waveCluster?.tracks?.length
                   ? waveCluster.tracks
-                    : filteredAllTracks.length
-                        ? filteredAllTracks
+                  : filteredAllTracks.length
+                    ? filteredAllTracks
                     : [waveTrack]
               }
               isCurrent={isCurrent}
@@ -322,10 +328,10 @@ export const SoundWaveBlock = React.memo(function SoundWaveBlock({
           <LiveWaveform track={waveTrack} isCurrent={isCurrent} />
         </div>
 
-          {!hideVibePortal && <VibePortal/>}
+        {!hideVibePortal && <VibePortal />}
 
         <div className="min-h-[280px]">
-            {isLoading ? (
+          {isLoading ? (
             <ClusterSkeletonState rows={3} itemsPerRow={6} />
           ) : showCold ? (
             <ClusterEmptyState

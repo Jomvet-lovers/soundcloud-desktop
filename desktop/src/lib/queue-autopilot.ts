@@ -18,13 +18,14 @@
  */
 
 import {
-    setEndOfQueueFallback,
-    setPlaybackContextResetHandler,
-    type Track,
-    usePlayerStore,
+  setEndOfQueueFallback,
+  setPlaybackContextResetHandler,
+  type Track,
+  usePlayerStore,
 } from '../stores/player';
-import {getQueueContinuationSource, setQueueContinuationSource} from './queue-continuation';
-import {fetchRelatedTracks} from './related';
+import { useSettingsStore } from '../stores/settings';
+import { getQueueContinuationSource, setQueueContinuationSource } from './queue-continuation';
+import { fetchRelatedTracks } from './related';
 import { fetchSmartWave } from './soundwave';
 
 let inFlight = false;
@@ -37,18 +38,18 @@ export async function autopilotContinueFromTrack(lastTrack: Track): Promise<void
   inFlight = true;
 
   try {
-      // 0) Контекст (лайки/…) доигрывается до конца перед волной.
-      if (await continueFromContextSource()) return;
+    // 0) Контекст (лайки/…) доигрывается до конца перед волной.
+    if (await continueFromContextSource()) return;
 
-      // 1–2) Источник иссяк или его нет → волна от последнего трека.
-      console.debug('[autopilot] wave continuation from', lastTrack.urn, lastTrack.title);
+    // 1–2) Источник иссяк или его нет → волна от последнего трека.
+    console.debug('[autopilot] wave continuation from', lastTrack.urn, lastTrack.title);
     const fresh = await fetchContinuation(lastTrack);
     if (fresh.length === 0) {
       console.warn('[autopilot] no continuation tracks (wave + SC related both empty)');
       usePlayerStore.getState().pause();
       return;
     }
-      console.debug('[autopilot] adding', fresh.length, 'wave tracks to queue');
+    console.debug('[autopilot] adding', fresh.length, 'wave tracks to queue');
     usePlayerStore.getState().addToQueue(fresh);
     usePlayerStore.getState().next();
   } catch (e) {
@@ -65,35 +66,35 @@ export async function autopilotContinueFromTrack(lastTrack: Track): Promise<void
  *   источника нет / он исчерпан / упал (тогда вызывающий уходит в волну).
  */
 async function continueFromContextSource(): Promise<boolean> {
-    const source = getQueueContinuationSource();
-    if (!source) return false;
+  const source = getQueueContinuationSource();
+  if (!source) return false;
 
-    const existing = new Set(usePlayerStore.getState().queue.map((t) => t.urn));
-    // Тянем страницы пока не наберём свежие треки либо источник не кончится
-    // (страница может оказаться целиком из дублей, уже доскролленных в очередь).
-    for (; ;) {
-        let batch: Track[];
-        try {
-            batch = await source.next();
-        } catch (e) {
-            console.debug(`[autopilot] source "${source.kind}" failed → wave:`, e);
-            setQueueContinuationSource(null);
-            return false;
-        }
-        if (batch.length === 0) {
-            console.debug(`[autopilot] source "${source.kind}" exhausted → wave`);
-            setQueueContinuationSource(null);
-            return false;
-        }
-        const freshOnes = batch.filter((t) => !existing.has(t.urn));
-        if (freshOnes.length > 0) {
-            console.debug(`[autopilot] source "${source.kind}" +${freshOnes.length} tracks`);
-            usePlayerStore.getState().addToQueue(freshOnes);
-            usePlayerStore.getState().next();
-            return true;
-        }
-        for (const t of batch) existing.add(t.urn);
+  const existing = new Set(usePlayerStore.getState().queue.map((t) => t.urn));
+  // Тянем страницы пока не наберём свежие треки либо источник не кончится
+  // (страница может оказаться целиком из дублей, уже доскролленных в очередь).
+  for (;;) {
+    let batch: Track[];
+    try {
+      batch = await source.next();
+    } catch (e) {
+      console.debug(`[autopilot] source "${source.kind}" failed → wave:`, e);
+      setQueueContinuationSource(null);
+      return false;
     }
+    if (batch.length === 0) {
+      console.debug(`[autopilot] source "${source.kind}" exhausted → wave`);
+      setQueueContinuationSource(null);
+      return false;
+    }
+    const freshOnes = batch.filter((t) => !existing.has(t.urn));
+    if (freshOnes.length > 0) {
+      console.debug(`[autopilot] source "${source.kind}" +${freshOnes.length} tracks`);
+      usePlayerStore.getState().addToQueue(freshOnes);
+      usePlayerStore.getState().next();
+      return true;
+    }
+    for (const t of batch) existing.add(t.urn);
+  }
 }
 
 async function fetchContinuation(seed: Track): Promise<Track[]> {
@@ -121,6 +122,7 @@ async function fetchWaveContinuation(seed: Track): Promise<Track[]> {
       seedKind: 'track',
       seedId: trackId,
       limit: 20,
+      hideListened: useSettingsStore.getState().soundwaveHideListened,
     });
     return batch.tracks;
   } catch (e) {
@@ -131,8 +133,8 @@ async function fetchWaveContinuation(seed: Track): Promise<Track[]> {
 
 async function fetchScRelated(seed: Track): Promise<Track[]> {
   try {
-      const res = await fetchRelatedTracks(seed.urn, 20);
-      return res.collection;
+    const res = await fetchRelatedTracks(seed.urn, 20);
+    return res.collection;
   } catch (e) {
     console.debug('[autopilot] SC related fetch failed:', e);
     return [];

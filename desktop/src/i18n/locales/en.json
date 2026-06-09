@@ -410,6 +410,9 @@
     "hideLikedLabel": "Hide liked",
     "hideLikedOn": "Liked tracks are excluded from the wave",
     "hideLikedOff": "Turn on to exclude tracks you've already liked",
+    "hideListenedLabel": "Fresh",
+    "hideListenedOn": "Recently played are hidden — liked for 7 days, finished for 14, the rest for 30",
+    "hideListenedOff": "Turn on to hide what you've already played",
     "home": {
       "waveTitle": "Wave",
       "waveDesc": "Infinite mix from your taste graph — picks, neighbours, fresh drops, anti-skips.",

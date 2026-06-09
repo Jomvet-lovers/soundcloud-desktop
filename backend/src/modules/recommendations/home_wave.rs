@@ -46,6 +46,9 @@ pub struct HomeRequest {
     pub sc_user_id: String,
     pub languages: Option<Vec<String>>,
     pub per_cluster: usize,
+    /// «Скрыть прослушанное» — тиерно режем недавно слушанное (лайк 7д ·
+    /// full_play 14д · skip 30д) вместо слепого played-дедупа.
+    pub hide_listened: bool,
 }
 
 impl RecommendationsService {
@@ -63,8 +66,17 @@ impl RecommendationsService {
                 .await;
         }
 
-        let exclude_set: HashSet<String> = signals
-            .played
+        // «Скрыть прослушанное» (тиерно 7/14/30д) вместо слепого played; диз — всегда.
+        let hidden_listen = if req.hide_listened {
+            super::smart_wave::signals::load_hidden_by_listen(
+                &self.pg,
+                &user_id_variants(&sc_user_id),
+            )
+            .await
+        } else {
+            Vec::new()
+        };
+        let exclude_set: HashSet<String> = hidden_listen
             .iter()
             .chain(signals.disliked_ids.iter())
             .cloned()
@@ -83,6 +95,7 @@ impl RecommendationsService {
             languages,
             SmartWaveSeed::User,
             WAVE_LIMIT,
+            req.hide_listened,
         );
 
         let (taste_modes, session_ctx, hour_ctx, anti_centroid, bandit_stats, wave_ids) = tokio::join!(
@@ -217,8 +230,8 @@ impl RecommendationsService {
             .map(|l| l.join(","))
             .unwrap_or_default();
         let key = format!(
-            "rec:home:{}:{}:{}:{}",
-            req.sc_user_id, fp, lang, req.per_cluster
+            "rec:home:{}:{}:{}:{}:{}",
+            req.sc_user_id, fp, lang, req.per_cluster, req.hide_listened
         );
         if let Some(cached) = self.cluster_cache_get(&key).await {
             return Ok(cached);
@@ -237,15 +250,23 @@ impl RecommendationsService {
         sc_user_id: &str,
         languages: Option<&[String]>,
         per_cluster: usize,
+        hide_listened: bool,
     ) -> AppResult<String> {
         let fp = self.taste_fingerprint(sc_user_id).await;
         let lang = languages.map(|l| l.join(",")).unwrap_or_default();
-        let key = format!("rec:sim:{sc_user_id}:{fp}:{sc_track_id}:{lang}:{per_cluster}");
+        let key =
+            format!("rec:sim:{sc_user_id}:{fp}:{sc_track_id}:{lang}:{per_cluster}:{hide_listened}");
         if let Some(cached) = self.cluster_cache_get(&key).await {
             return Ok(cached);
         }
         let resp = self
-            .similar_wave(sc_track_id, sc_user_id, languages, per_cluster)
+            .similar_wave(
+                sc_track_id,
+                sc_user_id,
+                languages,
+                per_cluster,
+                hide_listened,
+            )
             .await?;
         let json =
             serde_json::to_string(&resp).unwrap_or_else(|_| String::from("{\"clusters\":[]}"));
@@ -259,13 +280,16 @@ impl RecommendationsService {
         artist_id: Uuid,
         sc_user_id: &str,
         per_cluster: usize,
+        hide_listened: bool,
     ) -> AppResult<String> {
         let fp = self.taste_fingerprint(sc_user_id).await;
-        let key = format!("rec:art:{sc_user_id}:{fp}:{artist_id}:{per_cluster}");
+        let key = format!("rec:art:{sc_user_id}:{fp}:{artist_id}:{per_cluster}:{hide_listened}");
         if let Some(cached) = self.cluster_cache_get(&key).await {
             return Ok(cached);
         }
-        let resp = self.artist_wave(artist_id, sc_user_id, per_cluster).await?;
+        let resp = self
+            .artist_wave(artist_id, sc_user_id, per_cluster, hide_listened)
+            .await?;
         let json =
             serde_json::to_string(&resp).unwrap_or_else(|_| String::from("{\"clusters\":[]}"));
         self.cluster_cache_put(&key, &json, CLUSTER_CACHE_TTL).await;

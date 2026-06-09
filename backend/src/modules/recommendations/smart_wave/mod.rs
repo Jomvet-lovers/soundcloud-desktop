@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 use crate::error::AppResult;
 use crate::modules::recommendations::clusters::recommend_id_str;
+use crate::modules::recommendations::service::util::user_id_variants;
 use crate::modules::recommendations::service::{RecommendResult, RecommendationsService};
 use crate::qdrant::collections;
 
@@ -69,6 +70,9 @@ pub struct SmartWaveRequest<'a> {
     pub limit: usize,
     pub cursor_token: Option<&'a str>,
     pub seed: SmartWaveSeed<'a>,
+    /// «Скрыть прослушанное» — тиерно режем недавно слушанное (лайк 7д ·
+    /// full_play 14д · skip 30д). false = не скрывать (только дедуп по курсору).
+    pub hide_listened: bool,
 }
 
 pub struct SmartWaveResponse {
@@ -80,7 +84,18 @@ pub async fn build(
     svc: &RecommendationsService,
     req: SmartWaveRequest<'_>,
 ) -> AppResult<SmartWaveResponse> {
-    let signals = signals::load_recent_signals(&svc.pg, req.sc_user_id).await?;
+    // Сигналы + (по тогглу) тиерный «скрыть прослушанное» — параллельно.
+    let (signals, hidden_listen) = tokio::join!(
+        signals::load_recent_signals(&svc.pg, req.sc_user_id),
+        async {
+            if req.hide_listened {
+                signals::load_hidden_by_listen(&svc.pg, &user_id_variants(req.sc_user_id)).await
+            } else {
+                Vec::new()
+            }
+        },
+    );
+    let signals = signals?;
 
     let (seed_kind, graph_seed) = match &req.seed {
         SmartWaveSeed::User => (SeedKind::User, GraphSeed::User),
@@ -101,7 +116,7 @@ pub async fn build(
         cursor::load_or_new(&svc.redis, owner, req.cursor_token, seed_kind, &seed_key).await;
 
     let mert_seeds_raw = pick_mert_seeds(&req.seed, &signals, &wave_cursor);
-    let exclude = build_exclude(&signals, &wave_cursor, &req.seed);
+    let exclude = build_exclude(&signals, &wave_cursor, &req.seed, &hidden_listen);
     let negative_raw = negative_ids_for_qdrant(&signals);
 
     // qdrant.recommend падает целиком, если хоть одна positive/negative точка не
@@ -296,6 +311,7 @@ pub async fn cluster_track_ids(
     languages: Option<&[String]>,
     seed: SmartWaveSeed<'_>,
     limit: usize,
+    hide_listened: bool,
 ) -> Vec<String> {
     let req = SmartWaveRequest {
         sc_user_id,
@@ -303,6 +319,7 @@ pub async fn cluster_track_ids(
         limit,
         cursor_token: None,
         seed,
+        hide_listened,
     };
     match build(svc, req).await {
         Ok(resp) => resp
@@ -318,8 +335,14 @@ pub async fn cluster_track_ids(
     }
 }
 
-fn build_exclude(signals: &UserSignals, cursor: &WaveCursor, seed: &SmartWaveSeed) -> Vec<String> {
-    let mut excl = signals.exclude_set();
+fn build_exclude(
+    signals: &UserSignals,
+    cursor: &WaveCursor,
+    seed: &SmartWaveSeed,
+    hidden_listen: &[String],
+) -> Vec<String> {
+    let mut excl = signals.always_exclude();
+    excl.extend(hidden_listen.iter().cloned());
     for t in cursor.seen_tracks.iter() {
         excl.push(t.to_string());
     }

@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AudioLines, Compass, Disc3, Headphones, playBlack14, Sparkles } from '../../../lib/icons';
 import { usePlayerStore } from '../../../stores/player';
+import { useSettingsStore } from '../../../stores/settings';
 import {
   ClusterEmptyState,
   type ClusterId,
@@ -38,13 +39,16 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
 }: Props) {
   const { t } = useTranslation();
   const trackId = useMemo(() => trackUrn.split(':').pop() ?? '', [trackUrn]);
+  const hideListened = useSettingsStore((s) => s.soundwaveHideListened);
 
   const { data, isLoading } = useClusterWave({
-    queryKey: ['cluster-wave', 'similar', trackId],
-    url: trackId ? `/recommendations/similar/${encodeURIComponent(trackId)}` : null,
+    queryKey: ['cluster-wave', 'similar', trackId, hideListened],
+    url: trackId
+      ? `/recommendations/similar/${encodeURIComponent(trackId)}?hide_listened=${hideListened ? '1' : '0'}`
+      : null,
   });
 
-    const clusters = useMemo(() => data?.clusters ?? [], [data]);
+  const clusters = useMemo(() => data?.clusters ?? [], [data]);
   const allTracks = useMemo(() => data?.allTracks ?? [], [data]);
 
   const orderedClusters = useMemo(() => {
@@ -63,6 +67,7 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
     seedId: trackId,
     initialTracks: waveCluster?.tracks ?? [],
     initialCursor: null,
+    hideListened,
   });
 
   const handlePlay = useCallback(() => {
