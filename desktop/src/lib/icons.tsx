@@ -6,75 +6,80 @@
  * 2) Pre-rendered JSX constants — referentially stable, zero cost on re-render.
  */
 import {
-  AlertCircle as _AlertCircle,
-  AudioLines as _AudioLines,
-  Calendar as _Calendar,
-  Check as _Check,
-  ChevronDown as _ChevronDown,
-  ChevronLeft as _ChevronLeft,
-  ChevronRight as _ChevronRight,
-  ChevronUp as _ChevronUp,
-  ClipboardCopy as _ClipboardCopy,
-  Clock as _Clock,
-  Cloud as _Cloud,
-  Compass as _Compass,
-  Database as _Database,
-  Disc3 as _Disc3,
-  Download as _Download,
-  ExternalLink as _ExternalLink,
-  Eye as _Eye,
-  Fullscreen as _Fullscreen,
-  Globe as _Globe,
-  GripVertical as _GripVertical,
-  Hash as _Hash,
-  Headphones as _Headphones,
-  Heart as _Heart,
-  Home as _Home,
-  Library as _Library,
-  Link as _Link,
-  Link2 as _Link2,
-  ListMusic as _ListMusic,
-  ListPlus as _ListPlus,
-  Loader2 as _Loader2,
-  Lock as _Lock,
-  MapPin as _MapPin,
-  MessageCircle as _MessageCircle,
-  MicVocal as _MicVocal,
-  Minus as _Minus,
-  Music as _Music,
-  PanelLeftClose as _PanelLeftClose,
-  PanelLeftOpen as _PanelLeftOpen,
-  Pause as _Pause,
-  Play as _Play,
-  Plus as _Plus,
-  Power as _Power,
-  RefreshCw as _RefreshCw,
-  Repeat as _Repeat,
-  Repeat1 as _Repeat1,
-  Repeat2 as _Repeat2,
-  RotateCcw as _RotateCcw,
-  Search as _Search,
-  Send as _Send,
-  Settings as _Settings,
-  Shuffle as _Shuffle,
-  SkipBack as _SkipBack,
-  SkipForward as _SkipForward,
-  SlidersHorizontal as _SlidersHorizontal,
-  Smartphone as _Smartphone,
-  Sparkles as _Sparkles,
-  Square as _Square,
-  Star as _Star,
-  ThumbsDown as _ThumbsDown,
-  Trash2 as _Trash2,
-  User as _User,
-  Users as _Users,
-  Volume1 as _Volume1,
-  Volume2 as _Volume2,
-  VolumeX as _VolumeX,
-  X as _X,
+    AlertCircle as _AlertCircle,
+    ArrowDownToLine as _ArrowDownToLine,
+    AudioLines as _AudioLines,
+    Calendar as _Calendar,
+    Check as _Check,
+    ChevronDown as _ChevronDown,
+    ChevronLeft as _ChevronLeft,
+    ChevronRight as _ChevronRight,
+    ChevronUp as _ChevronUp,
+    ClipboardCopy as _ClipboardCopy,
+    Clock as _Clock,
+    Cloud as _Cloud,
+    Compass as _Compass,
+    Database as _Database,
+    Disc3 as _Disc3,
+    Download as _Download,
+    ExternalLink as _ExternalLink,
+    Eye as _Eye,
+    FileDown as _FileDown,
+    Flame as _Flame,
+    Fullscreen as _Fullscreen,
+    Globe as _Globe,
+    GripVertical as _GripVertical,
+    Hash as _Hash,
+    Headphones as _Headphones,
+    Heart as _Heart,
+    Home as _Home,
+    Library as _Library,
+    Link as _Link,
+    Link2 as _Link2,
+    ListMusic as _ListMusic,
+    ListPlus as _ListPlus,
+    Loader2 as _Loader2,
+    Lock as _Lock,
+    MapPin as _MapPin,
+    MessageCircle as _MessageCircle,
+    MicVocal as _MicVocal,
+    Minus as _Minus,
+    Music as _Music,
+    PanelLeftClose as _PanelLeftClose,
+    PanelLeftOpen as _PanelLeftOpen,
+    Pause as _Pause,
+    Play as _Play,
+    Plus as _Plus,
+    Power as _Power,
+    RefreshCw as _RefreshCw,
+    Repeat as _Repeat,
+    Repeat1 as _Repeat1,
+    Repeat2 as _Repeat2,
+    RotateCcw as _RotateCcw,
+    Search as _Search,
+    Send as _Send,
+    Settings as _Settings,
+    Shuffle as _Shuffle,
+    SkipBack as _SkipBack,
+    SkipForward as _SkipForward,
+    SlidersHorizontal as _SlidersHorizontal,
+    Smartphone as _Smartphone,
+    Sparkles as _Sparkles,
+    Square as _Square,
+    Star as _Star,
+    ThumbsDown as _ThumbsDown,
+    Trash2 as _Trash2,
+    User as _User,
+    Users as _Users,
+    Volume1 as _Volume1,
+    Volume2 as _Volume2,
+    VolumeX as _VolumeX,
+    Wifi as _Wifi,
+    WifiOff as _WifiOff,
+    X as _X,
 } from 'lucide-react';
-import { memo } from 'react';
-import { siInstagram, siX, siYoutube } from 'simple-icons';
+import {memo} from 'react';
+import {siInstagram, siX, siYoutube} from 'simple-icons';
 
 // ── Simple Icons (brand icons, replaces deprecated lucide brands) ──
 const SimpleIcon = memo(
@@ -95,7 +100,12 @@ const SimpleIcon = memo(
 
 // ── Memo-wrapped icon components ────────────────────────────
 export const AlertCircle = memo(_AlertCircle);
+export const ArrowDownToLine = memo(_ArrowDownToLine);
 export const Calendar = memo(_Calendar);
+export const FileDown = memo(_FileDown);
+export const Flame = memo(_Flame);
+export const Wifi = memo(_Wifi);
+export const WifiOff = memo(_WifiOff);
 export const Check = memo(_Check);
 export const ClipboardCopy = memo(_ClipboardCopy);
 export const Download = memo(_Download);
@@ -216,22 +226,22 @@ export const repeatIcon16 = <_Repeat size={16} />;
 export const repeat1Icon16 = <_Repeat1 size={16} />;
 // A-B segment loop: brackets framing a small loop arrow (a bounded repeat).
 export const repeatAbIcon16 = (
-    <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-    >
-        <path d="M8 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h2"/>
-        <path d="M16 4h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2"/>
-        <path d="M14.5 10.5a3 3 0 1 0 .4 4"/>
-        <path d="M15 8v3h-3"/>
-    </svg>
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M8 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h2" />
+    <path d="M16 4h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2" />
+    <path d="M14.5 10.5a3 3 0 1 0 .4 4" />
+    <path d="M15 8v3h-3" />
+  </svg>
 );
 
 // Volume

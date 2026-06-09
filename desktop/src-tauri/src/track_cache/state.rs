@@ -322,6 +322,25 @@ impl TrackCacheEntry {
     }
 }
 
+/// One row of the offline page's batched cache inventory: everything the UI
+/// needs about a cached file in a single IPC round-trip.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheInventoryEntry {
+    pub urn: String,
+    pub bytes: u64,
+    /// "clean" = transcoded m4a in Б, "raw" = staged in А awaiting transcode.
+    pub stage: &'static str,
+    pub liked: bool,
+    pub quality: Option<String>,
+    pub source: Option<String>,
+    /// Probed length (ms) of the committed clean file; absent for raw/legacy files.
+    pub duration_ms: Option<u64>,
+    pub expected_duration_ms: Option<u64>,
+    /// Last modification, epoch seconds.
+    pub modified_at: Option<u64>,
+}
+
 /// Live snapshot of the А→Б transcode pipeline for the Settings UI.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -333,6 +352,8 @@ pub struct TranscodeStatus {
     pub incoming_bytes: u64,
     /// Transcodes in flight right now.
     pub transcoding: u32,
+    /// URNs being forged right now, for per-row UI state.
+    pub transcoding_urns: Vec<String>,
     /// Clean m4a files in Б (audio + liked).
     pub clean: u32,
     pub clean_bytes: u64,
@@ -968,16 +989,17 @@ impl TrackCacheState {
         let (incoming, incoming_bytes) = dir_stats(&self.incoming_dir);
         let (audio_count, audio_bytes) = dir_stats(&self.audio_dir);
         let (liked_count, liked_bytes) = dir_stats(&self.liked_dir);
-        let transcoding = self
+        let transcoding_urns: Vec<String> = self
             .transcoding
             .lock()
-            .map(|s| s.len() as u32)
-            .unwrap_or(0);
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default();
         TranscodeStatus {
             ffmpeg,
             incoming,
             incoming_bytes,
-            transcoding,
+            transcoding: transcoding_urns.len() as u32,
+            transcoding_urns,
             clean: audio_count + liked_count,
             clean_bytes: audio_bytes + liked_bytes,
         }
@@ -2167,6 +2189,61 @@ impl TrackCacheState {
             collect_cached_urns(dir, &mut seen, &mut urns);
         }
         urns
+    }
+
+    /// Batched per-track snapshot across Б (liked + audio) and А. Clean dirs are
+    /// scanned first so a track mid-promotion (raw kept for the grace window)
+    /// reports its clean entry.
+    pub fn cache_inventory(&self) -> Vec<CacheInventoryEntry> {
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut out = Vec::new();
+        for (dir, stage, in_liked_dir) in [
+            (&self.liked_dir, "clean", true),
+            (&self.audio_dir, "clean", false),
+            (&self.incoming_dir, "raw", false),
+        ] {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !is_audio_cache_file(&path) {
+                    continue;
+                }
+                let Some(urn) = filename_to_urn(&entry.file_name().to_string_lossy()) else {
+                    continue;
+                };
+                let Ok(fs_meta) = entry.metadata() else {
+                    continue;
+                };
+                if !fs_meta.is_file() || fs_meta.len() < MIN_AUDIO_SIZE {
+                    continue;
+                }
+                if !seen.insert(urn.clone()) {
+                    continue;
+                }
+                let modified_at = fs_meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs());
+                let meta = read_cache_metadata(&path);
+                out.push(CacheInventoryEntry {
+                    urn,
+                    bytes: fs_meta.len(),
+                    stage,
+                    liked: in_liked_dir || meta.as_ref().map(|m| m.liked).unwrap_or(false),
+                    quality: meta.as_ref().map(|m| m.quality.label().to_string()),
+                    source: meta
+                        .as_ref()
+                        .and_then(|m| m.source.map(|s| s.label().to_string())),
+                    duration_ms: meta.as_ref().and_then(|m| m.duration_ms),
+                    expected_duration_ms: meta.as_ref().and_then(|m| m.expected_duration_ms),
+                    modified_at,
+                });
+            }
+        }
+        out
     }
 
     pub fn enforce_limit(&self, limit_mb: u64) {

@@ -1,0 +1,199 @@
+//! Данные офлайн-страницы: офлайн-индекс (метаданные) + батч-инвентарь файлов
+//! (Rust) + живой прогресс докачек. Один IPC-вызов на список, никакого
+//! по-трекового дёрганья моста.
+
+import {listen} from '@tauri-apps/api/event';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {type CacheInventoryEntry, getCacheInventory, removeCachedTrack} from '../../lib/cache';
+import {fetchAllLikedTracks} from '../../lib/hooks';
+import {getCacheOrder, getOfflineLikedTracks, getOfflineTracksByUrns, saveCacheOrder,} from '../../lib/offline-index';
+import {useAppStatusStore} from '../../stores/app-status';
+import type {Track} from '../../stores/player';
+import {buildCachedEntries, buildLikesEntries} from './lib';
+
+const DOWNLOADS_FLUSH_MS = 250;
+const INVENTORY_REFRESH_DEBOUNCE_MS = 1500;
+
+export function useOfflineLibrary() {
+  const appMode = useAppStatusStore((s) =>
+    s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
+  );
+  const [loading, setLoading] = useState(true);
+  const [likedTracks, setLikedTracks] = useState<Track[]>([]);
+  const [inventory, setInventory] = useState<CacheInventoryEntry[]>([]);
+  const [resolvedTracks, setResolvedTracks] = useState<Track[]>([]);
+  const [cacheOrder, setCacheOrder] = useState<string[]>([]);
+  const [downloads, setDownloads] = useState<Record<string, number>>({});
+  const bgFetchDone = useRef(false);
+  const disposed = useRef(false);
+
+  const refreshInventory = useCallback(async () => {
+    try {
+      const inv = await getCacheInventory();
+      const tracks = await getOfflineTracksByUrns(inv.map((e) => e.urn));
+      if (disposed.current) return;
+      setInventory(inv);
+      setResolvedTracks(tracks);
+      // Файл в инвентаре = докачка завершена; чистим прогресс даже если
+      // финальное событие не дошло до 1.0.
+      const landed = new Set(inv.map((e) => e.urn));
+      setDownloads((prev) => {
+        const stale = Object.keys(prev).filter((urn) => landed.has(urn));
+        if (stale.length === 0) return prev;
+        const next = { ...prev };
+        for (const urn of stale) delete next[urn];
+        return next;
+      });
+    } catch (error) {
+      console.warn('[Offline] Failed to refresh inventory:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    disposed.current = false;
+    const load = async () => {
+      try {
+        const [liked, order] = await Promise.all([getOfflineLikedTracks(), getCacheOrder()]);
+        if (disposed.current) return;
+        setLikedTracks(liked);
+        setCacheOrder(order);
+        await refreshInventory();
+      } catch (error) {
+        console.warn('[Offline] Failed to load local library:', error);
+      } finally {
+        if (!disposed.current) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      disposed.current = true;
+    };
+  }, [refreshInventory]);
+
+  // Онлайн: дотягиваем полный список лайков с бэка (он же синкает офлайн-индекс).
+  useEffect(() => {
+    if (appMode !== 'online' || bgFetchDone.current) return;
+    let cancelled = false;
+    void fetchAllLikedTracks()
+      .then((allLikes) => {
+        bgFetchDone.current = true;
+        if (!cancelled) setLikedTracks(allLikes);
+      })
+      .catch(() => {
+        // Офлайн-режим продолжает жить на локальном индексе.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appMode]);
+
+  // Живой прогресс докачек: копим в ref, флашим в стейт не чаще 4 Гц; докачанный
+  // файл с задержкой подтягивает свежий инвентарь.
+  useEffect(() => {
+    const pending = new Map<string, number>();
+    let flushTimer: number | null = null;
+    let refreshTimer: number | null = null;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    const flush = () => {
+      flushTimer = null;
+      if (pending.size === 0) return;
+      const finished = [...pending.entries()].some(([, p]) => p >= 1);
+      setDownloads((prev) => {
+        const next = { ...prev };
+        for (const [urn, p] of pending) {
+          if (p >= 1) delete next[urn];
+          else next[urn] = p;
+        }
+        return next;
+      });
+      pending.clear();
+      if (finished) {
+        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(
+          () => void refreshInventory(),
+          INVENTORY_REFRESH_DEBOUNCE_MS,
+        );
+      }
+    };
+
+    void listen<{ urn: string; progress: number }>('track:download-progress', (event) => {
+      pending.set(event.payload.urn, event.payload.progress);
+      if (flushTimer === null) flushTimer = window.setTimeout(flush, DOWNLOADS_FLUSH_MS);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      if (flushTimer !== null) window.clearTimeout(flushTimer);
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    };
+  }, [refreshInventory]);
+
+  const removeCached = useCallback(async (urn: string) => {
+    try {
+      await removeCachedTrack(urn);
+    } catch (error) {
+      console.warn('[Offline] Failed to remove cached track:', error);
+      return;
+    }
+    setInventory((prev) => prev.filter((e) => e.urn !== urn));
+  }, []);
+
+  const reorderCached = useCallback((urns: string[]) => {
+    setCacheOrder(urns);
+    void saveCacheOrder(urns);
+  }, []);
+
+  const invByUrn = useMemo(() => new Map(inventory.map((e) => [e.urn, e])), [inventory]);
+  const trackByUrn = useMemo(() => {
+    const map = new Map(resolvedTracks.map((t) => [t.urn, t]));
+    for (const track of likedTracks) map.set(track.urn, track);
+    return map;
+  }, [resolvedTracks, likedTracks]);
+
+  const likesEntries = useMemo(
+    () => buildLikesEntries(likedTracks, invByUrn),
+    [likedTracks, invByUrn],
+  );
+  const cachedEntries = useMemo(
+    () => buildCachedEntries(inventory, trackByUrn),
+    [inventory, trackByUrn],
+  );
+
+  const stats = useMemo(() => {
+    let totalBytes = 0;
+    let likedBytes = 0;
+    let rawCount = 0;
+    for (const e of inventory) {
+      totalBytes += e.bytes;
+      if (e.liked) likedBytes += e.bytes;
+      if (e.stage === 'raw') rawCount += 1;
+    }
+    return {
+      likedCount: likedTracks.length,
+      likedCachedCount: likedTracks.reduce((n, t) => n + (invByUrn.has(t.urn) ? 1 : 0), 0),
+      cachedCount: inventory.length,
+      totalBytes,
+      likedBytes,
+      rawCount,
+    };
+  }, [inventory, invByUrn, likedTracks]);
+
+  return {
+    loading,
+    appMode,
+    likesEntries,
+    cachedEntries,
+    cacheOrder,
+    downloads,
+    stats,
+    removeCached,
+    reorderCached,
+    refreshInventory,
+  };
+}

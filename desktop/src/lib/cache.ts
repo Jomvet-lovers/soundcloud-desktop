@@ -42,6 +42,8 @@ export interface TranscodeStatus {
   incomingBytes: number;
   /** Transcodes running right now. */
   transcoding: number;
+  /** URNs being forged right now, for per-row UI state. */
+  transcodingUrns: string[];
   /** Clean m4a files in folder Б (regular + liked). */
   clean: number;
   cleanBytes: number;
@@ -55,9 +57,9 @@ export function getTranscodeStatus(): Promise<TranscodeStatus> {
  *  API duration used to detect truncated downloads). `durationMs` is the track's
  *  API-reported length in milliseconds. */
 async function buildCacheRequest(urn: string, hq: boolean, durationMs?: number) {
-  const {buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId} = await import(
-      './api'
-      );
+  const { buildStorageUrls, downloadFallbackUrls, streamFallbackUrls, getSessionId } = await import(
+    './api'
+  );
   return {
     urn,
     urls: streamFallbackUrls(urn, hq),
@@ -80,7 +82,7 @@ export async function ensureTrackCached(
   }
 
   const request = await buildCacheRequest(urn, highQualityStreaming, durationMs);
-  return invoke<TrackCacheInfo>('track_ensure_cached', {request});
+  return invoke<TrackCacheInfo>('track_ensure_cached', { request });
 }
 
 export function getCacheSize(): Promise<number> {
@@ -107,6 +109,27 @@ export function listCachedUrns(): Promise<string[]> {
   return invoke<string[]>('track_list_cached');
 }
 
+/** One row of the batched offline-page inventory (Rust `CacheInventoryEntry`):
+ *  per-track file facts in a single IPC round-trip. */
+export interface CacheInventoryEntry {
+  urn: string;
+  bytes: number;
+  /** "clean" = transcoded m4a (Б), "raw" = staged for transcode (А). */
+  stage: 'clean' | 'raw';
+  liked: boolean;
+  quality: PlaybackQuality | null;
+  source: PlaybackSource | null;
+  /** Probed length of the clean file (ms); null for raw/legacy files. */
+  durationMs: number | null;
+  expectedDurationMs: number | null;
+  /** Last modification, epoch seconds. */
+  modifiedAt: number | null;
+}
+
+export function getCacheInventory(): Promise<CacheInventoryEntry[]> {
+  return invoke<CacheInventoryEntry[]>('track_cache_inventory');
+}
+
 export interface LikeCacheEntry {
   urn: string;
   urls: string[];
@@ -114,6 +137,8 @@ export interface LikeCacheEntry {
   storageUrls: string[];
   sessionId: string | null;
   hq: boolean;
+  /** API track length (ms) — enables truncated-download detection in Rust. */
+  durationMs?: number;
 }
 
 export function cacheLikedTracks(entries: LikeCacheEntry[]): Promise<void> {
@@ -209,7 +234,7 @@ function extensionFromType(mime: string): string {
  *  Идём через локальный прокси в режиме `direct` — он фетчит с браузерным UA
  *  (Wallhaven/Konachan 403-ят не-браузер), webview-fetch так не умеет. */
 export async function downloadWallpaper(url: string): Promise<string> {
-  const res = await tauriFetch(toScproxyUrl(url, {direct: true}));
+  const res = await tauriFetch(toScproxyUrl(url, { direct: true }));
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   const ct = res.headers.get('content-type') ?? 'image/jpeg';
   const ext = extensionFromType(ct);
@@ -290,10 +315,10 @@ export interface DownloadTrackOptions {
 /** Download-to-file: writes a clean m4a (transcoding/fetching as needed) with
  *  the cover art embedded. Rust resolves the clean cache → raw cache → stream. */
 export async function downloadTrack(
-    urn: string,
-    artist: string,
-    title: string,
-    options: DownloadTrackOptions = {},
+  urn: string,
+  artist: string,
+  title: string,
+  options: DownloadTrackOptions = {},
 ): Promise<string> {
   const { save } = await import('@tauri-apps/plugin-dialog');
 
@@ -301,7 +326,7 @@ export async function downloadTrack(
 
   const dest = await save({
     defaultPath: filename,
-    filters: [{name: 'Audio', extensions: ['m4a']}],
+    filters: [{ name: 'Audio', extensions: ['m4a'] }],
   });
   if (!dest) throw new Error('cancelled');
 

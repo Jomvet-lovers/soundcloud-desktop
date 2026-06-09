@@ -1,5 +1,5 @@
-import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
-import type { Track } from '../stores/player';
+import {BaseDirectory, exists, mkdir, readTextFile, writeTextFile} from '@tauri-apps/plugin-fs';
+import type {Track} from '../stores/player';
 
 const BASE_DIR = BaseDirectory.AppData;
 const INDEX_PATH = 'offline-index.json';
@@ -8,12 +8,15 @@ interface OfflineIndex {
   likedUrns: string[];
   tracksByUrn: Record<string, Track>;
   updatedAt: number | null;
+  /** User-arranged order of the cached list ("Свой порядок" sort mode). */
+  cacheOrder: string[];
 }
 
 const EMPTY_INDEX: OfflineIndex = {
   likedUrns: [],
   tracksByUrn: {},
   updatedAt: null,
+  cacheOrder: [],
 };
 
 let indexCache: OfflineIndex | null = null;
@@ -49,6 +52,7 @@ async function readIndexFile(): Promise<OfflineIndex> {
       likedUrns: Array.isArray(parsed.likedUrns) ? parsed.likedUrns : [],
       tracksByUrn: parsed.tracksByUrn ?? {},
       updatedAt: parsed.updatedAt ?? null,
+      cacheOrder: Array.isArray(parsed.cacheOrder) ? parsed.cacheOrder : [],
     };
   } catch {
     return EMPTY_INDEX;
@@ -135,4 +139,15 @@ export async function getOfflineTracksByUrns(urns: string[]) {
 export async function getOfflineIndexUpdatedAt() {
   const index = await loadIndex();
   return index.updatedAt;
+}
+
+export async function getCacheOrder(): Promise<string[]> {
+  const index = await loadIndex();
+  return index.cacheOrder;
+}
+
+export async function saveCacheOrder(urns: string[]) {
+  const index = await loadIndex();
+  index.cacheOrder = urns;
+  schedulePersist();
 }

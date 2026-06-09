@@ -1,7 +1,8 @@
 use tauri::State;
 
 use crate::track_cache::state::{
-    CacheRequest, LikeCacheEntry, TrackCacheEntry, TrackCacheState, TranscodeStatus,
+    CacheInventoryEntry, CacheRequest, LikeCacheEntry, TrackCacheEntry, TrackCacheState,
+    TranscodeStatus,
 };
 
 #[derive(serde::Deserialize)]
@@ -214,6 +215,11 @@ pub fn track_clear_liked_cache(state: State<'_, TrackCacheState>) {
 #[tauri::command]
 pub fn track_list_cached(state: State<'_, TrackCacheState>) -> Vec<String> {
     state.list_cached_urns()
+}
+
+#[tauri::command]
+pub fn track_cache_inventory(state: State<'_, TrackCacheState>) -> Vec<CacheInventoryEntry> {
+    state.cache_inventory()
 }
 
 #[tauri::command]
