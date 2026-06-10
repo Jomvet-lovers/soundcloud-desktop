@@ -23,7 +23,9 @@ pub async fn search(
         _ => cleaned_title.to_string(),
     };
 
-    let candidates = genius.search_song_meta(&q, 5).await;
+    // Err = Genius недоступен (оба канала) — пробрасываем: caller не должен
+    // путать это с «песни нет» и сваливаться в heuristic.
+    let candidates = genius.search_song_meta(&q, 5).await?;
     if candidates.is_empty() {
         return Ok(None);
     }
@@ -110,13 +112,11 @@ fn into_result(
         confidence,
         primary,
         featured,
-        producers: Vec::new(),
-        remixers: Vec::new(),
         album,
         isrc,
         release_date,
         release_year,
-        is_cover: false,
+        ..Default::default()
     }
 }
 

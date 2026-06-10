@@ -33,7 +33,7 @@ SELECT urn,
 FROM playlists
 WHERE sharing = 'public'
   AND (
-    title_normalized LIKE $1
+    title_normalized LIKE $4
         OR LOWER(title) LIKE $1
         OR LOWER(owner_username) LIKE $1
     )

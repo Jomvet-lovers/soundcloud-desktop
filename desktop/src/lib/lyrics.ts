@@ -1,4 +1,4 @@
-import { api } from './api';
+import {api} from './api';
 
 export type LyricsSource = 'lrclib' | 'musixmatch' | 'genius' | 'netease' | 'self_gen' | 'none';
 
@@ -34,19 +34,6 @@ export function parseLRC(lrc: string): LyricLine[] {
     if (text) lines.push({ time, text });
   }
   return lines;
-}
-
-/** Parse "Artist - Title" from a combined string */
-export function splitArtistTitle(raw: string): [string, string] | null {
-  for (const sep of [' - ', ' – ', ' — ', ' // ']) {
-    const idx = raw.indexOf(sep);
-    if (idx > 0) {
-      const artist = raw.slice(0, idx).trim();
-      const title = raw.slice(idx + sep.length).trim();
-      if (artist && title) return [artist, title];
-    }
-  }
-  return null;
 }
 
 function toResult(data: BackendLyricsResponse | null): LyricsResult | null {

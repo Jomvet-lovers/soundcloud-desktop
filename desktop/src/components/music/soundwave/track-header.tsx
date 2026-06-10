@@ -1,12 +1,12 @@
-import React, { useEffect, useRef } from 'react';
-import { getCurrentTime, getDuration, subscribe } from '../../../lib/audio';
-import { art, dur } from '../../../lib/formatters';
-import { pauseBlack14, playBlack14 } from '../../../lib/icons';
-import { useAutoHide } from '../../../lib/useAutoHide';
-import { useTrackPlay } from '../../../lib/useTrackPlay';
-import type { Track } from '../../../stores/player';
+import React, {useEffect, useRef} from 'react';
+import {getCurrentTime, getDuration, subscribe} from '../../../lib/audio';
+import {art, dur} from '../../../lib/formatters';
+import {pauseBlack14, playBlack14} from '../../../lib/icons';
+import {useAutoHide} from '../../../lib/useAutoHide';
+import {useTrackPlay} from '../../../lib/useTrackPlay';
+import type {Track} from '../../../stores/player';
 import {sameScdMeta, TrackStatusBadges} from '../TrackStatusBadges';
-import { TrackTitleArtist } from '../TrackTitleArtist';
+import {TrackTitleArtist} from '../TrackTitleArtist';
 
 function formatMMSS(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) sec = 0;
@@ -87,9 +87,9 @@ export const WaveTrackHeader = React.memo(
 
         <TrackTitleArtist track={track} highlight={isCurrent} size="md" />
 
-          <div className="shrink-0">
-              <TrackStatusBadges meta={track._scd_meta}/>
-          </div>
+        <div className="shrink-0">
+          <TrackStatusBadges meta={track._scd_meta} />
+        </div>
 
         {isCurrent ? (
           <CurrentTimeDisplay />
@@ -101,8 +101,10 @@ export const WaveTrackHeader = React.memo(
       </div>
     );
   },
-    (prev, next) =>
-        prev.track.urn === next.track.urn &&
-        prev.isCurrent === next.isCurrent &&
-        sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
+  (prev, next) =>
+    prev.track.urn === next.track.urn &&
+    prev.isCurrent === next.isCurrent &&
+    prev.track.title === next.track.title &&
+    prev.track.enrichment === next.track.enrichment &&
+    sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );

@@ -12,7 +12,7 @@ use crate::modules::enrich::ai::AiResolverClient;
 use crate::modules::enrich::coplay;
 use crate::modules::enrich::mb::MbClient;
 use crate::modules::enrich::persist;
-use crate::modules::enrich::resolver::{resolve, ResolveSource, ResolverDeps, TrackContext};
+use crate::modules::enrich::resolver::{self, ResolveSource, ResolverDeps};
 use crate::modules::enrich::source::EnrichSource;
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::work::{self, Kicker, SchedulerPolicy};
@@ -151,61 +151,35 @@ impl EnrichService {
         let Some(track) = track_row else {
             return Ok(());
         };
-        let id = track.id;
-        let ctx = TrackContext::from_row(&track);
 
-        let mut result = if let Some(fast) = self.try_sc_verified(&ctx).await? {
-            // Verified-клейм даёт только владельца аккаунта — co-авторов из
-            // разметки ("мокери, psychosis - …") и меты ("takizava & dekma")
-            // добираем тем же путём, что и для внешних источников.
-            crate::modules::enrich::resolver::enrich_with_local_signals(fast, &ctx)
-        } else {
-            resolve(&ctx, &self.deps).await?
-        };
-
+        let result = resolver::resolve_track(&track, &self.deps).await?;
         if result.primary.is_empty() {
             return Err(AppError::internal(format!(
                 "no primary artist resolved for {sc_track_id}"
             )));
         }
-
-        if matches!(result.source, ResolveSource::Heuristic) {
-            if let Some(ai) = self.deps.ai.as_ref() {
-                let primary_name = result.primary.first().map(|a| a.name.clone());
-                if let Some(name) = primary_name {
-                    let title_q = if ctx.title.contains(" - ") {
-                        ctx.title
-                            .split(" - ")
-                            .last()
-                            .unwrap_or(&ctx.title)
-                            .trim()
-                            .to_string()
-                    } else {
-                        ctx.title.clone()
-                    };
-                    match ai.verify_existence(&name, &title_q).await {
-                        Ok(Some(true)) => {
-                            result.confidence = result.confidence.max(0.4);
-                        }
-                        Ok(Some(false)) => {
-                            result.confidence = result.confidence.min(0.05);
-                        }
-                        _ => {}
-                    }
-                }
+        // Каскад деградировал из-за транзиентного отказа источника, а прошлый
+        // результат сильнее нового — не даунгрейдим (persist не зовём, старые
+        // связи целы), отдаём трек в ретрай по бэкоффу.
+        if result.degraded {
+            let prev_source = track.enrich_source.as_deref().unwrap_or("");
+            if ResolveSource::priority_of(prev_source) > result.source.priority() {
+                return Err(AppError::internal(format!(
+                    "transient source failure; keeping prior '{prev_source}' enrichment"
+                )));
             }
         }
 
         let outcome = persist::apply(
             &self.pg,
-            id,
+            track.id,
             &result,
-            ctx.uploader_sc_user_id.as_deref(),
-            ctx.uploader_username.as_deref(),
+            track.uploader_sc_user_id.as_deref(),
+            track.uploader_username.as_deref(),
         )
         .await?;
         if outcome.coplay_dirty {
-            if let Err(e) = coplay::recompute_for_track(&self.pg, id).await {
+            if let Err(e) = coplay::recompute_for_track(&self.pg, track.id).await {
                 warn!(track = %sc_track_id, error = %e, "coplay recompute failed");
             }
         }
@@ -218,89 +192,5 @@ impl EnrichService {
             "enriched"
         );
         Ok(())
-    }
-
-    async fn try_sc_verified(
-        &self,
-        ctx: &TrackContext,
-    ) -> AppResult<Option<crate::modules::enrich::resolver::ResolveResult>> {
-        let Some(uploader_sc_id) = ctx.uploader_sc_user_id.as_deref() else {
-            return Ok(None);
-        };
-        if uploader_sc_id.is_empty() {
-            return Ok(None);
-        }
-        let row = sqlx::query_file!(
-            "queries/enrich/service/sc_verified_artist.sql",
-            uploader_sc_id
-        )
-        .fetch_optional(&self.pg)
-        .await?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        let name = row.name;
-        let mb_id = row.mb_artist_id;
-        let genius_id = row.genius_artist_id;
-
-        let parsed = crate::modules::enrich::normalize::parse_sc_title(
-            &ctx.title,
-            ctx.uploader_username.as_deref(),
-        );
-        let mapped_norm = crate::modules::enrich::normalize::normalize_name(&name);
-        let title_claims_other = parsed
-            .primary_artists
-            .first()
-            .map(|p| crate::modules::enrich::normalize::normalize_name(p) != mapped_norm)
-            .unwrap_or(false);
-        if title_claims_other {
-            debug!(
-                uploader_sc_id,
-                mapped = %name,
-                parsed = ?parsed.primary_artists,
-                "sc_verified skipped: title claims different artist"
-            );
-            return Ok(None);
-        }
-        // Живая мета, в которой артиста нет — трек чужой ("DISTORTED DREAMS"
-        // c метой "frxchtzwxrg & m∞nflower" на аккаунте Zemix). Не клеймим,
-        // пусть полный resolver решает по мете/разметке.
-        if let Some(meta) = ctx.metadata_artist.as_deref() {
-            let meta_names = crate::modules::enrich::artist_names::meta_artist_names(meta);
-            if !meta_names.is_empty()
-                && !crate::modules::enrich::artist_names::name_in(
-                    &name,
-                    meta_names.iter().map(|s| s.as_str()),
-                )
-            {
-                debug!(
-                    uploader_sc_id,
-                    mapped = %name,
-                    ?meta_names,
-                    "sc_verified skipped: metadata names other artists"
-                );
-                return Ok(None);
-            }
-        }
-
-        use crate::modules::enrich::resolver::{ArtistCandidate, ResolveResult, ResolveSource};
-        Ok(Some(ResolveResult {
-            source: ResolveSource::ScVerified,
-            confidence: 1.0,
-            primary: vec![ArtistCandidate {
-                name,
-                mb_id,
-                genius_id,
-                sc_user_id: Some(uploader_sc_id.to_string()),
-            }],
-            featured: Vec::new(),
-            producers: Vec::new(),
-            remixers: Vec::new(),
-            album: None,
-            isrc: ctx.isrc.clone(),
-            release_date: None,
-            release_year: None,
-            is_cover: false,
-        }))
     }
 }

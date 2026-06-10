@@ -33,6 +33,6 @@ SELECT urn,
 FROM playlists
 WHERE owner_sc_user_id = $1
   AND sharing = 'public'
-  AND (title_normalized LIKE $2 OR LOWER(title) LIKE $2)
+  AND (title_normalized LIKE $5 OR LOWER(title) LIKE $2)
 ORDER BY likes_count_sc DESC NULLS LAST, sc_synced_at DESC, urn DESC LIMIT $3
 OFFSET $4

@@ -560,77 +560,32 @@ impl GeniusService {
         })
     }
 
-    pub async fn search_song_meta(&self, q: &str, limit: usize) -> Vec<GeniusSongMeta> {
+    /// Мета песни: api.genius.com (с токеном) → фолбэк web /search/multi.
+    /// `Err` = ОБА канала отказали транспортно/распарсились мусором — caller
+    /// обязан отличать «Genius не знает песню» (Ok(пусто)) от «Genius
+    /// недоступен», иначе enrich тихо деградирует в heuristic.
+    pub async fn search_song_meta(&self, q: &str, limit: usize) -> AppResult<Vec<GeniusSongMeta>> {
+        let mut transport: Option<AppError> = None;
         if self.has_token() {
-            let api_hits = self.api_search(q, limit).await;
-            if !api_hits.is_empty() {
-                return api_hits;
+            let url = self.api(&format!("/search?q={}", urlencoding::encode(q)));
+            match self
+                .fetch_json_strict::<ApiSearchResp>(&url, "api-search")
+                .await
+            {
+                Ok(parsed) => {
+                    let hits = map_api_song_hits(parsed, limit);
+                    if !hits.is_empty() {
+                        return Ok(hits);
+                    }
+                }
+                Err(e) => transport = Some(e),
             }
         }
-        let Some(data) = self.fetch_web_search(q).await else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let sections = data.response.as_ref().and_then(|r| r.sections.as_ref());
-        if let Some(secs) = sections {
-            for section in secs {
-                if section.type_ != "song" {
-                    continue;
-                }
-                let Some(hits) = &section.hits else {
-                    continue;
-                };
-                for hit in hits.iter().take(limit) {
-                    let Some(result) = &hit.result else {
-                        continue;
-                    };
-                    let Some(title) = result.title.clone() else {
-                        continue;
-                    };
-                    let primary = result.primary_artist.as_ref().and_then(map_artist);
-                    let featured = result
-                        .featured_artists
-                        .as_deref()
-                        .map(|arr| arr.iter().filter_map(map_artist).collect())
-                        .unwrap_or_default();
-                    out.push(GeniusSongMeta {
-                        genius_song_id: result.id,
-                        title,
-                        primary_artist: primary,
-                        featured,
-                    });
-                }
-            }
+        let url = self.web_api(&format!("/search/multi?q={}", urlencoding::encode(q)));
+        match self.fetch_json_strict::<SearchResp>(&url, "search").await {
+            Ok(data) => Ok(map_web_song_hits(&data, limit)),
+            Err(e) => Err(transport.unwrap_or(e)),
         }
-        out
-    }
-
-    async fn api_search(&self, q: &str, limit: usize) -> Vec<GeniusSongMeta> {
-        let url = self.api(&format!("/search?q={}", urlencoding::encode(q)));
-        let parsed: ApiSearchResp = match self.fetch_json(&url, "api-search").await {
-            Some(d) => d,
-            None => return Vec::new(),
-        };
-        let hits = parsed.response.and_then(|r| r.hits).unwrap_or_default();
-        hits.into_iter()
-            .take(limit)
-            .filter_map(|h| {
-                let result = h.result?;
-                let title = result.title?;
-                let primary = result.primary_artist.as_ref().and_then(map_artist);
-                let featured = result
-                    .featured_artists
-                    .as_deref()
-                    .map(|arr| arr.iter().filter_map(map_artist).collect())
-                    .unwrap_or_default();
-                Some(GeniusSongMeta {
-                    genius_song_id: result.id,
-                    title,
-                    primary_artist: primary,
-                    featured,
-                })
-            })
-            .collect()
     }
 
     async fn fetch_web_search(&self, q: &str) -> Option<SearchResp> {
@@ -738,6 +693,60 @@ fn map_artist(a: &PrimaryArtist) -> Option<GeniusArtistRef> {
         genius_artist_id: a.id,
         name: name.to_string(),
     })
+}
+
+fn map_api_song_hits(parsed: ApiSearchResp, limit: usize) -> Vec<GeniusSongMeta> {
+    let hits = parsed.response.and_then(|r| r.hits).unwrap_or_default();
+    hits.into_iter()
+        .take(limit)
+        .filter_map(|h| {
+            let result = h.result?;
+            let title = result.title?;
+            let primary = result.primary_artist.as_ref().and_then(map_artist);
+            let featured = result
+                .featured_artists
+                .as_deref()
+                .map(|arr| arr.iter().filter_map(map_artist).collect())
+                .unwrap_or_default();
+            Some(GeniusSongMeta {
+                genius_song_id: result.id,
+                title,
+                primary_artist: primary,
+                featured,
+            })
+        })
+        .collect()
+}
+
+fn map_web_song_hits(data: &SearchResp, limit: usize) -> Vec<GeniusSongMeta> {
+    let mut out = Vec::new();
+    let sections = data.response.as_ref().and_then(|r| r.sections.as_ref());
+    let Some(secs) = sections else { return out };
+    for section in secs {
+        if section.type_ != "song" {
+            continue;
+        }
+        let Some(hits) = &section.hits else { continue };
+        for hit in hits.iter().take(limit) {
+            let Some(result) = &hit.result else { continue };
+            let Some(title) = result.title.clone() else {
+                continue;
+            };
+            let primary = result.primary_artist.as_ref().and_then(map_artist);
+            let featured = result
+                .featured_artists
+                .as_deref()
+                .map(|arr| arr.iter().filter_map(map_artist).collect())
+                .unwrap_or_default();
+            out.push(GeniusSongMeta {
+                genius_song_id: result.id,
+                title,
+                primary_artist: primary,
+                featured,
+            });
+        }
+    }
+    out
 }
 
 fn parse_lyrics_html(html: &str) -> Option<String> {
@@ -849,7 +858,10 @@ mod tests {
     #[ignore]
     async fn live_search_psychosis_x_ray() {
         let svc = build_client();
-        let candidates = svc.search_song_meta("Psychosis x-ray", 5).await;
+        let candidates = svc
+            .search_song_meta("Psychosis x-ray", 5)
+            .await
+            .expect("genius reachable");
         assert!(!candidates.is_empty(), "Genius returned no candidates");
         let psychosis = candidates
             .iter()
@@ -894,7 +906,10 @@ mod tests {
     #[ignore]
     async fn live_search_eminem_lose_yourself() {
         let svc = build_client();
-        let candidates = svc.search_song_meta("Eminem Lose Yourself", 5).await;
+        let candidates = svc
+            .search_song_meta("Eminem Lose Yourself", 5)
+            .await
+            .expect("genius reachable");
         assert!(!candidates.is_empty());
         assert!(candidates.iter().any(|c| c
             .primary_artist

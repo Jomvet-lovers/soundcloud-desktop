@@ -3,6 +3,11 @@
 //!   * перенормализация `artists.normalized_name` под новый fold
 //!     (ᴍᴏɴᴀʀᴄʜ → monarch); коллизия ключа = тот же артист, записанный
 //!     по-разному — помечаем `merged_into` на владельца ключа;
+//!   * репоинт ссылок со слитых артистов на холдера (track_artists,
+//!     tracks.primary/cover, albums, album_artists) — иначе клик по автору
+//!     ведёт на страницу merged-артиста = 404;
+//!   * перенормализация `title_normalized` у tracks/playlists и
+//!     `normalized_title` у albums (тот же fold, что у имён);
 //!   * расшивка литеральных `\uXXXX` в `tracks.metadata_artist`.
 //!
 //! POST /admin/maintenance/renormalize — идемпотентно, повторный вызов на
@@ -20,12 +25,22 @@ use uuid::Uuid;
 use crate::common::admin::AdminAuth;
 use crate::error::AppResult;
 use crate::modules::enrich::artist_names::unescape_json_unicode;
-use crate::modules::enrich::normalize::normalize_name;
+use crate::modules::enrich::normalize::{normalize_name, normalize_title};
 use crate::state::AppState;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
 const BATCH: i64 = 5_000;
+
+/// Снимает RUNNING даже если таск запаниковал — иначе ручка навсегда
+/// отвечает "already running" до рестарта.
+struct RunningGuard;
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        RUNNING.store(false, Ordering::SeqCst);
+    }
+}
 
 #[tracing::instrument(skip_all)]
 pub async fn renormalize(_: AdminAuth, State(st): State<AppState>) -> AppResult<Json<Value>> {
@@ -36,9 +51,8 @@ pub async fn renormalize(_: AdminAuth, State(st): State<AppState>) -> AppResult<
     }
     let pg = st.pg.clone();
     tokio::spawn(async move {
-        let res = run(&pg).await;
-        RUNNING.store(false, Ordering::SeqCst);
-        if let Err(e) = res {
+        let _guard = RunningGuard;
+        if let Err(e) = run(&pg).await {
             warn!(error = %e, "maintenance renormalize failed");
         }
     });
@@ -47,7 +61,28 @@ pub async fn renormalize(_: AdminAuth, State(st): State<AppState>) -> AppResult<
 
 async fn run(pg: &PgPool) -> AppResult<()> {
     renormalize_artists(pg).await?;
+    repoint_merged_artists(pg).await?;
+    canonicalize_credit_roles(pg).await?;
+    renormalize_track_titles(pg).await?;
+    renormalize_album_titles(pg).await?;
+    renormalize_playlist_titles(pg).await?;
     unescape_track_meta(pg).await?;
+    Ok(())
+}
+
+/// Легаси-роль 'feature' (старая админка) → канон 'featured', который знают
+/// persist/DTO/фронт.
+async fn canonicalize_credit_roles(pg: &PgPool) -> AppResult<()> {
+    sqlx::query_file!("queries/admin/maintenance/role_feature_dedup.sql")
+        .execute(pg)
+        .await?;
+    let updated = sqlx::query_file!("queries/admin/maintenance/role_feature_update.sql")
+        .execute(pg)
+        .await?;
+    info!(
+        updated = updated.rows_affected(),
+        "maintenance: credit roles canonicalized"
+    );
     Ok(())
 }
 
@@ -78,7 +113,8 @@ async fn renormalize_artists(pg: &PgPool) -> AppResult<()> {
                 Ok(_) => updated += 1,
                 Err(e) if is_unique_violation(&e) => {
                     // Ключ уже занят: это тот же артист в другом написании.
-                    // Помечаем merged_into — новые апсерты пойдут во владельца.
+                    // Помечаем merged_into — новые апсерты пойдут во владельца,
+                    // существующие ссылки репоинтит repoint_merged_artists.
                     let holder: Option<Uuid> = sqlx::query_file_scalar!(
                         "queries/admin/maintenance/artist_normalized_holder.sql",
                         fresh,
@@ -109,6 +145,208 @@ async fn renormalize_artists(pg: &PgPool) -> AppResult<()> {
         scanned,
         updated, merged, "maintenance: artists renormalize done"
     );
+    Ok(())
+}
+
+/// Слитые артисты не должны оставаться в ссылках: страница merged-артиста
+/// отвечает 404 (`detail_artist.sql` фильтрует `merged_into IS NULL`), а его
+/// треки не видны на странице холдера.
+async fn repoint_merged_artists(pg: &PgPool) -> AppResult<()> {
+    let mut last = Uuid::nil();
+    let mut repointed = 0u64;
+    loop {
+        let rows = sqlx::query_file!(
+            "queries/admin/maintenance/merged_artists_scan.sql",
+            last,
+            BATCH
+        )
+        .fetch_all(pg)
+        .await?;
+        let Some(tail) = rows.last() else { break };
+        last = tail.id;
+
+        for r in &rows {
+            let holder = resolve_merge_root(pg, r.merged_into).await?;
+            repoint_references(pg, r.id, holder).await?;
+            repointed += 1;
+        }
+        info!(repointed, "maintenance: merged artists repoint progress");
+    }
+    info!(repointed, "maintenance: merged artists repoint done");
+    Ok(())
+}
+
+/// merged_into может образовать цепочку (A→B→C) — ссылки ведём в корень.
+async fn resolve_merge_root(pg: &PgPool, id: Uuid) -> AppResult<Uuid> {
+    let mut current = id;
+    for _ in 0..4 {
+        let next: Option<Option<Uuid>> =
+            sqlx::query_file_scalar!("queries/enrich/persist/artist_merged_into.sql", current)
+                .fetch_optional(pg)
+                .await?;
+        match next {
+            Some(Some(parent)) => current = parent,
+            _ => break,
+        }
+    }
+    Ok(current)
+}
+
+async fn repoint_references(pg: &PgPool, from: Uuid, to: Uuid) -> AppResult<()> {
+    if from == to {
+        return Ok(());
+    }
+    sqlx::query_file!(
+        "queries/admin/maintenance/merge_repoint_track_artists_dedup.sql",
+        from,
+        to
+    )
+    .execute(pg)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/maintenance/merge_repoint_track_artists.sql",
+        from,
+        to
+    )
+    .execute(pg)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/maintenance/merge_repoint_tracks_primary.sql",
+        from,
+        to
+    )
+    .execute(pg)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/maintenance/merge_repoint_tracks_cover.sql",
+        from,
+        to
+    )
+    .execute(pg)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/maintenance/merge_repoint_albums_primary.sql",
+        from,
+        to
+    )
+    .execute(pg)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/maintenance/merge_repoint_album_artists_dedup.sql",
+        from,
+        to
+    )
+    .execute(pg)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/maintenance/merge_repoint_album_artists.sql",
+        from,
+        to
+    )
+    .execute(pg)
+    .await?;
+    Ok(())
+}
+
+async fn renormalize_track_titles(pg: &PgPool) -> AppResult<()> {
+    let mut last = Uuid::nil();
+    let (mut scanned, mut updated) = (0u64, 0u64);
+    loop {
+        let rows = sqlx::query_file!(
+            "queries/admin/maintenance/tracks_title_scan.sql",
+            last,
+            BATCH
+        )
+        .fetch_all(pg)
+        .await?;
+        let Some(tail) = rows.last() else { break };
+        last = tail.id;
+        scanned += rows.len() as u64;
+
+        for r in &rows {
+            let fresh = normalize_title(&r.title);
+            if fresh != r.title_normalized {
+                sqlx::query_file!(
+                    "queries/admin/maintenance/track_set_title_norm.sql",
+                    r.id,
+                    fresh
+                )
+                .execute(pg)
+                .await?;
+                updated += 1;
+            }
+        }
+        if scanned % 100_000 < BATCH as u64 {
+            info!(scanned, updated, "maintenance: track titles progress");
+        }
+    }
+    info!(scanned, updated, "maintenance: track titles done");
+    Ok(())
+}
+
+async fn renormalize_album_titles(pg: &PgPool) -> AppResult<()> {
+    let mut last = Uuid::nil();
+    let (mut scanned, mut updated) = (0u64, 0u64);
+    loop {
+        let rows = sqlx::query_file!(
+            "queries/admin/maintenance/albums_title_scan.sql",
+            last,
+            BATCH
+        )
+        .fetch_all(pg)
+        .await?;
+        let Some(tail) = rows.last() else { break };
+        last = tail.id;
+        scanned += rows.len() as u64;
+
+        for r in &rows {
+            let fresh = normalize_title(&r.title);
+            if fresh != r.normalized_title {
+                sqlx::query_file!(
+                    "queries/admin/maintenance/album_set_title_norm.sql",
+                    r.id,
+                    fresh
+                )
+                .execute(pg)
+                .await?;
+                updated += 1;
+            }
+        }
+    }
+    info!(scanned, updated, "maintenance: album titles done");
+    Ok(())
+}
+
+async fn renormalize_playlist_titles(pg: &PgPool) -> AppResult<()> {
+    let mut last = String::new();
+    let (mut scanned, mut updated) = (0u64, 0u64);
+    loop {
+        let rows = sqlx::query_file!(
+            "queries/admin/maintenance/playlists_title_scan.sql",
+            &last,
+            BATCH
+        )
+        .fetch_all(pg)
+        .await?;
+        let Some(tail) = rows.last() else { break };
+        last = tail.urn.clone();
+        scanned += rows.len() as u64;
+
+        for r in &rows {
+            let fresh = normalize_title(&r.title);
+            if fresh != r.title_normalized {
+                sqlx::query_file!(
+                    "queries/admin/maintenance/playlist_set_title_norm.sql",
+                    &r.urn,
+                    fresh
+                )
+                .execute(pg)
+                .await?;
+                updated += 1;
+            }
+        }
+    }
+    info!(scanned, updated, "maintenance: playlist titles done");
     Ok(())
 }
 

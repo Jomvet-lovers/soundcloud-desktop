@@ -3,9 +3,9 @@ import {useNavigate} from 'react-router-dom';
 import type {ArtistLinkItem} from '../../lib/track-display';
 
 /**
- * Строка авторов «A, B, C», где каждое имя — отдельная ссылка на своего
+ * Строка авторов «A, B, C», где каждое имя — отдельная ссылка на СВОЕГО
  * артиста/юзера (item.target из `getArtistLinkItems`). Несматченные имена —
- * обычный текст.
+ * обычный текст. stopPropagation — ряды сами кликабельны (play/контекст).
  */
 export const ArtistNameLinks = React.memo(function ArtistNameLinks({
   items,
@@ -17,28 +17,35 @@ export const ArtistNameLinks = React.memo(function ArtistNameLinks({
   const navigate = useNavigate();
   return (
     <>
-      {items.map((it, i) => (
-        <React.Fragment key={`${it.name}-${i}`}>
-          {i > 0 && ', '}
-          <span
-            className={
-              it.target
-                ? (linkClassName ?? 'cursor-pointer transition-colors hover:text-white/85')
-                : undefined
+      {items.map((it, i) => {
+        const target = it.target;
+        const go = target
+          ? (e: React.SyntheticEvent) => {
+              e.stopPropagation();
+              navigate(target);
             }
-            onClick={
-              it.target
-                ? (e) => {
-                    e.stopPropagation();
-                    navigate(it.target as string);
-                  }
-                : undefined
-            }
-          >
-            {it.name}
-          </span>
-        </React.Fragment>
-      ))}
+          : undefined;
+        return (
+          <React.Fragment key={it.name}>
+            {i > 0 && ', '}
+            {go ? (
+              <span
+                role="link"
+                tabIndex={0}
+                className={linkClassName ?? 'cursor-pointer transition-colors hover:text-white/85'}
+                onClick={go}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') go(e);
+                }}
+              >
+                {it.name}
+              </span>
+            ) : (
+              <span>{it.name}</span>
+            )}
+          </React.Fragment>
+        );
+      })}
     </>
   );
 });

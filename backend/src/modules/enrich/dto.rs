@@ -198,26 +198,21 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
 }
 
 fn parse_year(s: &str) -> Option<i16> {
-    if s.len() < 4 {
-        return None;
-    }
-    s[..4]
+    // .get(): вход — сырые SC-поля, мультибайт в первых байтах не должен
+    // паниковать на срезе.
+    s.get(..4)?
         .parse::<i16>()
         .ok()
         .filter(|y| (1900..=2100).contains(y))
 }
 
 fn parse_iso_date(s: &str) -> Option<String> {
-    if s.len() >= 10 && s.as_bytes()[4] == b'-' && s.as_bytes()[7] == b'-' {
-        let head = &s[..10];
-        if head.bytes().enumerate().all(|(i, b)| match i {
-            4 | 7 => b == b'-',
-            _ => b.is_ascii_digit(),
-        }) {
-            return Some(head.to_string());
-        }
-    }
-    None
+    let head = s.get(..10)?;
+    let ok = head.bytes().enumerate().all(|(i, b)| match i {
+        4 | 7 => b == b'-',
+        _ => b.is_ascii_digit(),
+    });
+    ok.then(|| head.to_string())
 }
 
 fn extract_sc_release(track: &Value) -> (Option<i16>, Option<String>) {

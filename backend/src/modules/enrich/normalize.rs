@@ -1,5 +1,26 @@
+//! Разбор SC-заголовка в (артисты, название, роли) + нормализация ключей.
+//!
+//! `parse_sc_title` — конвейер с ЖЁСТКИМ порядком проходов (каждый следующий
+//! видит результат предыдущего):
+//!   1. файл-стиль `A_-_B` → пробелы; анонс-префикс `PREMIERE:`;
+//!   2. скобочные группы → отдельно (feat/prod/remix/шум), тело — без них;
+//!   3. сплит артист/название: спейс-дефисы → прилипший дефис (гейт по
+//!      uploader'у) → кавычки-якорь → "Track by Artist" (гейт по uploader'у);
+//!   4. реверс "Track - Artist", когда правая часть = uploader;
+//!   5. чистка артистной части от номеров трека ("03.", "1.автор", "05 …") —
+//!      гейт: compact-ключ uploader'а ("1.Kla$", "070 Shake" не трогаем);
+//!   6. хвостовые кредиты в названии: `prod.` / `feat.` без скобок;
+//!   7. дедуп ролей и вычитание primary из featured/producers/remixers.
+//!
+//! Сплит СПИСКА имён — единый `artist_names::split_artist_list` (тот же, что
+//! для лейбловой меты). Ключи сравнения — `normalize_name` (fold + `&`≡and).
+
 use once_cell::sync::Lazy;
 use regex::Regex;
+
+use crate::modules::enrich::artist_names::{
+    compact_key, fold_chars, same_artist, split_artist_list,
+};
 
 static RE_FEAT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\b(?:feat|ft|featuring)\.?\s+(.+)").unwrap());
@@ -9,13 +30,6 @@ static RE_REMIX: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)^(.+?)\s+(remix|edit|bootleg|flip|mashup|mix)$").unwrap());
 static RE_NOISE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)^(original\s+mix|extended\s+mix|radio\s+edit|free\s+(?:download|dl)|out\s+now|premiere|exclusive|hq|hd|official(?:\s+(?:audio|video))?|lyrics|lyric\s+video|visualizer|hot|new)$").unwrap()
-});
-/// Сочленители списка артистов. Кириллическая «х» — живой джойнер ру-сцены
-/// («Ноггано х Гуф»), как и « + » / unicode-кресты; всё только с пробелами —
-/// безпробельный сплит по корпусу ломает имена (Lexxsick, выхухоль).
-static RE_SPLIT_ARTISTS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)\s+(?:x|х|×|✕|✖|⨯|\+|vs\.?|&|and|w/|feat\.?|ft\.?|featuring)\s+|\s*[,;]\s*")
-        .unwrap()
 });
 /// "03. Aikko - Title" / "03) Aikko" — номер трека в начале artist-части.
 /// Срезаем форму с явной точкой/скобкой после числа; голые цифры ловит
@@ -41,6 +55,20 @@ fn strip_tight_num_prefix(s: &str) -> String {
         }
     }
     s.to_string()
+}
+
+/// Чистка артистной части от номеров трека: "03. Aikko" → "Aikko", прилипшее
+/// "1.автор" → "автор", рип-номер "05 Имя" → "Имя". Гейт — плотный ключ
+/// uploader'а: у "1.Kla$" и "070 Shake" цифры — часть имени, не трогаем
+/// (включая форму с пробелом "1. Kla$").
+fn clean_artist_part(a: String, uploader: Option<&str>) -> String {
+    let uploader_key = uploader.map(compact_key).unwrap_or_default();
+    if !uploader_key.is_empty() && compact_key(&a) == uploader_key {
+        return a;
+    }
+    let a = RE_TRACK_NUM_PREFIX.replace(&a, "").trim().to_string();
+    let a = strip_tight_num_prefix(&a);
+    RE_LEADING_ZERO_NUM.replace(&a, "").trim().to_string()
 }
 /// "05 Как есть" — номер рипа с ведущим нулём перед словом. По корпусу
 /// ведущий ноль = почти гарантированный номер (имена с нуля — единицы).
@@ -210,7 +238,7 @@ fn looks_like_role_tag(inner: &str) -> bool {
 /// без ведущего "the". Этим ключом сравнивается ВСЁ: matcher, persist-дедуп,
 /// триаж, `artists.normalized_name`.
 pub fn normalize_name(s: &str) -> String {
-    let folded = crate::modules::enrich::artist_names::fold_chars(s);
+    let folded = fold_chars(s);
     let mut out = String::with_capacity(folded.len());
     let mut prev_space = true;
     for c in folded.chars() {
@@ -280,9 +308,7 @@ static RE_FILE_EXT: Lazy<Regex> =
 const TAIL_PROD_MAX: usize = 48;
 
 fn matches_uploader(name: &str, uploader: Option<&str>) -> bool {
-    uploader
-        .map(|u| crate::modules::enrich::artist_names::same_artist(name, u))
-        .unwrap_or(false)
+    uploader.map(|u| same_artist(name, u)).unwrap_or(false)
 }
 
 pub fn parse_sc_title(raw: &str, uploader: Option<&str>) -> ParsedTitle {
@@ -354,26 +380,8 @@ pub fn parse_sc_title(raw: &str, uploader: Option<&str>) -> ParsedTitle {
     }
 
     parsed.raw_artist_part = artist_part.clone();
-    // Префикс вида "01 - …" / "1 - …" — это номер трека в альбоме, а не имя
-    // артиста. Отбрасываем "артистную" часть, чтобы fallback ушёл на uploader.
-    // Также режем "03. Aikko" → "Aikko", прилипшее "1.автор" → "автор" и номер
-    // рипа с ведущим нулём "05 Имя" → "Имя". Гейт — плотный ключ uploader'а:
-    // у "1.Kla$" и "070 Shake" цифры — часть имени, их не трогаем.
     let artist_part = artist_part
-        .map(|a| RE_TRACK_NUM_PREFIX.replace(&a, "").trim().to_string())
-        .map(|a| {
-            let uploader_key = uploader
-                .map(crate::modules::enrich::artist_names::compact_key)
-                .unwrap_or_default();
-            if !uploader_key.is_empty()
-                && crate::modules::enrich::artist_names::compact_key(&a) == uploader_key
-            {
-                a
-            } else {
-                let a = strip_tight_num_prefix(&a);
-                RE_LEADING_ZERO_NUM.replace(&a, "").trim().to_string()
-            }
-        })
+        .map(|a| clean_artist_part(a, uploader))
         .filter(|a| !a.is_empty() && !looks_like_track_number(a));
     let title_clean = title_part.trim().to_string();
     parsed.cleaned_title = if title_clean.is_empty() {
@@ -462,6 +470,27 @@ pub fn parse_sc_title(raw: &str, uploader: Option<&str>) -> ParsedTitle {
             && (explicit || bare_ok)
         {
             parsed.producers.extend(split_artists(&names));
+            parsed.cleaned_title = parsed.cleaned_title[..m.0].trim().to_string();
+        }
+    }
+
+    // feat-кредит без скобок в хвосте: "трек feat. ник". Маркеры только
+    // явные (feat. / ft. / featuring) — голые "feat"/"ft" бывают словами.
+    if let Some(c) = RE_FEAT.captures(&parsed.cleaned_title) {
+        let m = c.get(0).map(|m| (m.start(), m.end())).unwrap_or((0, 0));
+        let marker = c.get(0).map(|m| m.as_str()).unwrap_or("").to_lowercase();
+        let explicit = marker.starts_with("feat.")
+            || marker.starts_with("ft.")
+            || marker.starts_with("featuring");
+        let names = c[1].trim().to_string();
+        if explicit
+            && m.0 > 0
+            && m.1 == parsed.cleaned_title.len()
+            && !names.is_empty()
+            && names.chars().count() <= TAIL_PROD_MAX
+            && !names.contains(" - ")
+        {
+            parsed.featured.extend(split_artists(&names));
             parsed.cleaned_title = parsed.cleaned_title[..m.0].trim().to_string();
         }
     }
@@ -580,14 +609,22 @@ fn looks_like_track_number(s: &str) -> bool {
     t.starts_with('0') || n <= 99
 }
 
+/// Сплит по ЛЕВЕЙШЕМУ спейс-дефису любого типа: "Дора — Дура - demo" режется
+/// по «—», а не по правому " - " (приоритет позиции, не типа разделителя).
 fn split_first_dash(s: &str) -> (Option<String>, String) {
+    let mut best: Option<(usize, &str)> = None;
     for sep in [" - ", " — ", " – ", " -- ", " ‒ ", " − ", " ─ "] {
         if let Some(idx) = s.find(sep) {
-            let left = s[..idx].trim().to_string();
-            let right = s[idx + sep.len()..].trim().to_string();
-            if !left.is_empty() {
-                return (Some(left), right);
+            if best.map(|(b, _)| idx < b).unwrap_or(true) {
+                best = Some((idx, sep));
             }
+        }
+    }
+    if let Some((idx, sep)) = best {
+        let left = s[..idx].trim().to_string();
+        let right = s[idx + sep.len()..].trim().to_string();
+        if !left.is_empty() {
+            return (Some(left), right);
         }
     }
     (None, s.to_string())
@@ -622,12 +659,9 @@ fn split_by_keyword(s: &str) -> Option<(String, String)> {
     Some((left, right))
 }
 
+/// Список имён в артистной части — тот же сплиттер, что у лейбловой меты.
 fn split_artists(s: &str) -> Vec<String> {
-    RE_SPLIT_ARTISTS
-        .split(s)
-        .map(|p| p.trim().to_string())
-        .filter(|p| !p.is_empty())
-        .collect()
+    split_artist_list(s)
 }
 
 fn dedup_keep_order(v: &mut Vec<String>) {
@@ -1054,6 +1088,44 @@ mod tests {
         let p = parse_sc_title("Artist ‒ Track", None);
         assert_eq!(p.primary_artists, vec!["Artist"]);
         assert_eq!(p.cleaned_title, "Track");
+    }
+
+    #[test]
+    fn parse_leftmost_dash_wins_across_types() {
+        // Приоритет позиции, не типа: «—» левее " - " — режем по «—».
+        let p = parse_sc_title("Дора — Дура - demo", None);
+        assert_eq!(p.primary_artists, vec!["Дора"]);
+        assert_eq!(p.cleaned_title, "Дура - demo");
+    }
+
+    #[test]
+    fn parse_spaced_number_name_kept_via_uploader() {
+        // "1. Kla$ - X" от самого 1.Kla$ — «1.» часть имени и с пробелом.
+        let p = parse_sc_title("1. Kla$ - Russisch", Some("1.Kla$"));
+        assert_eq!(p.primary_artists, vec!["1. Kla$"]);
+        assert_eq!(p.cleaned_title, "Russisch");
+    }
+
+    #[test]
+    fn parse_tail_feat_credit() {
+        let p = parse_sc_title("Artist - Track feat. Юный Пророк", None);
+        assert_eq!(p.cleaned_title, "Track");
+        assert_eq!(p.featured, vec!["Юный Пророк"]);
+
+        // Голое "feat"/"ft" без точки — слово, не маркер.
+        let p2 = parse_sc_title("Artist - main ft squad", None);
+        assert_eq!(p2.cleaned_title, "main ft squad");
+        assert!(p2.featured.is_empty());
+    }
+
+    #[test]
+    fn parse_spaced_slash_splits_artists() {
+        // Паритет с метой: ` / ` — сочленитель, "AC/DC" цел.
+        let p = parse_sc_title("Слава КПСС / Замай - Трек", None);
+        assert_eq!(p.primary_artists, vec!["Слава КПСС", "Замай"]);
+
+        let p2 = parse_sc_title("AC/DC - Back In Black", None);
+        assert_eq!(p2.primary_artists, vec!["AC/DC"]);
     }
 
     #[test]

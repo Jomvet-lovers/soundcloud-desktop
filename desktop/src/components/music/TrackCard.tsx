@@ -5,12 +5,13 @@ import {preloadTrack} from '../../lib/audio';
 import {art, dur, fc} from '../../lib/formatters';
 import {ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32} from '../../lib/icons';
 import {recordClusterFeedback, setUrnCluster, useClusterFeedback} from '../../lib/recsFeedback';
-import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
+import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
 import {useAutoHide} from '../../lib/useAutoHide';
 import {useTrackPlay} from '../../lib/useTrackPlay';
 import type {Track} from '../../stores/player';
 import {usePlayerStore} from '../../stores/player';
 import {AddToPlaylistDialog} from './AddToPlaylistDialog';
+import {ArtistNameLinks} from './ArtistNameLinks';
 import {LikeButton} from './LikeButton';
 import {TrackStatusBadges} from './TrackStatusBadges';
 import {UploadKindDot} from './UploadKindDot';
@@ -18,15 +19,15 @@ import {UploadKindDot} from './UploadKindDot';
 interface TrackCardProps {
   track: Track;
   queue?: Track[];
-    /** Fires after a new track starts — e.g. arm «лайки до конца». Keep stable. */
-    onPlay?: () => void;
+  /** Fires after a new track starts — e.g. arm «лайки до конца». Keep stable. */
+  onPlay?: () => void;
 }
 
 export const TrackCard = React.memo(
-    function TrackCard({track, queue, onPlay}: TrackCardProps) {
+  function TrackCard({ track, queue, onPlay }: TrackCardProps) {
     const { t } = useTranslation();
     const navigate = useNavigate();
-        const {isThisPlaying, togglePlay: togglePlayRaw} = useTrackPlay(track, queue, onPlay);
+    const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue, onPlay);
     const showPlayingOverlay = useAutoHide(isThisPlaying);
     const clusterId = useClusterFeedback();
     const togglePlay = React.useCallback(() => {
@@ -40,13 +41,8 @@ export const TrackCard = React.memo(
     const artwork = art(track.artwork_url, 't300x300');
     const artistDisplay = useArtistDisplay(track);
     const displayTitle = useDisplayTitle(track);
+    const artistLinks = useArtistLinkItems(track);
     const isWanted = artistDisplay.availability !== 'indexed';
-    const artistTarget =
-      track.enrichment?.primary_artist?.id && artistDisplay.verified
-        ? `/artist/${encodeURIComponent(track.enrichment.primary_artist.id)}`
-        : track.user?.urn
-          ? `/user/${encodeURIComponent(track.user.urn)}`
-          : null;
 
     const handleAddToQueue = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -57,7 +53,7 @@ export const TrackCard = React.memo(
       <div
         className="group relative select-none"
         onMouseEnter={() => preloadTrack(track.urn)}
-        style={{contain: 'layout paint style'}}
+        style={{ contain: 'layout paint style' }}
       >
         {/* Artwork */}
         <div
@@ -145,12 +141,20 @@ export const TrackCard = React.memo(
           </p>
           <p
             className={`text-[11px] truncate mt-0.5 flex items-center gap-1 ${
-              isWanted ? 'text-white/30' : 'text-white/35 cursor-pointer hover:text-white/55'
+              isWanted ? 'text-white/30' : 'text-white/35'
             } transition-colors duration-150`}
-            onClick={artistTarget && !isWanted ? () => navigate(artistTarget) : undefined}
           >
             <UploadKindDot kind={artistDisplay.uploadKind} />
-            <span className="truncate">{artistDisplay.primary}</span>
+            <span className="truncate">
+              {isWanted ? (
+                artistDisplay.primary
+              ) : (
+                <ArtistNameLinks
+                  items={artistLinks}
+                  linkClassName="cursor-pointer transition-colors hover:text-white/60"
+                />
+              )}
+            </span>
           </p>
           {isWanted ? (
             <p className="text-[10px] text-white/25 mt-1">
@@ -170,9 +174,8 @@ export const TrackCard = React.memo(
   (prev, next) =>
     prev.track.urn === next.track.urn &&
     prev.track.user_favorite === next.track.user_favorite &&
-    prev.track.enrichment?.primary_artist?.name === next.track.enrichment?.primary_artist?.name &&
-    prev.track.enrichment?.upload_kind === next.track.enrichment?.upload_kind &&
-    prev.track.enrichment?.availability === next.track.enrichment?.availability &&
+    prev.track.title === next.track.title &&
+    prev.track.enrichment === next.track.enrichment &&
     prev.track._scd_meta?.storage_state === next.track._scd_meta?.storage_state &&
     prev.track._scd_meta?.storage_quality === next.track._scd_meta?.storage_quality &&
     prev.track._scd_meta?.index_state === next.track._scd_meta?.index_state,

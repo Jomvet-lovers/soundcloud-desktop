@@ -56,7 +56,16 @@ export const RoomHero = React.memo(function RoomHero({
   const ad = getArtistDisplay(track);
   const participants = getParticipants(track);
   const artistLinks = getArtistLinkItems(track);
-  const artistTarget = artistLinks.find((a) => a.target)?.target ?? getArtistTarget(track);
+  // Аватар и его клик — ОДИН человек: артист каталога, когда enrichment его
+  // знает, иначе uploader. Раньше картинка была uploader'а, а клик вёл на
+  // первого слинкованного из строки авторов.
+  const primaryArtist = track.enrichment?.primary_artist;
+  const heroAvatarSrc = primaryArtist?.avatar_url ?? track.user.avatar_url;
+  const heroAvatarTarget = primaryArtist?.avatar_url
+    ? `/artist/${encodeURIComponent(primaryArtist.id)}`
+    : track.user.urn
+      ? `/user/${encodeURIComponent(track.user.urn)}`
+      : getArtistTarget(track);
   const year = track.release_year ?? track.enrichment?.album?.year;
   const hb = perf.blur(90);
 
@@ -130,14 +139,14 @@ export const RoomHero = React.memo(function RoomHero({
 
             <div className="mt-4">
               <div className="inline-flex items-center gap-2.5 group/artist">
-                {track.user.avatar_url && (
+                {heroAvatarSrc && (
                   <img
-                    src={art(track.user.avatar_url, 'small') ?? ''}
+                    src={art(heroAvatarSrc, 'small') ?? ''}
                     alt=""
                     className={`w-7 h-7 rounded-full ring-1 ring-white/[0.1] transition-all duration-200 ${
-                      artistTarget ? 'cursor-pointer hover:ring-white/[0.22]' : ''
+                      heroAvatarTarget ? 'cursor-pointer hover:ring-white/[0.22]' : ''
                     }`}
-                    onClick={artistTarget ? () => navigate(artistTarget) : undefined}
+                    onClick={heroAvatarTarget ? () => navigate(heroAvatarTarget) : undefined}
                   />
                 )}
                 <span className="text-[15px] font-medium text-white/75">

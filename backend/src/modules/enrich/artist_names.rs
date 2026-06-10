@@ -62,15 +62,18 @@ pub fn is_invisible(c: char) -> bool {
 /// Свести стилизованный юникод к обычным строчным буквам: NFKD раскладывает
 /// fullwidth/математические/circled формы и диакритику, комбинирующие знаки
 /// отбрасываются (é→e, ё→е), малые капители — по таблице, невидимые символы
-/// выпадают. Кириллица и прочие алфавиты проходят как есть (только без
-/// диакритики).
+/// выпадают, `$` ≡ s (A$AP, Ke$ha). Кириллица и прочие алфавиты проходят как
+/// есть (только без диакритики).
 pub fn fold_chars(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.nfkd() {
         if is_combining_mark(c) || is_invisible(c) {
             continue;
         }
-        let c = fold_small_cap(c).unwrap_or(c);
+        let c = match c {
+            '$' => 's',
+            other => fold_small_cap(other).unwrap_or(other),
+        };
         for lc in c.to_lowercase() {
             out.push(lc);
         }
@@ -135,11 +138,14 @@ fn parse_escape(chars: &[char], at: usize) -> Option<(u32, usize)> {
     Some((cp, at + 6))
 }
 
-/// Разделители списка артистов в метаданных: запятая/точка с запятой всегда,
-/// связки (&, x, vs, and, feat...) и слэш — только отбитые пробелами, чтобы
-/// не порезать "AC/DC" или "Axwell".
-static RE_SPLIT_META: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)\s*[,;]\s*|\s+(?:x|×|vs\.?|&|and|feat\.?|ft\.?|featuring|w/)\s+|\s+/\s+")
+/// Разделители СПИСКА имён — единый набор для лейбловой меты и разметки
+/// заголовков (иначе «Ноггано х Гуф» в мете остаётся одним артистом, а в
+/// тайтле режется — два словаря одной сущности). Запятая/точка с запятой —
+/// всегда; связки (кириллическая «х», кресты, +, vs, &, and, feat, w/) и
+/// слэш — только отбитые пробелами, чтобы не порезать "AC/DC", "Axwell",
+/// "Lexxsick" или "выхухоль".
+static RE_SPLIT_NAMES: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\s*[,;]\s*|\s+(?:x|х|×|✕|✖|⨯|\+|vs\.?|&|and|w/|feat\.?|ft\.?|featuring|/)\s+")
         .unwrap()
 });
 
@@ -178,7 +184,7 @@ pub fn is_junk_artist_name(s: &str) -> bool {
 
 /// Порезать строку-список на имена (без чистки и фильтра).
 pub fn split_artist_list(s: &str) -> Vec<String> {
-    RE_SPLIT_META
+    RE_SPLIT_NAMES
         .split(s)
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
@@ -209,7 +215,10 @@ pub fn meta_artist_names(meta: &str) -> Vec<String> {
 /// Похожесть двух имён 0..1 — единая шкала для matcher'а, resolver'а и триажа:
 ///   1.0  — равны после normalize_name;
 ///   0.95 — равны без пробелов;
-///   0.85 — одно покрывает другое и короткое ≥ половины длинного;
+///   0.85 — одно покрывает другое ПО ГРАНИЦЕ СЛОВ и короткое ≥ половины
+///          длинного ("Glam Go" ⊂ "GLAM GO GANG!", "ultimathule" ⊂
+///          "ultimathule (RUS)") — внутрисловное вхождение ("Mark"/"Markul",
+///          "Иван"/"Иванушки") сюда НЕ попадает;
 ///   0.55 — слабое вхождение;
 ///   0.5  — высокое биграммное пересечение;
 ///   0.0  — разные.
@@ -231,7 +240,12 @@ pub fn name_similarity(a: &str, b: &str) -> f32 {
     if a_chars >= 4 && b_chars >= 4 && (ac.contains(&bc) || bc.contains(&ac)) {
         let short = a_chars.min(b_chars);
         let long = a_chars.max(b_chars);
-        if short * 2 >= long {
+        let (short_n, long_n) = if a_chars <= b_chars {
+            (an.as_str(), bn.as_str())
+        } else {
+            (bn.as_str(), an.as_str())
+        };
+        if short * 2 >= long && word_aligned(short_n, long_n) {
             return 0.85;
         }
         return 0.55;
@@ -240,6 +254,14 @@ pub fn name_similarity(a: &str, b: &str) -> f32 {
         return 0.5;
     }
     0.0
+}
+
+/// Короткое имя — целые слова длинного: "glam go" ⊂ "glam go gang" — да,
+/// "mark" ⊂ "markul" — нет (слипшиеся ключи сравниваются по spaced-форме).
+fn word_aligned(short: &str, long: &str) -> bool {
+    long.starts_with(&format!("{short} "))
+        || long.ends_with(&format!(" {short}"))
+        || long.contains(&format!(" {short} "))
 }
 
 /// Порог «это один и тот же артист» (exact / compact / сильное вхождение).
@@ -409,6 +431,32 @@ mod tests {
         assert!(name_similarity("Time Travel (TT)", "Time Travel") >= 0.85);
         assert!(same_artist("GLAM GO GANG!", "Glam Go"));
         assert_eq!(name_similarity("Drake", "Psychosis"), 0.0);
+    }
+
+    #[test]
+    fn similarity_rejects_infix_containment() {
+        // Внутрисловное вхождение — НЕ тот же артист.
+        assert!(!same_artist("Mark", "Markul"));
+        assert!(!same_artist("Иван", "Иванушки International"));
+        assert!(!same_artist("Луна", "Лунатик"));
+        // А по границе слова — тот же (алиас/суффикс).
+        assert!(same_artist("ultimathule (RUS)", "ultimathule"));
+        assert!(same_artist("SODA LUV", "soda luv"));
+    }
+
+    #[test]
+    fn fold_dollar_as_s() {
+        // Музыкальная стилизация: $ = s.
+        assert!(same_artist("A$AP Rocky", "ASAP Rocky"));
+        assert!(same_artist("Ke$ha", "Kesha"));
+        assert!(same_artist("1.Kla$", "1.Klas"));
+    }
+
+    #[test]
+    fn meta_split_matches_title_splitters() {
+        // Кириллическая «х» и «+» — те же сочленители, что в разметке тайтлов.
+        assert_eq!(meta_artist_names("Ноггано х Гуф"), vec!["Ноггано", "Гуф"]);
+        assert_eq!(meta_artist_names("SALUKI + 104"), vec!["SALUKI", "104"]);
     }
 
     #[test]

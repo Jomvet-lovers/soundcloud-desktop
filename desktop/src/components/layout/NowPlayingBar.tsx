@@ -1,53 +1,54 @@
 import * as Popover from '@radix-ui/react-popover';
 import * as Slider from '@radix-ui/react-slider';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { useShallow } from 'zustand/shallow';
-import { api } from '../../lib/api';
-import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
-import { toggleDislike, useDislikeStatus } from '../../lib/dislikes';
-import { art, formatTime } from '../../lib/formatters';
-import { invalidateAllLikesCache } from '../../lib/hooks';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import React, {useCallback, useEffect, useRef, useState, useSyncExternalStore} from 'react';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
+import {useShallow} from 'zustand/shallow';
+import {api} from '../../lib/api';
+import {getCurrentTime, getDuration, handlePrev, seek, subscribe} from '../../lib/audio';
+import {toggleDislike, useDislikeStatus} from '../../lib/dislikes';
+import {art, formatTime} from '../../lib/formatters';
+import {invalidateAllLikesCache} from '../../lib/hooks';
 import {
-  audioLines16,
-  Heart,
-  listMusic16,
-  MicVocal,
-  pauseBlack20,
-  playBlack20,
-  repeat1Icon16,
+    audioLines16,
+    Heart,
+    listMusic16,
+    MicVocal,
+    pauseBlack20,
+    playBlack20,
+    repeat1Icon16,
     repeatAbIcon16,
-  repeatIcon16,
-  shuffleIcon16,
-  skipBack20,
-  skipForward20,
-  slidersHorizontal16,
-  ThumbsDown,
-  volume1Icon16,
-  volume2Icon16,
-  volumeXIcon16,
+    repeatIcon16,
+    shuffleIcon16,
+    skipBack20,
+    skipForward20,
+    slidersHorizontal16,
+    ThumbsDown,
+    volume1Icon16,
+    volume2Icon16,
+    volumeXIcon16,
 } from '../../lib/icons';
-import { optimisticToggleLike } from '../../lib/likes';
+import {optimisticToggleLike} from '../../lib/likes';
 import {usePerfMode} from '../../lib/perf';
-import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
-import { useLyricsStore } from '../../stores/lyrics';
+import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
+import {useLyricsStore} from '../../stores/lyrics';
 import {
     AB_MIN_GAP,
-  getEffectivePitchSemitones,
-  PITCH_SEMITONES_MAX,
-  PITCH_SEMITONES_MIN,
-  PITCH_SEMITONES_STEP,
-  PLAYBACK_RATE_MAX,
-  PLAYBACK_RATE_MIN,
-  PLAYBACK_RATE_STEP,
-  type Track,
-  usePlayerStore,
+    getEffectivePitchSemitones,
+    PITCH_SEMITONES_MAX,
+    PITCH_SEMITONES_MIN,
+    PITCH_SEMITONES_STEP,
+    PLAYBACK_RATE_MAX,
+    PLAYBACK_RATE_MIN,
+    PLAYBACK_RATE_STEP,
+    type Track,
+    usePlayerStore,
 } from '../../stores/player';
-import { useSettingsStore } from '../../stores/settings';
-import { EqualizerPanel } from '../music/EqualizerPanel';
-import { UploadKindDot } from '../music/UploadKindDot';
+import {useSettingsStore} from '../../stores/settings';
+import {ArtistNameLinks} from '../music/ArtistNameLinks';
+import {EqualizerPanel} from '../music/EqualizerPanel';
+import {UploadKindDot} from '../music/UploadKindDot';
 
 /* ── Track loading progress (SC → SCD download) ──────────────── */
 
@@ -88,29 +89,29 @@ function useLoadProgress(): number | null {
     };
   }, [downloadProgress]);
 
-    return visibleProgress;
+  return visibleProgress;
 }
 
 /** Whole percentage (1-100) shown to the user while a track loads. */
 const loadPercent = (progress: number) =>
-    Math.max(1, Math.min(100, Math.round(Math.max(0, Math.min(1, progress)) * 100)));
+  Math.max(1, Math.min(100, Math.round(Math.max(0, Math.min(1, progress)) * 100)));
 
 /** Accent outline that traces the capsule's perimeter as the track downloads. */
-const DockLoadingRing = React.memo(({progress}: { progress: number | null }) => {
-    if (progress == null) return null;
+const DockLoadingRing = React.memo(({ progress }: { progress: number | null }) => {
+  if (progress == null) return null;
   return (
-      <svg className="npb-loadring" aria-hidden="true">
-          {/* width/height/rx attrs are a fallback; CSS refines the 1px inset when supported */}
-          <rect className="npb-loadring-track" width="100%" height="100%" rx={28}/>
-          <rect
-              className="npb-loadring-fill"
-              width="100%"
-              height="100%"
-              rx={28}
-              pathLength={100}
-              style={{strokeDashoffset: 100 - loadPercent(progress)}}
-          />
-      </svg>
+    <svg className="npb-loadring" aria-hidden="true">
+      {/* width/height/rx attrs are a fallback; CSS refines the 1px inset when supported */}
+      <rect className="npb-loadring-track" width="100%" height="100%" rx={28} />
+      <rect
+        className="npb-loadring-fill"
+        width="100%"
+        height="100%"
+        rx={28}
+        pathLength={100}
+        style={{ strokeDashoffset: 100 - loadPercent(progress) }}
+      />
+    </svg>
   );
 });
 
@@ -118,89 +119,89 @@ const DockLoadingRing = React.memo(({progress}: { progress: number | null }) => 
 
 const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 const handleClass =
-    'absolute top-1/2 z-[3] flex h-5 w-3.5 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center';
+  'absolute top-1/2 z-[3] flex h-5 w-3.5 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center';
 
-const AbLoopOverlay = React.memo(({duration}: { duration: number }) => {
-    const abLoop = usePlayerStore((s) => s.abLoop);
-    const nudgeAbBound = usePlayerStore((s) => s.nudgeAbBound);
-    const bandRef = useRef<HTMLSpanElement>(null);
-    const aRef = useRef<HTMLSpanElement>(null);
-    const bRef = useRef<HTMLSpanElement>(null);
+const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
+  const abLoop = usePlayerStore((s) => s.abLoop);
+  const nudgeAbBound = usePlayerStore((s) => s.nudgeAbBound);
+  const bandRef = useRef<HTMLSpanElement>(null);
+  const aRef = useRef<HTMLSpanElement>(null);
+  const bRef = useRef<HTMLSpanElement>(null);
 
-    if (!abLoop || duration <= 0) return null;
+  if (!abLoop || duration <= 0) return null;
 
-    const a = abLoop.a;
-    const b = abLoop.b;
-    const aPct = clampPct((a / duration) * 100);
-    const bPct = b != null ? clampPct((b / duration) * 100) : null;
+  const a = abLoop.a;
+  const b = abLoop.b;
+  const aPct = clampPct((a / duration) * 100);
+  const bPct = b != null ? clampPct((b / duration) * 100) : null;
 
-    const startDrag = (which: 'a' | 'b') => (e: React.PointerEvent<HTMLSpanElement>) => {
-        // Keep Radix from treating this as a seek-on-the-track gesture.
-        e.preventDefault();
-        e.stopPropagation();
-        const root = e.currentTarget.offsetParent as HTMLElement | null;
-        if (!root) return;
-        const rect = root.getBoundingClientRect();
-        if (rect.width <= 0) return;
-        // Drive the overlay via direct DOM writes during the drag and commit to the store
-        // (which pushes once to Rust) only on release — avoids per-frame JS↔Rust bridge spam.
-        const lo = which === 'a' ? 0 : a + AB_MIN_GAP;
-        const hi = which === 'a' ? (b ?? duration) - AB_MIN_GAP : duration;
-        let latest = which === 'a' ? a : (b ?? a);
-        const onMove = (ev: PointerEvent) => {
-            const raw = ((ev.clientX - rect.left) / rect.width) * duration;
-            latest = Math.max(lo, Math.min(hi, raw));
-            const pct = (latest / duration) * 100;
-            if (which === 'a') {
-                if (aRef.current) aRef.current.style.left = `${pct}%`;
-                if (bandRef.current && bPct != null) {
-                    bandRef.current.style.left = `${pct}%`;
-                    bandRef.current.style.width = `${Math.max(0, bPct - pct)}%`;
-                }
-            } else {
-                if (bRef.current) bRef.current.style.left = `${pct}%`;
-                if (bandRef.current) bandRef.current.style.width = `${Math.max(0, pct - aPct)}%`;
-            }
-        };
-        const onUp = () => {
-            window.removeEventListener('pointermove', onMove);
-            window.removeEventListener('pointerup', onUp);
-            window.removeEventListener('pointercancel', onUp);
-            nudgeAbBound(which, latest);
-        };
-        window.addEventListener('pointermove', onMove);
-        window.addEventListener('pointerup', onUp);
-        window.addEventListener('pointercancel', onUp);
+  const startDrag = (which: 'a' | 'b') => (e: React.PointerEvent<HTMLSpanElement>) => {
+    // Keep Radix from treating this as a seek-on-the-track gesture.
+    e.preventDefault();
+    e.stopPropagation();
+    const root = e.currentTarget.offsetParent as HTMLElement | null;
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    // Drive the overlay via direct DOM writes during the drag and commit to the store
+    // (which pushes once to Rust) only on release — avoids per-frame JS↔Rust bridge spam.
+    const lo = which === 'a' ? 0 : a + AB_MIN_GAP;
+    const hi = which === 'a' ? (b ?? duration) - AB_MIN_GAP : duration;
+    let latest = which === 'a' ? a : (b ?? a);
+    const onMove = (ev: PointerEvent) => {
+      const raw = ((ev.clientX - rect.left) / rect.width) * duration;
+      latest = Math.max(lo, Math.min(hi, raw));
+      const pct = (latest / duration) * 100;
+      if (which === 'a') {
+        if (aRef.current) aRef.current.style.left = `${pct}%`;
+        if (bandRef.current && bPct != null) {
+          bandRef.current.style.left = `${pct}%`;
+          bandRef.current.style.width = `${Math.max(0, bPct - pct)}%`;
+        }
+      } else {
+        if (bRef.current) bRef.current.style.left = `${pct}%`;
+        if (bandRef.current) bandRef.current.style.width = `${Math.max(0, pct - aPct)}%`;
+      }
     };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      nudgeAbBound(which, latest);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
 
-    return (
-        <>
-            {bPct != null && (
-                <span
-                    ref={bandRef}
-                    className="pointer-events-none absolute inset-y-0 z-[1] rounded-full bg-accent/25"
-                    style={{left: `${aPct}%`, width: `${Math.max(0, bPct - aPct)}%`}}
-                />
-            )}
-            <span
-                ref={aRef}
-                onPointerDown={startDrag('a')}
-                className={handleClass}
-                style={{left: `${aPct}%`}}
-            >
-        <span className="h-3.5 w-[3px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent-glow)]"/>
+  return (
+    <>
+      {bPct != null && (
+        <span
+          ref={bandRef}
+          className="pointer-events-none absolute inset-y-0 z-[1] rounded-full bg-accent/25"
+          style={{ left: `${aPct}%`, width: `${Math.max(0, bPct - aPct)}%` }}
+        />
+      )}
+      <span
+        ref={aRef}
+        onPointerDown={startDrag('a')}
+        className={handleClass}
+        style={{ left: `${aPct}%` }}
+      >
+        <span className="h-3.5 w-[3px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent-glow)]" />
       </span>
-            {bPct != null && (
-                <span
-                    ref={bRef}
-                    onPointerDown={startDrag('b')}
-                    className={handleClass}
-                    style={{left: `${bPct}%`}}
-                >
-          <span className="h-3.5 w-[3px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent-glow)]"/>
+      {bPct != null && (
+        <span
+          ref={bRef}
+          onPointerDown={startDrag('b')}
+          className={handleClass}
+          style={{ left: `${bPct}%` }}
+        >
+          <span className="h-3.5 w-[3px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent-glow)]" />
         </span>
-            )}
-        </>
+      )}
+    </>
   );
 });
 
@@ -289,7 +290,7 @@ export const ProgressSlider = React.memo(() => {
         ref={thumbRef}
         className="block w-3 h-3 rounded-full bg-accent shadow-[0_0_10px_var(--color-accent-glow)] scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-150 outline-none will-change-transform"
       />
-        <AbLoopOverlay duration={duration}/>
+      <AbLoopOverlay duration={duration} />
     </Slider.Root>
   );
 });
@@ -447,13 +448,13 @@ function useTrackReactions(trackUrn: string) {
 }
 
 function LikeButton({
-                        trackUrn,
-                        trackData,
-                        disliked,
-                    }: {
-    trackUrn: string;
-    trackData: Track | undefined;
-    disliked: boolean;
+  trackUrn,
+  trackData,
+  disliked,
+}: {
+  trackUrn: string;
+  trackData: Track | undefined;
+  disliked: boolean;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -505,13 +506,13 @@ function LikeButton({
 }
 
 export function NowBarDislikeButton({
-                                        trackUrn,
-                                        trackData,
-                                        disliked,
-                                    }: {
-    trackUrn: string;
-    trackData: Track | undefined;
-    disliked: boolean;
+  trackUrn,
+  trackData,
+  disliked,
+}: {
+  trackUrn: string;
+  trackData: Track | undefined;
+  disliked: boolean;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -551,12 +552,12 @@ export function NowBarDislikeButton({
 /* ── Isolated control buttons ────────────────────────────────── */
 
 const btnClass = (active: boolean, size: 'default' | 'sm') =>
-    `${size === 'sm' ? 'w-[30px] h-[30px]' : 'w-9 h-9'} rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.08] hover:-translate-y-px active:scale-90 ${
-        active ? 'text-accent' : 'text-white/55 hover:text-white'
+  `${size === 'sm' ? 'w-[30px] h-[30px]' : 'w-9 h-9'} rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer hover:bg-white/[0.08] hover:-translate-y-px active:scale-90 ${
+    active ? 'text-accent' : 'text-white/55 hover:text-white'
   }`;
 
 const PlayPauseBtn = React.memo(() => {
-    const {t} = useTranslation();
+  const { t } = useTranslation();
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   return (
@@ -592,36 +593,35 @@ const RepeatBtn = React.memo(() => {
 });
 
 const AbLoopBtn = React.memo(() => {
-    const {t} = useTranslation();
-    const abLoop = usePlayerStore((s) => s.abLoop);
-    const cycleAbPoint = usePlayerStore((s) => s.cycleAbPoint);
-    const awaitingB = abLoop != null && abLoop.b == null;
-    const title = !abLoop
-        ? t('player.abLoopSetA')
-        : abLoop.b == null
-            ? t('player.abLoopSetB')
-            : t('player.abLoopClear');
+  const { t } = useTranslation();
+  const abLoop = usePlayerStore((s) => s.abLoop);
+  const cycleAbPoint = usePlayerStore((s) => s.cycleAbPoint);
+  const awaitingB = abLoop != null && abLoop.b == null;
+  const title = !abLoop
+    ? t('player.abLoopSetA')
+    : abLoop.b == null
+      ? t('player.abLoopSetB')
+      : t('player.abLoopClear');
 
-    const active = abLoop != null;
-    return (
-        <button
-            type="button"
-            title={title}
-            aria-label={title}
-            onClick={() => cycleAbPoint(getCurrentTime())}
-            className={`relative w-[30px] h-[30px] rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-90 ${
-                active
-                    ? 'text-accent bg-accent/15 shadow-[0_0_14px_-4px_var(--color-accent-glow)]'
-                    : 'text-white/55 hover:text-white hover:bg-white/[0.08] hover:-translate-y-px'
-            }`}
-        >
-            {repeatAbIcon16}
-            {awaitingB && (
-                <span
-                    className="absolute right-0.5 top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_6px_var(--color-accent-glow)]"/>
-            )}
-        </button>
-    );
+  const active = abLoop != null;
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={() => cycleAbPoint(getCurrentTime())}
+      className={`relative w-[30px] h-[30px] rounded-full flex items-center justify-center transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer active:scale-90 ${
+        active
+          ? 'text-accent bg-accent/15 shadow-[0_0_14px_-4px_var(--color-accent-glow)]'
+          : 'text-white/55 hover:text-white hover:bg-white/[0.08] hover:-translate-y-px'
+      }`}
+    >
+      {repeatAbIcon16}
+      {awaitingB && (
+        <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-accent shadow-[0_0_6px_var(--color-accent-glow)]" />
+      )}
+    </button>
+  );
 });
 
 const PrevBtn = React.memo(() => (
@@ -898,96 +898,91 @@ const TuningBtn = React.memo(() => {
 
 /* ── Track meta (art + title) for the pill ───────────────────── */
 
-const PillTrack = React.memo(({loadProgress}: { loadProgress: number | null }) => {
-    const {t} = useTranslation();
+const PillTrack = React.memo(({ loadProgress }: { loadProgress: number | null }) => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const currentTrack = usePlayerStore((s) => s.currentTrack);
 
   if (!currentTrack) {
     return (
-        <div className="npb-meta">
-            <div className="npb-art">
-                <div className="npb-artfb"/>
-            </div>
-            <div className="npb-txt">
-                <span className="npb-sub">{t('player.notPlaying')}</span>
-            </div>
+      <div className="npb-meta">
+        <div className="npb-art">
+          <div className="npb-artfb" />
+        </div>
+        <div className="npb-txt">
+          <span className="npb-sub">{t('player.notPlaying')}</span>
+        </div>
       </div>
     );
   }
 
-    return <PillTrackBody track={currentTrack} navigate={navigate} loadProgress={loadProgress}/>;
+  return <PillTrackBody track={currentTrack} navigate={navigate} loadProgress={loadProgress} />;
 });
 
 const PillTrackBody = React.memo(function PillTrackBody({
   track,
   navigate,
-                                                            loadProgress,
+  loadProgress,
 }: {
   track: Track;
   navigate: ReturnType<typeof useNavigate>;
-    loadProgress: number | null;
+  loadProgress: number | null;
 }) {
   const openLyricsPanel = useLyricsStore((s) => s.openPanel);
   const artistDisplay = useArtistDisplay(track);
   const displayTitle = useDisplayTitle(track);
-    const artworkSmall = art(track.artwork_url, 't200x200');
-  const artistTarget =
-    track.enrichment?.primary_artist?.id && artistDisplay.verified
-      ? `/artist/${encodeURIComponent(track.enrichment.primary_artist.id)}`
-      : track.user?.urn
-        ? `/user/${encodeURIComponent(track.user.urn)}`
-        : null;
+  const artistLinks = useArtistLinkItems(track);
+  const artworkSmall = art(track.artwork_url, 't200x200');
+  const hasArtistLink = artistLinks.some((it) => it.target);
 
   return (
-      <div className="npb-meta">
-          <div className="npb-art" onClick={() => openLyricsPanel({rightPanelOpen: false})}>
-              {artworkSmall ? <img src={artworkSmall} alt=""/> : <div className="npb-artfb"/>}
-              {/* spinning vinyl ring + live "playing" equaliser — animated only while playing */}
-              <span className="npb-ring"/>
-              <span className="npb-eq">
-          <i/>
-          <i/>
-          <i/>
-          <i/>
+    <div className="npb-meta">
+      <div className="npb-art" onClick={() => openLyricsPanel({ rightPanelOpen: false })}>
+        {artworkSmall ? <img src={artworkSmall} alt="" /> : <div className="npb-artfb" />}
+        {/* spinning vinyl ring + live "playing" equaliser — animated only while playing */}
+        <span className="npb-ring" />
+        <span className="npb-eq">
+          <i />
+          <i />
+          <i />
+          <i />
         </span>
-              {loadProgress != null && <div className="npb-art-load">{loadPercent(loadProgress)}%</div>}
+        {loadProgress != null && <div className="npb-art-load">{loadPercent(loadProgress)}%</div>}
       </div>
-          <div className="npb-txt">
+      <div className="npb-txt">
         <span
-            className="npb-ttl"
-            onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
+          className="npb-ttl"
+          onClick={() => navigate(`/track/${encodeURIComponent(track.urn)}`)}
         >
           {displayTitle}
         </span>
-              <span
-                  className={`npb-sub${artistTarget ? ' is-link' : ''}`}
-          onClick={artistTarget ? () => navigate(artistTarget) : undefined}
-        >
+        <span className={`npb-sub${hasArtistLink ? ' is-link' : ''}`}>
           <UploadKindDot kind={artistDisplay.uploadKind} />
-          <span>{artistDisplay.primary}</span>
+          <span>
+            <ArtistNameLinks items={artistLinks} />
+          </span>
         </span>
-          </div>
       </div>
+    </div>
   );
 });
 
 /* ── Like / Dislike / quality cluster for the current track ──── */
 
 const ReactCluster = React.memo(() => {
-    const urn = usePlayerStore((s) => s.currentTrack?.urn);
-    if (!urn) return null;
-    return <ReactClusterBody urn={urn}/>;
+  const urn = usePlayerStore((s) => s.currentTrack?.urn);
+  if (!urn) return null;
+  return <ReactClusterBody urn={urn} />;
 });
 
 // Single track-query + dislike observer shared by both reaction buttons.
-const ReactClusterBody = React.memo(({urn}: { urn: string }) => {
-    const trackData = useTrackReactions(urn);
-    const disliked = useDislikeStatus(urn);
-    return (
-        <div className="flex items-center gap-0.5">
-            <LikeButton trackUrn={urn} trackData={trackData} disliked={disliked}/>
-            <NowBarDislikeButton trackUrn={urn} trackData={trackData} disliked={disliked}/>
+const ReactClusterBody = React.memo(({ urn }: { urn: string }) => {
+  const trackData = useTrackReactions(urn);
+  const disliked = useDislikeStatus(urn);
+  return (
+    <div className="flex items-center gap-0.5">
+      <LikeButton trackUrn={urn} trackData={trackData} disliked={disliked} />
+      <NowBarDislikeButton trackUrn={urn} trackData={trackData} disliked={disliked} />
       <PlaybackQualityBadge />
     </div>
   );
@@ -996,37 +991,37 @@ const ReactClusterBody = React.memo(({urn}: { urn: string }) => {
 /* ── Lane time readout (current · total), ~1fps ──────────────── */
 
 const LaneTimes = React.memo(() => {
-    const current = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
-    const duration = useSyncExternalStore(subscribe, getDuration);
-    return (
-        <div className="npb-times">
-            <b>{formatTime(current)}</b>
-            <span>{formatTime(duration)}</span>
-        </div>
-    );
+  const current = useSyncExternalStore(subscribe, () => Math.floor(getCurrentTime()));
+  const duration = useSyncExternalStore(subscribe, getDuration);
+  return (
+    <div className="npb-times">
+      <b>{formatTime(current)}</b>
+      <span>{formatTime(duration)}</span>
+    </div>
+  );
 });
 
 /* Pause looping animations while the window is hidden (WebView doesn't throttle). */
 function useDocHidden(): boolean {
-    const [hidden, setHidden] = useState(
-        () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
-    );
-    useEffect(() => {
-        const onChange = () => setHidden(document.visibilityState === 'hidden');
-        document.addEventListener('visibilitychange', onChange);
-        return () => document.removeEventListener('visibilitychange', onChange);
-    }, []);
-    return hidden;
+  const [hidden, setHidden] = useState(
+    () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
+  );
+  useEffect(() => {
+    const onChange = () => setHidden(document.visibilityState === 'hidden');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+  return hidden;
 }
 
 /* ── Background glow ─────────────────────────────────────────── */
 
 const BackgroundGlow = React.memo(() => {
-    const perf = usePerfMode();
+  const perf = usePerfMode();
   const artworkUrl = usePlayerStore((s) => s.currentTrack?.artwork_url);
   const artwork = art(artworkUrl, 't200x200');
 
-    if (!perf.bloom || !artwork) return null;
+  if (!perf.bloom || !artwork) return null;
   return (
     <div
       className="absolute inset-0 opacity-[0.05] blur-3xl pointer-events-none"
@@ -1045,33 +1040,33 @@ const BackgroundGlow = React.memo(() => {
 
 export const NowPlayingBar = React.memo(
   ({ onQueueToggle, queueOpen }: { onQueueToggle: () => void; queueOpen: boolean }) => {
-      const isPlaying = usePlayerStore((s) => s.isPlaying);
-      const hidden = useDocHidden();
-      const playingNow = isPlaying && !hidden;
-      const loadProgress = useLoadProgress();
+    const isPlaying = usePlayerStore((s) => s.isPlaying);
+    const hidden = useDocHidden();
+    const playingNow = isPlaying && !hidden;
+    const loadProgress = useLoadProgress();
 
     return (
-        <div className="npb">
+      <div className="npb">
         <BackgroundGlow />
-            <div className="npb-underglow"/>
+        <div className="npb-underglow" />
 
-            <div
-                className={`npb-dock${loadProgress != null ? ' is-loading' : ''}`}
-                data-playing={playingNow ? 'true' : 'false'}
-            >
-                {/* glass — the only backdrop-filter, isolated in its own layer */}
-                <div className="npb-glass"/>
+        <div
+          className={`npb-dock${loadProgress != null ? ' is-loading' : ''}`}
+          data-playing={playingNow ? 'true' : 'false'}
+        >
+          {/* glass — the only backdrop-filter, isolated in its own layer */}
+          <div className="npb-glass" />
 
-                {/* accent outline that fills as the track downloads (SC → SCD) */}
-                <DockLoadingRing progress={loadProgress}/>
+          {/* accent outline that fills as the track downloads (SC → SCD) */}
+          <DockLoadingRing progress={loadProgress} />
 
-                {/* content — repaints here never re-blur the glass below */}
-                <div className="npb-content">
-                    <div className="npb-row">
-                        <PillTrack loadProgress={loadProgress}/>
-                        <ReactCluster/>
+          {/* content — repaints here never re-blur the glass below */}
+          <div className="npb-content">
+            <div className="npb-row">
+              <PillTrack loadProgress={loadProgress} />
+              <ReactCluster />
 
-                        <div className="npb-sep"/>
+              <div className="npb-sep" />
 
               <div className="flex items-center gap-0.5">
                 <ShuffleBtn />
@@ -1079,27 +1074,27 @@ export const NowPlayingBar = React.memo(
                 <PlayPauseBtn />
                 <NextBtn />
                 <RepeatBtn />
-                  <AbLoopBtn/>
+                <AbLoopBtn />
               </div>
 
-                        <div className="npb-sep"/>
+              <div className="npb-sep" />
 
-                        <div className="flex items-center gap-0.5">
-                            <TuningBtn/>
-                            <EqBtn/>
-                            <LyricsBtn/>
-                            <QueueBtn onClick={onQueueToggle} active={queueOpen}/>
-                            <ControlVolumeBtn size="sm"/>
-                            <div className="npb-vol-slider flex items-center gap-2 pl-1">
-                                <VolumeSlider className="w-[72px]"/>
-                                <VolumeLabel/>
-                            </div>
-                        </div>
-                    </div>
+              <div className="flex items-center gap-0.5">
+                <TuningBtn />
+                <EqBtn />
+                <LyricsBtn />
+                <QueueBtn onClick={onQueueToggle} active={queueOpen} />
+                <ControlVolumeBtn size="sm" />
+                <div className="npb-vol-slider flex items-center gap-2 pl-1">
+                  <VolumeSlider className="w-[72px]" />
+                  <VolumeLabel />
+                </div>
+              </div>
+            </div>
 
-                    <div className="npb-lane">
-                        <LaneTimes/>
-                        <ProgressSlider/>
+            <div className="npb-lane">
+              <LaneTimes />
+              <ProgressSlider />
             </div>
           </div>
         </div>

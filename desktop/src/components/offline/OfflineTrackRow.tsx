@@ -7,7 +7,7 @@ import {downloadTrack} from '../../lib/cache';
 import {art, dur, formatBytes} from '../../lib/formatters';
 import {ArrowDownToLine, FileDown, GripVertical, Loader2, Music, playWhite14, Trash2,} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import {useTrackDisplay} from '../../lib/track-display';
+import {getTrackDisplay, useTrackDisplay} from '../../lib/track-display';
 import {usePlayerStore} from '../../stores/player';
 import {TrackStatusBadges} from '../music/TrackStatusBadges';
 import {effectiveDurationMs, isTruncated} from './lib';
@@ -78,7 +78,8 @@ export const OfflineTrackRow = React.memo(function OfflineTrackRow({
     if (saving) return;
     setSaving(true);
     try {
-      await downloadTrack(track.urn, track.user.username, track.title, {
+      const display = getTrackDisplay(track);
+      await downloadTrack(track.urn, display.artistLine || track.user.username, display.title, {
         artworkUrl: track.artwork_url,
         durationMs: track.duration,
       });

@@ -59,11 +59,10 @@ impl ScTrackFields {
             return None;
         }
         // Дважды-кодированный JSON оставляет в строках литеральные \uXXXX —
-        // декодируем до любой другой обработки.
-        let raw_title = crate::modules::enrich::artist_names::unescape_json_unicode(raw_title);
-        // Срезаем хвостовую транскрипцию: "трек (translit)" → "трек".
-        // Кейс реальный для треков с Genius / релизов с CJK-названиями.
-        let title = crate::modules::enrich::normalize::strip_translit_parens(&raw_title);
+        // декодируем до любой другой обработки. Хранимый title дальше НЕ
+        // трогаем: «(translit)»-хвосты и теги — забота display/match-слоёв,
+        // ingest-стрип молча портил оригиналы ("Дико тусим (Speed Up)").
+        let title = crate::modules::enrich::artist_names::unescape_json_unicode(raw_title);
         let title_normalized = normalize_title(&title);
 
         let description = string_field(payload, "description");

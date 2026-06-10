@@ -175,9 +175,12 @@ impl MbClient {
                 let mut artists: Vec<MbArtist> = credits
                     .into_iter()
                     .filter_map(|c| {
+                        // Имя СУЩНОСТИ, не кредит-алиас: на релизе артист бывает
+                        // подписан сценическим сокращением ("SID" у SIDODJI
+                        // DUBOSHIT) — алиас минтит артиста-двойника.
                         c.artist.map(|a| MbArtist {
                             mb_id: a.id,
-                            name: c.name.unwrap_or(a.name),
+                            name: a.name,
                         })
                     })
                     .collect();
@@ -323,7 +326,7 @@ fn recording_from_payload(r: RecordingPayload, score: u32) -> MbRecording {
         .filter_map(|c| {
             c.artist.as_ref().map(|a| MbArtist {
                 mb_id: a.id.clone(),
-                name: c.name.clone().unwrap_or_else(|| a.name.clone()),
+                name: a.name.clone(),
             })
         })
         .collect();
@@ -342,7 +345,7 @@ fn recording_from_payload(r: RecordingPayload, score: u32) -> MbRecording {
         let release_primary = release_credits.into_iter().next().and_then(|c| {
             c.artist.map(|a| MbArtist {
                 mb_id: a.id,
-                name: c.name.unwrap_or(a.name),
+                name: a.name,
             })
         });
         MbRelease {
@@ -407,8 +410,6 @@ struct BrowseRecording {
 
 #[derive(Debug, Deserialize)]
 struct RawCredit {
-    #[serde(default)]
-    name: Option<String>,
     #[serde(default)]
     artist: Option<RawArtist>,
 }

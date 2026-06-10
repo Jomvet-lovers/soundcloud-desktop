@@ -171,9 +171,7 @@ impl AiResolverClient {
             remixers,
             album,
             isrc: ctx.isrc.clone(),
-            release_date: None,
-            release_year: None,
-            is_cover: false,
+            ..Default::default()
         })
     }
 

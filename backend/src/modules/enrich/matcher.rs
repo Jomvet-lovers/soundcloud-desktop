@@ -14,6 +14,7 @@
 
 use serde_json::Value;
 
+use crate::modules::enrich::artist_names::name_similarity;
 use crate::modules::enrich::normalize::{
     compact_title, normalize_name, normalize_title, parse_sc_title,
 };
@@ -64,13 +65,23 @@ pub fn title_score(
     cand_title: &str,
     cand_uploader_username: Option<&str>,
 ) -> f32 {
+    let parsed = parse_sc_title(cand_title, cand_uploader_username);
+    title_score_parsed(target_title, cand_title, &parsed)
+}
+
+/// Вариант с уже разобранным кандидатом — `evaluate_sc_candidate` парсит
+/// title один раз на оба скора (а не дважды на каждого из сотен кандидатов).
+pub fn title_score_parsed(
+    target_title: &str,
+    cand_title: &str,
+    parsed: &crate::modules::enrich::normalize::ParsedTitle,
+) -> f32 {
     let target_n = normalize_title(target_title);
     if target_n.is_empty() {
         return 0.0;
     }
     let target_compact = compact_title(target_title);
 
-    let parsed = parse_sc_title(cand_title, cand_uploader_username);
     let cleaned_n = normalize_title(&parsed.cleaned_title);
     let cleaned_compact = compact_title(&parsed.cleaned_title);
     let raw_n = normalize_title(cand_title);
@@ -85,15 +96,16 @@ pub fn title_score(
         return 0.95;
     }
 
+    // Длины в символах: байтовый порог для кириллицы = половина задуманного.
     let min_len = 6;
-    if target_compact.len() >= min_len {
+    if target_compact.chars().count() >= min_len {
         if cleaned_compact.contains(&target_compact) || raw_compact.contains(&target_compact) {
             // целевая короче кандидата — кандидат «покрывает» wanted
             return 0.75;
         }
         if !cleaned_compact.is_empty()
             && target_compact.contains(&cleaned_compact)
-            && cleaned_compact.len() * 2 >= target_compact.len()
+            && cleaned_compact.chars().count() * 2 >= target_compact.chars().count()
         {
             return 0.65;
         }
@@ -130,7 +142,7 @@ pub fn artist_score(
         .into_iter()
         .flatten()
     {
-        let s = crate::modules::enrich::artist_names::name_similarity(target_artist, c);
+        let s = name_similarity(target_artist, c);
         if s > best {
             best = s;
         }
@@ -216,7 +228,7 @@ pub fn evaluate_sc_candidate(
     let cand_parsed_artist = parsed.primary_artists.first().map(|s| s.as_str());
 
     TrackMatch {
-        title_score: title_score(wanted_title, cand_title, cand_uploader),
+        title_score: title_score_parsed(wanted_title, cand_title, &parsed),
         artist_score: artist_score(wanted_artist, cand_uploader, cand_parsed_artist),
         duration_match: duration_match(wanted_duration_ms, cand_duration_ms),
         isrc_match: matches!((wanted_isrc, cand_isrc), (Some(a), Some(b)) if a.eq_ignore_ascii_case(b)),

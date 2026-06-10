@@ -247,9 +247,12 @@ pub async fn artist_create(
         ));
     }
 
+    // ON CONFLICT: гонка exists→INSERT не должна отдавать 500.
     let row = sqlx::query_as::<_, ArtistRow>(&format!(
         "INSERT INTO artists (name, normalized_name, country, bio, avatar_url, sc_user_id, source, confidence) \
-         VALUES ($1, $2, $3, $4, $5, $6, 'manual', 1.0) RETURNING {ARTIST_COLS}"
+         VALUES ($1, $2, $3, $4, $5, $6, 'manual', 1.0) \
+         ON CONFLICT (normalized_name) WHERE merged_into IS NULL DO NOTHING \
+         RETURNING {ARTIST_COLS}"
     ))
         .bind(name)
         .bind(&normalized)
@@ -257,9 +260,14 @@ pub async fn artist_create(
         .bind(&body.bio)
         .bind(&body.avatar_url)
         .bind(&body.sc_user_id)
-        .fetch_one(&st.pg)
+        .fetch_optional(&st.pg)
         .await?;
-    Ok(Json(row))
+    match row {
+        Some(row) => Ok(Json(row)),
+        None => Err(AppError::bad_request(
+            "artist with this name already exists",
+        )),
+    }
 }
 
 #[derive(Deserialize)]
@@ -654,10 +662,22 @@ pub async fn track_set_album(
 
 // ───────────────────────── track credits (feat / co-artists) ─────────────────────────
 
-const CREDIT_ROLES: [&str; 4] = ["primary", "feature", "remixer", "producer"];
+// Канон ролей = словарь persist'а ('featured', не 'feature') — иначе ручной
+// кредит из админки невидим для DTO/фронта, которые знают только 'featured'.
+const CREDIT_ROLES: [&str; 4] = ["primary", "featured", "remixer", "producer"];
 
 fn default_feature_role() -> String {
-    "feature".to_string()
+    "featured".to_string()
+}
+
+/// Старые клиенты админки шлют 'feature' — принимаем, храним канон.
+fn canonical_role(role: &str) -> String {
+    let role = role.trim().to_lowercase();
+    if role == "feature" {
+        "featured".to_string()
+    } else {
+        role
+    }
 }
 
 #[derive(Deserialize)]
@@ -679,10 +699,10 @@ pub async fn track_add_credit(
     Path(track_id): Path<Uuid>,
     Json(body): Json<AddCredit>,
 ) -> AppResult<Json<Value>> {
-    let role = body.role.trim().to_lowercase();
+    let role = canonical_role(&body.role);
     if !CREDIT_ROLES.contains(&role.as_str()) {
         return Err(AppError::bad_request(
-            "role must be one of: primary, feature, remixer, producer",
+            "role must be one of: primary, featured, remixer, producer",
         ));
     }
     let artist_ok: bool =
@@ -756,7 +776,7 @@ pub async fn track_remove_credit(
     Path((track_id, artist_id)): Path<(Uuid, Uuid)>,
     Query(q): Query<CreditQuery>,
 ) -> AppResult<Json<Value>> {
-    let role = q.role.trim().to_lowercase();
+    let role = canonical_role(&q.role);
 
     let mut tx = st.pg.begin().await?;
     let res = sqlx::query_file!(

@@ -31,6 +31,15 @@ pub fn like_needle(q: &str) -> String {
     format!("%{lower}%")
 }
 
+/// Заготовка под `*_normalized`-колонки: тот же fold, которым колонки
+/// записаны (ё≡е, &≡and, стилизация) — сырой lowercase по ним не попадает.
+pub fn like_needle_normalized(q: &str) -> String {
+    format!(
+        "%{}%",
+        crate::modules::enrich::normalize::normalize_title(q)
+    )
+}
+
 async fn set_statement_timeout(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> AppResult<()> {
     sqlx::query(&format!(
         "SET LOCAL statement_timeout = {STATEMENT_TIMEOUT_MS}"
@@ -51,6 +60,7 @@ pub async fn search_tracks(
     limit: i64,
 ) -> AppResult<(Vec<Value>, bool)> {
     let needle = like_needle(q_lower);
+    let norm_needle = like_needle_normalized(q_lower);
     let offset = page * limit;
 
     let mut tx = pg.begin().await?;
@@ -69,7 +79,8 @@ pub async fn search_tracks(
             uid,
             &needle,
             fetch_limit,
-            offset
+            offset,
+            &norm_needle
         )
         .fetch_all(&mut *tx)
         .await?
@@ -82,7 +93,8 @@ pub async fn search_tracks(
             "queries/search/repository/search_tracks_global.sql",
             &needle,
             fetch_limit,
-            offset
+            offset,
+            &norm_needle
         )
         .fetch_all(&mut *tx)
         .await?
@@ -146,6 +158,7 @@ pub async fn search_playlists(
     limit: i64,
 ) -> AppResult<(Vec<Value>, bool)> {
     let needle = like_needle(q_lower);
+    let norm_needle = like_needle_normalized(q_lower);
     let offset = page * limit;
 
     let mut tx = pg.begin().await?;
@@ -160,7 +173,8 @@ pub async fn search_playlists(
             uid,
             &needle,
             fetch_limit,
-            offset
+            offset,
+            &norm_needle
         )
         .fetch_all(&mut *tx)
         .await?
@@ -170,7 +184,8 @@ pub async fn search_playlists(
             "queries/search/repository/search_playlists_global.sql",
             &needle,
             fetch_limit,
-            offset
+            offset,
+            &norm_needle
         )
         .fetch_all(&mut *tx)
         .await?
@@ -296,12 +311,14 @@ pub async fn search_artists(
 
     let fetch_limit = limit + 1;
 
+    let norm_needle = like_needle_normalized(q_lower);
     let rows: Vec<ArtistSearchRow> = sqlx::query_file_as!(
         ArtistSearchRow,
         "queries/search/repository/search_artists.sql",
         &needle,
         fetch_limit,
-        offset
+        offset,
+        &norm_needle
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -346,12 +363,14 @@ pub async fn search_albums(
 
     let fetch_limit = limit + 1;
 
+    let norm_needle = like_needle_normalized(q_lower);
     let rows: Vec<AlbumSearchRow> = sqlx::query_file_as!(
         AlbumSearchRow,
         "queries/search/repository/search_albums.sql",
         &needle,
         fetch_limit,
-        offset
+        offset,
+        &norm_needle
     )
     .fetch_all(&mut *tx)
     .await?;

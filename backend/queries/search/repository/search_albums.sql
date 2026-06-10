@@ -18,7 +18,7 @@ FROM albums al
          LEFT JOIN artists a ON a.id = al.primary_artist_id AND a.merged_into IS NULL
 WHERE al.track_count > 0
   AND (
-    al.normalized_title LIKE $1
+    al.normalized_title LIKE $4
         OR LOWER(al.title) LIKE $1
         OR LOWER(COALESCE(a.name, '')) LIKE $1
     )
