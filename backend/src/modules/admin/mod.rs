@@ -1,6 +1,7 @@
 pub mod auth_overview;
 pub mod catalog;
 pub mod infra;
+pub mod maintenance;
 pub mod stats;
 pub mod sync_queue;
 pub mod wanted;
@@ -22,6 +23,10 @@ pub fn router() -> Router<AppState> {
         .route("/admin/http-stats", get(infra::http_stats))
         .route("/admin/slow-queries", get(infra::slow_queries))
         .route("/admin/index-usage", get(infra::index_usage))
+        .route(
+            "/admin/maintenance/renormalize",
+            post(maintenance::renormalize),
+        )
         .route("/admin/wanted-tracks", get(wanted::list))
         .route("/admin/wanted-tracks/{id}/link", post(wanted::link))
         .route(

@@ -100,6 +100,13 @@ impl ArtistAccountWalker {
                     debug!(error = %e, sc_track_id, "walker: ingest failed");
                     continue;
                 }
+                // Лейбловая мета знает авторов: если она живая и артиста в ней
+                // нет — это чужой трек на его аккаунте (компиляция, OST-залив).
+                // Трек уже ingest'нут, но primary не присваиваем — пусть решает
+                // enrich-pipeline.
+                if !meta_allows_artist(&tr, artist_name) {
+                    continue;
+                }
                 if let Some(track_row) = self.tracks.find_by_sc_track_id(&sc_track_id).await? {
                     if track_row.primary_artist_id.is_none() {
                         let _ = sqlx::query_file!(
@@ -189,6 +196,20 @@ impl ArtistAccountWalker {
         }
         Ok(acc)
     }
+}
+
+/// Мета пуста/мусорная → не мешаем. Живая мета должна знать артиста, иначе
+/// трек на его аккаунте — чужой (компиляция, OST, диджейский залив).
+fn meta_allows_artist(track: &Value, artist_name: &str) -> bool {
+    let Some(meta) = track.get("metadata_artist").and_then(|v| v.as_str()) else {
+        return true;
+    };
+    let names = crate::modules::enrich::artist_names::meta_artist_names(meta);
+    names.is_empty()
+        || crate::modules::enrich::artist_names::name_in(
+            artist_name,
+            names.iter().map(|s| s.as_str()),
+        )
 }
 
 /// Артист считается «нашим» для этого трека если либо:

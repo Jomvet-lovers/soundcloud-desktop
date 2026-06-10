@@ -10,9 +10,9 @@ SELECT ta.track_id   AS "track_id!",
 FROM track_artists ta
          JOIN artists a ON a.id = ta.artist_id
 WHERE ta.track_id = ANY ($1)
-  AND ta.role <> 'primary'
 ORDER BY ta.track_id,
          CASE ta.role
+             WHEN 'primary' THEN 0
              WHEN 'featured' THEN 1
              WHEN 'remixer' THEN 2
              WHEN 'producer' THEN 3

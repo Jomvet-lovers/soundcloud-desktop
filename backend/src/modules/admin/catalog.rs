@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::common::admin::AdminAuth;
 use crate::error::{AppError, AppResult};
 use crate::modules::auth::TokenKind;
+use crate::modules::enrich::artist_names::{self, RawMetaMatch};
 use crate::modules::enrich::normalize::normalize_name;
 use crate::state::AppState;
 
@@ -379,12 +380,69 @@ pub struct TrackListRow {
     pub release_year: Option<i16>,
 }
 
+/// Строка триажа: трек + вердикт сравнения распознанных артистов с RAW-метой.
+/// Вердикт считается здесь, на бэке, тем же `artist_names`-алгоритмом, что и
+/// resolver — у админки нет своей логики сравнения.
+#[derive(Serialize)]
+pub struct TrackListItem {
+    #[serde(flatten)]
+    pub row: TrackListRow,
+    /// match / partial / mismatch; None — меты нет или она мусор.
+    pub raw_match: Option<RawMetaMatch>,
+    /// Распознанные primary-кредиты (включая co-артистов).
+    pub detected_names: Vec<String>,
+    /// RAW-мета, распарсенная на имена.
+    pub raw_names: Vec<String>,
+}
+
+/// Имена primary-кредитов по трекам (для вердикта нужен полный состав,
+/// а не только денормализованный `primary_artist_name`).
+async fn primary_names_for(
+    pg: &sqlx::PgPool,
+    track_ids: &[Uuid],
+) -> AppResult<std::collections::HashMap<Uuid, Vec<String>>> {
+    let mut map: std::collections::HashMap<Uuid, Vec<String>> = std::collections::HashMap::new();
+    if track_ids.is_empty() {
+        return Ok(map);
+    }
+    let rows = sqlx::query_file!("queries/admin/catalog/track_primary_names.sql", track_ids)
+        .fetch_all(pg)
+        .await?;
+    for r in rows {
+        map.entry(r.track_id).or_default().push(r.name);
+    }
+    Ok(map)
+}
+
+fn to_list_item(row: TrackListRow, credit_names: Option<Vec<String>>) -> TrackListItem {
+    let mut detected = credit_names.unwrap_or_default();
+    if detected.is_empty() {
+        if let Some(n) = row.primary_artist_name.clone() {
+            detected.push(n);
+        }
+    }
+    let raw_match = row.metadata_artist.as_deref().and_then(|meta| {
+        artist_names::compare_with_meta(detected.iter().map(|s| s.as_str()), meta)
+    });
+    let raw_names = row
+        .metadata_artist
+        .as_deref()
+        .map(artist_names::meta_artist_names)
+        .unwrap_or_default();
+    TrackListItem {
+        row,
+        raw_match,
+        detected_names: detected,
+        raw_names,
+    }
+}
+
 #[tracing::instrument(skip_all)]
 pub async fn tracks_search(
     _: AdminAuth,
     State(st): State<AppState>,
     Query(q): Query<TracksQuery>,
-) -> AppResult<Json<Vec<TrackListRow>>> {
+) -> AppResult<Json<Vec<TrackListItem>>> {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let term = q.q.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let like = term.as_ref().map(|s| format!("%{s}%"));
@@ -398,7 +456,17 @@ pub async fn tracks_search(
     )
     .fetch_all(&st.pg)
     .await?;
-    Ok(Json(rows))
+
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+    let mut credits = primary_names_for(&st.pg, &ids).await?;
+    let items = rows
+        .into_iter()
+        .map(|r| {
+            let names = credits.remove(&r.id);
+            to_list_item(r, names)
+        })
+        .collect();
+    Ok(Json(items))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -421,7 +489,7 @@ pub struct BlockRow {
 #[derive(Serialize)]
 pub struct TrackDetail {
     #[serde(flatten)]
-    pub track: TrackListRow,
+    pub track: TrackListItem,
     pub credits: Vec<TrackCreditRow>,
     pub blocks: Vec<BlockRow>,
 }
@@ -452,6 +520,13 @@ pub async fn track_detail(
     let blocks = sqlx::query_file_as!(BlockRow, "queries/admin/catalog/track_blocks.sql", track_id)
         .fetch_all(&st.pg)
         .await?;
+
+    let primary_names: Vec<String> = credits
+        .iter()
+        .filter(|c| c.role == "primary")
+        .filter_map(|c| c.name.clone())
+        .collect();
+    let track = to_list_item(track, Some(primary_names));
 
     Ok(Json(TrackDetail {
         track,

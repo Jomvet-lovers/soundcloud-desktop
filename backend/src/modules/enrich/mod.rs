@@ -2,6 +2,7 @@ pub mod ai;
 pub mod ai_matcher;
 pub mod artist_account_walker;
 pub mod artist_crawl;
+pub mod artist_names;
 pub mod coplay;
 pub mod dto;
 pub mod genius;

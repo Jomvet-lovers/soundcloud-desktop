@@ -7,6 +7,7 @@ import {downloadTrack} from '../../lib/cache';
 import {art, dur, formatBytes} from '../../lib/formatters';
 import {ArrowDownToLine, FileDown, GripVertical, Loader2, Music, playWhite14, Trash2,} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
+import {useTrackDisplay} from '../../lib/track-display';
 import {usePlayerStore} from '../../stores/player';
 import {TrackStatusBadges} from '../music/TrackStatusBadges';
 import {effectiveDurationMs, isTruncated} from './lib';
@@ -67,6 +68,7 @@ export const OfflineTrackRow = React.memo(function OfflineTrackRow({
   const [saving, setSaving] = useState(false);
   const isCurrent = usePlayerStore((s) => s.currentTrack?.urn === entry.urn);
   const { track, inv } = entry;
+  const display = useTrackDisplay(track);
   const cached = inv !== null;
   const downloading = downloadProgress !== undefined;
   const truncated = isTruncated(inv);
@@ -168,7 +170,7 @@ export const OfflineTrackRow = React.memo(function OfflineTrackRow({
               isCurrent ? 'text-accent' : entry.stub ? 'font-mono text-white/55' : 'text-white/88'
             }`}
           >
-            {track.title}
+            {display.title}
           </p>
           {downloading ? (
             <div className="mt-1.5 h-[2px] w-[150px] overflow-hidden rounded-[1px] bg-white/[0.08]">
@@ -182,7 +184,7 @@ export const OfflineTrackRow = React.memo(function OfflineTrackRow({
               className="truncate text-[11.5px] leading-tight text-white/40"
               style={forging ? { color: 'var(--color-accent-hover)' } : undefined}
             >
-              {forging ? t('offline.rowForging') : track.user.username}
+              {forging ? t('offline.rowForging') : display.artistLine || track.user.username}
             </p>
           )}
         </div>
@@ -285,6 +287,7 @@ export const OfflineRowClone = React.memo(function OfflineRowClone({
   entry: OfflineEntry;
 }) {
   const artwork = art(entry.track.artwork_url, 't200x200');
+  const display = useTrackDisplay(entry.track);
   return (
     <div className="flex h-[56px] cursor-grabbing items-center gap-3 rounded-xl bg-[rgba(28,28,34,0.96)] px-3 shadow-[0_20px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/15 backdrop-blur-xl">
       <GripVertical size={13} className="flex-none text-white/45" />
@@ -294,8 +297,10 @@ export const OfflineRowClone = React.memo(function OfflineRowClone({
         )}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-[13px] font-medium text-white/88">{entry.track.title}</p>
-        <p className="truncate text-[11.5px] text-white/40">{entry.track.user.username}</p>
+        <p className="truncate text-[13px] font-medium text-white/88">{display.title}</p>
+        <p className="truncate text-[11.5px] text-white/40">
+          {display.artistLine || entry.track.user.username}
+        </p>
       </div>
     </div>
   );

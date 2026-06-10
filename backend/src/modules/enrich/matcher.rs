@@ -114,63 +114,28 @@ pub fn title_score(
 /// Artist score: target = ожидаемое имя артиста (как у нас в БД),
 /// cand_uploader_username = SC username аплоадера,
 /// cand_title_parsed_artist = первый primary_artist парсера тайтла кандидата.
+/// Шкала похожести — единая, из `artist_names::name_similarity`.
 pub fn artist_score(
     target_artist: &str,
     cand_uploader_username: Option<&str>,
     cand_title_parsed_artist: Option<&str>,
 ) -> f32 {
-    let target_n = normalize_name(target_artist);
-    if target_n.is_empty() {
+    if normalize_name(target_artist).is_empty() {
         // Без эталонного имени артиста сравнивать не с чем — даём нейтральный 0.5
         // чтобы не убивать score для wanted_tracks без artist'а.
         return 0.5;
     }
-    let parsed_n = cand_title_parsed_artist
-        .map(normalize_name)
-        .unwrap_or_default();
-    let upl_n = cand_uploader_username
-        .map(normalize_name)
-        .unwrap_or_default();
-    let candidates = [parsed_n.as_str(), upl_n.as_str()];
     let mut best = 0.0f32;
-    for c in candidates.iter().filter(|s| !s.is_empty()) {
-        let s = single_artist_score(&target_n, c);
+    for c in [cand_title_parsed_artist, cand_uploader_username]
+        .into_iter()
+        .flatten()
+    {
+        let s = crate::modules::enrich::artist_names::name_similarity(target_artist, c);
         if s > best {
             best = s;
         }
     }
     best
-}
-
-fn single_artist_score(target_n: &str, cand_n: &str) -> f32 {
-    if target_n == cand_n {
-        return 1.0;
-    }
-    let target_compact: String = target_n.chars().filter(|c| !c.is_whitespace()).collect();
-    let cand_compact: String = cand_n.chars().filter(|c| !c.is_whitespace()).collect();
-    if target_compact.is_empty() || cand_compact.is_empty() {
-        return 0.0;
-    }
-    if target_compact == cand_compact {
-        return 0.95;
-    }
-    if target_compact.len() >= 4
-        && cand_compact.len() >= 4
-        && (target_compact.contains(&cand_compact) || cand_compact.contains(&target_compact))
-    {
-        // короче должно покрывать ≥ половину длинного, иначе слишком мягко
-        let short = target_compact.len().min(cand_compact.len());
-        let long = target_compact.len().max(cand_compact.len());
-        if short * 2 >= long {
-            return 0.85;
-        }
-        return 0.55;
-    }
-    let bigram = bigram_overlap(&target_compact, &cand_compact);
-    if bigram >= 0.7 {
-        return 0.5;
-    }
-    0.0
 }
 
 pub fn duration_match(target_ms: Option<i32>, cand_ms: Option<i64>) -> DurationMatch {
@@ -215,10 +180,6 @@ fn jaccard_ratio(
     } else {
         inter / union
     }
-}
-
-fn bigram_overlap(a: &str, b: &str) -> f32 {
-    jaccard_ratio(&ngram_set(a, 2), &ngram_set(b, 2))
 }
 
 fn trigram_overlap(a: &str, b: &str) -> f32 {

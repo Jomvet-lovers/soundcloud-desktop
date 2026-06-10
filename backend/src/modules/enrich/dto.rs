@@ -156,7 +156,13 @@ pub async fn lookup(pg: &PgPool, urns: &[String]) -> AppResult<HashMap<String, E
             }),
             _ => None,
         };
-        let participants = by_track.remove(&r.track_id).unwrap_or_default();
+        // role='primary' в participants — это co-primary артисты ("ghasaii,
+        // psychosis"): фронт склеивает их в строку авторов. Самого
+        // primary_artist из списка убираем, он уже отдан отдельным полем.
+        let mut participants = by_track.remove(&r.track_id).unwrap_or_default();
+        if let Some(pa) = primary_artist.as_ref() {
+            participants.retain(|p| !(p.role == "primary" && p.artist.id == pa.id));
+        }
         let (release_year, release_date, release_source) = if let Some(date) = r.it_release_date {
             (
                 r.it_release_year

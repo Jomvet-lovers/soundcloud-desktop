@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import type { EnrichmentArtist, Track, TrackAvailability } from '../stores/player';
+import {useMemo} from 'react';
+import type {EnrichmentArtist, Track, TrackAvailability} from '../stores/player';
 
 export interface ArtistDisplay {
   primary: string;
@@ -12,23 +12,80 @@ export interface ArtistDisplay {
   availability: TrackAvailability;
 }
 
+/** Единый результат разбора трека для отображения: что писать в заголовок
+ *  и кого — в строку авторов. Все компоненты (карточки, очередь, плеер,
+ *  оффлайн) обязаны брать отсюда, своих разборов не заводить. */
+export interface TrackDisplay {
+  title: string;
+  /** Компоненты строки авторов в порядке показа. */
+  artistNames: string[];
+  /** Готовая строка авторов: "МОКЕРИ, Psychosis". */
+  artistLine: string;
+  /** true — авторы взяты из разметки "Artist1, Artist2 - Title" в тайтле. */
+  fromTitleSplit: boolean;
+}
+
 export type UploadKind = 'original' | 'demo' | 'alt' | 'reupload' | 'cover' | 'unknown';
 
-const TITLE_SEPARATORS = [' - ', ' — ', ' – ', ' -- '] as const;
+const TITLE_SEPARATORS = [' - ', ' — ', ' – ', ' -- ', ' ‒ ', ' − ', ' ─ '] as const;
 const ARTIST_SPLITTERS =
-  /\s*(?:,|&|\sx\s|\s×\s|\svs\.?\s|\sand\s|\sfeat\.?\s|\sft\.?\s|\sfeaturing\s)\s*/i;
+  /\s*(?:,|;|&|\sx\s|\sх\s|\s[×✕✖⨯+]\s|\svs\.?\s|\sand\s|\sfeat\.?\s|\sft\.?\s|\sfeaturing\s|\sw\/\s|\s\/\s)\s*/i;
+
+/** Максимум имён в левой части, чтобы не принять предложение с запятыми
+ *  за список авторов. */
+const MAX_TITLE_ARTISTS = 6;
 
 const ROLE_TAG_HEAD = new Set([
-  'cover', 'covers', 'remix', 'rmx', 'edit', 'version', 'mix',
-  'feat', 'feat.', 'ft', 'ft.', 'featuring',
-  'prod', 'prod.', 'produced', 'with', 'vs', 'vs.',
-  'instrumental', 'acoustic', 'live', 'demo', 'bootleg', 'flip', 'mashup',
-  'original', 'extended', 'radio', 'free', 'official', 'premiere', 'exclusive',
-  'lyrics', 'lyric', 'visualizer', 'hq', 'hd',
+  'cover',
+  'covers',
+  'remix',
+  'rmx',
+  'edit',
+  'version',
+  'mix',
+  'feat',
+  'feat.',
+  'ft',
+  'ft.',
+  'featuring',
+  'prod',
+  'prod.',
+  'produced',
+  'with',
+  'vs',
+  'vs.',
+  'instrumental',
+  'acoustic',
+  'live',
+  'demo',
+  'bootleg',
+  'flip',
+  'mashup',
+  'original',
+  'extended',
+  'radio',
+  'free',
+  'official',
+  'premiere',
+  'exclusive',
+  'lyrics',
+  'lyric',
+  'visualizer',
+  'hq',
+  'hd',
 ]);
 const ROLE_TAG_TAIL = new Set([
-  'remix', 'rmx', 'edit', 'mix', 'version', 'cover', 'bootleg',
-  'flip', 'mashup', 'instrumental', 'acoustic',
+  'remix',
+  'rmx',
+  'edit',
+  'mix',
+  'version',
+  'cover',
+  'bootleg',
+  'flip',
+  'mashup',
+  'instrumental',
+  'acoustic',
 ]);
 
 function looksLikeRoleTag(inner: string): boolean {
@@ -36,6 +93,69 @@ function looksLikeRoleTag(inner: string): boolean {
   const parts = lower.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return false;
   return ROLE_TAG_HEAD.has(parts[0]) || ROLE_TAG_TAIL.has(parts[parts.length - 1]);
+}
+
+/** Малые капители, которыми стилизуют ники (ᴍᴏɴᴀʀᴄʜ). NFKD их не трогает. */
+const SMALL_CAPS: Record<string, string> = {
+  ᴀ: 'a',
+  ʙ: 'b',
+  ᴄ: 'c',
+  ᴅ: 'd',
+  ᴇ: 'e',
+  ꜰ: 'f',
+  ɢ: 'g',
+  ʜ: 'h',
+  ɪ: 'i',
+  ᴊ: 'j',
+  ᴋ: 'k',
+  ʟ: 'l',
+  ᴍ: 'm',
+  ɴ: 'n',
+  ᴏ: 'o',
+  ᴘ: 'p',
+  ꞯ: 'q',
+  ʀ: 'r',
+  ꜱ: 's',
+  ᴛ: 't',
+  ᴜ: 'u',
+  ᴠ: 'v',
+  ᴡ: 'w',
+  ʏ: 'y',
+  ᴢ: 'z',
+};
+const COMBINING_MARKS = /[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]/g;
+
+/**
+ * Канонический ключ сравнения имён — зеркало бэкендового
+ * `enrich::normalize::normalize_name`: fold стилизованного юникода и
+ * диакритики, lowercase, только буквы/цифры, `&` ≡ "and", без ведущего "the".
+ * Сравнивать имена где-либо ещё другим способом — нельзя.
+ */
+export function foldName(s: string): string {
+  let folded = '';
+  for (const ch of s.normalize('NFKD').replace(COMBINING_MARKS, '')) {
+    folded += SMALL_CAPS[ch] ?? ch;
+  }
+  folded = folded.toLowerCase();
+  let out = '';
+  let prevSpace = true;
+  for (const ch of folded) {
+    if (ch === '&') {
+      if (!prevSpace) out += ' ';
+      out += 'and ';
+      prevSpace = true;
+    } else if (/[\p{L}\p{N}]/u.test(ch)) {
+      out += ch;
+      prevSpace = false;
+    } else if (ch === "'" || ch === '’' || ch === 'ʼ' || ch === '`') {
+      // апострофы схлопываем: Don't == Dont
+    } else if (!prevSpace) {
+      out += ' ';
+      prevSpace = true;
+    }
+  }
+  out = out.trim();
+  return out.startsWith('the ') ? out.slice(4) : out;
 }
 
 /**
@@ -66,54 +186,6 @@ export function stripTranslitParens(s: string): string {
   return outerHasNonLatin && innerLatinOnly ? outer : s;
 }
 
-export function getArtistDisplay(track: Pick<Track, 'user' | 'enrichment'>): ArtistDisplay {
-  const enrichment = track.enrichment;
-  const real = enrichment?.primary_artist;
-  const uploader = track.user?.username ?? '';
-  const availability = (enrichment?.availability ?? 'indexed') as TrackAvailability;
-  const pending = enrichment?.state === 'pending' || (!enrichment && availability === 'indexed');
-  const uploadKind =
-    enrichment && enrichment.upload_kind && enrichment.upload_kind !== 'unknown'
-      ? enrichment.upload_kind
-      : null;
-  if (!real || !real.name) {
-    return {
-      primary: uploader,
-      uploader: null,
-      isEnriched: false,
-      verified: false,
-      confidence: null,
-      pending,
-      uploadKind,
-      availability,
-    };
-  }
-  const realName = real.name.trim();
-  if (!realName) {
-    return {
-      primary: uploader,
-      uploader: null,
-      isEnriched: false,
-      verified: false,
-      confidence: null,
-      pending,
-      uploadKind,
-      availability,
-    };
-  }
-  const sameAsUploader = realName.toLowerCase() === uploader.trim().toLowerCase();
-  return {
-    primary: realName,
-    uploader: sameAsUploader || availability !== 'indexed' ? null : uploader || null,
-    isEnriched: true,
-    verified: real.verified === true,
-    confidence: real.confidence ?? null,
-    pending: false,
-    uploadKind,
-    availability,
-  };
-}
-
 /**
  * Inline-теги в круглых/квадратных скобках которые относятся к роли участника
  * (prod./feat./ft./featuring/remix/rmx/edit/version/cover/instrumental) —
@@ -124,61 +196,222 @@ export function getArtistDisplay(track: Pick<Track, 'user' | 'enrichment'>): Art
  * "Free DL"-носинг тоже срезаем: SC-аплоадеры обожают [Free DL]/(out now)/HQ.
  */
 const TAG_PATTERN =
-  /\s*[\(\[][^\)\]]*(?:prod\.?|produced\s+by|prod\s+by|feat\.?|featuring|ft\.?|with|remix|rmx|edit|version|cover|instrumental|free\s+(?:dl|download)|out\s+now|original\s+mix|extended\s+mix|radio\s+edit|premiere|exclusive|hd|hq|official(?:\s+(?:audio|video))?|lyrics|lyric\s+video|visualizer)\b[^\)\]]*[\)\]]/gi;
+  /\s*[([][^)\]]*(?:prod\.?|produced\s+by|prod\s+by|feat\.?|featuring|ft\.?|with|remix|rmx|edit|version|cover|instrumental|free\s+(?:dl|download)|out\s+now|original\s+mix|extended\s+mix|radio\s+edit|premiere|exclusive|hd|hq|official(?:\s+(?:audio|video))?|lyrics|lyric\s+video|visualizer)\b[^)\]]*[)\]]/gi;
 
 export function stripInlineTags(title: string): string {
   let prev = title;
   for (let i = 0; i < 4; i++) {
-    const next = prev.replace(TAG_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
+    const next = prev
+      .replace(TAG_PATTERN, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
     if (next === prev) break;
     prev = next;
   }
   return prev || title;
 }
 
-export function getDisplayTitle(track: Pick<Track, 'title' | 'user' | 'enrichment'>): string {
-  let title = stripTranslitParens(stripInlineTags(track.title));
+type DisplayInput = Pick<Track, 'title' | 'user' | 'enrichment'>;
 
-  const candidates = new Set<string>();
-  const primary = track.enrichment?.primary_artist?.name;
-  if (primary) candidates.add(primary.trim().toLowerCase());
-  const uploader = track.user?.username;
-  if (uploader) candidates.add(uploader.trim().toLowerCase());
-  track.enrichment?.participants?.forEach((p) => {
-    if (p.artist?.name) candidates.add(p.artist.name.trim().toLowerCase());
-  });
-
-  for (const sep of TITLE_SEPARATORS) {
-    const idx = title.indexOf(sep);
-    if (idx <= 0) continue;
-    const left = title.slice(0, idx).trim();
-    const right = title.slice(idx + sep.length).trim();
-    if (!right) continue;
-    const leftNames = left
-      .split(ARTIST_SPLITTERS)
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean);
-    if (leftNames.length === 0) continue;
-    if (leftNames.every((n) => candidates.has(n))) {
-      return right;
-    }
-  }
-  return title;
+/** Co-primary артисты из enrichment.participants (role='primary'). */
+function coPrimaryNames(track: DisplayInput): string[] {
+  return (
+    track.enrichment?.participants
+      ?.filter((p) => p.role === 'primary' && p.artist?.name)
+      .map((p) => p.artist.name) ?? []
+  );
 }
 
-export function useArtistDisplay(track: Pick<Track, 'user' | 'enrichment'>): ArtistDisplay {
+function dedupeByFold(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of names) {
+    const key = foldName(n);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Единый разбор трека для отображения.
+ *
+ * Если левая часть "… - …" содержит ХОТЯ БЫ одного известного артиста
+ * (enrichment primary/co-primary/участники/uploader), вся левая часть — это
+ * список авторов, правая — название: "МОКЕРИ, Psychosis - kill" при известном
+ * «МОКЕРИ» даёт авторов "МОКЕРИ, Psychosis" и название "kill".
+ * Иначе авторы берутся из enrichment (primary + co-primary) или uploader.
+ */
+export function getTrackDisplay(track: DisplayInput): TrackDisplay {
+  const cleaned = stripTranslitParens(stripInlineTags(track.title));
+
+  const known = new Set<string>();
+  const addKnown = (name: string | undefined | null) => {
+    if (!name) return;
+    const key = foldName(name);
+    if (key) known.add(key);
+    // Комбинированное имя из enrichment ("МОКЕРИ, Psychosis") должно
+    // матчить и своими компонентами.
+    for (const part of name.split(ARTIST_SPLITTERS)) {
+      const pk = foldName(part);
+      if (pk) known.add(pk);
+    }
+  };
+  const primaryName = track.enrichment?.primary_artist?.name;
+  addKnown(primaryName);
+  for (const n of coPrimaryNames(track)) addKnown(n);
+  for (const p of track.enrichment?.participants ?? []) addKnown(p.artist?.name);
+  const uploader = track.user?.username?.trim() ?? '';
+  addKnown(uploader);
+
+  const splitParts = (s: string) =>
+    s
+      .split(ARTIST_SPLITTERS)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+  for (const sep of TITLE_SEPARATORS) {
+    const idx = cleaned.indexOf(sep);
+    if (idx <= 0) continue;
+    const left = cleaned.slice(0, idx).trim();
+    const right = cleaned.slice(idx + sep.length).trim();
+    if (!right) continue;
+    const leftParts = splitParts(left);
+    if (leftParts.length === 0 || leftParts.length > MAX_TITLE_ARTISTS) continue;
+    if (leftParts.some((p) => known.has(foldName(p)))) {
+      const artistNames = dedupeByFold(leftParts);
+      return {
+        title: right,
+        artistNames,
+        artistLine: artistNames.join(', '),
+        fromTitleSplit: true,
+      };
+    }
+  }
+
+  // Перевёрнутая разметка "Track - Artist" (~4% дефисных тайтлов): слева
+  // ничего знакомого, справа — целиком известные артисты.
+  for (const sep of TITLE_SEPARATORS) {
+    const idx = cleaned.indexOf(sep);
+    if (idx <= 0) continue;
+    const left = cleaned.slice(0, idx).trim();
+    const right = cleaned.slice(idx + sep.length).trim();
+    if (!left || !right) continue;
+    const rightParts = splitParts(right);
+    if (rightParts.length === 0 || rightParts.length > MAX_TITLE_ARTISTS) continue;
+    if (rightParts.every((p) => known.has(foldName(p)))) {
+      const artistNames = dedupeByFold(rightParts);
+      return {
+        title: left,
+        artistNames,
+        artistLine: artistNames.join(', '),
+        fromTitleSplit: true,
+      };
+    }
+  }
+
+  // Голый дефис ("Уннв-Без даты"): режем только когда левая часть целиком —
+  // известный артист, иначе порвём имя вида "x-ray".
+  const bareIdx = cleaned.indexOf('-');
+  if (bareIdx > 0 && bareIdx + 1 < cleaned.length && cleaned[bareIdx + 1] !== '-') {
+    const left = cleaned.slice(0, bareIdx).trim();
+    const right = cleaned.slice(bareIdx + 1).trim();
+    if (left && right && known.has(foldName(left))) {
+      return {
+        title: right,
+        artistNames: [left],
+        artistLine: left,
+        fromTitleSplit: true,
+      };
+    }
+  }
+
+  const enriched = primaryName ? [primaryName, ...coPrimaryNames(track)] : [];
+  const artistNames = dedupeByFold(enriched.length ? enriched : uploader ? [uploader] : []);
+  return {
+    title: cleaned,
+    artistNames,
+    artistLine: artistNames.join(', '),
+    fromTitleSplit: false,
+  };
+}
+
+export function getArtistDisplay(track: DisplayInput): ArtistDisplay {
+  const enrichment = track.enrichment;
+  const real = enrichment?.primary_artist;
+  const uploader = track.user?.username ?? '';
+  const availability = (enrichment?.availability ?? 'indexed') as TrackAvailability;
+  const pending = enrichment?.state === 'pending' || (!enrichment && availability === 'indexed');
+  const uploadKind =
+    enrichment?.upload_kind && enrichment.upload_kind !== 'unknown' ? enrichment.upload_kind : null;
+
+  const display = getTrackDisplay(track);
+  const isEnriched = Boolean(real?.name?.trim());
+
+  if (!display.artistLine) {
+    return {
+      primary: uploader,
+      uploader: null,
+      isEnriched: false,
+      verified: false,
+      confidence: null,
+      pending,
+      uploadKind,
+      availability,
+    };
+  }
+
+  const uploaderShownAsArtist = display.artistNames.some((n) => foldName(n) === foldName(uploader));
+  return {
+    primary: display.artistLine,
+    uploader: uploaderShownAsArtist || !uploader || availability !== 'indexed' ? null : uploader,
+    isEnriched,
+    verified: real?.verified === true,
+    confidence: real?.confidence ?? null,
+    pending: isEnriched ? false : pending,
+    uploadKind,
+    availability,
+  };
+}
+
+export function getDisplayTitle(track: DisplayInput): string {
+  return getTrackDisplay(track).title;
+}
+
+export function useTrackDisplay(track: DisplayInput): TrackDisplay {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: разбор зависит от перечисленных скалярных срезов track
+  return useMemo(
+    () => getTrackDisplay(track),
+    [
+      track.title,
+      track.user?.username,
+      track.enrichment?.primary_artist?.name,
+      track.enrichment?.participants,
+    ],
+  );
+}
+
+export function useArtistDisplay(track: DisplayInput): ArtistDisplay {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: разбор зависит от перечисленных скалярных срезов track
   return useMemo(
     () => getArtistDisplay(track),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+      track.title,
       track.user?.username,
       track.enrichment?.primary_artist?.name,
       track.enrichment?.primary_artist?.verified,
+      track.enrichment?.primary_artist?.confidence,
       track.enrichment?.upload_kind,
       track.enrichment?.availability,
       track.enrichment?.state,
+      track.enrichment?.participants,
     ],
   );
+}
+
+export function useDisplayTitle(track: DisplayInput): string {
+  return useTrackDisplay(track).title;
 }
 
 export function getArtistTarget(track: Pick<Track, 'user' | 'enrichment'>): string | null {
@@ -190,21 +423,6 @@ export function getArtistTarget(track: Pick<Track, 'user' | 'enrichment'>): stri
     return `/user/${encodeURIComponent(track.user.urn)}`;
   }
   return null;
-}
-
-export function useDisplayTitle(track: Pick<Track, 'title' | 'user' | 'enrichment'>): string {
-  return useMemo(
-    () => getDisplayTitle(track),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      track.title,
-      track.user?.username,
-      track.enrichment?.primary_artist?.name,
-      track.enrichment?.primary_artist?.verified,
-      track.enrichment?.album?.title,
-      track.enrichment?.participants?.length,
-    ],
-  );
 }
 
 export interface ParticipantsBreakdown {
