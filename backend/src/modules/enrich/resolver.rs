@@ -222,6 +222,27 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
                     }
                 }
             }
+            // MB fuzzy-search умеет вернуть постороннего ("SID" на запрос
+            // "SIDODGI DUBOSHIT"). Принимаем только результат, чей primary
+            // пересекается с локальными сигналами: разметка / мета / uploader.
+            if let Some(rec) = found.as_ref() {
+                if let Some(mb_primary) = rec.primary_artist.as_ref() {
+                    let local: Vec<&str> = parsed
+                        .primary_artists
+                        .iter()
+                        .map(|s| s.as_str())
+                        .chain(meta_names.iter().map(|s| s.as_str()))
+                        .chain(ctx.uploader_username.as_deref())
+                        .collect();
+                    if !artist_names::name_in(&mb_primary.name, local.iter().copied()) {
+                        debug!(
+                            mb = %mb_primary.name,
+                            "MB result rejected: no overlap with local signals"
+                        );
+                        found = None;
+                    }
+                }
+            }
             if let Some(rec) = found {
                 let mut conf = ((rec.score as f32) / 100.0).clamp(0.7, 0.9);
                 if let Some(mb_primary) = rec.primary_artist.as_ref() {

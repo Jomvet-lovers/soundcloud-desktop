@@ -262,6 +262,26 @@ impl EnrichService {
             );
             return Ok(None);
         }
+        // Живая мета, в которой артиста нет — трек чужой ("DISTORTED DREAMS"
+        // c метой "frxchtzwxrg & m∞nflower" на аккаунте Zemix). Не клеймим,
+        // пусть полный resolver решает по мете/разметке.
+        if let Some(meta) = ctx.metadata_artist.as_deref() {
+            let meta_names = crate::modules::enrich::artist_names::meta_artist_names(meta);
+            if !meta_names.is_empty()
+                && !crate::modules::enrich::artist_names::name_in(
+                    &name,
+                    meta_names.iter().map(|s| s.as_str()),
+                )
+            {
+                debug!(
+                    uploader_sc_id,
+                    mapped = %name,
+                    ?meta_names,
+                    "sc_verified skipped: metadata names other artists"
+                );
+                return Ok(None);
+            }
+        }
 
         use crate::modules::enrich::resolver::{ArtistCandidate, ResolveResult, ResolveSource};
         Ok(Some(ResolveResult {
