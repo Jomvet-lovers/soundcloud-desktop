@@ -1,34 +1,40 @@
-import { listen } from '@tauri-apps/api/event';
-import { toast } from 'sonner';
+import {listen} from '@tauri-apps/api/event';
+import {toast} from 'sonner';
 import i18n from '../i18n';
-import type { Track } from '../stores/player';
-import { usePlayerStore } from '../stores/player';
-import { useSettingsStore } from '../stores/settings';
+import type {Track} from '../stores/player';
+import {usePlayerStore} from '../stores/player';
+import {useSettingsStore} from '../stores/settings';
 import {
-  api,
-  buildStorageUrls,
-  downloadFallbackUrls,
-  getSessionId,
-  resolveTrackFromStreaming,
-  streamFallbackUrls,
+    api,
+    buildStorageUrls,
+    downloadFallbackUrls,
+    getSessionId,
+    resolveTrackFromStreaming,
+    streamFallbackUrls,
 } from './api';
 import {
-  enforceAudioCacheLimit,
-  ensureTrackCached,
-  getCacheInfo,
-  type TrackCacheInfo,
+    enforceAudioCacheLimit,
+    ensureTrackCached,
+    getCacheInfo,
+    removeCachedTrack,
+    type TrackCacheInfo,
 } from './cache';
-import { trackedInvoke as invoke } from './diagnostics';
-import { isUrnDisliked } from './dislikes';
-import { recordEvent } from './events';
-import { art } from './formatters';
-import { rememberTracks } from './offline-index';
-import { getUrnCluster, recordClusterFeedback } from './recsFeedback';
-import { getArtistDisplay, getDisplayTitle } from './track-display';
+import {trackedInvoke as invoke} from './diagnostics';
+import {isUrnDisliked} from './dislikes';
+import {recordEvent} from './events';
+import {art} from './formatters';
+import {rememberTracks} from './offline-index';
+import {getUrnCluster, recordClusterFeedback} from './recsFeedback';
+import {getArtistDisplay, getDisplayTitle} from './track-display';
 
 const SKIP_THRESHOLD_SEC = 30;
 /** Минимум, чтобы засчитать «прослушано полностью» для коротких треков (50% длительности). */
 const FULL_PLAY_RATIO = 0.5;
+/** Битый кеш: сыграло меньше этого на треке от EARLY_END_MIN_EXPECTED_SEC — лечим перекачкой. */
+const EARLY_END_PLAYED_SEC = 10;
+const EARLY_END_MIN_EXPECTED_SEC = 30;
+/** Один лечебный перекач на урн за сессию — защита от лупа на 30s-превью и мёртвых источниках. */
+const healedUrns = new Set<string>();
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
@@ -449,6 +455,33 @@ async function hydrateTrackMetadata(track: Track, gen: number) {
   commitTrackMetadata(nextTrack);
 }
 
+/** Трек «закончился» через пару секунд при заявленных минутах — в кеше битый
+ *  файл (заголовок целый, данные обрезаны: легаси без .meta.json или яд из
+ *  storage до серверного duration-гейта). Сносим файл и перекачиваем вместо
+ *  тихого скипа на следующий. */
+function maybeHealEarlyEnd(): boolean {
+  if (!currentUrn || navigator.onLine === false) return false;
+  const state = usePlayerStore.getState();
+  const track = state.currentTrack;
+  if (!track || track.urn !== currentUrn || state.abLoop) return false;
+  if (track.duration / 1000 < EARLY_END_MIN_EXPECTED_SEC) return false;
+  if (cachedTime >= EARLY_END_PLAYED_SEC) return false;
+  if (healedUrns.has(track.urn)) return false;
+  healedUrns.add(track.urn);
+  console.warn(
+    `[Audio] ended after ${cachedTime.toFixed(1)}s of ${(track.duration / 1000).toFixed(0)}s — purging cache and refetching:`,
+    track.urn,
+  );
+  void removeCachedTrack(track.urn)
+    .catch(() => {})
+    .then(() => {
+      if (usePlayerStore.getState().currentTrack?.urn === track.urn) {
+        return loadTrack(track);
+      }
+    });
+  return true;
+}
+
 function handleTrackEnd() {
   const state = usePlayerStore.getState();
     // A-B loop whose end sits at (or within a tick of) the track end: the Rust-side
@@ -496,6 +529,7 @@ listen<{ urn: string; progress: number }>('track:download-progress', (event) => 
 });
 
 listen('audio:ended', () => {
+  if (maybeHealEarlyEnd()) return;
   if (currentUrn) {
     // Засчитываем full_play только если трек реально игрался: либо ≥30s,
     // либо проиграно ≥50% длительности (для коротких треков). Иначе это
