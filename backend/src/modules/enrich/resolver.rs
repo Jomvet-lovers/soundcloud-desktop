@@ -127,6 +127,8 @@ pub struct ResolverDeps {
     pub mb: Arc<MbClient>,
     pub genius: Arc<GeniusService>,
     pub ai: Option<Arc<AiResolverClient>>,
+    /// Для словарной сегментации склеек по каталогу artists.
+    pub pg: sqlx::PgPool,
 }
 
 pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<ResolveResult> {
@@ -137,6 +139,10 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
         .map(artist_names::meta_artist_names)
         .unwrap_or_default();
     maybe_unreverse_with_meta(&mut parsed, &meta_names);
+    if let Err(e) = maybe_segment_by_dictionary(&mut parsed, &deps.pg).await {
+        debug!(error = %e, "dictionary segmentation failed");
+    }
+    let markup = markup_primaries(&parsed);
     let heuristic = heuristic_result(ctx, &parsed, &meta_names);
 
     // `(cover)` в title → uploader сделал кавер. Полноценно резолвим
@@ -154,6 +160,7 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
                     from_mb(rec, ResolveSource::Isrc, 0.95, Some(isrc.clone())),
                     ctx,
                     &meta_names,
+                    markup.as_deref(),
                 ))
             }
             Ok(None) => debug!(isrc, "ISRC lookup empty"),
@@ -247,13 +254,22 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
                     from_mb(rec, ResolveSource::Mb, conf, ctx.isrc.clone()),
                     ctx,
                     &meta_names,
+                    markup.as_deref(),
                 ));
             }
         }
     }
 
     match genius_stage::search(&deps.genius, ctx, primary_hint.as_deref(), &title_q).await {
-        Ok(Some(res)) => return Ok(merge_with(heuristic, res, ctx, &meta_names)),
+        Ok(Some(res)) => {
+            return Ok(merge_with(
+                heuristic,
+                res,
+                ctx,
+                &meta_names,
+                markup.as_deref(),
+            ))
+        }
         Ok(None) => debug!(title_q, "Genius search empty"),
         Err(e) => warn!(error = %e, "Genius search failed"),
     }
@@ -265,7 +281,15 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
             .unwrap_or(true);
         if differs {
             match genius_stage::search(&deps.genius, ctx, Some(meta_a), &title_q).await {
-                Ok(Some(res)) => return Ok(merge_with(heuristic, res, ctx, &meta_names)),
+                Ok(Some(res)) => {
+                    return Ok(merge_with(
+                        heuristic,
+                        res,
+                        ctx,
+                        &meta_names,
+                        markup.as_deref(),
+                    ))
+                }
                 Ok(None) => debug!(meta_a, "Genius search empty (metadata_artist)"),
                 Err(e) => warn!(error = %e, "Genius search failed (metadata_artist)"),
             }
@@ -274,13 +298,82 @@ pub async fn resolve(ctx: &TrackContext, deps: &ResolverDeps) -> AppResult<Resol
 
     if let Some(ai) = deps.ai.as_ref() {
         match ai.resolve(ctx).await {
-            Ok(Some(res)) => return Ok(merge_with(heuristic, res, ctx, &meta_names)),
+            Ok(Some(res)) => {
+                return Ok(merge_with(
+                    heuristic,
+                    res,
+                    ctx,
+                    &meta_names,
+                    markup.as_deref(),
+                ))
+            }
             Ok(None) => debug!("AI resolve empty"),
             Err(e) => debug!(error = %e, "AI resolve failed"),
         }
     }
 
     Ok(heuristic)
+}
+
+/// Сегментация артистной части, склеенной пробелами без сочленителей:
+/// "Aikko Own Maslou - Трек" → [Aikko, Own, Maslou] — но только если КАЖДЫЙ
+/// сегмент существует в каталоге artists, а склейка целиком — нет (иначе это
+/// цельное имя вида "Lil Peep"). Greedy по длиннейшему совпадению слева.
+async fn maybe_segment_by_dictionary(parsed: &mut ParsedTitle, pg: &sqlx::PgPool) -> AppResult<()> {
+    if !parsed.primary_from_title || parsed.primary_artists.len() != 1 {
+        return Ok(());
+    }
+    let name = parsed.primary_artists[0].clone();
+    let words: Vec<&str> = name.split_whitespace().collect();
+    if !(2..=6).contains(&words.len()) {
+        return Ok(());
+    }
+
+    let mut keys: Vec<String> = Vec::new();
+    for i in 0..words.len() {
+        for j in i + 1..=words.len() {
+            let key = normalize_name(&words[i..j].join(" "));
+            if key.chars().count() >= 3 && !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+    }
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let existing: std::collections::HashSet<String> =
+        sqlx::query_file_scalar!("queries/enrich/service/artists_by_normalized.sql", &keys)
+            .fetch_all(pg)
+            .await?
+            .into_iter()
+            .collect();
+
+    if existing.contains(&normalize_name(&name)) {
+        return Ok(());
+    }
+
+    let mut segments: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let mut matched_to = 0;
+        for j in (i + 1..=words.len()).rev() {
+            let key = normalize_name(&words[i..j].join(" "));
+            if key.chars().count() >= 3 && existing.contains(&key) {
+                matched_to = j;
+                break;
+            }
+        }
+        if matched_to == 0 {
+            return Ok(());
+        }
+        segments.push(words[i..matched_to].join(" "));
+        i = matched_to;
+    }
+    if segments.len() >= 2 {
+        debug!(?segments, original = %name, "dictionary segmentation applied");
+        parsed.primary_artists = segments;
+    }
+    Ok(())
 }
 
 /// Перевёрнутая разметка "Track - Artist" (~4% дефисных тайтлов по корпусу):
@@ -343,9 +436,22 @@ fn heuristic_result(
     };
 
     if primary.is_empty() {
-        if !meta_names.is_empty() {
+        // Мета бывает кредитным списком: "RAMPAGE (PROD. X)" с метой "X" —
+        // имена, уже распознанные парсером в другие роли, в primary не берём.
+        let credited: Vec<&str> = parsed
+            .featured
+            .iter()
+            .chain(parsed.producers.iter())
+            .chain(parsed.remixers.iter())
+            .map(|s| s.as_str())
+            .collect();
+        let meta_primaries: Vec<&String> = meta_names
+            .iter()
+            .filter(|m| !artist_names::name_in(m, credited.iter().copied()))
+            .collect();
+        if !meta_primaries.is_empty() {
             source = ResolveSource::Meta;
-            primary = meta_names
+            primary = meta_primaries
                 .iter()
                 .map(|n| to_candidate(n, attach_uploader_sc(n)))
                 .collect();
@@ -482,6 +588,7 @@ fn merge_with(
     ext_res: ResolveResult,
     ctx: &TrackContext,
     meta_names: &[String],
+    markup_names: Option<&[String]>,
 ) -> ResolveResult {
     let mut out = ext_res;
     if out.primary.is_empty() {
@@ -505,37 +612,80 @@ fn merge_with(
         out.featured = heuristic.featured;
     }
 
-    // Внешние источники часто возвращают только первого исполнителя, а мета
-    // знает полный состав ("Psychosis, killaheelz"). Добираем недостающих
-    // co-primary — но только когда мета пересекается с найденным составом,
-    // иначе она про другой релиз/мусор и доверять ей нельзя.
-    if !out.primary.is_empty() && !meta_names.is_empty() {
-        let primary_names: Vec<String> = out.primary.iter().map(|c| c.name.clone()).collect();
-        let agrees = meta_names
-            .iter()
-            .any(|m| artist_names::name_in(m, primary_names.iter().map(|s| s.as_str())));
-        if agrees {
-            let known: Vec<String> = out
-                .primary
-                .iter()
-                .chain(out.featured.iter())
-                .chain(out.producers.iter())
-                .chain(out.remixers.iter())
-                .map(|c| c.name.clone())
-                .collect();
-            for m in meta_names {
-                if !artist_names::name_in(m, known.iter().map(|s| s.as_str())) {
-                    out.primary.push(ArtistCandidate {
-                        name: m.clone(),
-                        mb_id: None,
-                        genius_id: None,
-                        sc_user_id: None,
-                    });
-                }
-            }
+    // Внешние источники часто возвращают только первого исполнителя. Полный
+    // состав знают разметка заголовка ("Psychosis, LEYNCLOUD, inxwertg - …")
+    // и лейбловая мета ("Psychosis, killaheelz") — добираем недостающих
+    // co-primary из обеих, с гейтом на пересечение (иначе список про другой
+    // релиз/мусор и доверять ему нельзя).
+    if let Some(markup) = markup_names {
+        extend_missing_coprimary(&mut out, markup, ctx);
+    }
+    extend_missing_coprimary(&mut out, meta_names, ctx);
+    out
+}
+
+/// Добрать в primary имена из `names` (разметка/мета), которых ещё нет ни в
+/// одной роли. Срабатывает только когда `names` пересекается с уже найденным
+/// составом — это защита от чужих/мусорных списков.
+fn extend_missing_coprimary(out: &mut ResolveResult, names: &[String], ctx: &TrackContext) {
+    if out.primary.is_empty() || names.len() < 2 {
+        return;
+    }
+    let primary_names: Vec<String> = out.primary.iter().map(|c| c.name.clone()).collect();
+    let agrees = names
+        .iter()
+        .any(|m| artist_names::name_in(m, primary_names.iter().map(|s| s.as_str())));
+    if !agrees {
+        return;
+    }
+    let known: Vec<String> = out
+        .primary
+        .iter()
+        .chain(out.featured.iter())
+        .chain(out.producers.iter())
+        .chain(out.remixers.iter())
+        .map(|c| c.name.clone())
+        .collect();
+    for m in names {
+        if !artist_names::name_in(m, known.iter().map(|s| s.as_str())) {
+            let sc_user_id = if name_matches_uploader(m, ctx.uploader_username.as_deref()) {
+                ctx.uploader_sc_user_id.clone()
+            } else {
+                None
+            };
+            out.primary.push(ArtistCandidate {
+                name: m.clone(),
+                mb_id: None,
+                genius_id: None,
+                sc_user_id,
+            });
         }
     }
-    out
+}
+
+/// Обогатить fast-path результат (sc_verified) локальными сигналами так же,
+/// как внешние: featured/prod/remix из парса, co-primary из разметки и меты.
+/// Без этого verified-клейм затирал перечисленных в заголовке соавторов
+/// ("мокери, psychosis - …" → только МОКЕРИ) и мету ("takizava & dekma").
+pub fn enrich_with_local_signals(fast: ResolveResult, ctx: &TrackContext) -> ResolveResult {
+    let parsed = parse_sc_title(&ctx.title, ctx.uploader_username.as_deref());
+    let meta_names = ctx
+        .metadata_artist
+        .as_deref()
+        .map(artist_names::meta_artist_names)
+        .unwrap_or_default();
+    let markup = markup_primaries(&parsed);
+    let heuristic = heuristic_result(ctx, &parsed, &meta_names);
+    merge_with(heuristic, fast, ctx, &meta_names, markup.as_deref())
+}
+
+/// Имена из авторской разметки заголовка (не uploader-fallback).
+fn markup_primaries(parsed: &ParsedTitle) -> Option<Vec<String>> {
+    if parsed.primary_from_title && !parsed.primary_artists.is_empty() {
+        Some(parsed.primary_artists.clone())
+    } else {
+        None
+    }
 }
 
 fn name_matches_uploader(name: &str, uploader: Option<&str>) -> bool {
@@ -669,6 +819,24 @@ mod tests {
     }
 
     #[test]
+    fn meta_naming_only_producer_does_not_become_primary() {
+        // "RAMPAGE (PROD. ZEMИSTERKAKTUS)" с метой "ZEMИSTERKAKTUS": мета
+        // дублирует продюсера — primary остаётся за uploader'ом.
+        let c = ctx(
+            "RAMPAGE (PROD. ZEMИSTERKAKTUS)",
+            Some("azulaqueen"),
+            Some("ZEMИSTERKAKTUS"),
+        );
+        let r = run_heuristic(&c);
+        assert_eq!(names(&r), vec!["azulaqueen"]);
+        assert_eq!(r.source, ResolveSource::Heuristic);
+        assert!(r
+            .producers
+            .iter()
+            .any(|p| p.name.eq_ignore_ascii_case("ZEMИSTERKAKTUS")));
+    }
+
+    #[test]
     fn merge_appends_missing_meta_coprimary() {
         // Genius нашёл только Psychosis, мета знает второго.
         let c = ctx("паралич", Some("Psychosis"), Some("Psychosis, killaheelz"));
@@ -685,7 +853,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let merged = merge_with(heuristic, ext, &c, &meta_names);
+        let merged = merge_with(heuristic, ext, &c, &meta_names, None);
         assert_eq!(names(&merged), vec!["Psychosis", "killaheelz"]);
         assert_eq!(merged.source, ResolveSource::Genius);
     }
@@ -704,7 +872,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let merged = merge_with(heuristic, ext, &c, &meta_names);
+        let merged = merge_with(heuristic, ext, &c, &meta_names, None);
         assert_eq!(names(&merged), vec!["Cyalm"]);
     }
 
@@ -745,6 +913,64 @@ mod tests {
     }
 
     #[test]
+    fn markup_coartists_added_to_external_result() {
+        // Genius вернул только Psychosis, разметка перечисляет троих.
+        let c = ctx(
+            "Psychosis, LEYNCLOUD, inxwertg - blade mail",
+            Some("0n3PunchMan"),
+            None,
+        );
+        let parsed = parse_sc_title(&c.title, c.uploader_username.as_deref());
+        let markup = markup_primaries(&parsed);
+        let heuristic = run_heuristic(&c);
+        let ext = ResolveResult {
+            source: ResolveSource::Genius,
+            confidence: 0.8,
+            primary: vec![ArtistCandidate {
+                name: "Psychosis".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let merged = merge_with(heuristic, ext, &c, &[], markup.as_deref());
+        assert_eq!(names(&merged), vec!["Psychosis", "LEYNCLOUD", "inxwertg"]);
+    }
+
+    #[test]
+    fn fast_path_enriched_with_markup_and_meta() {
+        // sc_verified клейм МОКЕРИ + разметка "мокери, psychosis" → оба.
+        let c = ctx("мокери, psychosis - no.happiness", Some("МОКЕРИ"), None);
+        let fast = ResolveResult {
+            source: ResolveSource::ScVerified,
+            confidence: 1.0,
+            primary: vec![ArtistCandidate {
+                name: "МОКЕРИ".into(),
+                sc_user_id: Some("42".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let out = enrich_with_local_signals(fast, &c);
+        assert_eq!(names(&out), vec!["МОКЕРИ", "psychosis"]);
+        assert_eq!(out.source, ResolveSource::ScVerified);
+
+        // dekma-класс: разметки нет, мета знает второго.
+        let c2 = ctx("без шансов", Some("dekma"), Some("takizava & dekma"));
+        let fast2 = ResolveResult {
+            source: ResolveSource::ScVerified,
+            confidence: 1.0,
+            primary: vec![ArtistCandidate {
+                name: "dekma".into(),
+                sc_user_id: Some("42".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let out2 = enrich_with_local_signals(fast2, &c2);
+        assert_eq!(names(&out2), vec!["dekma", "takizava"]);
+    }
+
+    #[test]
     fn merge_does_not_duplicate_featured_from_meta() {
         // Мета перечисляет и фитующих — они уже в featured, в primary не дублируем.
         let c = ctx(
@@ -763,7 +989,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let merged = merge_with(heuristic, ext, &c, &meta_names);
+        let merged = merge_with(heuristic, ext, &c, &meta_names, None);
         assert_eq!(names(&merged), vec!["GLAM GO GANG!"]);
         assert!(merged
             .featured

@@ -414,6 +414,52 @@ export function useDisplayTitle(track: DisplayInput): string {
   return useTrackDisplay(track).title;
 }
 
+/** Имя в строке авторов + куда оно ведёт (null — некликабельно). */
+export interface ArtistLinkItem {
+  name: string;
+  target: string | null;
+}
+
+/**
+ * Поимённые ссылки для строки авторов: каждое имя из `getTrackDisplay`
+ * матчится (fold) на enrichment primary / co-primary / участников (→ страница
+ * артиста) или на uploader'а (→ страница юзера). Несматченное — просто текст.
+ */
+export function getArtistLinkItems(track: DisplayInput): ArtistLinkItem[] {
+  const display = getTrackDisplay(track);
+  const targets = new Map<string, string>();
+  const put = (name: string | undefined | null, target: string | null) => {
+    if (!name || !target) return;
+    const key = foldName(name);
+    if (key && !targets.has(key)) targets.set(key, target);
+  };
+  const primary = track.enrichment?.primary_artist;
+  if (primary?.id) put(primary.name, `/artist/${encodeURIComponent(primary.id)}`);
+  for (const p of track.enrichment?.participants ?? []) {
+    if (p.artist?.id) put(p.artist.name, `/artist/${encodeURIComponent(p.artist.id)}`);
+  }
+  if (track.user?.urn) put(track.user.username, `/user/${encodeURIComponent(track.user.urn)}`);
+  return display.artistNames.map((name) => ({
+    name,
+    target: targets.get(foldName(name)) ?? null,
+  }));
+}
+
+export function useArtistLinkItems(track: DisplayInput): ArtistLinkItem[] {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: разбор зависит от перечисленных скалярных срезов track
+  return useMemo(
+    () => getArtistLinkItems(track),
+    [
+      track.title,
+      track.user?.username,
+      track.user?.urn,
+      track.enrichment?.primary_artist?.name,
+      track.enrichment?.primary_artist?.id,
+      track.enrichment?.participants,
+    ],
+  );
+}
+
 export function getArtistTarget(track: Pick<Track, 'user' | 'enrichment'>): string | null {
   const real = track.enrichment?.primary_artist;
   if (real?.id && real.verified) {

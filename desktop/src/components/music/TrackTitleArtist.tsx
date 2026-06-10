@@ -1,9 +1,10 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { getArtistTarget, useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
-import type { Track } from '../../stores/player';
-import { UploadKindDot } from './UploadKindDot';
+import {useTranslation} from 'react-i18next';
+import {useNavigate} from 'react-router-dom';
+import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
+import type {Track} from '../../stores/player';
+import {ArtistNameLinks} from './ArtistNameLinks';
+import {UploadKindDot} from './UploadKindDot';
 
 interface TrackTitleArtistProps {
   track: Track;
@@ -34,8 +35,8 @@ export const TrackTitleArtist = React.memo(function TrackTitleArtist({
   const navigate = useNavigate();
   const artistDisplay = useArtistDisplay(track);
   const displayTitle = useDisplayTitle(track);
+  const artistLinks = useArtistLinkItems(track);
   const isWanted = artistDisplay.availability !== 'indexed';
-  const artistTarget = getArtistTarget(track);
 
   return (
     <div className={`min-w-0 flex-1 ${className ?? ''}`}>
@@ -53,12 +54,20 @@ export const TrackTitleArtist = React.memo(function TrackTitleArtist({
       </p>
       <p
         className={`${ARTIST_CLS[size]} truncate mt-0.5 flex items-center gap-1 ${
-          isWanted ? 'text-white/30' : 'text-white/40 cursor-pointer hover:text-white/70'
+          isWanted ? 'text-white/30' : 'text-white/40'
         } transition-colors`}
-        onClick={artistTarget && !isWanted ? () => navigate(artistTarget) : undefined}
       >
         <UploadKindDot kind={artistDisplay.uploadKind} />
-        <span className="truncate">{artistDisplay.primary}</span>
+        <span className="truncate">
+          {isWanted ? (
+            artistDisplay.primary
+          ) : (
+            <ArtistNameLinks
+              items={artistLinks}
+              linkClassName="cursor-pointer transition-colors hover:text-white/75"
+            />
+          )}
+        </span>
         {isWanted && (
           <span className="text-[10px] text-white/25 ml-1">
             · {t('track.notFoundOnSc', 'not found on SoundCloud')}

@@ -66,8 +66,13 @@ impl EnrichService {
         cfg: EnrichCfg,
     ) -> Arc<Self> {
         Arc::new(Self {
+            deps: ResolverDeps {
+                mb,
+                genius,
+                ai,
+                pg: pg.clone(),
+            },
             pg,
-            deps: ResolverDeps { mb, genius, ai },
             cfg,
         })
     }
@@ -150,7 +155,10 @@ impl EnrichService {
         let ctx = TrackContext::from_row(&track);
 
         let mut result = if let Some(fast) = self.try_sc_verified(&ctx).await? {
-            fast
+            // Verified-клейм даёт только владельца аккаунта — co-авторов из
+            // разметки ("мокери, psychosis - …") и меты ("takizava & dekma")
+            // добираем тем же путём, что и для внешних источников.
+            crate::modules::enrich::resolver::enrich_with_local_signals(fast, &ctx)
         } else {
             resolve(&ctx, &self.deps).await?
         };

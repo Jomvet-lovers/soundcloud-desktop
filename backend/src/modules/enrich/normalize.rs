@@ -301,12 +301,20 @@ pub fn parse_sc_title(raw: &str, uploader: Option<&str>) -> ParsedTitle {
 
     let (mut artist_part, mut title_part) = split_first_dash(&stripped);
     if artist_part.is_none() {
-        // Голый дефис ("Уннв-Без даты") — режем только когда левая часть
-        // это сам uploader, иначе порвём имя вида "x-ray".
-        if let Some((l, r)) = split_bare_dash(&stripped) {
-            if matches_uploader(&l, uploader) {
+        // Дефис, прилипший к одной из сторон ("ŦR∀UM∀- Rọtteη", "A -B") или
+        // вовсе без пробелов ("Уннв-Без даты"). Режем только когда среди
+        // имён левой части есть сам uploader — иначе порвём "x-ray".
+        for pat in ["- ", " -", "-"] {
+            let Some((l, r)) = split_dash_variant(&stripped, pat) else {
+                continue;
+            };
+            let uploader_in_left = split_artists(&l)
+                .iter()
+                .any(|p| matches_uploader(p, uploader));
+            if uploader_in_left {
                 artist_part = Some(l);
                 title_part = r;
+                break;
             }
         }
     }
@@ -585,14 +593,15 @@ fn split_first_dash(s: &str) -> (Option<String>, String) {
     (None, s.to_string())
 }
 
-/// Дефис без пробелов ("Уннв-Без даты"). Только первый '-', "--" пропускаем.
-fn split_bare_dash(s: &str) -> Option<(String, String)> {
-    let idx = s.find('-')?;
-    if idx == 0 || idx + 1 >= s.len() || s.as_bytes().get(idx + 1) == Some(&b'-') {
+/// Сплит по дефис-варианту ("- " / " -" / "-"): первое вхождение, "--" мимо.
+fn split_dash_variant(s: &str, pat: &str) -> Option<(String, String)> {
+    let idx = s.find(pat)?;
+    let bytes = s.as_bytes();
+    if bytes.get(idx + pat.len()) == Some(&b'-') || (idx > 0 && bytes[idx - 1] == b'-') {
         return None;
     }
     let left = s[..idx].trim();
-    let right = s[idx + 1..].trim();
+    let right = s[idx + pat.len()..].trim();
     if left.is_empty() || right.is_empty() {
         return None;
     }
@@ -1045,5 +1054,23 @@ mod tests {
         let p = parse_sc_title("Artist ‒ Track", None);
         assert_eq!(p.primary_artists, vec!["Artist"]);
         assert_eq!(p.cleaned_title, "Track");
+    }
+
+    #[test]
+    fn parse_glued_dash_with_uploader_in_left_list() {
+        // Реальный лайк: "LifeelBeatsVNZL & ŦR∀UM∀- Rọtteη Bløød" от ŦR∀UM∀ —
+        // дефис прилип к имени, uploader лишь один из перечисленных.
+        let p = parse_sc_title("LifeelBeatsVNZL & ŦR∀UM∀- Rọtteη Bløød", Some("ŦR∀UM∀"));
+        assert_eq!(p.primary_artists, vec!["LifeelBeatsVNZL", "ŦR∀UM∀"]);
+        assert_eq!(p.cleaned_title, "Rọtteη Bløød");
+
+        // Прилипший справа.
+        let p2 = parse_sc_title("Уннв -Дворы", Some("УННВ"));
+        assert_eq!(p2.primary_artists, vec!["Уннв"]);
+        assert_eq!(p2.cleaned_title, "Дворы");
+
+        // Без uploader-матча не трогаем.
+        let p3 = parse_sc_title("self- titled", Some("кто-то"));
+        assert!(p3.cleaned_title.contains("self"));
     }
 }
