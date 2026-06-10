@@ -423,10 +423,11 @@ fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
 }
 
 const TASTE_TTL_SECS: u64 = 300;
-/// Вкус мультимодален (sosad-кластер ≠ фонк-кластер): до K центроидов на
-/// плоскость, близость кандидата = max по центроидам — среднее всех лайков
-/// мажет моды в кашу посередине.
-const TASTE_CLUSTERS: usize = 3;
+/// Центроидов вкуса на плоскость (близость кандидата = max по центроидам).
+/// K=1 = средний вектор лайков: K>1 на проде ИНФЛИРОВАЛ контент (max-cos к
+/// «хоть какой-то» моде давал всем 0.84+, спред скоров схлопывался до шума и
+/// ранжирование разваливалось). Поднимать только вместе с взвешиванием мод.
+const TASTE_CLUSTERS: usize = 1;
 
 #[derive(Serialize, Deserialize, Default)]
 struct TasteCentroids {
@@ -721,4 +722,64 @@ async fn load_track_meta(pg: &PgPool, ids: &[u64]) -> HashMap<u64, TrackMeta> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vecs(points: &[(&str, Vec<f32>)]) -> HashMap<String, Vec<f32>> {
+        points
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn kmeans_k1_is_mean() {
+        let v = vecs(&[("1", vec![1.0, 0.0]), ("2", vec![0.0, 1.0])]);
+        let cs = kmeans_centroids(&v, 1);
+        assert_eq!(cs.len(), 1);
+        assert!((cs[0][0] - 0.5).abs() < 1e-6 && (cs[0][1] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn kmeans_few_points_stay_single_centroid() {
+        let v = vecs(&[("1", vec![1.0, 0.0]), ("2", vec![0.0, 1.0])]);
+        assert_eq!(kmeans_centroids(&v, 3).len(), 1);
+    }
+
+    #[test]
+    fn kmeans_deterministic_and_separates_modes() {
+        // 8 точек у оси X + 8 у оси Y → k=2 находит оба направления стабильно.
+        let mut pts: Vec<(String, Vec<f32>)> = Vec::new();
+        for i in 0..8 {
+            pts.push((format!("x{i}"), vec![1.0, 0.05 * i as f32]));
+            pts.push((format!("y{i}"), vec![0.05 * i as f32, 1.0]));
+        }
+        let v: HashMap<String, Vec<f32>> = pts.into_iter().collect();
+        let a = kmeans_centroids(&v, 2);
+        let b = kmeans_centroids(&v, 2);
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 2);
+        let cross = crate::modules::centroids::cosine(&a[0], &a[1]);
+        assert!(cross < 0.8, "modes not separated: cos={cross}");
+    }
+
+    #[test]
+    fn sim_takes_nearest_centroid() {
+        let centroids = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
+        let v = vec![0.0, 2.0];
+        let s = sim(&centroids, Some(&v));
+        assert!(s.is_some_and(|x| (x - 1.0).abs() < 1e-5));
+        assert!(sim(&centroids, None).is_none());
+    }
+
+    #[test]
+    fn geomean_conjunction() {
+        // Низкая ось топит: geomean(0.9, 0.2) << min-плоскость не прощается.
+        let g = geomean(&[Some(0.9), Some(0.2), None]);
+        assert!((g - (0.9f32 * 0.2).sqrt()).abs() < 1e-5);
+        assert_eq!(geomean(&[None, None, None]), 1.0);
+    }
 }

@@ -99,3 +99,61 @@ pub fn rank_and_pick(
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::recommendations::smart_wave::cursor::{SeedKind, WaveCursor};
+
+    fn cursor() -> WaveCursor {
+        WaveCursor::new(SeedKind::User, "test".into())
+    }
+
+    fn cand(id: u64, artist: u128, content: f32) -> Candidate {
+        Candidate {
+            sc_track_id: id,
+            artist: Some(Uuid::from_u128(artist)),
+            content,
+        }
+    }
+
+    #[test]
+    fn graph_track_outranks_alien_with_better_content() {
+        // Сид-артист (aff 0.7, контент 0.7) против чужака вне сетки (контент 0.9).
+        let mut aff: Affinity = HashMap::new();
+        aff.insert(Uuid::from_u128(1), 0.7);
+        let cands = vec![cand(10, 1, 0.7), cand(20, 2, 0.9)];
+        let picked = rank_and_pick(&cands, &aff, &HashSet::new(), &cursor(), 2, 2, 0.12, 0.55);
+        assert_eq!(picked[0].sc_track_id, 10);
+        assert!(picked[0].score > picked[1].score * 3.0);
+    }
+
+    #[test]
+    fn content_floor_drops_mismatch() {
+        let aff: Affinity = HashMap::new();
+        let cands = vec![cand(10, 1, 0.54), cand(20, 2, 0.56)];
+        let picked = rank_and_pick(&cands, &aff, &HashSet::new(), &cursor(), 5, 2, 0.12, 0.55);
+        assert_eq!(picked.len(), 1);
+        assert_eq!(picked[0].sc_track_id, 20);
+    }
+
+    #[test]
+    fn disliked_artist_hard_dropped() {
+        let mut aff: Affinity = HashMap::new();
+        aff.insert(Uuid::from_u128(1), 1.0);
+        let mut disliked = HashSet::new();
+        disliked.insert(Uuid::from_u128(1));
+        let cands = vec![cand(10, 1, 0.9)];
+        let picked = rank_and_pick(&cands, &aff, &disliked, &cursor(), 5, 2, 0.12, 0.55);
+        assert!(picked.is_empty());
+    }
+
+    #[test]
+    fn artist_cap_in_window() {
+        let mut aff: Affinity = HashMap::new();
+        aff.insert(Uuid::from_u128(1), 1.0);
+        let cands = vec![cand(10, 1, 0.9), cand(11, 1, 0.88), cand(12, 1, 0.86)];
+        let picked = rank_and_pick(&cands, &aff, &HashSet::new(), &cursor(), 5, 2, 0.12, 0.55);
+        assert_eq!(picked.len(), 2);
+    }
+}

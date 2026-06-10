@@ -9,10 +9,12 @@
 //! 2. Рёбра «близости %» = `artist_coplay` (коллаборации) ∪ `artist_colike`
 //!    («фанаты тоже лайкают», Ochiai). Нормализация ПО ИСТОЧНИКУ И ВИДУ ребра
 //!    (масштабы разные), близость = max по видам: ближайший сосед = 1.0.
-//! 3. `affinity(v) = Σ по всем путям Π(рёбра)` — затухающее spreading-
-//!    activation на [HOPS] хопов. Вклады РАЗНЫХ путей к одному артисту
-//!    СУММИРУЮТСЯ: psychosis→мокери(.9)→shadow(.5) + psychosis→гуль(.5)→
-//!    shadow(.1) = 0.45 + 0.05 = 0.50.
+//! 3. `affinity(v)` — затухающее spreading-activation на [HOPS] хопов. Вклады
+//!    РАЗНЫХ путей к одному артисту складываются с геометрическим затуханием
+//!    ([PATH_DECAY]): сильнейший целиком, следующий вдвое слабее:
+//!    psychosis→мокери(.9)→shadow(.5) + psychosis→гуль(.5)→shadow(.1) =
+//!    0.45 + 0.5·0.05 ≈ 0.48. Хаб с двадцатью слабыми путями так НЕ перерастает
+//!    прямого соседа, а пропагация капится ниже сида ([PROP_CAP]) — сиды святы.
 //! 4. Диз-артист (≥ [DISLIKE_ARTIST_MIN] дизов на его треки) выкидывается из
 //!    графа и гасит близких соседей (анти-спред).
 
@@ -38,6 +40,10 @@ const HOPS: usize = 3;
 const GAMMA: f32 = 0.9;
 /// Прунинг: активация ниже порога не распространяется дальше.
 const EPS: f32 = 0.004;
+/// Затухание вкладов доп. путей к одному узлу (сортировка по убыванию).
+const PATH_DECAY: f32 = 0.5;
+/// Потолок пропагированной близости — строго ниже сида.
+const PROP_CAP: f32 = 0.98;
 /// Кап фронтира на хоп (highload: ограничивает размер ANY-массива в SQL).
 const FRONTIER_CAP: usize = 320;
 /// Кап итогового графа.
@@ -121,11 +127,16 @@ pub async fn build_affinity(
     }
 }
 
-/// Spreading-activation: `total = s + γMs + γ²M²s + ...`, вклады путей
-/// суммируются. Сиды держат свой вес; в диз-артистов активация не течёт.
+/// Spreading-activation с decay-fold вкладов: внутри хопа вклады разных
+/// фронтир-узлов к одному артисту сворачиваются через [decay_fold], между
+/// хопами — так же. Сид подпитывается соседями (`max(вес, fold)` — близкий
+/// сосед сильного сида не должен обгонять сид-«второго любимого»), но не
+/// перераспространяет чужую активацию; в диз-артистов активация не течёт.
 async fn propagate(pg: &PgPool, seeds: &Affinity, disliked: &[Uuid]) -> Affinity {
     let disliked_set: std::collections::HashSet<Uuid> = disliked.iter().copied().collect();
-    let mut total = seeds.clone();
+    // Вклады каждого хопа; для сидов — отдельная копилка (не входит в activation).
+    let mut contribs: HashMap<Uuid, Vec<f32>> = HashMap::new();
+    let mut seed_contribs: HashMap<Uuid, Vec<f32>> = HashMap::new();
     let mut activation = seeds.clone();
 
     for _ in 0..HOPS {
@@ -160,29 +171,60 @@ async fn propagate(pg: &PgPool, seeds: &Affinity, disliked: &[Uuid]) -> Affinity
             }
         }
 
-        let mut next: Affinity = HashMap::new();
+        let mut hop_contribs: HashMap<Uuid, Vec<f32>> = HashMap::new();
         for (src, kinds) in &adjacency {
             let Some(&act) = activation.get(src) else {
                 continue;
             };
             for (dst, e) in merge_normalized(kinds) {
-                // Сиды остаются на своём весе; в диз-артистов не льём.
-                if seeds.contains_key(&dst) || disliked_set.contains(&dst) {
+                if disliked_set.contains(&dst) {
                     continue;
                 }
-                *next.entry(dst).or_insert(0.0) += act * e * GAMMA;
+                if seeds.contains_key(&dst) {
+                    seed_contribs.entry(dst).or_default().push(act * e * GAMMA);
+                    continue;
+                }
+                hop_contribs.entry(dst).or_default().push(act * e * GAMMA);
             }
         }
-        next.retain(|_, v| *v >= EPS);
+
+        let mut next: Affinity = HashMap::new();
+        for (dst, xs) in hop_contribs {
+            let v = decay_fold(xs);
+            if v >= EPS {
+                contribs.entry(dst).or_default().push(v);
+                next.insert(dst, v);
+            }
+        }
         if next.is_empty() {
             break;
         }
-        for (k, v) in &next {
-            *total.entry(*k).or_insert(0.0) += *v;
-        }
         activation = next;
     }
+
+    let mut total = seeds.clone();
+    for (k, xs) in contribs {
+        total.insert(k, decay_fold(xs));
+    }
+    for (k, xs) in seed_contribs {
+        if let Some(v) = total.get_mut(&k) {
+            *v = v.max(decay_fold(xs)).min(1.0);
+        }
+    }
     total
+}
+
+/// Свёртка вкладов путей: сильнейший целиком, каждый следующий ×[PATH_DECAY],
+/// потолок [PROP_CAP]. Хаб со множеством слабых связей не обгоняет сида.
+fn decay_fold(mut xs: Vec<f32>) -> f32 {
+    xs.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    let mut mult = 1.0f32;
+    let mut sum = 0.0f32;
+    for x in xs {
+        sum += x * mult;
+        mult *= PATH_DECAY;
+    }
+    sum.min(PROP_CAP)
 }
 
 /// Диз-артист радиирует «анти-хотелку»: соседи по сетке слегка глушатся.
@@ -393,4 +435,61 @@ async fn write_cache(redis: &RedisPool, sc_user_id: &str, affinity: &Affinity) {
         .set_ex::<_, _, ()>(cache_key(sc_user_id), payload, CACHE_TTL_SECS)
         .await;
     debug!(user = %sc_user_id, artists = affinity.len(), "wave graph cached");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decay_fold_tz_case() {
+        // ТЗ: psychosis→мокери(.9)→shadow(.5)=0.45 + psychosis→гуль(.5)→shadow(.1)=0.05.
+        let v = decay_fold(vec![0.05, 0.45]);
+        assert!((v - 0.475).abs() < 1e-6, "got {v}");
+    }
+
+    #[test]
+    fn decay_fold_hub_stays_below_direct_neighbor() {
+        // Хаб: 15 слабых путей по 0.15 — не должен перерасти прямого соседа 0.45.
+        let hub = decay_fold(vec![0.15; 15]);
+        let direct = decay_fold(vec![0.45]);
+        assert!(hub < 0.31, "hub={hub}");
+        assert!(hub < direct);
+    }
+
+    #[test]
+    fn decay_fold_capped_below_seed() {
+        let v = decay_fold(vec![0.9, 0.9, 0.9, 0.9]);
+        assert!((v - PROP_CAP).abs() < 1e-6, "got {v}");
+    }
+
+    #[test]
+    fn decay_fold_empty_is_zero() {
+        assert_eq!(decay_fold(Vec::new()), 0.0);
+    }
+
+    #[test]
+    fn merge_normalized_per_kind_scales() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        let mut kinds: HashMap<i16, Vec<(Uuid, f32)>> = HashMap::new();
+        kinds.insert(0, vec![(a, 2.0), (b, 1.0)]); // коллабы: счёт треков
+        kinds.insert(1, vec![(a, 0.05), (b, 0.24)]); // ко-лайк: ochiai
+        let m = merge_normalized(&kinds);
+        // a: топ-коллаб (2/2=1.0) важнее слабого ко-лайка (0.05/0.24).
+        assert!((m[&a] - 1.0).abs() < 1e-6);
+        // b: топ-ко-лайк (0.24/0.24=1.0) важнее пол-коллаба (1/2=0.5).
+        assert!((m[&b] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn merge_normalized_relative_within_kind() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        let mut kinds: HashMap<i16, Vec<(Uuid, f32)>> = HashMap::new();
+        kinds.insert(1, vec![(a, 0.24), (b, 0.12)]);
+        let m = merge_normalized(&kinds);
+        assert!((m[&a] - 1.0).abs() < 1e-6);
+        assert!((m[&b] - 0.5).abs() < 1e-6);
+    }
 }
