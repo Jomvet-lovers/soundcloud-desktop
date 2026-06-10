@@ -3,11 +3,14 @@
 //!
 //! Пайплайн:
 //! 1. signals — свежие лайки/дизы/скипы/played (оба формата `user_id`).
-//! 2. graph — сетка близости артистов вокруг вкуса (аддитивная пропагация).
+//! 2. graph — сетка близости артистов вокруг вкуса (коллабы + ко-лайки,
+//!    аддитивная пропагация).
 //! 3. MERT — qdrant-кандидаты от seed-треков (3 коллекции, z-norm merge).
-//! 4. rank — `score = mert·(1+λ·affinity)`: сетка наверх, чистый MERT в хвост.
+//! 4. rank — `score = content·(floor+(1-floor)·affinity)`: сетка∩MERT наверх,
+//!    вне сетки — деградационный хвост.
 //! 5. cursor (Redis) помнит отданное; досев served-треками = бесконечность.
 
+pub mod colike;
 pub mod cursor;
 pub mod graph;
 pub mod rank;
@@ -39,8 +42,9 @@ const ARTIST_CAP_IN_WINDOW: usize = 2;
 /// Сколько MERT-кандидатов тянем — «очень много», дальше rank режет до limit.
 const MERT_POOL: usize = 400;
 /// Вклад сетки как множителя (тоже через «И»): non-graph трек → ×GRAPH_FLOOR,
-/// свой (aff=1) → ×1. Сетка — одна из плоскостей конъюнкции, не доминатор.
-const GRAPH_FLOOR: f32 = 0.35;
+/// свой (aff=1) → ×1. Floor низкий: топ волны = сетка∩MERT, вне-сеточный
+/// контент — деградационный хвост, когда сетка высохла.
+const GRAPH_FLOOR: f32 = 0.12;
 /// Ниже этой конъюнкции близости по плоскостям (бит×вайб×лирика) — выкидываем:
 /// трек должен быть близок ВО ВСЕХ плоскостях, а не пролезать по одной.
 const CONTENT_FLOOR: f32 = 0.55;
@@ -48,9 +52,9 @@ const CONTENT_FLOOR: f32 = 0.55;
 /// против твоего вкуса (0.7 сид + 0.3 ты). Home-волна не блендит (сид = вкус).
 const SEED_MOOD_WEIGHT: f32 = 0.7;
 /// Сетка-как-источник: с топ-N аффинити-артистов берём треки в пул кандидатов.
-const GRAPH_ARTISTS: usize = 120;
+const GRAPH_ARTISTS: usize = 160;
 const GRAPH_PER_ARTIST: i64 = 6;
-const GRAPH_TRACKS_TOTAL: i64 = 600;
+const GRAPH_TRACKS_TOTAL: i64 = 800;
 const SEED_LIKES_USER: usize = 14;
 /// Досев последними отданными треками — двигает MERT-пул вперёд (бесконечность).
 const SEED_SERVED_FORWARD: usize = 8;
@@ -191,19 +195,14 @@ pub async fn build(
         )
     };
     let (taste, (cm, cc, cl)) = tokio::join!(centroids_fut, cands_vecs_fut);
-    let TasteCentroids {
-        m: cen_m,
-        c: cen_c,
-        l: cen_l,
-    } = taste;
     let cands: Vec<rank::Candidate> = artist_of
         .into_iter()
         .map(|(tid, artist)| {
             let key = tid.to_string();
             let content = geomean(&[
-                sim(cen_m.as_deref(), cm.get(&key)),
-                sim(cen_c.as_deref(), cc.get(&key)),
-                sim(cen_l.as_deref(), cl.get(&key)),
+                sim(&taste.m, cm.get(&key)),
+                sim(&taste.c, cc.get(&key)),
+                sim(&taste.l, cl.get(&key)),
             ]);
             rank::Candidate {
                 sc_track_id: tid,
@@ -265,7 +264,7 @@ pub async fn build(
         graph = graph_res.affinity.len(),
         graph_tracks = graph_tracks.len(),
         mert_pool = mert.len(),
-        taste = cen_m.is_some(),
+        taste = !taste.m.is_empty(),
         cands = cand_count,
         "wave built"
     );
@@ -424,12 +423,16 @@ fn negative_ids_for_qdrant(signals: &UserSignals) -> Vec<u64> {
 }
 
 const TASTE_TTL_SECS: u64 = 300;
+/// Вкус мультимодален (sosad-кластер ≠ фонк-кластер): до K центроидов на
+/// плоскость, близость кандидата = max по центроидам — среднее всех лайков
+/// мажет моды в кашу посередине.
+const TASTE_CLUSTERS: usize = 3;
 
 #[derive(Serialize, Deserialize, Default)]
 struct TasteCentroids {
-    m: Option<Vec<f32>>,
-    c: Option<Vec<f32>>,
-    l: Option<Vec<f32>>,
+    m: Vec<Vec<f32>>,
+    c: Vec<Vec<f32>>,
+    l: Vec<Vec<f32>>,
 }
 
 /// Центроиды вкуса (mert/clap/lyrics) с per-user Redis-кэшем (TTL 5 мин) —
@@ -450,18 +453,19 @@ async fn taste_centroids(
         svc.retrieve_vectors(collections::TRACKS_LYRICS, liked_ids),
     );
     let cen = TasteCentroids {
-        m: mean_centroid(&lm),
-        c: mean_centroid(&lc),
-        l: mean_centroid(&ll),
+        m: kmeans_centroids(&lm, TASTE_CLUSTERS),
+        c: kmeans_centroids(&lc, TASTE_CLUSTERS),
+        l: kmeans_centroids(&ll, TASTE_CLUSTERS),
     };
-    if !sc_user_id.is_empty() && (cen.m.is_some() || cen.c.is_some() || cen.l.is_some()) {
+    if !sc_user_id.is_empty() && (!cen.m.is_empty() || !cen.c.is_empty() || !cen.l.is_empty()) {
         write_taste_cache(&svc.redis, sc_user_id, &cen).await;
     }
     cen
 }
 
-/// Центроиды для mood-скоринга. Home — твой вкус (кэш). Track/artist — вайб
-/// сида (векторы трека / треков артиста), подмешан твой вкус [SEED_MOOD_WEIGHT].
+/// Центроиды для mood-скоринга. Home — твой вкус (кэш, мультимодальный).
+/// Track/artist — вайб сида (векторы трека / треков артиста), подмешан твой
+/// вкус [SEED_MOOD_WEIGHT]; сид одномодален — бленд с усреднённым вкусом.
 async fn mood_centroids(
     svc: &RecommendationsService,
     sc_user_id: &str,
@@ -478,10 +482,42 @@ async fn mood_centroids(
         svc.retrieve_vectors(collections::TRACKS_LYRICS, seed_ids),
     );
     TasteCentroids {
-        m: blend_centroids(mean_centroid(&sm), user.m, SEED_MOOD_WEIGHT),
-        c: blend_centroids(mean_centroid(&sc), user.c, SEED_MOOD_WEIGHT),
-        l: blend_centroids(mean_centroid(&sl), user.l, SEED_MOOD_WEIGHT),
+        m: opt_to_centroids(blend_centroids(
+            mean_centroid(&sm),
+            centroids_mean(&user.m),
+            SEED_MOOD_WEIGHT,
+        )),
+        c: opt_to_centroids(blend_centroids(
+            mean_centroid(&sc),
+            centroids_mean(&user.c),
+            SEED_MOOD_WEIGHT,
+        )),
+        l: opt_to_centroids(blend_centroids(
+            mean_centroid(&sl),
+            centroids_mean(&user.l),
+            SEED_MOOD_WEIGHT,
+        )),
     }
+}
+
+fn opt_to_centroids(v: Option<Vec<f32>>) -> Vec<Vec<f32>> {
+    v.into_iter().collect()
+}
+
+/// Средний по K центроидам (для бленда с сидом в track/artist-режимах).
+fn centroids_mean(cs: &[Vec<f32>]) -> Option<Vec<f32>> {
+    let first = cs.first()?;
+    let mut acc = vec![0.0f32; first.len()];
+    for c in cs {
+        for (a, b) in acc.iter_mut().zip(c.iter()) {
+            *a += *b;
+        }
+    }
+    let inv = 1.0 / cs.len() as f32;
+    for a in acc.iter_mut() {
+        *a *= inv;
+    }
+    Some(acc)
 }
 
 /// `w·seed + (1-w)·user` поэлементно; если одна сторона пуста — берём другую.
@@ -497,7 +533,7 @@ fn blend_centroids(seed: Option<Vec<f32>>, user: Option<Vec<f32>>, w: f32) -> Op
 }
 
 fn taste_key(sc_user_id: &str) -> String {
-    format!("wave:taste:{sc_user_id}")
+    format!("wave:taste2:{sc_user_id}")
 }
 
 async fn read_taste_cache(redis: &RedisPool, sc_user_id: &str) -> Option<TasteCentroids> {
@@ -518,12 +554,15 @@ async fn write_taste_cache(redis: &RedisPool, sc_user_id: &str, cen: &TasteCentr
         .await;
 }
 
-/// Косинус трека к центроиду плоскости (None если нет центроида/вектора).
-fn sim(centroid: Option<&[f32]>, vec: Option<&Vec<f32>>) -> Option<f32> {
-    match (centroid, vec) {
-        (Some(c), Some(v)) => Some(crate::modules::centroids::cosine(v, c)),
-        _ => None,
-    }
+/// Косинус трека к БЛИЖАЙШЕМУ центроиду плоскости (None если нет данных).
+fn sim(centroids: &[Vec<f32>], vec: Option<&Vec<f32>>) -> Option<f32> {
+    let v = vec?;
+    centroids
+        .iter()
+        .map(|c| crate::modules::centroids::cosine(v, c))
+        .fold(None, |acc: Option<f32>, s| {
+            Some(acc.map_or(s, |a| a.max(s)))
+        })
 }
 
 /// Geomean доступных плоскостей — конъюнкция «И»: низкая близость по любой
@@ -540,6 +579,73 @@ fn geomean(sims: &[Option<f32>]) -> f32 {
     }
     let s: f32 = xs.iter().map(|x| x.ln()).sum();
     (s / xs.len() as f32).exp()
+}
+
+/// Детерминированный k-means по векторам лайков: farthest-first init по
+/// отсортированным id, 8 итераций, косинусная близость. Меньше 8 точек на
+/// кластер — данных мало, остаёмся на одном центроиде.
+fn kmeans_centroids(vecs: &HashMap<String, Vec<f32>>, k: usize) -> Vec<Vec<f32>> {
+    if vecs.is_empty() {
+        return Vec::new();
+    }
+    let k = k.min(vecs.len() / 8).max(1);
+    if k == 1 {
+        return mean_centroid(vecs).into_iter().collect();
+    }
+    let mut ids: Vec<&String> = vecs.keys().collect();
+    ids.sort();
+    let points: Vec<&Vec<f32>> = ids.into_iter().filter_map(|id| vecs.get(id)).collect();
+    let Some(first) = points.first() else {
+        return Vec::new();
+    };
+    let mut centers: Vec<Vec<f32>> = vec![(*first).clone()];
+    while centers.len() < k {
+        let far = points.iter().max_by(|a, b| {
+            nearest_dist(a, &centers)
+                .partial_cmp(&nearest_dist(b, &centers))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let Some(p) = far else { break };
+        centers.push((*p).clone());
+    }
+    for _ in 0..8 {
+        let mut sums: Vec<(Vec<f32>, usize)> =
+            centers.iter().map(|c| (vec![0.0; c.len()], 0)).collect();
+        for p in &points {
+            let ci = nearest_center(p, &centers);
+            let (s, n) = &mut sums[ci];
+            for (a, b) in s.iter_mut().zip(p.iter()) {
+                *a += *b;
+            }
+            *n += 1;
+        }
+        for (i, (s, n)) in sums.into_iter().enumerate() {
+            if n > 0 {
+                centers[i] = s.into_iter().map(|x| x / n as f32).collect();
+            }
+        }
+    }
+    centers
+}
+
+fn nearest_dist(p: &[f32], centers: &[Vec<f32>]) -> f32 {
+    centers
+        .iter()
+        .map(|c| 1.0 - crate::modules::centroids::cosine(p, c))
+        .fold(f32::MAX, f32::min)
+}
+
+fn nearest_center(p: &[f32], centers: &[Vec<f32>]) -> usize {
+    let mut best = 0usize;
+    let mut best_d = f32::MAX;
+    for (i, c) in centers.iter().enumerate() {
+        let d = 1.0 - crate::modules::centroids::cosine(p, c);
+        if d < best_d {
+            best_d = d;
+            best = i;
+        }
+    }
+    best
 }
 
 /// Центроид вкуса — средний вектор лайков (нормализацию делает cosine).

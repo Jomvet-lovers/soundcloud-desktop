@@ -3,11 +3,12 @@
 //! Модель:
 //! 1. TIER A (сиды) = участники последних лайков (`primary`+`featured`+
 //!    `remixer`; если у трека нет кредитов — фолбэк через `album_artists`).
-//!    Вес сида ∝ частота лайков × свежесть × сколько реально слушаешь (плеи).
-//!    Так доминантный артист (много лайков+плеёв) перевешивает случайный
-//!    одноразовый лайк.
-//! 2. Рёбра «близости %» = `artist_coplay` (коллаборации), нормализованные
-//!    ПО ИСТОЧНИКУ: ближайший коллаб артиста = 1.0.
+//!    Вес сида ∝ частота лайков × свежесть × сколько реально слушаешь (плеи),
+//!    затем ln-компрессия: доминантный артист остаётся первым, но не
+//!    схлопывает нормализацию остальных сидов в ~0.
+//! 2. Рёбра «близости %» = `artist_coplay` (коллаборации) ∪ `artist_colike`
+//!    («фанаты тоже лайкают», Ochiai). Нормализация ПО ИСТОЧНИКУ И ВИДУ ребра
+//!    (масштабы разные), близость = max по видам: ближайший сосед = 1.0.
 //! 3. `affinity(v) = Σ по всем путям Π(рёбра)` — затухающее spreading-
 //!    activation на [HOPS] хопов. Вклады РАЗНЫХ путей к одному артисту
 //!    СУММИРУЮТСЯ: psychosis→мокери(.9)→shadow(.5) + psychosis→гуль(.5)→
@@ -82,7 +83,13 @@ pub async fn build_affinity(
     }
 
     let mut seeds = match seed {
-        GraphSeed::User => load_user_seeds(&svc.pg, &variants).await,
+        GraphSeed::User => {
+            let mut s = load_user_seeds(&svc.pg, &variants).await;
+            for v in s.values_mut() {
+                *v = v.ln_1p();
+            }
+            s
+        }
         GraphSeed::Track(t) => load_track_seeds(&svc.pg, t).await,
         GraphSeed::Artist(a) => {
             let mut m = HashMap::new();
@@ -126,36 +133,44 @@ async fn propagate(pg: &PgPool, seeds: &Affinity, disliked: &[Uuid]) -> Affinity
             break;
         }
         let frontier = top_keys(&activation, FRONTIER_CAP);
-        let edges = load_coplay_edges(pg, &frontier).await;
+        let edges = load_graph_edges(pg, &frontier).await;
         if edges.is_empty() {
             break;
         }
 
-        // adjacency[src] = (dst, raw_weight); src — узел фронтира.
+        // adjacency[src][kind] = (dst, raw_weight); src — узел фронтира.
         let frontier_set: std::collections::HashSet<Uuid> = frontier.iter().copied().collect();
-        let mut adjacency: HashMap<Uuid, Vec<(Uuid, f32)>> = HashMap::new();
-        for (a, b, w) in edges {
+        let mut adjacency: HashMap<Uuid, HashMap<i16, Vec<(Uuid, f32)>>> = HashMap::new();
+        for (a, b, w, kind) in edges {
             if frontier_set.contains(&a) {
-                adjacency.entry(a).or_default().push((b, w));
+                adjacency
+                    .entry(a)
+                    .or_default()
+                    .entry(kind)
+                    .or_default()
+                    .push((b, w));
             }
             if frontier_set.contains(&b) {
-                adjacency.entry(b).or_default().push((a, w));
+                adjacency
+                    .entry(b)
+                    .or_default()
+                    .entry(kind)
+                    .or_default()
+                    .push((a, w));
             }
         }
 
         let mut next: Affinity = HashMap::new();
-        for (src, dsts) in &adjacency {
+        for (src, kinds) in &adjacency {
             let Some(&act) = activation.get(src) else {
                 continue;
             };
-            let max_w = dsts.iter().map(|(_, w)| *w).fold(0f32, f32::max).max(1e-6);
-            for (dst, w) in dsts {
+            for (dst, e) in merge_normalized(kinds) {
                 // Сиды остаются на своём весе; в диз-артистов не льём.
-                if seeds.contains_key(dst) || disliked_set.contains(dst) {
+                if seeds.contains_key(&dst) || disliked_set.contains(&dst) {
                     continue;
                 }
-                let e = (w / max_w).clamp(0.0, 1.0); // близость %
-                *next.entry(*dst).or_insert(0.0) += act * e * GAMMA;
+                *next.entry(dst).or_insert(0.0) += act * e * GAMMA;
             }
         }
         next.retain(|_, v| *v >= EPS);
@@ -170,28 +185,36 @@ async fn propagate(pg: &PgPool, seeds: &Affinity, disliked: &[Uuid]) -> Affinity
     total
 }
 
-/// Диз-артист радиирует «анти-хотелку»: соседи по коллабу слегка глушатся.
+/// Диз-артист радиирует «анти-хотелку»: соседи по сетке слегка глушатся.
 async fn anti_spread(pg: &PgPool, affinity: &mut Affinity, disliked: &[Uuid]) {
     if disliked.is_empty() {
         return;
     }
-    let edges = load_coplay_edges(pg, disliked).await;
+    let edges = load_graph_edges(pg, disliked).await;
     let disliked_set: std::collections::HashSet<Uuid> = disliked.iter().copied().collect();
-    // max-нормализация по диз-источнику.
-    let mut by_src: HashMap<Uuid, Vec<(Uuid, f32)>> = HashMap::new();
-    for (a, b, w) in edges {
+    let mut by_src: HashMap<Uuid, HashMap<i16, Vec<(Uuid, f32)>>> = HashMap::new();
+    for (a, b, w, kind) in edges {
         if disliked_set.contains(&a) {
-            by_src.entry(a).or_default().push((b, w));
+            by_src
+                .entry(a)
+                .or_default()
+                .entry(kind)
+                .or_default()
+                .push((b, w));
         }
         if disliked_set.contains(&b) {
-            by_src.entry(b).or_default().push((a, w));
+            by_src
+                .entry(b)
+                .or_default()
+                .entry(kind)
+                .or_default()
+                .push((a, w));
         }
     }
-    for (_, dsts) in by_src {
-        let max_w = dsts.iter().map(|(_, w)| *w).fold(0f32, f32::max).max(1e-6);
-        for (dst, w) in dsts {
+    for (_, kinds) in by_src {
+        for (dst, e) in merge_normalized(&kinds) {
             if let Some(v) = affinity.get_mut(&dst) {
-                *v = (*v - ANTISPREAD_MU * (w / max_w)).max(0.0);
+                *v = (*v - ANTISPREAD_MU * e).max(0.0);
             }
         }
     }
@@ -199,6 +222,24 @@ async fn anti_spread(pg: &PgPool, affinity: &mut Affinity, disliked: &[Uuid]) {
         affinity.remove(d);
     }
     affinity.retain(|_, v| *v > 0.0);
+}
+
+/// «Близость %» соседей одного узла: рёбра нормализуются по max ВНУТРИ своего
+/// вида (коллаб-каунты и ко-лайк Ochiai в разных масштабах), затем по соседу
+/// берётся максимум видов.
+fn merge_normalized(kinds: &HashMap<i16, Vec<(Uuid, f32)>>) -> HashMap<Uuid, f32> {
+    let mut merged: HashMap<Uuid, f32> = HashMap::new();
+    for dsts in kinds.values() {
+        let max_w = dsts.iter().map(|(_, w)| *w).fold(0f32, f32::max).max(1e-6);
+        for (dst, w) in dsts {
+            let e = (w / max_w).clamp(0.0, 1.0);
+            let cur = merged.entry(*dst).or_insert(0.0);
+            if e > *cur {
+                *cur = e;
+            }
+        }
+    }
+    merged
 }
 
 async fn load_user_seeds(pg: &PgPool, variants: &[String]) -> Affinity {
@@ -252,19 +293,21 @@ async fn load_disliked_artists(pg: &PgPool, variants: &[String]) -> Vec<Uuid> {
     .unwrap_or_default()
 }
 
-async fn load_coplay_edges(pg: &PgPool, nodes: &[Uuid]) -> Vec<(Uuid, Uuid, f32)> {
+/// Рёбра обоих видов разом: kind 0 = коллабы (`artist_coplay`),
+/// kind 1 = ко-лайки (`artist_colike`).
+async fn load_graph_edges(pg: &PgPool, nodes: &[Uuid]) -> Vec<(Uuid, Uuid, f32, i16)> {
     if nodes.is_empty() {
         return Vec::new();
     }
     sqlx::query_file!(
-        "queries/recommendations/smart_wave/graph/load_coplay_edges.sql",
+        "queries/recommendations/smart_wave/graph/load_graph_edges.sql",
         nodes
     )
     .fetch_all(pg)
     .await
     .map(|rows| {
         rows.into_iter()
-            .map(|r| (r.a_id, r.b_id, r.weight))
+            .map(|r| (r.a_id, r.b_id, r.weight, r.kind))
             .collect()
     })
     .unwrap_or_default()
@@ -328,7 +371,7 @@ fn cap_top(map: &mut Affinity, n: usize) {
 }
 
 fn cache_key(sc_user_id: &str) -> String {
-    format!("wave:graph:{sc_user_id}")
+    format!("wave:graph2:{sc_user_id}")
 }
 
 async fn read_cache(redis: &RedisPool, sc_user_id: &str) -> Option<Affinity> {
