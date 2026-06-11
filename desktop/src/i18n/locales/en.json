@@ -451,6 +451,21 @@
         "fans_also": "Listeners also play",
         "fans_alsoDesc": "What fans of this track also listen to."
       }
+    },
+    "ether": {
+      "live": "LIVE",
+      "onAir": "ON AIR",
+      "personal": "PERSONAL BROADCAST · 24/7",
+      "adapts": "the broadcast adapts to you",
+      "queueInf": "queue ∞ · the broadcast never stops",
+      "playWave": "Play the wave",
+      "bandCore": "CORE",
+      "bandFrontier": "FRONTIER",
+      "freshBadge": "NEW",
+      "relToday": "today",
+      "relYesterday": "yesterday",
+      "archiveTitle": "Broadcast archive",
+      "archiveWhy": "your likes and picks for you — off the dial"
     }
   },
   "offline": {

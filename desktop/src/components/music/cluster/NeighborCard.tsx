@@ -1,18 +1,14 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, {useState} from 'react';
+import {useNavigate} from 'react-router-dom';
 import {useShallow} from 'zustand/shallow';
-import { art } from '../../../lib/formatters';
-import { Loader2, pauseBlack14, playBlack14 } from '../../../lib/icons';
+import {art} from '../../../lib/formatters';
+import {Loader2, pauseBlack14, playBlack14} from '../../../lib/icons';
 import {usePerfMode} from '../../../lib/perf';
-import {
-  recordClusterFeedback,
-  setUrnCluster,
-  useClusterFeedback,
-} from '../../../lib/recsFeedback';
-import { useAutoHide } from '../../../lib/useAutoHide';
-import { type Track, usePlayerStore } from '../../../stores/player';
+import {recordClusterFeedback, setUrnCluster, useClusterFeedback,} from '../../../lib/recsFeedback';
+import {useAutoHide} from '../../../lib/useAutoHide';
+import {type Track, usePlayerStore} from '../../../stores/player';
 import {TrackStatusBadges} from '../TrackStatusBadges';
-import type { ClusterNeighborDto } from './types';
+import type {ClusterNeighborDto} from './types';
 
 interface Props {
   neighbor: ClusterNeighborDto;
@@ -29,13 +25,13 @@ export const NeighborCard = React.memo(function NeighborCard({
   resolveQueue,
 }: Props) {
   const navigate = useNavigate();
-    const perf = usePerfMode();
-    const {isThis, isThisPlaying} = usePlayerStore(
-        useShallow((s) => {
-            const isThis = s.currentTrack?.urn === track.urn;
-            return {isThis, isThisPlaying: isThis && s.isPlaying};
-        }),
-    );
+  const perf = usePerfMode();
+  const { isThis, isThisPlaying } = usePlayerStore(
+    useShallow((s) => {
+      const isThis = s.currentTrack?.urn === track.urn;
+      return { isThis, isThisPlaying: isThis && s.isPlaying };
+    }),
+  );
   const showPlayingOverlay = useAutoHide(isThisPlaying);
   const clusterId = useClusterFeedback();
   const [resolving, setResolving] = useState(false);
@@ -122,12 +118,12 @@ export const NeighborCard = React.memo(function NeighborCard({
           }}
           className="absolute top-2.5 left-2.5 inline-flex items-center gap-1.5 max-w-[80%] pl-[3px] pr-2.5 h-7 rounded-full text-[10.5px] font-bold text-white cursor-pointer transition-all duration-300 hover:scale-105"
           style={{
-              background: perf.blur(14) > 0 ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.78)',
+            background: perf.blur(14) > 0 ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.78)',
             border: '0.5px solid color-mix(in srgb, var(--color-accent) 50%, transparent)',
-              backdropFilter:
-                  perf.blur(14) > 0 ? `blur(${perf.blur(14)}px) saturate(160%)` : undefined,
-              WebkitBackdropFilter:
-                  perf.blur(14) > 0 ? `blur(${perf.blur(14)}px) saturate(160%)` : undefined,
+            backdropFilter:
+              perf.blur(14) > 0 ? `blur(${perf.blur(14)}px) saturate(160%)` : undefined,
+            WebkitBackdropFilter:
+              perf.blur(14) > 0 ? `blur(${perf.blur(14)}px) saturate(160%)` : undefined,
             boxShadow: '0 6px 16px rgba(0,0,0,0.4), 0 0 10px var(--color-accent-glow)',
           }}
         >
@@ -170,9 +166,9 @@ export const NeighborCard = React.memo(function NeighborCard({
           </span>
         </div>
 
-          <div className="absolute bottom-2 left-2 flex">
-              <TrackStatusBadges meta={track._scd_meta} variant="overlay"/>
-          </div>
+        <div className="absolute bottom-2 left-2 flex">
+          <TrackStatusBadges meta={track._scd_meta} variant="overlay" />
+        </div>
       </div>
 
       <div className="px-3 py-2.5">

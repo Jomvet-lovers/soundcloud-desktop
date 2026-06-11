@@ -455,6 +455,21 @@
         "fans_also": "Те же слушатели",
         "fans_alsoDesc": "Что ещё слушают фанаты этого трека."
       }
+    },
+    "ether": {
+      "live": "LIVE",
+      "onAir": "В ЭФИРЕ",
+      "personal": "ЛИЧНЫЙ ЭФИР · 24/7",
+      "adapts": "эфир подстраивается под тебя",
+      "queueInf": "в очереди ∞ · эфир не выключается",
+      "playWave": "Играть волну",
+      "bandCore": "ЯДРО",
+      "bandFrontier": "ФРОНТИР",
+      "freshBadge": "NEW",
+      "relToday": "сегодня",
+      "relYesterday": "вчера",
+      "archiveTitle": "Архив эфира",
+      "archiveWhy": "лайкнутое и подборка под тебя — вне эфирной сетки"
     }
   },
   "offline": {

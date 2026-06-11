@@ -1,10 +1,10 @@
-import React, { useMemo } from 'react';
-import { ClusterFeedbackProvider } from '../../../lib/recsFeedback';
-import type { Track } from '../../../stores/player';
-import { HorizontalScroll } from '../../ui/HorizontalScroll';
-import { ClusterHeader } from './ClusterHeader';
-import { NeighborCard } from './NeighborCard';
-import type { ClusterHydrated, ClusterNeighborDto } from './types';
+import React, {useMemo} from 'react';
+import {ClusterFeedbackProvider} from '../../../lib/recsFeedback';
+import type {Track} from '../../../stores/player';
+import {HorizontalScroll} from '../../ui/HorizontalScroll';
+import {ClusterHeader} from './ClusterHeader';
+import {NeighborCard} from './NeighborCard';
+import type {ClusterHydrated, ClusterNeighborDto} from './types';
 
 interface Props {
   title: string;
@@ -16,6 +16,8 @@ interface Props {
   cardWidth?: number;
   /** If set, NeighborCard click awaits this resolver to build the play queue. */
   resolveQueue?: (track: Track) => Promise<Track[]>;
+  /** Секция-обёртка уже рисует свой заголовок (станции «Эфира»). */
+  hideHeader?: boolean;
 }
 
 export const NeighborsRow = React.memo(function NeighborsRow({
@@ -27,6 +29,7 @@ export const NeighborsRow = React.memo(function NeighborsRow({
   queue,
   cardWidth = 200,
   resolveQueue,
+  hideHeader = false,
 }: Props) {
   const tracksById = useMemo(() => {
     const map = new Map<string, Track>();
@@ -54,7 +57,9 @@ export const NeighborsRow = React.memo(function NeighborsRow({
   return (
     <ClusterFeedbackProvider value={ctx}>
       <div className="flex flex-col gap-3.5">
-        <ClusterHeader icon={icon} title={title} description={description} index={index} />
+        {!hideHeader && (
+          <ClusterHeader icon={icon} title={title} description={description} index={index} />
+        )}
         <HorizontalScroll>
           {pairs.map(({ neighbor, track }) => (
             <div key={neighbor.artist_id} className="shrink-0" style={{ width: cardWidth }}>

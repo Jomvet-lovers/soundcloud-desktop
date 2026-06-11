@@ -343,7 +343,42 @@
     "hideLikedOff": "Begenilen parcalari dalgadan cikarmak icin ac",
     "hideListenedLabel": "Taze",
     "hideListenedOn": "Yakinda dinlenenler gizli: begeniler 7 gun, bitirilenler 14, digerleri 30",
-    "hideListenedOff": "Daha once dinlediklerini gizlemek icin ac"
+    "hideListenedOff": "Daha once dinlediklerini gizlemek icin ac",
+    "ether": {
+      "live": "LIVE",
+      "onAir": "YAYINDA",
+      "personal": "KISISEL YAYIN · 24/7",
+      "adapts": "yayin sana uyum saglar",
+      "queueInf": "sirada ∞ · yayin durmaz",
+      "playWave": "Dalgayi cal",
+      "bandCore": "CEKIRDEK",
+      "bandFrontier": "SINIR",
+      "freshBadge": "NEW",
+      "relToday": "bugun",
+      "relYesterday": "dun",
+      "archiveTitle": "Yayin arsivi",
+      "archiveWhy": "begenilerin ve sana secilenler — frekans disi"
+    },
+    "home": {
+      "waveTitle": "Dalga",
+      "waveDesc": "Zevk grafigine gore sonsuz karisim — secmeler, komsular, taze parcalar.",
+      "cluster": {
+        "wave": "Dalga",
+        "waveDesc": "Sonsuz karisim — son begeniler, sanatci grafigi ve parca bazli AI onerileri. Dinledikce keskinlesir.",
+        "for_you": "Sana ozel",
+        "for_youDesc": "Zevkine en uygun parcalar.",
+        "top_artists": "Favorilerin",
+        "top_artistsDesc": "En cok caldigin sanatcilar — her birinden taze bir parca.",
+        "adjacent": "Komsu dunyalar",
+        "adjacentDesc": "Sevdiklerinle birlikte dinlenen sanatcilar.",
+        "fresh_drops": "Taze parcalar",
+        "fresh_dropsDesc": "Takip ettigin sanatcilardan yeni eklenenler.",
+        "same_vibe": "Ayni vibe",
+        "same_vibeDesc": "Duygusal spektrumundaki sesler.",
+        "deep_cuts": "Derin kazilar",
+        "deep_cutsDesc": "Patika disi — ama senin tonunda."
+      }
+    }
   },
   "offline": {
     "kicker": "Cevrimdisi · donusum atolyesi",
