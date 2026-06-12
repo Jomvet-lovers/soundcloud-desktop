@@ -160,8 +160,22 @@ pub struct ScAccountRow {
     pub sc_user_id: String,
     pub role: String,
     pub source: String,
+    /// Наш флаг ручной верификации привязки (admin подтвердил пару).
     pub verified: bool,
     pub notes: Option<String>,
+    // ── обогащение из кэша SC-профиля (`users`); null если ещё не скрейпили ──
+    pub username: Option<String>,
+    pub avatar_url: Option<String>,
+    pub permalink_url: Option<String>,
+    /// Галочка верификации самого SoundCloud (не путать с `verified` выше).
+    pub sc_verified: bool,
+    pub followers_count: Option<i64>,
+    pub sc_tracks_count: Option<i64>,
+    pub country: Option<String>,
+    /// Сколько треков этого аплоадера всего в нашем каталоге.
+    pub catalog_track_count: i64,
+    /// Сколько из них залинковано на ЭТОГО артиста.
+    pub linked_track_count: i64,
 }
 
 #[derive(Serialize)]
@@ -875,4 +889,140 @@ pub async fn track_unblock_artist(
     Ok(Json(
         serde_json::json!({ "ok": true, "removed": res.rows_affected() }),
     ))
+}
+
+// ───────────────────────── artist / account track lists ─────────────────────────
+
+#[derive(Deserialize)]
+pub struct TrackListQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// Прогнать сырые строки треков через тот же вердикт-конвейер, что и поиск:
+/// дотянуть полный primary-состав и посчитать raw_match.
+async fn enrich_track_rows(
+    pg: &sqlx::PgPool,
+    rows: Vec<TrackListRow>,
+) -> AppResult<Vec<TrackListItem>> {
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+    let mut credits = primary_names_for(pg, &ids).await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let names = credits.remove(&r.id);
+            to_list_item(r, names)
+        })
+        .collect())
+}
+
+/// GET /admin/artists/{artist_id}/tracks — треки, в составе которых этот артист.
+#[tracing::instrument(skip_all)]
+pub async fn artist_tracks(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    Path(artist_id): Path<Uuid>,
+    Query(q): Query<TrackListQuery>,
+) -> AppResult<Json<Vec<TrackListItem>>> {
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let rows = sqlx::query_file_as!(
+        TrackListRow,
+        "queries/admin/catalog/artist_tracks.sql",
+        artist_id,
+        limit
+    )
+    .fetch_all(&st.pg)
+    .await?;
+    Ok(Json(enrich_track_rows(&st.pg, rows).await?))
+}
+
+/// GET /admin/artists/{artist_id}/sc-accounts/{sc_user_id}/tracks — треки,
+/// залитые этим SC-аккаунтом (по uploader), вне зависимости от текущего линка.
+#[tracing::instrument(skip_all)]
+pub async fn sc_account_tracks(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    Path((_artist_id, sc_user_id)): Path<(Uuid, String)>,
+    Query(q): Query<TrackListQuery>,
+) -> AppResult<Json<Vec<TrackListItem>>> {
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let rows = sqlx::query_file_as!(
+        TrackListRow,
+        "queries/admin/catalog/sc_account_tracks.sql",
+        sc_user_id,
+        limit
+    )
+    .fetch_all(&st.pg)
+    .await?;
+    Ok(Json(enrich_track_rows(&st.pg, rows).await?))
+}
+
+#[derive(Deserialize)]
+pub struct DetachAccountTracks {
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct DetachAccountTracksResult {
+    pub detached_tracks: i64,
+}
+
+/// POST /admin/artists/{artist_id}/sc-accounts/{sc_user_id}/detach-tracks —
+/// sticky-отцеп оптом: снять кредиты этого артиста со ВСЕХ треков, залитых
+/// аккаунтом, и проставить блок, чтобы enrich/crawl не залинковали обратно.
+/// Обратимо потреково через DELETE /admin/tracks/{id}/blocks/{artist_id}.
+#[tracing::instrument(skip_all)]
+pub async fn sc_account_detach_tracks(
+    _: AdminAuth,
+    State(st): State<AppState>,
+    Path((artist_id, sc_user_id)): Path<(Uuid, String)>,
+    Json(body): Json<DetachAccountTracks>,
+) -> AppResult<Json<DetachAccountTracksResult>> {
+    let mut tx = st.pg.begin().await?;
+
+    let detached: i64 = sqlx::query_file_scalar!(
+        "queries/admin/catalog/sc_account_detach_count.sql",
+        artist_id,
+        sc_user_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Блок на каждую (трек, артист)-пару аплоадера, чтобы триггеры не дали
+    // пайплайну релинковать. Runtime-query из-за nullable note (как в detach).
+    sqlx::query(
+        "INSERT INTO track_artist_blocks (track_id, artist_id, note) \
+         SELECT t.id, $1, $2 FROM tracks t \
+         WHERE t.uploader_sc_user_id = $3 \
+           AND (t.primary_artist_id = $1 \
+                OR EXISTS (SELECT 1 FROM track_artists ta \
+                           WHERE ta.track_id = t.id AND ta.artist_id = $1)) \
+         ON CONFLICT (track_id, artist_id) DO UPDATE SET note = EXCLUDED.note",
+    )
+    .bind(artist_id)
+    .bind(&body.note)
+    .bind(&sc_user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query_file!(
+        "queries/admin/catalog/sc_account_detach_delete_credits.sql",
+        artist_id,
+        sc_user_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query_file!(
+        "queries/admin/catalog/sc_account_detach_clear_primary.sql",
+        artist_id,
+        sc_user_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(Json(DetachAccountTracksResult {
+        detached_tracks: detached,
+    }))
 }

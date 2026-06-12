@@ -47,6 +47,18 @@ pub fn router() -> Router<AppState> {
             "/admin/artists/{artist_id}",
             get(catalog::artist_detail).patch(catalog::artist_update),
         )
+        .route(
+            "/admin/artists/{artist_id}/tracks",
+            get(catalog::artist_tracks),
+        )
+        .route(
+            "/admin/artists/{artist_id}/sc-accounts/{sc_user_id}/tracks",
+            get(catalog::sc_account_tracks),
+        )
+        .route(
+            "/admin/artists/{artist_id}/sc-accounts/{sc_user_id}/detach-tracks",
+            post(catalog::sc_account_detach_tracks),
+        )
         .route("/admin/albums", get(catalog::albums_search))
         .route("/admin/tracks", get(catalog::tracks_search))
         .route("/admin/tracks/{track_id}", get(catalog::track_detail))
