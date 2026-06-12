@@ -1,7 +1,7 @@
-import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
-import type { PerfMode } from '../lib/perf';
-import { tauriStorage } from '../lib/tauri-storage';
+import {create} from 'zustand';
+import {createJSONStorage, persist} from 'zustand/middleware';
+import type {PerfMode} from '../lib/perf';
+import {tauriStorage} from '../lib/tauri-storage';
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
 export type StartupPage = 'home' | 'search' | 'library' | 'settings';
@@ -269,6 +269,7 @@ export const useSettingsStore = create<SettingsState>()(
         normalizeVolume: s.normalizeVolume,
         highQualityStreaming: s.highQualityStreaming,
         bypassWhitelist: s.bypassWhitelist,
+        dpiBypass: s.dpiBypass,
         sidebarCollapsed: s.sidebarCollapsed,
         floatingComments: s.floatingComments,
         startupPage: s.startupPage,
