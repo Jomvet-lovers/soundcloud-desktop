@@ -296,7 +296,28 @@
     "retry": "Tekrar dene",
     "reload": "Yeniden yukle",
     "home": "Ana sayfa",
-    "details": "Ayrintilar"
+    "details": "Ayrintilar",
+    "serverError": "Sunucu hatasi ({{status}})"
+  },
+  "hostStatus": {
+    "starOffer": {
+      "title": "Ana sunucu kapali",
+      "body": "Ana sunucu kapali, ancak Star aboneleri icin yedek sunucu calisiyor. Abonelik alin, uygulama sizde de calisir.",
+      "how": "Abonelik Boosty ve Discord uzerinden yapilir:"
+    },
+    "allDown": {
+      "title": "Tum sunucular kapali",
+      "body": "Servis gecici olarak kullanilamiyor, duzeltiyoruz. Indirilen muzik cevrimdisi kitaplikta kullanilabilir."
+    },
+    "banner": {
+      "viaStar": "Ana sunucu kapali — yedek Star sunucusu uzerinden calisiyoruz.",
+      "outage": "Sunucular kullanilamiyor",
+      "details": "Ayrintilar"
+    },
+    "actions": {
+      "retry": "Tekrar dene",
+      "offlineLibrary": "Cevrimdisi kitaplik"
+    }
   },
   "home": {
     "yourWave": "Dalganiz",
@@ -344,21 +365,6 @@
     "hideListenedLabel": "Taze",
     "hideListenedOn": "Yakinda dinlenenler gizli: begeniler 7 gun, bitirilenler 14, digerleri 30",
     "hideListenedOff": "Daha once dinlediklerini gizlemek icin ac",
-    "ether": {
-      "live": "LIVE",
-      "onAir": "YAYINDA",
-      "personal": "KISISEL YAYIN · 24/7",
-      "adapts": "yayin sana uyum saglar",
-      "queueInf": "sirada ∞ · yayin durmaz",
-      "playWave": "Dalgayi cal",
-      "bandCore": "CEKIRDEK",
-      "bandFrontier": "SINIR",
-      "freshBadge": "NEW",
-      "relToday": "bugun",
-      "relYesterday": "dun",
-      "archiveTitle": "Yayin arsivi",
-      "archiveWhy": "begenilerin ve sana secilenler — frekans disi"
-    },
     "home": {
       "waveTitle": "Dalga",
       "waveDesc": "Zevk grafigine gore sonsuz karisim — secmeler, komsular, taze parcalar.",
@@ -378,6 +384,19 @@
         "deep_cuts": "Derin kazilar",
         "deep_cutsDesc": "Patika disi — ama senin tonunda."
       }
+    },
+    "river": {
+      "live": "AKINTI",
+      "personal": "KISISEL NEHIR · HEP AKAR",
+      "adapts": "akinti sana uyum saglar",
+      "queueInf": "nehir kuyrugu doldurur — akinti durmaz",
+      "playWave": "Akintiya birak",
+      "freshBadge": "NEW",
+      "relToday": "bugun",
+      "relYesterday": "dun",
+      "deltaNote": "akinti devam eder — kuyruk kendi dolar",
+      "archiveTitle": "Koylar",
+      "archiveWhy": "begenilerin ve sana secilenler — akinti disi durgun su"
     }
   },
   "offline": {

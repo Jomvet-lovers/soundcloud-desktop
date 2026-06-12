@@ -7,7 +7,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {type CacheInventoryEntry, getCacheInventory, removeCachedTrack} from '../../lib/cache';
 import {fetchAllLikedTracks} from '../../lib/hooks';
 import {getCacheOrder, getOfflineLikedTracks, getOfflineTracksByUrns, saveCacheOrder,} from '../../lib/offline-index';
-import {useAppStatusStore} from '../../stores/app-status';
+import {useAppMode} from '../../stores/app-status';
 import type {Track} from '../../stores/player';
 import {buildCachedEntries, buildLikesEntries} from './lib';
 
@@ -15,9 +15,7 @@ const DOWNLOADS_FLUSH_MS = 250;
 const INVENTORY_REFRESH_DEBOUNCE_MS = 1500;
 
 export function useOfflineLibrary() {
-  const appMode = useAppStatusStore((s) =>
-    s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
-  );
+  const appMode = useAppMode();
   const [loading, setLoading] = useState(true);
   const [likedTracks, setLikedTracks] = useState<Track[]>([]);
   const [inventory, setInventory] = useState<CacheInventoryEntry[]>([]);

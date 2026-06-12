@@ -32,7 +32,11 @@ pub async fn premium_gate(State(state): State<AppState>, req: Request, next: Nex
 }
 
 /// Открыто без премиум-сессии: health, весь OAuth/login-флоу (только по нему
-/// юзер и получает сессию), ACME HTTP-01.
+/// юзер и получает сессию), /me/subscription (bootstrap-сигнал премиума —
+/// хэндлер сам требует сессию, не-премиуму отдаёт {"premium":false}), ACME HTTP-01.
 fn is_open_path(path: &str) -> bool {
-    path == "/health" || path.starts_with("/auth/") || path.starts_with("/.well-known/")
+    path == "/health"
+        || path == "/me/subscription"
+        || path.starts_with("/auth/")
+        || path.starts_with("/.well-known/")
 }

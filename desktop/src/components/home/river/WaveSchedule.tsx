@@ -26,11 +26,11 @@ const PlayingEq = React.memo(function PlayingEq() {
       {['-0.2s', '-0.5s', '-0.05s'].map((d) => (
         <i
           key={d}
-          className="eth-anim w-[2.5px] origin-bottom rounded-[1px]"
+          className="riv-anim w-[2.5px] origin-bottom rounded-[1px]"
           style={{
             height: '100%',
             background: 'var(--color-accent)',
-            animation: `eth-eq 0.8s ease-in-out ${d} infinite alternate`,
+            animation: `riv-eq 0.8s ease-in-out ${d} infinite alternate`,
           }}
         />
       ))}
@@ -38,14 +38,17 @@ const PlayingEq = React.memo(function PlayingEq() {
   );
 });
 
-const ScheduleRow = React.memo(function ScheduleRow({
+export const ScheduleRow = React.memo(function ScheduleRow({
   track,
   index,
   queue,
+  leading,
 }: {
   track: Track;
   index: number;
   queue: Track[];
+  /** Текст вместо номера (например, дата релиза в «верховьях»). */
+  leading?: string;
 }) {
   const { t } = useTranslation();
   const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
@@ -67,11 +70,11 @@ const ScheduleRow = React.memo(function ScheduleRow({
         />
       )}
       <span
-        className={`w-7 flex-none text-right font-mono text-[11.5px] tabular-nums ${
+        className={`flex-none text-right font-mono text-[11px] tabular-nums ${leading ? 'w-12 truncate' : 'w-7'} ${
           isThisPlaying ? 'text-[var(--color-accent-hover)]' : 'text-white/30'
         }`}
       >
-        {String(index + 1).padStart(2, '0')}
+        {leading ?? String(index + 1).padStart(2, '0')}
       </span>
       <button
         type="button"
@@ -100,7 +103,7 @@ const ScheduleRow = React.memo(function ScheduleRow({
           {isThisPlaying && <PlayingEq />}
           {!isThisPlaying && isFreshTrack(track) && (
             <span className="flex-none rounded-[5px] border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-px text-[9px] font-bold tracking-[0.1em] text-emerald-200/90">
-              {t('soundwave.ether.freshBadge')}
+              {t('soundwave.river.freshBadge')}
             </span>
           )}
         </p>

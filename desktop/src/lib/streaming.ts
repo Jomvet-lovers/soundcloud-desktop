@@ -1,10 +1,10 @@
-import { fetch } from '@tauri-apps/plugin-http';
-import type { Track } from '../stores/player';
-import { useSettingsStore } from '../stores/settings';
-import { ApiError, getSessionId } from './api-client';
-import { STORAGE_BASE, STREAMING_BASE, STREAMING_PREMIUM_BASE } from './constants';
-import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
-import { markHealthy, markUnhealthy } from './host-health';
+import {fetch} from '@tauri-apps/plugin-http';
+import type {Track} from '../stores/player';
+import {useSettingsStore} from '../stores/settings';
+import {ApiError, getSessionId} from './api-client';
+import {STORAGE_BASE, STREAMING_BASE, STREAMING_PREMIUM_BASE} from './constants';
+import {logHttpError, logHttpFailure, trackAsync} from './diagnostics';
+import {markHealthy, markUnhealthy} from './host-status';
 
 // ─── Types ──────────────────────────────────────────────────
 

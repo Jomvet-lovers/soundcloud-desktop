@@ -230,6 +230,7 @@ pub fn run() {
             auth::auth_status,
             auth::auth_set_session,
             auth::auth_logout,
+            auth::auth_set_premium,
             network::dpi::dpi_set_enabled,
             network::dpi::dpi_is_enabled,
             network::dpi::dpi_strategy,

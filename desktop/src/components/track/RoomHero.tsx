@@ -5,11 +5,11 @@ import {art} from '../../lib/formatters';
 import type {Comment} from '../../lib/hooks';
 import {usePerfMode} from '../../lib/perf';
 import {
-    getArtistDisplay,
-    getArtistLinkItems,
-    getArtistTarget,
-    getDisplayTitle,
-    getParticipants,
+  getArtistDisplay,
+  getArtistLinkItems,
+  getArtistTarget,
+  getDisplayTitle,
+  getParticipants,
 } from '../../lib/track-display';
 import type {Track} from '../../stores/player';
 import {ArtistNameLinks} from '../music/ArtistNameLinks';
@@ -54,8 +54,13 @@ export const RoomHero = React.memo(function RoomHero({
   const cover = art(track.artwork_url, 't500x500');
   const title = getDisplayTitle(track);
   const ad = getArtistDisplay(track);
-  const participants = getParticipants(track);
+  // Фиты показываются в feat-ряду (как и все кроме основного) — из
+  // participants берём только remix/prod.
+  const participants = getParticipants(track, ['remixer', 'producer']);
   const artistLinks = getArtistLinkItems(track);
+  // Страница трека: в главной строке ТОЛЬКО основной, остальные — feat-ряд.
+  const mainLink = artistLinks.slice(0, 1);
+  const featLinks = artistLinks.slice(1);
   // Аватар и его клик — ОДИН человек: артист каталога, когда enrichment его
   // знает, иначе uploader. Раньше картинка была uploader'а, а клик вёл на
   // первого слинкованного из строки авторов.
@@ -151,7 +156,7 @@ export const RoomHero = React.memo(function RoomHero({
                 )}
                 <span className="text-[15px] font-medium text-white/75">
                   <ArtistNameLinks
-                    items={artistLinks}
+                    items={mainLink}
                     linkClassName="cursor-pointer transition-colors hover:text-white"
                   />
                 </span>
@@ -187,27 +192,30 @@ export const RoomHero = React.memo(function RoomHero({
                 )}
               </div>
 
-              {(participants || ad.uploader) && (
+              {(featLinks.length > 0 || participants || ad.uploader) && (
                 <div className="mt-1.5 text-[12px] text-white/40 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 justify-center lg:justify-start">
-                  {participants?.featured && participants.featured.length > 0 && (
+                  {featLinks.length > 0 && (
                     <span>
-                      {t('track.feat')} <ArtistLinks artists={participants.featured} />
+                      {t('track.feat')}{' '}
+                      <ArtistNameLinks
+                        items={featLinks}
+                        linkClassName="cursor-pointer text-white/55 hover:text-white/85 transition-colors"
+                      />
                     </span>
                   )}
                   {participants?.remixers && participants.remixers.length > 0 && (
                     <span>
-                      {participants.featured.length > 0 && '· '}
+                      {featLinks.length > 0 && '· '}
                       <ArtistLinks artists={participants.remixers} /> {t('track.remix')}
                     </span>
                   )}
                   {participants?.producers && participants.producers.length > 0 && (
                     <span>
-                      {(participants.featured.length > 0 || participants.remixers.length > 0) &&
-                        '· '}
+                      {(featLinks.length > 0 || participants.remixers.length > 0) && '· '}
                       {t('track.prod')} <ArtistLinks artists={participants.producers} />
                     </span>
                   )}
-                  {participants && ad.uploader && <span>·</span>}
+                  {(featLinks.length > 0 || participants) && ad.uploader && <span>·</span>}
                   {ad.uploader && (
                     <Trans
                       i18nKey="track.uploadedBy"

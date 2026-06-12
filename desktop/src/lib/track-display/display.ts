@@ -80,6 +80,15 @@ export function coPrimaryNames(track: DisplayInput): string[] {
   );
 }
 
+/** Фитующие из enrichment.participants (role='featured'). */
+export function featuredNames(track: DisplayInput): string[] {
+  return (
+    track.enrichment?.participants
+      ?.filter((p) => p.role === 'featured' && p.artist?.name)
+      .map((p) => p.artist.name) ?? []
+  );
+}
+
 export function dedupeByFold(names: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -119,7 +128,22 @@ function glueKnownAdjacent(raw: string, parts: NamePart[], full: Set<string>): s
 }
 
 /**
- * Единый разбор трека для отображения.
+ * Единый разбор трека для отображения. Фитующие из enrichment добираются в
+ * строку авторов ПОСЛЕ основного состава («feat писать в списке авторов»).
+ */
+function computeTrackDisplay(track: DisplayInput): TrackDisplay {
+  const base = splitTitleAuthors(track);
+  const artistNames = dedupeByFold([...base.artistNames, ...featuredNames(track)]);
+  return {
+    title: base.title,
+    artistNames,
+    artistLine: artistNames.join(', '),
+    fromTitleSplit: base.fromTitleSplit,
+  };
+}
+
+/**
+ * Разбор заголовка на (авторы, название).
  *
  * Левая часть "… - …" — список авторов, если подтверждена сигналом:
  * хотя бы одно имя известно из enrichment (сильный сигнал), ЛИБО известны
@@ -128,7 +152,7 @@ function glueKnownAdjacent(raw: string, parts: NamePart[], full: Set<string>): s
  * "МОКЕРИ, Psychosis - kill" при известном «МОКЕРИ» → авторы
  * "МОКЕРИ, Psychosis", название "kill".
  */
-function computeTrackDisplay(track: DisplayInput): TrackDisplay {
+function splitTitleAuthors(track: DisplayInput): TrackDisplay {
   const cleaned = stripTranslitParens(stripInlineTags(track.title));
   const known = knownNames(track);
 

@@ -24,7 +24,7 @@ function greetingKey(): string {
 
 /** Шапка «Эфира»: позывные станции + приветствие; ниже — спектроанализатор
  *  вкуса (клик по жанру ретинтит страницу) и vibe-портал. Без blur — лёгкая. */
-export const EtherMasthead = memo(function EtherMasthead({
+export const RiverMasthead = memo(function RiverMasthead({
   user,
   sound,
   selected,
@@ -50,18 +50,18 @@ export const EtherMasthead = memo(function EtherMasthead({
               style={{ background: 'rgba(255,255,255,0.03)' }}
             >
               <span
-                className="eth-anim size-[6px] rounded-full"
+                className="riv-anim size-[6px] rounded-full"
                 style={{
                   background: 'var(--color-accent)',
                   boxShadow: perf.glow ? '0 0 8px var(--color-accent)' : undefined,
                   animation:
-                    isPlaying && perf.idleAnim ? 'eth-pulse 1.6s ease-in-out infinite' : undefined,
+                    isPlaying && perf.idleAnim ? 'riv-pulse 1.6s ease-in-out infinite' : undefined,
                 }}
               />
-              {t('soundwave.ether.live')}
+              {t('soundwave.river.live')}
             </span>
             <span className="text-[10.5px] font-semibold uppercase tracking-[0.22em] text-white/30">
-              {t('soundwave.ether.personal')}
+              {t('soundwave.river.personal')}
             </span>
           </div>
           <h1

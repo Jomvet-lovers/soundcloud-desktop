@@ -5,19 +5,19 @@ import type {Track} from '../stores/player';
 import {usePlayerStore} from '../stores/player';
 import {useSettingsStore} from '../stores/settings';
 import {
-    api,
-    buildStorageUrls,
-    downloadFallbackUrls,
-    getSessionId,
-    resolveTrackFromStreaming,
-    streamFallbackUrls,
+  api,
+  buildStorageUrls,
+  downloadFallbackUrls,
+  getSessionId,
+  resolveTrackFromStreaming,
+  streamFallbackUrls,
 } from './api';
 import {
-    enforceAudioCacheLimit,
-    ensureTrackCached,
-    getCacheInfo,
-    removeCachedTrack,
-    type TrackCacheInfo,
+  enforceAudioCacheLimit,
+  ensureTrackCached,
+  getCacheInfo,
+  removeCachedTrack,
+  type TrackCacheInfo,
 } from './cache';
 import {trackedInvoke as invoke} from './diagnostics';
 import {isUrnDisliked} from './dislikes';
@@ -53,17 +53,17 @@ const API_PREVIEW_DURATION_MS = 30_000;
 // throttle us, and MediaSession/Discord presence run off Rust events, not this.
 // cachedTime/cachedDuration keep updating; we just skip the DOM-touching fan-out.
 function notify() {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-    for (const l of listeners) l();
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  for (const l of listeners) l();
 }
 
 // Re-sync subscribers the moment the window comes back, so nothing shows a stale frame.
 if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-            for (const l of listeners) l();
-        }
-    });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      for (const l of listeners) l();
+    }
+  });
 }
 
 export function subscribe(listener: () => void): () => void {
@@ -261,8 +261,8 @@ async function resolveTrackMetadata(track: Track): Promise<Track> {
 
 /** True when a file path no longer exists on disk. */
 function isFileMissing(e: unknown): boolean {
-    const s = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
-    return /no such file|os error 2|cannot find the (file|path)|system cannot find/i.test(s);
+  const s = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
+  return /no such file|os error 2|cannot find the (file|path)|system cannot find/i.test(s);
 }
 
 /**
@@ -271,44 +271,44 @@ function isFileMissing(e: unknown): boolean {
  * clean file now, or a fresh download) and retry once.
  */
 async function loadCachedFile(
-    urn: string,
-    path: string,
-    startPaused: boolean,
-    reResolve: () => Promise<string | null>,
+  urn: string,
+  path: string,
+  startPaused: boolean,
+  reResolve: () => Promise<string | null>,
 ): Promise<{ duration_secs: number | null }> {
-    try {
-        return await invoke<{ duration_secs: number | null }>('audio_load_file', {
-            path,
-            cacheKey: urn,
-            startPaused,
-        });
-    } catch (e) {
-        if (!isFileMissing(e)) throw e;
-        console.warn('[Audio] cached file vanished, re-resolving:', urn);
-        const fresh = await reResolve();
-        if (!fresh) throw e;
-        return await invoke<{ duration_secs: number | null }>('audio_load_file', {
-            path: fresh,
-            cacheKey: urn,
-            startPaused,
-        });
-    }
+  try {
+    return await invoke<{ duration_secs: number | null }>('audio_load_file', {
+      path,
+      cacheKey: urn,
+      startPaused,
+    });
+  } catch (e) {
+    if (!isFileMissing(e)) throw e;
+    console.warn('[Audio] cached file vanished, re-resolving:', urn);
+    const fresh = await reResolve();
+    if (!fresh) throw e;
+    return await invoke<{ duration_secs: number | null }>('audio_load_file', {
+      path: fresh,
+      cacheKey: urn,
+      startPaused,
+    });
+  }
 }
 
 async function loadTrack(track: Track) {
   const gen = ++loadGen;
-    const isNewTrack = currentUrn !== track.urn;
+  const isNewTrack = currentUrn !== track.urn;
   stopTrack();
   currentUrn = track.urn;
   const urn = track.urn;
 
-    // A-B loop is per-track: drop it only when loading a genuinely different track —
-    // NOT on same-track reloads (repeat-one, device/EQ reload, or the loop's own
-    // restart). Done here, after currentUrn is advanced, so the resulting store
-    // notification doesn't re-enter the track-changed branch of the subscriber.
-    if (isNewTrack && usePlayerStore.getState().abLoop) {
-        usePlayerStore.getState().clearAbLoop();
-    }
+  // A-B loop is per-track: drop it only when loading a genuinely different track —
+  // NOT on same-track reloads (repeat-one, device/EQ reload, or the loop's own
+  // restart). Done here, after currentUrn is advanced, so the resulting store
+  // notification doesn't re-enter the track-changed branch of the subscriber.
+  if (isNewTrack && usePlayerStore.getState().abLoop) {
+    usePlayerStore.getState().clearAbLoop();
+  }
 
   void hydrateTrackMetadata(track, gen);
 
@@ -331,17 +331,17 @@ async function loadTrack(track: Track) {
   try {
     const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
 
-      // The cached file can be swapped (raw А → clean Б) or evicted between resolve
-      // and read; re-resolve through the cache to recover the current path.
-      const reResolve = async (): Promise<string | null> => {
-          const info = await getCacheInfo(urn);
-          if (info?.path) return info.path;
-          try {
-              return (await ensureTrackCached(urn, highQualityStreaming, track.duration)).path;
-          } catch {
-              return null;
-          }
-      };
+    // The cached file can be swapped (raw А → clean Б) or evicted between resolve
+    // and read; re-resolve through the cache to recover the current path.
+    const reResolve = async (): Promise<string | null> => {
+      const info = await getCacheInfo(urn);
+      if (info?.path) return info.path;
+      try {
+        return (await ensureTrackCached(urn, highQualityStreaming, track.duration)).path;
+      } catch {
+        return null;
+      }
+    };
 
     // Strategy 1: Cache hit — instant
     const cached = await getCacheInfo(urn);
@@ -349,12 +349,12 @@ async function loadTrack(track: Track) {
       if (gen !== loadGen) return;
       usePlayerStore.getState().setPlaybackTransport(cached.quality, cached.source);
       console.log('[Audio] Playing from cache:', urn);
-        const loadResult = await loadCachedFile(
-            urn,
-            cached.path,
-            !usePlayerStore.getState().isPlaying,
-            reResolve,
-        );
+      const loadResult = await loadCachedFile(
+        urn,
+        cached.path,
+        !usePlayerStore.getState().isPlaying,
+        reResolve,
+      );
       if (gen !== loadGen) return;
       if (loadResult?.duration_secs) {
         fallbackDuration = loadResult.duration_secs;
@@ -371,11 +371,11 @@ async function loadTrack(track: Track) {
 
     let cachedInfo: TrackCacheInfo;
     try {
-        cachedInfo = await ensureTrackCached(urn, highQualityStreaming, track.duration);
+      cachedInfo = await ensureTrackCached(urn, highQualityStreaming, track.duration);
     } catch (error) {
       if (!highQualityStreaming) throw error;
       console.warn('[Audio] HQ load failed, retrying without hq:', error);
-        cachedInfo = await ensureTrackCached(urn, false, track.duration);
+      cachedInfo = await ensureTrackCached(urn, false, track.duration);
     }
 
     if (gen !== loadGen) return;
@@ -383,12 +383,12 @@ async function loadTrack(track: Track) {
     usePlayerStore.getState().setPlaybackTransport(cachedInfo.quality, cachedInfo.source);
 
     console.log('[Audio] Playing downloaded track:', urn);
-      const loadResult = await loadCachedFile(
-          urn,
-          cachedInfo.path,
-          !usePlayerStore.getState().isPlaying,
-          reResolve,
-      );
+    const loadResult = await loadCachedFile(
+      urn,
+      cachedInfo.path,
+      !usePlayerStore.getState().isPlaying,
+      reResolve,
+    );
     if (loadResult?.duration_secs) {
       fallbackDuration = loadResult.duration_secs;
       cachedDuration = loadResult.duration_secs;
@@ -430,8 +430,8 @@ function afterLoad(track: Track, gen: number) {
       method: 'POST',
       body: JSON.stringify({
         scTrackId: historyTrack.urn,
-        title: historyTrack.title,
-        artistName: historyTrack.user?.username || '',
+        title: getDisplayTitle(historyTrack),
+        artistName: getArtistDisplay(historyTrack).primary || historyTrack.user?.username || '',
         artistUrn: historyTrack.user?.urn || null,
         artworkUrl: historyTrack.artwork_url || null,
         duration: historyTrack.duration || 0,
@@ -484,23 +484,23 @@ function maybeHealEarlyEnd(): boolean {
 
 function handleTrackEnd() {
   const state = usePlayerStore.getState();
-    // A-B loop whose end sits at (or within a tick of) the track end: the Rust-side
-    // loop can't catch it before the sink drains, so restart the segment from A here.
-    if (state.abLoop?.b != null && state.currentTrack) {
-        const track = state.currentTrack;
-        const a = state.abLoop.a;
-        // loadTrack bumps loadGen synchronously; capture it so that if the user switches
-        // tracks during the (async) reload, this stale restart-seek is dropped instead of
-        // jumping the newly-loaded track to A.
-        const loadPromise = loadTrack(track);
-        const gen = loadGen;
-        void loadPromise.then(() => {
-            if (gen === loadGen && usePlayerStore.getState().currentTrack?.urn === track.urn) {
-                seek(a);
-            }
-        });
-        return;
-    }
+  // A-B loop whose end sits at (or within a tick of) the track end: the Rust-side
+  // loop can't catch it before the sink drains, so restart the segment from A here.
+  if (state.abLoop?.b != null && state.currentTrack) {
+    const track = state.currentTrack;
+    const a = state.abLoop.a;
+    // loadTrack bumps loadGen synchronously; capture it so that if the user switches
+    // tracks during the (async) reload, this stale restart-seek is dropped instead of
+    // jumping the newly-loaded track to A.
+    const loadPromise = loadTrack(track);
+    const gen = loadGen;
+    void loadPromise.then(() => {
+      if (gen === loadGen && usePlayerStore.getState().currentTrack?.urn === track.urn) {
+        seek(a);
+      }
+    });
+    return;
+  }
   if (state.repeat === 'one') {
     // rodio sink is empty after track ends — must reload
     if (state.currentTrack) void loadTrack(state.currentTrack);
@@ -632,15 +632,15 @@ usePlayerStore.subscribe((state, prev) => {
     invoke('audio_set_playback_rate', { rate: getEffectivePlaybackRate() }).catch(console.error);
   }
 
-    // A-B loop: only push an active region (both bounds set); otherwise clear it.
-    if (state.abLoop !== prev.abLoop) {
-        const ab = state.abLoop;
-        const active = ab != null && ab.b != null;
-        invoke('audio_set_ab_loop', {
-            a: active ? ab.a : null,
-            b: active ? ab.b : null,
-        }).catch(console.error);
-    }
+  // A-B loop: only push an active region (both bounds set); otherwise clear it.
+  if (state.abLoop !== prev.abLoop) {
+    const ab = state.abLoop;
+    const active = ab != null && ab.b != null;
+    invoke('audio_set_ab_loop', {
+      a: active ? ab.a : null,
+      b: active ? ab.b : null,
+    }).catch(console.error);
+  }
 });
 
 /** Combine playback rate and (manual) pitch into a single Rust-side speed value.
@@ -744,7 +744,7 @@ export function preloadQueue() {
     storageUrls: string[];
     sessionId: string | null;
     hq: boolean;
-      durationMs?: number;
+    durationMs?: number;
   }> = [];
   const sessionId = getSessionId();
   const hq = useSettingsStore.getState().highQualityStreaming;
@@ -759,7 +759,7 @@ export function preloadQueue() {
         storageUrls: buildStorageUrls(queue[idx].urn),
         sessionId,
         hq,
-          durationMs: queue[idx].duration,
+        durationMs: queue[idx].duration,
       });
     }
   }

@@ -77,6 +77,11 @@ impl EnrichService {
         })
     }
 
+    /// MB-клиент для maintenance-проходов (имена сущностей и т.п.).
+    pub fn mb(&self) -> Arc<MbClient> {
+        self.deps.mb.clone()
+    }
+
     /// Build the enrich worker pool over `tracks` and return the kick sender for
     /// the ingest fast path. No NATS — the durable work-list is Postgres.
     pub fn spawn(self: &Arc<Self>, shutdown: CancellationToken) -> Option<Kicker> {

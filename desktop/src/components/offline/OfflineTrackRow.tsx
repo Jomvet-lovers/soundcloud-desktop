@@ -7,8 +7,9 @@ import {downloadTrack} from '../../lib/cache';
 import {art, dur, formatBytes} from '../../lib/formatters';
 import {ArrowDownToLine, FileDown, GripVertical, Loader2, Music, playWhite14, Trash2,} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import {useTrackDisplay} from '../../lib/track-display';
+import {useArtistLinkItems, useTrackDisplay} from '../../lib/track-display';
 import {usePlayerStore} from '../../stores/player';
+import {ArtistNameLinks} from '../music/ArtistNameLinks';
 import {TrackStatusBadges} from '../music/TrackStatusBadges';
 import {effectiveDurationMs, isTruncated} from './lib';
 import type {OfflineEntry} from './types';
@@ -69,6 +70,7 @@ export const OfflineTrackRow = React.memo(function OfflineTrackRow({
   const isCurrent = usePlayerStore((s) => s.currentTrack?.urn === entry.urn);
   const { track, inv } = entry;
   const display = useTrackDisplay(track);
+  const artistLinks = useArtistLinkItems(track);
   const cached = inv !== null;
   const downloading = downloadProgress !== undefined;
   const truncated = isTruncated(inv);
@@ -78,7 +80,7 @@ export const OfflineTrackRow = React.memo(function OfflineTrackRow({
     if (saving) return;
     setSaving(true);
     try {
-      await downloadTrack(track.urn, track.user.username, track.title, {
+      await downloadTrack(track.urn, display.artistLine || track.user.username, display.title, {
         artworkUrl: track.artwork_url,
         durationMs: track.duration,
       });
@@ -184,7 +186,16 @@ export const OfflineTrackRow = React.memo(function OfflineTrackRow({
               className="truncate text-[11.5px] leading-tight text-white/40"
               style={forging ? { color: 'var(--color-accent-hover)' } : undefined}
             >
-              {forging ? t('offline.rowForging') : display.artistLine || track.user.username}
+              {forging ? (
+                t('offline.rowForging')
+              ) : display.artistNames.length > 0 ? (
+                <ArtistNameLinks
+                  items={artistLinks}
+                  linkClassName="cursor-pointer transition-colors hover:text-white/60"
+                />
+              ) : (
+                track.user.username
+              )}
             </p>
           )}
         </div>

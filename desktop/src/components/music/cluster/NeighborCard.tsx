@@ -5,8 +5,10 @@ import {art} from '../../../lib/formatters';
 import {Loader2, pauseBlack14, playBlack14} from '../../../lib/icons';
 import {usePerfMode} from '../../../lib/perf';
 import {recordClusterFeedback, setUrnCluster, useClusterFeedback,} from '../../../lib/recsFeedback';
+import {useArtistLinkItems, useDisplayTitle} from '../../../lib/track-display';
 import {useAutoHide} from '../../../lib/useAutoHide';
 import {type Track, usePlayerStore} from '../../../stores/player';
+import {ArtistNameLinks} from '../ArtistNameLinks';
 import {TrackStatusBadges} from '../TrackStatusBadges';
 import type {ClusterNeighborDto} from './types';
 
@@ -26,6 +28,8 @@ export const NeighborCard = React.memo(function NeighborCard({
 }: Props) {
   const navigate = useNavigate();
   const perf = usePerfMode();
+  const displayTitle = useDisplayTitle(track);
+  const artistLinks = useArtistLinkItems(track);
   const { isThis, isThisPlaying } = usePlayerStore(
     useShallow((s) => {
       const isThis = s.currentTrack?.urn === track.urn;
@@ -172,8 +176,13 @@ export const NeighborCard = React.memo(function NeighborCard({
       </div>
 
       <div className="px-3 py-2.5">
-        <p className="text-[12.5px] font-semibold text-white/95 truncate">{track.title}</p>
-        <p className="text-[10.5px] text-white/40 truncate mt-0.5">{track.user.username}</p>
+        <p className="text-[12.5px] font-semibold text-white/95 truncate">{displayTitle}</p>
+        <p className="text-[10.5px] text-white/40 truncate mt-0.5">
+          <ArtistNameLinks
+            items={artistLinks}
+            linkClassName="cursor-pointer transition-colors hover:text-white/60"
+          />
+        </p>
       </div>
     </button>
   );

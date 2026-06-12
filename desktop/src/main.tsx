@@ -7,7 +7,7 @@ import {changeAppLanguage} from './i18n';
 import {initAuthBridge} from './lib/auth-session';
 import {setupCacheMaintenance} from './lib/cache';
 import {setServerPorts} from './lib/constants';
-import {trackedInvoke as invoke, setupUiWatchdog} from './lib/diagnostics';
+import {setupUiWatchdog, trackedInvoke as invoke} from './lib/diagnostics';
 import {queryClient} from './lib/query-client';
 import './index.css';
 import {useSettingsStore} from './stores/settings';
@@ -47,6 +47,7 @@ function startDeferredRuntime() {
     void import('./lib/audio');
     void import('./lib/queue-autopilot');
     void import('./lib/discord');
+    void import('./lib/host-status').then((m) => m.initHostStatus());
   });
 }
 

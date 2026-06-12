@@ -73,7 +73,7 @@ pub fn spawn<S: WorkSource>(
             }
 
             if let Some(item) = buffer.pop_front() {
-                dispatch(source.clone(), permit, item);
+                dispatch(source.clone(), permit, item, lease);
                 continue;
             }
 
@@ -99,17 +99,30 @@ pub fn spawn<S: WorkSource>(
 }
 
 /// Spawn the per-item run + terminal write, holding the permit until done.
+/// `run()` жёстко ограничен lease_timeout: повисший I/O (полудохлый сокет
+/// после ребута/обрыва сети) иначе съедает permit НАВСЕГДА — 32 зависших
+/// таска = мёртвый пул при живом процессе. Лиза к этому моменту всё равно
+/// истекла и трек переклеймится.
 fn dispatch<S: WorkSource>(
     source: Arc<S>,
     permit: tokio::sync::OwnedSemaphorePermit,
     item: S::Item,
+    lease: std::time::Duration,
 ) {
     tokio::spawn(async move {
         let _permit = permit;
         // No catch_unwind: release builds are panic=abort, so a panic in run()
         // aborts the process rather than unwinding; the lease is reclaimed by the
         // next claim once it expires, not converted to a Failed outcome here.
-        let outcome = source.run(&item).await;
+        let Ok(outcome) = tokio::time::timeout(lease, source.run(&item)).await else {
+            // Терминальную запись НЕ делаем: лиза истекла, ряд мог быть
+            // переклеймлен — mark_failed затёр бы чужой лок.
+            warn!(
+                source = source.name(),
+                "run timed out at lease; permit released"
+            );
+            return;
+        };
         let res = match &outcome {
             WorkOutcome::Done => source.on_success(&item).await,
             _ => source.on_failure(&item, &outcome).await,

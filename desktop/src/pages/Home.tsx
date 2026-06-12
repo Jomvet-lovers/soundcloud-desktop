@@ -1,16 +1,16 @@
 import {useMemo, useState} from 'react';
-import {ArchiveStation} from '../components/home/ether/ArchiveStation';
-import {EtherMasthead} from '../components/home/ether/EtherMasthead';
-import {EtherWave} from '../components/home/ether/EtherWave';
-import {ETHER_KEYFRAMES} from '../components/home/ether/keyframes';
+import {ArchiveStation} from '../components/home/river/ArchiveStation';
+import {RIVER_KEYFRAMES} from '../components/home/river/keyframes';
+import {RiverFlow} from '../components/home/river/RiverFlow';
+import {RiverMasthead} from '../components/home/river/RiverMasthead';
 import {WaveFrame} from '../components/home/WaveFrame';
 import {useSoundprint} from '../components/library/useSoundprint';
 import {SoundWaveLockOverlay} from '../components/music/soundwave';
 import {useLikedTracks} from '../lib/hooks';
 import {useAuthStore} from '../stores/auth';
 
-/** Главная — «Эфир»: личная радиостанция. Masthead с позывными и спектром,
- *  sticky шкала-тюнер, on-air дека и станции-кластеры; внизу — архив эфира. */
+/** Главная — «Течение»: река твоей музыки. Устье (играющее + waveform-вода),
+ *  русло «Волны» и притоки вдоль нити течения; внизу — затоны (архив). */
 export function Home() {
   const user = useAuthStore((s) => s.user);
   const likedTracksQuery = useLikedTracks(100);
@@ -26,11 +26,11 @@ export function Home() {
 
   return (
     <WaveFrame sound={sound}>
-      <style>{ETHER_KEYFRAMES}</style>
-      {user && <EtherMasthead user={user} sound={sound} selected={genre} onSelect={setGenre} />}
+      <style>{RIVER_KEYFRAMES}</style>
+      {user && <RiverMasthead user={user} sound={sound} selected={genre} onSelect={setGenre} />}
 
       <div className="relative">
-        <EtherWave />
+        <RiverFlow tint={sound.tint} />
         <SoundWaveLockOverlay />
       </div>
 

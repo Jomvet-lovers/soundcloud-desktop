@@ -89,10 +89,10 @@ export const ArchiveStation = React.memo(function ArchiveStation({
     <section className="pt-14">
       <div className="mb-5">
         <h2 className="text-[22px] font-bold leading-tight tracking-[-0.015em] text-white/92">
-          {t('soundwave.ether.archiveTitle')}
+          {t('soundwave.river.archiveTitle')}
         </h2>
         <p className="mt-1 text-[13px] leading-snug text-white/50">
-          {t('soundwave.ether.archiveWhy')}
+          {t('soundwave.river.archiveWhy')}
         </p>
       </div>
       <div className="flex flex-col gap-8">

@@ -1,6 +1,6 @@
-import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
-import { tauriStorage } from '../lib/tauri-storage';
+import {create} from 'zustand';
+import {createJSONStorage, persist} from 'zustand/middleware';
+import {tauriStorage} from '../lib/tauri-storage';
 
 export type AppMode = 'online' | 'offline';
 
@@ -38,10 +38,15 @@ export const useAppStatusStore = create<AppStatusState>()(
   ),
 );
 
+export const selectAppMode = (s: AppStatusState): AppMode =>
+  s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online';
+
+export function useAppMode(): AppMode {
+  return useAppStatusStore(selectAppMode);
+}
+
 export function getAppMode(): AppMode {
-  const { navigatorOnline, backendReachable, offlineBypass } = useAppStatusStore.getState();
-  if (offlineBypass || !navigatorOnline || !backendReachable) return 'offline';
-  return 'online';
+  return selectAppMode(useAppStatusStore.getState());
 }
 
 export function isOfflineMode() {

@@ -7,6 +7,7 @@ export {
   coPrimaryNames,
   type DisplayInput,
   dedupeByFold,
+  featuredNames,
   getArtistDisplay,
   getDisplayTitle,
   getTrackDisplay,

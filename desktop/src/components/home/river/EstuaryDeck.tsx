@@ -20,11 +20,11 @@ function AdaptDots() {
       {['-0.3s', '-0.7s', '-0.1s'].map((d) => (
         <i
           key={d}
-          className="eth-anim w-[3px] origin-bottom rounded-[2px]"
+          className="riv-anim w-[3px] origin-bottom rounded-[2px]"
           style={{
             height: 10,
             background: 'var(--color-accent)',
-            animation: `eth-eq 0.9s ease-in-out ${d} infinite alternate`,
+            animation: `riv-eq 0.9s ease-in-out ${d} infinite alternate`,
           }}
         />
       ))}
@@ -34,7 +34,7 @@ function AdaptDots() {
 
 /** On-air дека — единственная тяжёлая blur-поверхность страницы: LIVE-шапка,
  *  играющий трек, несущая частота (waveform во всю ширину), пульт волны. */
-export const OnAirDeck = React.memo(function OnAirDeck({
+export const EstuaryDeck = React.memo(function EstuaryDeck({
   track,
   queue,
   isCurrent,
@@ -94,24 +94,24 @@ export const OnAirDeck = React.memo(function OnAirDeck({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span
-              className="eth-anim size-2 rounded-full"
+              className="riv-anim size-2 rounded-full"
               style={{
                 background: 'var(--color-accent)',
                 boxShadow: perf.glow ? '0 0 8px var(--color-accent)' : undefined,
                 animation:
-                  isPlaying && perf.idleAnim ? 'eth-pulse 1.6s ease-in-out infinite' : undefined,
+                  isPlaying && perf.idleAnim ? 'riv-pulse 1.6s ease-in-out infinite' : undefined,
               }}
             />
             <b className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/90">
-              {t('soundwave.ether.live')}
+              {t('soundwave.river.live')}
             </b>
             <span className="flex items-center gap-2 text-[11.5px] text-white/45">
               <AdaptDots />
-              {t('soundwave.ether.adapts')}
+              {t('soundwave.river.adapts')}
             </span>
           </div>
           <span className="font-mono text-[11px] text-white/35">
-            {t('soundwave.ether.queueInf')}
+            {t('soundwave.river.queueInf')}
           </span>
         </div>
 
@@ -129,7 +129,18 @@ export const OnAirDeck = React.memo(function OnAirDeck({
           </div>
         )}
 
-        <LiveWaveform track={track} isCurrent={isCurrent} />
+        <div
+          style={
+            perf.mode === 'beauty'
+              ? {
+                  WebkitBoxReflect:
+                    'below 2px linear-gradient(transparent 62%, rgba(255,255,255,0.13))',
+                }
+              : undefined
+          }
+        >
+          <LiveWaveform track={track} isCurrent={isCurrent} />
+        </div>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-4">
           <button
@@ -139,7 +150,7 @@ export const OnAirDeck = React.memo(function OnAirDeck({
             className="flex h-10 cursor-pointer items-center gap-2.5 rounded-[12px] bg-accent px-5 text-[13.5px] font-semibold text-accent-contrast shadow-[0_6px_24px_var(--color-accent-glow),inset_0_1px_0_rgba(255,255,255,0.25)] transition-transform hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {playWhite14}
-            {t('soundwave.ether.playWave')}
+            {t('soundwave.river.playWave')}
           </button>
           <span className="h-6 w-px bg-white/[0.07]" />
           <HideListenedToggle value={hideListened} onChange={onHideListened} />

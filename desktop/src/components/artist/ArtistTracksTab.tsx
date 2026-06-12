@@ -4,6 +4,7 @@ import {type Aura, auraRgba} from '../../lib/aura';
 import {dur, fc} from '../../lib/formatters';
 import {Calendar, ListMusic, Loader2, Music} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
+import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
 import type {Track} from '../../stores/player';
 import {TrackStatusBadges} from '../music/TrackStatusBadges';
 import {VirtualList} from '../ui/VirtualList';
@@ -212,7 +213,7 @@ const YearBlock = memo(
     const { t } = useTranslation();
     const total = bucket.items.reduce((acc, x) => acc + (x.duration ?? 0), 0);
     return (
-        <div className="flex flex-col md:flex-row md:gap-8 gap-3">
+      <div className="flex flex-col md:flex-row md:gap-8 gap-3">
         {/* Year marker — same look as albums timeline */}
         <div className="md:w-[200px] md:shrink-0 flex md:flex-col md:items-end items-center md:sticky md:top-24 self-start">
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">
@@ -259,7 +260,7 @@ const SortToggle = memo(
     disabled?: boolean;
   }) => {
     const { t } = useTranslation();
-      const b = usePerfMode().blur(20);
+    const b = usePerfMode().blur(20);
     const options: Array<{ id: TracksSort; label: string }> = [
       { id: 'popular', label: t('artist.sortPopular') },
       { id: 'recent', label: t('artist.sortRecent') },
@@ -268,10 +269,10 @@ const SortToggle = memo(
       <div
         className={`inline-flex items-center gap-1 p-1 rounded-2xl transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
         style={{
-            background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
+          background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
           boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-            backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
-            WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         }}
       >
         {options.map((o) => {
@@ -313,7 +314,7 @@ const ViewToggle = memo(
     aura: Aura;
   }) => {
     const { t } = useTranslation();
-      const b = usePerfMode().blur(20);
+    const b = usePerfMode().blur(20);
     const options: Array<{ id: TracksView; label: string; icon: React.ReactNode }> = [
       {
         id: 'list',
@@ -330,10 +331,10 @@ const ViewToggle = memo(
       <div
         className="inline-flex items-center gap-1 p-1 rounded-2xl"
         style={{
-            background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
+          background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
           boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-            backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
-            WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         }}
       >
         {options.map((o) => {
@@ -365,36 +366,40 @@ const ViewToggle = memo(
   },
 );
 
-const WantedRow = memo(({ track, index }: { track: Track; index: number }) => (
-  <div
-    className="flex items-center gap-4 px-4 py-2.5 rounded-2xl opacity-50"
-    style={{ background: 'rgba(255,255,255,0.015)' }}
-  >
-    <div className="w-10 h-10 flex items-center justify-center shrink-0">
-      <span className="text-[12px] text-white/20 tabular-nums font-semibold">{index + 1}</span>
-    </div>
+const WantedRow = memo(({ track, index }: { track: Track; index: number }) => {
+  const displayTitle = useDisplayTitle(track);
+  const artistDisplay = useArtistDisplay(track);
+  return (
     <div
-      className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-      style={{
-        background: 'rgba(255,255,255,0.03)',
-        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-      }}
+      className="flex items-center gap-4 px-4 py-2.5 rounded-2xl opacity-50"
+      style={{ background: 'rgba(255,255,255,0.015)' }}
     >
-      <Music size={16} className="text-white/20" />
-    </div>
-    <div className="flex-1 min-w-0">
-      <p className="text-[13px] font-medium text-white/55 truncate">{track.title}</p>
-      <p className="text-[11px] text-white/25 truncate">{track.user?.username}</p>
-    </div>
+      <div className="w-10 h-10 flex items-center justify-center shrink-0">
+        <span className="text-[12px] text-white/20 tabular-nums font-semibold">{index + 1}</span>
+      </div>
+      <div
+        className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
+        }}
+      >
+        <Music size={16} className="text-white/20" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-medium text-white/55 truncate">{displayTitle}</p>
+        <p className="text-[11px] text-white/25 truncate">{artistDisplay.primary}</p>
+      </div>
       <div className="hidden md:flex shrink-0">
-          <TrackStatusBadges meta={track._scd_meta}/>
+        <TrackStatusBadges meta={track._scd_meta} />
+      </div>
+      {track.enrichment?.release_year && (
+        <span className="text-[11px] text-white/25 tabular-nums shrink-0">
+          {track.enrichment.release_year}
+        </span>
+      )}
     </div>
-    {track.enrichment?.release_year && (
-      <span className="text-[11px] text-white/25 tabular-nums shrink-0">
-        {track.enrichment.release_year}
-      </span>
-    )}
-  </div>
-));
+  );
+});
 
 export const ArtistTracksTab = memo(ArtistTracksTabImpl);

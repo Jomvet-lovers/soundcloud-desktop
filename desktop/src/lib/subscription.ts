@@ -1,7 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '../stores/auth';
-import { api } from './api';
-import { getIsPremium, setIsPremium } from './premium-cache';
+import {useQuery} from '@tanstack/react-query';
+import {useAppStatusStore} from '../stores/app-status';
+import {useAuthStore} from '../stores/auth';
+import {api, getSessionId} from './api';
+import {trackedInvoke as invoke} from './diagnostics';
+import {getIsPremium, setIsPremium, setPremiumRecheckHandler} from './premium-cache';
+import {queryClient} from './query-client';
 
 export { getIsPremium } from './premium-cache';
 
@@ -12,12 +15,20 @@ interface SubscriptionResponse {
 const QUERY_KEY = ['me', 'subscription'] as const;
 
 async function fetchSubscription(): Promise<SubscriptionResponse> {
+  const token = getSessionId();
   try {
     const res = await api<SubscriptionResponse>('/me/subscription');
-    setIsPremium(res.premium);
+    // Session changed (logout / re-login) while we awaited — drop the result.
+    if (getSessionId() !== token) return { premium: getIsPremium() };
+    if (res.premium !== getIsPremium()) {
+      setIsPremium(res.premium);
+      // Premium подтверждён сетевым ответом — data-plane достижим, не ждём recheck-кулдауна.
+      if (res.premium) useAppStatusStore.getState().setBackendReachable(true);
+      void invoke('auth_set_premium', { premium: res.premium }).catch(() => {});
+    }
     return res;
   } catch {
-    // Network failure: keep cached value, don't reset to false
+    // Network failure / both hosts down: keep cached value, don't reset to false
     return { premium: getIsPremium() };
   }
 }
@@ -32,6 +43,25 @@ export function useSubscription(enabled: boolean) {
     select: (d) => d.premium,
   });
 }
+
+// Сверка по подозрению (star 403 / вход в star-reserve): single-flight + cooldown.
+// Гейт только hasSession (не isAuthenticated): при мёртвом main /me/cold не проходит,
+// recheck — единственный путь восстановления premium у залогиненного юзера.
+const RECHECK_COOLDOWN_MS = 30_000;
+let recheckInFlight = false;
+let lastRecheckAt = 0;
+setPremiumRecheckHandler(() => {
+  if (!useAuthStore.getState().hasSession) return;
+  const now = Date.now();
+  if (recheckInFlight || now - lastRecheckAt < RECHECK_COOLDOWN_MS) return;
+  recheckInFlight = true;
+  lastRecheckAt = now;
+  void fetchSubscription()
+    .then((d) => queryClient.setQueryData(QUERY_KEY, d))
+    .finally(() => {
+      recheckInFlight = false;
+    });
+});
 
 // Eagerly fetch subscription on auth so getIsPremium() is ready before first track play
 useAuthStore.subscribe((state, prev) => {

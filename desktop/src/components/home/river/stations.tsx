@@ -5,8 +5,9 @@ import type {Track} from '../../../stores/player';
 import {TrackCard} from '../../music/TrackCard';
 import {genreColor} from '../../search/utils';
 import {HorizontalScroll} from '../../ui/HorizontalScroll';
+import {ScheduleRow} from './WaveSchedule';
 
-const RELEASES_CAP = 10;
+const BROOK_CAP = 6;
 const SHELF_CAP = 18;
 
 function relDate(track: Track, t: (k: string) => string): string | null {
@@ -15,26 +16,27 @@ function relDate(track: Track, t: (k: string) => string): string | null {
   const ts = Date.parse(stamp);
   if (!Number.isFinite(ts)) return null;
   const days = Math.floor((Date.now() - ts) / 86_400_000);
-  if (days <= 0) return t('soundwave.ether.relToday');
-  if (days === 1) return t('soundwave.ether.relYesterday');
+  if (days <= 0) return t('soundwave.river.relToday');
+  if (days === 1) return t('soundwave.river.relYesterday');
   return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-/** «Свежие релизы» — датированная сетка крупных обложек (программа выхода). */
-export const ReleasesGrid = React.memo(function ReleasesGrid({ tracks }: { tracks: Track[] }) {
+/** «Свежие релизы» — верховья: узкий датированный ручей-список. */
+export const ReleaseBrook = React.memo(function ReleaseBrook({ tracks }: { tracks: Track[] }) {
   const { t } = useTranslation();
   const ctx = useMemo(() => ({ clusterId: 'fresh_drops' }), []);
-  const items = tracks.slice(0, RELEASES_CAP);
+  const items = tracks.slice(0, BROOK_CAP);
   return (
     <ClusterFeedbackProvider value={ctx}>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
-        {items.map((track) => (
-          <div key={track.urn}>
-            <TrackCard track={track} queue={items} />
-            <p className="mt-1.5 pl-0.5 font-mono text-[10.5px] text-white/30">
-              {relDate(track, t) ?? '—'}
-            </p>
-          </div>
+      <div className="flex flex-col gap-1">
+        {items.map((track, i) => (
+          <ScheduleRow
+            key={track.urn}
+            track={track}
+            index={i}
+            queue={items}
+            leading={relDate(track, t) ?? '—'}
+          />
         ))}
       </div>
     </ClusterFeedbackProvider>

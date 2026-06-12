@@ -4,6 +4,8 @@ import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
 import {Toaster} from 'sonner';
 import {useShallow} from 'zustand/shallow';
 import {ErrorBoundary} from './components/ErrorBoundary';
+import {HostStatusBanner} from './components/host-status/HostStatusBanner';
+import {HostStatusModal} from './components/host-status/HostStatusModal';
 import {AppShell} from './components/layout/AppShell';
 import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
 import {SessionRecoveryModal} from './components/SessionRecoveryModal';
@@ -12,7 +14,7 @@ import {ApiError} from './lib/api';
 import {CHECK_UPDATES} from './lib/constants';
 import {initDpiSync} from './lib/dpi';
 import {checkForAppUpdate, type GithubRelease} from './lib/update-check';
-import {getAppMode, useAppStatusStore} from './stores/app-status';
+import {getAppMode, useAppMode, useAppStatusStore} from './stores/app-status';
 import {useAuthStore} from './stores/auth';
 import {type StartupPage, useSettingsStore} from './stores/settings';
 import {useYmImportStore} from './stores/ym-import';
@@ -22,7 +24,7 @@ const Library = lazy(() =>
   import('./pages/Library').then((module) => ({ default: module.Library })),
 );
 const LibraryCollection = lazy(() =>
-    import('./pages/LibraryCollection').then((module) => ({default: module.LibraryCollection})),
+  import('./pages/LibraryCollection').then((module) => ({ default: module.LibraryCollection })),
 );
 const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
 const PlaylistPage = lazy(() =>
@@ -66,14 +68,14 @@ const STARTUP_PAGE_ROUTES: Record<StartupPage, string> = {
 
 function StartPageRedirect() {
   const startupPage = useSettingsStore((s) => s.startupPage);
-    return <Navigate to={STARTUP_PAGE_ROUTES[startupPage] ?? '/home'} replace/>;
+  return <Navigate to={STARTUP_PAGE_ROUTES[startupPage] ?? '/home'} replace />;
 }
 
 export default function App() {
-    const {isAuthenticated, hasSession, fetchUser} = useAuthStore(
+  const { isAuthenticated, hasSession, fetchUser } = useAuthStore(
     useShallow((s) => ({
       isAuthenticated: s.isAuthenticated,
-        hasSession: s.hasSession,
+      hasSession: s.hasSession,
       fetchUser: s.fetchUser,
     })),
   );
@@ -85,14 +87,12 @@ export default function App() {
       return null;
     });
   }, []);
-  const appMode = useAppStatusStore((s) =>
-    s.offlineBypass || !s.navigatorOnline || !s.backendReachable ? 'offline' : 'online',
-  );
-    const offlineBypass = useAppStatusStore((s) => s.offlineBypass);
-    const canUseMainShell = isAuthenticated || hasSession;
-    // Offline-only shell is the explicit "browse offline" choice from Login — NOT
-    // a fallback for being logged out. An explicit logout always lands on <Login/>.
-    const showOfflineOnlyShell = !canUseMainShell && offlineBypass;
+  const appMode = useAppMode();
+  const offlineBypass = useAppStatusStore((s) => s.offlineBypass);
+  const canUseMainShell = isAuthenticated || hasSession;
+  // Offline-only shell is the explicit "browse offline" choice from Login — NOT
+  // a fallback for being logged out. An explicit logout always lands on <Login/>.
+  const showOfflineOnlyShell = !canUseMainShell && offlineBypass;
 
   useEffect(() => {
     useYmImportStore.getState().initBridge();
@@ -119,7 +119,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-      if (!hasSession || appMode !== 'online') {
+    if (!hasSession || appMode !== 'online') {
       return;
     }
 
@@ -136,8 +136,8 @@ export default function App() {
         return;
       }
 
-        // Logged out while /me was in flight — don't resurrect the session.
-        if (!useAuthStore.getState().hasSession) return;
+      // Logged out while /me was in flight — don't resurrect the session.
+      if (!useAuthStore.getState().hasSession) return;
 
       console.warn('[Auth] Keeping local session after /me bootstrap failure:', error);
       useAuthStore.setState({ isAuthenticated: true });
@@ -203,6 +203,9 @@ export default function App() {
       <SessionRecoveryModal />
       <YMImportFloatingStatus />
       <BrowserRouter>
+        {/* Внутри Router ради navigate('/offline'); видны и над Login (он тоже в Router). */}
+        <HostStatusModal />
+        <HostStatusBanner />
         {showOfflineOnlyShell ? (
           <Routes>
             <Route element={<AppShell />}>
@@ -267,12 +270,12 @@ export default function App() {
                     </RouteLoader>
                   }
                 />
-                  <Route
-                      path="library/:section"
-                      element={
-                          <RouteLoader>
-                              <LibraryCollection/>
-                          </RouteLoader>
+                <Route
+                  path="library/:section"
+                  element={
+                    <RouteLoader>
+                      <LibraryCollection />
+                    </RouteLoader>
                   }
                 />
                 <Route
@@ -349,11 +352,11 @@ export default function App() {
 }
 
 function RouteLoader({ children }: { children: ReactNode }) {
-    return (
-        <Suspense fallback={<AppLoadingScreen/>}>
-            <ErrorBoundary>{children}</ErrorBoundary>
-        </Suspense>
-    );
+  return (
+    <Suspense fallback={<AppLoadingScreen />}>
+      <ErrorBoundary>{children}</ErrorBoundary>
+    </Suspense>
+  );
 }
 
 function AppLoadingScreen({ fullscreen = false }: { fullscreen?: boolean }) {

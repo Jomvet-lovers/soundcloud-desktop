@@ -1,11 +1,12 @@
-import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
-import { type Aura, auraRgba } from '../../lib/aura';
-import { dur, fc } from '../../lib/formatters';
-import { ListMusic, Music } from '../../lib/icons';
+import {memo, useMemo} from 'react';
+import {useTranslation} from 'react-i18next';
+import {type Aura, auraRgba} from '../../lib/aura';
+import {dur, fc} from '../../lib/formatters';
+import {ListMusic, Music} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import type { Track } from '../../stores/player';
-import { AlbumTrackRow } from './AlbumTrackRow';
+import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
+import type {Track} from '../../stores/player';
+import {AlbumTrackRow} from './AlbumTrackRow';
 
 interface AlbumTrackListProps {
   tracks: Track[];
@@ -34,6 +35,8 @@ function partition(tracks: Track[]): Partitioned {
 }
 
 const WantedRow = memo(function WantedRow({ track, position }: { track: Track; position: number }) {
+  const displayTitle = useDisplayTitle(track);
+  const artistDisplay = useArtistDisplay(track);
   return (
     <div
       className="flex items-center gap-4 px-4 py-2.5 rounded-2xl opacity-50"
@@ -52,8 +55,8 @@ const WantedRow = memo(function WantedRow({ track, position }: { track: Track; p
         <Music size={14} className="text-white/20" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium text-white/55 truncate">{track.title}</p>
-        <p className="text-[11px] text-white/25 truncate">{track.user?.username}</p>
+        <p className="text-[13px] font-medium text-white/55 truncate">{displayTitle}</p>
+        <p className="text-[11px] text-white/25 truncate">{artistDisplay.primary}</p>
       </div>
       {track.duration ? (
         <span className="text-[11px] text-white/25 tabular-nums shrink-0 w-12 text-right">
@@ -94,9 +97,9 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
       className="rounded-[2rem] p-3 md:p-5"
       style={{
         background:
-            b > 0
-                ? 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)'
-                : 'rgba(18,18,22,0.85)',
+          b > 0
+            ? 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)'
+            : 'rgba(18,18,22,0.85)',
         backdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
         WebkitBackdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
         boxShadow:

@@ -1,12 +1,13 @@
 import React, {useMemo} from 'react';
-import {art} from '../../../lib/formatters';
+import {art, dur} from '../../../lib/formatters';
 import {playWhite14} from '../../../lib/icons';
 import {ClusterFeedbackProvider} from '../../../lib/recsFeedback';
 import type {Track} from '../../../stores/player';
 import {usePlayerStore} from '../../../stores/player';
 import type {ClusterHydrated, ClusterNeighborDto} from '../../music/cluster';
+import {HorizontalScroll} from '../../ui/HorizontalScroll';
 
-/** «Твои артисты» — круги на частотном проводе. Клик играет очередь из лучших
+/** «Твои артисты» — отмель: круги на линии воды. Клик играет очередь из лучших
  *  треков артиста (resolveQueue — тот же контракт, что у NeighborCard). */
 export const ArtistWire = React.memo(function ArtistWire({
   cluster,
@@ -48,17 +49,14 @@ export const ArtistWire = React.memo(function ArtistWire({
               'linear-gradient(90deg, transparent, rgba(255,255,255,0.2) 8%, rgba(255,255,255,0.2) 92%, transparent)',
           }}
         />
-        <div
-          className="relative flex items-start gap-7 overflow-x-auto px-1 pb-2"
-          style={{ scrollbarWidth: 'none' }}
-        >
+        <HorizontalScroll className="relative !gap-7 px-1">
           {pairs.map(({ neighbor, track }) => (
             <button
               key={neighbor.artist_id}
               type="button"
               onClick={() => void play(track)}
-              className="group flex w-[96px] flex-none cursor-pointer flex-col items-center gap-2.5 transition-transform hover:-translate-y-1"
-              title={neighbor.artist_name}
+              className="group flex w-[128px] flex-none cursor-pointer flex-col items-center gap-2.5 transition-transform hover:-translate-y-1"
+              title={`${neighbor.artist_name} — ${track.title}`}
             >
               <span className="relative block size-[92px] overflow-hidden rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_12px_28px_rgba(0,0,0,0.45)] transition-shadow group-hover:shadow-[0_0_0_2px_var(--color-accent),0_0_24px_var(--color-accent-glow),0_12px_28px_rgba(0,0,0,0.45)]">
                 {neighbor.avatar_url ? (
@@ -79,9 +77,33 @@ export const ArtistWire = React.memo(function ArtistWire({
               <span className="max-w-full truncate text-[13px] font-semibold text-white/85">
                 {neighbor.artist_name}
               </span>
+              {/* что заиграет: трек-сид этого артиста */}
+              <span className="flex w-full items-center gap-2 rounded-[10px] border border-white/[0.06] bg-white/[0.03] p-1.5 text-left transition-colors group-hover:border-[var(--color-accent-glow)] group-hover:bg-white/[0.05]">
+                <span className="block size-7 flex-none overflow-hidden rounded-md ring-1 ring-white/[0.08]">
+                  {art(track.artwork_url, 't200x200') ? (
+                    <img
+                      src={art(track.artwork_url, 't200x200') ?? undefined}
+                      alt=""
+                      className="size-full object-cover"
+                      decoding="async"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="block size-full bg-white/[0.06]" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[10.5px] font-medium leading-tight text-white/60 transition-colors group-hover:text-white/85">
+                    {track.title}
+                  </span>
+                  <span className="block font-mono text-[9.5px] leading-tight text-white/30 tabular-nums">
+                    {dur(track.duration)}
+                  </span>
+                </span>
+              </span>
             </button>
           ))}
-        </div>
+        </HorizontalScroll>
       </div>
     </ClusterFeedbackProvider>
   );

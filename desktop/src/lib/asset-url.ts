@@ -8,6 +8,8 @@ const WHITELIST = [
   'scproxy.localhost',
   'images.scdinternal.site',
   'api.scdinternal.site',
+  'api-star.scdinternal.site',
+  'stream-star.scdinternal.site',
   'unpkg.com',
 ];
 const RETRY_BYPASS_CACHE_PARAM = '__scproxy_bust';

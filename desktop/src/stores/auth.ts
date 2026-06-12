@@ -1,8 +1,8 @@
-import { create } from 'zustand';
+import {create} from 'zustand';
 import {fetchWithAuthFallback, getSessionId} from '../lib/api';
 import {applyAuthFromServer} from '../lib/auth-session';
-import {API_BASE} from '../lib/constants';
 import {trackedInvoke as invoke} from '../lib/diagnostics';
+import {preferredControlBase} from '../lib/host-status';
 
 interface User {
   id: number;
@@ -56,7 +56,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     },
 
     logout: async () => {
-        await invoke('auth_logout', {apiBase: API_BASE});
+        // При мёртвом main revoke уходит на star; локальная чистка безусловна (Rust чистит до сети).
+        await invoke('auth_logout', {apiBase: preferredControlBase()});
         applyAuthFromServer(null);
     },
 }));

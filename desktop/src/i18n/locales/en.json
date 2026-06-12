@@ -379,7 +379,28 @@
     "retry": "Try again",
     "reload": "Reload",
     "home": "Home",
-    "details": "Details"
+    "details": "Details",
+    "serverError": "Server error ({{status}})"
+  },
+  "hostStatus": {
+    "starOffer": {
+      "title": "Main host is down",
+      "body": "The main host is down, but the backup host for Star subscribers is up. Get a subscription and the app will work for you too.",
+      "how": "Subscriptions are handled via Boosty and Discord:"
+    },
+    "allDown": {
+      "title": "All hosts are down",
+      "body": "The service is temporarily unavailable — we're on it. Your downloaded music is available in the offline library."
+    },
+    "banner": {
+      "viaStar": "Main host is down — running on the Star backup host.",
+      "outage": "Hosts are unavailable",
+      "details": "Details"
+    },
+    "actions": {
+      "retry": "Check again",
+      "offlineLibrary": "Offline library"
+    }
   },
   "home": {
     "yourWave": "Your wave",
@@ -452,20 +473,18 @@
         "fans_alsoDesc": "What fans of this track also listen to."
       }
     },
-    "ether": {
-      "live": "LIVE",
-      "onAir": "ON AIR",
-      "personal": "PERSONAL BROADCAST · 24/7",
-      "adapts": "the broadcast adapts to you",
-      "queueInf": "queue ∞ · the broadcast never stops",
-      "playWave": "Play the wave",
-      "bandCore": "CORE",
-      "bandFrontier": "FRONTIER",
+    "river": {
+      "live": "THE CURRENT",
+      "personal": "PERSONAL RIVER · ALWAYS FLOWING",
+      "adapts": "the current adapts to you",
+      "queueInf": "the river refills your queue — the current never stops",
+      "playWave": "Ride the current",
       "freshBadge": "NEW",
       "relToday": "today",
       "relYesterday": "yesterday",
-      "archiveTitle": "Broadcast archive",
-      "archiveWhy": "your likes and picks for you — off the dial"
+      "deltaNote": "the current goes on — the queue refills itself",
+      "archiveTitle": "Backwaters",
+      "archiveWhy": "your likes and picks for you — still water off the current"
     }
   },
   "offline": {

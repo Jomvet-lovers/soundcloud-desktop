@@ -36,6 +36,8 @@ pub struct MbRecording {
 
 #[derive(Debug, Clone)]
 pub struct MbArtistDetails {
+    /// Имя СУЩНОСТИ (не кредит-алиас с релиза).
+    pub name: Option<String>,
     pub country: Option<String>,
     pub disambiguation: Option<String>,
     pub urls: Vec<MbArtistUrl>,
@@ -130,6 +132,10 @@ impl MbClient {
         );
         let body: Option<ArtistPayload> = self.fetch(&url).await?;
         Ok(body.map(|p| MbArtistDetails {
+            name: p
+                .name
+                .map(|n| n.trim().to_string())
+                .filter(|n| !n.is_empty()),
             country: p.country,
             disambiguation: p.disambiguation.filter(|s| !s.is_empty()),
             urls: p
@@ -440,6 +446,8 @@ struct RawReleaseGroup {
 
 #[derive(Debug, Deserialize)]
 struct ArtistPayload {
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     country: Option<String>,
     #[serde(default)]

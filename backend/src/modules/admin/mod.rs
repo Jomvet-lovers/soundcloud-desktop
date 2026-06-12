@@ -27,6 +27,10 @@ pub fn router() -> Router<AppState> {
             "/admin/maintenance/renormalize",
             post(maintenance::renormalize),
         )
+        .route(
+            "/admin/maintenance/mb-artist-names",
+            post(maintenance::mb_artist_names),
+        )
         .route("/admin/wanted-tracks", get(wanted::list))
         .route("/admin/wanted-tracks/{id}/link", post(wanted::link))
         .route(
