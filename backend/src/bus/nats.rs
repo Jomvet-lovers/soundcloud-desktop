@@ -69,36 +69,79 @@ impl NatsService {
         let js = async_nats::jetstream::new(nc.clone());
 
         let svc = Arc::new(Self { nc, js, shutdown });
-        svc.ensure_stream(&streams::AI_RPC, true, Some(120), None)
+        // JetStream bootstrap — в фоне с ретраем, НЕ фатально. NATS централизован
+        // на основном хосте: если он лежит, backend всё равно обязан подняться и
+        // обслуживать HTTP (иначе крэш-луп валит и резерв, а haproxy упирается в
+        // "no free ports" на флапающем backend:443). Стримы/object-store
+        // идемпотентно досоздаются, как только JetStream вернётся.
+        svc.clone().spawn_bootstrap();
+        Ok(svc)
+    }
+
+    /// Идемпотентно создаёт/обновляет все JetStream-стримы и object-store.
+    /// Безопасно повторять — вызывается из фонового ретрая [`spawn_bootstrap`].
+    async fn bootstrap_streams(&self) -> AppResult<()> {
+        self.ensure_stream(&streams::AI_RPC, true, Some(120), None)
             .await?;
-        svc.ensure_stream(&streams::INDEX_AUDIO, true, None, None)
+        self.ensure_stream(&streams::INDEX_AUDIO, true, None, None)
             .await?;
-        svc.ensure_stream(&streams::EMBED_LYRICS, true, None, None)
+        self.ensure_stream(&streams::EMBED_LYRICS, true, None, None)
             .await?;
         // Work-queue с дефолтным 24h max_age (НЕ 120s как AI_RPC): backlog
         // транскрайба может тянуться часами, джоб обязан дожить до воркера.
-        svc.ensure_stream(&streams::TRANSCRIBE, true, None, None)
+        self.ensure_stream(&streams::TRANSCRIBE, true, None, None)
             .await?;
         // Энкод запросов: тот же класс, что transcribe (долгий бэклог). 15-мин
         // duplicate_window дедупит одинаковые `Nats-Msg-Id` (model:hash) на
         // уровне очереди — бэкстоп к Redis in-flight маркеру.
-        svc.ensure_stream(
+        self.ensure_stream(
             &streams::ENCODE,
             true,
             None,
             Some(Duration::from_secs(15 * 60)),
         )
+        .await?;
+        self.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60), None)
             .await?;
-        svc.ensure_stream(&streams::TRAIN_COLLAB, true, Some(6 * 60 * 60), None)
+        self.ensure_stream(&streams::TRAIN_QUALITY, true, Some(24 * 60 * 60), None)
             .await?;
-        svc.ensure_stream(&streams::TRAIN_QUALITY, true, Some(24 * 60 * 60), None)
+        self.ensure_stream(&streams::DONE, false, None, None)
             .await?;
-        svc.ensure_stream(&streams::DONE, false, None, None).await?;
-        svc.ensure_stream(&streams::STORAGE_EVENTS, false, None, None)
+        self.ensure_stream(&streams::STORAGE_EVENTS, false, None, None)
             .await?;
-        svc.ensure_object_store(crate::bus::subjects::COLLAB_DATA_BUCKET, 24 * 60 * 60)
+        self.ensure_object_store(crate::bus::subjects::COLLAB_DATA_BUCKET, 24 * 60 * 60)
             .await?;
-        Ok(svc)
+        Ok(())
+    }
+
+    /// Фоновый ретрай bootstrap'а JetStream до первого успеха. Пока NATS
+    /// недоступен, backend живёт в деграде (publish/request вернут ошибку,
+    /// которую вызыватели и так обрабатывают; consume крутит свой ретрай). Как
+    /// только JetStream поднимется — стримы создаются и шина оживает без рестарта.
+    fn spawn_bootstrap(self: Arc<Self>) {
+        let token = self.shutdown.clone();
+        tokio::spawn(async move {
+            let mut attempt: u32 = 0;
+            loop {
+                if token.is_cancelled() {
+                    return;
+                }
+                match self.bootstrap_streams().await {
+                    Ok(()) => {
+                        info!("JetStream bootstrap complete");
+                        return;
+                    }
+                    Err(e) => {
+                        attempt += 1;
+                        warn!(attempt, error = %e, "JetStream bootstrap failed, retry in 5s");
+                        tokio::select! {
+                            _ = token.cancelled() => return,
+                            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                        }
+                    }
+                }
+            }
+        });
     }
 
     async fn ensure_stream(
