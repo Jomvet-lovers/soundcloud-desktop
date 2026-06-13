@@ -6,7 +6,7 @@ import signal
 import threading
 
 from . import subjects as subj
-from .bus import connect, ensure_consumer
+from .bus import connect, ensure_consumer, ensure_work_queue_stream, ensure_limits_stream
 from .config import (
     BATCH_WAIT_MS,
     LYRICS_BATCH,
@@ -74,35 +74,54 @@ async def main() -> None:
 
     models = load_all(enabled)
 
-    # Стримы создаёт backend. Воркер регистрирует только consumer'ы активных тэгов.
-    if "ai" in enabled:
-        await ensure_consumer(
-            js, subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC, subj.SUBJECT_AI_RPC_FILTER
-        )
-        # Энкод-лейн делит модели (mulan / bge-m3) с ai-тэгом → гейтится им же.
-        await ensure_consumer(
-            js, subj.STREAM_ENCODE, subj.DURABLE_ENCODE, subj.SUBJECT_ENCODE_NEW
-        )
-    if "audio" in enabled:
-        await ensure_consumer(
-            js, subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO, subj.SUBJECT_INDEX_AUDIO_NEW
-        )
-    if "lyrics" in enabled:
-        await ensure_consumer(
-            js, subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS, subj.SUBJECT_EMBED_LYRICS_NEW
-        )
-    if "collab" in enabled:
-        await ensure_consumer(
-            js, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB, subj.SUBJECT_TRAIN_COLLAB_NEW
-        )
-    if "quality" in enabled:
-        await ensure_consumer(
-            js, subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY, subj.SUBJECT_TRAIN_QUALITY_NEW
-        )
-    if "transcribe" in enabled:
-        await ensure_consumer(
-            js, subj.STREAM_TRANSCRIBE, subj.DURABLE_TRANSCRIBE, subj.SUBJECT_TRANSCRIBE_NEW
-        )
+    # Стримы + consumer'ы: retry с backoff, чтобы не ронять процесс если NATS
+    # ещё не готов (wipe volume, рестарт, сетевой glitch).
+    async def _provision_streams() -> None:
+        await ensure_limits_stream(js, "PIPELINE_DONE", ["done.>"])
+        if "ai" in enabled:
+            await ensure_work_queue_stream(js, subj.STREAM_AI_RPC, ["ai.rpc.>"])
+            await ensure_consumer(
+                js, subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC, subj.SUBJECT_AI_RPC_FILTER
+            )
+            await ensure_work_queue_stream(js, subj.STREAM_ENCODE, ["encode.>"])
+            await ensure_consumer(
+                js, subj.STREAM_ENCODE, subj.DURABLE_ENCODE, subj.SUBJECT_ENCODE_NEW
+            )
+        if "audio" in enabled:
+            await ensure_work_queue_stream(js, subj.STREAM_INDEX_AUDIO, ["index.audio.>"])
+            await ensure_consumer(
+                js, subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO, subj.SUBJECT_INDEX_AUDIO_NEW
+            )
+        if "lyrics" in enabled:
+            await ensure_work_queue_stream(js, subj.STREAM_EMBED_LYRICS, ["embed.lyrics.>"])
+            await ensure_consumer(
+                js, subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS, subj.SUBJECT_EMBED_LYRICS_NEW
+            )
+        if "collab" in enabled:
+            await ensure_work_queue_stream(js, subj.STREAM_TRAIN_COLLAB, ["train.collab.>"])
+            await ensure_consumer(
+                js, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB, subj.SUBJECT_TRAIN_COLLAB_NEW
+            )
+        if "quality" in enabled:
+            await ensure_work_queue_stream(js, subj.STREAM_TRAIN_QUALITY, ["train.quality.>"])
+            await ensure_consumer(
+                js, subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY, subj.SUBJECT_TRAIN_QUALITY_NEW
+            )
+        if "transcribe" in enabled:
+            await ensure_work_queue_stream(js, subj.STREAM_TRANSCRIBE, ["transcribe.>"])
+            await ensure_consumer(
+                js, subj.STREAM_TRANSCRIBE, subj.DURABLE_TRANSCRIBE, subj.SUBJECT_TRANSCRIBE_NEW
+            )
+
+    backoff = 2
+    while True:
+        try:
+            await _provision_streams()
+            break
+        except Exception as e:
+            log.warning(f"NATS stream/consumer setup failed ({e}), retrying in {backoff}s…")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
 
     stop = asyncio.Event()
 
