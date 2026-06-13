@@ -96,12 +96,18 @@ def _embed_mulan(models: Models, wav: torch.Tensor) -> list[float]:
     return vec.detach().float().cpu().numpy().tolist()
 
 
-async def prepare(payload: dict, models: Models) -> dict:
+async def prepare(payload: dict, models: Models) -> dict | None:
     """Скачка + один декод (волна для MuQ + отпечаток) — всё вне GPU."""
     sc_track_id = str(payload["sc_track_id"])
     s3_url = payload["s3_url"]
     t0 = time.monotonic()
-    audio_bytes = await _download(s3_url)
+    try:
+        audio_bytes = await _download(s3_url)
+    except aiohttp.ClientResponseError as e:
+        if e.status == 404:
+            log.warning(f"[audio] {sc_track_id} not in S3 (404) — skipping")
+            return None
+        raise
     log.info(
         f"[audio] {sc_track_id} downloaded {len(audio_bytes)} bytes in "
         f"{time.monotonic() - t0:.2f}s"

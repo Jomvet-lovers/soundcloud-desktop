@@ -5,3 +5,4 @@ SET storage_state = CASE
     END,
     s3_missing_at = now()
 WHERE sc_track_id = ANY ($1)
+  AND storage_state <> 'too_long'

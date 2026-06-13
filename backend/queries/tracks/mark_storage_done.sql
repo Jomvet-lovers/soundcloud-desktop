@@ -13,3 +13,4 @@ END
 ,
     updated_at = now()
 WHERE sc_track_id = $1
+  AND storage_state <> 'too_long'

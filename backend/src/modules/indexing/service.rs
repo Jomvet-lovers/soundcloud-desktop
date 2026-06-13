@@ -216,21 +216,23 @@ impl IndexingService {
                         return Ok(());
                     };
 
-                    svc.tracks.mark_storage_done(&sc_track_id, quality).await?;
-
-                    // Публикуем INDEX_AUDIO только если индексация ещё не
-                    // завершена и трек не terminal too_long (>7min —
-                    // не скачиваем/не индексируем, воркеру делать нечего).
-                    // Проверяем и duration_ms на случай race с duration_resolver.
+                    // too_long (>7min) — terminal: не индексируем, воркеру
+                    // делать нечего. Проверяем state + duration_ms (race с
+                    // duration_resolver: длительность уже известна, mark_too_long
+                    // ещё не вызван).
                     let is_too_long = row.storage_state == "too_long"
                         || row.index_state == "too_long"
                         || (svc.max_track_duration_ms > 0
                             && row.duration_ms > svc.max_track_duration_ms);
                     if is_too_long {
-                        // race: duration resolver мог ещё не дойти — помечаем
                         svc.tracks.mark_too_long(&sc_track_id).await?;
                         debug!(track = %sc_track_id, "too_long — skipped INDEX_AUDIO");
-                    } else if row.index_state != "indexed" {
+                        return Ok(());
+                    }
+
+                    svc.tracks.mark_storage_done(&sc_track_id, quality).await?;
+
+                    if row.index_state != "indexed" {
                         svc.nats
                             .publish(
                                 subjects::INDEX_AUDIO,
