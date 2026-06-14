@@ -1,5 +1,5 @@
 import type {Track} from '../stores/player';
-import {ApiError, api} from './api';
+import {api, ApiError} from './api';
 import type {PagedResponse} from './hooks';
 
 type RelatedTracks = PagedResponse<Track>;
@@ -26,7 +26,7 @@ export async function fetchRelatedTracks(
             {silentStatuses: [404]},
         );
     } catch (e) {
-        if (e instanceof ApiError && e.status === 404) return emptyRelated(page, limit);
+        if (e instanceof ApiError && (e.status === 404 || e.status === 403 || e.status === 502)) return emptyRelated(page, limit);
         throw e;
     }
 }
