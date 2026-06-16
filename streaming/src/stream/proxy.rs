@@ -19,6 +19,177 @@ pub fn install_relay(relay: Arc<call_relay::Client>) {
     let _ = RELAY.set(relay);
 }
 
+/// Resolve an apiv2 transcoding URL to a signed CDN URL by running the
+/// streaming-owned `sc.transcoding_resolve` Lua method via the relay. None when
+/// there's no relay / it's disabled / the relay couldn't resolve — the caller then
+/// falls back to proxy.
+pub async fn transcoding_via_relay(
+    transcoding_url: &str,
+    track_authorization: Option<&str>,
+) -> Option<String> {
+    let relay = RELAY.get()?;
+    let inputs = serde_json::to_vec(&serde_json::json!({
+        "url": transcoding_url,
+        "track_authorization": track_authorization.unwrap_or(""),
+    }))
+    .ok()?;
+    let out = match relay
+        .call_method(
+            "sc.transcoding_resolve",
+            crate::sc_methods::TRANSCODING_RESOLVE,
+            Bytes::from(inputs),
+        )
+        .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            if !e.is_disabled() {
+                debug!(error = %e, "relay sc.transcoding_resolve failed");
+            }
+            return None;
+        }
+    };
+    let v: serde_json::Value = serde_json::from_slice(&out).ok()?;
+    if v.get("ok").and_then(|x| x.as_bool()) == Some(true) {
+        v.get("url").and_then(|x| x.as_str()).map(String::from)
+    } else {
+        None
+    }
+}
+
+/// "Relay, give me the track" — the relay runs the whole flow (metadata →
+/// transcoding → resolve → download/decrypt) and returns `(audio_bytes, content_type)`.
+/// None to fall back to the per-source cascade. `wvd_*` are only used for encrypted.
+pub async fn get_track_via_relay(
+    id: &str,
+    quality: &str,
+    wvd_url: Option<&str>,
+    wvd_token: Option<&str>,
+) -> Option<(Vec<u8>, String)> {
+    let relay = RELAY.get()?;
+    let inputs = serde_json::to_vec(&serde_json::json!({
+        "id": id,
+        "quality": quality,
+        "wvd_url": wvd_url.unwrap_or(""),
+        "wvd_token": wvd_token.unwrap_or(""),
+    }))
+    .ok()?;
+    let out = match relay
+        .call_method(
+            "sc.get_track",
+            crate::sc_methods::GET_TRACK,
+            Bytes::from(inputs),
+        )
+        .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            if !e.is_disabled() {
+                debug!(error = %e, "relay sc.get_track failed");
+            }
+            return None;
+        }
+    };
+    let v: serde_json::Value = serde_json::from_slice(&out).ok()?;
+    if v.get("ok").and_then(|x| x.as_bool()) != Some(true) {
+        return None;
+    }
+    let audio = base64::engine::general_purpose::STANDARD
+        .decode(v.get("audio_b64")?.as_str()?)
+        .ok()?;
+    let ct = v
+        .get("content_type")
+        .and_then(|x| x.as_str())
+        .unwrap_or("audio/mpeg")
+        .to_string();
+    Some((audio, ct))
+}
+
+/// Download a progressive (single-file) track via the relay's
+/// `sc.progressive_download` Lua method. None to fall back to proxy.
+pub async fn progressive_download_via_relay(url: &str) -> Option<Vec<u8>> {
+    audio_via_relay(
+        "sc.progressive_download",
+        crate::sc_methods::PROGRESSIVE_DOWNLOAD,
+        url,
+    )
+    .await
+}
+
+/// Download + glue an hls track (mode B) via the relay's `sc.hls_download` Lua
+/// method, returning the audio bytes. None when there's no relay / it's disabled /
+/// the relay couldn't get it — the caller falls back to the proxy segment loop.
+pub async fn hls_download_via_relay(m3u8_url: &str) -> Option<Vec<u8>> {
+    audio_via_relay("sc.hls_download", crate::sc_methods::HLS_DOWNLOAD, m3u8_url).await
+}
+
+/// Shared `{ url }` → `{ ok, audio_b64 }` relay call for the single-input audio
+/// methods (progressive + hls download).
+async fn audio_via_relay(method_id: &str, script: &str, url: &str) -> Option<Vec<u8>> {
+    let relay = RELAY.get()?;
+    let inputs = serde_json::to_vec(&serde_json::json!({ "url": url })).ok()?;
+    let out = match relay
+        .call_method(method_id, script, Bytes::from(inputs))
+        .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            if !e.is_disabled() {
+                debug!(error = %e, method_id, "relay audio method failed");
+            }
+            return None;
+        }
+    };
+    let v: serde_json::Value = serde_json::from_slice(&out).ok()?;
+    if v.get("ok").and_then(|x| x.as_bool()) != Some(true) {
+        return None;
+    }
+    let b64 = v.get("audio_b64")?.as_str()?;
+    base64::engine::general_purpose::STANDARD.decode(b64).ok()
+}
+
+/// Decrypt a ctr-encrypted-hls track (mode B) via the relay's `sc.hls_decrypt` Lua
+/// method: the relay fetches a served `.wvd` device and runs the Widevine decrypt
+/// itself. Returns the clean fMP4 bytes, or None to fall back to the server-side
+/// decryptor.
+pub async fn hls_decrypt_via_relay(
+    manifest: &str,
+    token: &str,
+    wvd_url: &str,
+    wvd_token: &str,
+) -> Option<Vec<u8>> {
+    let relay = RELAY.get()?;
+    let inputs = serde_json::to_vec(&serde_json::json!({
+        "wvd_url": wvd_url,
+        "wvd_token": wvd_token,
+        "manifest": manifest,
+        "token": token,
+    }))
+    .ok()?;
+    let out = match relay
+        .call_method(
+            "sc.hls_decrypt",
+            crate::sc_methods::HLS_DECRYPT,
+            Bytes::from(inputs),
+        )
+        .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            if !e.is_disabled() {
+                debug!(error = %e, "relay sc.hls_decrypt failed");
+            }
+            return None;
+        }
+    };
+    let v: serde_json::Value = serde_json::from_slice(&out).ok()?;
+    if v.get("ok").and_then(|x| x.as_bool()) != Some(true) {
+        return None;
+    }
+    let b64 = v.get("audio_b64")?.as_str()?;
+    base64::engine::general_purpose::STANDARD.decode(b64).ok()
+}
+
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 type FetchResult = Result<(Bytes, HashMap<String, String>), BoxErr>;
 

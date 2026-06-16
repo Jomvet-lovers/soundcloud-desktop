@@ -6,7 +6,13 @@ import signal
 import threading
 
 from . import subjects as subj
-from .bus import connect, ensure_consumer, ensure_work_queue_stream, ensure_limits_stream
+from .bus import (
+    StreamUnavailable,
+    connect,
+    ensure_consumer,
+    ensure_limits_stream,
+    ensure_work_queue_stream,
+)
 from .config import (
     BATCH_WAIT_MS,
     LYRICS_BATCH,
@@ -72,46 +78,48 @@ async def main() -> None:
         log.error("All tags disabled in WORKER_CONCURRENCY — nothing to do, exiting.")
         return
 
-    models = load_all(enabled)
+    # Лейн = его work-queue стрим(ы) + consumer'ы. (stream, subjects, durable, filter).
+    # ai тащит ещё и encode-лейн (делит модели mulan/bge-m3 → гейтится тем же тэгом).
+    lane_specs: dict[str, list[tuple[str, list[str], str, str]]] = {
+        "ai": [
+            (subj.STREAM_AI_RPC, ["ai.rpc.>"], subj.DURABLE_AI_RPC, subj.SUBJECT_AI_RPC_FILTER),
+            (subj.STREAM_ENCODE, ["encode.>"], subj.DURABLE_ENCODE, subj.SUBJECT_ENCODE_NEW),
+        ],
+        "audio": [
+            (subj.STREAM_INDEX_AUDIO, ["index.audio.>"], subj.DURABLE_INDEX_AUDIO, subj.SUBJECT_INDEX_AUDIO_NEW),
+        ],
+        "lyrics": [
+            (subj.STREAM_EMBED_LYRICS, ["embed.lyrics.>"], subj.DURABLE_EMBED_LYRICS, subj.SUBJECT_EMBED_LYRICS_NEW),
+        ],
+        "collab": [
+            (subj.STREAM_TRAIN_COLLAB, ["train.collab.>"], subj.DURABLE_TRAIN_COLLAB, subj.SUBJECT_TRAIN_COLLAB_NEW),
+        ],
+        "quality": [
+            (subj.STREAM_TRAIN_QUALITY, ["train.quality.>"], subj.DURABLE_TRAIN_QUALITY, subj.SUBJECT_TRAIN_QUALITY_NEW),
+        ],
+        "transcribe": [
+            (subj.STREAM_TRANSCRIBE, ["transcribe.>"], subj.DURABLE_TRANSCRIBE, subj.SUBJECT_TRANSCRIBE_NEW),
+        ],
+    }
 
-    # Стримы + consumer'ы: retry с backoff, чтобы не ронять процесс если NATS
-    # ещё не готов (wipe volume, рестарт, сетевой glitch).
+    # Стримы + consumer'ы. Лейн, чей стрим недоступен на этом NATS (публичная
+    # нода вне бриджуемых брокером лейнов), ОТКЛЮЧАЕМ — а не роняем весь воркер.
+    # Сетевые ошибки/недоступность NATS — наоборот, ретраим с backoff (стрим
+    # просто ещё не готов: wipe volume, рестарт, сетевой glitch).
     async def _provision_streams() -> None:
-        await ensure_limits_stream(js, "PIPELINE_DONE", ["done.>"])
-        if "ai" in enabled:
-            await ensure_work_queue_stream(js, subj.STREAM_AI_RPC, ["ai.rpc.>"])
-            await ensure_consumer(
-                js, subj.STREAM_AI_RPC, subj.DURABLE_AI_RPC, subj.SUBJECT_AI_RPC_FILTER
-            )
-            await ensure_work_queue_stream(js, subj.STREAM_ENCODE, ["encode.>"])
-            await ensure_consumer(
-                js, subj.STREAM_ENCODE, subj.DURABLE_ENCODE, subj.SUBJECT_ENCODE_NEW
-            )
-        if "audio" in enabled:
-            await ensure_work_queue_stream(js, subj.STREAM_INDEX_AUDIO, ["index.audio.>"])
-            await ensure_consumer(
-                js, subj.STREAM_INDEX_AUDIO, subj.DURABLE_INDEX_AUDIO, subj.SUBJECT_INDEX_AUDIO_NEW
-            )
-        if "lyrics" in enabled:
-            await ensure_work_queue_stream(js, subj.STREAM_EMBED_LYRICS, ["embed.lyrics.>"])
-            await ensure_consumer(
-                js, subj.STREAM_EMBED_LYRICS, subj.DURABLE_EMBED_LYRICS, subj.SUBJECT_EMBED_LYRICS_NEW
-            )
-        if "collab" in enabled:
-            await ensure_work_queue_stream(js, subj.STREAM_TRAIN_COLLAB, ["train.collab.>"])
-            await ensure_consumer(
-                js, subj.STREAM_TRAIN_COLLAB, subj.DURABLE_TRAIN_COLLAB, subj.SUBJECT_TRAIN_COLLAB_NEW
-            )
-        if "quality" in enabled:
-            await ensure_work_queue_stream(js, subj.STREAM_TRAIN_QUALITY, ["train.quality.>"])
-            await ensure_consumer(
-                js, subj.STREAM_TRAIN_QUALITY, subj.DURABLE_TRAIN_QUALITY, subj.SUBJECT_TRAIN_QUALITY_NEW
-            )
-        if "transcribe" in enabled:
-            await ensure_work_queue_stream(js, subj.STREAM_TRANSCRIBE, ["transcribe.>"])
-            await ensure_consumer(
-                js, subj.STREAM_TRANSCRIBE, subj.DURABLE_TRANSCRIBE, subj.SUBJECT_TRANSCRIBE_NEW
-            )
+        # done.* — общий стрим публикации результатов, нужен любому лейну.
+        try:
+            await ensure_limits_stream(js, "PIPELINE_DONE", ["done.>"])
+        except StreamUnavailable:
+            log.warning("PIPELINE_DONE отсутствует и не создаётся; done.* может не сохраняться")
+        for tag in [t for t in TAGS if t in enabled]:
+            try:
+                for stream, subjects, durable, flt in lane_specs[tag]:
+                    await ensure_work_queue_stream(js, stream, subjects)
+                    await ensure_consumer(js, stream, durable, flt)
+            except StreamUnavailable as e:
+                log.warning(f"лейн '{tag}' отключён: стрим {e} недоступен на этом NATS")
+                enabled.discard(tag)
 
     backoff = 2
     while True:
@@ -122,6 +130,14 @@ async def main() -> None:
             log.warning(f"NATS stream/consumer setup failed ({e}), retrying in {backoff}s…")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30)
+
+    if not enabled:
+        log.error("Ни один лейн не доступен на этом NATS — нечего делать, выходим.")
+        return
+
+    # Модели грузим ПОСЛЕ provisioning — чтобы не тратить VRAM на лейны, которые
+    # этот NATS не обслуживает (публичная нода отключила ai/collab/quality выше).
+    models = load_all(enabled)
 
     stop = asyncio.Event()
 

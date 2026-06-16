@@ -89,6 +89,10 @@ impl ScClient {
         AUTH_BASE
     }
 
+    pub fn has_relay(&self) -> bool {
+        self.inner.relay.is_some()
+    }
+
     pub fn install_track_observer(&self, obs: Arc<dyn TrackObserver>) {
         let _ = self.inner.observer.set(obs);
     }
@@ -292,6 +296,95 @@ impl ScClient {
     ) -> AppResult<Bytes> {
         self.race_relay_proxy(Method::GET, target_url, headers, None)
             .await
+    }
+
+    /// apiv2 `/resolve` run via the relay (the signed `sc.resolve_track` Lua method).
+    /// Returns the raw apiv2 track JSON, or None when there is no relay / it is
+    /// disabled / the relay couldn't resolve / the track was not found — the caller
+    /// then falls back.
+    pub async fn resolve_track_via_relay(&self, url: &str) -> Option<Value> {
+        let relay = self.inner.relay.as_ref()?;
+        let inputs = serde_json::to_vec(&serde_json::json!({ "url": url })).ok()?;
+        let out = match relay
+            .call_method(
+                "sc.resolve_track",
+                crate::sc::lua_methods::RESOLVE_TRACK,
+                Bytes::from(inputs),
+            )
+            .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                if !e.is_disabled() {
+                    tracing::debug!(error = %e, "[resolve] relay sc.resolve_track failed");
+                }
+                return None;
+            }
+        };
+        let parsed: Value = serde_json::from_slice(&out).ok()?;
+        if parsed.get("ok").and_then(Value::as_bool) == Some(true) {
+            parsed.get("track").cloned()
+        } else {
+            None
+        }
+    }
+
+    /// apiv2 `/users/{id}` run via the relay (the `sc.user_by_id` Lua method).
+    /// Returns the RAW apiv2 user JSON, or None to fall back.
+    pub async fn user_by_id_via_relay(&self, user_id: &str) -> Option<Value> {
+        let relay = self.inner.relay.as_ref()?;
+        let inputs = serde_json::to_vec(&serde_json::json!({ "id": user_id })).ok()?;
+        let out = match relay
+            .call_method(
+                "sc.user_by_id",
+                crate::sc::lua_methods::USER_BY_ID,
+                Bytes::from(inputs),
+            )
+            .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                if !e.is_disabled() {
+                    tracing::debug!(error = %e, "[user_v2] relay sc.user_by_id failed");
+                }
+                return None;
+            }
+        };
+        let parsed: Value = serde_json::from_slice(&out).ok()?;
+        if parsed.get("ok").and_then(Value::as_bool) == Some(true) {
+            parsed.get("user").cloned()
+        } else {
+            None
+        }
+    }
+
+    /// apiv2 `/tracks/{id}` run via the relay (the `sc.track_by_id` Lua method).
+    /// Returns the RAW apiv2 track JSON (not v1-normalized), or None to fall back.
+    pub async fn track_by_id_via_relay(&self, sc_track_id: &str) -> Option<Value> {
+        let relay = self.inner.relay.as_ref()?;
+        let inputs = serde_json::to_vec(&serde_json::json!({ "id": sc_track_id })).ok()?;
+        let out = match relay
+            .call_method(
+                "sc.track_by_id",
+                crate::sc::lua_methods::TRACK_BY_ID,
+                Bytes::from(inputs),
+            )
+            .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                if !e.is_disabled() {
+                    tracing::debug!(error = %e, "[track_v2] relay sc.track_by_id failed");
+                }
+                return None;
+            }
+        };
+        let parsed: Value = serde_json::from_slice(&out).ok()?;
+        if parsed.get("ok").and_then(Value::as_bool) == Some(true) {
+            parsed.get("track").cloned()
+        } else {
+            None
+        }
     }
 
     pub async fn api_post<B: serde::Serialize, T: DeserializeOwned>(

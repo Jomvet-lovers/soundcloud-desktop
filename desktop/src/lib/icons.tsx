@@ -9,6 +9,7 @@ import {
     AlertCircle as _AlertCircle,
     ArrowDownToLine as _ArrowDownToLine,
     AudioLines as _AudioLines,
+    Bookmark as _Bookmark,
     Calendar as _Calendar,
     Check as _Check,
     ChevronDown as _ChevronDown,
@@ -114,6 +115,7 @@ export const ChevronLeft = memo(_ChevronLeft);
 export const ChevronRight = memo(_ChevronRight);
 export const ChevronUp = memo(_ChevronUp);
 export const Clock = memo(_Clock);
+export const Bookmark = memo(_Bookmark);
 export const Cloud = memo(_Cloud);
 export const Compass = memo(_Compass);
 export const Database = memo(_Database);

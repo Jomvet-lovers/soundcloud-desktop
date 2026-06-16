@@ -1,6 +1,6 @@
-import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
-import { tauriStorage } from '../lib/tauri-storage';
+import {create} from 'zustand';
+import {createJSONStorage, persist} from 'zustand/middleware';
+import {tauriStorage} from '../lib/tauri-storage';
 
 export interface EnrichmentArtist {
   id: string;
@@ -172,7 +172,7 @@ export function getEffectivePitchSemitones(
   return clampPitchSemitones(manual);
 }
 
-function shuffleArray<T>(arr: T[]): void {
+export function shuffleArray<T>(arr: T[]): void {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];

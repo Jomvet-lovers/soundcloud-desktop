@@ -23,6 +23,68 @@ use crate::stream::storage::{
 };
 use crate::AppState;
 
+static WVD_CURSOR: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// `GET /internal/wvd` — serve a `.wvd` device to a relay client for relay-side
+/// Widevine decrypt. Gated by `x-wvd-token` == `SC_EDGE_WVD_TOKEN`; devices come
+/// from `SC_EDGE_WVD_DIR` (a folder separate from `SC_DECRYPT_DEVICE`). Disabled
+/// (404) unless both env are set.
+pub async fn serve_wvd(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Bytes), (StatusCode, String)> {
+    let (Some(dir), Some(token)) = (
+        state.config.edge_wvd_dir.as_deref(),
+        state.config.edge_wvd_token.as_deref(),
+    ) else {
+        return Err((StatusCode::NOT_FOUND, "wvd serving disabled".into()));
+    };
+
+    let provided = headers
+        .get("x-wvd-token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !bool::from(provided.as_bytes().ct_eq(token.as_bytes())) {
+        return Err((StatusCode::UNAUTHORIZED, "bad wvd token".into()));
+    }
+
+    let bytes = pick_wvd(dir)
+        .await
+        .map_err(|e| (StatusCode::SERVICE_UNAVAILABLE, e))?;
+    let mut h = HeaderMap::new();
+    h.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/octet-stream"),
+    );
+    Ok((h, bytes))
+}
+
+async fn pick_wvd(dir: &str) -> Result<Bytes, String> {
+    let mut rd = tokio::fs::read_dir(dir)
+        .await
+        .map_err(|e| format!("read dir: {e}"))?;
+    let mut files = Vec::new();
+    while let Some(e) = rd
+        .next_entry()
+        .await
+        .map_err(|e| format!("dir entry: {e}"))?
+    {
+        let p = e.path();
+        if p.extension().is_some_and(|x| x == "wvd") {
+            files.push(p);
+        }
+    }
+    if files.is_empty() {
+        return Err("no .wvd in SC_EDGE_WVD_DIR".into());
+    }
+    files.sort();
+    let idx = WVD_CURSOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % files.len();
+    let data = tokio::fs::read(&files[idx])
+        .await
+        .map_err(|e| format!("read wvd: {e}"))?;
+    Ok(Bytes::from(data))
+}
+
 /// Глобальный лимит одновременно качающихся треков. Backend дедупит триггеры
 /// 16-широким семафором, но streaming могут долбить и ручные ретраи /
 /// несколько backend'ов — оставляем свой потолок.
@@ -177,4 +239,3 @@ async fn fetch_track(state: &AppState, track_urn: &str) -> Option<(Bytes, &'stat
     warn!("{tag} {track_urn} → no stream available");
     None
 }
-

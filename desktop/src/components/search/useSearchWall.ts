@@ -1,23 +1,23 @@
-import { useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { art } from '../../lib/formatters';
+import {useMemo} from 'react';
+import {useNavigate} from 'react-router-dom';
+import {art} from '../../lib/formatters';
 import {
-  useLyricSearch,
-  useSearchDbArtists,
-  useSearchDbPlaylists,
-  useSearchDbTracks,
-  useSearchDbUsers,
-  useSearchPlaylists,
-  useSearchTracks,
-  useSearchUsers,
-  useVibeSearch,
+    useLyricSearch,
+    useSearchDbArtists,
+    useSearchDbPlaylists,
+    useSearchDbTracks,
+    useSearchDbUsers,
+    useSearchPlaylists,
+    useSearchTracks,
+    useSearchUsers,
+    useVibeSearch,
 } from '../../lib/hooks';
-import { useSmartWave, useWaveBoard } from '../../lib/soundwave';
-import type { Track } from '../../stores/player';
-import type { SearchMode, SearchSource } from '../../stores/searchPrefs';
-import { useSettingsStore } from '../../stores/settings';
-import type { EntityItem } from './EntityStrip';
-import { genreColor, isHeroPos, isHeroUrn, vibeEnergy, type WallItem } from './utils';
+import {useSmartWave, useWaveBoard} from '../../lib/soundwave';
+import type {Track} from '../../stores/player';
+import type {SearchMode, SearchSource} from '../../stores/searchPrefs';
+import {useSettingsStore} from '../../stores/settings';
+import type {EntityItem} from './EntityStrip';
+import {genreColor, isHeroPos, isHeroUrn, vibeEnergy, type WallItem} from './utils';
 
 export interface DiveSeed {
   urn: string;
@@ -121,9 +121,13 @@ export function useSearchWall(
   const scTracks = useSearchTracks(scQ);
   const scPlaylists = useSearchPlaylists(scQ);
   const scUsers = useSearchUsers(scQ);
+  // The wave/from-track endpoint parses the path segment as a bare numeric id;
+  // a full URN (soundcloud:tracks:123) fails the parse and returns nothing, so
+  // strip it down like the soundwave similar-block does.
+  const diveSeedId = dive?.urn ? (dive.urn.split(':').pop() ?? dive.urn) : undefined;
   const diveWave = useSmartWave({
     seedKind: 'track',
-    seedId: dive?.urn,
+    seedId: diveSeedId,
     enabled: !!dive,
     limit: 32,
     hideListened,

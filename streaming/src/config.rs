@@ -25,6 +25,13 @@ pub struct Config {
     pub storage_cleanup_interval_secs: u64,
     pub internal_token: String,
     pub decrypt_device: Option<String>,
+    /// Folder of `.wvd` devices served to relay clients for relay-side decrypt —
+    /// kept separate from `decrypt_device`. Gated by `edge_wvd_token`.
+    pub edge_wvd_dir: Option<String>,
+    pub edge_wvd_token: Option<String>,
+    /// Public URL of this service's `/internal/wvd` endpoint, handed to the relay so
+    /// it can fetch a device for relay-side decrypt.
+    pub edge_wvd_url: Option<String>,
 }
 
 impl Config {
@@ -87,6 +94,9 @@ impl Config {
                 .unwrap_or(3600),
             internal_token: env::var("INTERNAL_TOKEN").unwrap_or_default(),
             decrypt_device: env::var("SC_DECRYPT_DEVICE").ok().filter(|s| !s.is_empty()),
+            edge_wvd_dir: env::var("SC_EDGE_WVD_DIR").ok().filter(|s| !s.is_empty()),
+            edge_wvd_token: env::var("SC_EDGE_WVD_TOKEN").ok().filter(|s| !s.is_empty()),
+            edge_wvd_url: env::var("SC_EDGE_WVD_URL").ok().filter(|s| !s.is_empty()),
         }
     }
 

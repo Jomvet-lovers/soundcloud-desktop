@@ -121,6 +121,19 @@ pub async fn download_progressive(
     extra_headers: HashMap<String, String>,
     direct_only: bool,
 ) -> Result<(Bytes, &'static str), BoxErr> {
+    // Let the relay download the (already-signed) progressive URL. Validate it looks
+    // like audio before trusting it.
+    if !direct_only {
+        if let Some(audio) = crate::stream::proxy::progressive_download_via_relay(url).await {
+            if audio
+                .first()
+                .is_some_and(|b| !matches!(b, b'{' | b'[' | b'<' | b' '))
+            {
+                return Ok((Bytes::from(audio), mime_to_content_type(mime_type)));
+            }
+        }
+    }
+
     let data = fetch_validated(
         client,
         proxy_url,
@@ -144,6 +157,20 @@ pub async fn download_hls(
     direct_only: bool,
     refresher: Option<M3u8Refresher>,
 ) -> Result<(Bytes, &'static str), BoxErr> {
+    // Mode B: let the relay download + glue the segments. Validate the glued bytes
+    // look like audio (not an error/HTML page) before trusting it; otherwise fall back
+    // to the proxy segment loop below.
+    if !direct_only {
+        if let Some(audio) = crate::stream::proxy::hls_download_via_relay(m3u8_url).await {
+            if audio
+                .first()
+                .is_some_and(|b| !matches!(b, b'{' | b'[' | b'<' | b' '))
+            {
+                return Ok((Bytes::from(audio), mime_to_content_type(mime_type)));
+            }
+        }
+    }
+
     let (init_url, mut segment_urls) =
         fetch_m3u8_source(client, proxy_url, m3u8_url, m3u8_headers, direct_only).await?;
 

@@ -106,6 +106,16 @@ async fn stream_inner(
         return Ok(Redirect::temporary(&cdn_url).into_response());
     }
 
+    // One-shot "relay, give me the track": the relay does the WHOLE flow (metadata →
+    // transcoding → resolve → download/decrypt) in a single call. Public tracks only —
+    // hq/premium falls to the token cascade below (the relay returns None for those).
+    if !hq {
+        if let Some(r) = try_relay_track(&state, &track_urn, "sq").await {
+            info!("{tag} {track_urn} → relay/track");
+            return respond_with_data(&state, &track_urn, r.0, r.1, "sq");
+        }
+    }
+
     let access = &session.access_token;
 
     if hq {
@@ -251,14 +261,73 @@ async fn restricted_source(
     }
 }
 
+/// One-shot track fetch via the relay's `sc.get_track`. Returns `(audio, content_type)`
+/// or None (no relay / disabled / not a public track) to fall back to the cascade.
+async fn try_relay_track(
+    state: &AppState,
+    track_urn: &str,
+    quality: &str,
+) -> Option<(Bytes, &'static str)> {
+    let id = track_urn.rsplit(':').next()?;
+    if id.is_empty() || id == track_urn {
+        return None; // not a canonical soundcloud:tracks:<id> urn
+    }
+    let (audio, ct) = crate::stream::proxy::get_track_via_relay(
+        id,
+        quality,
+        state.config.edge_wvd_url.as_deref(),
+        state.config.edge_wvd_token.as_deref(),
+    )
+    .await?;
+    Some((
+        Bytes::from(audio),
+        crate::stream::hls::mime_to_content_type(&ct),
+    ))
+}
+
 async fn try_restricted(
     state: &AppState,
     track_urn: &str,
     tag: &str,
     hq_first: bool,
 ) -> Option<Response> {
-    let engine = state.decryptor.as_ref()?;
     let src = restricted_source(state, track_urn, tag, hq_first).await?;
+
+    // Relay decrypt first: the relay fetches a served .wvd device and runs the
+    // Widevine decrypt itself. Falls through to the server-side decryptor when the
+    // relay can't.
+    if let (Some(wvd_url), Some(wvd_token)) = (
+        state.config.edge_wvd_url.as_deref(),
+        state.config.edge_wvd_token.as_deref(),
+    ) {
+        if let Some(audio) = crate::stream::proxy::hls_decrypt_via_relay(
+            &src.manifest,
+            &src.token,
+            wvd_url,
+            wvd_token,
+        )
+        .await
+        {
+            let quality = if src.is_hq { "hq" } else { "sq" };
+            let bytes = Bytes::from(audio);
+            if bytes.len() > 8192 {
+                state.storage.upload_in_background_with_quality(
+                    track_urn.to_string(),
+                    bytes.clone(),
+                    quality,
+                );
+            }
+            return Some(
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", src.content_type)
+                    .body(Body::from(bytes))
+                    .unwrap(),
+            );
+        }
+    }
+
+    let engine = state.decryptor.as_ref()?;
     let fetcher: std::sync::Arc<dyn decrypt::Fetcher> =
         std::sync::Arc::new(crate::stream::decrypt_fetch::ProxyFetcher {
             client: state.http_client.clone(),

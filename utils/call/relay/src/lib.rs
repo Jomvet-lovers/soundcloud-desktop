@@ -79,4 +79,13 @@ impl Client {
     pub async fn fetch(&self, _req: &Request) -> Result<Response, Error> {
         Err(Error::Disabled)
     }
+
+    pub async fn call_method(
+        &self,
+        _method_id: &str,
+        _script: &str,
+        _inputs: Bytes,
+    ) -> Result<Bytes, Error> {
+        Err(Error::Disabled)
+    }
 }

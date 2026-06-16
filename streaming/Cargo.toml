@@ -25,6 +25,7 @@ thiserror = "2"
 regex = "1.12.3"
 tls-common = { path = "../utils/tls-common" }
 call-relay = { path = "../utils/call/relay" }
+call-lua-macros = { path = "../utils/call/lua-macros" }
 decrypt = { path = "../utils/decrypt" }
 once_cell = "1"
 rand = "0.8"

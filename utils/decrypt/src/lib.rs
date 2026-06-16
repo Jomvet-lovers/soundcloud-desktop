@@ -46,6 +46,10 @@ impl Engine {
         Err(Error::Disabled)
     }
 
+    pub fn from_wvd_bytes(_wvd: &[u8]) -> Result<Self, Error> {
+        Err(Error::Disabled)
+    }
+
     pub fn devices(&self) -> usize {
         0
     }

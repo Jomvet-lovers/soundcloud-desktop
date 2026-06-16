@@ -1,4 +1,12 @@
-"""JetStream: ensure_stream / ensure_consumer. Стримы создаёт backend, воркер добавляет consumer'ы."""
+"""JetStream: ensure_stream / ensure_consumer.
+
+Стримы — собственность backend (на приватном NATS) и брокера (на публичном,
+см. infra public-workers/broker/init-streams.sh). Воркер их только ИСПОЛЬЗУЕТ:
+пробует создать (на доверенной ноде с правами это no-op/создание), а если прав
+нет (публичная нода) — убеждается, что стрим уже предсоздан, и работает с ним.
+Так один и тот же образ живёт и на trusted-, и на untrusted-ноде без выдачи
+публичным нодам прав STREAM.CREATE/UPDATE.
+"""
 import logging
 
 from nats.js import JetStreamContext
@@ -15,42 +23,65 @@ from nats.js.errors import NotFoundError
 log = logging.getLogger(__name__)
 
 
+class StreamUnavailable(Exception):
+    """Стрим отсутствует, и создать его мы не можем (нет прав STREAM.CREATE).
+
+    Признак того, что этот лейн не обслуживается на данном NATS (публичная нода
+    вне бриджуемых брокером лейнов). Вызывающий должен ОТКЛЮЧИТЬ лейн, а не
+    ронять/ретраить весь воркер. Отличается от сетевой ошибки/таймаута тем, что
+    отсутствие стрима ПОДТВЕРЖДЕНО (stream_info вернул NotFound)."""
+
+
+async def _ensure_stream(js: JetStreamContext, cfg: StreamConfig) -> None:
+    try:
+        await js.add_stream(config=cfg)
+        return
+    except Exception as e:
+        msg = str(e).lower()
+        if "already in use" in msg or "stream name already" in msg:
+            # Права есть, стрим уже существует с другим конфигом — приводим к нашему.
+            await js.update_stream(config=cfg)
+            return
+        # add_stream не прошёл по иной причине: либо нет прав CREATE (публичная
+        # нода — приходит как permissions violation + таймаут запроса), либо NATS
+        # недоступен. Различаем чтением стрима (INFO ноде разрешён).
+        try:
+            await js.stream_info(cfg.name)
+        except NotFoundError:
+            # Стрим реально отсутствует, а создать не можем → лейн недоступен.
+            raise StreamUnavailable(cfg.name) from e
+        # Стрим есть (предсоздан backend'ом/брокером) — просто используем его.
+        log.info("stream %s managed externally; not creating", cfg.name)
+
+
 async def ensure_work_queue_stream(
     js: JetStreamContext, name: str, subjects: list[str]
 ) -> None:
-    cfg = StreamConfig(
-        name=name,
-        subjects=subjects,
-        retention=RetentionPolicy.WORK_QUEUE,
-        storage=StorageType.FILE,
-        max_age=24 * 60 * 60,
+    await _ensure_stream(
+        js,
+        StreamConfig(
+            name=name,
+            subjects=subjects,
+            retention=RetentionPolicy.WORK_QUEUE,
+            storage=StorageType.FILE,
+            max_age=24 * 60 * 60,
+        ),
     )
-    try:
-        await js.add_stream(config=cfg)
-    except Exception as e:
-        if "already in use" in str(e) or "stream name already" in str(e):
-            await js.update_stream(config=cfg)
-        else:
-            raise
 
 
 async def ensure_limits_stream(
     js: JetStreamContext, name: str, subjects: list[str]
 ) -> None:
-    cfg = StreamConfig(
-        name=name,
-        subjects=subjects,
-        retention=RetentionPolicy.LIMITS,
-        storage=StorageType.FILE,
-        max_age=60 * 60,
+    await _ensure_stream(
+        js,
+        StreamConfig(
+            name=name,
+            subjects=subjects,
+            retention=RetentionPolicy.LIMITS,
+            storage=StorageType.FILE,
+            max_age=60 * 60,
+        ),
     )
-    try:
-        await js.add_stream(config=cfg)
-    except Exception as e:
-        if "already in use" in str(e) or "stream name already" in str(e):
-            await js.update_stream(config=cfg)
-        else:
-            raise
 
 
 async def ensure_consumer(

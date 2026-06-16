@@ -62,6 +62,9 @@ impl AnonResolveClient {
     /// apiv2 /users/{id} — anon (scraped client_id, no user token). A token-free
     /// alternate source for a user's public profile (avatar/username).
     pub async fn fetch_user(&self, user_id: &str) -> AppResult<Value> {
+        if let Some(v) = self.sc.user_by_id_via_relay(user_id).await {
+            return Ok(v);
+        }
         let cid = self.get_client_id().await?;
         let target = build_user_url(user_id, &cid);
         match self.fetch_json(&target).await {

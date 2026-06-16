@@ -10,8 +10,9 @@
  * при исчерпании.
  */
 
-import {type Track, usePlayerStore} from '../stores/player';
+import {shuffleArray, type Track, usePlayerStore} from '../stores/player';
 import {api} from './api';
+import {fetchAllLikedTracks} from './hooks';
 
 export interface QueueContinuationSource {
     /** Имя для логов. */
@@ -80,12 +81,47 @@ export function createLikesContinuationSource(alreadyLoaded = 0): QueueContinuat
 }
 
 /**
+ * Все лайки, перемешанные — ленивый источник под shuffle. На первом `next()`
+ * тянет ВЕСЬ список лайков (`fetchAllLikedTracks`, общий кеш), отсекает то, что
+ * уже стоит в очереди (стартовая перемешанная страница), тасует остаток и
+ * отдаёт его кусками. Так под shuffle проигрываются все лайки в случайном
+ * порядке, а не только подгруженная страница, и очередь не раздувается на весь
+ * список разом. Исчерпался — autopilot уходит в волну.
+ */
+export function createShuffledLikesContinuationSource(): QueueContinuationSource {
+    let buffer: Track[] | null = null;
+    let pos = 0;
+    return {
+        kind: 'likes-shuffled',
+        async next() {
+            if (buffer === null) {
+                const all = await fetchAllLikedTracks();
+                const queued = new Set(usePlayerStore.getState().queue.map((t) => t.urn));
+                buffer = all.filter((t) => !queued.has(t.urn));
+                shuffleArray(buffer);
+            }
+            const chunk = buffer.slice(pos, pos + LIKES_PAGE_SIZE);
+            pos += chunk.length;
+            return chunk;
+        },
+    };
+}
+
+/**
  * Поставить «лайки до конца» под текущую (уже выставленную play()) очередь —
  * один вызов для всех точек входа в лайки (LikesTab, шелф на home, превью
- * в library). Зовётся в `onPlay` сразу после play(): тот сбросил прошлый
- * источник, мы ставим свой. Стартовая страница — из живой длины очереди.
+ * в library, masthead-shuffle). Зовётся в `onPlay` сразу после play(): тот
+ * сбросил прошлый источник, мы ставим свой.
+ *
+ * Под shuffle — источник тасует ВЕСЬ список лайков (а не только подгруженную
+ * страницу). Без shuffle — последовательная пагинация со стартом из живой
+ * длины очереди.
  */
 export function armLikesContinuation(): void {
+    if (usePlayerStore.getState().shuffle) {
+        setQueueContinuationSource(createShuffledLikesContinuationSource());
+        return;
+    }
     const loaded = usePlayerStore.getState().queue.length;
     setQueueContinuationSource(createLikesContinuationSource(loaded));
 }

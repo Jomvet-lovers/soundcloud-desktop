@@ -55,6 +55,12 @@ pub struct UserCollection {
     /// Priority пайплайна для треков, попадающих в коллекцию (irrelevant
     /// для не-track коллекций).
     pub track_priority: TrackPriority,
+    /// Сортировать страницу по дате релиза трека (`tracks.release_date`),
+    /// а не по порядку синка mirror'а. true только для OWNED_TRACKS: профиль
+    /// артиста/юзера показывает свои загрузки новыми сверху, а sync-порядок
+    /// (`created_at`) фрагментируется по батчам refresh'а и не отражает релиз.
+    /// Для likes/followings остаётся mirror-recency (когда лайкнул/подписался).
+    pub order_by_release: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +81,7 @@ pub const LIKED_TRACKS: UserCollection = UserCollection {
     has_wanted_state: true,
     guard_pending_delete_action: None,
     track_priority: TrackPriority::Like,
+    order_by_release: false,
 };
 
 pub const LIKED_PLAYLISTS: UserCollection = UserCollection {
@@ -88,6 +95,7 @@ pub const LIKED_PLAYLISTS: UserCollection = UserCollection {
     has_wanted_state: true,
     guard_pending_delete_action: None,
     track_priority: TrackPriority::Playlist,
+    order_by_release: false,
 };
 
 pub const FOLLOWINGS: UserCollection = UserCollection {
@@ -101,6 +109,7 @@ pub const FOLLOWINGS: UserCollection = UserCollection {
     has_wanted_state: true,
     guard_pending_delete_action: None,
     track_priority: TrackPriority::Discovery,
+    order_by_release: false,
 };
 
 pub const OWNED_PLAYLISTS: UserCollection = UserCollection {
@@ -114,6 +123,7 @@ pub const OWNED_PLAYLISTS: UserCollection = UserCollection {
     has_wanted_state: false,
     guard_pending_delete_action: Some("playlist_delete"),
     track_priority: TrackPriority::Playlist,
+    order_by_release: false,
 };
 
 pub const OWNED_TRACKS: UserCollection = UserCollection {
@@ -127,6 +137,7 @@ pub const OWNED_TRACKS: UserCollection = UserCollection {
     has_wanted_state: false,
     guard_pending_delete_action: None,
     track_priority: TrackPriority::Like,
+    order_by_release: true,
 };
 
 fn resolve_sc_path(coll: &UserCollection, sc_user_id: &str, viewer_is_owner: bool) -> String {
@@ -775,13 +786,31 @@ pub async fn read_collection_page(
     // user_id = ANY(variants) + GROUP BY: до бэкфилла 0042 строки могут жить и
     // под URN, и под bare — видим объединение и схлопываем дубль по ключу
     // (берём самый свежий created_at для порядка).
-    let key_sql = format!(
-        "SELECT m.{key_col} FROM {table} m \
-         WHERE m.user_id = ANY($1) {wanted_filter} \
-         GROUP BY m.{key_col} \
-         ORDER BY MAX(m.created_at) DESC, m.{key_col} DESC \
-         LIMIT $2 OFFSET $3"
-    );
+    //
+    // order_by_release (OWNED_TRACKS): сортируем по дате релиза трека, а не по
+    // mirror.created_at. created_at = время ПЕРВОГО синка строки и фрагментируется
+    // по батчам refresh'а (трек, впервые увиденный в позднем батче, всплывает выше
+    // реально более свежего из раннего батча) → новые релизы уезжали под старые.
+    let key_sql = if coll.order_by_release {
+        format!(
+            "SELECT m.{key_col} FROM {table} m \
+             LEFT JOIN tracks t ON t.sc_track_id = m.{key_col} \
+             WHERE m.user_id = ANY($1) {wanted_filter} \
+             GROUP BY m.{key_col} \
+             ORDER BY MAX(t.release_date) DESC NULLS LAST, \
+                      MAX(t.sc_created_at) DESC NULLS LAST, \
+                      MAX(m.created_at) DESC, m.{key_col} DESC \
+             LIMIT $2 OFFSET $3"
+        )
+    } else {
+        format!(
+            "SELECT m.{key_col} FROM {table} m \
+             WHERE m.user_id = ANY($1) {wanted_filter} \
+             GROUP BY m.{key_col} \
+             ORDER BY MAX(m.created_at) DESC, m.{key_col} DESC \
+             LIMIT $2 OFFSET $3"
+        )
+    };
     let keys: Vec<(String,)> = sqlx::query_as(&key_sql)
         .bind(crate::common::sc_ids::user_id_variants(sc_user_id))
         .bind(limit + 1)

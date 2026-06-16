@@ -10,6 +10,7 @@ mod cleanup;
 mod config;
 mod db;
 mod error;
+mod sc_methods;
 mod stream;
 
 use config::Config;
@@ -146,6 +147,7 @@ async fn main() {
             "/internal/transcode-upload/{track_urn}",
             post(stream::internal::transcode_upload),
         )
+        .route("/internal/wvd", get(stream::internal::serve_wvd))
         .route("/health", get(|| async { "ok" }))
         .layer(cors)
         .with_state(state);
