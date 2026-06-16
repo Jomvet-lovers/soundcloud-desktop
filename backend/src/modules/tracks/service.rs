@@ -5,7 +5,8 @@ use sqlx::PgPool;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
-    build_list_cache_key, sc_list_page, ListCacheService, ListPageResult, ScListPageArgs,
+    build_list_cache_key, plain_query, sc_list_page, sc_search_page, ListCacheService,
+    ListPageResult, ScListPageArgs, ScSearchArgs,
 };
 use crate::common::sc_ids::extract_sc_id;
 use crate::error::AppResult;
@@ -13,7 +14,7 @@ use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::cold_refresh::ColdRefreshService;
 use crate::modules::likes::cold as likes_cold;
 use crate::modules::sync_queue::SyncQueueService;
-use crate::sc::ScClient;
+use crate::sc::{ScClient, ScReadService, SearchType};
 
 const TTL_SEARCH: u64 = 300;
 const TTL_RELATED: u64 = 86400;
@@ -28,6 +29,7 @@ pub struct TracksService {
     sync_queue: Arc<SyncQueueService>,
     cold_refresh: Arc<ColdRefreshService>,
     tokens: Arc<TokenProvider>,
+    read: Arc<ScReadService>,
 }
 
 impl TracksService {
@@ -38,6 +40,7 @@ impl TracksService {
         sync_queue: Arc<SyncQueueService>,
         cold_refresh: Arc<ColdRefreshService>,
         tokens: Arc<TokenProvider>,
+        read: Arc<ScReadService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
@@ -46,6 +49,7 @@ impl TracksService {
             sync_queue,
             cold_refresh,
             tokens,
+            read,
         })
     }
 
@@ -60,21 +64,40 @@ impl TracksService {
         extra: Vec<(String, String)>,
     ) -> AppResult<ListPageResult<Value>> {
         let cache_key = build_list_cache_key("tracks-search", &as_pairs(&extra));
-        let mut result = sc_list_page(ScListPageArgs {
-            list_cache: &self.list_cache,
-            sc: &self.sc,
-            tokens: &self.tokens,
-            kind: TokenKind::UserFirst(session_id),
-            cache_key: &cache_key,
-            ttl: TTL_SEARCH,
-            scope: CacheScope::Shared,
-            session_id: None,
-            page,
-            limit,
-            path: "/tracks".into(),
-            extra_params: extra,
-        })
-        .await?;
+        // Plain text query → apiv2 search (token-free). id-batch / genre+tag facets stay
+        // on apiv1 (`/tracks?ids` and faceted search have no token-free apiv2 mapping here).
+        let mut result = match plain_query(&extra) {
+            Some(q) => {
+                sc_search_page(ScSearchArgs {
+                    list_cache: &self.list_cache,
+                    read: &self.read,
+                    ty: SearchType::Tracks,
+                    q,
+                    cache_key: &cache_key,
+                    ttl: TTL_SEARCH,
+                    page,
+                    limit,
+                })
+                .await?
+            }
+            None => {
+                sc_list_page(ScListPageArgs {
+                    list_cache: &self.list_cache,
+                    sc: &self.sc,
+                    tokens: &self.tokens,
+                    kind: TokenKind::UserFirst(session_id),
+                    cache_key: &cache_key,
+                    ttl: TTL_SEARCH,
+                    scope: CacheScope::Shared,
+                    session_id: None,
+                    page,
+                    limit,
+                    path: "/tracks".into(),
+                    extra_params: extra,
+                })
+                .await?
+            }
+        };
         likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;
         Ok(result)
     }
@@ -134,14 +157,12 @@ impl TracksService {
                 });
                 if self.cold_refresh.is_track_stale(Some(synced_at)) {
                     let refresh = self.cold_refresh.clone();
-                    let tokens = self.tokens.clone();
                     let urn = track_urn.to_string();
                     tokio::spawn(async move {
-                        let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
-                            Ok(c) => c,
-                            Err(_) => return,
-                        };
-                        if let Err(e) = refresh.refresh_track(&urn, &chain).await {
+                        if let Err(e) = refresh
+                            .refresh_track(&urn, TokenKind::UserFirst(session_id))
+                            .await
+                        {
                             tracing::debug!(error = %e, urn = %urn, "track refresh failed");
                         }
                     });
@@ -153,14 +174,10 @@ impl TracksService {
                     crate::modules::tracks::project_to_sc_shape(&track_row, None)
                 })
             } else {
-                let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
-                let fetched: Value = try_with_chain(&chain, |tok| {
-                    let sc = self.sc.clone();
-                    let path = format!("/tracks/{track_urn}");
-                    let params = params.to_vec();
-                    async move { sc.api_get_value(&path, &tok, Some(&params)).await }
-                })
-                .await?;
+                let fetched = self
+                    .read
+                    .track_by_id(TokenKind::UserFirst(session_id), &sc_track_id)
+                    .await?;
                 if let Some(refresh_indexing) = self.cold_refresh.indexing_for_ingest() {
                     refresh_indexing
                         .ingest_track_from_sc(

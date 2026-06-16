@@ -6,7 +6,8 @@ use uuid::Uuid;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
-    build_list_cache_key, sc_list_page, ListCacheService, ListPageResult, ScListPageArgs,
+    build_list_cache_key, plain_query, sc_list_page, sc_search_page, ListCacheService,
+    ListPageResult, ScListPageArgs, ScSearchArgs,
 };
 use crate::common::sc_ids::extract_sc_id;
 use crate::error::{AppError, AppResult};
@@ -14,7 +15,7 @@ use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::cold_refresh::ColdRefreshService;
 use crate::modules::playlists::PlaylistRepository;
 use crate::modules::sync_queue::SyncQueueService;
-use crate::sc::{self, ScClient};
+use crate::sc::{self, ScClient, ScReadService, SearchType};
 
 const TTL_SEARCH: u64 = 300;
 const TTL_REPOSTERS: u64 = 600;
@@ -36,6 +37,7 @@ pub struct PlaylistsService {
     sync_queue: Arc<SyncQueueService>,
     cold_refresh: Arc<ColdRefreshService>,
     tokens: Arc<TokenProvider>,
+    read: Arc<ScReadService>,
 }
 
 impl PlaylistsService {
@@ -46,6 +48,7 @@ impl PlaylistsService {
         sync_queue: Arc<SyncQueueService>,
         cold_refresh: Arc<ColdRefreshService>,
         tokens: Arc<TokenProvider>,
+        read: Arc<ScReadService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
@@ -54,6 +57,7 @@ impl PlaylistsService {
             sync_queue,
             cold_refresh,
             tokens,
+            read,
         })
     }
 
@@ -65,21 +69,38 @@ impl PlaylistsService {
         extra: Vec<(String, String)>,
     ) -> AppResult<ListPageResult<Value>> {
         let key = build_list_cache_key("playlists-search", &as_pairs(&extra));
-        sc_list_page(ScListPageArgs {
-            list_cache: &self.list_cache,
-            sc: &self.sc,
-            tokens: &self.tokens,
-            kind: TokenKind::UserFirst(session_id),
-            cache_key: &key,
-            ttl: TTL_SEARCH,
-            scope: CacheScope::Shared,
-            session_id: None,
-            page,
-            limit,
-            path: "/playlists".into(),
-            extra_params: extra,
-        })
-        .await
+        match plain_query(&extra) {
+            Some(q) => {
+                sc_search_page(ScSearchArgs {
+                    list_cache: &self.list_cache,
+                    read: &self.read,
+                    ty: SearchType::PlaylistsWithoutAlbums,
+                    q,
+                    cache_key: &key,
+                    ttl: TTL_SEARCH,
+                    page,
+                    limit,
+                })
+                .await
+            }
+            None => {
+                sc_list_page(ScListPageArgs {
+                    list_cache: &self.list_cache,
+                    sc: &self.sc,
+                    tokens: &self.tokens,
+                    kind: TokenKind::UserFirst(session_id),
+                    cache_key: &key,
+                    ttl: TTL_SEARCH,
+                    scope: CacheScope::Shared,
+                    session_id: None,
+                    page,
+                    limit,
+                    path: "/playlists".into(),
+                    extra_params: extra,
+                })
+                .await
+            }
+        }
     }
 
     /// Создание плейлиста — без cold: фронту нужен URN сразу. Идём в SC, на
@@ -189,28 +210,25 @@ impl PlaylistsService {
             }
             if self.cold_refresh.is_playlist_stale(Some(synced_at)) {
                 let refresh = self.cold_refresh.clone();
-                let tokens = self.tokens.clone();
                 let urn = playlist_urn.to_string();
                 tokio::spawn(async move {
-                    let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
-                        Ok(c) => c,
-                        Err(_) => return,
-                    };
-                    if let Err(e) = refresh.refresh_playlist(&urn, &chain).await {
+                    if let Err(e) = refresh
+                        .refresh_playlist(&urn, TokenKind::UserFirst(session_id))
+                        .await
+                    {
                         tracing::debug!(error = %e, urn = %urn, "playlist refresh failed");
                     }
                 });
             }
             return Ok(crate::modules::playlists::project_to_sc_shape(&row, None));
         }
-        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
-        let fetched: Value = try_with_chain(&chain, |tok| {
-            let sc = self.sc.clone();
-            let path = format!("/playlists/{playlist_urn}");
-            let params = params.to_vec();
-            async move { sc.api_get_value(&path, &tok, Some(&params)).await }
-        })
-        .await?;
+        let fetched = self
+            .read
+            .playlist_meta(
+                TokenKind::UserFirst(session_id),
+                extract_sc_id(playlist_urn),
+            )
+            .await?;
         repo.upsert_from_sc(&fetched).await?;
         Ok(fetched)
     }
@@ -331,19 +349,17 @@ impl PlaylistsService {
         if repo.has_pending_intent(playlist_urn).await? {
             return Ok(());
         }
-        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+        let kind = TokenKind::UserFirst(session_id);
         if needs_meta {
-            let fetched: Value = try_with_chain(&chain, |tok| {
-                let sc = self.sc.clone();
-                let path = format!("/playlists/{playlist_urn}");
-                async move { sc.api_get_value(&path, &tok, None).await }
-            })
-            .await?;
+            let fetched = self
+                .read
+                .playlist_meta(kind, extract_sc_id(playlist_urn))
+                .await?;
             repo.upsert_from_sc(&fetched).await?;
         }
         if needs_tracks {
             self.cold_refresh
-                .refresh_playlist_tracks(playlist_urn, &chain)
+                .refresh_playlist_tracks(playlist_urn, kind)
                 .await?;
         }
         Ok(())
@@ -489,19 +505,17 @@ impl PlaylistsService {
         };
 
         if needs_seed {
-            let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
+            let kind = TokenKind::UserFirst(session_id);
             // Если плейлиста ещё нет в `playlists` — UPSERT meta перед track-list.
             if playlist_row.is_none() {
-                let fetched: Value = try_with_chain(&chain, |tok| {
-                    let sc = self.sc.clone();
-                    let path = format!("/playlists/{playlist_urn}");
-                    async move { sc.api_get_value(&path, &tok, None).await }
-                })
-                .await?;
+                let fetched = self
+                    .read
+                    .playlist_meta(kind, extract_sc_id(playlist_urn))
+                    .await?;
                 repo.upsert_from_sc(&fetched).await?;
             }
             self.cold_refresh
-                .refresh_playlist_tracks(playlist_urn, &chain)
+                .refresh_playlist_tracks(playlist_urn, kind)
                 .await?;
             // Первый заход (row был None): перечитываем мету, иначе can_see_private
             // ниже посчитается по None → owner своего приватного плейлиста увидел
@@ -519,14 +533,12 @@ impl PlaylistsService {
             let is_owner = row.owner_sc_user_id.as_deref() == Some(viewer);
             if !is_owner && self.cold_refresh.is_playlist_stale(row.tracks_synced_at) {
                 let refresh = self.cold_refresh.clone();
-                let tokens = self.tokens.clone();
                 let urn = playlist_urn.to_string();
                 tokio::spawn(async move {
-                    let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
-                        Ok(c) => c,
-                        Err(_) => return,
-                    };
-                    if let Err(e) = refresh.refresh_playlist_tracks(&urn, &chain).await {
+                    if let Err(e) = refresh
+                        .refresh_playlist_tracks(&urn, TokenKind::UserFirst(session_id))
+                        .await
+                    {
                         tracing::debug!(error = %e, urn = %urn, "playlist tracks refresh failed");
                     }
                 });

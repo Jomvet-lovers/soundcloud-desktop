@@ -21,12 +21,12 @@ use crate::modules::me::MeService;
 use crate::modules::oauth_apps::OAuthAppsService;
 use crate::modules::playlists::PlaylistsService;
 use crate::modules::recommendations::RecommendationsService;
-use crate::modules::resolve::ResolveService;
 use crate::modules::search::{SearchService, VibeSearchService};
 use crate::modules::subscriptions::SubscriptionsService;
 use crate::modules::sync_queue::SyncQueueService;
 use crate::modules::tracks::TracksService;
 use crate::modules::users::UsersService;
+use crate::sc::ScReadService;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -47,7 +47,7 @@ pub struct AppState {
     pub playlists: Arc<PlaylistsService>,
     pub users: Arc<UsersService>,
     pub likes: Arc<LikesService>,
-    pub resolve: Arc<ResolveService>,
+    pub resolve: Arc<ScReadService>,
     pub search: Arc<SearchService>,
     pub vibe: Arc<VibeSearchService>,
     pub history: Arc<HistoryService>,

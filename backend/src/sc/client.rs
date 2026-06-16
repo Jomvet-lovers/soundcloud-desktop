@@ -261,34 +261,6 @@ impl ScClient {
         decode_json(&bytes)
     }
 
-    pub async fn api_get_value_direct(
-        &self,
-        path: &str,
-        access_token: &str,
-        params: Option<&[(String, String)]>,
-    ) -> AppResult<Value> {
-        let url = build_api_url(path, params);
-        let headers = auth_headers(access_token, false);
-        let bytes = self.send_direct(Method::GET, &url, headers, None).await?;
-        self.observe(&bytes, access_token);
-        decode_json(&bytes)
-    }
-
-    pub async fn api_get_value_via_relay_proxy(
-        &self,
-        path: &str,
-        access_token: &str,
-        params: Option<&[(String, String)]>,
-    ) -> AppResult<Value> {
-        let url = build_api_url(path, params);
-        let headers = auth_headers(access_token, false);
-        let bytes = self
-            .race_relay_proxy(Method::GET, &url, headers, None)
-            .await?;
-        self.observe(&bytes, access_token);
-        decode_json(&bytes)
-    }
-
     pub async fn anon_get_via_relay_proxy(
         &self,
         target_url: &str,
@@ -385,6 +357,90 @@ impl ScClient {
         } else {
             None
         }
+    }
+
+    /// apiv2 playlist (+ full ordered tracks when `hydrate`) via the relay (the signed
+    /// `sc.playlist_full` Lua method). Returns the RAW apiv2 playlist, or None to fall back.
+    pub async fn playlist_full_via_relay(&self, playlist_id: &str, hydrate: bool) -> Option<Value> {
+        let inputs =
+            serde_json::to_vec(&serde_json::json!({ "id": playlist_id, "hydrate": hydrate }))
+                .ok()?;
+        let v = self
+            .call_relay_method(
+                "sc.playlist_full",
+                crate::sc::lua_methods::PLAYLIST_FULL,
+                inputs,
+            )
+            .await?;
+        (v.get("ok").and_then(Value::as_bool) == Some(true))
+            .then(|| v.get("playlist").cloned())
+            .flatten()
+    }
+
+    /// apiv2 one page of a public per-user collection via the relay (`sc.user_collection`).
+    /// Returns the RAW `{ collection, next_href }` response, or None to fall back.
+    pub async fn user_collection_via_relay(
+        &self,
+        user_id: &str,
+        kind: &str,
+        cursor: Option<&str>,
+        limit: i64,
+    ) -> Option<Value> {
+        let inputs = serde_json::to_vec(&serde_json::json!({
+            "user_id": user_id, "kind": kind, "cursor": cursor, "limit": limit,
+        }))
+        .ok()?;
+        let v = self
+            .call_relay_method(
+                "sc.user_collection",
+                crate::sc::lua_methods::USER_COLLECTION,
+                inputs,
+            )
+            .await?;
+        (v.get("ok").and_then(Value::as_bool) == Some(true)).then_some(v)
+    }
+
+    /// apiv2 one page of a typed search via the relay (`sc.search`). Returns the RAW
+    /// `{ collection, next_href, total_results }` response, or None to fall back.
+    pub async fn search_via_relay(
+        &self,
+        search_type: &str,
+        q: &str,
+        cursor: Option<&str>,
+        limit: i64,
+    ) -> Option<Value> {
+        let inputs = serde_json::to_vec(&serde_json::json!({
+            "type": search_type, "q": q, "cursor": cursor, "limit": limit,
+        }))
+        .ok()?;
+        let v = self
+            .call_relay_method("sc.search", crate::sc::lua_methods::SEARCH, inputs)
+            .await?;
+        (v.get("ok").and_then(Value::as_bool) == Some(true)).then_some(v)
+    }
+
+    /// Run a signed Lua method via the relay, returning its parsed JSON output or None
+    /// (no relay / disabled / transport error / bad JSON — the caller falls back).
+    async fn call_relay_method(
+        &self,
+        method_id: &'static str,
+        script: &'static str,
+        inputs: Vec<u8>,
+    ) -> Option<Value> {
+        let relay = self.inner.relay.as_ref()?;
+        let out = match relay
+            .call_method(method_id, script, Bytes::from(inputs))
+            .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                if !e.is_disabled() {
+                    tracing::debug!(error = %e, method = method_id, "relay lua method failed");
+                }
+                return None;
+            }
+        };
+        serde_json::from_slice(&out).ok()
     }
 
     pub async fn api_post<B: serde::Serialize, T: DeserializeOwned>(

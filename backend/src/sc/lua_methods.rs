@@ -14,3 +14,12 @@ pub const TRACK_BY_ID: &str = call_lua_macros::lua_script!("sc_methods/track_by_
 
 /// apiv2 /users/{id} (token-free public profile).
 pub const USER_BY_ID: &str = call_lua_macros::lua_script!("sc_methods/user_by_id.lua");
+
+/// apiv2 playlist + its full ordered track list (batch /tracks?ids hydration) in one call.
+pub const PLAYLIST_FULL: &str = call_lua_macros::lua_script!("sc_methods/playlist_full.lua");
+
+/// apiv2 one page of a public per-user collection (likes/playlists/followings/tracks).
+pub const USER_COLLECTION: &str = call_lua_macros::lua_script!("sc_methods/user_collection.lua");
+
+/// apiv2 one page of a typed search (tracks/users/playlists/albums).
+pub const SEARCH: &str = call_lua_macros::lua_script!("sc_methods/search.lua");

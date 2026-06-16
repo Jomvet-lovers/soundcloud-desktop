@@ -17,7 +17,7 @@ use crate::modules::auth::health::{AuthHealthService, RefreshFailKind};
 use crate::modules::auth::model::{LoginRequest, Session};
 use crate::modules::oauth_apps::model::OAuthApp;
 use crate::modules::oauth_apps::OAuthAppsService;
-use crate::modules::resolve::anon::AnonResolveClient;
+use crate::sc::Apiv2Proxy;
 use crate::sc::{self, OAuthCredentials, ScClient, ScMe};
 use serde_json::Value;
 
@@ -71,7 +71,7 @@ pub struct LoginStatusResult {
 pub struct AuthService {
     pool: PgPool,
     sc: ScClient,
-    anon: AnonResolveClient,
+    anon: Apiv2Proxy,
     oauth_apps: Arc<OAuthAppsService>,
     config: Arc<AppConfig>,
     health: Arc<AuthHealthService>,
@@ -86,7 +86,7 @@ impl AuthService {
         config: Arc<AppConfig>,
         health: Arc<AuthHealthService>,
     ) -> Arc<Self> {
-        let anon = AnonResolveClient::new(sc.clone());
+        let anon = Apiv2Proxy::new(sc.clone());
         Arc::new(Self {
             pool,
             sc,
@@ -621,7 +621,7 @@ impl AuthService {
         > = Box::pin(self.sc.api_get::<Value>("/me", token, None));
         let anon_fut: std::pin::Pin<
             Box<dyn std::future::Future<Output = AppResult<Value>> + Send + '_>,
-        > = Box::pin(self.anon.fetch_user(nid));
+        > = Box::pin(self.anon.user(nid));
         match tokio::time::timeout(
             Duration::from_secs(PROFILE_TIMEOUT_SEC),
             futures::future::select_ok(vec![me_fut, anon_fut]),

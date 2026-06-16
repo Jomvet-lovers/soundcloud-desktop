@@ -9,8 +9,6 @@ use std::future::Future;
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde_json::Value;
-
 use crate::error::{AppError, AppResult};
 
 /// How a primary and a backup channel are combined.
@@ -74,10 +72,10 @@ impl ChannelHealth {
 
 /// Hedge: run `primary`; if it hasn't succeeded within `delay`, also run `backup`
 /// and take the first success. Both fail → the last error.
-pub async fn hedge<P, B>(primary: P, delay: Duration, backup: B) -> AppResult<Value>
+pub async fn hedge<T, P, B>(primary: P, delay: Duration, backup: B) -> AppResult<T>
 where
-    P: Future<Output = AppResult<Value>>,
-    B: Future<Output = AppResult<Value>>,
+    P: Future<Output = AppResult<T>>,
+    B: Future<Output = AppResult<T>>,
 {
     tokio::pin!(primary);
     match tokio::time::timeout(delay, &mut primary).await {
@@ -89,19 +87,19 @@ where
 }
 
 /// Race: both fired together, first success wins; both fail → the last error.
-pub async fn race<P, B>(primary: P, backup: B) -> AppResult<Value>
+pub async fn race<T, P, B>(primary: P, backup: B) -> AppResult<T>
 where
-    P: Future<Output = AppResult<Value>>,
-    B: Future<Output = AppResult<Value>>,
+    P: Future<Output = AppResult<T>>,
+    B: Future<Output = AppResult<T>>,
 {
     tokio::pin!(primary);
     first_success(primary, backup).await
 }
 
-async fn first_success<P, B>(mut primary: std::pin::Pin<&mut P>, backup: B) -> AppResult<Value>
+async fn first_success<T, P, B>(mut primary: std::pin::Pin<&mut P>, backup: B) -> AppResult<T>
 where
-    P: Future<Output = AppResult<Value>>,
-    B: Future<Output = AppResult<Value>>,
+    P: Future<Output = AppResult<T>>,
+    B: Future<Output = AppResult<T>>,
 {
     tokio::pin!(backup);
     // Each arm is disabled once its channel has resolved, so the select never sees
@@ -138,6 +136,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     #[test]
     fn breaker_trips_after_threshold_and_resets_on_ok() {

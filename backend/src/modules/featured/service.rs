@@ -9,9 +9,9 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::modules::auth::AuthService;
+use crate::modules::auth::TokenKind;
 use crate::modules::likes::cold as likes_cold;
-use crate::sc::ScClient;
+use crate::sc::ScReadService;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeaturedItemType {
@@ -54,13 +54,12 @@ pub struct FeaturedResult {
 
 pub struct FeaturedService {
     pg: sqlx::PgPool,
-    sc: ScClient,
-    auth: Arc<AuthService>,
+    read: Arc<ScReadService>,
 }
 
 impl FeaturedService {
-    pub fn new(pg: sqlx::PgPool, sc: ScClient, auth: Arc<AuthService>) -> Arc<Self> {
-        Arc::new(Self { pg, sc, auth })
+    pub fn new(pg: sqlx::PgPool, read: Arc<ScReadService>) -> Arc<Self> {
+        Arc::new(Self { pg, read })
     }
 
     pub async fn find_all(&self) -> AppResult<Vec<FeaturedItem>> {
@@ -184,9 +183,9 @@ impl FeaturedService {
         let picked = weighted_random(&items);
         let session_uuid = Uuid::parse_str(session_id)
             .map_err(|_| AppError::unauthorized("Malformed session id"))?;
-        let token = self.auth.get_valid_access_token(session_uuid).await?;
+        let kind = TokenKind::UserFirst(session_uuid);
 
-        match self.resolve(picked, &token, sc_user_id).await {
+        match self.resolve(picked, kind, sc_user_id).await {
             Ok(r) => Ok(Some(r)),
             Err(e) => {
                 warn!(
@@ -203,38 +202,36 @@ impl FeaturedService {
     async fn resolve(
         &self,
         item: &FeaturedItem,
-        token: &str,
+        kind: TokenKind,
         sc_user_id: &str,
     ) -> AppResult<FeaturedResult> {
+        let id = crate::common::sc_ids::extract_sc_id(&item.sc_urn);
         match item.type_.as_str() {
             "track" => {
-                let mut track: Value = self
-                    .sc
-                    .api_get_value(&format!("/tracks/{}", item.sc_urn), token, None)
-                    .await?;
+                let track = self.read.track_by_id(kind, id).await?;
                 let mut single = vec![track];
                 likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut single).await?;
-                track = single.into_iter().next().unwrap_or(Value::Null);
                 Ok(FeaturedResult {
                     type_: "track".into(),
-                    data: track,
+                    data: single.into_iter().next().unwrap_or(Value::Null),
                 })
             }
             "playlist" => {
-                let playlist: Value = self
-                    .sc
-                    .api_get_value(&format!("/playlists/{}", item.sc_urn), token, None)
-                    .await?;
+                let mut playlist = self.read.playlist_meta(kind, id).await?;
+                // Featured cards expect full tracks (apiv1 embedded them); hydrate via
+                // apiv2 best-effort so the card isn't left with id-stubs.
+                if let Ok(tracks) = self.read.playlist_tracks(id).await {
+                    if let Some(obj) = playlist.as_object_mut() {
+                        obj.insert("tracks".into(), Value::Array(tracks));
+                    }
+                }
                 Ok(FeaturedResult {
                     type_: "playlist".into(),
                     data: playlist,
                 })
             }
             "user" => {
-                let user: Value = self
-                    .sc
-                    .api_get_value(&format!("/users/{}", item.sc_urn), token, None)
-                    .await?;
+                let user = self.read.user_by_id(kind, id).await?;
                 Ok(FeaturedResult {
                     type_: "user".into(),
                     data: user,

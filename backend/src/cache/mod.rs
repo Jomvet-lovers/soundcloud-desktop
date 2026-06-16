@@ -6,4 +6,7 @@ pub use cache_service::CacheService;
 pub use list_cache_service::{
     build_list_cache_key, FetchChunkResult, GetPageOptions, ListCacheService, ListPageResult,
 };
-pub use sc_pagination::{list_page as sc_list_page, ScListPageArgs};
+pub use sc_pagination::{
+    list_page as sc_list_page, plain_query, search_page as sc_search_page, ScListPageArgs,
+    ScSearchArgs,
+};

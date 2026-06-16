@@ -46,7 +46,6 @@ use crate::modules::me::MeService;
 use crate::modules::oauth_apps::{OAuthAppTokenService, OAuthAppsService};
 use crate::modules::playlists::PlaylistsService;
 use crate::modules::recommendations::{RecommendationsService, S3VerifierService};
-use crate::modules::resolve::ResolveService;
 use crate::modules::search::SearchService;
 use crate::modules::subscriptions::SubscriptionsService;
 use crate::modules::sync_queue::SyncQueueService;
@@ -54,7 +53,7 @@ use crate::modules::tracks::TracksService;
 use crate::modules::transcode::TranscodeTriggerService;
 use crate::modules::users::UsersService;
 use crate::qdrant::QdrantService;
-use crate::sc::ScClient;
+use crate::sc::{ScClient, ScReadService};
 use crate::state::AppState;
 
 const BG_TICK: Duration = Duration::from_secs(60);
@@ -162,6 +161,10 @@ async fn main() {
             .spawn_refresh_loop(shutdown.clone());
     }
     let tokens = TokenProvider::new(auth.clone(), oauth_app_tokens.clone());
+    // The public-read facade: apiv2 via relay (Lua) → apiv2 via proxy&relay → apiv1.
+    // Token-free on the primary tiers, so public reads work even where the OAuth-app
+    // pool is empty (the star/reserve node). Injected into every public read path.
+    let resolve = ScReadService::new(sc.clone(), tokens.clone());
 
     let cache = CacheService::new(redis_pool.clone());
     let list_cache = ListCacheService::new(redis_pool.clone());
@@ -180,8 +183,14 @@ async fn main() {
     let auras = AurasService::new(pg.clone(), subscriptions.clone());
     let sync_queue =
         SyncQueueService::new(pg.clone(), sc.clone(), auth.clone(), redis_pool.clone());
-    let cold_refresh =
-        ColdRefreshService::new(sc.clone(), pg.clone(), cache.clone(), config.cold.clone());
+    let cold_refresh = ColdRefreshService::new(
+        sc.clone(),
+        pg.clone(),
+        cache.clone(),
+        config.cold.clone(),
+        resolve.clone(),
+        tokens.clone(),
+    );
     let me = MeService::new(
         sc.clone(),
         pg.clone(),
@@ -195,6 +204,7 @@ async fn main() {
         sync_queue.clone(),
         cold_refresh.clone(),
         tokens.clone(),
+        resolve.clone(),
     );
     let playlists = PlaylistsService::new(
         sc.clone(),
@@ -203,6 +213,7 @@ async fn main() {
         sync_queue.clone(),
         cold_refresh.clone(),
         tokens.clone(),
+        resolve.clone(),
     );
     let users = UsersService::new(
         sc.clone(),
@@ -210,12 +221,12 @@ async fn main() {
         list_cache.clone(),
         cold_refresh.clone(),
         tokens.clone(),
+        resolve.clone(),
     );
     let dislikes = DislikesService::new(pg.clone(), events.clone());
-    let resolve = ResolveService::new(sc.clone(), tokens.clone());
     let search = SearchService::new(pg.clone(), cache.clone());
     let history = HistoryService::new(pg.clone());
-    let featured = FeaturedService::new(pg.clone(), sc.clone(), auth.clone());
+    let featured = FeaturedService::new(pg.clone(), resolve.clone());
     let s3_verifier =
         S3VerifierService::new(http_client.clone(), config.storage.url.clone(), pg.clone());
     let transcode = TranscodeTriggerService::new(

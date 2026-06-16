@@ -10,12 +10,12 @@ use crate::cache::{CacheService, ListPageResult};
 use crate::common::sc_ids::extract_sc_id;
 use crate::config::ColdCfg;
 use crate::error::AppResult;
-use crate::modules::auth::try_with_chain;
+use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::indexing::IndexingService;
 use crate::modules::playlists::PlaylistRepository;
 use crate::modules::tracks::{TrackPriority, TrackRepository};
 use crate::modules::users::{project_to_sc_shape as project_user, UserRepository};
-use crate::sc::ScClient;
+use crate::sc::{PublicCollection, ScClient, ScReadService};
 
 const REFRESH_PAGE_LIMIT: u64 = 200;
 
@@ -140,6 +140,19 @@ pub const OWNED_TRACKS: UserCollection = UserCollection {
     order_by_release: true,
 };
 
+/// The apiv2 public-collection equivalent (channel A/B). All of these are public per-user
+/// feeds, so a non-owner view can read them token-free via apiv2.
+fn public_collection(coll: &UserCollection) -> Option<PublicCollection> {
+    match coll.lock_kind {
+        k if k == LIKED_TRACKS.lock_kind => Some(PublicCollection::TrackLikes),
+        k if k == LIKED_PLAYLISTS.lock_kind => Some(PublicCollection::PlaylistLikes),
+        k if k == FOLLOWINGS.lock_kind => Some(PublicCollection::Followings),
+        k if k == OWNED_PLAYLISTS.lock_kind => Some(PublicCollection::Playlists),
+        k if k == OWNED_TRACKS.lock_kind => Some(PublicCollection::OwnedTracks),
+        _ => None,
+    }
+}
+
 fn resolve_sc_path(coll: &UserCollection, sc_user_id: &str, viewer_is_owner: bool) -> String {
     if viewer_is_owner {
         coll.sc_path_self.to_string()
@@ -171,10 +184,21 @@ pub struct ColdRefreshService {
     users: UserRepository,
     playlists: PlaylistRepository,
     indexing: OnceCell<Arc<IndexingService>>,
+    /// Public reads (apiv2 chain). Owner `/me/*` private reads stay on `sc` + apiv1.
+    read: Arc<ScReadService>,
+    /// Computes the apiv1 token chain for the owner path / channel-C fallback.
+    tokens: Arc<TokenProvider>,
 }
 
 impl ColdRefreshService {
-    pub fn new(sc: ScClient, pg: PgPool, cache: Arc<CacheService>, cfg: ColdCfg) -> Arc<Self> {
+    pub fn new(
+        sc: ScClient,
+        pg: PgPool,
+        cache: Arc<CacheService>,
+        cfg: ColdCfg,
+        read: Arc<ScReadService>,
+        tokens: Arc<TokenProvider>,
+    ) -> Arc<Self> {
         let sem = Arc::new(Semaphore::new(cfg.refresh_concurrency));
         let tracks = TrackRepository::new(pg.clone());
         let users = UserRepository::new(pg.clone());
@@ -189,6 +213,8 @@ impl ColdRefreshService {
             users,
             playlists,
             indexing: OnceCell::new(),
+            read,
+            tokens,
         })
     }
 
@@ -240,7 +266,7 @@ impl ColdRefreshService {
         coll: UserCollection,
         sc_user_id: &str,
         viewer_is_owner: bool,
-        chain: &[String],
+        kind: TokenKind,
         extra_params: &[(String, String)],
     ) -> AppResult<()> {
         let max_synced: Option<DateTime<Utc>> = sqlx::query_scalar(&format!(
@@ -252,7 +278,7 @@ impl ColdRefreshService {
         .await?;
 
         if max_synced.is_none() {
-            self.refresh_collection(coll, sc_user_id, viewer_is_owner, chain, extra_params)
+            self.refresh_collection(coll, sc_user_id, viewer_is_owner, kind, extra_params)
                 .await?;
             return Ok(());
         }
@@ -262,11 +288,10 @@ impl ColdRefreshService {
 
         let me = Arc::clone(self);
         let user = sc_user_id.to_string();
-        let chain = chain.to_vec();
         let extra = extra_params.to_vec();
         tokio::spawn(async move {
             if let Err(e) = me
-                .refresh_collection(coll, &user, viewer_is_owner, &chain, &extra)
+                .refresh_collection(coll, &user, viewer_is_owner, kind, &extra)
                 .await
             {
                 debug!(error = %e, user = %user, kind = coll.lock_kind, "background refresh failed");
@@ -282,7 +307,7 @@ impl ColdRefreshService {
         coll: UserCollection,
         sc_user_id: &str,
         viewer_is_owner: bool,
-        chain: &[String],
+        kind: TokenKind,
         extra_params: &[(String, String)],
     ) -> AppResult<()> {
         let key = format!("refresh:{}:{sc_user_id}", coll.lock_kind);
@@ -290,11 +315,12 @@ impl ColdRefreshService {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let path = resolve_sc_path(&coll, sc_user_id, viewer_is_owner);
         // Старт фиксируем ДО фетча: orphan-delete не трогает строки, синканные
         // после этого момента (см. delete_orphans grace-window).
         let reconcile_started_at = Utc::now();
-        let (items, complete) = self.fetch_all_pages(&path, chain, extra_params).await?;
+        let (items, complete) = self
+            .fetch_collection(&coll, sc_user_id, viewer_is_owner, kind, extra_params)
+            .await?;
 
         // SC отдаёт новые сверху; разворачиваем под наш ORDER BY created_at DESC.
         let ordered: Vec<(String, &Value)> = items
@@ -412,19 +438,17 @@ impl ColdRefreshService {
     pub async fn refresh_track(
         self: &Arc<Self>,
         track_urn: &str,
-        chain: &[String],
+        kind: TokenKind,
     ) -> AppResult<()> {
         let key = format!("refresh:track:{track_urn}");
         let Some(_lock) = self.try_lock(&key).await? else {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let fetched: Value = try_with_chain(chain, |tok| {
-            let sc = self.sc.clone();
-            let path = format!("/tracks/{track_urn}");
-            async move { sc.api_get_value(&path, &tok, None).await }
-        })
-        .await?;
+        let fetched = self
+            .read
+            .track_by_id(kind, extract_sc_id(track_urn))
+            .await?;
         if let Some(indexing) = self.indexing.get() {
             indexing
                 .ingest_track_from_sc(&fetched, TrackPriority::Discovery)
@@ -440,35 +464,28 @@ impl ColdRefreshService {
         Ok(())
     }
 
-    pub async fn refresh_user(&self, user_urn: &str, chain: &[String]) -> AppResult<()> {
+    pub async fn refresh_user(&self, user_urn: &str, kind: TokenKind) -> AppResult<()> {
         let key = format!("refresh:user:{user_urn}");
         let Some(_lock) = self.try_lock(&key).await? else {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let fetched: Value = try_with_chain(chain, |tok| {
-            let sc = self.sc.clone();
-            let path = format!("/users/{user_urn}");
-            async move { sc.api_get_value(&path, &tok, None).await }
-        })
-        .await?;
+        let fetched = self.read.user_by_id(kind, extract_sc_id(user_urn)).await?;
         self.users.upsert_from_sc(&fetched).await?;
         debug!(urn = %user_urn, "user refreshed");
         Ok(())
     }
 
-    pub async fn refresh_playlist(&self, playlist_urn: &str, chain: &[String]) -> AppResult<()> {
+    pub async fn refresh_playlist(&self, playlist_urn: &str, kind: TokenKind) -> AppResult<()> {
         let key = format!("refresh:playlist:{playlist_urn}");
         let Some(_lock) = self.try_lock(&key).await? else {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let fetched: Value = try_with_chain(chain, |tok| {
-            let sc = self.sc.clone();
-            let path = format!("/playlists/{playlist_urn}");
-            async move { sc.api_get_value(&path, &tok, None).await }
-        })
-        .await?;
+        let fetched = self
+            .read
+            .playlist_meta(kind, extract_sc_id(playlist_urn))
+            .await?;
         self.playlists.upsert_from_sc(&fetched).await?;
         debug!(urn = %playlist_urn, "playlist refreshed");
         Ok(())
@@ -480,16 +497,23 @@ impl ColdRefreshService {
     pub async fn refresh_playlist_tracks(
         self: &Arc<Self>,
         playlist_urn: &str,
-        chain: &[String],
+        kind: TokenKind,
     ) -> AppResult<()> {
         let key = format!("refresh:playlist-tracks:{playlist_urn}");
         let Some(_lock) = self.try_lock(&key).await? else {
             return Ok(());
         };
         let _permit = self.sem.acquire().await.ok();
-        let (items, complete) = self
-            .fetch_all_pages(&format!("/playlists/{playlist_urn}/tracks"), chain, &[])
-            .await?;
+        // apiv2 one-shot (relay/proxy) returns the whole ordered list = complete; on
+        // failure fall back to apiv1 `/tracks` pagination (with its truncation guard).
+        let (items, complete) = match self.read.playlist_tracks(extract_sc_id(playlist_urn)).await {
+            Ok(tracks) => (tracks, true),
+            Err(_) => {
+                let chain = self.tokens.chain(kind).await?;
+                self.fetch_all_pages(&format!("/playlists/{playlist_urn}/tracks"), &chain, &[])
+                    .await?
+            }
+        };
 
         let mut ordered_ids: Vec<String> = Vec::with_capacity(items.len());
         for item in &items {
@@ -531,6 +555,36 @@ impl ColdRefreshService {
             .replace_tracks(playlist_urn, &ordered_ids)
             .await?;
         Ok(())
+    }
+
+    /// Choose the channel for a collection refresh: a non-owner public view goes through
+    /// the apiv2 chain (token-free A/B), falling back to apiv1 only if apiv2 can't begin;
+    /// the owner `/me/*` view (private items) stays on apiv1 with the user's token.
+    async fn fetch_collection(
+        &self,
+        coll: &UserCollection,
+        sc_user_id: &str,
+        viewer_is_owner: bool,
+        kind: TokenKind,
+        extra_params: &[(String, String)],
+    ) -> AppResult<(Vec<Value>, bool)> {
+        if !viewer_is_owner {
+            if let Some(pc) = public_collection(coll) {
+                match self
+                    .read
+                    .collection_all(pc, extract_sc_id(sc_user_id), REFRESH_PAGE_LIMIT as i64)
+                    .await
+                {
+                    Ok(r) => return Ok(r),
+                    Err(e) => {
+                        debug!(error = %e, kind = coll.lock_kind, "apiv2 collection failed; apiv1 fallback")
+                    }
+                }
+            }
+        }
+        let chain = self.tokens.chain(kind).await?;
+        let path = resolve_sc_path(coll, sc_user_id, viewer_is_owner);
+        self.fetch_all_pages(&path, &chain, extra_params).await
     }
 
     /// Идёт по SC pagination через `next_href` URL целиком (а не пересобирая

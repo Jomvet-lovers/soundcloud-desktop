@@ -6,8 +6,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::error::AppResult;
-use crate::modules::resolve::ResolveService;
 use crate::modules::tracks::TrackRepository;
+use crate::sc::ScReadService;
 
 const TICK: Duration = Duration::from_secs(120);
 const BATCH: i64 = 50;
@@ -15,12 +15,12 @@ const REQ_GAP: Duration = Duration::from_millis(150);
 
 pub struct DurationResolver {
     tracks: TrackRepository,
-    resolve: Arc<ResolveService>,
+    resolve: Arc<ScReadService>,
     max_track_duration_ms: i32,
 }
 
 impl DurationResolver {
-    pub fn new(pg: PgPool, resolve: Arc<ResolveService>, max_track_duration_ms: i32) -> Arc<Self> {
+    pub fn new(pg: PgPool, resolve: Arc<ScReadService>, max_track_duration_ms: i32) -> Arc<Self> {
         let tracks = TrackRepository::new(pg);
         Arc::new(Self {
             tracks,

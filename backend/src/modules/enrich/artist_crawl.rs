@@ -16,8 +16,7 @@ use crate::modules::enrich::sc_accounts::{
 use crate::modules::lyrics::genius::{
     GeniusAlbumTrack, GeniusArtistDetails, GeniusService, GeniusSongMeta,
 };
-use crate::modules::resolve::ResolveService;
-use crate::sc::ScClient;
+use crate::sc::{ScClient, ScReadService};
 
 const MB_PAGE_SIZE: u32 = 100;
 const GENIUS_PAGE_SIZE: u32 = 50;
@@ -28,7 +27,7 @@ pub struct ArtistCrawlService {
     genius: Arc<GeniusService>,
     sc: ScClient,
     tokens: Arc<TokenProvider>,
-    resolve: Arc<ResolveService>,
+    resolve: Arc<ScReadService>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -44,7 +43,7 @@ impl ArtistCrawlService {
         genius: Arc<GeniusService>,
         sc: ScClient,
         tokens: Arc<TokenProvider>,
-        resolve: Arc<ResolveService>,
+        resolve: Arc<ScReadService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             pg,

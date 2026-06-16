@@ -6,8 +6,10 @@ use uuid::Uuid;
 
 use crate::cache::cache_service::CacheScope;
 use crate::cache::{
-    build_list_cache_key, sc_list_page, ListCacheService, ListPageResult, ScListPageArgs,
+    build_list_cache_key, plain_query, sc_list_page, sc_search_page, ListCacheService,
+    ListPageResult, ScListPageArgs, ScSearchArgs,
 };
+use crate::common::sc_ids::extract_sc_id;
 use crate::error::AppResult;
 use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::modules::cold_refresh::{
@@ -15,7 +17,7 @@ use crate::modules::cold_refresh::{
     OWNED_PLAYLISTS, OWNED_TRACKS,
 };
 use crate::modules::likes::cold as likes_cold;
-use crate::sc::ScClient;
+use crate::sc::{ScClient, ScReadService, SearchType};
 
 const TTL_SEARCH: u64 = 300;
 const TTL_FOLLOWERS: u64 = 600;
@@ -26,6 +28,7 @@ pub struct UsersService {
     list_cache: Arc<ListCacheService>,
     cold_refresh: Arc<ColdRefreshService>,
     tokens: Arc<TokenProvider>,
+    read: Arc<ScReadService>,
 }
 
 impl UsersService {
@@ -35,6 +38,7 @@ impl UsersService {
         list_cache: Arc<ListCacheService>,
         cold_refresh: Arc<ColdRefreshService>,
         tokens: Arc<TokenProvider>,
+        read: Arc<ScReadService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sc,
@@ -42,6 +46,7 @@ impl UsersService {
             list_cache,
             cold_refresh,
             tokens,
+            read,
         })
     }
 
@@ -107,16 +112,33 @@ impl UsersService {
             extra.push(("ids".into(), v));
         }
         let key = build_list_cache_key("users-search", &as_pairs(&extra));
-        sc_list_page(self.list_args(
-            &key,
-            TTL_SEARCH,
-            page,
-            limit,
-            "/users".into(),
-            TokenKind::UserFirst(session_id),
-            extra,
-        ))
-        .await
+        match plain_query(&extra) {
+            Some(q) => {
+                sc_search_page(ScSearchArgs {
+                    list_cache: &self.list_cache,
+                    read: &self.read,
+                    ty: SearchType::Users,
+                    q,
+                    cache_key: &key,
+                    ttl: TTL_SEARCH,
+                    page,
+                    limit,
+                })
+                .await
+            }
+            None => {
+                sc_list_page(self.list_args(
+                    &key,
+                    TTL_SEARCH,
+                    page,
+                    limit,
+                    "/users".into(),
+                    TokenKind::UserFirst(session_id),
+                    extra,
+                ))
+                .await
+            }
+        }
     }
 
     /// Cold-read /users/{urn}: проекция из `users` → miss → SC + upsert.
@@ -130,27 +152,22 @@ impl UsersService {
             let _ = repo.touch_last_read(user_urn).await;
             if self.cold_refresh.is_user_stale(Some(synced_at)) {
                 let refresh = self.cold_refresh.clone();
-                let tokens = self.tokens.clone();
                 let urn = user_urn.to_string();
                 tokio::spawn(async move {
-                    let chain = match tokens.chain(TokenKind::UserFirst(session_id)).await {
-                        Ok(c) => c,
-                        Err(_) => return,
-                    };
-                    if let Err(e) = refresh.refresh_user(&urn, &chain).await {
+                    if let Err(e) = refresh
+                        .refresh_user(&urn, TokenKind::UserFirst(session_id))
+                        .await
+                    {
                         tracing::debug!(error = %e, urn = %urn, "user refresh failed");
                     }
                 });
             }
             return Ok(crate::modules::users::project_to_sc_shape(&row));
         }
-        let chain = self.tokens.chain(TokenKind::UserFirst(session_id)).await?;
-        let fetched: Value = try_with_chain(&chain, |tok| {
-            let sc = self.sc.clone();
-            let path = format!("/users/{user_urn}");
-            async move { sc.api_get_value(&path, &tok, None).await }
-        })
-        .await?;
+        let fetched = self
+            .read
+            .user_by_id(TokenKind::UserFirst(session_id), extract_sc_id(user_urn))
+            .await?;
         repo.upsert_from_sc(&fetched).await?;
         Ok(fetched)
     }
@@ -209,12 +226,9 @@ impl UsersService {
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
         let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
-        let chain = self
-            .tokens
-            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
-            .await?;
+        let kind = self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id);
         self.cold_refresh
-            .ensure_collection(OWNED_TRACKS, target_sc_user_id, is_self, &chain, &[])
+            .ensure_collection(OWNED_TRACKS, target_sc_user_id, is_self, kind, &[])
             .await?;
         let mut result = read_collection_page(
             &self.pg,
@@ -224,7 +238,7 @@ impl UsersService {
             limit,
             !is_self,
         )
-            .await?;
+        .await?;
         likes_cold::apply_user_favorite_flag(&self.pg, viewer_sc_user_id, &mut result.collection)
             .await?;
         Ok(result)
@@ -240,12 +254,9 @@ impl UsersService {
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
         let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
-        let chain = self
-            .tokens
-            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
-            .await?;
+        let kind = self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id);
         self.cold_refresh
-            .ensure_collection(OWNED_PLAYLISTS, target_sc_user_id, is_self, &chain, &[])
+            .ensure_collection(OWNED_PLAYLISTS, target_sc_user_id, is_self, kind, &[])
             .await?;
         let mut result = read_collection_page(
             &self.pg,
@@ -255,7 +266,7 @@ impl UsersService {
             limit,
             !is_self,
         )
-            .await?;
+        .await?;
         likes_cold::apply_user_favorite_flag_to_playlists(
             &self.pg,
             viewer_sc_user_id,
@@ -278,16 +289,13 @@ impl UsersService {
         access: &str,
     ) -> AppResult<ListPageResult<Value>> {
         let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
-        let chain = self
-            .tokens
-            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
-            .await?;
+        let kind = self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id);
         self.cold_refresh
             .ensure_collection(
                 LIKED_TRACKS,
                 target_sc_user_id,
                 is_self,
-                &chain,
+                kind,
                 &[("access".into(), access.to_string())],
             )
             .await?;
@@ -299,7 +307,7 @@ impl UsersService {
             limit,
             !is_self,
         )
-            .await?;
+        .await?;
 
         // Если смотрим свои лайки — каждый item автоматически user_favorite.
         // Если чужие — флаг показывает, лайкнул ли это ВЬЮВЕР (другой юзер).
@@ -330,12 +338,9 @@ impl UsersService {
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
         let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
-        let chain = self
-            .tokens
-            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
-            .await?;
+        let kind = self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id);
         self.cold_refresh
-            .ensure_collection(LIKED_PLAYLISTS, target_sc_user_id, is_self, &chain, &[])
+            .ensure_collection(LIKED_PLAYLISTS, target_sc_user_id, is_self, kind, &[])
             .await?;
         let mut result = read_collection_page(
             &self.pg,
@@ -345,7 +350,7 @@ impl UsersService {
             limit,
             !is_self,
         )
-            .await?;
+        .await?;
         likes_cold::apply_user_favorite_flag_to_playlists(
             &self.pg,
             viewer_sc_user_id,
@@ -365,12 +370,9 @@ impl UsersService {
         limit: i64,
     ) -> AppResult<ListPageResult<Value>> {
         let is_self = same_sc_user(viewer_sc_user_id, target_sc_user_id);
-        let chain = self
-            .tokens
-            .chain(self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id))
-            .await?;
+        let kind = self.kind_for_target(viewer_sc_user_id, target_sc_user_id, session_id);
         self.cold_refresh
-            .ensure_collection(FOLLOWINGS, target_sc_user_id, is_self, &chain, &[])
+            .ensure_collection(FOLLOWINGS, target_sc_user_id, is_self, kind, &[])
             .await?;
         read_collection_page(
             &self.pg,
@@ -380,7 +382,7 @@ impl UsersService {
             limit,
             !is_self,
         )
-            .await
+        .await
     }
 
     pub async fn get_web_profiles(&self, session_id: Uuid, user_urn: &str) -> AppResult<Value> {
