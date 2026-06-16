@@ -14,6 +14,7 @@ RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release && rm
 COPY src ./src
 COPY migrations ./migrations
 COPY queries ./queries
+COPY sc_methods ./sc_methods
 # query_file! макросы сверяются на компиляции с РЕАЛЬНОЙ схемой: поднимаем эфемерный
 # postgres прямо в билд-стадии, катим миграции, собираемся online. Никакого .sqlx.
 RUN pg_ctlcluster "$(ls /etc/postgresql)" main start \

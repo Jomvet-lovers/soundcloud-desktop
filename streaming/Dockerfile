@@ -18,6 +18,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && r
 
 # Build actual binary
 COPY src ./src
+COPY sc_methods ./sc_methods
 RUN touch src/main.rs && cargo build --release
 
 # Runtime
