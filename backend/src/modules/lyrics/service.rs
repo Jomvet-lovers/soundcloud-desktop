@@ -15,7 +15,6 @@ use crate::error::AppResult;
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::lyrics::lrclib::LrclibService;
 use crate::modules::lyrics::musixmatch::MusixmatchService;
-use crate::modules::lyrics::netease::NeteaseService;
 use crate::modules::lyrics::util::{
     canon_meta, detect_language_heuristic, heuristic_queries, pick_lyrics_text,
     strip_lrc_timestamps,
@@ -125,7 +124,6 @@ pub struct LyricsService {
     lrclib: Arc<LrclibService>,
     mxm: Arc<MusixmatchService>,
     genius: Arc<GeniusService>,
-    netease: Arc<NeteaseService>,
     worker: Arc<WorkerClient>,
     trigger: Arc<TranscodeTriggerService>,
     verifier: Arc<S3VerifierService>,
@@ -143,7 +141,6 @@ impl LyricsService {
         lrclib: Arc<LrclibService>,
         mxm: Arc<MusixmatchService>,
         genius: Arc<GeniusService>,
-        netease: Arc<NeteaseService>,
         worker: Arc<WorkerClient>,
         trigger: Arc<TranscodeTriggerService>,
         verifier: Arc<S3VerifierService>,
@@ -157,7 +154,6 @@ impl LyricsService {
             lrclib,
             mxm,
             genius,
-            netease,
             worker,
             trigger,
             verifier,
@@ -706,29 +702,6 @@ impl LyricsService {
                         artist_guess: r.artist_guess,
                         title_guess: r.title_guess,
                         duration_sec: None,
-                    })
-                    .collect()
-            }));
-
-            let q_clone = q.clone();
-            let net = self.netease.clone();
-            tasks.push(tokio::spawn(async move {
-                net.search_by_query(&q_clone, 5)
-                    .await
-                    .into_iter()
-                    .map(|r| {
-                        let plain = r
-                            .plain_text
-                            .clone()
-                            .or_else(|| r.synced_lrc.as_deref().map(strip_lrc_timestamps));
-                        Candidate {
-                            source: "netease".into(),
-                            synced_lrc: r.synced_lrc,
-                            plain_text: plain,
-                            artist_guess: r.artist_guess,
-                            title_guess: r.title_guess,
-                            duration_sec: r.duration_sec,
-                        }
                     })
                     .collect()
             }));

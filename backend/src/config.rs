@@ -17,7 +17,6 @@ pub struct AppConfig {
     pub soundwave: SoundwaveCfg,
     pub collab: CollabCfg,
     pub lyrics: LyricsCfg,
-    pub netease: NeteaseCfg,
     pub mxm: MxmCfg,
     pub genius: GeniusCfg,
     pub enrich: EnrichCfg,
@@ -145,11 +144,6 @@ pub struct LyricsCfg {
 }
 
 #[derive(Clone, Debug)]
-pub struct NeteaseCfg {
-    pub api_base: String,
-}
-
-#[derive(Clone, Debug)]
 pub struct MxmCfg {
     pub api_base: String,
 }
@@ -272,10 +266,6 @@ impl AppConfig {
 
             lyrics: LyricsCfg {
                 indexing_concurrency: env_usize("LYRICS_INDEXING_CONCURRENCY", 3),
-            },
-
-            netease: NeteaseCfg {
-                api_base: env_str("NETEASE_API_BASE", "https://ncm.nekohasegawa.com"),
             },
 
             mxm: MxmCfg {

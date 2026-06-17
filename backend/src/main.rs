@@ -40,7 +40,6 @@ use crate::modules::likes::LikesService;
 use crate::modules::lyrics::genius::GeniusService;
 use crate::modules::lyrics::lrclib::LrclibService;
 use crate::modules::lyrics::musixmatch::MusixmatchService;
-use crate::modules::lyrics::netease::NeteaseService;
 use crate::modules::lyrics::{LyricsService, WorkerClient};
 use crate::modules::me::MeService;
 use crate::modules::oauth_apps::{OAuthAppTokenService, OAuthAppsService};
@@ -241,7 +240,6 @@ async fn main() {
     let lrclib = LrclibService::new(external_fetcher.clone());
     let mxm = MusixmatchService::new(external_fetcher.clone(), config.mxm.api_base.clone());
     let genius = GeniusService::new(external_fetcher.clone(), config.genius.clone());
-    let netease = NeteaseService::new(external_fetcher.clone(), config.netease.api_base.clone());
     let lyrics = LyricsService::new(
         pg.clone(),
         nats.clone(),
@@ -249,7 +247,6 @@ async fn main() {
         lrclib,
         mxm,
         genius.clone(),
-        netease,
         worker.clone(),
         transcode.clone(),
         s3_verifier.clone(),
