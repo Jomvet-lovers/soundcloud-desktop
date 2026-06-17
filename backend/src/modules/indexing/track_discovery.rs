@@ -8,9 +8,10 @@ use regex::Regex;
 use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tracing::debug;
 
+use crate::modules::auth::TokenKind;
 use crate::modules::indexing::IndexingService;
 use crate::modules::tracks::TrackPriority;
-use crate::sc::{ScClient, TrackObserver};
+use crate::sc::{ScReadService, TrackObserver};
 
 static URN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"soundcloud:tracks:(\d+)").unwrap());
 
@@ -22,7 +23,7 @@ const MAX_BODY_SCAN_BYTES: usize = 512 * 1024;
 const DISCOVERY_CONCURRENCY: usize = 16;
 
 pub struct TrackDiscoveryService {
-    sc: ScClient,
+    read: Arc<ScReadService>,
     indexing: Arc<IndexingService>,
     recently_seen: Cache<String, ()>,
     inflight: Cache<String, Arc<AsyncMutex<()>>>,
@@ -31,9 +32,9 @@ pub struct TrackDiscoveryService {
 }
 
 impl TrackDiscoveryService {
-    pub fn new(sc: ScClient, indexing: Arc<IndexingService>) -> Arc<Self> {
+    pub fn new(read: Arc<ScReadService>, indexing: Arc<IndexingService>) -> Arc<Self> {
         Arc::new_cyclic(|weak| Self {
-            sc,
+            read,
             indexing,
             recently_seen: Cache::builder()
                 .max_capacity(SEEN_CAPACITY)
@@ -57,17 +58,15 @@ impl TrackDiscoveryService {
         l
     }
 
-    async fn run_one(self: Arc<Self>, sc_track_id: String, access_token: String) {
+    async fn run_one(self: Arc<Self>, sc_track_id: String) {
         let lock = self.lock_for(&sc_track_id);
         let _g = lock.lock().await;
 
+        // Fetch via the apiv2 chain; the observed token only gated which traffic was
+        // worth scanning.
         match self
-            .sc
-            .api_get_value(
-                &format!("/tracks/soundcloud:tracks:{sc_track_id}"),
-                &access_token,
-                None,
-            )
+            .read
+            .track_by_id(TokenKind::PublicPool, &sc_track_id)
             .await
         {
             Ok(track) => {
@@ -120,10 +119,9 @@ impl TrackObserver for TrackDiscoveryService {
                 break;
             };
             let svc = svc_arc.clone();
-            let token = access_token.clone();
             tokio::spawn(async move {
                 let _permit = permit;
-                svc.run_one(id, token).await;
+                svc.run_one(id).await;
             });
         }
     }

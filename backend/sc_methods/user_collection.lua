@@ -3,7 +3,7 @@
 -- apiv2 like-feeds wrap each item as { created_at, kind, track|playlist }; we unwrap
 -- to the bare entity so the backend maps it exactly like an apiv1 collection item.
 -- The Rust side drives pagination by passing back `next_href` as `cursor` — SC's
--- next_href omits client_id, so we always (re)append our own.
+-- next_href omits client_id, so it is (re)appended each page.
 --
 -- inputs:  { user_id = "183", kind = "track_likes"|"playlist_likes"|"playlists"
 --                                     |"followings"|"tracks",

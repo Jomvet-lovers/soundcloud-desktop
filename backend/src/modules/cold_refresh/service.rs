@@ -141,7 +141,7 @@ pub const OWNED_TRACKS: UserCollection = UserCollection {
 };
 
 /// The apiv2 public-collection equivalent (channel A/B). All of these are public per-user
-/// feeds, so a non-owner view can read them token-free via apiv2.
+/// feeds, so a non-owner view can read them via apiv2.
 fn public_collection(coll: &UserCollection) -> Option<PublicCollection> {
     match coll.lock_kind {
         k if k == LIKED_TRACKS.lock_kind => Some(PublicCollection::TrackLikes),
@@ -558,8 +558,8 @@ impl ColdRefreshService {
     }
 
     /// Choose the channel for a collection refresh: a non-owner public view goes through
-    /// the apiv2 chain (token-free A/B), falling back to apiv1 only if apiv2 can't begin;
-    /// the owner `/me/*` view (private items) stays on apiv1 with the user's token.
+    /// the apiv2 chain, falling back to apiv1 only if apiv2 can't begin; the owner
+    /// `/me/*` view (private items) stays on apiv1 with the user's token.
     async fn fetch_collection(
         &self,
         coll: &UserCollection,

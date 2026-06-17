@@ -419,6 +419,18 @@ impl ScClient {
         (v.get("ok").and_then(Value::as_bool) == Some(true)).then_some(v)
     }
 
+    /// Generic apiv2 GET via the relay (`sc.apiv2_get`). Returns the RAW apiv2 body
+    /// (`data`), or None to fall back.
+    pub async fn apiv2_get_via_relay(&self, url: &str) -> Option<Value> {
+        let inputs = serde_json::to_vec(&serde_json::json!({ "url": url })).ok()?;
+        let v = self
+            .call_relay_method("sc.apiv2_get", crate::sc::lua_methods::APIV2_GET, inputs)
+            .await?;
+        (v.get("ok").and_then(Value::as_bool) == Some(true))
+            .then(|| v.get("data").cloned())
+            .flatten()
+    }
+
     /// Run a signed Lua method via the relay, returning its parsed JSON output or None
     /// (no relay / disabled / transport error / bad JSON — the caller falls back).
     async fn call_relay_method(

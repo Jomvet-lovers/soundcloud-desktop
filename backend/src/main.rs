@@ -162,8 +162,7 @@ async fn main() {
     }
     let tokens = TokenProvider::new(auth.clone(), oauth_app_tokens.clone());
     // The public-read facade: apiv2 via relay (Lua) → apiv2 via proxy&relay → apiv1.
-    // Token-free on the primary tiers, so public reads work even where the OAuth-app
-    // pool is empty (the star/reserve node). Injected into every public read path.
+    // Injected into every public read path.
     let resolve = ScReadService::new(sc.clone(), tokens.clone());
 
     let cache = CacheService::new(redis_pool.clone());
@@ -298,8 +297,7 @@ async fn main() {
 
     let artist_account_walker = crate::modules::enrich::ArtistAccountWalker::new(
         pg.clone(),
-        sc.clone(),
-        tokens.clone(),
+        resolve.clone(),
         indexing.clone(),
     );
 
@@ -360,16 +358,14 @@ async fn main() {
 
     let sc_account_scanner = crate::modules::enrich::sc_account_scan::ScAccountScanner::new(
         pg.clone(),
-        sc.clone(),
-        tokens.clone(),
+        resolve.clone(),
         indexing.clone(),
         ai_matcher.clone(),
     );
 
     let wanted_resolver = crate::modules::enrich::WantedResolverService::new(
         pg.clone(),
-        sc.clone(),
-        tokens.clone(),
+        resolve.clone(),
         indexing.clone(),
         sc_account_scanner.clone(),
         ai_matcher.clone(),
@@ -395,7 +391,7 @@ async fn main() {
         );
 
         let track_discovery =
-            crate::modules::indexing::TrackDiscoveryService::new(sc.clone(), indexing.clone());
+            crate::modules::indexing::TrackDiscoveryService::new(resolve.clone(), indexing.clone());
         sc.install_track_observer(track_discovery.clone());
     }
 

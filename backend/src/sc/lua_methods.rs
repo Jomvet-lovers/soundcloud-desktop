@@ -12,7 +12,7 @@ pub const RESOLVE_TRACK: &str = call_lua_macros::lua_script!("sc_methods/resolve
 /// apiv2 /tracks/{id} (full_duration recovery).
 pub const TRACK_BY_ID: &str = call_lua_macros::lua_script!("sc_methods/track_by_id.lua");
 
-/// apiv2 /users/{id} (token-free public profile).
+/// apiv2 /users/{id} (public profile).
 pub const USER_BY_ID: &str = call_lua_macros::lua_script!("sc_methods/user_by_id.lua");
 
 /// apiv2 playlist + its full ordered track list (batch /tracks?ids hydration) in one call.
@@ -23,3 +23,7 @@ pub const USER_COLLECTION: &str = call_lua_macros::lua_script!("sc_methods/user_
 
 /// apiv2 one page of a typed search (tracks/users/playlists/albums).
 pub const SEARCH: &str = call_lua_macros::lua_script!("sc_methods/search.lua");
+
+/// generic apiv2 GET via the relay → parsed JSON. For public paginated lists
+/// (comments/reposters/related/followers) + cron list-walks.
+pub const APIV2_GET: &str = call_lua_macros::lua_script!("sc_methods/apiv2_get.lua");

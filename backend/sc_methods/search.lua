@@ -2,7 +2,7 @@
 --
 -- apiv2 returns full, bare objects in `collection` (+ total_results, next_href), so no
 -- unwrap is needed. The Rust side drives pagination via `next_href` (client_id omitted
--- by SC, so we always (re)append ours).
+-- by SC, so it is (re)appended each page).
 --
 -- inputs:  { type = "tracks"|"users"|"playlists_without_albums"|"albums",
 --            q = "query", limit = 20, cursor = "<next_href>"? }

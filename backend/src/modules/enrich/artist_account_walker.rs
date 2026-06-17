@@ -16,12 +16,12 @@ use uuid::Uuid;
 
 use crate::common::sc_ids::extract_sc_id;
 use crate::error::AppResult;
-use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
+use crate::modules::auth::TokenKind;
 use crate::modules::enrich::matcher::title_score;
 use crate::modules::enrich::normalize::normalize_name;
 use crate::modules::indexing::IndexingService;
 use crate::modules::tracks::{TrackPriority, TrackRepository};
-use crate::sc::ScClient;
+use crate::sc::ScReadService;
 
 const PER_ARTIST_PAGES: usize = 5;
 const PAGE_SIZE: i64 = 100;
@@ -29,24 +29,17 @@ const TITLE_MATCH_THRESHOLD: f32 = 0.7;
 
 pub struct ArtistAccountWalker {
     pg: PgPool,
-    sc: ScClient,
-    tokens: Arc<TokenProvider>,
+    read: Arc<ScReadService>,
     indexing: Arc<IndexingService>,
     tracks: TrackRepository,
 }
 
 impl ArtistAccountWalker {
-    pub fn new(
-        pg: PgPool,
-        sc: ScClient,
-        tokens: Arc<TokenProvider>,
-        indexing: Arc<IndexingService>,
-    ) -> Arc<Self> {
+    pub fn new(pg: PgPool, read: Arc<ScReadService>, indexing: Arc<IndexingService>) -> Arc<Self> {
         let tracks = TrackRepository::new(pg.clone());
         Arc::new(Self {
             pg,
-            sc,
-            tokens,
+            read,
             indexing,
             tracks,
         })
@@ -66,11 +59,10 @@ impl ArtistAccountWalker {
         if target_n.is_empty() {
             return Ok(());
         }
-        let chain = self.tokens.chain(TokenKind::PublicPool).await?;
         let mut new_count = 0usize;
         let mut avatar: Option<String> = None;
         for sc_user_id in accounts {
-            let tracks = self.fetch_user_tracks(&sc_user_id, &chain).await?;
+            let tracks = self.fetch_user_tracks(&sc_user_id).await?;
             for tr in tracks {
                 if avatar.is_none() {
                     if let Some(a) = tr
@@ -143,56 +135,36 @@ impl ArtistAccountWalker {
         Ok(())
     }
 
-    async fn fetch_user_tracks(&self, sc_user_id: &str, chain: &[String]) -> AppResult<Vec<Value>> {
+    async fn fetch_user_tracks(&self, sc_user_id: &str) -> AppResult<Vec<Value>> {
+        let path = format!("/users/{sc_user_id}/tracks");
         let mut acc: Vec<Value> = Vec::new();
-        let mut next: Option<String> = None;
+        let mut cursor: Option<String> = None;
         for _ in 0..PER_ARTIST_PAGES {
-            let fetched: AppResult<Value> = match &next {
-                Some(href) => {
-                    try_with_chain(chain, |t| {
-                        let sc = self.sc.clone();
-                        let href = href.clone();
-                        async move { sc.api_get_absolute_value(&href, &t).await }
-                    })
-                    .await
-                }
-                None => {
-                    let path = format!("/users/{sc_user_id}/tracks");
-                    let params = [
-                        ("limit".into(), PAGE_SIZE.to_string()),
-                        ("linked_partitioning".into(), "true".into()),
-                    ];
-                    try_with_chain(chain, |t| {
-                        let sc = self.sc.clone();
-                        let path = path.clone();
-                        let params = params.clone();
-                        async move { sc.api_get_value(&path, &t, Some(&params)).await }
-                    })
-                    .await
-                }
-            };
-            let resp = match fetched {
-                Ok(v) => v,
+            let page = match self
+                .read
+                .list_page(
+                    TokenKind::PublicPool,
+                    &path,
+                    &[],
+                    cursor.as_deref(),
+                    PAGE_SIZE,
+                )
+                .await
+            {
+                Ok(p) => p,
                 Err(e) => {
                     debug!(sc_user_id, error = %e, "artist_account_walker: page fetch failed");
                     break;
                 }
             };
-            let items: Vec<Value> = resp
-                .get("collection")
-                .and_then(|v| v.as_array().cloned())
-                .unwrap_or_default();
-            if items.is_empty() {
+            if page.items.is_empty() {
                 break;
             }
-            acc.extend(items);
-            let Some(href) = resp.get("next_href").and_then(|v| v.as_str()) else {
-                break;
-            };
-            if href.is_empty() || Some(href) == next.as_deref() {
-                break;
+            acc.extend(page.items);
+            match page.next_href {
+                Some(href) if Some(&href) != cursor.as_ref() => cursor = Some(href),
+                _ => break,
             }
-            next = Some(href.to_string());
         }
         Ok(acc)
     }

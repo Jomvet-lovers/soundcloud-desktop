@@ -1,9 +1,9 @@
 -- sc.playlist_full — apiv2 playlist + its full, ordered track list in one call.
 --
 -- apiv2 embeds only ~5 full tracks in a playlist; the rest are {id, kind} stubs.
--- The edge client fetches the playlist, collects track ids in order, batch-hydrates
--- the missing ones via /tracks?ids=… (≤50/req, order mapped by id), and returns the
--- playlist with `tracks` replaced by the full ordered list.
+-- Fetches the playlist, collects track ids in order, batch-hydrates the missing ones via
+-- /tracks?ids=… (≤50/req, order mapped by id), and returns the playlist with `tracks`
+-- replaced by the full ordered list.
 --
 -- inputs:  { id = "123456", hydrate = true }   (bare playlist id; hydrate defaults true,
 --                                                false = meta only, skip /tracks batch)

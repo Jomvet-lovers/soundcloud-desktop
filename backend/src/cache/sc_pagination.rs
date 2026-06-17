@@ -14,8 +14,8 @@ use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
 use crate::sc::{ScClient, ScReadService, SearchType};
 
 /// Текстовый запрос для apiv2-поиска: `Some(q)`, если задан непустой `q` и НЕТ
-/// id-batch / фасетных параметров (`ids`/`genres`/`tags`) — у них нет token-free
-/// apiv2-маппинга, они остаются на apiv1.
+/// id-batch / фасетных параметров (`ids`/`genres`/`tags`) — у них нет apiv2-маппинга,
+/// они остаются на apiv1.
 pub fn plain_query(extra: &[(String, String)]) -> Option<String> {
     let mut q = None;
     for (k, v) in extra {
@@ -33,6 +33,7 @@ pub fn plain_query(extra: &[(String, String)]) -> Option<String> {
 pub struct ScSearchArgs<'a> {
     pub list_cache: &'a ListCacheService,
     pub read: &'a ScReadService,
+    pub kind: TokenKind,
     pub ty: SearchType,
     pub q: String,
     pub cache_key: &'a str,
@@ -41,10 +42,11 @@ pub struct ScSearchArgs<'a> {
     pub limit: i64,
 }
 
-/// Страница типизированного SC-поиска через apiv2 (token-free). Кэшируется как
-/// shared-листинг; пагинация следует apiv2 `next_href`.
+/// Страница типизированного SC-поиска: apiv2-first (relay/Lua → proxy) с apiv1-fallback
+/// на cold-start; host-routed cursor. Кэшируется как shared-листинг.
 pub async fn search_page(args: ScSearchArgs<'_>) -> AppResult<ListPageResult<Value>> {
     let read = args.read;
+    let kind = args.kind;
     let q = Arc::new(args.q);
     let ty = args.ty;
     args.list_cache
@@ -62,7 +64,42 @@ pub async fn search_page(args: ScSearchArgs<'_>) -> AppResult<ListPageResult<Val
                 let q = Arc::clone(&q);
                 async move {
                     let page = read
-                        .search_page(ty, &q, next_href.as_deref(), chunk_size as i64)
+                        .search_page(kind, ty, &q, next_href.as_deref(), chunk_size as i64)
+                        .await?;
+                    Ok::<_, AppError>(FetchChunkResult {
+                        items: page.items,
+                        next_href: page.next_href,
+                    })
+                }
+            },
+        )
+        .await
+}
+
+/// apiv2-first листинг: каждый chunk идёт через `ScReadService::list_page` (apiv2 via
+/// relay → apiv2 via proxy&relay → apiv1 fallback, host-routed cursor).
+async fn list_page_apiv2(args: ScListPageArgs<'_>) -> AppResult<ListPageResult<Value>> {
+    let read = args.read;
+    let kind = args.kind;
+    let path = Arc::new(args.path);
+    let extra = Arc::new(args.extra_params);
+    args.list_cache
+        .get_page::<Value, _, _>(
+            GetPageOptions {
+                key: args.cache_key,
+                scope: args.scope,
+                session_id: args.session_id,
+                ttl_sec: args.ttl,
+                page: args.page,
+                limit: args.limit,
+                chunk_size: None,
+            },
+            |next_href, chunk_size| {
+                let path = Arc::clone(&path);
+                let extra = Arc::clone(&extra);
+                async move {
+                    let page = read
+                        .list_page(kind, &path, &extra, next_href.as_deref(), chunk_size as i64)
                         .await?;
                     Ok::<_, AppError>(FetchChunkResult {
                         items: page.items,
@@ -79,6 +116,7 @@ pub struct ScListPageArgs<'a> {
     pub list_cache: &'a ListCacheService,
     pub sc: &'a ScClient,
     pub tokens: &'a TokenProvider,
+    pub read: &'a ScReadService,
     pub kind: TokenKind,
     pub cache_key: &'a str,
     pub ttl: u64,
@@ -88,12 +126,18 @@ pub struct ScListPageArgs<'a> {
     pub limit: i64,
     pub path: String,
     pub extra_params: Vec<(String, String)>,
+    /// true → public list через apiv2-chain (relay/Lua → proxy → apiv1 fallback),
+    /// курсор host-роутится. false → как было, apiv1 + token chain.
+    pub apiv2: bool,
 }
 
 /// Вытащить страницу из SC-списка. Берёт chain один раз через
 /// `TokenProvider::chain(kind)` и ротирует через [`try_with_chain`] на каждый
 /// chunk-fetch до первого Ok или истощения chain'а.
 pub async fn list_page(args: ScListPageArgs<'_>) -> AppResult<ListPageResult<Value>> {
+    if args.apiv2 {
+        return list_page_apiv2(args).await;
+    }
     let chain = args.tokens.chain(args.kind).await?;
     let sc = args.sc.clone();
     let chain = Arc::new(chain);

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value};
 
-/// A public per-user collection readable anonymously via apiv2.
+/// A public per-user collection readable via apiv2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicCollection {
     TrackLikes,

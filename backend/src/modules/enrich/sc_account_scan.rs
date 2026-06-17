@@ -16,12 +16,12 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::error::AppResult;
-use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
+use crate::modules::auth::TokenKind;
 use crate::modules::enrich::ai_matcher::{AiMatcherClient, MatchCandidate, MatchTarget};
 use crate::modules::enrich::matcher::{evaluate_sc_candidate, sc_track_id_from_urn, TrackMatch};
 use crate::modules::indexing::IndexingService;
 use crate::modules::tracks::TrackPriority;
-use crate::sc::ScClient;
+use crate::sc::ScReadService;
 
 /// Минимальный композитный score, при котором мы линкуем wanted ↔ SC-кандидат
 /// в рамках *листинга привязанного аккаунта*. Тут планка ниже, чем в общем
@@ -54,8 +54,7 @@ pub struct LinkedTrack {
 
 pub struct ScAccountScanner {
     pg: PgPool,
-    sc: ScClient,
-    tokens: Arc<TokenProvider>,
+    read: Arc<ScReadService>,
     indexing: Arc<IndexingService>,
     ai_matcher: Option<Arc<AiMatcherClient>>,
 }
@@ -63,15 +62,13 @@ pub struct ScAccountScanner {
 impl ScAccountScanner {
     pub fn new(
         pg: PgPool,
-        sc: ScClient,
-        tokens: Arc<TokenProvider>,
+        read: Arc<ScReadService>,
         indexing: Arc<IndexingService>,
         ai_matcher: Option<Arc<AiMatcherClient>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             pg,
-            sc,
-            tokens,
+            read,
             indexing,
             ai_matcher,
         })
@@ -91,13 +88,6 @@ impl ScAccountScanner {
         if accounts.is_empty() {
             return Ok(Vec::new());
         }
-        let chain = match self.tokens.chain(TokenKind::PublicPool).await {
-            Ok(c) => c,
-            Err(e) => {
-                debug!(%artist_id, error = %e, "sc_account_scan: token pool unavailable");
-                return Ok(Vec::new());
-            }
-        };
 
         let mut remaining: Vec<&WantedRow> = wanted.iter().collect();
         let mut linked: Vec<LinkedTrack> = Vec::new();
@@ -106,7 +96,7 @@ impl ScAccountScanner {
             if remaining.is_empty() {
                 break;
             }
-            let tracks = self.fetch_account_tracks(&account.sc_user_id, &chain).await;
+            let tracks = self.fetch_account_tracks(&account.sc_user_id).await;
             if tracks.is_empty() {
                 continue;
             }
@@ -314,67 +304,43 @@ impl ScAccountScanner {
             .collect())
     }
 
-    /// Идём по `/users/{urn}/tracks` через `next_href` (SC docs), ротируя
-    /// chain на ban/rate-limit. Возвращаем накопленный список треков.
-    async fn fetch_account_tracks(&self, sc_user_id: &str, chain: &[String]) -> Vec<Value> {
-        let user_urn = format!("soundcloud:users:{sc_user_id}");
+    /// Идём по `/users/{id}/tracks` через `next_href`, capped MAX_PAGES. Каждая
+    /// страница через фасад (apiv2 via relay → apiv2 via proxy&relay → apiv1 fallback,
+    /// host-routed cursor). Bare id в пути — принимают оба API.
+    async fn fetch_account_tracks(&self, sc_user_id: &str) -> Vec<Value> {
+        let path = format!("/users/{sc_user_id}/tracks");
+        let extra = [("access".to_string(), "playable,preview,blocked".to_string())];
         let mut out: Vec<Value> = Vec::new();
-        let mut next: Option<String> = None;
+        let mut cursor: Option<String> = None;
         for page_idx in 0..MAX_PAGES {
             if page_idx > 0 {
                 tokio::time::sleep(PAGE_GAP).await;
             }
-            let fetched: AppResult<Value> = match &next {
-                Some(href) => {
-                    try_with_chain(chain, |t| {
-                        let sc = self.sc.clone();
-                        let href = href.clone();
-                        async move { sc.api_get_absolute_value(&href, &t).await }
-                    })
-                    .await
-                }
-                None => {
-                    let path = format!("/users/{user_urn}/tracks");
-                    let params = [
-                        ("limit".to_string(), PAGE_SIZE.to_string()),
-                        ("access".to_string(), "playable,preview,blocked".to_string()),
-                        ("linked_partitioning".to_string(), "true".to_string()),
-                    ];
-                    try_with_chain(chain, |t| {
-                        let sc = self.sc.clone();
-                        let path = path.clone();
-                        let params = params.clone();
-                        async move { sc.api_get_value(&path, &t, Some(&params)).await }
-                    })
-                    .await
-                }
-            };
-            let value = match fetched {
-                Ok(v) => v,
+            let page = match self
+                .read
+                .list_page(
+                    TokenKind::PublicPool,
+                    &path,
+                    &extra,
+                    cursor.as_deref(),
+                    PAGE_SIZE,
+                )
+                .await
+            {
+                Ok(p) => p,
                 Err(e) => {
                     debug!(sc_user_id, error = %e, "sc_account_scan: page fetch failed");
                     break;
                 }
             };
-            let collection: Vec<Value> = if let Some(arr) = value.as_array() {
-                arr.clone()
-            } else if let Some(arr) = value.get("collection").and_then(|v| v.as_array()) {
-                arr.clone()
-            } else {
-                Vec::new()
-            };
-            if collection.is_empty() {
+            if page.items.is_empty() {
                 break;
             }
-            out.extend(collection);
-
-            let Some(href) = value.get("next_href").and_then(|v| v.as_str()) else {
-                break;
-            };
-            if href.is_empty() || Some(href) == next.as_deref() {
-                break;
+            out.extend(page.items);
+            match page.next_href {
+                Some(href) if Some(&href) != cursor.as_ref() => cursor = Some(href),
+                _ => break,
             }
-            next = Some(href.to_string());
         }
         out
     }

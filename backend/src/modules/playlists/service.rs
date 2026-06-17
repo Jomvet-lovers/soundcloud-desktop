@@ -74,6 +74,7 @@ impl PlaylistsService {
                 sc_search_page(ScSearchArgs {
                     list_cache: &self.list_cache,
                     read: &self.read,
+                    kind: TokenKind::UserFirst(session_id),
                     ty: SearchType::PlaylistsWithoutAlbums,
                     q,
                     cache_key: &key,
@@ -88,6 +89,7 @@ impl PlaylistsService {
                     list_cache: &self.list_cache,
                     sc: &self.sc,
                     tokens: &self.tokens,
+                    read: &self.read,
                     kind: TokenKind::UserFirst(session_id),
                     cache_key: &key,
                     ttl: TTL_SEARCH,
@@ -97,6 +99,7 @@ impl PlaylistsService {
                     limit,
                     path: "/playlists".into(),
                     extra_params: extra,
+                    apiv2: false, // id-batch / faceted search → apiv1
                 })
                 .await
             }
@@ -529,9 +532,22 @@ impl PlaylistsService {
         } else if let Some(row) = &playlist_row {
             // Owner: desired-state — истина, фоновый re-pull НЕ нужен (и затёр бы
             // pending-правку через replace_tracks, хоть тот и гейтит). Non-owner —
-            // обычный SWR из SC.
+            // обычный SWR из SC ИЛИ когда наших ссылок меньше, чем track_count
+            // (неполный/недокачанный список — re-pull ингестит недостающие в `tracks`).
+            // refresh_playlist_tracks под Redis-локом, поэтому даже при хронической
+            // недостаче (приватные/удалённые у SC) реальный SC-хит throttled.
             let is_owner = row.owner_sc_user_id.as_deref() == Some(viewer);
-            if !is_owner && self.cold_refresh.is_playlist_stale(row.tracks_synced_at) {
+            let stored_refs: i64 = sqlx::query_file_scalar!(
+                "queries/cold_refresh/service/count_playlist_tracks.sql",
+                playlist_urn
+            )
+            .fetch_one(&self.pg)
+            .await
+            .unwrap_or(0);
+            let incomplete = stored_refs < row.track_count as i64;
+            if !is_owner
+                && (incomplete || self.cold_refresh.is_playlist_stale(row.tracks_synced_at))
+            {
                 let refresh = self.cold_refresh.clone();
                 let urn = playlist_urn.to_string();
                 tokio::spawn(async move {
@@ -567,6 +583,7 @@ impl PlaylistsService {
             list_cache: &self.list_cache,
             sc: &self.sc,
             tokens: &self.tokens,
+            read: &self.read,
             kind: TokenKind::UserFirst(session_id),
             cache_key: &format!("playlist-reposters:{playlist_urn}"),
             ttl: TTL_REPOSTERS,
@@ -574,8 +591,9 @@ impl PlaylistsService {
             session_id: None,
             page,
             limit,
-            path: format!("/playlists/{playlist_urn}/reposters"),
+            path: format!("/playlists/{}/reposters", extract_sc_id(playlist_urn)),
             extra_params: vec![],
+            apiv2: true,
         })
         .await
     }

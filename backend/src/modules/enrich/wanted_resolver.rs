@@ -11,13 +11,13 @@ use uuid::Uuid;
 
 use crate::config::EnrichCrawlCfg;
 use crate::error::AppResult;
-use crate::modules::auth::{try_with_chain, TokenKind, TokenProvider};
+use crate::modules::auth::TokenKind;
 use crate::modules::enrich::ai_matcher::{AiMatcherClient, MatchCandidate, MatchTarget};
 use crate::modules::enrich::matcher::{evaluate_sc_candidate, sc_track_id_from_urn};
 use crate::modules::enrich::sc_account_scan::{ScAccountScanner, WantedRow};
 use crate::modules::indexing::IndexingService;
 use crate::modules::tracks::TrackPriority;
-use crate::sc::ScClient;
+use crate::sc::{ScReadService, SearchType};
 
 const BATCH_SIZE: i64 = 30;
 const SEARCH_LIMIT: usize = 10;
@@ -30,8 +30,7 @@ const BORDERLINE_LOW: f32 = 0.45;
 
 pub struct WantedResolverService {
     pg: PgPool,
-    sc: ScClient,
-    tokens: Arc<TokenProvider>,
+    read: Arc<ScReadService>,
     indexing: Arc<IndexingService>,
     scanner: Arc<ScAccountScanner>,
     ai_matcher: Option<Arc<AiMatcherClient>>,
@@ -41,8 +40,7 @@ pub struct WantedResolverService {
 impl WantedResolverService {
     pub fn new(
         pg: PgPool,
-        sc: ScClient,
-        tokens: Arc<TokenProvider>,
+        read: Arc<ScReadService>,
         indexing: Arc<IndexingService>,
         scanner: Arc<ScAccountScanner>,
         ai_matcher: Option<Arc<AiMatcherClient>>,
@@ -51,8 +49,7 @@ impl WantedResolverService {
         let interval = Duration::from_secs(cfg.interval_sec.max(60));
         Arc::new(Self {
             pg,
-            sc,
-            tokens,
+            read,
             indexing,
             scanner,
             ai_matcher,
@@ -182,14 +179,6 @@ impl WantedResolverService {
         }
         info!(batch = rows.len(), ?ctx_artist, "wanted-resolver tick");
 
-        let chain = match self.tokens.chain(TokenKind::PublicPool).await {
-            Ok(c) => c,
-            Err(e) => {
-                debug!(error = %e, "wanted-resolver: token pool unavailable");
-                return Ok(());
-            }
-        };
-
         let mut linked_ids: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
 
         // Stage 1 — listing привязанных SC аккаунтов артиста.
@@ -231,10 +220,9 @@ impl WantedResolverService {
             .collect();
         join_all(pending.into_iter().map(|r| {
             let sem = sem.clone();
-            let chain = &chain;
             async move {
                 let _permit = sem.acquire().await;
-                match self.resolve_one(r, chain).await {
+                match self.resolve_one(r).await {
                     Ok(true) => {}
                     Ok(false) => {
                         let _ = sqlx::query_file!(
@@ -252,7 +240,7 @@ impl WantedResolverService {
         Ok(())
     }
 
-    async fn resolve_one(&self, w: &WantedRecord, chain: &[String]) -> AppResult<bool> {
+    async fn resolve_one(&self, w: &WantedRecord) -> AppResult<bool> {
         // Stage A — пробуем найти трек среди уже tracks этого артиста
         // (без сетевых запросов).
         if let Some(sc_id) = self
@@ -265,7 +253,7 @@ impl WantedResolverService {
         }
 
         // Stage B — общий SC search по двум вариантам query.
-        let candidates = self.sc_search(w, chain).await;
+        let candidates = self.sc_search(w).await;
         if candidates.is_empty() {
             return Ok(false);
         }
@@ -376,7 +364,7 @@ impl WantedResolverService {
         Ok(true)
     }
 
-    async fn sc_search(&self, w: &WantedRecord, chain: &[String]) -> Vec<Value> {
+    async fn sc_search(&self, w: &WantedRecord) -> Vec<Value> {
         let queries: Vec<String> = if w.artist_name.is_empty() {
             vec![w.title.clone()]
         } else {
@@ -384,35 +372,27 @@ impl WantedResolverService {
         };
         let mut out: Vec<Value> = Vec::new();
         for q in queries {
-            let path = format!(
-                "/tracks?q={}&access=playable&limit={}",
-                urlencoding::encode(&q),
-                SEARCH_LIMIT
-            );
-            let resp: Value = match try_with_chain(chain, |t| {
-                let sc = self.sc.clone();
-                let path = path.clone();
-                async move { sc.api_get_value(&path, &t, None).await }
-            })
-            .await
+            match self
+                .read
+                .search_page(
+                    TokenKind::PublicPool,
+                    SearchType::Tracks,
+                    &q,
+                    None,
+                    SEARCH_LIMIT as i64,
+                )
+                .await
             {
-                Ok(v) => v,
+                Ok(page) if !page.items.is_empty() => {
+                    out.extend(page.items);
+                    if out.len() >= SEARCH_LIMIT {
+                        break;
+                    }
+                }
+                Ok(_) => {}
                 Err(e) => {
                     debug!(error = %e, %w.id, "SC search failed");
                     continue;
-                }
-            };
-            let arr: Vec<Value> = if let Some(arr) = resp.as_array() {
-                arr.clone()
-            } else if let Some(arr) = resp.get("collection").and_then(|v| v.as_array()) {
-                arr.clone()
-            } else {
-                Vec::new()
-            };
-            if !arr.is_empty() {
-                out.extend(arr);
-                if out.len() >= SEARCH_LIMIT {
-                    break;
                 }
             }
         }

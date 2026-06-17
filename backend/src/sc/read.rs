@@ -1,16 +1,15 @@
 //! `ScReadService` — the single facade for PUBLIC SoundCloud reads.
 //!
 //! Every public read runs a 3-tier state chain, going to the next on failure:
-//!   A) apiv2 via the relay (signed Lua method on an edge client, its own anonymous
-//!      client_id + residential IP, zero OAuth budget) — the primary,
-//!   B) apiv2 via proxy&relay (a scraped anonymous client_id over our infra) — token-free,
+//!   A) apiv2 via the relay (signed Lua method) — the primary,
+//!   B) apiv2 via proxy&relay — backup,
 //!   C) apiv1 via an OAuth token (the legacy path) — terminal fallback.
 //! A and B are combined with B+C as a hedge by default (`CALL_FETCH_STRATEGY`); a per-A
-//! circuit breaker routes straight to B+C while the relay is being banned. The result is
+//! circuit breaker routes straight to B+C while the relay is failing. The result is
 //! always apiv1-normalized JSON so persistence is unchanged.
 //!
 //! Private/owner `/me/*` reads and all writes do NOT come here — they stay on apiv1 with
-//! the user's own OAuth token (anonymous apiv2 cannot see private content).
+//! the user's OAuth token.
 //!
 //! Single-entity ops own the full A→B→C chain. Paginated ops (`collection_page`,
 //! `search_page`) own apiv2 only (A hedged with B): an apiv2 cursor is not valid on
@@ -32,6 +31,8 @@ use crate::sc::{hedge, race, ChannelHealth, FetchStrategy, ScClient};
 /// Relay head start before the apiv2-proxy/apiv1 backup is hedged in. Long enough that a
 /// healthy relay answers alone (1x SC load), short enough not to stall on a dead relay.
 const HEDGE_DELAY: Duration = Duration::from_millis(700);
+
+const SC_API_V2: &str = "https://api-v2.soundcloud.com";
 
 /// One apiv2 page of a collection: normalized bare entities + the next cursor.
 pub struct ScCollectionPage {
@@ -87,7 +88,7 @@ impl ScReadService {
         self.track_by_id(TokenKind::PublicPool, sc_track_id).await
     }
 
-    /// apiv2 `/users/{id}` (token-free public profile). `id` is the bare numeric id.
+    /// apiv2 `/users/{id}` (public profile). `id` is the bare numeric id.
     pub async fn user_by_id(&self, kind: TokenKind, user_id: &str) -> AppResult<Value> {
         self.run(
             self.entity_lua(self.sc.user_by_id_via_relay(user_id)),
@@ -182,19 +183,156 @@ impl ScReadService {
         Ok((acc, complete))
     }
 
-    /// One apiv2 page of a typed search.
+    /// One page of a typed search: apiv2-first (A hedged B); on a cold-start apiv2
+    /// failure, falls back to apiv1 search with the token chain. `cursor` is host-routed
+    /// so a sequence never mixes apiv1/apiv2 cursor spaces. `kind` feeds the apiv1 tier.
     pub async fn search_page(
         &self,
+        kind: TokenKind,
         ty: SearchType,
         q: &str,
         cursor: Option<&str>,
         limit: i64,
     ) -> AppResult<ScSearchPage> {
-        self.run(
-            self.search_lua(ty, q, cursor, limit),
-            self.search_proxy(ty, q, cursor, limit),
-        )
-        .await
+        if let Some(c) = cursor {
+            if c.contains("api.soundcloud.com") {
+                return self.apiv1_search(kind, Some(c), ty, q, limit).await;
+            }
+        }
+        match self
+            .run(
+                self.search_lua(ty, q, cursor, limit),
+                self.search_proxy(ty, q, cursor, limit),
+            )
+            .await
+        {
+            Ok(p) => Ok(p),
+            Err(e) if cursor.is_none() => {
+                debug!(error = %e, "[read] apiv2 search failed, apiv1 fallback");
+                self.apiv1_search(kind, None, ty, q, limit).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// apiv1 search tier (channel C for `search_page`): absolute `cursor` continues an
+    /// apiv1 sequence; otherwise a cold `/{tracks|users|playlists}?q=` GET.
+    async fn apiv1_search(
+        &self,
+        kind: TokenKind,
+        cursor: Option<&str>,
+        ty: SearchType,
+        q: &str,
+        limit: i64,
+    ) -> AppResult<ScSearchPage> {
+        let path = match ty {
+            SearchType::Tracks => "/tracks",
+            SearchType::Users => "/users",
+            SearchType::PlaylistsWithoutAlbums => "/playlists",
+        };
+        let extra = [("q".to_string(), q.to_string())];
+        let page = self.apiv1_list(kind, cursor, path, &extra, limit).await?;
+        Ok(ScSearchPage {
+            items: page.items,
+            next_href: page.next_href,
+        })
+    }
+
+    /// One page of a generic public list at apiv1 `path` (e.g. comments/reposters/
+    /// related/followers). apiv2-first (A hedged B); on a cold-start apiv2 failure, falls
+    /// back to apiv1 with the token chain. `cursor` is a prior `next_href`, routed back to
+    /// its own channel by host so a sequence never mixes apiv1/apiv2 cursor spaces.
+    pub async fn list_page(
+        &self,
+        kind: TokenKind,
+        path: &str,
+        extra_params: &[(String, String)],
+        cursor: Option<&str>,
+        limit: i64,
+    ) -> AppResult<ScCollectionPage> {
+        match cursor {
+            Some(c) if c.contains("api.soundcloud.com") => {
+                self.apiv1_list(kind, Some(c), "", &[], limit).await
+            }
+            Some(c) => self.apiv2_list(c).await,
+            None => match self
+                .apiv2_list(&build_apiv2_url(path, extra_params, limit))
+                .await
+            {
+                Ok(p) => Ok(p),
+                Err(e) => {
+                    debug!(error = %e, path, "[read] apiv2 list failed, apiv1 fallback");
+                    self.apiv1_list(kind, None, path, extra_params, limit).await
+                }
+            },
+        }
+    }
+
+    async fn apiv2_list(&self, url: &str) -> AppResult<ScCollectionPage> {
+        self.run(self.apiv2_list_lua(url), self.apiv2_list_proxy(url))
+            .await
+    }
+
+    async fn apiv2_list_lua(&self, url: &str) -> AppResult<ScCollectionPage> {
+        match self.sc.apiv2_get_via_relay(url).await {
+            Some(v) => {
+                self.lua_health.record_ok();
+                Ok(page_from_lua(&v))
+            }
+            None => {
+                self.lua_health.record_ban();
+                Err(AppError::ScUnreachable("relay apiv2_get: no result".into()))
+            }
+        }
+    }
+
+    async fn apiv2_list_proxy(&self, url: &str) -> AppResult<ScCollectionPage> {
+        let page = self.proxy.get_list(url).await?;
+        let mut items = page.items;
+        for it in items.iter_mut() {
+            mapping::normalize_v2_to_v1(it);
+        }
+        Ok(ScCollectionPage {
+            items,
+            next_href: page.next_href,
+        })
+    }
+
+    /// apiv1 list page (channel C for `list_page`): an absolute `cursor` continues an
+    /// apiv1 sequence; otherwise a cold GET of `path` + params.
+    async fn apiv1_list(
+        &self,
+        kind: TokenKind,
+        cursor: Option<&str>,
+        path: &str,
+        extra_params: &[(String, String)],
+        limit: i64,
+    ) -> AppResult<ScCollectionPage> {
+        let chain = self.tokens.chain(kind).await?;
+        let resp = match cursor {
+            Some(href) => {
+                let href = href.to_string();
+                try_with_chain(&chain, |tok| {
+                    let sc = self.sc.clone();
+                    let href = href.clone();
+                    async move { sc.api_get_absolute_value(&href, &tok).await }
+                })
+                .await?
+            }
+            None => {
+                let mut params = extra_params.to_vec();
+                params.push(("limit".into(), limit.to_string()));
+                params.push(("linked_partitioning".into(), "true".into()));
+                try_with_chain(&chain, |tok| {
+                    let sc = self.sc.clone();
+                    let path = path.to_string();
+                    let params = params.clone();
+                    async move { sc.api_get_value(&path, &tok, Some(&params)).await }
+                })
+                .await?
+            }
+        };
+        Ok(page_from_lua(&resp)) // normalize is idempotent on native apiv1 items
     }
 
     // ---- orchestration ---------------------------------------------------------
@@ -398,6 +536,17 @@ impl ScReadService {
         })
         .await
     }
+}
+
+/// Build a first-page api-v2 list URL (without client_id; the relay/proxy appends it).
+fn build_apiv2_url(path: &str, extra_params: &[(String, String)], limit: i64) -> String {
+    let mut ser = url::form_urlencoded::Serializer::new(String::new());
+    ser.append_pair("limit", &limit.to_string());
+    ser.append_pair("linked_partitioning", "true");
+    for (k, v) in extra_params {
+        ser.append_pair(k, v);
+    }
+    format!("{SC_API_V2}{path}?{}", ser.finish())
 }
 
 /// Build a page from a Lua collection result `{ collection, next_href }`. The Lua already

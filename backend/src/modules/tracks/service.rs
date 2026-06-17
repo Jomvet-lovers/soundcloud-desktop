@@ -71,6 +71,7 @@ impl TracksService {
                 sc_search_page(ScSearchArgs {
                     list_cache: &self.list_cache,
                     read: &self.read,
+                    kind: TokenKind::UserFirst(session_id),
                     ty: SearchType::Tracks,
                     q,
                     cache_key: &cache_key,
@@ -85,6 +86,7 @@ impl TracksService {
                     list_cache: &self.list_cache,
                     sc: &self.sc,
                     tokens: &self.tokens,
+                    read: &self.read,
                     kind: TokenKind::UserFirst(session_id),
                     cache_key: &cache_key,
                     ttl: TTL_SEARCH,
@@ -94,6 +96,7 @@ impl TracksService {
                     limit,
                     path: "/tracks".into(),
                     extra_params: extra,
+                    apiv2: false, // id-batch / faceted search → apiv1
                 })
                 .await?
             }
@@ -317,6 +320,7 @@ impl TracksService {
             list_cache: &self.list_cache,
             sc: &self.sc,
             tokens: &self.tokens,
+            read: &self.read,
             kind: TokenKind::UserFirst(session_id),
             cache_key: &cache_key,
             ttl: TTL_COMMENTS,
@@ -324,8 +328,9 @@ impl TracksService {
             session_id: None,
             page,
             limit,
-            path: format!("/tracks/{track_urn}/comments"),
-            extra_params: vec![],
+            path: format!("/tracks/{}/comments", extract_sc_id(track_urn)),
+            extra_params: vec![("threaded".into(), "0".into())], // apiv2 comments require it
+            apiv2: true,
         })
         .await
     }
@@ -355,6 +360,7 @@ impl TracksService {
             list_cache: &self.list_cache,
             sc: &self.sc,
             tokens: &self.tokens,
+            read: &self.read,
             kind: TokenKind::UserFirst(session_id),
             cache_key: &format!("track-favoriters:{track_urn}"),
             ttl: TTL_FAVORITERS,
@@ -364,6 +370,7 @@ impl TracksService {
             limit,
             path: format!("/tracks/{track_urn}/favoriters"),
             extra_params: vec![],
+            apiv2: false, // apiv2 has no anon favoriters endpoint (404)
         })
         .await
     }
@@ -379,6 +386,7 @@ impl TracksService {
             list_cache: &self.list_cache,
             sc: &self.sc,
             tokens: &self.tokens,
+            read: &self.read,
             kind: TokenKind::UserFirst(session_id),
             cache_key: &format!("track-reposters:{track_urn}"),
             ttl: TTL_REPOSTERS,
@@ -386,8 +394,9 @@ impl TracksService {
             session_id: None,
             page,
             limit,
-            path: format!("/tracks/{track_urn}/reposters"),
+            path: format!("/tracks/{}/reposters", extract_sc_id(track_urn)),
             extra_params: vec![],
+            apiv2: true,
         })
         .await
     }
@@ -409,6 +418,7 @@ impl TracksService {
             list_cache: &self.list_cache,
             sc: &self.sc,
             tokens: &self.tokens,
+            read: &self.read,
             kind: TokenKind::UserFirst(session_id),
             cache_key: &cache_key,
             ttl: TTL_RELATED,
@@ -416,8 +426,9 @@ impl TracksService {
             session_id: None,
             page,
             limit,
-            path: format!("/tracks/{track_urn}/related"),
+            path: format!("/tracks/{}/related", extract_sc_id(track_urn)),
             extra_params: vec![("access".into(), access.to_string())],
+            apiv2: true,
         })
         .await?;
         likes_cold::apply_user_favorite_flag(&self.pg, sc_user_id, &mut result.collection).await?;

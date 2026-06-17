@@ -1,10 +1,6 @@
-//! Channel B: apiv2 over our infra (a scraped anonymous `client_id` fetched through
-//! `anon_get_via_relay_proxy`, which races a relay edge-client against the proxy pool).
-//!
-//! Token-free, so it serves public reads even where the OAuth-app pool is empty (the
-//! star/reserve node). It is the fallback for channel A (the signed Lua method on an
-//! edge client) and implements the same multi-step flows in Rust — playlist hydration,
-//! collection paging, search — so a host with few connected edge clients still works.
+//! Channel B: apiv2 via proxy&relay (`anon_get_via_relay_proxy`). It is the fallback for
+//! channel A (the Lua method via the relay) and implements the same multi-step flows in
+//! Rust — playlist hydration, collection paging, search.
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -37,7 +33,7 @@ pub struct Page {
     pub next_href: Option<String>,
 }
 
-/// apiv2 reads through a scraped anonymous client_id + the relay/proxy race.
+/// apiv2 reads via proxy&relay (client_id scraped from the SC homepage).
 pub struct Apiv2Proxy {
     sc: ScClient,
     client_id: RwLock<Option<String>>,
@@ -153,6 +149,13 @@ impl Apiv2Proxy {
                 }
             })
             .await?;
+        Ok(parse_page(&page))
+    }
+
+    /// Generic list GET of a full api-v2 URL (without client_id) → one page. For public
+    /// paginated lists (comments/reposters/related/followers) + cron list-walks.
+    pub async fn get_list(&self, url: &str) -> AppResult<Page> {
+        let page = self.get_with_retry(|cid| with_client_id(url, cid)).await?;
         Ok(parse_page(&page))
     }
 

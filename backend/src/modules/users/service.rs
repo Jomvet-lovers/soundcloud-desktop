@@ -79,11 +79,13 @@ impl UsersService {
         path: String,
         kind: TokenKind,
         extra_params: Vec<(String, String)>,
+        apiv2: bool,
     ) -> ScListPageArgs<'a> {
         ScListPageArgs {
             list_cache: &self.list_cache,
             sc: &self.sc,
             tokens: &self.tokens,
+            read: &self.read,
             kind,
             cache_key,
             ttl,
@@ -93,6 +95,7 @@ impl UsersService {
             limit,
             path,
             extra_params,
+            apiv2,
         }
     }
 
@@ -117,6 +120,7 @@ impl UsersService {
                 sc_search_page(ScSearchArgs {
                     list_cache: &self.list_cache,
                     read: &self.read,
+                    kind: TokenKind::UserFirst(session_id),
                     ty: SearchType::Users,
                     q,
                     cache_key: &key,
@@ -135,6 +139,7 @@ impl UsersService {
                     "/users".into(),
                     TokenKind::UserFirst(session_id),
                     extra,
+                    false, // id-batch fallback → apiv1
                 ))
                 .await
             }
@@ -191,6 +196,7 @@ impl UsersService {
             format!("/users/{user_urn}/followers"),
             TokenKind::UserFirst(session_id),
             vec![],
+            true, // followers — apiv2 (curl-verified)
         ))
         .await
     }
