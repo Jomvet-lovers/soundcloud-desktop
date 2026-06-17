@@ -250,13 +250,30 @@ impl ScReadService {
         cursor: Option<&str>,
         limit: i64,
     ) -> AppResult<ScCollectionPage> {
+        self.list_page_rotated(kind, path, extra_params, cursor, limit, 0)
+            .await
+    }
+
+    /// As [`Self::list_page`] but biases the relay listing toward a client region
+    /// distinct from the first `region_rotation` countries in rank order. A caller
+    /// unioning a per-region listing (which omits geoblocked items) bumps this per
+    /// retry to sweep regions. `0` = no preference (what `list_page` passes).
+    pub async fn list_page_rotated(
+        &self,
+        kind: TokenKind,
+        path: &str,
+        extra_params: &[(String, String)],
+        cursor: Option<&str>,
+        limit: i64,
+        region_rotation: i32,
+    ) -> AppResult<ScCollectionPage> {
         match cursor {
             Some(c) if c.contains("api.soundcloud.com") => {
                 self.apiv1_list(kind, Some(c), "", &[], limit).await
             }
-            Some(c) => self.apiv2_list(c).await,
+            Some(c) => self.apiv2_list(c, region_rotation).await,
             None => match self
-                .apiv2_list(&build_apiv2_url(path, extra_params, limit))
+                .apiv2_list(&build_apiv2_url(path, extra_params, limit), region_rotation)
                 .await
             {
                 Ok(p) => Ok(p),
@@ -268,13 +285,20 @@ impl ScReadService {
         }
     }
 
-    async fn apiv2_list(&self, url: &str) -> AppResult<ScCollectionPage> {
-        self.run(self.apiv2_list_lua(url), self.apiv2_list_proxy(url))
-            .await
+    async fn apiv2_list(&self, url: &str, region_rotation: i32) -> AppResult<ScCollectionPage> {
+        self.run(
+            self.apiv2_list_lua(url, region_rotation),
+            self.apiv2_list_proxy(url),
+        )
+        .await
     }
 
-    async fn apiv2_list_lua(&self, url: &str) -> AppResult<ScCollectionPage> {
-        match self.sc.apiv2_get_via_relay(url).await {
+    async fn apiv2_list_lua(&self, url: &str, region_rotation: i32) -> AppResult<ScCollectionPage> {
+        match self
+            .sc
+            .apiv2_get_via_relay_rotated(url, region_rotation)
+            .await
+        {
             Some(v) => {
                 self.lua_health.record_ok();
                 Ok(page_from_lua(&v))

@@ -88,4 +88,14 @@ impl Client {
     ) -> Result<Bytes, Error> {
         Err(Error::Disabled)
     }
+
+    pub async fn call_method_rotated(
+        &self,
+        _method_id: &str,
+        _script: &str,
+        _inputs: Bytes,
+        _region_rotation: i32,
+    ) -> Result<Bytes, Error> {
+        Err(Error::Disabled)
+    }
 }

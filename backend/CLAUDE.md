@@ -17,7 +17,7 @@ enriches it (artists/albums/lyrics), embeds it for a vector-based recommendation
 - **Redis** — caches, wave cursors, single-flight locks, rate budgets.
 - **MinIO/S3** — transcoded audio (`soundcloud_tracks_<id>.m4a`).
 - Sibling services (separate repos/images): **streaming** (SC→S3 download/transcode), **worker** (Python:
-  whisper/demucs/embeddings/LLM RPC over NATS), **call** (relay through user clients to dodge SC bans —
+  whisper/demucs/embeddings/LLM RPC over NATS), **call** (relay service for SC reads —
   `../SoundCloud-Internal`), **proxy-systems** (`../Proxy-Systems`: intermediate + simple + ipv6 rotating
   proxies for external APIs), **tls-common** (`utils/tls-common`, shared TLS/ACME/PROXY-protocol).
 
@@ -26,7 +26,7 @@ enriches it (artists/albums/lyrics), embeds it for a vector-based recommendation
 `ingest` (like/playlist/discovery → `indexing::ingest_track_from_sc`, UPSERT `tracks`, priority set) → **storage** (
 `streaming` downloads from SC → S3; `storage_state`) → **index** (worker embeds audio+lyrics → Qdrant; `index_state`) →
 **enrich** (link artists/albums; `enrich_state`) → **lyrics** (aggregators + self-gen whisper). Each stage has its own
-state column + pickup. The bottleneck in prod is **SC download** (rates/bans) — mitigated by the `call` relay + rotating
+state column + pickup. The bottleneck in prod is **SC download** (rate limits) — mitigated by the `call` relay + rotating
 proxies.
 
 The **wave** (`recommendations::smart_wave`) blends 3 arms — track-arm (clap+mert+lyrics NN from seed likes),
@@ -51,6 +51,12 @@ So wave quality depends on the user's liked tracks being **indexed** (vectors), 
   `Accept-Encoding: identity` (the proxy strips `content-encoding` without decompressing — see [proxy bug] below).
   `get_api` = direct-first (token APIs), `get_scrape` = proxy-first (web). Genius concurrency =
   `GENIUS_MAX_CONCURRENT_SCRAPES`.
+- **Reading from SoundCloud** — do NOT call `ScClient::api_get_value` directly for a public read.
+  Public reads go through the `ScReadService` facade (`sc/read.rs`): a 3-tier chain **apiv2 via relay
+  (Lua) → apiv2 via proxy&relay → apiv1 (direct→proxy&relay, token, lazy)**, normalized to apiv1 shape.
+  Owner `/me/*` private reads and all writes stay on apiv1 + the user's token; writes go via `sync_queue`.
+  Adding an apiv2 endpoint? **curl-test it first** (some are 401/404 for anon). Full rules + how to write a
+  new SC Lua method: **[docs/sc-networking.md](docs/sc-networking.md)**.
 - **Prioritize user-relevant work.** `TrackPriority` (Like=1 … Discovery=5) → `tracks.{index,storage}_priority`; enrich
   backfill orders by `index_priority` too. Likes/owned must beat the discovery firehose for SC-download/index/enrich.
 - **Skip pointless external work.** MusicBrainz only for ISRC/`metadata_artist` (label) tracks — it never matches
@@ -68,7 +74,7 @@ So wave quality depends on the user's liked tracks being **indexed** (vectors), 
 - **Proxy strips `Content-Encoding` without decompressing** → gzip/br bodies arrive as garbage; logged only at `debug`.
   Always send `Accept-Encoding: identity` for proxied fetches. Fixed in `proxy-common/headers.rs` (forces identity) +
   backend `external_fetch`.
-- **`call` relay** (SC-ban bypass) must reach `control.scdinternal.site`; the call server expects PROXY-protocol only
+- **`call` relay** must reach its control endpoint; the call server expects PROXY-protocol only
   from haproxy. Internal services connect direct (docker alias, bypassing haproxy) → tls-common does optional
   PROXY-detect + trusts only `TLS_PROXY_TRUSTED_HOSTS=haproxy` (auto-resolved). Port `:444` is the desktop's direct
   gRPC (DNAT preserves client IP).
@@ -79,10 +85,11 @@ So wave quality depends on the user's liked tracks being **indexed** (vectors), 
 resolution: ISRC→MB→Genius→AI→heuristic; `artist_crawl` Genius/MB catalog → `wanted_tracks`; `persist`), `lyrics` (
 aggregators lrclib/mxm/genius/netease + self-gen transcribe), `recommendations` (`smart_wave`, arms, blender, cursors,
 clusters, bandits, trainer), `collab`/`centroids` (vectors), `cold_refresh` (TTL-based SC re-sync), `auth`/
-`oauth_apps` (SC token chains + proxy), `sync_queue` (write-back to SC), `resolve` (SC resolve API), read-path:
+`oauth_apps` (SC token chains + proxy), `sync_queue` (write-back to SC), `resolve` (`/resolve` handler → `ScReadService`), read-path:
 `search discover albums artists playlists users me likes dislikes history auras featured subscriptions`. Infra: `bus/` (
-nats), `cache/`, `db/`, `qdrant/`, `redis/`, `sc/` (ScClient), `common/` (`external_fetch`, `throttle`), `config.rs`,
-`main.rs`.
+nats), `cache/`, `db/`, `qdrant/`, `redis/`, `sc/` (`ScClient` transport + `ScReadService` public-read facade +
+`apiv2`/`mapping`/`lua_methods` — see [docs/sc-networking.md](docs/sc-networking.md)), `common/` (`external_fetch`,
+`throttle`), `config.rs`, `main.rs`.
 
 ## Database queries (sqlx — FOLLOW THESE)
 

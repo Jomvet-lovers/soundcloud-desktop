@@ -422,9 +422,25 @@ impl ScClient {
     /// Generic apiv2 GET via the relay (`sc.apiv2_get`). Returns the RAW apiv2 body
     /// (`data`), or None to fall back.
     pub async fn apiv2_get_via_relay(&self, url: &str) -> Option<Value> {
+        self.apiv2_get_via_relay_rotated(url, 0).await
+    }
+
+    /// As [`Self::apiv2_get_via_relay`] but biases the relay toward a client region
+    /// distinct from the first `region_rotation` countries — used to union a per-region
+    /// listing (e.g. `/users/{id}/tracks`) that omits geoblocked items across regions.
+    pub async fn apiv2_get_via_relay_rotated(
+        &self,
+        url: &str,
+        region_rotation: i32,
+    ) -> Option<Value> {
         let inputs = serde_json::to_vec(&serde_json::json!({ "url": url })).ok()?;
         let v = self
-            .call_relay_method("sc.apiv2_get", crate::sc::lua_methods::APIV2_GET, inputs)
+            .call_relay_method_rotated(
+                "sc.apiv2_get",
+                crate::sc::lua_methods::APIV2_GET,
+                inputs,
+                region_rotation,
+            )
             .await?;
         (v.get("ok").and_then(Value::as_bool) == Some(true))
             .then(|| v.get("data").cloned())
@@ -439,9 +455,24 @@ impl ScClient {
         script: &'static str,
         inputs: Vec<u8>,
     ) -> Option<Value> {
+        self.call_relay_method_rotated(method_id, script, inputs, 0)
+            .await
+    }
+
+    /// Like [`Self::call_relay_method`] but asks the relay to prefer a client region
+    /// distinct from the first `region_rotation` countries in rank order — bump it per
+    /// retry to union a per-region listing that hides geoblocked items. `0` = no
+    /// preference (identical to `call_relay_method`).
+    async fn call_relay_method_rotated(
+        &self,
+        method_id: &'static str,
+        script: &'static str,
+        inputs: Vec<u8>,
+        region_rotation: i32,
+    ) -> Option<Value> {
         let relay = self.inner.relay.as_ref()?;
         let out = match relay
-            .call_method(method_id, script, Bytes::from(inputs))
+            .call_method_rotated(method_id, script, Bytes::from(inputs), region_rotation)
             .await
         {
             Ok(b) => b,

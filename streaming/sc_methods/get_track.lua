@@ -69,14 +69,32 @@ if cid == nil or cid == "" then error("no client_id") end
 -- 1. track metadata
 local tr = get("https://api-v2.soundcloud.com/tracks/" .. urlencode(tostring(inputs.id))
   .. "?client_id=" .. urlencode(cid))
-if tr.status == 404 then return { ok = false, reason = "gone" } end
+if tr.status == 404 then return { ok = false, reason = "gone", __verdict = "terminal" } end
 if tr.status ~= 200 then error("track status " .. tostring(tr.status)) end
 local track = json_decode(tr.body)
-if type(track) ~= "table" or track.media == nil or track.media.transcodings == nil then
+if type(track) ~= "table" then error("track: bad json") end
+
+-- Geoblock. Verified apiv2 shape (sagath-2 fetched from a DE client, where it is
+-- blocked): HTTP 200, `policy == "BLOCK"`, and `media.transcodings == []` (an EMPTY
+-- array, not nil — the old `transcodings == nil` check missed it and fell through to
+-- "no_transcoding"). The metadata is intact but playback is stripped FOR THIS REGION;
+-- the same track plays from a client in an allowed country. Soft-negative tells the
+-- relay to poll geographically-diverse clients before declaring the track unavailable.
+if track.policy == "BLOCK" then
+  return { ok = false, reason = "geoblocked", __verdict = "soft_negative" }
+end
+if track.media == nil or track.media.transcodings == nil then
   return { ok = false, reason = "no_media" }
+end
+if #track.media.transcodings == 0 then
+  -- Empty transcodings on an otherwise-present track is the same region-restriction
+  -- signal even when `policy` isn't literally "BLOCK".
+  return { ok = false, reason = "geoblocked", __verdict = "soft_negative" }
 end
 
 local chosen = pick(track.media.transcodings, inputs.quality or "sq")
+-- Transcodings exist but none are usable (e.g. all `snipped` previews): a paywall /
+-- preview, not a region block — region-independent, so terminal (no geo retry).
 if chosen == nil then return { ok = false, reason = "no_transcoding" } end
 local proto = chosen.format.protocol
 local content_type = chosen.format.mime_type or "audio/mpeg"

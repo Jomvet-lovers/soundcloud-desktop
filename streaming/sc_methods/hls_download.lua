@@ -11,7 +11,12 @@
 
 local m3u8_url = inputs.url
 local resp = http({ url = m3u8_url, method = "GET" })
-if resp.status ~= 200 then
+if resp.status == 404 then
+  return { ok = false, reason = "gone", __verdict = "terminal" }
+elseif resp.status == 403 then
+  -- m3u8 forbidden from THIS region (CDN geoblock) — may serve from another country.
+  return { ok = false, reason = "geoblocked", __verdict = "soft_negative" }
+elseif resp.status ~= 200 then
   error("m3u8 status " .. tostring(resp.status))
 end
 

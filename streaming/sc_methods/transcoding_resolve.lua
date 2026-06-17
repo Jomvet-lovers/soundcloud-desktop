@@ -31,7 +31,13 @@ if s == 200 then
   end
   return { ok = true, url = data.url, auth_token = data.licenseAuthToken }
 elseif s == 404 then
-  return { ok = false, reason = "gone" }
+  return { ok = false, reason = "gone", __verdict = "terminal" }
+elseif s == 403 then
+  -- The stream is forbidden from THIS region (geoblock at the stream-resolve step) —
+  -- it may resolve from a client in an allowed country. Soft-negative, not a hard
+  -- failure, so the relay polls other regions before giving up.
+  return { ok = false, reason = "geoblocked", __verdict = "soft_negative" }
 else
+  -- 401 (dead client_id) / 429 / 5xx: transient/this-client → retry the next client.
   error("transcoding resolve status " .. tostring(s))
 end
