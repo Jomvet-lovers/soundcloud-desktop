@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::{
@@ -9,6 +10,7 @@ use qdrant_client::qdrant::{
 use qdrant_client::{Payload, Qdrant};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::config::QdrantCfg;
@@ -34,7 +36,10 @@ pub struct QdrantService {
 
 impl QdrantService {
     pub fn connect(cfg: &QdrantCfg) -> AppResult<Arc<Self>> {
-        let mut qcfg = QdrantConfig::from_url(&cfg.url);
+        let mut qcfg = QdrantConfig::from_url(&cfg.url)
+            .timeout(Duration::from_secs(5))
+            .connect_timeout(Duration::from_secs(5))
+            .skip_compatibility_check();
         if !cfg.api_key.is_empty() {
             qcfg = qcfg.api_key(cfg.api_key.clone());
         }
@@ -47,14 +52,37 @@ impl QdrantService {
         &self.client
     }
 
-    pub async fn bootstrap_collections(&self) {
-        let collections = match self.client.list_collections().await {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(error = %e, "Qdrant init skipped (not available)");
-                return;
+    pub fn spawn_bootstrap(self: Arc<Self>, shutdown: CancellationToken) {
+        tokio::spawn(async move {
+            let mut attempt: u32 = 0;
+            loop {
+                if shutdown.is_cancelled() {
+                    return;
+                }
+                match self.bootstrap_collections().await {
+                    Ok(()) => {
+                        info!("Qdrant client ready");
+                        return;
+                    }
+                    Err(e) => {
+                        attempt += 1;
+                        warn!(attempt, error = %e, "Qdrant bootstrap failed, retry in 30s");
+                        tokio::select! {
+                            _ = shutdown.cancelled() => return,
+                            _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                        }
+                    }
+                }
             }
-        };
+        });
+    }
+
+    pub async fn bootstrap_collections(&self) -> AppResult<()> {
+        let collections = self
+            .client
+            .list_collections()
+            .await
+            .map_err(|e| AppError::internal(format!("qdrant list_collections: {e}")))?;
         let existing: std::collections::HashSet<String> = collections
             .collections
             .into_iter()
@@ -103,6 +131,7 @@ impl QdrantService {
                 }
             }
         }
+        Ok(())
     }
 
     /// Durable-запись вектора запроса: point id = детерминированный UUID из

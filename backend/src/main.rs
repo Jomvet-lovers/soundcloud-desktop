@@ -106,8 +106,7 @@ async fn main() {
     info!("NATS connected");
 
     let qdrant = QdrantService::connect(&config.qdrant).expect("Failed to init Qdrant client");
-    qdrant.bootstrap_collections().await;
-    info!("Qdrant client ready");
+    qdrant.clone().spawn_bootstrap(shutdown.clone());
 
     let http_client = reqwest::Client::builder()
         .tcp_keepalive(Duration::from_secs(60))
