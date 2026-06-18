@@ -3,12 +3,13 @@ use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
+use crate::common::admin::AdminAuth;
 use crate::common::session::SessionCtx;
 use crate::error::AppError;
 use crate::state::AppState;
 
-/// premium_reserve-гейт: всё кроме вайтлиста и OPTIONS требует премиум-сессию
-/// (нет сессии → 401, не-премиум → 403). Когда режим выключен — passthrough.
+/// premium_reserve-гейт: всё кроме вайтлиста, OPTIONS и админ-токена требует
+/// премиум-сессию (нет сессии → 401, не-премиум → 403). Режим выключен — passthrough.
 pub async fn premium_gate(State(state): State<AppState>, req: Request, next: Next) -> Response {
     if !state.config.premium_reserve {
         return next.run(req).await;
@@ -18,6 +19,12 @@ pub async fn premium_gate(State(state): State<AppState>, req: Request, next: Nex
     }
 
     let (mut parts, body) = req.into_parts();
+    if AdminAuth::from_request_parts(&mut parts, &state)
+        .await
+        .is_ok()
+    {
+        return next.run(Request::from_parts(parts, body)).await;
+    }
     let ctx = match SessionCtx::from_request_parts(&mut parts, &state).await {
         Ok(c) => c,
         Err(e) => return e.into_response(),
