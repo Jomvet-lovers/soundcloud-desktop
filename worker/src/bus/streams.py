@@ -2,10 +2,12 @@
 
 Стримы — собственность backend (на приватном NATS) и брокера (на публичном,
 см. infra public-workers/broker/init-streams.sh). Воркер их только ИСПОЛЬЗУЕТ:
-пробует создать (на доверенной ноде с правами это no-op/создание), а если прав
-нет (публичная нода) — убеждается, что стрим уже предсоздан, и работает с ним.
-Так один и тот же образ живёт и на trusted-, и на untrusted-ноде без выдачи
-публичным нодам прав STREAM.CREATE/UPDATE.
+сначала ЧИТАЕТ (stream_info) и биндится к готовому; add_stream зовёт ТОЛЬКО если
+стрима реально нет И есть права (доверенная нода — первый создатель). На публичной
+ноде стрим всегда предсоздан → один быстрый INFO, без заведомо-денимого add_stream
+(тот спамил ERROR permissions violation и висел по 5с на таймаут запроса — ~40с
+старта на 8 стримов). Так один образ живёт и на trusted-, и на untrusted-ноде без
+выдачи публичным нодам прав STREAM.CREATE/UPDATE.
 """
 import asyncio
 import logging
@@ -42,30 +44,31 @@ class StreamUnavailable(Exception):
 
 
 async def _ensure_stream(js: JetStreamContext, cfg: StreamConfig) -> None:
+    # INFO-first: на публичной ноде стрим предсоздан — читаем и биндимся, БЕЗ
+    # заведомо-денимого add_stream (он давал ERROR permissions violation + 5с
+    # таймаут запроса на каждый стрим). add_stream только если стрима реально нет.
+    try:
+        await js.stream_info(cfg.name)
+        return  # существует, управляется извне (backend/брокер) — используем как есть
+    except NotFoundError:
+        pass  # стрима нет — создаём ниже (доверенная нода с правами CREATE)
+    except _DENIED as denied:
+        # INFO задеймлен (нет прав STREAM.INFO на этот стрим) → перм-граница:
+        # лейн недоступен этой ноде. Отключаем, НЕ ретраим вечно.
+        raise StreamUnavailable(cfg.name) from denied
     try:
         await js.add_stream(config=cfg)
-        return
+    except _DENIED as denied:
+        # INFO дал NotFound, но CREATE задеймлен (рассинхрон прав/гонка) → недоступен.
+        raise StreamUnavailable(cfg.name) from denied
     except Exception as e:
         msg = str(e).lower()
         if "already in use" in msg or "stream name already" in msg:
-            # Права есть, стрим уже существует с другим конфигом — приводим к нашему.
+            # Гонка создателей: кто-то завёл стрим между нашими INFO и CREATE —
+            # приводим к нашему конфигу.
             await js.update_stream(config=cfg)
             return
-        # add_stream не прошёл по иной причине: либо нет прав CREATE (публичная
-        # нода — приходит как permissions violation + таймаут запроса), либо NATS
-        # недоступен. Различаем чтением стрима (INFO ноде обычно разрешён).
-        try:
-            await js.stream_info(cfg.name)
-        except NotFoundError:
-            # INFO разрешён, сервер ответил NotFound → стрим реально отсутствует,
-            # а создать не можем → лейн недоступен (а не крэш-луп).
-            raise StreamUnavailable(cfg.name) from e
-        except _DENIED as denied:
-            # INFO тоже задеймлен (нет прав STREAM.INFO на этот стрим) → перм-граница:
-            # этот лейн нам недоступен. Отключаем, НЕ ретраим вечно.
-            raise StreamUnavailable(cfg.name) from denied
-        # Стрим есть (предсоздан backend'ом/брокером) — просто используем его.
-        log.info("stream %s managed externally; not creating", cfg.name)
+        raise  # реальная ошибка (обрыв NATS и т.п.) → внешний ретрай с backoff
 
 
 async def ensure_work_queue_stream(
