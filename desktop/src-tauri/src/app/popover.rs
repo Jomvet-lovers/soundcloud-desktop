@@ -1,9 +1,10 @@
 //! Tray-popover window: a frameless, transparent, always-on-top mini-player webview
-//! anchored to the tray icon. Created lazily on first open and kept alive (hidden on
-//! blur) thereafter. Left-click on the tray toggles it; the `last_hide` instant
-//! debounces the focus-loss-then-click race so a click never reopens what the blur
-//! just closed. Linux (appindicator) emits no left-click — the "Mini player" menu
-//! item opens it in a screen corner instead.
+//! anchored to the tray icon. Created lazily on first open and kept alive (hidden)
+//! thereafter. Opened pinned (no blur-dismiss) from both the tray left-click and the
+//! "Mini player" menu — closed by a re-click or its ✕. The `last_hide` instant
+//! debounces the hide-then-click race so a re-click never reopens what just closed.
+//! Linux (appindicator) emits no left-click — the "Mini player" menu opens it in a
+//! screen corner instead.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -24,9 +25,9 @@ const REOPEN_DEBOUNCE: Duration = Duration::from_millis(250);
 #[derive(Default)]
 pub struct TrayState {
     last_hide: Mutex<Option<Instant>>,
-    /// Pinned (opened from the "Mini player" menu) → a persistent widget: focus loss
-    /// does NOT dismiss it, only the ✕ does. Transient opens (tray left-click on
-    /// Win/Mac) leave this false and auto-hide on blur, like a glance flyout.
+    /// Pinned → persistent widget: focus loss does NOT dismiss it, only a re-click or the
+    /// ✕ does. Both the "Mini player" menu and the tray left-click open pinned — the
+    /// tray-click focus dance on Win/Mac would otherwise blur-dismiss it instantly.
     pinned: Mutex<bool>,
 }
 
@@ -160,17 +161,18 @@ fn hide_if_visible(app: &AppHandle) -> bool {
     false
 }
 
-/// Tray left-click (Win/Mac): transient glance flyout anchored at the click point —
-/// auto-hides on blur. `cursor` is the click point in physical px.
+/// Tray left-click (Win/Mac): toggles a pinned popover anchored at the click point.
+/// Pinned like the menu — the tray-click focus dance would otherwise blur-dismiss it
+/// instantly; a second click or its ✕ closes it. `cursor` is the click point in physical px.
 pub fn toggle(app: &AppHandle, cursor: Option<(f64, f64)>) {
     if hide_if_visible(app) {
         return;
     }
-    // A focus-loss auto-hide just fired → swallow this click (it's the "close" half).
+    // Debounce a click landing right after a hide (the "close" half of a re-click).
     if app.state::<TrayState>().recently_hidden() {
         return;
     }
-    show(app, cursor, false);
+    show(app, cursor, true);
 }
 
 /// "Mini player" menu: pinned, corner-positioned, persistent widget (no blur-dismiss).

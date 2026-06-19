@@ -1,20 +1,22 @@
-import {fetch} from '@tauri-apps/plugin-http';
-import {toast} from 'sonner';
+import { fetch } from '@tauri-apps/plugin-http';
+import { toast } from 'sonner';
 import i18n from '../i18n';
-import {useAppStatusStore} from '../stores/app-status';
-import {useAuthStore} from '../stores/auth';
-import {noteAuthGap, noteRateLimit, noteSuccess} from './auth-recovery';
-import {API_BASE, API_STAR_BASE} from './constants';
-import {logHttpError, logHttpFailure, trackAsync} from './diagnostics';
+import { useAppStatusStore } from '../stores/app-status';
+import { useAuthStore } from '../stores/auth';
+import { noteAuthGap, noteRateLimit, noteSuccess } from './auth-recovery';
+import { API_BASE, API_STAR_BASE } from './constants';
+import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
 import {
   getHostVerdict,
   isHealthy,
   isIncidentActive,
+  isTimeoutError,
   markHealthy,
   markUnhealthy,
+  noteRequestTimeout,
   preferredControlBase,
 } from './host-status';
-import {getIsPremium, requestPremiumRecheck} from './premium-cache';
+import { getIsPremium, requestPremiumRecheck } from './premium-cache';
 
 // ─── Session ────────────────────────────────────────────────
 
@@ -225,6 +227,7 @@ export async function apiRequest<T = unknown>(
     } catch (error) {
       if (error instanceof ApiError) throw error;
       markUnhealthy(base);
+      if (isTimeoutError(error)) noteRequestTimeout();
       if (!isLast) {
         lastError = error;
         continue;

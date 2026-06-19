@@ -108,12 +108,13 @@ export const Titlebar = React.memo(() => {
         />
 
         {/* LEFT: logo (image) + collapsible wordmark + persistent nav */}
-        <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center">
+        <div className="flex items-center gap-3 shrink-0" data-tauri-drag-region>
+            <div className="flex items-center" data-tauri-drag-region>
                 <img
                     src={appIcon}
                     alt="SoundCloud"
                     draggable={false}
+                    data-tauri-drag-region
                     className="w-8 h-8 rounded-[10px] shrink-0"
                     style={{
                         boxShadow:
@@ -123,6 +124,7 @@ export const Titlebar = React.memo(() => {
                 {/* Always rendered; collapses purely via CSS so there's no JS mount/unmount
               race when the sidebar toggles. max-width + padding fold the reclaimed space. */}
                 <span
+                    data-tauri-drag-region
                     className="overflow-hidden whitespace-nowrap text-[14px] font-bold tracking-tight text-white/85"
                     style={{
                         maxWidth: collapsed ? 0 : '140px',
@@ -138,8 +140,9 @@ export const Titlebar = React.memo(() => {
         <NavButtons />
       </div>
 
-        {/* CENTER: the one global search */}
-        <div className="flex-1 flex justify-center min-w-0">
+        {/* CENTER: the one global search. Drag region too — Tauri keys off e.target,
+            not ancestors, so the empty space beside the centered field must carry it. */}
+        <div className="flex-1 flex justify-center min-w-0" data-tauri-drag-region>
             <GlobalSearch/>
         </div>
 

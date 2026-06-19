@@ -1,9 +1,9 @@
-import {fetch} from '@tauri-apps/plugin-http';
-import {useAppStatusStore} from '../../stores/app-status';
-import {API_BASE, API_STAR_BASE} from '../constants';
-import {requestPremiumRecheck} from '../premium-cache';
-import {queryClient} from '../query-client';
-import {type NetVerdict, useHostStatusStore} from './store';
+import { fetch } from '@tauri-apps/plugin-http';
+import { useAppStatusStore } from '../../stores/app-status';
+import { API_BASE, API_STAR_BASE } from '../constants';
+import { requestPremiumRecheck } from '../premium-cache';
+import { queryClient } from '../query-client';
+import { type NetVerdict, useHostStatusStore } from './store';
 
 // ─── Health-карта (per-request data-plane роутинг) ──────────
 
@@ -52,10 +52,27 @@ const CONFIRM_DELAY_MS = 2_000;
 const PROBE_MIN_GAP_MS = 5_000;
 const RECHECK_MS = 15_000;
 const MODAL_RESHOW_SUPPRESS_MS = 10 * 60_000;
+const TIMEOUT_BURST_WINDOW_MS = 30_000;
+/** Порог таймаутов за окно: ниже = единичные долгие запросы, не падение хоста. */
+const TIMEOUT_BURST_THRESHOLD = 3;
 
 interface ProbeResult {
   alive: boolean;
   netFail: boolean;
+}
+
+/** Таймаут / отмена по таймауту: наш AbortController или timeout/connect-ошибка reqwest. */
+export function isTimeoutError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  const msg = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const m = msg.toLowerCase();
+  return (
+    m.includes('abort') ||
+    m.includes('cancel') ||
+    m.includes('timeout') ||
+    m.includes('timed out') ||
+    m.includes('time out')
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -133,6 +150,19 @@ let lastRunAt = 0;
 let mainAliveGen = 0;
 let trailingTimer: ReturnType<typeof setTimeout> | null = null;
 let recheckTimer: ReturnType<typeof setInterval> | null = null;
+let timeoutHits: number[] = [];
+
+function timeoutBurst(): boolean {
+  const now = Date.now();
+  timeoutHits = timeoutHits.filter((t) => now - t < TIMEOUT_BURST_WINDOW_MS);
+  return timeoutHits.length >= TIMEOUT_BURST_THRESHOLD;
+}
+
+/** Таймаут реального запроса. Форсим пробу лишь когда таймаутят все запросы (бурст), не 1-2 долгих. */
+export function noteRequestTimeout(): void {
+  timeoutHits.push(Date.now());
+  if (timeoutBurst()) requestProbe({ force: true });
+}
 
 function startRecheckTimer(): void {
   recheckTimer ??= setInterval(() => requestProbe(), RECHECK_MS);
@@ -176,7 +206,13 @@ async function run(): Promise<void> {
   }
   const genAfterMainProbes = mainAliveGen;
   const star = await probeConfirmed(API_STAR_BASE);
-  if (main.netFail && star.netFail && (await checkInternet()) === 'no-internet') {
+  // Бурст таймаутов = таймаутят все запросы → хост лёг, а не offline: модалку не глушим.
+  if (
+    main.netFail &&
+    star.netFail &&
+    !timeoutBurst() &&
+    (await checkInternet()) === 'no-internet'
+  ) {
     // Не знаем, лежат ли хосты; backendReachable не трогаем — offline-флоу ведёт apiRequest.
     useHostStatusStore.setState({ main: 'unknown', star: 'unknown', net: 'no-internet' });
     startRecheckTimer();

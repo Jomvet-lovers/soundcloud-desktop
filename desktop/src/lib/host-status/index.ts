@@ -4,9 +4,11 @@
 export {
   initHostStatus,
   isHealthy,
+  isTimeoutError,
   markHealthy,
   markUnhealthy,
   noteMainAlive,
+  noteRequestTimeout,
   requestProbe,
 } from './probe';
 export {
