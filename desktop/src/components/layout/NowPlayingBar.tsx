@@ -120,6 +120,8 @@ const DockLoadingRing = React.memo(({ progress }: { progress: number | null }) =
 const clampPct = (v: number) => Math.max(0, Math.min(100, v));
 const handleClass =
   'absolute top-1/2 z-[3] flex h-5 w-3.5 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center';
+const tipClass =
+  'pointer-events-none absolute bottom-[calc(100%+7px)] z-[4] -translate-x-1/2 whitespace-nowrap rounded-md bg-black/80 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white opacity-0 shadow-lg transition-opacity duration-100';
 
 const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
   const abLoop = usePlayerStore((s) => s.abLoop);
@@ -127,6 +129,7 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
   const bandRef = useRef<HTMLSpanElement>(null);
   const aRef = useRef<HTMLSpanElement>(null);
   const bRef = useRef<HTMLSpanElement>(null);
+  const tipRef = useRef<HTMLSpanElement>(null);
 
   if (!abLoop || duration <= 0) return null;
 
@@ -148,10 +151,21 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
     const lo = which === 'a' ? 0 : a + AB_MIN_GAP;
     const hi = which === 'a' ? (b ?? duration) - AB_MIN_GAP : duration;
     let latest = which === 'a' ? a : (b ?? a);
+    // Time bubble above the dragged handle — driven by direct DOM writes like the
+    // handle itself, so the per-frame drag stays React-render-free.
+    const showTip = (timeSec: number, pct: number) => {
+      const tip = tipRef.current;
+      if (!tip) return;
+      tip.textContent = formatTime(timeSec);
+      tip.style.left = `${pct}%`;
+      tip.style.opacity = '1';
+    };
+    showTip(latest, (latest / duration) * 100);
     const onMove = (ev: PointerEvent) => {
       const raw = ((ev.clientX - rect.left) / rect.width) * duration;
       latest = Math.max(lo, Math.min(hi, raw));
       const pct = (latest / duration) * 100;
+      showTip(latest, pct);
       if (which === 'a') {
         if (aRef.current) aRef.current.style.left = `${pct}%`;
         if (bandRef.current && bPct != null) {
@@ -167,6 +181,7 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      if (tipRef.current) tipRef.current.style.opacity = '0';
       nudgeAbBound(which, latest);
     };
     window.addEventListener('pointermove', onMove);
@@ -201,6 +216,7 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
           <span className="h-3.5 w-[3px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent-glow)]" />
         </span>
       )}
+      <span ref={tipRef} className={tipClass} style={{ left: `${aPct}%` }} />
     </>
   );
 });

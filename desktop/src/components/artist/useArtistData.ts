@@ -1,10 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
-import { api } from '../../lib/api';
+import {useQuery} from '@tanstack/react-query';
+import {useMemo} from 'react';
+import {api} from '../../lib/api';
 import {type Aura, resolveAura} from '../../lib/aura';
 import {useViewerAura} from '../../lib/useViewerAura';
-import type { Track } from '../../stores/player';
-import type { ArtistAlbum, ArtistDetail, TracksSort } from './types';
+import type {Track} from '../../stores/player';
+import type {ArtistAlbum, ArtistDetail, TracksSort} from './types';
 
 const STALE_DETAIL = 60_000;
 const STALE_TRACKS = 30_000;
@@ -25,12 +25,13 @@ export function useArtistTracks(
   id: string | undefined,
   role: 'primary' | 'featured',
   sort: TracksSort,
+  limit = 80,
 ) {
   return useQuery({
-    queryKey: ['artist', id, 'tracks', role, sort],
+    queryKey: ['artist', id, 'tracks', role, sort, limit],
     queryFn: () =>
       api<{ collection: Track[] }>(
-        `/artists/${encodeURIComponent(id!)}/tracks?role=${role}&sort=${sort}&limit=80`,
+        `/artists/${encodeURIComponent(id!)}/tracks?role=${role}&sort=${sort}&limit=${limit}`,
       ),
     enabled: !!id,
     staleTime: STALE_TRACKS,

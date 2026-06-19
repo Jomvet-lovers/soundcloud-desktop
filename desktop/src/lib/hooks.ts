@@ -493,7 +493,10 @@ export function useUserTracks(userUrn: string | undefined) {
     queryKey: ['user', userUrn, 'tracks'],
     url: (page, limit) => pagedUrl(`/users/${encodeURIComponent(userUrn!)}/tracks`, page, limit),
     limit: 30,
-    staleTime: COLD_CACHE_MS,
+    // НЕ cold-infinite: owned-треки переупорядочиваются при новых загрузках
+    // артиста, а клиентской мутации (как у like/follow) тут нет — некому слать
+    // invalidate. Финитный stale → ремоунт подтянет свежий порядок с бэка.
+    staleTime: MEDIUM_CACHE_MS,
     maxPages: 8,
     enabled: !!userUrn,
     dedupe: (t) => t.urn,

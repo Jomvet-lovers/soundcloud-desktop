@@ -86,7 +86,16 @@ function ArtistTracksTabImpl({
   showSort = true,
 }: ArtistTracksTabProps) {
   const { t } = useTranslation();
-  const query = useArtistTracks(artistId, role, sort);
+  // Years view groups by release_year, so it must fetch by release date (not
+  // popularity) and pull a deep page — otherwise low-play recent tracks (a fresh
+  // album) fall past the popularity cutoff and the newest year bucket is empty.
+  const yearsView = view === 'years';
+  const query = useArtistTracks(
+    artistId,
+    role,
+    yearsView ? 'recent' : sort,
+    yearsView ? 200 : 80,
+  );
   const tracks = query.data ?? [];
   const { available, wanted } = useMemo(() => partition(tracks), [tracks]);
   const yearBuckets = useMemo(
