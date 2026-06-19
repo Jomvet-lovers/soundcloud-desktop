@@ -2,17 +2,17 @@ import {
   type DefaultError,
   type InfiniteData,
   type QueryKey,
-  type UseInfiniteQueryResult,
   useInfiniteQuery,
+  type UseInfiniteQueryResult,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef } from 'react';
-import type { Track } from '../stores/player';
-import { api } from './api';
-import { initLikedUrns } from './likes';
-import { rememberLikedTracks, rememberTracks } from './offline-index';
+import {useEffect, useMemo, useRef} from 'react';
+import type {Track} from '../stores/player';
+import {api} from './api';
+import {initLikedUrns} from './likes';
+import {rememberLikedTracks, rememberTracks} from './offline-index';
 import {fetchRelatedTracks} from './related';
 
 /* ── Types ─────────────────────────────────────────────────────── */
@@ -215,12 +215,12 @@ function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
     gcTime: opts.gcTime ?? INFINITE_GC_MS,
     maxPages: opts.maxPages,
     enabled: opts.enabled,
-      // Списки рефрешатся только явными invalidate'ами из мутаций. Remount/
-      // reconnect не должен перетягивать весь infinite-query: для SC cursor-лент
-      // это перепроходит сдвинувшийся курсор и тасует выдачу. Focus-рефетч уже
-      // выключен глобально в query-client.
-      refetchOnMount: false,
-      refetchOnReconnect: false,
+    // Списки рефрешатся только явными invalidate'ами из мутаций. Remount/
+    // reconnect не должен перетягивать весь infinite-query: для SC cursor-лент
+    // это перепроходит сдвинувшийся курсор и тасует выдачу. Focus-рефетч уже
+    // выключен глобально в query-client.
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: opts.autoFetchAll is stable, query is captured
@@ -359,6 +359,21 @@ export function invalidateAllLikesCache() {
   _allLikesPromise = null;
 }
 
+/** Все треки плейлиста, по страницам до конца — под shuffle-continuation. */
+export function fetchAllPlaylistTracks(playlistUrn: string, pageSize = 200): Promise<Track[]> {
+  return (async () => {
+    const all: Track[] = [];
+    const base = `/playlists/${encodeURIComponent(playlistUrn)}/tracks`;
+    for (let page = 0; ; page++) {
+      const data = await api<TrackPage>(pagedUrl(base, page, pageSize));
+      for (const t of data.collection) all.push(t);
+      void rememberTracks(data.collection);
+      if (!data.has_more) break;
+    }
+    return all;
+  })();
+}
+
 /* ── Fresh from followed artists ───────────────────────────────── */
 
 export function useFollowingTracks(limit = 20) {
@@ -411,7 +426,7 @@ export function usePostComment(trackUrn: string | undefined) {
 export function useRelatedTracks(trackUrn: string | undefined, limit = 10) {
   return useQuery({
     queryKey: ['track', trackUrn, 'related', limit],
-      queryFn: () => fetchRelatedTracks(trackUrn!, limit),
+    queryFn: () => fetchRelatedTracks(trackUrn!, limit),
     enabled: !!trackUrn,
     staleTime: SHORT_CACHE_MS,
     gcTime: INFINITE_GC_MS,
@@ -633,9 +648,9 @@ export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (trackUrns: string[]) =>
-        api(`/playlists/${encodeURIComponent(playlistUrn!)}/tracks`, {
-            method: 'POST',
-            body: JSON.stringify({order: trackUrns}),
+      api(`/playlists/${encodeURIComponent(playlistUrn!)}/tracks`, {
+        method: 'POST',
+        body: JSON.stringify({ order: trackUrns }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['playlist', playlistUrn] });
@@ -653,19 +668,19 @@ export function useAddToPlaylist() {
   return useMutation({
     mutationFn: async ({
       playlistUrn,
-                           trackUrns,
+      trackUrns,
     }: {
       playlistUrn: string;
-        trackUrns: string[];
+      trackUrns: string[];
     }) => {
-        let last: unknown;
-        for (const urn of trackUrns) {
-            last = await api(`/playlists/${encodeURIComponent(playlistUrn)}/tracks`, {
-                method: 'POST',
-                body: JSON.stringify({add: urn}),
-            });
-        }
-        return last;
+      let last: unknown;
+      for (const urn of trackUrns) {
+        last = await api(`/playlists/${encodeURIComponent(playlistUrn)}/tracks`, {
+          method: 'POST',
+          body: JSON.stringify({ add: urn }),
+        });
+      }
+      return last;
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['playlist', vars.playlistUrn] });
@@ -702,41 +717,41 @@ export function useCreatePlaylist() {
 /** Тоггл приватности своего плейлиста. Optimistic: бэк сразу обновляет наш
  *  `sharing` + кладёт write-back в SC через sync_queue. */
 export function useSetPlaylistSharing(playlistUrn: string | undefined) {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: (sharing: 'public' | 'private') =>
-            api(`/playlists/${encodeURIComponent(playlistUrn!)}/sharing`, {
-                method: 'PUT',
-                body: JSON.stringify({sharing}),
-            }),
-        onSuccess: (_data, sharing) => {
-            qc.setQueryData<Playlist>(['playlist', playlistUrn], (old) =>
-                old ? {...old, sharing} : old,
-            );
-            qc.invalidateQueries({queryKey: ['playlist', playlistUrn]});
-            qc.invalidateQueries({queryKey: ['me', 'playlists']});
-            // Список своих плейлистов на профиле — ['user', urn, 'playlists'].
-            qc.invalidateQueries({queryKey: ['user']});
-        },
-    });
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sharing: 'public' | 'private') =>
+      api(`/playlists/${encodeURIComponent(playlistUrn!)}/sharing`, {
+        method: 'PUT',
+        body: JSON.stringify({ sharing }),
+      }),
+    onSuccess: (_data, sharing) => {
+      qc.setQueryData<Playlist>(['playlist', playlistUrn], (old) =>
+        old ? { ...old, sharing } : old,
+      );
+      qc.invalidateQueries({ queryKey: ['playlist', playlistUrn] });
+      qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
+      // Список своих плейлистов на профиле — ['user', urn, 'playlists'].
+      qc.invalidateQueries({ queryKey: ['user'] });
+    },
+  });
 }
 
 /** Тоггл приватности своего трека. */
 export function useSetTrackSharing(trackUrn: string | undefined) {
-    const qc = useQueryClient();
-    return useMutation({
-        mutationFn: (sharing: 'public' | 'private') =>
-            api(`/tracks/${encodeURIComponent(trackUrn!)}/sharing`, {
-                method: 'PUT',
-                body: JSON.stringify({sharing}),
-            }),
-        onSuccess: (_data, sharing) => {
-            qc.setQueryData<Track>(['track', trackUrn], (old) => (old ? {...old, sharing} : old));
-            qc.invalidateQueries({queryKey: ['track', trackUrn], exact: true});
-            // Списки своих треков на профиле — ['user', urn, 'tracks'] (нет ['me','tracks']).
-            qc.invalidateQueries({queryKey: ['user']});
-        },
-    });
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sharing: 'public' | 'private') =>
+      api(`/tracks/${encodeURIComponent(trackUrn!)}/sharing`, {
+        method: 'PUT',
+        body: JSON.stringify({ sharing }),
+      }),
+    onSuccess: (_data, sharing) => {
+      qc.setQueryData<Track>(['track', trackUrn], (old) => (old ? { ...old, sharing } : old));
+      qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
+      // Списки своих треков на профиле — ['user', urn, 'tracks'] (нет ['me','tracks']).
+      qc.invalidateQueries({ queryKey: ['user'] });
+    },
+  });
 }
 
 export function useDeletePlaylist() {
@@ -886,20 +901,20 @@ export function useSearchDbAlbums(q: string) {
 /* ── Search: Vibe + Lyrics (AI) ───────────────────────────────── */
 
 const EMPTY_TRACKS: Track[] = [];
-const EMPTY_ATMOSPHERE: SearchAtmosphere = {topGenres: []};
+const EMPTY_ATMOSPHERE: SearchAtmosphere = { topGenres: [] };
 
 export interface SearchAtmosphere {
-    /** Dominant genres of the result set — used to tint the page atmosphere. */
-    topGenres: string[];
+  /** Dominant genres of the result set — used to tint the page atmosphere. */
+  topGenres: string[];
 }
 
 export interface VibeSearchResponse {
-    items: Track[];
-    atmosphere: SearchAtmosphere;
-    /** "preparing" = the query vector is still being computed by the worker
-     *  (high load); items is empty, the UI shows a "preparing vibe" plaque and
-     *  this query auto-refetches until it flips to "ready". */
-    status?: 'ready' | 'preparing';
+  items: Track[];
+  atmosphere: SearchAtmosphere;
+  /** "preparing" = the query vector is still being computed by the worker
+   *  (high load); items is empty, the UI shows a "preparing vibe" plaque and
+   *  this query auto-refetches until it flips to "ready". */
+  status?: 'ready' | 'preparing';
 }
 
 /**
@@ -908,36 +923,36 @@ export interface VibeSearchResponse {
  * (dominant genres) the UI uses to recolour the page.
  */
 export function useVibeSearch(q: string, opts?: { limit?: number; languages?: string[] }) {
-    const limit = opts?.limit ?? 48;
-    const langs = (opts?.languages ?? []).slice().sort().join(',');
-    const query = useQuery({
-        queryKey: ['search', 'vibe', q, limit, langs],
-        enabled: q.trim().length >= 2,
-        staleTime: SEARCH_CACHE_MS,
-        // While the worker is still encoding the query (preparing), poll until the
-        // vector lands and the backend flips to ready.
-        refetchInterval: (q2) => (q2.state.data?.status === 'preparing' ? 2500 : false),
-        queryFn: () => {
-            const usp = new URLSearchParams({q: q.trim(), limit: String(limit)});
-            if (langs) usp.set('languages', langs);
-            return api<VibeSearchResponse>(`/search/vibe?${usp}`, undefined, 30_000);
-        },
-    });
-    return {
-        tracks: query.data?.items ?? EMPTY_TRACKS,
-        atmosphere: query.data?.atmosphere ?? EMPTY_ATMOSPHERE,
-        preparing: query.data?.status === 'preparing',
-        ...query,
-    };
+  const limit = opts?.limit ?? 48;
+  const langs = (opts?.languages ?? []).slice().sort().join(',');
+  const query = useQuery({
+    queryKey: ['search', 'vibe', q, limit, langs],
+    enabled: q.trim().length >= 2,
+    staleTime: SEARCH_CACHE_MS,
+    // While the worker is still encoding the query (preparing), poll until the
+    // vector lands and the backend flips to ready.
+    refetchInterval: (q2) => (q2.state.data?.status === 'preparing' ? 2500 : false),
+    queryFn: () => {
+      const usp = new URLSearchParams({ q: q.trim(), limit: String(limit) });
+      if (langs) usp.set('languages', langs);
+      return api<VibeSearchResponse>(`/search/vibe?${usp}`, undefined, 30_000);
+    },
+  });
+  return {
+    tracks: query.data?.items ?? EMPTY_TRACKS,
+    atmosphere: query.data?.atmosphere ?? EMPTY_ATMOSPHERE,
+    preparing: query.data?.status === 'preparing',
+    ...query,
+  };
 }
 
 export type LyricMode = 'text' | 'semantic' | 'auto';
 
 export interface LyricHit {
-    track: Track;
-    /** The matched lyric line (text mode); null for pure semantic hits. */
-    matchedLine: string | null;
-    score: number;
+  track: Track;
+  /** The matched lyric line (text mode); null for pure semantic hits. */
+  matchedLine: string | null;
+  score: number;
 }
 
 /**
@@ -945,17 +960,17 @@ export interface LyricHit {
  * line); `semantic` = lyric-embedding similarity; `auto` = both, merged.
  */
 export function useLyricSearch(q: string, mode: LyricMode = 'auto') {
-    const query = usePagedQuery<LyricHit>({
-        queryKey: ['search', 'lyrics', q, mode],
-        url: (page, limit) =>
-            pagedUrl('/search/lyrics', page, limit, `q=${encodeURIComponent(q)}&mode=${mode}`),
-        limit: SEARCH_DB_LIMIT,
-        staleTime: SEARCH_CACHE_MS,
-        maxPages: SEARCH_DB_MAX_PAGES,
-        enabled: q.trim().length >= 2,
-        dedupe: (h) => h.track.urn,
-    });
-    return {hits: query.items, ...query};
+  const query = usePagedQuery<LyricHit>({
+    queryKey: ['search', 'lyrics', q, mode],
+    url: (page, limit) =>
+      pagedUrl('/search/lyrics', page, limit, `q=${encodeURIComponent(q)}&mode=${mode}`),
+    limit: SEARCH_DB_LIMIT,
+    staleTime: SEARCH_CACHE_MS,
+    maxPages: SEARCH_DB_MAX_PAGES,
+    enabled: q.trim().length >= 2,
+    dedupe: (h) => h.track.urn,
+  });
+  return { hits: query.items, ...query };
 }
 
 /* ── Fallback / Seed Tracks ────────────────────────────────────── */
@@ -1009,8 +1024,8 @@ export function useRelatedPool(likedTracks: Track[]) {
     queryFn: async () => {
       const results = await Promise.all(
         seedUrns.map((urn) =>
-            fetchRelatedTracks(urn, 20).catch(
-                () => ({collection: [], page: 0, page_size: 20, has_more: false}) as TrackPage,
+          fetchRelatedTracks(urn, 20).catch(
+            () => ({ collection: [], page: 0, page_size: 20, has_more: false }) as TrackPage,
           ),
         ),
       );
@@ -1088,11 +1103,11 @@ export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Trac
  * призма Discover читали один источник, а не пересобирали пул каждая у себя.
  */
 export function useDiscoverFeed() {
-    const {tracks: likedTracks} = useLikedTracks(100);
-    const {data: pool, isLoading} = useRelatedPool(likedTracks);
-    const recommended = useRecommendedTracks(pool, 40);
-    const byGenre = useDiscoverData(pool, likedTracks);
-    return {likedTracks, isLoading, recommended, byGenre};
+  const { tracks: likedTracks } = useLikedTracks(100);
+  const { data: pool, isLoading } = useRelatedPool(likedTracks);
+  const recommended = useRecommendedTracks(pool, 40);
+  const byGenre = useDiscoverData(pool, likedTracks);
+  return { likedTracks, isLoading, recommended, byGenre };
 }
 
 /* ── Infinite scroll ───────────────────────────────────────────── */

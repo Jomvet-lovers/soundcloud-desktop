@@ -47,8 +47,11 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .on_tray_icon_event(|tray, event| {
             // Left-click toggles the mini-player popover anchored at the click point.
             // (Linux/appindicator never emits this — those users use the "Mini player" menu.)
+            // Release only: Click fires for both press and release; handling both toggles
+            // twice per physical click (show→hide), so the popover would vanish instantly.
             if let tauri::tray::TrayIconEvent::Click {
                 button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
                 position,
                 ..
             } = event

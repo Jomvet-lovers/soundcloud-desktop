@@ -14,41 +14,41 @@ import {SetRibbon} from '../components/playlist/SetRibbon';
 import {usePlaylistAura} from '../components/playlist/usePlaylistAura';
 import {Atmosphere} from '../components/search/Atmosphere';
 import {
-  useDeletePlaylist,
-  useInfiniteScroll,
-  usePlaylist,
-  usePlaylistTracks,
-  useUpdatePlaylistTracks,
+    useDeletePlaylist,
+    useInfiniteScroll,
+    usePlaylist,
+    usePlaylistTracks,
+    useUpdatePlaylistTracks,
 } from '../lib/hooks';
 import {AlertCircle, ChevronLeft, X} from '../lib/icons';
 import {usePerfMode} from '../lib/perf';
 import {rawPlaylistCover} from '../lib/playlist-cover';
+import {armPlaylistContinuation} from '../lib/queue-continuation';
 import {useAuthStore} from '../stores/auth';
 import {type Track, usePlayerStore} from '../stores/player';
 import {useSettingsStore} from '../stores/settings';
 
 function HeroSkeleton() {
-    return (
-        <div className="relative rounded-[2.5rem] overflow-hidden glass-featured p-6 md:p-10">
-            <div className="flex flex-col lg:flex-row gap-10">
-                <div
-                    className="w-[150px] h-[150px] md:w-[200px] md:h-[200px] rounded-[1.7rem] skeleton-shimmer shrink-0 self-center lg:self-start"/>
-                <div className="flex-1 space-y-4 w-full">
-                    <div className="h-4 w-32 rounded-full skeleton-shimmer"/>
-                    <div className="h-14 w-2/3 rounded-2xl skeleton-shimmer"/>
-                    <div className="h-11 w-72 rounded-full skeleton-shimmer mt-6"/>
-                    <div className="h-24 w-full rounded-2xl skeleton-shimmer mt-4"/>
+  return (
+    <div className="relative rounded-[2.5rem] overflow-hidden glass-featured p-6 md:p-10">
+      <div className="flex flex-col lg:flex-row gap-10">
+        <div className="w-[150px] h-[150px] md:w-[200px] md:h-[200px] rounded-[1.7rem] skeleton-shimmer shrink-0 self-center lg:self-start" />
+        <div className="flex-1 space-y-4 w-full">
+          <div className="h-4 w-32 rounded-full skeleton-shimmer" />
+          <div className="h-14 w-2/3 rounded-2xl skeleton-shimmer" />
+          <div className="h-11 w-72 rounded-full skeleton-shimmer mt-6" />
+          <div className="h-24 w-full rounded-2xl skeleton-shimmer mt-4" />
         </div>
-            </div>
-        </div>
-    );
+      </div>
+    </div>
+  );
 }
 
 export const PlaylistPage = React.memo(function PlaylistPage() {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-    const perf = usePerfMode();
+  const perf = usePerfMode();
   const myUrn = useAuthStore((s) => s.user?.urn);
 
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
@@ -75,12 +75,12 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
   const isOwner = !!playlist && !!myUrn && playlist.user.urn === myUrn;
   const isPinned = pinnedPlaylists.some((item) => item.urn === playlist?.urn);
 
-    const serverTracks: Track[] = useMemo(() => {
+  const serverTracks: Track[] = useMemo(() => {
     if (isLoading || !playlist) return [];
     return playlistTracks.length > 0 ? playlistTracks : (playlist.tracks ?? []);
   }, [isLoading, playlist, playlistTracks]);
 
-    // Local order for DnD; skip server sync while a debounced save is in flight.
+  // Local order for DnD; skip server sync while a debounced save is in flight.
   const [localTracks, setLocalTracks] = useState<Track[]>([]);
   const pendingMutationRef = useRef(false);
   useEffect(() => {
@@ -89,12 +89,12 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>(null!);
   const debouncedUpdate = useCallback(
-      (next: Track[], successMsg?: string) => {
+    (next: Track[], successMsg?: string) => {
       pendingMutationRef.current = true;
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = setTimeout(() => {
         updateTracks.mutate(
-            next.map((tr) => tr.urn),
+          next.map((tr) => tr.urn),
           {
             onSuccess: () => {
               pendingMutationRef.current = false;
@@ -111,11 +111,11 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     [updateTracks, serverTracks],
   );
 
-    useEffect(() => () => clearTimeout(debounceTimerRef.current), []);
+  useEffect(() => () => clearTimeout(debounceTimerRef.current), []);
 
   const tracks = isOwner ? localTracks : serverTracks;
 
-    const trackUrnSet = useMemo(() => new Set(tracks.map((tr) => tr.urn)), [tracks]);
+  const trackUrnSet = useMemo(() => new Set(tracks.map((tr) => tr.urn)), [tracks]);
   const { isPausedFromThis, isPlayingFromThis } = usePlayerStore(
     useShallow((s) => ({
       isPlayingFromThis:
@@ -125,58 +125,69 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     })),
   );
 
-    const aura = usePlaylistAura(tracks, playlist?.genre);
+  const aura = usePlaylistAura(tracks, playlist?.genre);
   const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
 
-    const handleDragEnd = useCallback(
-        (event: DragEndEvent) => {
-            const {active, over} = event;
-            if (!over || active.id === over.id) return;
-            const oldIndex = localTracks.findIndex((tr) => tr.urn === active.id);
-            const newIndex = localTracks.findIndex((tr) => tr.urn === over.id);
-            if (oldIndex === -1 || newIndex === -1) return;
-            const next = [...localTracks];
-            const [moved] = next.splice(oldIndex, 1);
-            next.splice(newIndex, 0, moved);
-            setLocalTracks(next);
-            debouncedUpdate(next, t('playlist.reordered'));
-        },
-        [localTracks, debouncedUpdate, t],
-    );
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const oldIndex = localTracks.findIndex((tr) => tr.urn === active.id);
+      const newIndex = localTracks.findIndex((tr) => tr.urn === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+      const next = [...localTracks];
+      const [moved] = next.splice(oldIndex, 1);
+      next.splice(newIndex, 0, moved);
+      setLocalTracks(next);
+      debouncedUpdate(next, t('playlist.reordered'));
+    },
+    [localTracks, debouncedUpdate, t],
+  );
 
-    const handleRemoveTrack = useCallback(
-        (trackUrn: string) => {
-            const next = localTracks.filter((tr) => tr.urn !== trackUrn);
-            setLocalTracks(next);
-            debouncedUpdate(next, t('playlist.trackRemoved'));
-        },
-        [localTracks, debouncedUpdate, t],
-    );
+  const handleRemoveTrack = useCallback(
+    (trackUrn: string) => {
+      const next = localTracks.filter((tr) => tr.urn !== trackUrn);
+      setLocalTracks(next);
+      debouncedUpdate(next, t('playlist.trackRemoved'));
+    },
+    [localTracks, debouncedUpdate, t],
+  );
 
-    const handlePlayAll = useCallback(() => {
-        if (tracks.length === 0) return;
-        const {play, pause, resume} = usePlayerStore.getState();
-        if (isPlayingFromThis) pause();
-        else if (isPausedFromThis) resume();
-        else play(tracks[0], tracks);
-    }, [tracks, isPlayingFromThis, isPausedFromThis]);
+  // Доигрываем плейлист ДО КОНЦА (пагинированный срез в очереди → потом волна),
+  // как у лайков. Армить ПОСЛЕ play(): он сбрасывает прошлый источник.
+  const armContinuation = useCallback(() => {
+    if (urn) armPlaylistContinuation(urn);
+  }, [urn]);
 
-    const handleShuffle = useCallback(() => {
-        if (tracks.length === 0) return;
-        const st = usePlayerStore.getState();
-        if (!st.shuffle) usePlayerStore.setState({shuffle: true});
-        st.play(tracks[Math.floor(Math.random() * tracks.length)], tracks);
-    }, [tracks]);
+  const handlePlayAll = useCallback(() => {
+    if (tracks.length === 0) return;
+    const { play, pause, resume } = usePlayerStore.getState();
+    if (isPlayingFromThis) pause();
+    else if (isPausedFromThis) resume();
+    else {
+      play(tracks[0], tracks);
+      armContinuation();
+    }
+  }, [tracks, isPlayingFromThis, isPausedFromThis, armContinuation]);
 
-    const handleJump = useCallback(
-        (index: number) => {
-            if (index < 0 || index >= tracks.length) return;
-            usePlayerStore.getState().play(tracks[index], tracks);
-        },
-        [tracks],
-    );
+  const handleShuffle = useCallback(() => {
+    if (tracks.length === 0) return;
+    const st = usePlayerStore.getState();
+    if (!st.shuffle) usePlayerStore.setState({ shuffle: true });
+    st.play(tracks[Math.floor(Math.random() * tracks.length)], tracks);
+    armContinuation();
+  }, [tracks, armContinuation]);
 
-    const handleTogglePin = useCallback(() => {
+  const handleJump = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= tracks.length) return;
+      usePlayerStore.getState().play(tracks[index], tracks);
+      armContinuation();
+    },
+    [tracks, armContinuation],
+  );
+
+  const handleTogglePin = useCallback(() => {
     if (!playlist) return;
     if (isPinned) {
       unpinPlaylist(playlist.urn);
@@ -186,109 +197,109 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     pinPlaylist({
       urn: playlist.urn,
       title: playlist.title,
-        artworkUrl: rawPlaylistCover(playlist.artwork_url, tracks),
+      artworkUrl: rawPlaylistCover(playlist.artwork_url, tracks),
     });
     toast.success(t('sidebar.pinned'));
-    }, [playlist, isPinned, unpinPlaylist, pinPlaylist, tracks, t]);
+  }, [playlist, isPinned, unpinPlaylist, pinPlaylist, tracks, t]);
 
-    const handleDelete = useCallback(() => {
-        if (!playlist) return;
+  const handleDelete = useCallback(() => {
+    if (!playlist) return;
     deletePlaylist.mutate(playlist.urn, {
       onSuccess: () => {
         toast.success(t('playlist.deleted'));
         navigate(-1);
       },
     });
-    }, [playlist, deletePlaylist, navigate, t]);
+  }, [playlist, deletePlaylist, navigate, t]);
 
-    if (isLoading || !playlist) {
-        return (
-            <div className="relative min-h-full w-full">
-                <style>{PLAYLIST_KEYFRAMES}</style>
-                {perf.atmosphere && <Atmosphere/>}
-                <div
-                    className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10"
-                    style={{isolation: 'isolate'}}
-                >
-                    <HeroSkeleton/>
-                </div>
-            </div>
-        );
-    }
-
-    const trackCount = playlist.track_count || tracks.length;
-
+  if (isLoading || !playlist) {
     return (
-        <div className="relative min-h-full w-full">
-            <style>{PLAYLIST_KEYFRAMES}</style>
-            {perf.atmosphere && (
-                <Atmosphere
-                    tint={aura.tint}
-                    energy={isPlayingFromThis ? Math.min(1, aura.energy + 0.12) : aura.energy}
-                />
-            )}
+      <div className="relative min-h-full w-full">
+        <style>{PLAYLIST_KEYFRAMES}</style>
+        {perf.atmosphere && <Atmosphere />}
+        <div
+          className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10"
+          style={{ isolation: 'isolate' }}
+        >
+          <HeroSkeleton />
+        </div>
+      </div>
+    );
+  }
 
-            <div
-                className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-7"
-                style={{isolation: 'isolate'}}
-            >
-                <button
-                    type="button"
-                    onClick={() => navigate(-1)}
-                    className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white/55 hover:text-white hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
-                    aria-label={t('search.back')}
-                >
-                    <ChevronLeft size={18}/>
-                </button>
+  const trackCount = playlist.track_count || tracks.length;
 
-                <PlaylistHero
-                    playlist={playlist}
-                    tracks={tracks}
-                    aura={aura}
-                    isOwner={isOwner}
-                    isPlaying={isPlayingFromThis}
-                    isPinned={isPinned}
-                    trackCount={trackCount}
-                    onPlayAll={handlePlayAll}
-                    onShuffle={handleShuffle}
-                    onTogglePin={handleTogglePin}
-                    onDelete={() => setShowDeleteConfirm(true)}
-                />
+  return (
+    <div className="relative min-h-full w-full">
+      <style>{PLAYLIST_KEYFRAMES}</style>
+      {perf.atmosphere && (
+        <Atmosphere
+          tint={aura.tint}
+          energy={isPlayingFromThis ? Math.min(1, aura.energy + 0.12) : aura.energy}
+        />
+      )}
 
-                <CrateLedger playlist={playlist} tracks={tracks} accentGlow={aura.accentGlow}/>
+      <div
+        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-7"
+        style={{ isolation: 'isolate' }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white/55 hover:text-white hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
+          aria-label={t('search.back')}
+        >
+          <ChevronLeft size={18} />
+        </button>
 
-                {tracks.length > 1 && (
-                    <div
-                        className="rounded-[2rem] p-5 md:p-6"
-                        style={{
-                            background: 'rgba(255,255,255,0.025)',
-                            border: '0.5px solid rgba(255,255,255,0.06)',
-                        }}
-                    >
-                        <div
-                            className="flex items-center gap-2 mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
-                            {t('playlist.theSet')}
-                        </div>
-                        <SetRibbon tracks={tracks} onJump={handleJump}/>
-                    </div>
-                )}
+        <PlaylistHero
+          playlist={playlist}
+          tracks={tracks}
+          aura={aura}
+          isOwner={isOwner}
+          isPlaying={isPlayingFromThis}
+          isPinned={isPinned}
+          trackCount={trackCount}
+          onPlayAll={handlePlayAll}
+          onShuffle={handleShuffle}
+          onTogglePin={handleTogglePin}
+          onDelete={() => setShowDeleteConfirm(true)}
+        />
 
-                <SequenceList
-                    tracks={tracks}
-                    isOwner={isOwner}
-                    onDragEnd={handleDragEnd}
-                    onRemove={handleRemoveTrack}
-                    sentinelRef={scrollRef}
-                    hasNextPage={hasNextPage ?? false}
-                    isFetchingNextPage={isFetchingNextPage}
-                />
+        <CrateLedger playlist={playlist} tracks={tracks} accentGlow={aura.accentGlow} />
 
-                <MoreCrates
-                    curatorUrn={playlist.user.urn}
-                    curatorName={playlist.user.username}
-                    excludeUrn={playlist.urn}
-                />
+        {tracks.length > 1 && (
+          <div
+            className="rounded-[2rem] p-5 md:p-6"
+            style={{
+              background: 'rgba(255,255,255,0.025)',
+              border: '0.5px solid rgba(255,255,255,0.06)',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
+              {t('playlist.theSet')}
             </div>
+            <SetRibbon tracks={tracks} onJump={handleJump} />
+          </div>
+        )}
+
+        <SequenceList
+          tracks={tracks}
+          isOwner={isOwner}
+          onDragEnd={handleDragEnd}
+          onRemove={handleRemoveTrack}
+          onPlay={armContinuation}
+          sentinelRef={scrollRef}
+          hasNextPage={hasNextPage ?? false}
+          isFetchingNextPage={isFetchingNextPage}
+        />
+
+        <MoreCrates
+          curatorUrn={playlist.user.urn}
+          curatorName={playlist.user.username}
+          excludeUrn={playlist.urn}
+        />
+      </div>
 
       <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <Dialog.Portal>
@@ -310,7 +321,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-1">
               <Dialog.Close className="px-4 py-2 rounded-xl text-[13px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition-all cursor-pointer">
-                  {t('common.cancel')}
+                {t('common.cancel')}
               </Dialog.Close>
               <button
                 type="button"

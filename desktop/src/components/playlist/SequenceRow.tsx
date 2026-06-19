@@ -123,14 +123,16 @@ export const SortableSequenceRow = React.memo(
     index,
     queue,
     onRemove,
+    onPlay,
   }: {
     track: Track;
     index: number;
     queue: Track[];
     onRemove: (urn: string) => void;
+    onPlay?: () => void;
   }) {
     const { t } = useTranslation();
-    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue, onPlay);
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
       id: track.urn,
     });
@@ -222,8 +224,18 @@ export function SequenceRowOverlay({
 
 /** Read-only row (non-owner). */
 export const SequenceRow = React.memo(
-  function SequenceRow({ track, index, queue }: { track: Track; index: number; queue: Track[] }) {
-    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
+  function SequenceRow({
+    track,
+    index,
+    queue,
+    onPlay,
+  }: {
+    track: Track;
+    index: number;
+    queue: Track[];
+    onPlay?: () => void;
+  }) {
+    const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue, onPlay);
     return (
       <div className={`${ROW_BASE} ${activeCls(isThis)}`}>
         <RowBody

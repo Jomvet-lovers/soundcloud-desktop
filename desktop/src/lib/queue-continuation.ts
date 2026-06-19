@@ -12,32 +12,32 @@
 
 import {shuffleArray, type Track, usePlayerStore} from '../stores/player';
 import {api} from './api';
-import {fetchAllLikedTracks} from './hooks';
+import {fetchAllLikedTracks, fetchAllPlaylistTracks} from './hooks';
 
 export interface QueueContinuationSource {
-    /** Имя для логов. */
-    readonly kind: string;
+  /** Имя для логов. */
+  readonly kind: string;
 
-    /**
-     * Следующая порция треков. Пустой массив = источник исчерпан (дальше волна).
-     * Дубли отсеивает вызывающий по живой очереди — здесь чистая пагинация.
-     */
-    next(): Promise<Track[]>;
+  /**
+   * Следующая порция треков. Пустой массив = источник исчерпан (дальше волна).
+   * Дубли отсеивает вызывающий по живой очереди — здесь чистая пагинация.
+   */
+  next(): Promise<Track[]>;
 }
 
 let active: QueueContinuationSource | null = null;
 
 export function setQueueContinuationSource(src: QueueContinuationSource | null): void {
-    active = src;
+  active = src;
 }
 
 export function getQueueContinuationSource(): QueueContinuationSource | null {
-    return active;
+  return active;
 }
 
 interface PagedTracks {
-    collection: Track[];
-    has_more: boolean;
+  collection: Track[];
+  has_more: boolean;
 }
 
 /**
@@ -45,28 +45,29 @@ interface PagedTracks {
  * Тянет по странице за вызов; `has_more=false` или пустая страница = иссяк.
  */
 export function createPagedContinuationSource(
-    kind: string,
-    base: string,
-    opts?: { pageSize?: number; startPage?: number },
+  kind: string,
+  base: string,
+  opts?: { pageSize?: number; startPage?: number },
 ): QueueContinuationSource {
-    const pageSize = opts?.pageSize ?? 50;
-    let page = Math.max(0, opts?.startPage ?? 0);
-    let done = false;
-    return {
-        kind,
-        async next() {
-            if (done) return [];
-            const sep = base.includes('?') ? '&' : '?';
-            const data = await api<PagedTracks>(`${base}${sep}limit=${pageSize}&page=${page}`);
-            page += 1;
-            const collection = data.collection ?? [];
-            if (!data.has_more || collection.length === 0) done = true;
-            return collection;
-        },
-    };
+  const pageSize = opts?.pageSize ?? 50;
+  let page = Math.max(0, opts?.startPage ?? 0);
+  let done = false;
+  return {
+    kind,
+    async next() {
+      if (done) return [];
+      const sep = base.includes('?') ? '&' : '?';
+      const data = await api<PagedTracks>(`${base}${sep}limit=${pageSize}&page=${page}`);
+      page += 1;
+      const collection = data.collection ?? [];
+      if (!data.has_more || collection.length === 0) done = true;
+      return collection;
+    },
+  };
 }
 
 const LIKES_PAGE_SIZE = 50;
+const PLAYLIST_PAGE_SIZE = 200;
 
 /**
  * Лайки от и до. `alreadyLoaded` — сколько лайков уже в очереди при старте
@@ -74,37 +75,43 @@ const LIKES_PAGE_SIZE = 50;
  * добивает дедуп на стороне autopilot'а.
  */
 export function createLikesContinuationSource(alreadyLoaded = 0): QueueContinuationSource {
-    return createPagedContinuationSource('likes', '/me/likes/tracks', {
-        pageSize: LIKES_PAGE_SIZE,
-        startPage: Math.floor(Math.max(0, alreadyLoaded) / LIKES_PAGE_SIZE),
-    });
+  return createPagedContinuationSource('likes', '/me/likes/tracks', {
+    pageSize: LIKES_PAGE_SIZE,
+    startPage: Math.floor(Math.max(0, alreadyLoaded) / LIKES_PAGE_SIZE),
+  });
 }
 
 /**
- * Все лайки, перемешанные — ленивый источник под shuffle. На первом `next()`
- * тянет ВЕСЬ список лайков (`fetchAllLikedTracks`, общий кеш), отсекает то, что
- * уже стоит в очереди (стартовая перемешанная страница), тасует остаток и
- * отдаёт его кусками. Так под shuffle проигрываются все лайки в случайном
- * порядке, а не только подгруженная страница, и очередь не раздувается на весь
- * список разом. Исчерпался — autopilot уходит в волну.
+ * Перемешанный ленивый источник под shuffle. На первом `next()` тянет ВЕСЬ набор
+ * (`fetchAll`), отсекает то, что уже стоит в очереди (стартовая перемешанная
+ * страница), тасует остаток и отдаёт кусками — так под shuffle играет весь набор
+ * в случайном порядке, а очередь не раздувается разом. Исчерпался — autopilot
+ * уходит в волну.
  */
+function createShuffledContinuationSource(
+  kind: string,
+  fetchAll: () => Promise<Track[]>,
+): QueueContinuationSource {
+  let buffer: Track[] | null = null;
+  let pos = 0;
+  return {
+    kind,
+    async next() {
+      if (buffer === null) {
+        const all = await fetchAll();
+        const queued = new Set(usePlayerStore.getState().queue.map((t) => t.urn));
+        buffer = all.filter((t) => !queued.has(t.urn));
+        shuffleArray(buffer);
+      }
+      const chunk = buffer.slice(pos, pos + LIKES_PAGE_SIZE);
+      pos += chunk.length;
+      return chunk;
+    },
+  };
+}
+
 export function createShuffledLikesContinuationSource(): QueueContinuationSource {
-    let buffer: Track[] | null = null;
-    let pos = 0;
-    return {
-        kind: 'likes-shuffled',
-        async next() {
-            if (buffer === null) {
-                const all = await fetchAllLikedTracks();
-                const queued = new Set(usePlayerStore.getState().queue.map((t) => t.urn));
-                buffer = all.filter((t) => !queued.has(t.urn));
-                shuffleArray(buffer);
-            }
-            const chunk = buffer.slice(pos, pos + LIKES_PAGE_SIZE);
-            pos += chunk.length;
-            return chunk;
-        },
-    };
+  return createShuffledContinuationSource('likes-shuffled', () => fetchAllLikedTracks());
 }
 
 /**
@@ -118,10 +125,38 @@ export function createShuffledLikesContinuationSource(): QueueContinuationSource
  * длины очереди.
  */
 export function armLikesContinuation(): void {
-    if (usePlayerStore.getState().shuffle) {
-        setQueueContinuationSource(createShuffledLikesContinuationSource());
-        return;
-    }
-    const loaded = usePlayerStore.getState().queue.length;
-    setQueueContinuationSource(createLikesContinuationSource(loaded));
+  if (usePlayerStore.getState().shuffle) {
+    setQueueContinuationSource(createShuffledLikesContinuationSource());
+    return;
+  }
+  const loaded = usePlayerStore.getState().queue.length;
+  setQueueContinuationSource(createLikesContinuationSource(loaded));
+}
+
+/**
+ * Поставить «плейлист до конца» под текущую очередь — зовётся в `onPlay` сразу
+ * после play() из плейлиста. Плейлист пагинируется (`usePlaylistTracks`), и
+ * play() кладёт в очередь лишь подгруженный срез; без источника очередь кончалась
+ * на нём и волна включалась посреди плейлиста. Тот же приём, что и у лайков.
+ */
+export function armPlaylistContinuation(playlistUrn: string): void {
+  if (usePlayerStore.getState().shuffle) {
+    setQueueContinuationSource(
+      createShuffledContinuationSource('playlist-shuffled', () =>
+        fetchAllPlaylistTracks(playlistUrn),
+      ),
+    );
+    return;
+  }
+  const loaded = usePlayerStore.getState().queue.length;
+  setQueueContinuationSource(
+    createPagedContinuationSource(
+      'playlist',
+      `/playlists/${encodeURIComponent(playlistUrn)}/tracks`,
+      {
+        pageSize: PLAYLIST_PAGE_SIZE,
+        startPage: Math.floor(Math.max(0, loaded) / PLAYLIST_PAGE_SIZE),
+      },
+    ),
+  );
 }

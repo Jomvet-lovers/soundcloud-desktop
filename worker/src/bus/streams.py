@@ -7,8 +7,11 @@
 Так один и тот же образ живёт и на trusted-, и на untrusted-ноде без выдачи
 публичным нодам прав STREAM.CREATE/UPDATE.
 """
+import asyncio
 import logging
 
+from nats.errors import NoRespondersError
+from nats.errors import TimeoutError as NATSTimeoutError
 from nats.js import JetStreamContext
 from nats.js.api import (
     AckPolicy,
@@ -19,6 +22,12 @@ from nats.js.api import (
     StreamConfig,
 )
 from nats.js.errors import NotFoundError
+
+# Запрос без ответа: сервер МОЛЧА дропает deny (permissions violation) — клиент
+# видит таймаут/no-responders, НЕ ошибку прав. На живом коннекте (connect() уже
+# прошёл) это перм-граница (публичная нода вне лейна), а не падение NATS. Реальный
+# обрыв даёт ConnectionClosedError (другой класс) → пробрасывается в ретрай.
+_DENIED = (NATSTimeoutError, NoRespondersError, asyncio.TimeoutError)
 
 log = logging.getLogger(__name__)
 
@@ -44,12 +53,17 @@ async def _ensure_stream(js: JetStreamContext, cfg: StreamConfig) -> None:
             return
         # add_stream не прошёл по иной причине: либо нет прав CREATE (публичная
         # нода — приходит как permissions violation + таймаут запроса), либо NATS
-        # недоступен. Различаем чтением стрима (INFO ноде разрешён).
+        # недоступен. Различаем чтением стрима (INFO ноде обычно разрешён).
         try:
             await js.stream_info(cfg.name)
         except NotFoundError:
-            # Стрим реально отсутствует, а создать не можем → лейн недоступен.
+            # INFO разрешён, сервер ответил NotFound → стрим реально отсутствует,
+            # а создать не можем → лейн недоступен (а не крэш-луп).
             raise StreamUnavailable(cfg.name) from e
+        except _DENIED as denied:
+            # INFO тоже задеймлен (нет прав STREAM.INFO на этот стрим) → перм-граница:
+            # этот лейн нам недоступен. Отключаем, НЕ ретраим вечно.
+            raise StreamUnavailable(cfg.name) from denied
         # Стрим есть (предсоздан backend'ом/брокером) — просто используем его.
         log.info("stream %s managed externally; not creating", cfg.name)
 
@@ -100,8 +114,16 @@ async def ensure_consumer(
     )
     try:
         await js.consumer_info(stream, durable)
+        return  # уже есть (предсоздан брокером/backend) — биндимся к нему
     except NotFoundError:
-        await js.add_consumer(stream, config=cfg)
+        pass  # ещё не создан — создаём ниже (доверенная нода с правами)
+    except _DENIED as denied:
+        # нет прав на CONSUMER API для этого стрима → лейн нам недоступен.
+        raise StreamUnavailable(f"{stream}/{durable}") from denied
     except Exception as e:
         log.debug(f"consumer_info {stream}/{durable}: {e}")
+    try:
         await js.add_consumer(stream, config=cfg)
+    except _DENIED as denied:
+        # consumer отсутствует и создать не можем (нет прав CREATE) → лейн недоступен.
+        raise StreamUnavailable(f"{stream}/{durable}") from denied
