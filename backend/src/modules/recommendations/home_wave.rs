@@ -85,6 +85,7 @@ impl RecommendationsService {
 
         let seeds = signals.positive_seed();
         let taste_modes_fut = self.build_taste_modes(&seeds);
+        let clap_centroid_fut = self.build_clap_centroid(&seeds);
         let session_fut = self.detect_current_session(&sc_user_id);
         let hour_fut = self.hour_context(&sc_user_id, Utc::now());
         let anti_fut = self.build_anti_centroid_from_negatives(&signals.negatives);
@@ -98,8 +99,9 @@ impl RecommendationsService {
             req.hide_listened,
         );
 
-        let (taste_modes, session_ctx, hour_ctx, anti_centroid, bandit_stats, wave_ids) = tokio::join!(
+        let (taste_modes, clap_centroid, session_ctx, hour_ctx, anti_centroid, bandit_stats, wave_ids) = tokio::join!(
             taste_modes_fut,
+            clap_centroid_fut,
             session_fut,
             hour_fut,
             anti_fut,
@@ -158,6 +160,7 @@ impl RecommendationsService {
             Some(centroid) => {
                 self.build_vibe_and_deep(
                     centroid,
+                    clap_centroid.as_deref(),
                     &exclude_vec,
                     languages,
                     builder.taken(),
@@ -365,6 +368,7 @@ impl RecommendationsService {
     async fn build_vibe_and_deep(
         &self,
         centroid: &[f32],
+        clap_centroid: Option<&[f32]>,
         exclude: &[String],
         languages: Option<&[String]>,
         taken: &HashSet<String>,
@@ -380,12 +384,22 @@ impl RecommendationsService {
             filter.as_ref(),
             POOL_FOR_VIBE_DEEP,
         );
-        let clap_fut = self.search_by_vector(
-            collections::TRACKS_CLAP,
-            centroid,
-            filter.as_ref(),
-            POOL_FOR_VIBE_DEEP / 2,
-        );
+        // CLAP collection is 512-dim; MERT centroid is 1024-dim — must use a
+        // separately computed CLAP-space centroid or skip the arm entirely.
+        let clap_fut = async {
+            match clap_centroid {
+                Some(c) => {
+                    self.search_by_vector(
+                        collections::TRACKS_CLAP,
+                        c,
+                        filter.as_ref(),
+                        POOL_FOR_VIBE_DEEP / 2,
+                    )
+                    .await
+                }
+                None => Vec::new(),
+            }
+        };
         let lyrics_fut = self.search_by_vector(
             collections::TRACKS_LYRICS,
             centroid,
@@ -456,6 +470,52 @@ impl RecommendationsService {
             .collect();
 
         (vibe_ids, deep_ids)
+    }
+
+    /// Weighted mean of CLAP vectors for the user's seed tracks (512-dim).
+    /// Used as the query centroid for TRACKS_CLAP searches; distinct from the
+    /// MERT centroid (1024-dim) to avoid the dimension mismatch error.
+    async fn build_clap_centroid(
+        &self,
+        seeds: &[super::signal::WeightedTrack],
+    ) -> Option<Vec<f32>> {
+        if seeds.is_empty() {
+            return None;
+        }
+        let track_ids: Vec<u64> = seeds
+            .iter()
+            .filter_map(|s| s.sc_track_id.parse::<u64>().ok())
+            .collect();
+        if track_ids.is_empty() {
+            return None;
+        }
+        let vec_map = self
+            .retrieve_vectors(collections::TRACKS_CLAP, &track_ids)
+            .await;
+        if vec_map.is_empty() {
+            return None;
+        }
+        let first = vec_map.values().next()?;
+        let dim = first.len();
+        let mut acc = vec![0f32; dim];
+        let mut total_w = 0f32;
+        for s in seeds {
+            if let Some(v) = vec_map.get(&s.sc_track_id) {
+                let w = s.weight.max(0.05);
+                for (i, x) in v.iter().enumerate().take(dim) {
+                    acc[i] += x * w;
+                }
+                total_w += w;
+            }
+        }
+        if total_w <= 0.0 {
+            return None;
+        }
+        for x in acc.iter_mut() {
+            *x /= total_w;
+        }
+        crate::modules::centroids::normalize(&mut acc);
+        Some(acc)
     }
 
     async fn build_anti_centroid_from_negatives(

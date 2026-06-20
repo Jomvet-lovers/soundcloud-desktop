@@ -139,11 +139,30 @@ async fn recommend_one(
     negative_ids: &[u64],
     filter: Option<&Filter>,
 ) -> Vec<(u64, f32)> {
+    // Qdrant recommend fails entirely if any positive or negative point is absent
+    // from the collection (e.g. seed indexed in MERT but not yet in LYRICS).
+    // Use the cached retrieve path to check seed existence; on miss → skip arm.
+    if svc.retrieve_vector(collection, seed_track_id).await.is_none() {
+        return Vec::new();
+    }
+    // Filter negatives to only those present in this collection; a single missing
+    // negative also aborts the entire recommend call.
+    let valid_negatives: Vec<u64> = if negative_ids.is_empty() {
+        Vec::new()
+    } else {
+        let neg_map = svc.retrieve_vectors(collection, negative_ids).await;
+        negative_ids
+            .iter()
+            .copied()
+            .filter(|id| neg_map.contains_key(&id.to_string()))
+            .collect()
+    };
+
     let mut req = RecommendPointsBuilder::new(collection.to_string(), PER_COLLECTION)
         .with_payload(false)
         .strategy(RecommendStrategy::BestScore)
         .add_positive(numeric_id(seed_track_id));
-    for id in negative_ids {
+    for id in &valid_negatives {
         req = req.add_negative(numeric_id(*id));
     }
     if let Some(f) = filter {
