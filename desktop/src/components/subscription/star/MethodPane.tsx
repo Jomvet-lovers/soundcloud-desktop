@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Check } from '../../../lib/icons';
 import { ProviderGlyph } from '../ProviderGlyph';
 import type { ActivationOption } from '../providers';
 import { PrimaryBtn, Ttl } from './StarConsole';
@@ -65,22 +66,32 @@ export const MethodPane = memo(function MethodPane({
         })}
       </div>
 
-      {/* recurring — only for methods that support it */}
+      {/* recurring — only for methods that support it (custom checkbox) */}
       {canRecur && (
-        <label className="mt-3.5 flex w-fit cursor-pointer items-center gap-3 rounded-[12px] border border-white/[0.10] bg-white/[0.03] px-3.5 py-2.5">
-          <input
-            type="checkbox"
-            checked={recurring}
-            onChange={(e) => onRecurring(e.target.checked)}
-            className="size-4 accent-[var(--color-accent)]"
-          />
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={recurring}
+          onClick={() => onRecurring(!recurring)}
+          className="mt-3.5 flex w-fit cursor-pointer items-center gap-3 rounded-[12px] border border-white/[0.10] bg-white/[0.03] px-3.5 py-2.5 text-left transition-colors hover:bg-white/[0.05]"
+        >
+          <span
+            className="grid size-[19px] shrink-0 place-items-center rounded-[6px] border transition-all duration-200"
+            style={{
+              borderColor: recurring ? 'var(--color-accent)' : 'rgba(255,255,255,0.22)',
+              background: recurring ? 'var(--color-accent)' : 'transparent',
+              boxShadow: recurring ? '0 0 14px -3px var(--color-accent-glow)' : undefined,
+            }}
+          >
+            {recurring && <Check size={12} strokeWidth={3.2} className="text-accent-contrast" />}
+          </span>
           <span>
             <span className="block text-[12.5px] font-medium text-white/85">
               {t('starpass.recurring')}
             </span>
             <span className="block text-[11px] text-white/40">{t('starpass.recurringSub')}</span>
           </span>
-        </label>
+        </button>
       )}
 
       <div className="mt-[18px] flex flex-wrap items-center gap-3">

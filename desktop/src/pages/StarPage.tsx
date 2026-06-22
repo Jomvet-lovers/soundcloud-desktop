@@ -112,7 +112,23 @@ export const StarPage = memo(function StarPage() {
         className="relative z-10 mx-auto flex w-full max-w-[1060px] flex-col px-4 md:px-8"
         style={{ isolation: 'isolate' }}
       >
-        <div className="relative h-[calc(100vh-190px)] min-h-[640px]">
+        {/* frozen header — pinned so you can always go back / change the term */}
+        <div className="sticky top-0 z-30 flex items-center justify-between py-4">
+          <div className="flex items-center gap-2.5 font-mono text-[12px] uppercase tracking-[0.34em] text-white/60">
+            <span className="text-accent">✦</span> STAR
+          </div>
+          {(step === 'method' || step === 'pay' || step === 'redeem') && (
+            <button
+              type="button"
+              onClick={() => setStep(step === 'pay' ? 'method' : premium ? 'manage' : 'overview')}
+              className="flex cursor-pointer items-center gap-1.5 font-mono text-[11px] tracking-[0.14em] text-white/45 transition-colors hover:text-white/90"
+            >
+              <ChevronLeft size={14} /> {t('starpass.back')}
+            </button>
+          )}
+        </div>
+
+        <div className="relative h-[calc(100vh-240px)] min-h-[560px]">
           {/* living core backdrop */}
           <LivingCore
             charge={charge}
@@ -120,22 +136,6 @@ export const StarPage = memo(function StarPage() {
             lit={lit}
             igniteKey={igniteKey}
           />
-
-          {/* top chrome */}
-          <div className="pointer-events-none absolute inset-x-0 top-5 z-20 flex items-center justify-between px-1">
-            <div className="flex items-center gap-2.5 font-mono text-[12px] uppercase tracking-[0.34em] text-white/60">
-              <span className="text-accent">✦</span> STAR
-            </div>
-            {(step === 'method' || step === 'pay' || step === 'redeem') && (
-              <button
-                type="button"
-                onClick={() => setStep(step === 'pay' ? 'method' : premium ? 'manage' : 'overview')}
-                className="pointer-events-auto flex cursor-pointer items-center gap-1.5 font-mono text-[11px] tracking-[0.14em] text-white/45 transition-colors hover:text-white/90"
-              >
-                <ChevronLeft size={14} /> {t('starpass.back')}
-              </button>
-            )}
-          </div>
 
           {/* aperture centre readout */}
           <div
