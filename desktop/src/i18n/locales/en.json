@@ -781,30 +781,34 @@
       "year": "Yearly"
     },
     "perksTitle": "What's inside",
+    "ignite": "Ignite your star",
+    "back": "Back",
+    "perMonthShort": "mo",
+    "recurringSub": "charged automatically, cancel anytime",
     "perk": {
       "goPlus": {
-        "title": "GO+ tracks",
-        "tag": "The full catalog"
+        "title": "Full catalog",
+        "tag": "Everything"
       },
       "server": {
-        "title": "Dedicated server",
-        "tag": "Fast start, no queues"
+        "title": "Fast server",
+        "tag": "No queues"
       },
       "hq": {
-        "title": "HQ quality",
-        "tag": "Where there was compression"
+        "title": "HQ sound",
+        "tag": "High quality"
       },
       "whitelist": {
-        "title": "Bypass whitelists",
-        "tag": "RU blocks routed around"
+        "title": "No RU blocks",
+        "tag": "Region bypass"
       },
       "soundwave": {
-        "title": "SoundWave",
-        "tag": "Early access to the Wave"
+        "title": "SoundWave early",
+        "tag": "Early access"
       },
       "support": {
         "title": "Support the project",
-        "tag": "Servers and development"
+        "tag": "Servers & dev"
       }
     },
     "method": {
@@ -876,6 +880,7 @@
     "redeem": {
       "heading": "One code — a whole pass.",
       "lead": "Four blocks after the STAR prefix. Case and dashes don't matter.",
+      "center": "enter your code",
       "format": "format",
       "oneTime": "one-time",
       "label": "Activation code",

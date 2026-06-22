@@ -12,14 +12,26 @@ export interface ActivationOption {
   i18n: string;
   /** mono tag, e.g. "TON / USDT" */
   tag: string;
+  /**
+   * Whether this method can auto-renew. The recurring toggle is shown ONLY for
+   * options that support it (data-driven — add a new recurring method here and
+   * it surfaces on its own; no hardcoded "TG Stars only" copy anywhere).
+   */
+  recurring: boolean;
 }
 
 const ORDER: Omit<ActivationOption, 'tag'>[] = [
-  { kind: 'sbp', provider: 'platega', method: 'sbp', i18n: 'sbp' },
-  { kind: 'card_ru', provider: 'platega', method: 'card_ru', i18n: 'cardRu' },
-  { kind: 'card_intl', provider: 'platega', method: 'card_intl', i18n: 'cardIntl' },
-  { kind: 'crypto', provider: 'cryptobot', i18n: 'crypto' },
-  { kind: 'tgstars', provider: 'tgstars', i18n: 'tgStars' },
+  { kind: 'sbp', provider: 'platega', method: 'sbp', i18n: 'sbp', recurring: false },
+  { kind: 'card_ru', provider: 'platega', method: 'card_ru', i18n: 'cardRu', recurring: false },
+  {
+    kind: 'card_intl',
+    provider: 'platega',
+    method: 'card_intl',
+    i18n: 'cardIntl',
+    recurring: false,
+  },
+  { kind: 'crypto', provider: 'cryptobot', i18n: 'crypto', recurring: false },
+  { kind: 'tgstars', provider: 'tgstars', i18n: 'tgStars', recurring: true },
 ];
 
 const TAGS: Record<ActivationKind, string> = {
