@@ -922,6 +922,10 @@
       "starRole": "Роль STAR",
       "member": "Участник"
     },
+    "boosty": {
+      "title": "Подписка через Boosty",
+      "sub": "Оформи на Boosty — STAR включится по буст-роли в Discord после /sc-link"
+    },
     "openVia": "Где открыть оплату",
     "openIn": {
       "tg": "Открыть в Telegram",

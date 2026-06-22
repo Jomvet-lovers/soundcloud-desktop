@@ -818,6 +818,10 @@
       "starRole": "STAR rolu",
       "member": "Uye"
     },
+    "boosty": {
+      "title": "Boosty ile abone ol",
+      "sub": "Boosty'de abone ol — STAR, /sc-link sonrasi Discord boost rolunle acilir"
+    },
     "openVia": "Odemeyi nerede ac",
     "openIn": {
       "tg": "Telegram'da ac",

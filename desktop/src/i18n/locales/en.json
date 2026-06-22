@@ -911,6 +911,10 @@
       "starRole": "STAR role",
       "member": "Member"
     },
+    "boosty": {
+      "title": "Subscribe via Boosty",
+      "sub": "Subscribe on Boosty — STAR activates from your Discord boost role after /sc-link"
+    },
     "openVia": "Open payment via",
     "openIn": {
       "tg": "Open in Telegram",

@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { BoostyBlock } from '../components/subscription/BoostyBlock';
 import { ExternalPay } from '../components/subscription/ExternalPay';
 import { STAR_KEYFRAMES } from '../components/subscription/keyframes';
 import { ManageSubscription } from '../components/subscription/ManageSubscription';
@@ -213,6 +214,7 @@ export const StarPage = memo(function StarPage() {
                       {t('starpass.haveCode')}
                     </GlassButton>
                   </div>
+                  <BoostyBlock />
                 </div>
                 <StarPass
                   variant="hero"

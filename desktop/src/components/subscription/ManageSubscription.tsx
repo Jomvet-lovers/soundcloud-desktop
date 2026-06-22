@@ -7,6 +7,7 @@ import { requestPremiumRecheck } from '../../lib/premium-cache';
 import { queryClient } from '../../lib/query-client';
 import { daysUntil, passDate, passSerial } from '../../lib/star-format';
 import { GlassButton } from '../ui/GlassButton';
+import { BoostyBlock } from './BoostyBlock';
 import { DiscordCard } from './DiscordCard';
 import { StarPass } from './StarPass';
 
@@ -155,6 +156,7 @@ export const ManageSubscription = memo(function ManageSubscription({
             {t('starpass.manage.redeem')}
           </GlassButton>
         </div>
+        <BoostyBlock />
       </div>
     </div>
   );
