@@ -769,10 +769,10 @@
     "fieldMethod": "Method",
     "fieldOrder": "Order №",
     "fieldRemaining": "Remaining",
-    "eyebrow": "Member pass · issue 2026",
+    "eyebrow": "Member pass",
     "heroTitle1": "Not a subscription.",
     "heroTitle2": "A pass into sound.",
-    "heroLead": "STAR is a personal pass with its own serial number. It unlocks a dedicated server, HQ tracks and SoundWave. Buy it — get a card; activate it — it comes alive.",
+    "heroLead": "A personal pass: dedicated server, HQ and the full catalog — no compromises.",
     "choosePass": "Choose a pass",
     "haveCode": "I have a code",
     "plan": {
@@ -780,30 +780,35 @@
       "quarter": "Quarterly",
       "year": "Yearly"
     },
+    "perksTitle": "What's inside",
+    "ignite": "Ignite your star",
+    "back": "Back",
+    "perMonthShort": "mo",
+    "recurringSub": "charged automatically, cancel anytime",
     "perk": {
       "goPlus": {
-        "title": "GO+ tracks",
-        "body": "The full catalog, including what's locked on the free tier."
+        "title": "Full catalog",
+        "tag": "Everything"
       },
       "server": {
-        "title": "Dedicated server",
-        "body": "A separate streaming node: faster start, steady HQ without queues."
+        "title": "Fast server",
+        "tag": "No queues"
       },
       "hq": {
-        "title": "More HQ tracks",
-        "body": "High quality where you used to get compression."
+        "title": "HQ sound",
+        "tag": "High quality"
       },
       "whitelist": {
-        "title": "Bypass RU whitelists",
-        "body": "Tracks blocked for the region play through our route."
+        "title": "No RU blocks",
+        "tag": "Region bypass"
       },
       "soundwave": {
-        "title": "SoundWave exclusive",
-        "body": "Early access to the Wave and picks no one else gets."
+        "title": "SoundWave",
+        "tag": "Early access"
       },
       "support": {
         "title": "Support the project",
-        "body": "The pass directly feeds servers and development. Thank you."
+        "tag": "Servers & dev"
       }
     },
     "method": {
@@ -833,37 +838,37 @@
       "boarding": "Boarding · awaiting payment",
       "active": "Member pass · active"
     },
-    "planTitle": "Choose your pass class",
-    "planSub": "Longer term, cheaper month. Every class unlocks the same perks.",
-    "toActivation": "Go to activation",
-    "providerTitle": "Activation method",
-    "providerSub": "One pass — several ways to it. Pick the convenient one, the price stays the same.",
+    "planTitle": "Pass class",
+    "planSub": "Longer term, cheaper month.",
+    "toActivation": "To activation",
+    "providerTitle": "Payment method",
+    "providerSub": "One price — your choice of route.",
     "recurring": "Auto-renew (Telegram Stars, monthly)",
     "creating": "Creating order…",
     "continueWith": "Continue with {{method}}",
     "continue": "Continue",
     "toPay": "To pay",
     "checkoutError": "Couldn't create the order. Try another method.",
-    "payTitle": "The pass awaits its stamp",
-    "paySub": "Complete the payment — the card activates automatically.",
+    "payTitle": "Payment",
+    "paySub": "Complete the payment — the pass activates itself.",
     "retry": "Try again",
     "sbpStep": {
       "1": "Open your bank app and scan the QR.",
       "2": "Confirm the transfer.",
       "3": "Keep this screen open — the pass stamps itself."
     },
-    "changeMethod": "Change payment method",
-    "externalHint": "We opened the provider's checkout in your browser. Finish the payment there — this screen updates by itself.",
+    "changeMethod": "Another method",
+    "externalHint": "Checkout opened in your browser. Finish there — this screen updates itself.",
     "openCheckout": "Open checkout",
     "successTitle": "Pass activated",
-    "successSub": "The card got its stamp and shimmers with foil. Back to the music.",
+    "successSub": "Everything's on. Back to the music.",
     "welcome": "Welcome to STAR, {{handle}}.",
-    "welcomeBody": "The pass is valid until {{date}}. Dedicated server, HQ and SoundWave are already on — nothing to reload.",
+    "welcomeBody": "Valid until {{date}}. Server, HQ and SoundWave are already on.",
     "until": "until",
-    "backToMusic": "Back to music",
-    "managePass": "Manage pass",
+    "backToMusic": "To music",
+    "managePass": "Manage",
     "redeemTitle": "Activate by code",
-    "redeemSub": "Bought a pass from a reseller? Enter the code from the receipt.",
+    "redeemSub": "The code from a reseller's receipt.",
     "status": {
       "waiting": "Waiting for payment…",
       "polling": "checking every 2.5s",
@@ -874,7 +879,8 @@
     },
     "redeem": {
       "heading": "One code — a whole pass.",
-      "lead": "The code is four blocks after the STAR prefix. Case doesn't matter, dashes are added for you. The term starts at activation.",
+      "lead": "Four blocks after the STAR prefix. Case and dashes don't matter.",
+      "center": "enter your code",
       "format": "format",
       "oneTime": "one-time",
       "label": "Activation code",
@@ -890,7 +896,7 @@
     },
     "manage": {
       "title": "Your pass",
-      "sub": "Term, auto-renew and source of your pass.",
+      "sub": "Term, auto-renew and source.",
       "autoRenew": "Auto-renew",
       "autoRenewOn": "we'll charge again on {{date}}",
       "autoRenewOff": "Off. Access lasts to the end of the paid term.",
@@ -913,7 +919,7 @@
     },
     "boosty": {
       "title": "Subscribe via Boosty",
-      "sub": "Subscribe on Boosty — STAR activates from your Discord boost role after /sc-link"
+      "sub": "STAR arrives via your Discord boost role after /sc-link"
     },
     "openVia": "Open payment via",
     "openIn": {
