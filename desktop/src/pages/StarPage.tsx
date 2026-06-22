@@ -13,7 +13,7 @@ import { StarAtmosphere } from '../components/subscription/StarAtmosphere';
 import { CenterReadout } from '../components/subscription/star/CenterReadout';
 import { ManagePane } from '../components/subscription/star/ManagePane';
 import { MethodPane } from '../components/subscription/star/MethodPane';
-import type { Step } from '../components/subscription/star/meta';
+import { primaryEntitlement, type Step } from '../components/subscription/star/meta';
 import { OverviewPane } from '../components/subscription/star/OverviewPane';
 import { PayPane } from '../components/subscription/star/PayPane';
 import { RedeemPane } from '../components/subscription/star/RedeemPane';
@@ -73,6 +73,19 @@ export const StarPage = memo(function StarPage() {
     setStep('success');
   }
 
+  // Active-membership end date (manage/success centre readout) — comes from the
+  // subscription, not the in-flight order. Shared cache with ManagePane.
+  const subQuery = useQuery({
+    queryKey: ['pay', 'subscription'],
+    queryFn: payApi.subscription,
+    staleTime: 30_000,
+    enabled: premium || step === 'manage' || step === 'success',
+  });
+  const subEndsAt = subQuery.data
+    ? (primaryEntitlement(subQuery.data.entitlements)?.ends_at ?? subQuery.data.premium_until ?? 0)
+    : 0;
+  const centerEndsAt = step === 'manage' ? subEndsAt : (order.data?.premium_until ?? subEndsAt);
+
   const checkoutMut = useMutation({
     mutationFn: () => {
       if (!option || !planId) throw new Error('no selection');
@@ -97,6 +110,19 @@ export const StarPage = memo(function StarPage() {
 
   const canRecur = !!option?.recurring && selectedPlan?.months === 1;
   const lit = step === 'success' || step === 'manage';
+  // Where the header "back" returns to, per step (null = no back button).
+  const backTarget: Step | null =
+    step === 'pay'
+      ? 'method'
+      : step === 'method'
+        ? 'overview'
+        : step === 'redeem'
+          ? premium
+            ? 'manage'
+            : 'overview'
+          : step === 'overview' && premium
+            ? 'manage'
+            : null;
   const charge = selectedPlan
     ? selectedPlan.months >= 12
       ? 1
@@ -117,10 +143,10 @@ export const StarPage = memo(function StarPage() {
           <div className="flex items-center gap-2.5 font-mono text-[12px] uppercase tracking-[0.34em] text-white/60">
             <span className="text-accent">✦</span> STAR
           </div>
-          {(step === 'method' || step === 'pay' || step === 'redeem') && (
+          {backTarget && (
             <button
               type="button"
-              onClick={() => setStep(step === 'pay' ? 'method' : premium ? 'manage' : 'overview')}
+              onClick={() => backTarget && setStep(backTarget)}
               className="flex cursor-pointer items-center gap-1.5 font-mono text-[11px] tracking-[0.14em] text-white/45 transition-colors hover:text-white/90"
             >
               <ChevronLeft size={14} /> {t('starpass.back')}
@@ -138,19 +164,32 @@ export const StarPage = memo(function StarPage() {
             igniteKey={igniteKey}
           />
 
-          {/* aperture centre readout */}
+          {/* aperture centre readout — dark lens scrim keeps it readable even when
+              the lit core is at its brightest */}
           <div
-            className="pointer-events-none absolute left-1/2 z-20 w-[300px] -translate-x-1/2 -translate-y-1/2 text-center"
+            className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
             style={{ top: `${CORE_CENTER_Y * 100}%` }}
           >
-            <CenterReadout
-              step={step}
-              phase={phase}
-              handle={handle}
-              plan={selectedPlan}
-              endsAt={order.data?.premium_until ?? checkout?.expires_at ?? 0}
-              serialSeed={checkout?.order_id ?? handle}
-            />
+            <div className="relative px-10 py-8 text-center">
+              <div
+                aria-hidden
+                className="absolute inset-0"
+                style={{
+                  background:
+                    'radial-gradient(closest-side, rgba(4,4,7,0.88), rgba(4,4,7,0.55) 56%, transparent 80%)',
+                }}
+              />
+              <div className="relative mx-auto max-w-[320px]">
+                <CenterReadout
+                  step={step}
+                  phase={phase}
+                  handle={handle}
+                  plan={selectedPlan}
+                  endsAt={centerEndsAt}
+                  serialSeed={checkout?.order_id ?? handle}
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -195,7 +234,7 @@ export const StarPage = memo(function StarPage() {
               <SuccessPane onMusic={() => navigate('/home')} onManage={() => setStep('manage')} />
             )}
             {step === 'manage' && (
-              <ManagePane onExtend={goMethod} onRedeem={() => setStep('redeem')} />
+              <ManagePane onExtend={() => setStep('overview')} onRedeem={() => setStep('redeem')} />
             )}
             {step === 'redeem' && <RedeemPane onRedeemed={() => setStep('manage')} />}
           </Console>
