@@ -106,7 +106,10 @@ export const LivingCore = memo(function LivingCore({
       const ch = s.chargeEased;
       const cx = W / 2;
       const cy = H * CORE_CENTER_Y;
-      const innerR = Math.min(W, H) * 0.135;
+      // Longer plan → bigger, livelier constellation (size scales with charge,
+      // not just brightness); eased via chargeEased so it grows/shrinks smoothly.
+      const scale = 0.78 + ch * 0.34;
+      const innerR = Math.min(W, H) * 0.135 * scale;
       const bass = staticFrame ? 0.6 : 0.5 + 0.5 * Math.sin(t * 2.1) + 0.2 * Math.sin(t * 3.6);
       const gain = (0.4 + ch * 0.6) * s.core;
       const blur = useGlow ? 9 : 0;
@@ -126,7 +129,7 @@ export const LivingCore = memo(function LivingCore({
       // spectrum ring
       ctx.save();
       ctx.translate(cx, cy);
-      ctx.rotate(t * (s.waiting ? 0.16 : 0.05));
+      ctx.rotate(t * (s.waiting ? 0.16 : 0.04 + ch * 0.05));
       ctx.lineCap = 'round';
       for (let i = 0; i < N; i++) {
         const ang = (i / N) * 6.283;
@@ -196,8 +199,8 @@ export const LivingCore = memo(function LivingCore({
       ctx.fill();
 
       if (!staticFrame) {
-        // embers
-        if (Math.random() < 0.4)
+        // embers — denser the more charged the core is
+        if (Math.random() < 0.22 + ch * 0.3)
           sparks.push({
             a: Math.random() * 6.283,
             r: innerR * 1.1,
