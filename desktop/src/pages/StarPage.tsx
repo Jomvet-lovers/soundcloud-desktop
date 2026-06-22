@@ -109,7 +109,7 @@ export const StarPage = memo(function StarPage() {
     <div className="relative min-h-full w-full">
       <StarAtmosphere />
       <div
-        className="relative z-10 mx-auto flex w-full max-w-[1060px] flex-col px-4 md:px-8"
+        className="relative z-10 mx-auto flex min-h-[calc(100vh-120px)] w-full max-w-[1060px] flex-col px-4 md:px-8"
         style={{ isolation: 'isolate' }}
       >
         {/* frozen header — pinned so you can always go back / change the term */}
@@ -128,7 +128,8 @@ export const StarPage = memo(function StarPage() {
           )}
         </div>
 
-        <div className="relative h-[calc(100vh-240px)] min-h-[560px]">
+        {/* core region — flex-1 so the star centres and shrinks with the viewport */}
+        <div className="relative flex min-h-[240px] flex-1">
           {/* living core backdrop */}
           <LivingCore
             charge={charge}
@@ -151,53 +152,53 @@ export const StarPage = memo(function StarPage() {
               serialSeed={checkout?.order_id ?? handle}
             />
           </div>
+        </div>
 
-          {/* console */}
-          <div className="absolute inset-x-2 bottom-6 z-20 mx-auto w-full max-w-[700px] sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2">
-            <Console>
-              {step === 'overview' && (
-                <OverviewPane
-                  plans={plans}
-                  loading={plansQuery.isLoading}
-                  error={plansQuery.isError}
-                  onRetry={() => void plansQuery.refetch()}
-                  selectedId={planId}
-                  onSelect={setPlanId}
-                  onIgnite={goMethod}
-                  onRedeem={() => setStep('redeem')}
-                />
-              )}
-              {step === 'method' && (
-                <MethodPane
-                  options={options}
-                  selected={option}
-                  onSelect={setOption}
-                  canRecur={canRecur}
-                  recurring={recurring}
-                  onRecurring={setRecurring}
-                  amount={selectedPlan ? `${selectedPlan.price_rub} ₽` : ''}
-                  pending={checkoutMut.isPending}
-                  error={checkoutMut.isError}
-                  onContinue={() => checkoutMut.mutate()}
-                />
-              )}
-              {step === 'pay' && checkout && option && (
-                <PayPane
-                  checkout={checkout}
-                  option={option}
-                  phase={phase}
-                  onChangeMethod={goMethod}
-                />
-              )}
-              {step === 'success' && (
-                <SuccessPane onMusic={() => navigate('/home')} onManage={() => setStep('manage')} />
-              )}
-              {step === 'manage' && (
-                <ManagePane onExtend={goMethod} onRedeem={() => setStep('redeem')} />
-              )}
-              {step === 'redeem' && <RedeemPane onRedeemed={() => setStep('manage')} />}
-            </Console>
-          </div>
+        {/* console — in normal flow beneath the core, can never overlap it */}
+        <div className="relative z-20 mx-auto w-full max-w-[700px] pb-6 pt-3">
+          <Console>
+            {step === 'overview' && (
+              <OverviewPane
+                plans={plans}
+                loading={plansQuery.isLoading}
+                error={plansQuery.isError}
+                onRetry={() => void plansQuery.refetch()}
+                selectedId={planId}
+                onSelect={setPlanId}
+                onIgnite={goMethod}
+                onRedeem={() => setStep('redeem')}
+              />
+            )}
+            {step === 'method' && (
+              <MethodPane
+                options={options}
+                selected={option}
+                onSelect={setOption}
+                canRecur={canRecur}
+                recurring={recurring}
+                onRecurring={setRecurring}
+                amount={selectedPlan ? `${selectedPlan.price_rub} ₽` : ''}
+                pending={checkoutMut.isPending}
+                error={checkoutMut.isError}
+                onContinue={() => checkoutMut.mutate()}
+              />
+            )}
+            {step === 'pay' && checkout && option && (
+              <PayPane
+                checkout={checkout}
+                option={option}
+                phase={phase}
+                onChangeMethod={goMethod}
+              />
+            )}
+            {step === 'success' && (
+              <SuccessPane onMusic={() => navigate('/home')} onManage={() => setStep('manage')} />
+            )}
+            {step === 'manage' && (
+              <ManagePane onExtend={goMethod} onRedeem={() => setStep('redeem')} />
+            )}
+            {step === 'redeem' && <RedeemPane onRedeemed={() => setStep('manage')} />}
+          </Console>
         </div>
       </div>
     </div>

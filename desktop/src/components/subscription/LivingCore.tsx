@@ -2,8 +2,8 @@ import { memo, useEffect, useRef } from 'react';
 import { usePerfMode } from '../../lib/perf';
 import { useSettingsStore } from '../../stores/settings';
 
-/** Vertical position of the core within the stage (the dark "well" centre). */
-export const CORE_CENTER_Y = 0.42;
+/** Vertical position of the core within its region (the dark "well" centre). */
+export const CORE_CENTER_Y = 0.46;
 
 interface LivingCoreProps {
   /** Plan brightness 0..1 — drives spectrum gain + bloom. */
