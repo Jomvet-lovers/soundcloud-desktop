@@ -41,40 +41,34 @@ function planLabel(
 }
 
 const SectionHead = memo(function SectionHead({
-  no,
   title,
   sub,
   onBack,
 }: {
-  no: string;
   title: string;
   sub?: string;
   onBack?: () => void;
 }) {
   return (
-    <div className="mb-7 flex flex-wrap items-baseline gap-4">
+    <div className="mb-7 flex items-start gap-3">
       {onBack && (
         <button
           type="button"
           onClick={onBack}
-          className="grid size-8 cursor-pointer place-items-center rounded-lg border border-white/[0.06] text-white/55 transition-colors hover:text-white/90"
+          className="mt-1 grid size-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-white/[0.06] text-white/55 transition-colors hover:text-white/90"
         >
           <ChevronLeft size={16} />
         </button>
       )}
-      <span
-        className="rounded-[7px] px-[9px] py-1 font-mono text-[11px] tracking-[0.2em] text-accent"
-        style={{ border: '1px solid color-mix(in srgb, var(--color-accent) 40%, transparent)' }}
-      >
-        {no}
-      </span>
-      <h2
-        className="text-[24px] font-medium tracking-[-0.01em]"
-        style={{ fontFamily: 'var(--font-serif)' }}
-      >
-        {title}
-      </h2>
-      {sub && <p className="ml-auto max-w-[360px] text-right text-[14px] text-white/55">{sub}</p>}
+      <div className="min-w-0">
+        <h2
+          className="text-[22px] font-medium tracking-[-0.01em] sm:text-[26px]"
+          style={{ fontFamily: 'var(--font-serif)' }}
+        >
+          {title}
+        </h2>
+        {sub && <p className="mt-1 text-[13.5px] text-white/45">{sub}</p>}
+      </div>
     </div>
   );
 });
@@ -156,11 +150,7 @@ export const StarPage = memo(function StarPage() {
           {/* ── MANAGE ─────────────────────────────────────────── */}
           {step === 'manage' && (
             <Reveal idle={perf.idleAnim}>
-              <SectionHead
-                no="06"
-                title={t('starpass.manage.title')}
-                sub={t('starpass.manage.sub')}
-              />
+              <SectionHead title={t('starpass.manage.title')} sub={t('starpass.manage.sub')} />
               <ManageSubscription
                 handle={handle}
                 onRedeem={() => setStep('redeem')}
@@ -172,16 +162,16 @@ export const StarPage = memo(function StarPage() {
           {/* ── HERO ───────────────────────────────────────────── */}
           {step === 'hero' && (
             <Reveal idle={perf.idleAnim}>
-              <section className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[1.05fr_1fr]">
-                <div>
-                  <div className="mb-[22px] flex items-center gap-3">
-                    <span className="h-px w-[46px] bg-white/[0.12]" />
+              <section className="grid grid-cols-1 items-center gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-12">
+                <div className="min-w-0">
+                  <div className="mb-5 flex items-center gap-3">
+                    <span className="h-px w-[40px] bg-white/[0.12]" />
                     <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-white/35">
                       {t('starpass.eyebrow')}
                     </span>
                   </div>
                   <h1
-                    className="mb-[22px] text-[clamp(40px,5.4vw,64px)] font-medium leading-[0.98] tracking-[-0.02em]"
+                    className="mb-5 text-[clamp(34px,4.8vw,56px)] font-medium leading-[1] tracking-[-0.02em]"
                     style={{ fontFamily: 'var(--font-serif)' }}
                   >
                     {t('starpass.heroTitle1')}
@@ -202,7 +192,7 @@ export const StarPage = memo(function StarPage() {
                       {t('starpass.heroTitle2')}
                     </em>
                   </h1>
-                  <p className="mb-[30px] max-w-[440px] text-[17px] leading-[1.55] text-white/55">
+                  <p className="mb-7 max-w-[420px] text-[15px] leading-[1.5] text-white/55">
                     {t('starpass.heroLead')}
                   </p>
                   <div className="flex flex-wrap items-center gap-3">
@@ -216,26 +206,31 @@ export const StarPage = memo(function StarPage() {
                   </div>
                   <BoostyBlock />
                 </div>
-                <StarPass
-                  variant="hero"
-                  handle={handle}
-                  caption={t('starpass.caption.member')}
-                  tier={t('starpass.tierPreview')}
-                  fields={[
-                    { label: t('starpass.fieldSerial'), value: passSerial(handle) },
-                    {
-                      label: t('starpass.fieldIssued'),
-                      value: passDate(Math.floor(Date.now() / 1000)),
-                    },
-                    {
-                      label: t('starpass.fieldValidUntil'),
-                      value: t('starpass.afterPurchase'),
-                      big: true,
-                    },
-                  ]}
-                />
+                <div className="mx-auto w-full max-w-[520px] lg:max-w-none">
+                  <StarPass
+                    variant="hero"
+                    handle={handle}
+                    caption={t('starpass.caption.member')}
+                    tier={t('starpass.tierPreview')}
+                    fields={[
+                      { label: t('starpass.fieldSerial'), value: passSerial(handle) },
+                      {
+                        label: t('starpass.fieldIssued'),
+                        value: passDate(Math.floor(Date.now() / 1000)),
+                      },
+                      {
+                        label: t('starpass.fieldValidUntil'),
+                        value: t('starpass.afterPurchase'),
+                        big: true,
+                      },
+                    ]}
+                  />
+                </div>
               </section>
-              <div className="mt-[46px]">
+              <div className="mt-12">
+                <h3 className="mb-4 font-mono text-[11px] uppercase tracking-[0.2em] text-white/35">
+                  {t('starpass.perksTitle')}
+                </h3>
                 <Perks />
               </div>
             </Reveal>
@@ -245,7 +240,6 @@ export const StarPage = memo(function StarPage() {
           {step === 'plan' && (
             <Reveal idle={perf.idleAnim}>
               <SectionHead
-                no="02"
                 title={t('starpass.planTitle')}
                 sub={t('starpass.planSub')}
                 onBack={() => setStep(premium ? 'manage' : 'hero')}
@@ -293,7 +287,6 @@ export const StarPage = memo(function StarPage() {
           {step === 'provider' && (
             <Reveal idle={perf.idleAnim}>
               <SectionHead
-                no="03"
                 title={t('starpass.providerTitle')}
                 sub={t('starpass.providerSub')}
                 onBack={() => setStep('plan')}
@@ -344,7 +337,6 @@ export const StarPage = memo(function StarPage() {
           {step === 'pay' && checkout && option && (
             <Reveal idle={perf.idleAnim}>
               <SectionHead
-                no="04"
                 title={t('starpass.payTitle')}
                 sub={t('starpass.paySub')}
                 onBack={goProvider}
@@ -380,11 +372,7 @@ export const StarPage = memo(function StarPage() {
           {/* ── SUCCESS ────────────────────────────────────────── */}
           {step === 'success' && (
             <Reveal idle={perf.idleAnim}>
-              <SectionHead
-                no="05"
-                title={t('starpass.successTitle')}
-                sub={t('starpass.successSub')}
-              />
+              <SectionHead title={t('starpass.successTitle')} sub={t('starpass.successSub')} />
               <SuccessScreen
                 handle={handle}
                 tier={tierLabel}
@@ -401,7 +389,6 @@ export const StarPage = memo(function StarPage() {
           {step === 'redeem' && (
             <Reveal idle={perf.idleAnim}>
               <SectionHead
-                no="07"
                 title={t('starpass.redeemTitle')}
                 sub={t('starpass.redeemSub')}
                 onBack={() => setStep(premium ? 'manage' : 'hero')}

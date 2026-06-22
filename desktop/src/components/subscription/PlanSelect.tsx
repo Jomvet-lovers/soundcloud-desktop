@@ -61,7 +61,7 @@ const PlanCard = memo(function PlanCard({
         className="h-full rounded-[17px] px-[22px] pb-[22px] pt-6"
         style={{
           background: selected
-            ? 'linear-gradient(160deg, rgba(30,21,16,0.94), rgba(15,12,13,0.95))'
+            ? 'linear-gradient(160deg, color-mix(in srgb, var(--color-accent) 18%, rgb(15,14,18)), rgb(13,12,15))'
             : 'linear-gradient(160deg, rgba(20,19,24,0.9), rgba(13,13,16,0.92))',
         }}
       >

@@ -31,43 +31,28 @@ export const BoostyBlock = memo(function BoostyBlock() {
     <button
       type="button"
       onClick={open}
-      className="group relative mt-5 w-full max-w-[440px] overflow-hidden rounded-[16px] p-px text-left transition-transform duration-300 ease-[var(--ease-apple)] hover:-translate-y-[2px]"
-      style={{
-        // Foil rim catching the user's accent, matching the plan cards / pass edge.
-        background:
-          'linear-gradient(120deg, color-mix(in srgb, var(--color-accent) 42%, rgba(255,255,255,0.14)), rgba(255,255,255,0.03) 58%, rgba(255,255,255,0.09))',
-      }}
+      className="group mt-5 flex w-full max-w-[420px] items-center gap-3 rounded-[13px] border border-white/[0.07] px-3.5 py-2.5 text-left transition-colors duration-200 hover:border-white/[0.14] hover:bg-white/[0.03]"
     >
-      <div
-        className="flex items-center gap-[15px] rounded-[15px] px-[18px] py-[15px]"
+      <span
+        className="grid size-8 shrink-0 place-items-center rounded-[9px]"
         style={{
-          background:
-            'linear-gradient(120deg, color-mix(in srgb, var(--color-accent) 11%, rgb(16,14,19)) 0%, rgb(14,13,16) 70%)',
+          color: 'var(--color-accent-contrast)',
+          background: 'var(--color-accent)',
+          boxShadow: perf.glow ? '0 6px 18px -8px var(--color-accent-glow)' : undefined,
         }}
       >
-        <span
-          className="grid size-10 shrink-0 place-items-center rounded-xl"
-          style={{
-            color: 'var(--color-accent-contrast)',
-            background: 'var(--color-accent)',
-            boxShadow: perf.glow ? '0 6px 18px -7px var(--color-accent-glow)' : undefined,
-          }}
-        >
-          <BoltGlyph size={19} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[14.5px] font-medium text-white/95">
-            {t('starpass.boosty.title')}
-            <ExternalLink
-              size={13}
-              className="text-white/40 transition-transform duration-300 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
-            />
-          </div>
-          <p className="mt-[3px] text-[12.5px] leading-[1.42] text-white/45">
-            {t('starpass.boosty.sub')}
-          </p>
+        <BoltGlyph size={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13.5px] font-medium text-white/90">
+          {t('starpass.boosty.title')}
         </div>
+        <p className="truncate text-[11.5px] text-white/40">{t('starpass.boosty.sub')}</p>
       </div>
+      <ExternalLink
+        size={13}
+        className="shrink-0 text-white/35 transition-transform duration-200 group-hover:translate-x-[1px] group-hover:-translate-y-[1px]"
+      />
     </button>
   );
 });
