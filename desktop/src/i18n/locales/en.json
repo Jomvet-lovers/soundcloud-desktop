@@ -20,6 +20,7 @@
     "search": "Search",
     "discover": "Discover",
     "library": "Library",
+    "star": "STAR",
     "offline": "Offline",
     "following": "Following",
     "settings": "Settings",
@@ -385,8 +386,8 @@
   "hostStatus": {
     "starOffer": {
       "title": "Main host is down",
-      "body": "The main host is down, but the backup host for Star subscribers is up. Get a subscription and the app will work for you too.",
-      "how": "Subscriptions are handled via Boosty and Discord:"
+      "body": "The main host is down, but the Star backup host is up. Get STAR right here — it's granted instantly and the app keeps working on the backup host.",
+      "how": "Buy in the app, or via Boosty / Discord:"
     },
     "allDown": {
       "title": "All hosts are down",
@@ -399,7 +400,8 @@
     },
     "actions": {
       "retry": "Check again",
-      "offlineLibrary": "Offline library"
+      "offlineLibrary": "Offline library",
+      "buyStar": "Get STAR"
     }
   },
   "home": {
@@ -745,6 +747,169 @@
     "step5": "Link your SoundCloud in our Discord with the /sc-link command",
     "goBoosty": "Boosty",
     "goDiscord": "Discord"
+  },
+  "starpass": {
+    "guestHandle": "@you",
+    "member": "Member",
+    "allAccess": "CLASS · ALL-ACCESS",
+    "activatedStamp": "Activated",
+    "bestValue": "Best value",
+    "perMonth": " / month",
+    "starsLabel": "In Telegram Stars",
+    "classLabel": "Class {{cls}}",
+    "afterPurchase": "after purchase",
+    "daysLeft_one": "{{count}} day",
+    "daysLeft_other": "{{count}} days",
+    "tierPreview": "Tier · preview",
+    "tierActive": "Active pass",
+    "fieldSerial": "Serial №",
+    "fieldIssued": "Issued",
+    "fieldActivated": "Activated",
+    "fieldValidUntil": "Valid until",
+    "fieldMethod": "Method",
+    "fieldOrder": "Order №",
+    "fieldRemaining": "Remaining",
+    "eyebrow": "Member pass · issue 2026",
+    "heroTitle1": "Not a subscription.",
+    "heroTitle2": "A pass into sound.",
+    "heroLead": "STAR is a personal pass with its own serial number. It unlocks a dedicated server, HQ tracks and SoundWave. Buy it — get a card; activate it — it comes alive.",
+    "choosePass": "Choose a pass",
+    "haveCode": "I have a code",
+    "plan": {
+      "month": "Monthly",
+      "quarter": "Quarterly",
+      "year": "Yearly"
+    },
+    "perk": {
+      "goPlus": {
+        "title": "GO+ tracks",
+        "body": "The full catalog, including what's locked on the free tier."
+      },
+      "server": {
+        "title": "Dedicated server",
+        "body": "A separate streaming node: faster start, steady HQ without queues."
+      },
+      "hq": {
+        "title": "More HQ tracks",
+        "body": "High quality where you used to get compression."
+      },
+      "whitelist": {
+        "title": "Bypass RU whitelists",
+        "body": "Tracks blocked for the region play through our route."
+      },
+      "soundwave": {
+        "title": "SoundWave exclusive",
+        "body": "Early access to the Wave and picks no one else gets."
+      },
+      "support": {
+        "title": "Support the project",
+        "body": "The pass directly feeds servers and development. Thank you."
+      }
+    },
+    "method": {
+      "sbp": {
+        "title": "SBP",
+        "body": "QR from your bank app"
+      },
+      "cardRu": {
+        "title": "RU card",
+        "body": "MIR, Visa/MC of Russian banks"
+      },
+      "cardIntl": {
+        "title": "Foreign card",
+        "body": "International issuer"
+      },
+      "crypto": {
+        "title": "Crypto",
+        "body": "via CryptoBot"
+      },
+      "tgStars": {
+        "title": "Telegram Stars",
+        "body": "pay with TG stars"
+      }
+    },
+    "caption": {
+      "member": "Member pass · SoundCloud client",
+      "boarding": "Boarding · awaiting payment",
+      "active": "Member pass · active"
+    },
+    "planTitle": "Choose your pass class",
+    "planSub": "Longer term, cheaper month. Every class unlocks the same perks.",
+    "toActivation": "Go to activation",
+    "providerTitle": "Activation method",
+    "providerSub": "One pass — several ways to it. Pick the convenient one, the price stays the same.",
+    "recurring": "Auto-renew (Telegram Stars, monthly)",
+    "creating": "Creating order…",
+    "continueWith": "Continue with {{method}}",
+    "continue": "Continue",
+    "toPay": "To pay",
+    "checkoutError": "Couldn't create the order. Try another method.",
+    "payTitle": "The pass awaits its stamp",
+    "paySub": "Complete the payment — the card activates automatically.",
+    "retry": "Try again",
+    "sbpStep": {
+      "1": "Open your bank app and scan the QR.",
+      "2": "Confirm the transfer.",
+      "3": "Keep this screen open — the pass stamps itself."
+    },
+    "changeMethod": "Change payment method",
+    "externalHint": "We opened the provider's checkout in your browser. Finish the payment there — this screen updates by itself.",
+    "openCheckout": "Open checkout",
+    "successTitle": "Pass activated",
+    "successSub": "The card got its stamp and shimmers with foil. Back to the music.",
+    "welcome": "Welcome to STAR, {{handle}}.",
+    "welcomeBody": "The pass is valid until {{date}}. Dedicated server, HQ and SoundWave are already on — nothing to reload.",
+    "until": "until",
+    "backToMusic": "Back to music",
+    "managePass": "Manage pass",
+    "redeemTitle": "Activate by code",
+    "redeemSub": "Bought a pass from a reseller? Enter the code from the receipt.",
+    "status": {
+      "waiting": "Waiting for payment…",
+      "polling": "checking every 2.5s",
+      "paid": "Payment received",
+      "activated": "pass activated",
+      "failed": "Payment failed",
+      "failedHint": "the order didn't go through — try again"
+    },
+    "redeem": {
+      "heading": "One code — a whole pass.",
+      "lead": "The code is four blocks after the STAR prefix. Case doesn't matter, dashes are added for you. The term starts at activation.",
+      "format": "format",
+      "oneTime": "one-time",
+      "label": "Activation code",
+      "progress": "{{count}} of 16 characters entered",
+      "activate": "Activate STAR",
+      "activating": "Activating…",
+      "paste": "Paste from clipboard",
+      "errUsed": "This code was already used.",
+      "errUnknown": "We don't know this code. Check the characters.",
+      "errRevoked": "This code was revoked.",
+      "errExpired": "This code has expired.",
+      "errGeneric": "Couldn't activate the code. Try again."
+    },
+    "manage": {
+      "title": "Your pass",
+      "sub": "Term, auto-renew and source of your pass.",
+      "autoRenew": "Auto-renew",
+      "autoRenewOn": "we'll charge again on {{date}}",
+      "autoRenewOff": "Off. Access lasts to the end of the paid term.",
+      "source": "Source",
+      "sourceSub": "Where it came from",
+      "afterExpiry": "Then switches to free",
+      "extend": "Extend",
+      "redeem": "Redeem a code",
+      "canceled": "Auto-renew turned off",
+      "cancelError": "Couldn't turn off auto-renew"
+    },
+    "openVia": "Open payment via",
+    "openIn": {
+      "tg": "Open in Telegram",
+      "webapp": "Open in browser",
+      "miniapp": "Telegram Mini App"
+    },
+    "loadError": "Couldn't load plans",
+    "loading": "Loading plans…"
   },
   "soundwaveLock": {
     "wordmark": "SOUND WAVE",

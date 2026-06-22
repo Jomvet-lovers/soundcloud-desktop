@@ -17,6 +17,8 @@
   --color-accent-contrast: #ffffff;
 
   --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease-apple: cubic-bezier(0.16, 1, 0.3, 1);
 }
 

@@ -1,23 +1,23 @@
-import {lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {BrowserRouter, Navigate, Route, Routes} from 'react-router-dom';
-import {Toaster} from 'sonner';
-import {useShallow} from 'zustand/shallow';
-import {ErrorBoundary} from './components/ErrorBoundary';
-import {HostStatusBanner} from './components/host-status/HostStatusBanner';
-import {HostStatusModal} from './components/host-status/HostStatusModal';
-import {AppShell} from './components/layout/AppShell';
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { Toaster } from 'sonner';
+import { useShallow } from 'zustand/shallow';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { HostStatusBanner } from './components/host-status/HostStatusBanner';
+import { HostStatusModal } from './components/host-status/HostStatusModal';
+import { AppShell } from './components/layout/AppShell';
 import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
-import {SessionRecoveryModal} from './components/SessionRecoveryModal';
-import {ThemeProvider} from './components/ThemeProvider';
-import {ApiError} from './lib/api';
-import {CHECK_UPDATES} from './lib/constants';
-import {initDpiSync} from './lib/dpi';
-import {checkForAppUpdate, type GithubRelease} from './lib/update-check';
-import {getAppMode, useAppMode, useAppStatusStore} from './stores/app-status';
-import {useAuthStore} from './stores/auth';
-import {type StartupPage, useSettingsStore} from './stores/settings';
-import {useYmImportStore} from './stores/ym-import';
+import { SessionRecoveryModal } from './components/SessionRecoveryModal';
+import { ThemeProvider } from './components/ThemeProvider';
+import { ApiError } from './lib/api';
+import { CHECK_UPDATES } from './lib/constants';
+import { initDpiSync } from './lib/dpi';
+import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
+import { getAppMode, useAppMode, useAppStatusStore } from './stores/app-status';
+import { useAuthStore } from './stores/auth';
+import { type StartupPage, useSettingsStore } from './stores/settings';
+import { useYmImportStore } from './stores/ym-import';
 
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
 const Library = lazy(() =>
@@ -51,6 +51,9 @@ const AlbumPage = lazy(() =>
 );
 const Discover = lazy(() =>
   import('./pages/Discover').then((module) => ({ default: module.Discover })),
+);
+const StarPage = lazy(() =>
+  import('./pages/StarPage').then((module) => ({ default: module.StarPage })),
 );
 const UpdateChecker = lazy(() =>
   import('./components/UpdateChecker').then((module) => ({ default: module.UpdateChecker })),
@@ -331,6 +334,14 @@ export default function App() {
                   element={
                     <RouteLoader>
                       <Discover />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="star"
+                  element={
+                    <RouteLoader>
+                      <StarPage />
                     </RouteLoader>
                   }
                 />

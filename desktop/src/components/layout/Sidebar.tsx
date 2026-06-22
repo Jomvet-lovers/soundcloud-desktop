@@ -1,9 +1,9 @@
-import React from 'react';
-import {useTranslation} from 'react-i18next';
-import {NavLink} from 'react-router-dom';
-import {useShallow} from 'zustand/shallow';
-import {changeAppLanguage} from '../../i18n';
-import {art} from '../../lib/formatters';
+import React, { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { changeAppLanguage } from '../../i18n';
+import { art } from '../../lib/formatters';
 import {
   Clock,
   Compass,
@@ -16,13 +16,14 @@ import {
   PanelLeftOpen,
   Search,
   Settings,
+  Star,
 } from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
-import {useAppMode} from '../../stores/app-status';
-import {useAuthStore} from '../../stores/auth';
-import {useSettingsStore} from '../../stores/settings';
-import {Avatar} from '../ui/Avatar';
-import {StarBadge, StarCard, StarModal, useStarSubscription} from './StarSubscription';
+import { usePerfMode } from '../../lib/perf';
+import { useAppMode } from '../../stores/app-status';
+import { useAuthStore } from '../../stores/auth';
+import { useSettingsStore } from '../../stores/settings';
+import { Avatar } from '../ui/Avatar';
+import { StarBadge, StarCard, useStarSubscription } from './StarSubscription';
 
 type IconCmp = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
@@ -37,6 +38,7 @@ const navItems: { to: string; icon: IconCmp; label: string }[] = [
   { to: '/search', icon: Search, label: 'nav.search' },
   { to: '/discover', icon: Compass, label: 'nav.discover' },
   { to: '/library', icon: Library, label: 'nav.library' },
+  { to: '/star', icon: Star, label: 'nav.star' },
   { to: '/offline', icon: Download, label: 'nav.offline' },
 ];
 
@@ -128,7 +130,9 @@ export const Sidebar = React.memo(() => {
       toggleSidebar: s.toggleSidebar,
     })),
   );
-  const { isPremium, modalOpen, setModalOpen, openModal } = useStarSubscription();
+  const { isPremium } = useStarSubscription();
+  const navigate = useNavigate();
+  const openStar = useCallback(() => navigate('/star'), [navigate]);
   const perf = usePerfMode();
 
   const toggleLanguage = () => {
@@ -226,7 +230,7 @@ export const Sidebar = React.memo(() => {
 
       <div className="px-2 pb-1 flex flex-col gap-0.5">
         <div className="mb-1">
-          <StarCard collapsed={collapsed} isPremium={isPremium} onOpenModal={openModal} />
+          <StarCard collapsed={collapsed} isPremium={isPremium} onOpen={openStar} />
         </div>
 
         <button
@@ -290,8 +294,6 @@ export const Sidebar = React.memo(() => {
           </NavLink>
         </div>
       )}
-
-      <StarModal open={modalOpen} onOpenChange={setModalOpen} />
     </aside>
   );
 });

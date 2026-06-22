@@ -1,16 +1,17 @@
-import {QueryClientProvider} from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import {ErrorBoundary} from './components/ErrorBoundary';
-import {changeAppLanguage} from './i18n';
-import {initAuthBridge} from './lib/auth-session';
-import {setupCacheMaintenance} from './lib/cache';
-import {setServerPorts} from './lib/constants';
-import {setupUiWatchdog, trackedInvoke as invoke} from './lib/diagnostics';
-import {queryClient} from './lib/query-client';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { changeAppLanguage } from './i18n';
+import { initAuthBridge } from './lib/auth-session';
+import { setupCacheMaintenance } from './lib/cache';
+import { setServerPorts } from './lib/constants';
+import { trackedInvoke as invoke, setupUiWatchdog } from './lib/diagnostics';
+import { queryClient } from './lib/query-client';
+import './fonts';
 import './index.css';
-import {useSettingsStore} from './stores/settings';
+import { useSettingsStore } from './stores/settings';
 
 // Sync language from persisted settings → i18n after tauriStorage rehydration
 useSettingsStore.persist.onFinishHydration((state) => {
@@ -73,16 +74,16 @@ async function bootstrap() {
   const [staticPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
   setServerPorts(staticPort, proxyPort);
 
-    // Seed the Rust-owned session into the frontend mirror + subscribe to
-    // auth:changed before the first render so the shell/login gate is correct.
-    await initAuthBridge();
+  // Seed the Rust-owned session into the frontend mirror + subscribe to
+  // auth:changed before the first render so the shell/login gate is correct.
+  await initAuthBridge();
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
-          <ErrorBoundary fullscreen>
-              <App/>
-          </ErrorBoundary>
+        <ErrorBoundary fullscreen>
+          <App />
+        </ErrorBoundary>
       </QueryClientProvider>
     </React.StrictMode>,
   );

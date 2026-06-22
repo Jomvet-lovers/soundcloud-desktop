@@ -25,6 +25,7 @@
     "home": "Ana Sayfa",
     "search": "Ara",
     "library": "Kutuphane",
+    "star": "STAR",
     "offline": "Offline",
     "following": "Takip Edilenler",
     "settings": "Ayarlar",
@@ -302,8 +303,8 @@
   "hostStatus": {
     "starOffer": {
       "title": "Ana sunucu kapali",
-      "body": "Ana sunucu kapali, ancak Star aboneleri icin yedek sunucu calisiyor. Abonelik alin, uygulama sizde de calisir.",
-      "how": "Abonelik Boosty ve Discord uzerinden yapilir:"
+      "body": "Ana sunucu kapali ama yedek Star sunucusu calisiyor. STAR'i hemen buradan alin — aninda taninir ve uygulama yedek sunucuda calismaya devam eder.",
+      "how": "Uygulamadan ya da Boosty / Discord uzerinden alin:"
     },
     "allDown": {
       "title": "Tum sunucular kapali",
@@ -316,7 +317,8 @@
     },
     "actions": {
       "retry": "Tekrar dene",
-      "offlineLibrary": "Cevrimdisi kitaplik"
+      "offlineLibrary": "Cevrimdisi kitaplik",
+      "buyStar": "STAR al"
     }
   },
   "home": {
@@ -652,6 +654,169 @@
     "step5": "Discord sunucumuzda /sc-link komutuyla SoundCloud'u baglayin",
     "goBoosty": "Boosty",
     "goDiscord": "Discord"
+  },
+  "starpass": {
+    "guestHandle": "@sen",
+    "member": "Uye",
+    "allAccess": "CLASS · ALL-ACCESS",
+    "activatedStamp": "Aktif",
+    "bestValue": "En avantajli",
+    "perMonth": " / ay",
+    "starsLabel": "Telegram Stars olarak",
+    "classLabel": "Class {{cls}}",
+    "afterPurchase": "satin alimdan sonra",
+    "daysLeft_one": "{{count}} gun",
+    "daysLeft_other": "{{count}} gun",
+    "tierPreview": "Tier · onizleme",
+    "tierActive": "Aktif pass",
+    "fieldSerial": "Seri №",
+    "fieldIssued": "Verilis",
+    "fieldActivated": "Aktif edildi",
+    "fieldValidUntil": "Gecerlilik",
+    "fieldMethod": "Yontem",
+    "fieldOrder": "Siparis №",
+    "fieldRemaining": "Kalan",
+    "eyebrow": "Uyelik pasosu · seri 2026",
+    "heroTitle1": "Abonelik degil.",
+    "heroTitle2": "Sese bir paso.",
+    "heroLead": "STAR, kendi seri numarasi olan kisisel bir pasodur. Ozel sunucuyu, HQ parcalari ve SoundWave'i acar. Satin al — karti al; aktif et — canlanir.",
+    "choosePass": "Paso sec",
+    "haveCode": "Kodum var",
+    "plan": {
+      "month": "Aylik",
+      "quarter": "3 aylik",
+      "year": "Yillik"
+    },
+    "perk": {
+      "goPlus": {
+        "title": "GO+ parcalar",
+        "body": "Ucretsiz pakette kilitli olanlar dahil tum katalog."
+      },
+      "server": {
+        "title": "Ozel sunucu",
+        "body": "Ayri streaming dugumu: daha hizli baslangic, kuyruksuz stabil HQ."
+      },
+      "hq": {
+        "title": "Daha fazla HQ parca",
+        "body": "Eskiden sikistirma alinan yerde yuksek kalite."
+      },
+      "whitelist": {
+        "title": "RF beyaz listelerini atla",
+        "body": "Bolge icin engelli parcalar bizim rotamizdan calar."
+      },
+      "soundwave": {
+        "title": "SoundWave ozel",
+        "body": "Dalga'ya ve kimsede olmayan seemelere erken erisim."
+      },
+      "support": {
+        "title": "Projeyi destekle",
+        "body": "Paso dogrudan sunuculari ve gelistirmeyi besler. Tesekkurler."
+      }
+    },
+    "method": {
+      "sbp": {
+        "title": "SBP",
+        "body": "Banka uygulamasindan QR"
+      },
+      "cardRu": {
+        "title": "RF karti",
+        "body": "MIR, Rus bankalarinin Visa/MC'si"
+      },
+      "cardIntl": {
+        "title": "Yabanci kart",
+        "body": "Yabanci banka"
+      },
+      "crypto": {
+        "title": "Kripto",
+        "body": "CryptoBot uzerinden"
+      },
+      "tgStars": {
+        "title": "Telegram Stars",
+        "body": "TG yildizlariyla ode"
+      }
+    },
+    "caption": {
+      "member": "Member pass · SoundCloud client",
+      "boarding": "Boarding · odeme bekleniyor",
+      "active": "Member pass · aktif"
+    },
+    "planTitle": "Paso sinifini sec",
+    "planSub": "Sure uzadikca ay ucuzlar. Tum siniflar ayni ayricaliklari acar.",
+    "toActivation": "Aktivasyona gec",
+    "providerTitle": "Aktivasyon yontemi",
+    "providerSub": "Tek paso — ona birkac yol. Uygun olani sec, fiyat degismez.",
+    "recurring": "Otomatik yenileme (Telegram Stars, aylik)",
+    "creating": "Siparis olusturuluyor…",
+    "continueWith": "{{method}} ile devam et",
+    "continue": "Devam et",
+    "toPay": "Odenecek",
+    "checkoutError": "Siparis olusturulamadi. Baska bir yontem dene.",
+    "payTitle": "Paso damgasini bekliyor",
+    "paySub": "Odemeyi tamamla — kart otomatik aktif olur.",
+    "retry": "Tekrar dene",
+    "sbpStep": {
+      "1": "Banka uygulamani ac ve QR'i tara.",
+      "2": "Transferi onayla.",
+      "3": "Bu ekrani kapatma — paso kendini damgalar."
+    },
+    "changeMethod": "Odeme yontemini degistir",
+    "externalHint": "Saglayicinin odeme sayfasini tarayicinda actik. Odemeyi orada tamamla — bu ekran kendini gunceller.",
+    "openCheckout": "Odemeyi ac",
+    "successTitle": "Paso aktif edildi",
+    "successSub": "Kart damgasini aldi ve folyoyla parliyor. Muzige donebilirsin.",
+    "welcome": "STAR'a hos geldin, {{handle}}.",
+    "welcomeBody": "Paso {{date}} tarihine kadar gecerli. Ozel sunucu, HQ ve SoundWave zaten acik — bir sey yeniden yuklemen gerekmiyor.",
+    "until": "kadar",
+    "backToMusic": "Muzige don",
+    "managePass": "Pasoyu yonet",
+    "redeemTitle": "Kodla aktivasyon",
+    "redeemSub": "Pasoyu bayiden mi aldin? Fisteki kodu gir.",
+    "status": {
+      "waiting": "Odeme bekleniyor…",
+      "polling": "her 2.5 sn kontrol",
+      "paid": "Odeme alindi",
+      "activated": "paso aktif edildi",
+      "failed": "Odeme basarisiz",
+      "failedHint": "siparis gecmedi — tekrar dene"
+    },
+    "redeem": {
+      "heading": "Tek kod — bir paso.",
+      "lead": "Kod, STAR onekinden sonra dort bloktur. Buyuk-kucuk harf onemli degil, tireleri biz koyariz. Sure aktivasyonda baslar.",
+      "format": "format",
+      "oneTime": "tek kullanimlik",
+      "label": "Aktivasyon kodu",
+      "progress": "16 karakterden {{count}} girildi",
+      "activate": "STAR'i aktif et",
+      "activating": "Aktif ediliyor…",
+      "paste": "Panodan yapistir",
+      "errUsed": "Bu kod zaten kullanildi.",
+      "errUnknown": "Bu kodu bilmiyoruz. Karakterleri kontrol et.",
+      "errRevoked": "Bu kod iptal edildi.",
+      "errExpired": "Bu kodun suresi doldu.",
+      "errGeneric": "Kod aktif edilemedi. Tekrar dene."
+    },
+    "manage": {
+      "title": "Pason",
+      "sub": "Pasin suresi, otomatik yenileme ve kaynagi.",
+      "autoRenew": "Otomatik yenileme",
+      "autoRenewOn": "{{date}} tarihinde tekrar tahsil edecegiz",
+      "autoRenewOff": "Kapali. Erisim odenen surenin sonuna kadar.",
+      "source": "Kaynak",
+      "sourceSub": "Nereden geldigi",
+      "afterExpiry": "Sonra ucretsiz moda gecer",
+      "extend": "Uzat",
+      "redeem": "Kod gir",
+      "canceled": "Otomatik yenileme kapatildi",
+      "cancelError": "Otomatik yenileme kapatilamadi"
+    },
+    "openVia": "Odemeyi nerede ac",
+    "openIn": {
+      "tg": "Telegram'da ac",
+      "webapp": "Tarayicida ac",
+      "miniapp": "Telegram Mini App"
+    },
+    "loadError": "Tarifeler yuklenemedi",
+    "loading": "Tarifeler yukleniyor…"
   },
   "soundwaveLock": {
     "wordmark": "SES DALGASI",

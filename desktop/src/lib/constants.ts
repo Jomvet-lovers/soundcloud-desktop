@@ -8,6 +8,8 @@ export const STREAMING_PREMIUM_BASE =
     import.meta.env.VITE_STREAMING_PREMIUM_BASE || 'https://stream-star.scdinternal.site';
 export const IMAGES_BASE = import.meta.env.VITE_IMAGES_BASE || 'https://images.scdinternal.site';
 export const STORAGE_BASE = import.meta.env.VITE_STORAGE_BASE || 'https://storage.scdinternal.site';
+/** STAR payment backend (separate service; not host-routed like the catalog API). */
+export const PAY_BASE = import.meta.env.VITE_PAY_BASE || 'https://pay.scdinternal.site';
 
 export const GITHUB_OWNER = 'zxcloli666';
 export const GITHUB_REPO = 'SoundCloud-Desktop';
