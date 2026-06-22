@@ -913,6 +913,15 @@
       "canceled": "Автопродление выключено",
       "cancelError": "Не удалось выключить автопродление"
     },
+    "discord": {
+      "label": "Discord",
+      "linkedAs": "Привязан",
+      "unlinked": "Discord не привязан",
+      "linkHint": "Открой наш Discord-сервер и набери /sc-link",
+      "booster": "Бустер",
+      "starRole": "Роль STAR",
+      "member": "Участник"
+    },
     "openVia": "Где открыть оплату",
     "openIn": {
       "tg": "Открыть в Telegram",

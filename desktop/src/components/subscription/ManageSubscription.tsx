@@ -7,6 +7,7 @@ import { requestPremiumRecheck } from '../../lib/premium-cache';
 import { queryClient } from '../../lib/query-client';
 import { daysUntil, passDate, passSerial } from '../../lib/star-format';
 import { GlassButton } from '../ui/GlassButton';
+import { DiscordCard } from './DiscordCard';
 import { StarPass } from './StarPass';
 
 const SUB_KEY = ['pay', 'subscription'] as const;
@@ -101,6 +102,7 @@ export const ManageSubscription = memo(function ManageSubscription({
       />
 
       <div className="flex flex-col gap-[14px]">
+        <DiscordCard discord={data?.discord ?? null} />
         <RowCard
           label={t('starpass.manage.autoRenew')}
           sub={

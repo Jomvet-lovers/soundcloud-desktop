@@ -115,10 +115,23 @@ export interface Entitlement {
   canceled: boolean;
 }
 
+export interface DiscordLink {
+  discord_id: string;
+  username: string | null;
+  global_name: string | null;
+  avatar_url: string | null;
+  is_booster: boolean;
+  has_star_role: boolean;
+  linked_at: number;
+  updated_at: number;
+}
+
 export interface PaySubscription {
   premium: boolean;
   premium_until: number;
   entitlements: Entitlement[];
+  /** Mirror of the user's linked Discord (bot-owned). Null if not linked. */
+  discord: DiscordLink | null;
 }
 
 export interface RedeemResp {

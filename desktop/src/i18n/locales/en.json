@@ -902,6 +902,15 @@
       "canceled": "Auto-renew turned off",
       "cancelError": "Couldn't turn off auto-renew"
     },
+    "discord": {
+      "label": "Discord",
+      "linkedAs": "Linked",
+      "unlinked": "Discord not linked",
+      "linkHint": "Open our Discord server and run /sc-link",
+      "booster": "Booster",
+      "starRole": "STAR role",
+      "member": "Member"
+    },
     "openVia": "Open payment via",
     "openIn": {
       "tg": "Open in Telegram",

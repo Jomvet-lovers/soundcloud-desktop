@@ -809,6 +809,15 @@
       "canceled": "Otomatik yenileme kapatildi",
       "cancelError": "Otomatik yenileme kapatilamadi"
     },
+    "discord": {
+      "label": "Discord",
+      "linkedAs": "Bagli",
+      "unlinked": "Discord bagli degil",
+      "linkHint": "Discord sunucumuzu ac ve /sc-link yaz",
+      "booster": "Booster",
+      "starRole": "STAR rolu",
+      "member": "Uye"
+    },
     "openVia": "Odemeyi nerede ac",
     "openIn": {
       "tg": "Telegram'da ac",
