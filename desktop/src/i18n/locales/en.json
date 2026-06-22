@@ -824,9 +824,13 @@
         "title": "Foreign card",
         "body": "International issuer"
       },
-      "crypto": {
+      "cryptoPlatega": {
         "title": "Crypto",
-        "body": "via CryptoBot"
+        "body": "On-chain, direct"
+      },
+      "cryptoBot": {
+        "title": "CryptoBot",
+        "body": "CryptoBot wallet"
       },
       "tgStars": {
         "title": "Telegram Stars",

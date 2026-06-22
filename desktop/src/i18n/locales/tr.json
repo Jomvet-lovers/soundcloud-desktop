@@ -726,9 +726,13 @@
         "title": "Yabanci kart",
         "body": "Yabanci banka"
       },
-      "crypto": {
+      "cryptoPlatega": {
         "title": "Kripto",
-        "body": "CryptoBot uzerinden"
+        "body": "On-chain, dogrudan"
+      },
+      "cryptoBot": {
+        "title": "CryptoBot",
+        "body": "CryptoBot cuzdani"
       },
       "tgStars": {
         "title": "Telegram Stars",

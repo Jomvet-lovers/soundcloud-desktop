@@ -61,8 +61,13 @@ export const OverviewPane = memo(function OverviewPane({
               }}
             >
               {t(`starpass.plan.${monthsKey(p.months)}`)}
-              <span className="mt-1 block text-[9.5px] text-white/40">
-                {p.savings_pct > 0 ? `−${p.savings_pct}%` : `${p.price_rub} ₽`}
+              {/* unified across tabs: every plan shows its price; the accent −%
+                  rides alongside only where there's a saving (no mixed slots) */}
+              <span className="mt-1 flex items-center justify-center gap-1.5 text-[9.5px]">
+                <span className="text-white/45">{p.price_rub} ₽</span>
+                {p.savings_pct > 0 && (
+                  <span className="font-semibold text-accent">−{p.savings_pct}%</span>
+                )}
               </span>
             </button>
           );
@@ -79,10 +84,19 @@ export const OverviewPane = memo(function OverviewPane({
         {PERKS.map(({ key, Icon }) => (
           <div
             key={key}
-            className="flex items-center gap-2.5 rounded-[11px] border border-white/[0.08] bg-white/[0.025] px-3 py-2.5"
+            className="flex items-center gap-2.5 rounded-[11px] border border-white/[0.08] bg-white/[0.025] px-2.5 py-2"
           >
-            <Icon size={15} className="shrink-0 text-accent" />
-            <span className="truncate text-[12px] font-medium text-white/85">
+            <span
+              className="grid size-[28px] shrink-0 place-items-center rounded-[8px]"
+              style={{
+                background: 'color-mix(in srgb, var(--color-accent) 13%, transparent)',
+                boxShadow:
+                  'inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent)',
+              }}
+            >
+              <Icon size={14} className="text-accent" />
+            </span>
+            <span className="text-[12px] font-medium leading-tight text-white/85">
               {t(`starpass.perk.${key}.title`)}
             </span>
           </div>

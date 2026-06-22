@@ -33,7 +33,7 @@ export const MethodPane = memo(function MethodPane({
   return (
     <div>
       <Ttl>{t('starpass.providerSub')}</Ttl>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {options.map((opt) => {
           const on = opt.kind === selected?.kind;
           return (

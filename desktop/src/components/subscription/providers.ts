@@ -2,7 +2,13 @@ import type { CheckoutReq, PlansResponse, PlategaMethod, ProviderId } from '../.
 
 // A user-facing "activation method" flattens the pay backend's
 // provider × method matrix into the five concrete options the concept shows.
-export type ActivationKind = 'sbp' | 'card_ru' | 'card_intl' | 'crypto' | 'tgstars';
+export type ActivationKind =
+  | 'sbp'
+  | 'card_ru'
+  | 'card_intl'
+  | 'crypto_platega'
+  | 'crypto_bot'
+  | 'tgstars';
 
 export interface ActivationOption {
   kind: ActivationKind;
@@ -30,7 +36,16 @@ const ORDER: Omit<ActivationOption, 'tag'>[] = [
     i18n: 'cardIntl',
     recurring: false,
   },
-  { kind: 'crypto', provider: 'cryptobot', i18n: 'crypto', recurring: false },
+  // Two crypto rails: Platega = pay in crypto on-chain (crypto as crypto);
+  // CryptoBot = a hot wallet for users who already hold a balance in the bot.
+  {
+    kind: 'crypto_platega',
+    provider: 'platega',
+    method: 'crypto',
+    i18n: 'cryptoPlatega',
+    recurring: false,
+  },
+  { kind: 'crypto_bot', provider: 'cryptobot', i18n: 'cryptoBot', recurring: false },
   { kind: 'tgstars', provider: 'tgstars', i18n: 'tgStars', recurring: true },
 ];
 
@@ -38,7 +53,8 @@ const TAGS: Record<ActivationKind, string> = {
   sbp: 'NSPK',
   card_ru: '3-D SECURE',
   card_intl: 'USD / EUR',
-  crypto: 'TON / USDT',
+  crypto_platega: 'ON-CHAIN',
+  crypto_bot: '@CryptoBot',
   tgstars: '★',
 };
 

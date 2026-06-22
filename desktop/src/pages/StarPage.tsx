@@ -123,20 +123,32 @@ export const StarPage = memo(function StarPage() {
           : step === 'overview' && premium
             ? 'manage'
             : null;
-  const charge = selectedPlan
-    ? selectedPlan.months >= 12
-      ? 1
-      : selectedPlan.months >= 3
-        ? 0.6
-        : 0.28
-    : 0.5;
+  // Active membership = the core fully open (max charge), like the 12-mo plan —
+  // regardless of which plan is selected behind the scenes.
+  const charge = lit
+    ? 1
+    : selectedPlan
+      ? selectedPlan.months >= 12
+        ? 1
+        : selectedPlan.months >= 3
+          ? 0.6
+          : 0.28
+      : 0.5;
 
   return (
     <div className="relative min-h-full w-full">
       <StarAtmosphere />
       <div
         className="relative z-10 mx-auto flex min-h-[calc(100vh-120px)] w-full max-w-[1060px] flex-col px-4 md:px-8"
-        style={{ isolation: 'isolate' }}
+        style={
+          {
+            isolation: 'isolate',
+            // Scope the editorial display pair to /star only (no app-wide blast):
+            // every `font-mono` / `var(--font-serif)` inside inherits these.
+            '--font-serif': 'var(--font-display)',
+            '--font-mono': 'var(--font-mono-console)',
+          } as React.CSSProperties
+        }
       >
         {/* frozen header — pinned so you can always go back / change the term */}
         <div className="sticky top-0 z-30 flex items-center justify-between py-4">
@@ -171,12 +183,15 @@ export const StarPage = memo(function StarPage() {
             style={{ top: `${CORE_CENTER_Y * 100}%` }}
           >
             <div className="relative px-10 py-8 text-center">
+              {/* single clean dark lens — darker core, smooth feather, sized a hair
+                  larger than the text so glyphs never sit on the blurry edge (kills
+                  the doubled-scrim smear; the canvas well underneath stays subtle). */}
               <div
                 aria-hidden
-                className="absolute inset-0"
+                className="absolute -inset-x-8 -inset-y-5"
                 style={{
                   background:
-                    'radial-gradient(closest-side, rgba(4,4,7,0.88), rgba(4,4,7,0.55) 56%, transparent 80%)',
+                    'radial-gradient(58% 54% at 50% 50%, rgba(3,3,5,0.95) 0%, rgba(3,3,5,0.86) 40%, rgba(3,3,5,0.42) 68%, transparent 86%)',
                 }}
               />
               <div className="relative mx-auto max-w-[320px]">

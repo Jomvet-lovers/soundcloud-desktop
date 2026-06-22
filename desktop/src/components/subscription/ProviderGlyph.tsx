@@ -40,7 +40,8 @@ export const ProviderGlyph = memo(function ProviderGlyph({ kind }: { kind: Activ
           />
         </svg>
       );
-    case 'crypto':
+    case 'crypto_platega':
+      // On-chain crypto — a coin mark.
       return (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
           <circle cx="12" cy="12" r="9" stroke="var(--color-accent)" strokeWidth="1.5" />
@@ -50,6 +51,27 @@ export const ProviderGlyph = memo(function ProviderGlyph({ kind }: { kind: Activ
             strokeWidth="1.4"
             strokeLinecap="round"
           />
+        </svg>
+      );
+    case 'crypto_bot':
+      // CryptoBot hot wallet — a wallet with a coin slot.
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <rect
+            x="3"
+            y="6"
+            width="18"
+            height="13"
+            rx="3"
+            stroke="var(--color-accent)"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M3 10h13a2 2 0 012 2v0a2 2 0 01-2 2H3"
+            stroke="var(--color-accent)"
+            strokeWidth="1.5"
+          />
+          <circle cx="16.5" cy="12" r="1.2" fill="var(--color-accent)" />
         </svg>
       );
     case 'tgstars':

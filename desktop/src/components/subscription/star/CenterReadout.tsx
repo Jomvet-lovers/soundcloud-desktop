@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Loader2 } from '../../../lib/icons';
 import type { Plan } from '../../../lib/pay-client';
@@ -6,10 +6,56 @@ import { daysUntil, passDate, passSerial } from '../../../lib/star-format';
 import type { PayPhase } from '../PayStatus';
 import { monthsKey, type Step } from './meta';
 
-// Drop-shadow so text stays crisp over the core's bloom (the dark well alone
-// isn't enough for the muted meta line).
-const SHADOW = { textShadow: '0 2px 20px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.7)' } as const;
-const SERIF = { fontFamily: 'var(--font-serif)', ...SHADOW } as const;
+// Layered shadow: a tight dark halo keeps the display glyphs crisp over the
+// core's bloom, plus soft depth so the muted meta line reads too.
+const SHADOW = {
+  textShadow: '0 0 1px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.92), 0 3px 26px rgba(0,0,0,0.8)',
+} as const;
+// Geometric techno-display (Unbounded), scoped via --font-serif on /star.
+const DISP = { fontFamily: 'var(--font-serif)', ...SHADOW } as const;
+// Console mono (Geist Mono) — the ₽ unit; compact, full cyrillic + ₽ coverage.
+const MONO = { fontFamily: 'var(--font-mono)', ...SHADOW } as const;
+
+// One shared anatomy for every state: accent Eyebrow → big Hero → muted Caption.
+// Keeps price / identity / status readouts in the same rhythm and on the same
+// typography (no per-state divergence).
+
+/** Accent mark above the hero. */
+function Eyebrow({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[17px] leading-none text-accent" style={SHADOW}>
+      {children}
+    </div>
+  );
+}
+
+/** The big Unbounded hero — a price number or the @handle — + optional unit. */
+function Hero({ children, unit, size }: { children: ReactNode; unit?: ReactNode; size: number }) {
+  return (
+    <div className="mt-1.5 flex items-center justify-center gap-2">
+      <span
+        className="break-words font-bold leading-[0.95] tracking-[-0.03em] text-white"
+        style={{ ...DISP, fontSize: size }}
+      >
+        {children}
+      </span>
+      {unit != null && (
+        <span className="text-white/50" style={{ ...MONO, fontSize: Math.round(size * 0.4) }}>
+          {unit}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Secondary line under the hero — one style for price / validity / status. */
+function Caption({ children }: { children: ReactNode }) {
+  return (
+    <div className="mt-3 text-[13px] font-medium tracking-[0.01em] text-white/75" style={SHADOW}>
+      {children}
+    </div>
+  );
+}
 
 /** The content that lives inside the living core's dark "well", per flow state. */
 export const CenterReadout = memo(function CenterReadout({
@@ -32,44 +78,48 @@ export const CenterReadout = memo(function CenterReadout({
   if (step === 'success' || step === 'manage') {
     return (
       <div style={SHADOW}>
-        <div className="text-[30px] font-medium leading-none text-white" style={SERIF}>
-          {handle}
-        </div>
-        <div className="mt-2.5 font-mono text-[11.5px] tracking-[0.16em] text-accent">
+        <Eyebrow>✦</Eyebrow>
+        <Hero size={30}>{handle}</Hero>
+        {/* membership serial — same display font as the hero, accent + small */}
+        <div className="mt-1.5 text-[14px] font-medium tracking-[0.08em] text-accent" style={DISP}>
           {passSerial(serialSeed)}
         </div>
-        <div className="mt-1.5 font-mono text-[11px] tracking-[0.1em] text-white/70">
+        <Caption>
           {t('starpass.until')} {passDate(endsAt)} ·{' '}
-          {t('starpass.daysLeft', { count: daysUntil(endsAt) })}
-        </div>
+          <span className="font-semibold text-accent">
+            {t('starpass.daysLeft', { count: daysUntil(endsAt) })}
+          </span>
+        </Caption>
       </div>
     );
   }
 
   if (step === 'pay') {
-    const amount = plan ? `${plan.price_rub} ₽` : '';
     return (
       <div style={SHADOW}>
-        <div className="text-[40px] font-medium leading-none text-white" style={SERIF}>
-          {amount}
-        </div>
-        <div className="mt-3 inline-flex items-center gap-2 text-[12px] font-medium tracking-[0.02em] text-white/75">
-          {phase === 'granted' ? (
-            <>
-              <span className="grid size-[18px] place-items-center rounded-full bg-accent text-[11px] font-bold text-accent-contrast">
-                <Check size={11} strokeWidth={3} />
-              </span>
-              {t('starpass.status.paid')}
-            </>
-          ) : phase === 'failed' ? (
-            <span className="text-red-300/90">{t('starpass.status.failed')}</span>
-          ) : (
-            <>
-              <Loader2 size={15} className="animate-spin text-accent" />{' '}
-              {t('starpass.status.waiting')}
-            </>
-          )}
-        </div>
+        <Eyebrow>✦</Eyebrow>
+        <Hero size={48} unit="₽">
+          {plan?.price_rub ?? ''}
+        </Hero>
+        <Caption>
+          <span className="inline-flex items-center gap-2">
+            {phase === 'granted' ? (
+              <>
+                <span className="grid size-[18px] place-items-center rounded-full bg-accent text-[11px] font-bold text-accent-contrast">
+                  <Check size={11} strokeWidth={3} />
+                </span>
+                {t('starpass.status.paid')}
+              </>
+            ) : phase === 'failed' ? (
+              <span className="text-red-300/90">{t('starpass.status.failed')}</span>
+            ) : (
+              <>
+                <Loader2 size={15} className="animate-spin text-accent" />{' '}
+                {t('starpass.status.waiting')}
+              </>
+            )}
+          </span>
+        </Caption>
       </div>
     );
   }
@@ -77,10 +127,8 @@ export const CenterReadout = memo(function CenterReadout({
   if (step === 'redeem') {
     return (
       <div style={SHADOW}>
-        <div className="text-[24px] text-accent">✦</div>
-        <div className="mt-2 text-[12.5px] font-medium tracking-[0.02em] text-white/70">
-          {t('starpass.redeem.center')}
-        </div>
+        <Eyebrow>✦</Eyebrow>
+        <Caption>{t('starpass.redeem.center')}</Caption>
       </div>
     );
   }
@@ -90,12 +138,11 @@ export const CenterReadout = memo(function CenterReadout({
   const perMonth = plan ? Math.round(plan.price_rub / plan.months) : 0;
   return (
     <div style={SHADOW}>
-      <div className="text-[18px] text-accent">✦</div>
-      <div className="mt-2 text-[52px] font-medium leading-[0.95] text-white" style={SERIF}>
+      <Eyebrow>✦</Eyebrow>
+      <Hero size={60} unit="₽">
         {amount}
-        <span className="text-[22px] text-white/55"> ₽</span>
-      </div>
-      <div className="mt-3 text-[13px] font-medium tracking-[0.01em] text-white/75">
+      </Hero>
+      <Caption>
         {plan ? (
           <>
             {t(`starpass.plan.${monthsKey(plan.months)}`)} · {perMonth} ₽/
@@ -107,7 +154,7 @@ export const CenterReadout = memo(function CenterReadout({
         ) : (
           t('starpass.loading')
         )}
-      </div>
+      </Caption>
     </div>
   );
 });

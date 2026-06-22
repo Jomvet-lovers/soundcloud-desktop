@@ -188,14 +188,16 @@ export const LivingCore = memo(function LivingCore({
         ctx.stroke();
       }
 
-      // dark well — the readable centre
-      g = ctx.createRadialGradient(cx, cy, 0, cx, cy, innerR * 0.95);
-      g.addColorStop(0, 'rgba(7,7,11,0.96)');
-      g.addColorStop(0.72, 'rgba(7,7,11,0.92)');
-      g.addColorStop(1, 'rgba(7,7,11,0)');
+      // dark well — soft aperture vignette (long feather, no hard disc edge so it
+      // composes under the readout's lens instead of stacking a second dark ring)
+      g = ctx.createRadialGradient(cx, cy, 0, cx, cy, innerR * 0.98);
+      g.addColorStop(0, 'rgba(6,6,10,0.94)');
+      g.addColorStop(0.5, 'rgba(6,6,10,0.78)');
+      g.addColorStop(0.82, 'rgba(6,6,10,0.32)');
+      g.addColorStop(1, 'rgba(6,6,10,0)');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.arc(cx, cy, innerR * 0.95, 0, 7);
+      ctx.arc(cx, cy, innerR * 0.98, 0, 7);
       ctx.fill();
 
       if (!staticFrame) {

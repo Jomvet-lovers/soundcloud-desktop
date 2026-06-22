@@ -835,9 +835,13 @@
         "title": "Карта зарубеж.",
         "body": "Иностранный эмитент"
       },
-      "crypto": {
+      "cryptoPlatega": {
         "title": "Криптовалюта",
-        "body": "через CryptoBot"
+        "body": "On-chain, напрямую"
+      },
+      "cryptoBot": {
+        "title": "CryptoBot",
+        "body": "кошелёк CryptoBot"
       },
       "tgStars": {
         "title": "Telegram Stars",
