@@ -302,3 +302,10 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.AI_API_KEY }}
           OPENAI_API_MODEL: deep-think
           LANGUAGE: "РУССКИЙ"
+          RELEASE_BANNER: |
+            ###### [DISCORD](https://discord.gg/xQcGBP8fGG) | [САЙТ](https://soundcloud-desktop.fun/)
+
+
+            ### НЕ ЗНАЕШЬ КАКОЙ ФАЙЛ КАЧАТЬ? СКАЧАЙ НА САЙТЕ - https://soundcloud-desktop.fun/download
+
+            ---
