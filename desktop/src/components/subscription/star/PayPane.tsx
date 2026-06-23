@@ -1,5 +1,5 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink } from '../../../lib/icons';
 import type { CheckoutResp } from '../../../lib/pay-client';
@@ -37,6 +37,34 @@ export const PayPane = memo(function PayPane({
     }
   }, [isSbp, checkout.pay_url, open]);
 
+  // The order lives PAY_ORDER_TTL_SECS server-side (env, not hardcoded). Mirror
+  // that here so we don't present a dead QR/checkout: tick once a second while
+  // waiting, show the time left, and switch to an "expired" state at zero — the
+  // reaper only flips the status to `expired` every ~60s, too slow for the UI.
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    if (phase !== 'waiting') return;
+    const id = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
+  const secsLeft = Math.max(0, checkout.expires_at - nowSec);
+  const expired = phase === 'waiting' && secsLeft === 0;
+  const mmss = `${Math.floor(secsLeft / 60)}:${String(secsLeft % 60).padStart(2, '0')}`;
+
+  if (expired) {
+    return (
+      <div>
+        <Ttl>
+          {t(`starpass.method.${option.i18n}.title`)} · {serial}
+        </Ttl>
+        <p className="text-[12.5px] leading-relaxed text-white/60">{t('starpass.qrExpired')}</p>
+        <div className="mt-3.5">
+          <PrimaryBtn onClick={onChangeMethod}>{t('starpass.retry')}</PrimaryBtn>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
       {isSbp ? (
@@ -48,6 +76,7 @@ export const PayPane = memo(function PayPane({
       <div className="min-w-0 flex-1">
         <Ttl>
           {t(`starpass.method.${option.i18n}.title`)} · {option.tag} · {serial}
+          {phase === 'waiting' && ` · ${mmss}`}
         </Ttl>
         {isSbp ? (
           <ol className="flex list-none flex-col gap-2 p-0">
@@ -81,6 +110,12 @@ export const PayPane = memo(function PayPane({
                 <ExternalLink size={14} />
               </PrimaryBtn>
             ))}
+          {isSbp && checkout.pay_url && (
+            <GhostBtn onClick={open}>
+              {t('starpass.openInBrowser')}
+              <ExternalLink size={13} />
+            </GhostBtn>
+          )}
           {phase === 'failed' && (
             <PrimaryBtn onClick={onChangeMethod}>{t('starpass.retry')}</PrimaryBtn>
           )}

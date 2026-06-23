@@ -66,6 +66,7 @@ export const StarPage = memo(function StarPage() {
 
   const order = useOrderPoll(
     step === 'pay' || step === 'success' ? (checkout?.order_id ?? null) : null,
+    checkout?.expires_at ?? null,
   );
   const phase = phaseOf(order.data?.status);
   if (step === 'pay' && phase === 'granted') {

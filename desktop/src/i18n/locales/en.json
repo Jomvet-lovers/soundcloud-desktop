@@ -864,6 +864,8 @@
     "changeMethod": "Another method",
     "externalHint": "Checkout opened in your browser. Finish there — this screen updates itself.",
     "openCheckout": "Open checkout",
+    "openInBrowser": "Open in browser",
+    "qrExpired": "This order has expired — start over",
     "successTitle": "Pass activated",
     "successSub": "Everything's on. Back to the music.",
     "welcome": "Welcome to STAR, {{handle}}.",

@@ -766,6 +766,8 @@
     "changeMethod": "Odeme yontemini degistir",
     "externalHint": "Saglayicinin odeme sayfasini tarayicinda actik. Odemeyi orada tamamla — bu ekran kendini gunceller.",
     "openCheckout": "Odemeyi ac",
+    "openInBrowser": "Tarayicida ac",
+    "qrExpired": "Siparis suresi doldu — bastan basla",
     "successTitle": "Paso aktif edildi",
     "successSub": "Kart damgasini aldi ve folyoyla parliyor. Muzige donebilirsin.",
     "welcome": "STAR'a hos geldin, {{handle}}.",
