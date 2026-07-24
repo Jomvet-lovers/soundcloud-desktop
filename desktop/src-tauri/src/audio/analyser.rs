@@ -24,7 +24,8 @@ use rodio::source::SeekError;
 use rodio::Source;
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
-use tauri::{AppHandle, Emitter};
+use crate::rt::AppHandle;
+use tauri::Emitter;
 
 use crate::audio::types::{ChannelCount, SampleRate};
 

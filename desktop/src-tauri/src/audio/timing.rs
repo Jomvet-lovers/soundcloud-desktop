@@ -32,7 +32,7 @@ pub fn audio_clear_comments_timeline(state: State<'_, AudioState>) {
     *state.comments_timeline.lock().unwrap() = None;
 }
 
-pub fn process_lyrics_timeline(handle: &tauri::AppHandle, state: &AudioState, pos_secs: f64) {
+pub fn process_lyrics_timeline(handle: &crate::rt::AppHandle, state: &AudioState, pos_secs: f64) {
     let mut timeline = state.lyrics_timeline.lock().unwrap();
     let Some(timeline) = timeline.as_mut() else {
         return;
@@ -54,7 +54,7 @@ pub fn process_lyrics_timeline(handle: &tauri::AppHandle, state: &AudioState, po
     }
 }
 
-pub fn process_comments_timeline(handle: &tauri::AppHandle, state: &AudioState, pos_secs: f64) {
+pub fn process_comments_timeline(handle: &crate::rt::AppHandle, state: &AudioState, pos_secs: f64) {
     let mut timeline = state.comments_timeline.lock().unwrap();
     let Some(timeline) = timeline.as_mut() else {
         return;

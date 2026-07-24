@@ -157,11 +157,11 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
     let mut status = 502u16;
     let mut data: Vec<u8> = Vec::new();
 
-    for upstream in upstreams {
+    for hop in crate::network::edge::expand_upstreams(upstreams) {
         // `direct` = fetch the target ourselves with a browser User-Agent
         // (hosts like wallhaven/konachan 403 a non-browser UA). Otherwise relay
         // the request to the proxy upstream via the X-Target header.
-        let builder = if upstream == "direct" {
+        let builder = if hop.url == "direct" {
             state
                 .http_client
                 .get(target_url.as_str())
@@ -169,20 +169,30 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         } else {
             state
                 .http_client
-                .get(upstream)
+                .get(&hop.url)
                 .header("X-Target", &encoded_for_header)
         };
         let resp = match builder.send().await {
             Ok(r) => r,
-            Err(_) => continue,
+            Err(_) => {
+                hop.note(false);
+                continue;
+            }
         };
 
         status = resp.status().as_u16();
+        if !crate::network::edge::hop_ok(&hop, &resp) {
+            continue;
+        }
         match resp.bytes().await {
             Ok(b) => data = b.to_vec(),
-            Err(_) => continue,
+            Err(_) => {
+                hop.note(false);
+                continue;
+            }
         }
 
+        hop.note(status < 500);
         if status < 500 {
             break;
         }

@@ -4,6 +4,7 @@ mod auth;
 mod discord;
 mod import;
 mod network;
+mod rt;
 mod shared;
 mod track_cache;
 
@@ -14,8 +15,9 @@ use discord::DiscordState;
 use network::server::ServerState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg_attr(feature = "cef", tauri::cef_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::<rt::Rt>::new();
 
     builder
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -72,6 +74,8 @@ pub fn run() {
 
             let images_dir = data_dir.join("images");
             std::fs::create_dir_all(&images_dir).ok();
+
+            network::edge::init(data_dir.clone());
 
             let http_client = reqwest::Client::new();
             let auth_http_client = http_client.clone();
@@ -231,6 +235,9 @@ pub fn run() {
             auth::auth_set_session,
             auth::auth_logout,
             auth::auth_set_premium,
+            network::edge::edge_config,
+            network::edge::edge_note,
+            network::edge::edge_ban_worker,
             network::dpi::dpi_set_enabled,
             network::dpi::dpi_is_enabled,
             network::dpi::dpi_strategy,

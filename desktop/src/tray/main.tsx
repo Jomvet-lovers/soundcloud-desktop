@@ -16,7 +16,28 @@ function applyTheme() {
     applyPerfMode(s.perfMode);
 }
 
+/**
+ * Поповер — окно фиксированного логического размера (384×248). Если webview-DPR
+ * расходится со scale окна (под CEF бывает — главное окно лечит это в
+ * `fixWebviewScale`), CSS-вьюпорт не совпадает с дизайном и флайаут «разъезжается».
+ * Корректируем зумом scaleFactor/devicePixelRatio в обе стороны; при совпадении
+ * (wry, целочисленный scale) — no-op.
+ */
+async function fixPopoverScale() {
+    try {
+        const {getCurrentWindow} = await import('@tauri-apps/api/window');
+        const {getCurrentWebview} = await import('@tauri-apps/api/webview');
+        const scale = await getCurrentWindow().scaleFactor();
+        const dpr = window.devicePixelRatio || 1;
+        const ratio = scale / dpr;
+        if (Math.abs(ratio - 1) > 0.02) {
+            await getCurrentWebview().setZoom(ratio);
+        }
+    } catch {}
+}
+
 async function bootstrap() {
+    await fixPopoverScale();
     await useSettingsStore.persist.rehydrate();
     applyTheme();
     await changeAppLanguage(useSettingsStore.getState().language);

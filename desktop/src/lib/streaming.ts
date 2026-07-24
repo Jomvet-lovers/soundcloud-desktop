@@ -1,10 +1,10 @@
-import {fetch} from '@tauri-apps/plugin-http';
-import type {Track} from '../stores/player';
-import {useSettingsStore} from '../stores/settings';
-import {ApiError, getSessionId} from './api-client';
-import {STORAGE_BASE, STREAMING_BASE, STREAMING_PREMIUM_BASE} from './constants';
-import {logHttpError, logHttpFailure, trackAsync} from './diagnostics';
-import {markHealthy, markUnhealthy} from './host-status';
+import type { Track } from '../stores/player';
+import { useSettingsStore } from '../stores/settings';
+import { ApiError, getSessionId } from './api-client';
+import { STORAGE_BASE, STREAMING_BASE, STREAMING_PREMIUM_BASE } from './constants';
+import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
+import { edgeFetch } from './edge';
+import { markHealthy, markUnhealthy } from './host-status';
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -30,7 +30,7 @@ async function streamingJson<T = unknown>(path: string): Promise<T> {
   for (const base of resolveStreamingBases()) {
     const url = `${base}${path}`;
     try {
-      const res = await trackAsync(`streaming:${label}`, fetch(url));
+      const res = await trackAsync(`streaming:${label}`, edgeFetch(url));
 
       if (!res.ok) {
         const body = await res.text();

@@ -1,8 +1,8 @@
-import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchWithAuthFallback } from './api-client';
 import { API_BASE } from './constants';
+import { edgeFetch } from './edge';
 
 interface LoginResponse {
   url: string;
@@ -93,7 +93,7 @@ export function useOAuthFlow(
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8_000);
       try {
-        const res = await fetch(
+        const res = await edgeFetch(
           `${base}/auth/login/status?id=${encodeURIComponent(loginRequestId)}`,
           { signal: controller.signal, cache: 'no-store' as RequestCache },
         );

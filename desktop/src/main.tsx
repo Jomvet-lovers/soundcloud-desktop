@@ -8,10 +8,17 @@ import { initAuthBridge } from './lib/auth-session';
 import { setupCacheMaintenance } from './lib/cache';
 import { setServerPorts } from './lib/constants';
 import { trackedInvoke as invoke, setupUiWatchdog } from './lib/diagnostics';
+import { initEdge } from './lib/edge';
+import { installFpsCap } from './lib/fps-cap';
 import { queryClient } from './lib/query-client';
 import './fonts';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
+
+// Кап 60 fps: троттл requestAnimationFrame (см. lib/fps-cap.ts). На высокогерцовых
+// дисплеях убирает лишние кадры (CPU/GPU), на ≤60 Гц — no-op. Ставить максимально
+// рано, до первых rAF-циклов.
+installFpsCap(60);
 
 // Sync language from persisted settings → i18n after tauriStorage rehydration
 useSettingsStore.persist.onFinishHydration((state) => {
@@ -73,6 +80,10 @@ async function bootstrap() {
 
   const [staticPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
   setServerPorts(staticPort, proxyPort);
+
+  // Вердикт транспорта (прямой / relay / воркеры) — до первого запроса,
+  // иначе забаненный юзер платит таймаутом на логине.
+  await initEdge();
 
   // Seed the Rust-owned session into the frontend mirror + subscribe to
   // auth:changed before the first render so the shell/login gate is correct.

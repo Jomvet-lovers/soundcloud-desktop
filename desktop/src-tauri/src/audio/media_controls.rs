@@ -4,7 +4,8 @@ use souvlaki::{
     MediaControlEvent, MediaControls, MediaMetadata as SmtcMetadata, MediaPlayback, MediaPosition,
     PlatformConfig,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use crate::rt::AppHandle;
+use tauri::{Emitter, Manager};
 
 use crate::audio::state::AudioState;
 use crate::audio::types::MediaCmd;

@@ -543,7 +543,7 @@ pub struct TrackCacheState {
     pub client: Client,
     pub storage_client: Client,
     pub direct_client: Client,
-    pub app_handle: Option<tauri::AppHandle>,
+    pub app_handle: Option<crate::rt::AppHandle>,
     /// Managed ffmpeg binary, populated asynchronously at startup (system PATH
     /// or download). Shared so the background acquire is visible to all clones.
     /// `None` disables transcoding (cache then serves raw bytes from `incoming_dir`).
@@ -694,7 +694,7 @@ async fn write_response_to_cache(
     response: reqwest::Response,
     quality: PlaybackQuality,
     source: DownloadSource,
-    app_handle: Option<&tauri::AppHandle>,
+    app_handle: Option<&crate::rt::AppHandle>,
 ) -> Result<DownloadResult, DownloadError> {
     let final_path = target_dir.join(urn_to_filename(urn));
     let temp_path = temp_file_path(target_dir, urn);
@@ -886,7 +886,7 @@ async fn download_api(
     urn: &str,
     url: &str,
     session_id: Option<&str>,
-    app_handle: Option<&tauri::AppHandle>,
+    app_handle: Option<&crate::rt::AppHandle>,
 ) -> Result<DownloadResult, DownloadError> {
     let mut req = client.get(url);
     if let Some(sid) = session_id {
@@ -933,7 +933,7 @@ impl TrackCacheState {
 
     /// Wire up the Tauri AppHandle so that anon/cache writes can persist
     /// diagnostics to `desktop.log`.
-    pub fn set_app_handle(&mut self, handle: tauri::AppHandle) {
+    pub fn set_app_handle(&mut self, handle: crate::rt::AppHandle) {
         self.anon.set_app_handle(handle.clone());
         self.app_handle = Some(handle);
     }
@@ -1509,6 +1509,18 @@ impl TrackCacheState {
         let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
 
+        // Прямой хост или relay — по текущему вердикту edge. Storage-байты идут
+        // по полным тирам (direct→relay→воркеры) в самом storage-stream цикле
+        // ниже; здесь готовим только /stream и /download. `/redirect` storage'а
+        // бросает на `s3` (тот НЕ проксируем — у большинства открыт, иначе падаем
+        // на storage-stream через relay/воркер).
+        let urls: Vec<String> = urls.iter().map(|u| crate::network::edge::best_url(u)).collect();
+        let download_urls: Vec<String> = download_urls
+            .iter()
+            .map(|u| crate::network::edge::best_url(u))
+            .collect();
+        let (urls, download_urls) = (urls.as_slice(), download_urls.as_slice());
+
         // Sort storage URLs: healthy hosts first.
         let mut sorted: Vec<&String> = storage_urls.iter().collect();
         sorted.sort_by_key(|url| {
@@ -1522,14 +1534,18 @@ impl TrackCacheState {
             }
         });
 
-        // 1. Try storage `/redirect/...` URLs — fast 307 to presigned S3 / public Drive.
+        // 1. Try storage `/redirect/...` URLs — fast 307 to presigned S3.
         //    Saves storage server bandwidth when the upstream is reachable.
-        //    No cooldown is recorded here: a failure may be backend-side (banned/blocked),
-        //    but the storage stream fallback (step 3) might still work.
+        //    ПРОПУСКАЕМ на проксируемом тире: 307 ведёт на s3 (его НЕ проксируем),
+        //    у забаненного он тоже мёртв — бросок туда лишь жрёт connect-таймаут.
+        //    На relay/воркер идём сразу к storage-stream (шаг 3).
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
                 continue;
             };
+            if !crate::network::edge::is_direct(storage_url) {
+                continue;
+            }
             let Some(redirect_url) = make_redirect_url(storage_url) else {
                 continue;
             };
@@ -1630,8 +1646,10 @@ impl TrackCacheState {
             }
         }
 
-        // Storage stream — proxies bytes through our storage server when
-        // the upstream isn't reachable directly.
+        // Storage stream — proxies bytes through our storage server. Каждый
+        // storage-URL разворачивается в тиры edge: прямой хост → relay →
+        // CF-воркеры (X-Target). Транспортный провал тира ротатит на следующий,
+        // ответ самого storage (200/404/5xx) — уже результат.
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
                 continue;
@@ -1640,16 +1658,43 @@ impl TrackCacheState {
                 continue;
             }
 
-            match self.storage_client.get(*storage_url).send().await {
-                Ok(resp) if resp.status().is_success() => {
+            let mut transport_ok = false;
+            for hop in crate::network::edge::plan(storage_url) {
+                // Прямой хост — тугой storage_client (1.2 c: быстрый отказ, если
+                // забанен). relay/воркер тянут мегабайты через полсвета → нужен
+                // потоковый клиент (read-timeout, без общего кап-таймаута).
+                let client = if hop.tier_label() == "direct" {
+                    &self.storage_client
+                } else {
+                    &self.client
+                };
+                let mut req = client.get(&hop.url);
+                if let Some(t) = hop.x_target_for(storage_url) {
+                    req = req.header("X-Target", t);
+                }
+                let resp = match req.send().await {
+                    Ok(r) => r,
+                    Err(err) => {
+                        hop.note(false);
+                        eprintln!("[TrackCache] storage {} failed for {urn}: {err}", hop.tier_label());
+                        continue;
+                    }
+                };
+                if !crate::network::edge::hop_ok(&hop, &resp) {
+                    continue; // транспорт тира виноват — исход записан, следующий тир
+                }
+                transport_ok = true;
+                hop.note(resp.status().as_u16() < 500);
+
+                let status = resp.status();
+                if status.is_success() {
                     self.mark_storage_host_ok(&host);
-                    let quality = PlaybackQuality::Hq;
-                    println!("[TrackCache] {urn} → storage stream ({host})");
+                    println!("[TrackCache] {urn} → storage stream ({host} via {})", hop.tier_label());
                     match write_response_to_cache(
                         target_dir,
                         urn,
                         resp,
-                        quality,
+                        PlaybackQuality::Hq,
                         DownloadSource::Storage,
                         self.app_handle.as_ref(),
                     )
@@ -1672,19 +1717,15 @@ impl TrackCacheState {
                             eprintln!("[TrackCache] storage download failed for {urn}: {e}");
                         }
                     }
+                } else if matches!(status.as_u16(), 404 | 410) {
+                    break; // объект отсутствует — другие тиры не помогут
+                } else {
+                    eprintln!("[TrackCache] storage HTTP {status} for {urn} ({host})");
                 }
-                Ok(resp) if resp.status().as_u16() == 404 || resp.status().as_u16() == 410 => {}
-                Ok(resp) => {
-                    eprintln!(
-                        "[TrackCache] storage HTTP {} for {urn} ({host})",
-                        resp.status()
-                    );
-                    self.mark_storage_host_failed(&host);
-                }
-                Err(err) => {
-                    eprintln!("[TrackCache] storage failed for {urn} ({host}): {err}");
-                    self.mark_storage_host_failed(&host);
-                }
+            }
+
+            if !transport_ok {
+                self.mark_storage_host_failed(&host);
             }
         }
 

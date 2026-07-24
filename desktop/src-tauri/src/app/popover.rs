@@ -9,9 +9,8 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{
-    AppHandle, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-};
+use crate::rt::{AppHandle, WebviewWindow};
+use tauri::{Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL: &str = "tray-popover";
 
@@ -69,7 +68,12 @@ fn get_or_create(app: &AppHandle) -> Option<WebviewWindow> {
         .transparent(true)
         .always_on_top(true)
         .skip_taskbar(true)
-        .resizable(false)
+        // CEF применяет set_size только к resizable-окну (can_resize спрашивается раз,
+        // при создании; живой set_resizable не действует). Делаем окно resizable, а от
+        // ручного ресайза запираем равными min==max (live-делегаты minimum/maximum_size).
+        .resizable(cfg!(feature = "cef"))
+        .min_inner_size(W, H)
+        .max_inner_size(W, H)
         .shadow(false)
         .visible(false)
         .focused(false)
@@ -145,9 +149,38 @@ fn show(app: &AppHandle, cursor: Option<(f64, f64)>, pinned: bool) {
     // re-open (honored on Win/Mac; on Wayland/Hyprland the compositor owns stacking,
     // so pair this with a `pin` windowrule).
     let _ = win.set_always_on_top(true);
-    place(&win, cursor);
-    let _ = win.show();
-    let _ = win.set_focus();
+
+    #[cfg(not(feature = "cef"))]
+    {
+        place(&win, cursor);
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+
+    // CEF не привязывает `display()` к прозрачному frameless-окну до его маппинга,
+    // а size/position гейтятся на `display()` (иначе остаётся дефолт CEF 800×600).
+    // Поэтому: показываем, затем форсим размер+позицию — синхронно и отложенно,
+    // на случай асинхронного маппинга окна.
+    #[cfg(feature = "cef")]
+    {
+        let _ = win.show();
+        let _ = win.set_focus();
+        apply_geometry(&win, cursor);
+        let app = app.clone();
+        let win = win.clone();
+        tauri::async_runtime::spawn(async move {
+            // display() появляется только после маппинга окна.
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            let _ = app.run_on_main_thread(move || apply_geometry(&win, cursor));
+        });
+    }
+}
+
+/// Принудительный логический размер + позиция (CEF игнорит inner_size окна).
+#[cfg(feature = "cef")]
+fn apply_geometry(win: &WebviewWindow, cursor: Option<(f64, f64)>) {
+    let _ = win.set_size(tauri::LogicalSize::new(W, H));
+    place(win, cursor);
 }
 
 fn hide_if_visible(app: &AppHandle) -> bool {

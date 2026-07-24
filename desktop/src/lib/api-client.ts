@@ -1,4 +1,3 @@
-import { fetch } from '@tauri-apps/plugin-http';
 import { toast } from 'sonner';
 import i18n from '../i18n';
 import { useAppStatusStore } from '../stores/app-status';
@@ -6,6 +5,7 @@ import { useAuthStore } from '../stores/auth';
 import { noteAuthGap, noteRateLimit, noteSuccess } from './auth-recovery';
 import { API_BASE, API_STAR_BASE } from './constants';
 import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
+import { edgeFetch } from './edge';
 import {
   getHostVerdict,
   isHealthy,
@@ -55,11 +55,7 @@ function fetchWithTimeout(
   options: RequestInit,
   timeoutMs: number = 60_000,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
-    clearTimeout(timer),
-  ) as Promise<Response>;
+  return edgeFetch(url, options, timeoutMs);
 }
 
 function handleApiError(err: ApiError): void {

@@ -4,10 +4,10 @@
 
 // Native HTTP (from Rust), same as the catalog api-client — bypasses the webview's
 // CORS preflight and the scproxy asset router (browser fetch to pay 403'd on both).
-import { fetch } from '@tauri-apps/plugin-http';
 import { getSessionId } from './api-client';
 import { PAY_BASE } from './constants';
 import { trackedInvoke as invoke } from './diagnostics';
+import { edgeFetch } from './edge';
 
 export class PayError extends Error {
   constructor(
@@ -38,7 +38,7 @@ async function payRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const sid = await sessionToken();
   if (sid) headers.set('x-session-id', sid);
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
-  const res = await fetch(`${PAY_BASE}${path}`, { ...init, headers });
+  const res = await edgeFetch(`${PAY_BASE}${path}`, { ...init, headers });
   const text = await res.text();
   if (!res.ok) throw new PayError(res.status, text);
   return text ? (JSON.parse(text) as T) : (undefined as T);

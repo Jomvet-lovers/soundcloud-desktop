@@ -11,7 +11,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use crate::rt::AppHandle;
+use tauri::{Emitter, State};
 use tokio::sync::RwLock;
 
 use crate::app::diagnostics::log_native;

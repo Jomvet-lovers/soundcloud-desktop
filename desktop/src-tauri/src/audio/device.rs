@@ -3,7 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rodio::stream::{DeviceSinkBuilder, MixerDeviceSink};
-use tauri::{AppHandle, Emitter, Manager, State};
+use crate::rt::AppHandle;
+use tauri::{Emitter, Manager, State};
 
 use crate::app::diagnostics;
 use crate::audio::engine;

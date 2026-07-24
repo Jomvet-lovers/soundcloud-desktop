@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
+use crate::rt::AppHandle;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::app::diagnostics::log_native;

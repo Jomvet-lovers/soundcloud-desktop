@@ -10,10 +10,11 @@ name = "soundcloud_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+# Пин на версию ветки feat/cef — иначе cargo берёт более свежую crates.io (без фичи cef).
+tauri-build = { version = "=2.6.2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "devtools", "tray-icon"] }
+tauri = { version = "=2.11.2", features = ["macos-private-api", "devtools", "tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2.5.0"
 serde = { version = "1", features = ["derive"] }
@@ -50,5 +51,23 @@ dpi-desync = { path = "../../utils/dpi-desync" }
 tracing = "0.1"
 ffmpeg-sidecar = "2.5.2"
 
+[features]
+# Opt-in: рендер через CEF (Chromium) вместо wry/webkitgtk. Требует [patch.crates-io] ниже.
+# Дефолтная сборка (без этой фичи) остаётся на wry.
+cef = ["tauri/cef"]
+
 [profile.release]
 lto = true
+
+# Экспериментальная ветка Tauri с рантаймом tauri-runtime-cef и фичей `cef`.
+# Патчим ТОЛЬКО `tauri` (одна крейта на весь граф → плагины с crates.io разделяют
+# тот же рантайм) и `tauri-build` (наш build-dep, пин на версию ветки). Внутренние
+# tauri-* (tauri-runtime/utils/macros/codegen/plugin) git-tauri тянет по path сам;
+# отдельно их НЕ патчим — иначе build-script'ы crates.io-плагинов ловят skew
+# версий schemars (tauri-plugin::global_scope_schema).
+[patch.crates-io]
+tauri = { git = "https://github.com/tauri-apps/tauri", branch = "feat/cef" }
+tauri-build = { git = "https://github.com/tauri-apps/tauri", branch = "feat/cef" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3.5", default-features = false, features = ["tokio"] }

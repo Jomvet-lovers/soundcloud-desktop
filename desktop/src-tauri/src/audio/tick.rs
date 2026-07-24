@@ -1,7 +1,8 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, Manager};
+use crate::rt::AppHandle;
+use tauri::{Emitter, Manager};
 
 use crate::app::diagnostics;
 use crate::audio::engine;

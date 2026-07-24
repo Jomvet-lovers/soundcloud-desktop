@@ -1,6 +1,7 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { useAppStatusStore } from '../../stores/app-status';
 import { API_BASE, API_STAR_BASE } from '../constants';
+import { edgeFetch } from '../edge';
 import { requestPremiumRecheck } from '../premium-cache';
 import { queryClient } from '../query-client';
 import { type NetVerdict, useHostStatusStore } from './store';
@@ -79,7 +80,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Наши хосты — через тиры edge (иначе у забаненного юзера проба видит «всё лежит»). */
 async function fetchWithAbort(url: string): Promise<Response> {
+  return edgeFetch(url, { cache: 'no-store' as RequestCache }, PROBE_TIMEOUT_MS);
+}
+
+/** Внешние маячки интернета — строго напрямую, тиры тут ни при чём. */
+async function fetchExternal(url: string): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
@@ -114,7 +121,7 @@ async function validatedFetch(
   valid: (res: Response) => boolean | Promise<boolean>,
 ): Promise<boolean> {
   try {
-    return await valid(await fetchWithAbort(url));
+    return await valid(await fetchExternal(url));
   } catch {
     return false;
   }

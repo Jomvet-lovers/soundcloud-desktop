@@ -2,7 +2,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 
 use chrono::Local;
-use tauri::{AppHandle, Manager};
+use crate::rt::AppHandle;
+use tauri::Manager;
 
 const LOG_FILE_NAME: &str = "desktop.log";
 

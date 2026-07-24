@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use crate::rt::AppHandle;
+use tauri::Emitter;
 
 static CANCEL_FLAG: std::sync::LazyLock<Arc<AtomicBool>> =
     std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));

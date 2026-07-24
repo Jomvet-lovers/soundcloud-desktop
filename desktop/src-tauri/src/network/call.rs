@@ -4,11 +4,13 @@ use std::time::Duration;
 
 use call_client::{run_agent, AgentConfig, Identity, IdentityStore, ProvisionInput};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use crate::rt::AppHandle;
+use tauri::{Manager, State};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 const FLAG_FILE: &str = "call_enabled.json";
+const DEFAULT_ENDPOINT: &str = "https://call.scdinternal.site:444";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -80,15 +82,49 @@ async fn spawn_agent(app: AppHandle, state: Arc<CallState>) {
     }
     let s = state.clone();
     let handle = tokio::spawn(async move {
-        match run_call_loop(app.clone(), s.clone()).await {
-            Ok(()) => {}
-            Err(e) => {
-                warn!(error = %e, "call agent terminated");
-                *s.status.lock().await = CallStatus::Failed { error: e };
-            }
-        }
+        supervise(app, s).await;
     });
     *state.cancel.lock().await = Some(handle.abort_handle());
+}
+
+/// Эндпоинт релея перебирается по тирам (прямой → temp-relay), обрыв — не конец
+/// агента: переподключаемся с бэкоффом, иначе один сетевой чих выключает call
+/// до перезапуска приложения.
+async fn supervise(app: AppHandle, state: Arc<CallState>) {
+    let mut backoff = Duration::from_secs(5);
+    loop {
+        let mut connected = false;
+
+        for hop in endpoint_candidates() {
+            match run_call_loop(app.clone(), state.clone(), &hop.url).await {
+                Ok(()) => {
+                    hop.note(true);
+                    connected = true;
+                    break;
+                }
+                Err(e) => {
+                    hop.note(false);
+                    warn!(endpoint = %hop.url, error = %e, "call agent terminated");
+                    *state.status.lock().await = CallStatus::Failed { error: e };
+                }
+            }
+        }
+
+        if matches!(*state.status.lock().await, CallStatus::Disabled) {
+            return;
+        }
+        backoff = if connected {
+            Duration::from_secs(5)
+        } else {
+            (backoff * 2).min(Duration::from_secs(300))
+        };
+        tokio::time::sleep(backoff).await;
+    }
+}
+
+fn endpoint_candidates() -> Vec<crate::network::edge::Hop> {
+    let configured = std::env::var("CALL_EDGE_ENDPOINT").ok();
+    crate::network::edge::call_endpoints(configured.as_deref().unwrap_or(DEFAULT_ENDPOINT))
 }
 
 fn fmt_chain<E: std::error::Error + ?Sized>(e: &E) -> String {
@@ -102,9 +138,12 @@ fn fmt_chain<E: std::error::Error + ?Sized>(e: &E) -> String {
     out
 }
 
-async fn run_call_loop(_app: AppHandle, state: Arc<CallState>) -> Result<(), String> {
-    let endpoint_url = std::env::var("CALL_EDGE_ENDPOINT")
-        .unwrap_or_else(|_| "https://call.scdinternal.site:444".to_string());
+async fn run_call_loop(
+    _app: AppHandle,
+    state: Arc<CallState>,
+    endpoint: &str,
+) -> Result<(), String> {
+    let endpoint_url = endpoint.to_string();
     let pow_difficulty = std::env::var("CALL_POW_DIFFICULTY_BITS")
         .ok()
         .and_then(|s| s.parse().ok())
