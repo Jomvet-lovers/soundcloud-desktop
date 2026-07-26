@@ -456,25 +456,65 @@ pub fn expand_upstreams(upstreams: &[String]) -> Vec<Hop> {
     out
 }
 
-/// URL под текущий вердикт origin'а, ровно один. Для путей, которые гоняют свои
-/// URL'ы гонкой (аудио-кеш) — веер тиров там превратился бы в залп по всем
-/// воркерам сразу. Воркеры тут не годятся и по сути: качать через них аудио
-/// нельзя (лимиты CF), а сам вердикт эти пути только читают — учат его
-/// API-слой, прокся картинок и call.
-pub fn best_url(url: &str) -> String {
+/// Direct/relay-план для тяжёлых аудиоответов. Worker намеренно исключён: его
+/// лимиты не рассчитаны на мегабайты. Известный рабочий тир идёт первым, второй
+/// остаётся страховкой на случай независимого падения origin/relay. Когда подошла
+/// ревалидация, direct снова получает первый шанс.
+pub fn audio_plan(url: &str) -> Vec<Hop> {
     let Some(origin) = host_of(url) else {
-        return url.to_string();
+        return vec![Hop {
+            url: url.to_string(),
+            tier: Tier::Direct,
+            origin: String::new(),
+        }];
     };
     let Some(relay) = relay_host(&origin) else {
-        return url.to_string();
+        return vec![Hop {
+            url: url.to_string(),
+            tier: Tier::Direct,
+            origin,
+        }];
     };
     let inner = match state().lock() {
         Ok(g) => g,
         Err(e) => e.into_inner(),
     };
-    match resolved_state(&inner, &origin).map(|s| s.tier) {
-        None | Some(Tier::Direct) => url.to_string(),
-        Some(_) => swap_host(url, relay).unwrap_or_else(|| url.to_string()),
+    let now = Instant::now();
+    let state = resolved_state(&inner, &origin);
+    let revalidate = state.map(|s| now >= s.revalidate_at).unwrap_or(true);
+    let tiers = audio_tier_order(state.map(|s| s.tier), revalidate);
+    let relay_url = swap_host(url, relay).unwrap_or_else(|| url.to_string());
+
+    tiers
+        .into_iter()
+        .map(|tier| Hop {
+            url: match tier {
+                Tier::Direct => url.to_string(),
+                Tier::Relay | Tier::Worker => relay_url.clone(),
+            },
+            tier,
+            origin: origin.clone(),
+        })
+        .collect()
+}
+
+fn audio_tier_order(current: Option<Tier>, revalidate: bool) -> [Tier; 2] {
+    if revalidate || matches!(current, None | Some(Tier::Direct)) {
+        [Tier::Direct, Tier::Relay]
+    } else {
+        [Tier::Relay, Tier::Direct]
+    }
+}
+
+/// Подать результат независимой health-пробы в общий edge verdict. Неизвестные
+/// домены игнорируются: topology может содержать status/s3/health, которыми этот
+/// роутер не владеет.
+pub fn note_url(url: &str, tier: Tier, ok: bool) {
+    let Some(origin) = host_of(url) else {
+        return;
+    };
+    if relay_host(&origin).is_some() {
+        note(&origin, tier, ok);
     }
 }
 
@@ -556,4 +596,30 @@ pub fn edge_note(origin: String, tier: Tier, ok: bool) {
 #[tauri::command]
 pub fn edge_ban_worker(url: String, rate_limited: bool) {
     ban_worker(&url, rate_limited);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{audio_tier_order, Tier};
+
+    #[test]
+    fn audio_prefers_direct_when_unknown_or_due_for_revalidation() {
+        assert_eq!(audio_tier_order(None, false), [Tier::Direct, Tier::Relay]);
+        assert_eq!(
+            audio_tier_order(Some(Tier::Relay), true),
+            [Tier::Direct, Tier::Relay]
+        );
+    }
+
+    #[test]
+    fn audio_uses_sticky_fallback_first_but_keeps_direct_as_backup() {
+        assert_eq!(
+            audio_tier_order(Some(Tier::Relay), false),
+            [Tier::Relay, Tier::Direct]
+        );
+        assert_eq!(
+            audio_tier_order(Some(Tier::Worker), false),
+            [Tier::Relay, Tier::Direct]
+        );
+    }
 }

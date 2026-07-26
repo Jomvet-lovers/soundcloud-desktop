@@ -1,6 +1,8 @@
+pub mod audio_route;
 pub mod call;
 pub mod dpi;
 pub mod edge;
+pub mod health;
 pub mod image_cache;
 pub mod proxy;
 pub mod proxy_server;

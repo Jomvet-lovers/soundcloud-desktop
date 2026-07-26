@@ -888,19 +888,14 @@ async fn download_api(
     session_id: Option<&str>,
     app_handle: Option<&crate::rt::AppHandle>,
 ) -> Result<DownloadResult, DownloadError> {
-    let mut req = client.get(url);
-    if let Some(sid) = session_id {
-        req = req.header("x-session-id", sid);
-    }
-
-    let response = req.send().await.map_err(|err| {
-        DownloadError::Retryable(format!("request: {}", format_reqwest_error(err)))
-    })?;
+    let (response, hop) = crate::network::audio_route::get(client, url, session_id)
+        .await
+        .map_err(|err| DownloadError::Retryable(format!("request: {err}")))?;
     let status = response.status();
 
     if status.is_success() {
         let quality = quality_from_url(url);
-        return write_response_to_cache(
+        let result = write_response_to_cache(
             target_dir,
             urn,
             response,
@@ -909,6 +904,10 @@ async fn download_api(
             app_handle,
         )
         .await;
+        if matches!(&result, Err(DownloadError::Retryable(_))) {
+            hop.note(false);
+        }
+        return result;
     }
 
     let body = match response.text().await {
@@ -1509,17 +1508,9 @@ impl TrackCacheState {
         let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
 
-        // Прямой хост или relay — по текущему вердикту edge. Storage-байты идут
-        // по полным тирам (direct→relay→воркеры) в самом storage-stream цикле
-        // ниже; здесь готовим только /stream и /download. `/redirect` storage'а
-        // бросает на `s3` (тот НЕ проксируем — у большинства открыт, иначе падаем
-        // на storage-stream через relay/воркер).
-        let urls: Vec<String> = urls.iter().map(|u| crate::network::edge::best_url(u)).collect();
-        let download_urls: Vec<String> = download_urls
-            .iter()
-            .map(|u| crate::network::edge::best_url(u))
-            .collect();
-        let (urls, download_urls) = (urls.as_slice(), download_urls.as_slice());
+        // `/stream` и `/download` сами выбирают direct/temp через hedged headers:
+        // предпочтительный тир получает 300 мс форы, затем стартует запасной.
+        // Тело читает только победитель, поэтому быстрота не удваивает аудиотрафик.
 
         // Sort storage URLs: healthy hosts first.
         let mut sorted: Vec<&String> = storage_urls.iter().collect();

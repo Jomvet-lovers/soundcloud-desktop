@@ -186,15 +186,14 @@ async fn fetch_download(
     endpoint: &str,
     session_id: Option<&str>,
 ) -> Result<DownloadResponse, String> {
-    let mut req = client.get(endpoint);
-    if let Some(sid) = session_id {
-        req = req.header("x-session-id", sid);
-    }
-    let resp = req.send().await.map_err(|e| format!("request: {e}"))?;
+    let (resp, hop) = crate::network::audio_route::get(client, endpoint, session_id)
+        .await
+        .map_err(|e| format!("request: {e}"))?;
     let status = resp.status();
     if !status.is_success() {
         return Err(format!("HTTP {status}"));
     }
+    println!("[direct] endpoint via {}", hop.tier_label());
     resp.json::<DownloadResponse>()
         .await
         .map_err(|e| format!("decode: {e}"))

@@ -50,6 +50,8 @@ decrypt-client = { path = "../../utils/decrypt-client" }
 dpi-desync = { path = "../../utils/dpi-desync" }
 tracing = "0.1"
 ffmpeg-sidecar = "2.5.2"
+if-addrs = "0.15"
+uuid = { version = "1", features = ["v4"] }
 
 [features]
 # Opt-in: рендер через CEF (Chromium) вместо wry/webkitgtk. Требует [patch.crates-io] ниже.
