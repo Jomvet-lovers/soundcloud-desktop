@@ -94,9 +94,11 @@ const DOWN_HOST_TIMEOUT_MS = 10_000;
  * остальной /auth/* (refresh, link/*, logout) — ровно ОДИН хост по вердикту: refresh нельзя
  *   фейловерить перебором (per-process refresh_locks на бэке → двойная ротация refresh_token),
  *   link-токены single-use.
- * data-plane — как раньше: премиум → star, GET/HEAD с фолбэком, мутации без (двойное применение хуже отказа).
+ * data-plane — как раньше: премиум → star, GET/HEAD с фолбэком. Мутации тоже
+ * знают main как страховку, но переключаются туда только на явной
+ * инфраструктурной HTML-ошибке (запрос не дошёл до приложения).
  */
-function apiBasesFor(path: string, method: string): string[] {
+function apiBasesFor(path: string): string[] {
   if (path === '/me/subscription') {
     return getHostVerdict(API_BASE) === 'down'
       ? [API_STAR_BASE, API_BASE]
@@ -105,8 +107,7 @@ function apiBasesFor(path: string, method: string): string[] {
   if (path.startsWith('/auth/login')) return [API_BASE];
   if (path.startsWith('/auth/')) return [preferredControlBase()];
   if (getIsPremium() && sessionId && isHealthy(API_STAR_BASE)) {
-    const idempotent = method === 'GET' || method === 'HEAD';
-    return idempotent ? [API_STAR_BASE, API_BASE] : [API_STAR_BASE];
+    return [API_STAR_BASE, API_BASE];
   }
   return [API_BASE];
 }
@@ -114,6 +115,17 @@ function apiBasesFor(path: string, method: string): string[] {
 /** Host-фейл → фейловер. 4xx-контракты (400/404/…) — валидный ответ, не фейлим. */
 function isHostFailover(status: number): boolean {
   return status >= 500 || status === 401 || status === 403;
+}
+
+/**
+ * Load-balancer/proxy failures are safe to replay even for a mutation: the
+ * HTML error page means the request never reached the API application. JSON
+ * 5xx responses remain application errors and are not replayed.
+ */
+function isInfrastructureFailure(status: number, body: string): boolean {
+  if (status < 500) return false;
+  const b = body.toLowerCase();
+  return b.includes('<html') || b.includes('no server is available');
 }
 
 export async function apiRequest<T = unknown>(
@@ -131,7 +143,7 @@ export async function apiRequest<T = unknown>(
 
   const method = init.method ?? 'GET';
   const label = `${method.toUpperCase()} ${path}`;
-  const bases = apiBasesFor(path, method);
+  const bases = apiBasesFor(path);
   // Control-plane короткий (login/refresh должны фейлиться быстро); 60 c дефолт
   // data-plane не трогаем — есть тяжёлые легитимные запросы.
   const isControlPlane = path === '/me/subscription' || path.startsWith('/auth/');
@@ -179,7 +191,9 @@ export async function apiRequest<T = unknown>(
         // глушим тихо — без тоста, без recovery, без error-лога.
         if (silentStatuses?.includes(res.status)) throw err;
 
-        if (!isLast && isHostFailover(res.status)) {
+        const idempotent = method === 'GET' || method === 'HEAD';
+        const canFailover = idempotent || isInfrastructureFailure(res.status, body);
+        if (!isLast && isHostFailover(res.status) && canFailover) {
           lastError = err;
           continue;
         }

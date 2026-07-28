@@ -29,7 +29,7 @@ function timedFetch(url: string, init: RequestInit, timeoutMs?: number): Promise
  * а ответ origin'а (401/404/500 приложения) — уже валидный результат.
  */
 function hopUsable(hop: Hop, res: Response): boolean {
-  if (hop.tier === 'direct') return true;
+  if (hop.tier === 'direct') return !isDirectInfrastructureError(res);
   if (hop.tier === 'relay') return ![421, 502, 503, 504].includes(res.status);
 
   if (res.status === 429 && isCloudflareEdgeError(res)) {
@@ -48,7 +48,13 @@ function hopUsable(hop: Hop, res: Response): boolean {
 function isCloudflareEdgeError(res: Response): boolean {
   const server = res.headers.get('server')?.toLowerCase() ?? '';
   const ct = res.headers.get('content-type')?.toLowerCase() ?? '';
-  return server.includes('cloudflare') && ct.includes('text/plain');
+  const errorPage = ct.includes('text/plain') || ct.includes('text/html');
+  return server.includes('cloudflare') && errorPage;
+}
+
+function isDirectInfrastructureError(res: Response): boolean {
+  if (res.status < 502 || res.status > 504) return false;
+  return res.headers.get('content-type')?.toLowerCase().includes('text/html') ?? false;
 }
 
 /**
@@ -85,6 +91,7 @@ export async function edgeFetch(
         noteHop(hop, true);
         return res;
       }
+      if (hop.tier === 'direct') noteHop(hop, false);
       // Последний хоп отдаём как есть: реальный статус полезнее брошенной ошибки.
       if (isLast) return res;
     } catch (error) {

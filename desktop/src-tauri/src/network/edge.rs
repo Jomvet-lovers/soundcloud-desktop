@@ -316,10 +316,6 @@ pub fn plan(url: &str) -> Vec<Hop> {
     } else {
         vec![]
     };
-    // Все воркеры сидят в рейт-лимите. Без этого залипший на worker-тире юзер
-    // остался бы вообще без хопов, и запрос падал бы, ни разу не попробовав сеть.
-    let workers_exhausted = can_worker && workers.is_empty();
-
     let mut hops: Vec<Hop> = Vec::new();
     let mut push = |t: Tier, url: Option<String>| {
         if let Some(u) = url {
@@ -342,10 +338,17 @@ pub fn plan(url: &str) -> Vec<Hop> {
     for w in workers {
         push(Tier::Worker, Some(w));
     }
-    if workers_exhausted && from > Tier::Direct {
+    if should_append_direct_fallback(from, can_worker) {
+        // Direct остаётся последним шансом и в уже построенном плане. Иначе
+        // последний живой на момент планирования воркер мог словить 429, а
+        // direct появился бы только в следующем запросе после записи бана.
         push(Tier::Direct, Some(url.to_string()));
     }
     hops
+}
+
+fn should_append_direct_fallback(from: Tier, can_worker: bool) -> bool {
+    can_worker && from > Tier::Direct
 }
 
 fn live_workers(inner: &mut Inner, now: Instant) -> Vec<String> {
@@ -417,7 +420,13 @@ pub fn note(origin: &str, tier: Tier, ok: bool) {
 pub fn hop_ok(hop: &Hop, resp: &reqwest::Response) -> bool {
     let status = resp.status().as_u16();
     match hop.tier {
-        Tier::Direct => true,
+        Tier::Direct => {
+            let bad = direct_infrastructure_error(resp);
+            if bad {
+                hop.note(false);
+            }
+            !bad
+        }
         Tier::Relay => {
             let bad = matches!(status, 421 | 502 | 503 | 504);
             if bad {
@@ -443,19 +452,38 @@ fn worker_5xx_is_ratelimit(origin: &str) -> bool {
     WORKER_5XX_IS_RATELIMIT.contains(&origin)
 }
 
+fn direct_infrastructure_error(resp: &reqwest::Response) -> bool {
+    let status = resp.status().as_u16();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    direct_infrastructure_headers(status, content_type)
+}
+
+fn direct_infrastructure_headers(status: u16, content_type: &str) -> bool {
+    matches!(status, 502..=504) && content_type.to_ascii_lowercase().contains("text/html")
+}
+
 fn cloudflare_edge_error(resp: &reqwest::Response) -> bool {
     let h = resp.headers();
     let server = h
         .get(reqwest::header::SERVER)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+        .unwrap_or("");
     let ct = h
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    server.contains("cloudflare") && ct.contains("text/plain")
+        .unwrap_or("");
+    cloudflare_edge_headers(server, ct)
+}
+
+fn cloudflare_edge_headers(server: &str, content_type: &str) -> bool {
+    let server = server.to_ascii_lowercase();
+    let content_type = content_type.to_ascii_lowercase();
+    let error_page = content_type.contains("text/plain") || content_type.contains("text/html");
+    server.contains("cloudflare") && error_page
 }
 
 /// Воркер сдох сам (429 от Cloudflare / 5xx) — в бан, ротация на следующий.
@@ -663,7 +691,8 @@ pub fn edge_ban_worker(url: String, rate_limited: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_tier_order, relay_hosts, worker_5xx_is_ratelimit, Tier, RELAYS, RELAY_NODES,
+        audio_tier_order, cloudflare_edge_headers, direct_infrastructure_headers, relay_hosts,
+        should_append_direct_fallback, worker_5xx_is_ratelimit, Tier, RELAYS, RELAY_NODES,
     };
 
     #[test]
@@ -692,6 +721,36 @@ mod tests {
     fn images_treats_worker_5xx_as_a_rate_limit() {
         assert!(worker_5xx_is_ratelimit("images.scnative.space"));
         assert!(!worker_5xx_is_ratelimit("api.scnative.space"));
+    }
+
+    #[test]
+    fn cloudflare_html_429_is_a_transport_error_page() {
+        assert!(cloudflare_edge_headers(
+            "cloudflare",
+            "text/html; charset=UTF-8"
+        ));
+        assert!(cloudflare_edge_headers(
+            "Cloudflare",
+            "text/plain; charset=utf-8"
+        ));
+        assert!(!cloudflare_edge_headers("cloudflare", "application/json"));
+        assert!(!cloudflare_edge_headers("axum", "text/html"));
+    }
+
+    #[test]
+    fn sticky_worker_plan_keeps_direct_as_a_same_request_fallback() {
+        assert!(should_append_direct_fallback(Tier::Worker, true));
+        assert!(should_append_direct_fallback(Tier::Relay, true));
+        assert!(!should_append_direct_fallback(Tier::Direct, true));
+        assert!(!should_append_direct_fallback(Tier::Worker, false));
+    }
+
+    #[test]
+    fn html_gateway_5xx_is_a_direct_transport_error() {
+        assert!(direct_infrastructure_headers(503, "text/html; charset=utf-8"));
+        assert!(direct_infrastructure_headers(504, "TEXT/HTML"));
+        assert!(!direct_infrastructure_headers(500, "text/html"));
+        assert!(!direct_infrastructure_headers(503, "application/json"));
     }
 
     #[test]

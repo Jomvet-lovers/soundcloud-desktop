@@ -123,12 +123,7 @@ impl Topology {
             },
             ingest: vec![
                 sink("direct", report_url("health")),
-                sink("direct", report_url("health-star")),
                 sink("relay", format!("https://{}/report", relay_host("health"))),
-                sink(
-                    "relay",
-                    format!("https://{}/report", relay_host("health-star")),
-                ),
             ],
             endpoints: vec![
                 endpoint("api", "main", "api"),
@@ -147,15 +142,13 @@ mod tests {
     use super::Topology;
 
     #[test]
-    fn bootstrap_can_reach_both_health_nodes_through_the_relay_pool() {
+    fn bootstrap_can_reach_health_through_the_relay_pool() {
         let topology = Topology::bootstrap();
         assert_eq!(topology.meta.probe_interval_secs, 300);
         assert!(topology.ingest.iter().any(|sink| {
             sink.url.as_deref() == Some("https://health.r1.relay.scnative.space/report")
         }));
-        assert!(topology.ingest.iter().any(|sink| {
-            sink.url.as_deref() == Some("https://health-star.r1.relay.scnative.space/report")
-        }));
+        assert_eq!(topology.ingest.len(), 2);
     }
 
     #[test]

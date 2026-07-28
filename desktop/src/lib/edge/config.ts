@@ -125,9 +125,11 @@ export function planHops(url: string): Hop[] {
   if (live.length) {
     const xTarget = b64(url);
     for (const w of live) hops.push({ url: w, tier: 'worker', origin, xTarget });
-  } else if (canWorker && min > TIER_ORDER.direct) {
-    // Все воркеры в рейт-лимите — прямой origin последним шансом, иначе
-    // залипший на worker-тире юзер остался бы вообще без хопов.
+  }
+  if (canWorker && min > TIER_ORDER.direct) {
+    // Direct остаётся последним шансом и в уже построенном плане. Иначе последний
+    // живой на момент планирования воркер мог словить 429, а direct появился бы
+    // только в следующем запросе — после записи worker-бана.
     hops.push({ url, tier: 'direct', origin });
   }
   return hops;
