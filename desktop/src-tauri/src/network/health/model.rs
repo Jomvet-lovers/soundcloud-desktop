@@ -20,8 +20,6 @@ pub struct Topology {
     pub ingest: Vec<IngestSink>,
     #[serde(default)]
     pub endpoints: Vec<Endpoint>,
-    #[serde(default)]
-    pub workers: Workers,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -37,7 +35,6 @@ fn default_probe_interval() -> u64 {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct IngestSink {
-    pub tier: String,
     #[serde(default)]
     pub url: Option<String>,
     #[serde(default)]
@@ -56,9 +53,6 @@ impl IngestSink {
         Some(origin)
     }
 
-    pub fn is_worker(&self) -> bool {
-        self.tier == "worker"
-    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -68,20 +62,6 @@ pub struct Endpoint {
     pub direct: String,
     #[serde(default)]
     pub relay: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-pub struct Workers {
-    #[serde(default)]
-    pub bases: Vec<String>,
-    #[serde(default)]
-    pub no_worker: Vec<String>,
-}
-
-impl Workers {
-    pub fn applies_to(&self, endpoint_id: &str) -> bool {
-        !self.bases.is_empty() && !self.no_worker.iter().any(|id| id == endpoint_id)
-    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -100,8 +80,7 @@ impl Topology {
     /// Built-in route only bootstraps discovery/reporting. The live server
     /// topology replaces it before the first probe whenever any ingest path works.
     pub fn bootstrap() -> Self {
-        let sink = |tier: &str, url: String| IngestSink {
-            tier: tier.to_string(),
+        let sink = |url: String| IngestSink {
             url: Some(url),
             target: None,
         };
@@ -122,8 +101,8 @@ impl Topology {
                 probe_interval_secs: default_probe_interval(),
             },
             ingest: vec![
-                sink("direct", report_url("health")),
-                sink("relay", format!("https://{}/report", relay_host("health"))),
+                sink(report_url("health")),
+                sink(format!("https://{}/report", relay_host("health"))),
             ],
             endpoints: vec![
                 endpoint("api", "main", "api"),
@@ -132,7 +111,6 @@ impl Topology {
                 endpoint("images", "main", "images"),
                 endpoint("pay", "main", "pay"),
             ],
-            workers: Workers::default(),
         }
     }
 }

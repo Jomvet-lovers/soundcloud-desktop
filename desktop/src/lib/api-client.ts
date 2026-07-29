@@ -50,11 +50,7 @@ function isRateLimitError(status: number, body: string): boolean {
 
 // ─── Helpers ────────────────────────────────────────────────
 
-function fetchWithTimeout(
-  url: string,
-  options: RequestInit,
-  timeoutMs: number = 60_000,
-): Promise<Response> {
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
   return edgeFetch(url, options, timeoutMs);
 }
 
@@ -84,7 +80,23 @@ export type ApiRequestOptions = RequestInit & {
   silentStatuses?: number[];
 };
 
-const CONTROL_PLANE_TIMEOUT_MS = 10_000;
+/**
+ * Бюджеты — по замерам на проде (30.07.2026), а не на глаз. Причина, по которой
+ * авторизованные ручки медленные, одна: `get_valid_session` на бэке при протухшем
+ * токене держит per-session мьютекс, пока ходит в SoundCloud за новым. Клиент в
+ * этот момент шлёт десятки запросов, и все они стоят в этой очереди. Так что
+ * «медленно» здесь — штатное поведение, а не признак смерти хоста.
+ *
+ * `/auth/*`  — бэк round-trip'ит в SoundCloud: login замерен 4.2–11.7 с.
+ * `/me/subscription` — сама ручка это один SELECT, но под конвоем refresh-лока
+ *   в логах видны легитимные 17.9 с.
+ * data-plane — `/recommendations` доходил до 49.8 с.
+ *
+ * Хост, уже признанный мёртвым, всё это не ждёт: `DOWN_HOST_TIMEOUT_MS`.
+ */
+const AUTH_TIMEOUT_MS = 30_000;
+const SUBSCRIPTION_TIMEOUT_MS = 30_000;
+const DATA_PLANE_TIMEOUT_MS = 90_000;
 const DOWN_HOST_TIMEOUT_MS = 10_000;
 
 /**
@@ -110,6 +122,13 @@ function apiBasesFor(path: string): string[] {
     return [API_STAR_BASE, API_BASE];
   }
   return [API_BASE];
+}
+
+/** Бюджет запроса по его пути. */
+function planeTimeout(path: string): number {
+  if (path.startsWith('/auth/')) return AUTH_TIMEOUT_MS;
+  if (path === '/me/subscription') return SUBSCRIPTION_TIMEOUT_MS;
+  return DATA_PLANE_TIMEOUT_MS;
 }
 
 /** Host-фейл → фейловер. 4xx-контракты (400/404/…) — валидный ответ, не фейлим. */
@@ -144,10 +163,7 @@ export async function apiRequest<T = unknown>(
   const method = init.method ?? 'GET';
   const label = `${method.toUpperCase()} ${path}`;
   const bases = apiBasesFor(path);
-  // Control-plane короткий (login/refresh должны фейлиться быстро); 60 c дефолт
-  // data-plane не трогаем — есть тяжёлые легитимные запросы.
-  const isControlPlane = path === '/me/subscription' || path.startsWith('/auth/');
-  const effectiveTimeout = timeoutMs ?? (isControlPlane ? CONTROL_PLANE_TIMEOUT_MS : undefined);
+  const effectiveTimeout = timeoutMs ?? planeTimeout(path);
   let lastError: unknown = null;
 
   for (let i = 0; i < bases.length; i++) {
@@ -159,7 +175,7 @@ export async function apiRequest<T = unknown>(
     // Хост с вердиктом down не держит попытку дольше 10 c.
     const attemptTimeout =
       getHostVerdict(base) === 'down'
-        ? Math.min(effectiveTimeout ?? 60_000, DOWN_HOST_TIMEOUT_MS)
+        ? Math.min(effectiveTimeout, DOWN_HOST_TIMEOUT_MS)
         : effectiveTimeout;
 
     try {
@@ -209,7 +225,15 @@ export async function apiRequest<T = unknown>(
 
         // Протухший токен (401) либо юзер пропал из сайдбара — сильный
         // сигнал, silent renew сразу. Гейтовый 403 star recovery не дёргает.
-        if (res.status === 401 || (useAuthStore.getState().user == null && !starDeny)) {
+        //
+        // 5xx сюда НЕ попадает: «сервер сломался» не значит «сессия умерла».
+        // На холодном старте `user` ещё null, и бэкендовый 502 (в т.ч. штатный
+        // «Renewing your session, try again shortly») уводил в recovery, а через
+        // две тихих попытки — в модалку «сессия истекла».
+        const looksLikeAuthGap =
+          res.status === 401 ||
+          (res.status < 500 && useAuthStore.getState().user == null && !starDeny);
+        if (looksLikeAuthGap) {
           noteAuthGap();
           console.error(`HTTP ERROR: url: ${path}, `, err);
           throw err;

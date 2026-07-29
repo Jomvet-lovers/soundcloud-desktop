@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use reqwest::Client;
 use serde::Serialize;
 
@@ -31,11 +30,8 @@ impl Delivery {
                 continue;
             };
             let url = format!("{origin}/topology");
-            for target in targets(sink, &url, &topology.workers.bases) {
-                let mut request = self.client.get(&target.url).timeout(DELIVERY_TIMEOUT);
-                if let Some(value) = target.x_target {
-                    request = request.header("X-Target", value);
-                }
+            for target in targets(sink, &url) {
+                let request = self.client.get(&target.url).timeout(DELIVERY_TIMEOUT);
                 let Ok(response) = request.send().await else {
                     continue;
                 };
@@ -71,16 +67,13 @@ impl Delivery {
                 continue;
             };
             let url = format!("{origin}/report");
-            for target in targets(sink, &url, &topology.workers.bases) {
-                let mut request = self
+            for target in targets(sink, &url) {
+                let request = self
                     .client
                     .post(&target.url)
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
                     .body(body.clone())
                     .timeout(DELIVERY_TIMEOUT);
-                if let Some(value) = target.x_target {
-                    request = request.header("X-Target", value);
-                }
                 if request
                     .send()
                     .await
@@ -94,25 +87,13 @@ impl Delivery {
     }
 }
 
-fn targets(sink: &IngestSink, url: &str, worker_bases: &[String]) -> Vec<Target> {
-    if sink.is_worker() {
-        let x_target = BASE64.encode(url.as_bytes());
-        worker_bases
-            .iter()
-            .map(|base| Target {
-                url: base.clone(),
-                x_target: Some(x_target.clone()),
-            })
-            .collect()
-    } else {
-        vec![Target {
-            url: url.to_string(),
-            x_target: None,
-        }]
-    }
+/// Воркер-тира больше нет: синк — это всегда конкретный URL.
+fn targets(_sink: &IngestSink, url: &str) -> Vec<Target> {
+    vec![Target {
+        url: url.to_string(),
+    }]
 }
 
 struct Target {
     url: String,
-    x_target: Option<String>,
 }

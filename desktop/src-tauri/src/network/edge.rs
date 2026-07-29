@@ -1,7 +1,12 @@
 //! Транспортные тиры до наших доменов.
 //!
 //! `direct` → `relay` (`<сервис>.<нода>.relay.scnative.space`, хост-в-хост,
-//! гоняет и gRPC) → `worker` (Cloudflare, контракт `X-Target: base64(url)`).
+//! гоняет и gRPC).
+//!
+//! Тира CF-воркеров БОЛЬШЕ НЕТ. Их бесплатные лимиты не держали наш трафик:
+//! пул уходил в 429 целиком и отдавал HTML-страницу вместо ответа API, а один
+//! удачный ответ ещё и залипал тиром на 10 минут. Плюс через них уезжала сессия
+//! третьей стороне. Прямой путь и наш relay покрывают то же самое без этого.
 //!
 //! Тир липнет к origin'у: как только прямой путь лёг у конкретного юзера, он не
 //! пытается ходить туда на каждом запросе. Раз в `REVALIDATE` прямой путь
@@ -11,20 +16,14 @@
 //! Байты storage/s3 намеренно НЕ проксируются: relay их не вывезет по трафику.
 
 use std::collections::HashMap;
-use std::hash::{BuildHasher, Hasher, RandomState};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 
 const STATE_FILE: &str = "edge_state.json";
 const REVALIDATE: Duration = Duration::from_secs(600);
-/// Cloudflare рубит воркер по своему минутному/суточному лимиту (1015/1027).
-const WORKER_BAN_RATELIMIT: Duration = Duration::from_secs(3600);
-const WORKER_BAN_ERROR: Duration = Duration::from_secs(60);
-
 /// Зона relay-пула. Имя ноды подставляется между сервисом и зоной:
 /// `<сервис>.<нода>.relay.scnative.space`.
 const RELAY_ZONE: &str = "relay.scnative.space";
@@ -47,55 +46,17 @@ const RELAYS: &[(&str, &str)] = &[
     ("call.scnative.space", "call"),
 ];
 
-/// gRPC через X-Target-воркер не пролезает — у call тира воркеров нет.
-const NO_WORKER: &[&str] = &["call.scnative.space"];
-
-/// Origin'ы, где ЛЮБАЯ 5xx от воркера читается как рейт-лимит, а не как разовая
-/// ошибка: images гоняет через воркеров сплошным потоком тумбочек, и Cloudflare
-/// на нём срывается в 5xx вместо честного 1015. Минутного бана там мало —
-/// воркер тут же ловит следующую пачку и выжигает лимит впустую.
-const WORKER_5XX_IS_RATELIMIT: &[&str] = &["images.scnative.space"];
-
 /// origin → сосед, чей вердикт наследуем пока своего нет. storage-байты тянет
 /// только ядро (read-only), сам вердикт не наберёт быстро; но storage и stream
 /// на одном main-host и банятся вместе, а stream активно щупает фронт — так
 /// storage переезжает на relay сразу, без холодного таймаута.
 const INHERIT: &[(&str, &str)] = &[("storage.scnative.space", "stream.scnative.space")];
 
-const WORKERS: &[&str] = &[
-    "https://sc.w942oonlso.workers.dev",
-    "https://sc-prx.bmfniafx.workers.dev",
-    "https://soundcloud.ziwpsorg.workers.dev",
-    "https://sc.ylqkepqg.workers.dev",
-    "https://sc.azsawydu.workers.dev",
-    "https://sc.nlafehzy.workers.dev",
-    "https://sc-v2.8138glynnis.workers.dev",
-    "https://sc.loli-cf-zxc.workers.dev",
-    "https://sc-proxy-v2.zxcghoul.workers.dev",
-    "https://soundcloud-desktop-proxy-v2.sexy-loli.workers.dev",
-    "https://soundcloud-proxy-v2.loli-hard.workers.dev",
-    "https://broad-sea-0aef.majors-ketones-2a.workers.dev",
-    "https://throbbing-star-8f63.beaches-yard45.workers.dev",
-    "https://round-lake-a57b.yantra-atria-3z.workers.dev",
-    "https://frosty-smoke-e5c9.tryout-bream1j.workers.dev",
-    "https://cold-mountain-45c2.rams-36-balmier.workers.dev",
-    "https://floral-snow-9fb2.digraph-duals-1c.workers.dev",
-    "https://flat-pond-83a0.netbook-gerbils-4t.workers.dev",
-    "https://young-base-b255.kin-fenders0p.workers.dev",
-    "https://damp-breeze-da1e.corneas-absence5m.workers.dev",
-    "https://withered-bush-bbba.snugger-armful-5d.workers.dev",
-    "https://fancy-moon-2be0.cocos-dearer-2j.workers.dev",
-    "https://late-mud-9d0e.tipper-oxidant-0v.workers.dev",
-    "https://muddy-boat-1b39.lite-tend-2m.workers.dev",
-    "https://holy-paper-fb1c.imager-abode3q.workers.dev",
-];
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
     Direct,
     Relay,
-    Worker,
 }
 
 /// Одна попытка: куда бить.
@@ -115,19 +76,9 @@ impl Hop {
         match self.tier {
             Tier::Direct => "direct",
             Tier::Relay => "relay",
-            Tier::Worker => "worker",
         }
     }
 
-    /// Заголовок `X-Target` для воркер-тира (base64 исходного URL); direct/relay
-    /// его не требуют — они уже бьют по нужному хосту.
-    pub fn x_target_for(&self, target_url: &str) -> Option<String> {
-        if self.tier == Tier::Worker {
-            Some(BASE64.encode(target_url.as_bytes()))
-        } else {
-            None
-        }
-    }
 }
 
 struct OriginState {
@@ -142,9 +93,6 @@ const DIRECT_FAIL_THRESHOLD: u8 = 2;
 
 struct Inner {
     origins: HashMap<String, OriginState>,
-    /// Порядок свой у каждой установки — иначе тысяча клиентов долбит первый воркер.
-    workers: Vec<String>,
-    worker_ban: HashMap<String, Instant>,
     dir: Option<PathBuf>,
 }
 
@@ -154,23 +102,9 @@ fn state() -> &'static Mutex<Inner> {
     STATE.get_or_init(|| {
         Mutex::new(Inner {
             origins: HashMap::new(),
-            workers: shuffled_workers(),
-            worker_ban: HashMap::new(),
             dir: None,
         })
     })
-}
-
-fn shuffled_workers() -> Vec<String> {
-    let mut list: Vec<String> = WORKERS.iter().map(|s| s.to_string()).collect();
-    let mut seed = RandomState::new().build_hasher().finish() | 1;
-    for i in (1..list.len()).rev() {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        list.swap(i, (seed % (i as u64 + 1)) as usize);
-    }
-    list
 }
 
 // ─── Персист ────────────────────────────────────────────────
@@ -270,10 +204,6 @@ fn resolved_state<'a>(inner: &'a Inner, origin: &str) -> Option<&'a OriginState>
     inner.origins.get(src)
 }
 
-fn worker_capable(origin: &str) -> bool {
-    !NO_WORKER.contains(&origin)
-}
-
 fn swap_host(url: &str, host: &str) -> Option<String> {
     let mut u = url::Url::parse(url).ok()?;
     u.set_scheme("https").ok()?;
@@ -295,7 +225,7 @@ pub fn plan(url: &str) -> Vec<Hop> {
         return vec![];
     }
 
-    let mut inner = match state().lock() {
+    let inner = match state().lock() {
         Ok(g) => g,
         Err(e) => e.into_inner(),
     };
@@ -310,12 +240,6 @@ pub fn plan(url: &str) -> Vec<Hop> {
         tier
     };
 
-    let can_worker = worker_capable(&origin);
-    let workers = if can_worker {
-        live_workers(&mut inner, now)
-    } else {
-        vec![]
-    };
     let mut hops: Vec<Hop> = Vec::new();
     let mut push = |t: Tier, url: Option<String>| {
         if let Some(u) = url {
@@ -335,30 +259,12 @@ pub fn plan(url: &str) -> Vec<Hop> {
             push(Tier::Relay, swap_host(url, relay));
         }
     }
-    for w in workers {
-        push(Tier::Worker, Some(w));
-    }
-    if should_append_direct_fallback(from, can_worker) {
-        // Direct остаётся последним шансом и в уже построенном плане. Иначе
-        // последний живой на момент планирования воркер мог словить 429, а
-        // direct появился бы только в следующем запросе после записи бана.
+    if from > Tier::Direct {
+        // Прямой путь остаётся последним шансом даже когда вердикт увёл на relay:
+        // relay-нода может лечь, а origin к этому моменту уже разбанят.
         push(Tier::Direct, Some(url.to_string()));
     }
     hops
-}
-
-fn should_append_direct_fallback(from: Tier, can_worker: bool) -> bool {
-    can_worker && from > Tier::Direct
-}
-
-fn live_workers(inner: &mut Inner, now: Instant) -> Vec<String> {
-    inner.worker_ban.retain(|_, until| *until > now);
-    inner
-        .workers
-        .iter()
-        .filter(|w| !inner.worker_ban.contains_key(*w))
-        .cloned()
-        .collect()
 }
 
 /// Исход одной попытки. Зовётся на каждый пройденный hop.
@@ -434,22 +340,7 @@ pub fn hop_ok(hop: &Hop, resp: &reqwest::Response) -> bool {
             }
             !bad
         }
-        Tier::Worker => {
-            if status == 429 && cloudflare_edge_error(resp) {
-                ban_worker(&hop.url, true);
-                return false;
-            }
-            if status >= 500 {
-                ban_worker(&hop.url, worker_5xx_is_ratelimit(&hop.origin));
-                return false;
-            }
-            true
-        }
     }
-}
-
-fn worker_5xx_is_ratelimit(origin: &str) -> bool {
-    WORKER_5XX_IS_RATELIMIT.contains(&origin)
 }
 
 fn direct_infrastructure_error(resp: &reqwest::Response) -> bool {
@@ -464,41 +355,6 @@ fn direct_infrastructure_error(resp: &reqwest::Response) -> bool {
 
 fn direct_infrastructure_headers(status: u16, content_type: &str) -> bool {
     matches!(status, 502..=504) && content_type.to_ascii_lowercase().contains("text/html")
-}
-
-fn cloudflare_edge_error(resp: &reqwest::Response) -> bool {
-    let h = resp.headers();
-    let server = h
-        .get(reqwest::header::SERVER)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let ct = h
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    cloudflare_edge_headers(server, ct)
-}
-
-fn cloudflare_edge_headers(server: &str, content_type: &str) -> bool {
-    let server = server.to_ascii_lowercase();
-    let content_type = content_type.to_ascii_lowercase();
-    let error_page = content_type.contains("text/plain") || content_type.contains("text/html");
-    server.contains("cloudflare") && error_page
-}
-
-/// Воркер сдох сам (429 от Cloudflare / 5xx) — в бан, ротация на следующий.
-pub fn ban_worker(url: &str, rate_limited: bool) {
-    let base = url.split('/').take(3).collect::<Vec<_>>().join("/");
-    let ttl = if rate_limited {
-        WORKER_BAN_RATELIMIT
-    } else {
-        WORKER_BAN_ERROR
-    };
-    let mut inner = match state().lock() {
-        Ok(g) => g,
-        Err(e) => e.into_inner(),
-    };
-    inner.worker_ban.insert(base, Instant::now() + ttl);
 }
 
 // ─── Использование из Rust ──────────────────────────────────
@@ -530,8 +386,7 @@ pub fn expand_upstreams(upstreams: &[String]) -> Vec<Hop> {
     out
 }
 
-/// Direct/relay-план для тяжёлых аудиоответов. Worker намеренно исключён: его
-/// лимиты не рассчитаны на мегабайты. Известный рабочий тир идёт первым, второй
+/// Direct/relay-план для тяжёлых аудиоответов. Известный рабочий тир идёт первым, второй
 /// остаётся страховкой на случай независимого падения origin/relay. Когда подошла
 /// ревалидация, direct снова получает первый шанс.
 pub fn audio_plan(url: &str) -> Vec<Hop> {
@@ -572,7 +427,7 @@ pub fn audio_plan(url: &str) -> Vec<Hop> {
                 origin: origin.clone(),
             }),
             // Relay-слот разворачивается в хоп на каждую ноду пула.
-            Tier::Relay | Tier::Worker => hops.extend(relay_urls.iter().map(|u| Hop {
+            Tier::Relay => hops.extend(relay_urls.iter().map(|u| Hop {
                 url: u.clone(),
                 tier,
                 origin: origin.clone(),
@@ -641,12 +496,6 @@ pub fn call_endpoints(endpoint: &str) -> Vec<Hop> {
 pub struct EdgeConfig {
     /// origin → relay-хосты по нодам пула, в порядке обхода.
     relays: Vec<(String, Vec<String>)>,
-    /// Воркеры в порядке этой установки.
-    workers: Vec<String>,
-    /// Origin'ы без воркер-тира.
-    no_worker: Vec<String>,
-    /// Origin'ы, где 5xx воркера считается рейт-лимитом (длинный бан).
-    worker_5xx_is_ratelimit: Vec<String>,
     /// Уже известный тир — фронт стартует с него, не платя таймаутом.
     hints: HashMap<String, Tier>,
     revalidate_ms: u64,
@@ -663,12 +512,6 @@ pub fn edge_config() -> EdgeConfig {
             .iter()
             .map(|(o, _)| (o.to_string(), relay_hosts(o)))
             .collect(),
-        workers: inner.workers.clone(),
-        no_worker: NO_WORKER.iter().map(|s| s.to_string()).collect(),
-        worker_5xx_is_ratelimit: WORKER_5XX_IS_RATELIMIT
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
         hints: inner
             .origins
             .iter()
@@ -683,16 +526,11 @@ pub fn edge_note(origin: String, tier: Tier, ok: bool) {
     note(&origin, tier, ok);
 }
 
-#[tauri::command]
-pub fn edge_ban_worker(url: String, rate_limited: bool) {
-    ban_worker(&url, rate_limited);
-}
 
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_tier_order, cloudflare_edge_headers, direct_infrastructure_headers, relay_hosts,
-        should_append_direct_fallback, worker_5xx_is_ratelimit, Tier, RELAYS, RELAY_NODES,
+        audio_tier_order, direct_infrastructure_headers, relay_hosts, Tier, RELAYS, RELAY_NODES,
     };
 
     #[test]
@@ -710,39 +548,22 @@ mod tests {
     }
 
     #[test]
+    fn the_transport_ladder_has_no_worker_rung_left() {
+        // Тир снесён: у плана остаются только прямой путь и наш relay. Если он
+        // когда-нибудь вернётся — вернуть и защиту от залипания на нём.
+        assert_eq!(
+            [Tier::Direct, Tier::Relay].map(|t| t as u8).len(),
+            2,
+            "Tier должен остаться двухступенчатым"
+        );
+    }
+
+    #[test]
     fn no_legacy_domain_survives_in_the_relay_table() {
         for (origin, label) in RELAYS {
             assert!(!origin.contains("scdinternal"), "legacy origin {origin}");
             assert!(!label.contains('.'), "label {label} must be a bare service");
         }
-    }
-
-    #[test]
-    fn images_treats_worker_5xx_as_a_rate_limit() {
-        assert!(worker_5xx_is_ratelimit("images.scnative.space"));
-        assert!(!worker_5xx_is_ratelimit("api.scnative.space"));
-    }
-
-    #[test]
-    fn cloudflare_html_429_is_a_transport_error_page() {
-        assert!(cloudflare_edge_headers(
-            "cloudflare",
-            "text/html; charset=UTF-8"
-        ));
-        assert!(cloudflare_edge_headers(
-            "Cloudflare",
-            "text/plain; charset=utf-8"
-        ));
-        assert!(!cloudflare_edge_headers("cloudflare", "application/json"));
-        assert!(!cloudflare_edge_headers("axum", "text/html"));
-    }
-
-    #[test]
-    fn sticky_worker_plan_keeps_direct_as_a_same_request_fallback() {
-        assert!(should_append_direct_fallback(Tier::Worker, true));
-        assert!(should_append_direct_fallback(Tier::Relay, true));
-        assert!(!should_append_direct_fallback(Tier::Direct, true));
-        assert!(!should_append_direct_fallback(Tier::Worker, false));
     }
 
     #[test]
@@ -769,7 +590,7 @@ mod tests {
             [Tier::Relay, Tier::Direct]
         );
         assert_eq!(
-            audio_tier_order(Some(Tier::Worker), false),
+            audio_tier_order(Some(Tier::Relay), false),
             [Tier::Relay, Tier::Direct]
         );
     }

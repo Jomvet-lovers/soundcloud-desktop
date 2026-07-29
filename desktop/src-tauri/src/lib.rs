@@ -238,7 +238,6 @@ pub fn run() {
             auth::auth_set_premium,
             network::edge::edge_config,
             network::edge::edge_note,
-            network::edge::edge_ban_worker,
             network::dpi::dpi_set_enabled,
             network::dpi::dpi_is_enabled,
             network::dpi::dpi_strategy,

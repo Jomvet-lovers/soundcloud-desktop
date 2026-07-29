@@ -1652,18 +1652,14 @@ impl TrackCacheState {
             let mut transport_ok = false;
             for hop in crate::network::edge::plan(storage_url) {
                 // Прямой хост — тугой storage_client (1.2 c: быстрый отказ, если
-                // забанен). relay/воркер тянут мегабайты через полсвета → нужен
+                // забанен). relay тянет мегабайты через полсвета → нужен
                 // потоковый клиент (read-timeout, без общего кап-таймаута).
                 let client = if hop.tier_label() == "direct" {
                     &self.storage_client
                 } else {
                     &self.client
                 };
-                let mut req = client.get(&hop.url);
-                if let Some(t) = hop.x_target_for(storage_url) {
-                    req = req.header("X-Target", t);
-                }
-                let resp = match req.send().await {
+                let resp = match client.get(&hop.url).send().await {
                     Ok(r) => r,
                     Err(err) => {
                         hop.note(false);

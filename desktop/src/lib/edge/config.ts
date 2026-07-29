@@ -1,5 +1,6 @@
 // Транспортные тиры до наших доменов: прямой хост → relay-пул
-// (`<сервис>.<нода>.relay.scnative.space`) → CF-воркеры.
+// (`<сервис>.<нода>.relay.scnative.space`). Тира CF-воркеров больше нет —
+// их лимиты не держали наш трафик, см. `network/edge.rs`.
 // Таблица и персист живут в Rust (`network/edge.rs`), здесь — зеркало вердикта для
 // запросов, которые фронт делает сам. Политика та же, чтобы оба мира сходились к
 // одному тиру; в ядро уходит только СМЕНА вердикта, не каждый запрос.
@@ -7,21 +8,16 @@
 
 import { trackedInvoke as invoke } from '../diagnostics';
 
-export type Tier = 'direct' | 'relay' | 'worker';
+export type Tier = 'direct' | 'relay';
 
 export interface Hop {
   url: string;
   tier: Tier;
   origin: string;
-  /** Воркеру цель едет в заголовке — сам URL это база воркера. */
-  xTarget?: string;
 }
 
 interface RustConfig {
   relays: [string, string[]][];
-  workers: string[];
-  no_worker: string[];
-  worker_5xx_is_ratelimit: string[];
   hints: Record<string, Tier>;
   revalidate_ms: number;
 }
@@ -32,27 +28,18 @@ interface OriginState {
   directFails: number;
 }
 
-const TIER_ORDER: Record<Tier, number> = { direct: 0, relay: 1, worker: 2 };
+const TIER_ORDER: Record<Tier, number> = { direct: 0, relay: 1 };
 const DIRECT_FAIL_THRESHOLD = 2;
-const WORKER_BAN_RATELIMIT_MS = 60 * 60_000;
-const WORKER_BAN_ERROR_MS = 60_000;
 
 let relays = new Map<string, string[]>();
-let workers: string[] = [];
-let noWorker = new Set<string>();
-let worker5xxIsRateLimit = new Set<string>();
 let revalidateMs = 600_000;
 const origins = new Map<string, OriginState>();
-const workerBan = new Map<string, number>();
 
 /** Дёргать до первого сетевого запроса. Без конфига остаётся прямой путь. */
 export async function initEdge(): Promise<void> {
   try {
     const cfg = await invoke<RustConfig>('edge_config');
     relays = new Map(cfg.relays);
-    workers = cfg.workers ?? [];
-    noWorker = new Set(cfg.no_worker ?? []);
-    worker5xxIsRateLimit = new Set(cfg.worker_5xx_is_ratelimit ?? []);
     revalidateMs = cfg.revalidate_ms || revalidateMs;
     const now = Date.now();
     for (const [host, tier] of Object.entries(cfg.hints ?? {})) {
@@ -88,18 +75,6 @@ function swapHost(url: string, host: string): string {
   }
 }
 
-function b64(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-}
-
-function liveWorkers(now: number): string[] {
-  for (const [w, until] of workerBan) if (until <= now) workerBan.delete(w);
-  return workers.filter((w) => !workerBan.has(w));
-}
-
 /** Пусто = домен не наш, идём как есть. */
 export function planHops(url: string): Hop[] {
   const origin = hostOf(url);
@@ -120,24 +95,12 @@ export function planHops(url: string): Hop[] {
     for (const relay of pool) hops.push({ url: swapHost(url, relay), tier: 'relay', origin });
   }
 
-  const canWorker = !noWorker.has(origin);
-  const live = canWorker ? liveWorkers(now) : [];
-  if (live.length) {
-    const xTarget = b64(url);
-    for (const w of live) hops.push({ url: w, tier: 'worker', origin, xTarget });
-  }
-  if (canWorker && min > TIER_ORDER.direct) {
-    // Direct остаётся последним шансом и в уже построенном плане. Иначе последний
-    // живой на момент планирования воркер мог словить 429, а direct появился бы
-    // только в следующем запросе — после записи worker-бана.
+  if (min > TIER_ORDER.direct) {
+    // Прямой путь остаётся последним шансом даже когда вердикт увёл на relay:
+    // relay-нода может лечь, а origin к этому моменту уже разбанят.
     hops.push({ url, tier: 'direct', origin });
   }
   return hops;
-}
-
-/** Воркер отдал 5xx. Для части origin'ов это фактический рейт-лимит CF. */
-export function noteWorkerServerError(hop: Hop): void {
-  banWorker(hop.url, worker5xxIsRateLimit.has(hop.origin));
 }
 
 /**
@@ -158,15 +121,16 @@ export function noteHop(hop: Hop, ok: boolean): void {
   const prev = origins.get(hop.origin);
 
   if (ok) {
+    const tier = hop.tier;
     // Часы ревалидации перезапускает только СМЕНА тира — иначе на живом
     // трафике они никогда не досчитают и юзер навсегда останется на relay.
-    const revalidateAt = prev && prev.tier === hop.tier ? prev.revalidateAt : now + revalidateMs;
+    const revalidateAt = prev && prev.tier === tier ? prev.revalidateAt : now + revalidateMs;
     origins.set(hop.origin, {
-      tier: hop.tier,
+      tier,
       revalidateAt,
-      directFails: hop.tier === 'direct' ? 0 : DIRECT_FAIL_THRESHOLD,
+      directFails: tier === 'direct' ? 0 : DIRECT_FAIL_THRESHOLD,
     });
-    report(hop.origin, hop.tier);
+    report(hop.origin, tier);
     return;
   }
 
@@ -177,12 +141,6 @@ export function noteHop(hop: Hop, ok: boolean): void {
   if (state.tier === 'direct' && state.directFails >= DIRECT_FAIL_THRESHOLD) state.tier = 'relay';
   origins.set(hop.origin, state);
   if (state.tier !== 'direct') report(hop.origin, state.tier);
-}
-
-export function banWorker(url: string, rateLimited: boolean): void {
-  const ttl = rateLimited ? WORKER_BAN_RATELIMIT_MS : WORKER_BAN_ERROR_MS;
-  workerBan.set(url, Date.now() + ttl);
-  void invoke('edge_ban_worker', { url, rateLimited }).catch(() => {});
 }
 
 /** Текущий тир — для диагностики и баннера состояния. */
