@@ -438,12 +438,11 @@ fn dir_stats(dir: &Path) -> (u32, u64) {
     let mut total = 0u64;
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
-            if let Ok(meta) = entry.metadata() {
-                if meta.is_file() && is_audio_cache_file(&entry.path()) {
+            if let Ok(meta) = entry.metadata()
+                && meta.is_file() && is_audio_cache_file(&entry.path()) {
                     count += 1;
                     total += meta.len();
                 }
-            }
         }
     }
     (count, total)
@@ -727,8 +726,8 @@ async fn write_response_to_cache(
             return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
         }
 
-        if let Some(app) = app_handle {
-            if content_length > 0 {
+        if let Some(app) = app_handle
+            && content_length > 0 {
                 let _ = app.emit(
                     "track:download-progress",
                     serde_json::json!({
@@ -740,7 +739,6 @@ async fn write_response_to_cache(
                     }),
                 );
             }
-        }
     }
 
     if let Err(err) = writer.flush().await {
@@ -762,12 +760,11 @@ async fn write_response_to_cache(
         duration_ms: None,
     };
 
-    if let Ok(meta) = tokio::fs::metadata(&final_path).await {
-        if meta.len() >= MIN_AUDIO_SIZE {
+    if let Ok(meta) = tokio::fs::metadata(&final_path).await
+        && meta.len() >= MIN_AUDIO_SIZE {
             cleanup_temp_file(&temp_path).await;
             return Ok(DownloadResult { path: final_path });
         }
-    }
 
     match tokio::fs::rename(&temp_path, &final_path).await {
         Ok(()) => {
@@ -840,12 +837,11 @@ async fn write_bytes_to_cache(
         duration_ms: None,
     };
 
-    if let Ok(meta) = tokio::fs::metadata(&final_path).await {
-        if meta.len() >= MIN_AUDIO_SIZE {
+    if let Ok(meta) = tokio::fs::metadata(&final_path).await
+        && meta.len() >= MIN_AUDIO_SIZE {
             cleanup_temp_file(&temp_path).await;
             return Ok(DownloadResult { path: final_path });
         }
-    }
 
     match tokio::fs::rename(&temp_path, &final_path).await {
         Ok(()) => {
@@ -1296,8 +1292,8 @@ impl TrackCacheState {
         // But cap retries: if a track is *consistently* short, its only stream is
         // a preview, so accept it (align expected→actual) instead of looping.
         let mut accepted_expected = expected;
-        if let (Some(actual), Some(exp)) = (probed, expected) {
-            if !cached_duration_ok(actual, exp) {
+        if let (Some(actual), Some(exp)) = (probed, expected)
+            && !cached_duration_ok(actual, exp) {
                 let attempts = self.note_truncated(urn);
                 if attempts <= MAX_TRUNCATED_RETRIES {
                     let line = format!(
@@ -1316,7 +1312,6 @@ impl TrackCacheState {
                 self.diag("WARN", line);
                 accepted_expected = probed; // stop flagging this file as truncated
             }
-        }
         self.clear_truncated(urn);
 
         let clean_meta = TrackCacheMetadata {
@@ -2308,17 +2303,16 @@ impl TrackCacheState {
                 // raw file evicted here would silently cancel the user's cache and,
                 // for liked tracks, defeat the dedicated protected quota.
                 if is_incoming {
-                    if let Some(urn) = filename_to_urn(&entry.file_name().to_string_lossy()) {
-                        if in_flight.contains(&urn) {
+                    if let Some(urn) = filename_to_urn(&entry.file_name().to_string_lossy())
+                        && in_flight.contains(&urn) {
                             continue;
                         }
-                    }
                     if read_cache_metadata(&path).map(|m| m.liked).unwrap_or(false) {
                         continue;
                     }
                 }
-                if let Ok(meta) = entry.metadata() {
-                    if meta.is_file() {
+                if let Ok(meta) = entry.metadata()
+                    && meta.is_file() {
                         let size = meta.len();
                         let accessed = meta
                             .accessed()
@@ -2327,7 +2321,6 @@ impl TrackCacheState {
                         total += size;
                         files.push((path, size, accessed));
                     }
-                }
             }
         }
 

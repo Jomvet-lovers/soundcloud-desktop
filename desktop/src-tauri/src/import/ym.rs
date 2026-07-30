@@ -219,7 +219,7 @@ pub async fn ym_import_start(
                 .await;
 
             if let Ok(resp) = search_resp {
-                if let Ok(results) = resp.json::<ScSearchResult>().await {
+                match resp.json::<ScSearchResult>().await { Ok(results) => {
                     if let Some(urn) = results.collection.first().and_then(|t| t.urn.as_deref()) {
                         found += 1;
                         app.emit(
@@ -232,9 +232,9 @@ pub async fn ym_import_start(
                     } else {
                         not_found += 1;
                     }
-                } else {
+                } _ => {
                     not_found += 1;
-                }
+                }}
             } else {
                 not_found += 1;
             }

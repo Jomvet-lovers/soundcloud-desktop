@@ -37,7 +37,7 @@ pub struct PreviewState {
     /// Monotonic generation of the installed preview. A newer hover bumps it; a
     /// stale stop / out-of-order decode is rejected by comparing against it so
     /// rapid hover across tiles can't clobber the surviving preview.
-    pub gen: u64,
+    pub r#gen: u64,
 }
 
 pub struct AudioState {
@@ -177,7 +177,7 @@ pub fn init() -> AudioState {
             target: 0.0,
             step: 0.0,
             stop_at_zero: false,
-            gen: 0,
+            r#gen: 0,
         }),
     }
 }

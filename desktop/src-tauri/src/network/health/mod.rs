@@ -114,25 +114,23 @@ impl Agent {
 
 fn load_or_create_identity(data_dir: &Path) -> String {
     let path = data_dir.join(IDENTITY_FILE);
-    if let Ok(raw) = std::fs::read(&path) {
-        if let Ok(identity) = serde_json::from_slice::<Identity>(&raw) {
+    if let Ok(raw) = std::fs::read(&path)
+        && let Ok(identity) = serde_json::from_slice::<Identity>(&raw) {
             let id = identity.client_id.trim();
             if !id.is_empty() && id.len() <= 64 {
                 return id.to_string();
             }
         }
-    }
 
     let client_id = format!("tauri-{}", Uuid::new_v4());
     if let Ok(raw) = serde_json::to_vec(&Identity {
         client_id: client_id.clone(),
     }) {
         let temp = path.with_extension("tmp");
-        if std::fs::write(&temp, raw).is_ok() {
-            if std::fs::rename(&temp, &path).is_err() {
+        if std::fs::write(&temp, raw).is_ok()
+            && std::fs::rename(&temp, &path).is_err() {
                 let _ = std::fs::remove_file(temp);
             }
-        }
     }
     client_id
 }

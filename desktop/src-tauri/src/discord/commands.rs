@@ -122,11 +122,10 @@ pub fn discord_set_activity(
         activity = activity.timestamps(timestamps);
     }
 
-    if show_button {
-        if let Some(ref url) = track.track_url {
+    if show_button
+        && let Some(ref url) = track.track_url {
             activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
         }
-    }
 
     let result = client.set_activity(activity);
 

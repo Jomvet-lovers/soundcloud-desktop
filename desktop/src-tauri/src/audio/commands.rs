@@ -186,13 +186,13 @@ pub fn audio_clear_comments_timeline(state: State<'_, AudioState>) {
 pub async fn audio_preview_play(
     path: String,
     volume: f64,
-    gen: u64,
+    r#gen: u64,
     state: State<'_, AudioState>,
 ) -> Result<(), String> {
-    engine::preview_play(path, volume, gen, state).await
+    engine::preview_play(path, volume, r#gen, state).await
 }
 
 #[tauri::command]
-pub fn audio_preview_stop(fade_ms: u64, gen: u64, state: State<'_, AudioState>) {
-    engine::preview_stop(fade_ms, gen, state);
+pub fn audio_preview_stop(fade_ms: u64, r#gen: u64, state: State<'_, AudioState>) {
+    engine::preview_stop(fade_ms, r#gen, state);
 }

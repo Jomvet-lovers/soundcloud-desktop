@@ -313,13 +313,11 @@ impl AnonClient {
     async fn coalesced_refresh(&self) -> Result<String, String> {
         let mut gate = self.refresh_gate.lock().await;
 
-        if let Some(last) = *gate {
-            if last.elapsed() < CLIENT_ID_MIN_REFRESH {
-                if let Some(id) = self.client_id.read().await.clone() {
+        if let Some(last) = *gate
+            && last.elapsed() < CLIENT_ID_MIN_REFRESH
+                && let Some(id) = self.client_id.read().await.clone() {
                     return Ok(id);
                 }
-            }
-        }
 
         let client_id = self.fetch_client_id().await?;
         *self.client_id.write().await = Some(client_id.clone());

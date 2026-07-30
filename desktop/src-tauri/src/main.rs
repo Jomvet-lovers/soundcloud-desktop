@@ -33,12 +33,14 @@ fn apply_linux_gpu_workarounds() {
 
     // Enable DMABUF renderer (WebKitGTK may disable it on NVIDIA by default)
     if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "0");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "0") };
     }
 
     // Disable NVIDIA explicit sync — known to cause stuttering with fractional scaling
     if std::env::var("__NV_DISABLE_EXPLICIT_SYNC").is_err() {
-        std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+        // FIXME: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1") };
     }
 }
 

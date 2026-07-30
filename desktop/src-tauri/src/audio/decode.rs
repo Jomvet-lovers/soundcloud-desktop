@@ -294,13 +294,13 @@ pub fn resolve_normalization_gain(
         normalization_gain_from_samples(
             OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?,
         )
-    } else if let Ok(source) = Decoder::new(Cursor::new(bytes.to_vec())) {
+    } else { match Decoder::new(Cursor::new(bytes.to_vec())) { Ok(source) => {
         normalization_gain_from_samples(source)
-    } else {
+    } _ => {
         normalization_gain_from_samples(
             OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?,
         )
-    };
+    }}};
 
     write_cached_normalization_gain(cache_dir, cache_key, gain);
     Ok(gain)

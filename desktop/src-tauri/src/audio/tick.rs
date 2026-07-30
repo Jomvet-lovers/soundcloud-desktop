@@ -28,11 +28,10 @@ fn process_preview_fade(state: &AudioState) {
     if let Some(ref player) = preview.player {
         player.set_volume(next);
     }
-    if preview.stop_at_zero && next <= 0.0 {
-        if let Some(old) = preview.player.take() {
+    if preview.stop_at_zero && next <= 0.0
+        && let Some(old) = preview.player.take() {
             old.stop();
         }
-    }
 }
 
 pub fn start_tick_emitter(app: &AppHandle) {
@@ -93,8 +92,8 @@ pub fn start_tick_emitter(app: &AppHandle) {
                         // can't seek in place a bare try_seek silently no-ops, leaving
                         // the segment playing straight through while the bar froze at A.
                         let ab = *state.ab_loop.lock().unwrap();
-                        if let Some((a, b)) = ab {
-                            if pos >= b {
+                        if let Some((a, b)) = ab
+                            && pos >= b {
                                 drop(player_guard);
                                 engine::seek_to(&state, a).ok();
                                 handle.emit("audio:tick", a).ok();
@@ -102,7 +101,6 @@ pub fn start_tick_emitter(app: &AppHandle) {
                                 last_progress_at = std::time::Instant::now();
                                 continue;
                             }
-                        }
 
                         handle.emit("audio:tick", pos).ok();
                         timing::process_lyrics_timeline(&handle, &state, pos);

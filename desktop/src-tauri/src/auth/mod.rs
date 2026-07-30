@@ -100,7 +100,7 @@ fn write_state(path: &Path, state: &AuthState) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let bytes = serde_json::to_vec(state)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     {
         use std::io::Write;

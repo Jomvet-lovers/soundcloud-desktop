@@ -239,11 +239,10 @@ async fn dir_size(path: &Path) -> u64 {
             };
             if ft.is_dir() {
                 stack.push(entry.path());
-            } else if ft.is_file() {
-                if let Ok(meta) = entry.metadata().await {
+            } else if ft.is_file()
+                && let Ok(meta) = entry.metadata().await {
                     total = total.saturating_add(meta.len());
                 }
-            }
         }
     }
     total
@@ -261,11 +260,10 @@ pub async fn image_cache_clear() -> Result<(), String> {
         return Err("image cache not ready".into());
     };
     let dir = state.dir.clone();
-    if let Err(e) = fs::remove_dir_all(&dir).await {
-        if e.kind() != std::io::ErrorKind::NotFound {
+    if let Err(e) = fs::remove_dir_all(&dir).await
+        && e.kind() != std::io::ErrorKind::NotFound {
             return Err(e.to_string());
         }
-    }
     fs::create_dir_all(&dir).await.map_err(|e| e.to_string())?;
     Ok(())
 }

@@ -142,14 +142,13 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
         self.current_channel = (ch + 1) % self.channels.get();
 
         let snapshot = self.params.try_read().ok().map(|p| (p.enabled, p.gains));
-        if let Some((enabled, gains)) = snapshot {
-            if enabled != self.cached_enabled || gains != self.cached_gains {
+        if let Some((enabled, gains)) = snapshot
+            && (enabled != self.cached_enabled || gains != self.cached_gains) {
                 if enabled {
                     self.update_coefficients(&gains);
                 }
                 self.cached_enabled = enabled;
             }
-        }
 
         if !self.cached_enabled {
             return Some(sample);

@@ -184,13 +184,12 @@ fn apply_geometry(win: &WebviewWindow, cursor: Option<(f64, f64)>) {
 }
 
 fn hide_if_visible(app: &AppHandle) -> bool {
-    if let Some(win) = app.get_webview_window(LABEL) {
-        if win.is_visible().unwrap_or(false) {
+    if let Some(win) = app.get_webview_window(LABEL)
+        && win.is_visible().unwrap_or(false) {
             let _ = win.hide();
             app.state::<TrayState>().mark_hidden();
             return true;
         }
-    }
     false
 }
 

@@ -337,29 +337,26 @@ pub fn play(state: State<'_, AudioState>) {
             .ok();
     }
     // Always unpause so reload_current_track sees was_paused=false
-    if let Ok(player) = state.player.try_lock() {
-        if let Some(ref player) = *player {
+    if let Ok(player) = state.player.try_lock()
+        && let Some(ref player) = *player {
             player.play();
         }
-    }
 }
 
 pub fn pause(state: State<'_, AudioState>) {
-    if let Ok(player) = state.player.try_lock() {
-        if let Some(ref player) = *player {
+    if let Ok(player) = state.player.try_lock()
+        && let Some(ref player) = *player {
             player.pause();
         }
-    }
 }
 
 pub fn stop(state: State<'_, AudioState>) {
     state.has_track.store(false, Ordering::Relaxed);
     state.load_gen.fetch_add(1, Ordering::Relaxed);
-    if let Ok(mut player) = state.player.try_lock() {
-        if let Some(old) = player.take() {
+    if let Ok(mut player) = state.player.try_lock()
+        && let Some(old) = player.take() {
             old.stop();
         }
-    }
     if let Ok(mut bytes) = state.source_bytes.try_lock() {
         *bytes = None;
     }
@@ -393,13 +390,12 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
     // For position 0, always recreate the player to avoid decoder state issues
     if position > 0.0 {
         let player = state.player.lock().unwrap();
-        if let Some(ref player) = *player {
-            if player.try_seek(target).is_ok() {
+        if let Some(ref player) = *player
+            && player.try_seek(target).is_ok() {
                 state.ended_notified.store(false, Ordering::Relaxed);
                 set_pos_anchor(state, position, output_target);
                 return Ok(());
             }
-        }
     }
 
     let bytes = state.source_bytes.lock().unwrap().clone();
@@ -575,12 +571,12 @@ fn preview_step(target: f32, fade_ms: u64) -> f32 {
 pub async fn preview_play(
     path: String,
     volume: f64,
-    gen: u64,
+    r#gen: u64,
     state: State<'_, AudioState>,
 ) -> Result<(), String> {
     // Cheap pre-check: a hover already superseded by a newer one shouldn't pay for
     // the file read + decode (the authoritative gen check still runs post-decode).
-    if gen < state.preview.lock().unwrap().gen {
+    if r#gen < state.preview.lock().unwrap().r#gen {
         return Ok(());
     }
     let bytes = task::spawn_blocking({
@@ -608,7 +604,7 @@ pub async fn preview_play(
 
     let mut preview = state.preview.lock().unwrap();
     // A newer hover already installed its preview — drop this stale decode.
-    if gen < preview.gen {
+    if r#gen < preview.r#gen {
         player.stop();
         return Ok(());
     }
@@ -620,7 +616,7 @@ pub async fn preview_play(
     preview.target = target;
     preview.step = 0.0;
     preview.stop_at_zero = false;
-    preview.gen = gen;
+    preview.r#gen = r#gen;
     Ok(())
 }
 
@@ -628,13 +624,13 @@ pub async fn preview_play(
 /// click); a non-zero `gen` is a targeted stale-stop that no-ops unless it still
 /// matches the installed preview. With `fade_ms > 0` it fades out (the tick
 /// thread drops the player at zero); with 0 it stops immediately.
-pub fn preview_stop(fade_ms: u64, gen: u64, state: State<'_, AudioState>) {
+pub fn preview_stop(fade_ms: u64, r#gen: u64, state: State<'_, AudioState>) {
     let mut preview = state.preview.lock().unwrap();
     if preview.player.is_none() {
         return;
     }
     // Targeted stop for a preview that's already been superseded — ignore.
-    if gen != 0 && gen != preview.gen {
+    if r#gen != 0 && r#gen != preview.r#gen {
         return;
     }
     if fade_ms == 0 {

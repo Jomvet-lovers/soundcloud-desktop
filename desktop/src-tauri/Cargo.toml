@@ -3,7 +3,7 @@ name = "soundcloud-desktop"
 version = "8.4.7"
 description = "Beautiful Soundcloud Desktop app"
 authors = ["zxcloli666"]
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "soundcloud_desktop_lib"
