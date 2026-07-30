@@ -14,17 +14,27 @@ import { queryClient } from './query-client';
  *   - `noteSuccess()`   — любой успешный ответ: чистит накопитель и, если
  *     всё само починилось, гасит pending-recovery / закрывает модалку.
  *
- * Стратегия: silent renew без UI. 401 (SC отверг refresh) → модалка сразу;
- * транзиент (502/429/timeout) → тихий ретрай, после MAX_SILENT_ATTEMPTS → модалка,
- * чтобы юзер не завис на упавшем хосте. Single-flight по `inFlight` + `phase`.
+ * Стратегия: silent renew без UI. Модалка ре-логина — ТОЛЬКО на 401 (SC отверг
+ * refresh). Транзиент (5xx/429/timeout) означает недоступный хост, а не мёртвую
+ * сессию: тихо ретраим с растущей паузой и НЕ предлагаем перелогиниться — иначе
+ * падение бэкенда выкидывает живого юзера. Single-flight по `inFlight` + `phase`.
  */
 
 const RL_WINDOW_MS = 15_000;
 const RL_THRESHOLD = 3;
 const RECOVERED_COOLDOWN_MS = 5000;
-/** Тихих renew подряд до эскалации в модалку. */
-const MAX_SILENT_ATTEMPTS = 2;
 const SILENT_RETRY_DELAY_MS = 2000;
+/** Потолок паузы, когда лежит бэкенд: ждать его можно долго, но не молча вечно. */
+const OUTAGE_RETRY_MAX_MS = 30_000;
+
+/**
+ * Сессия действительно мертва? Только 401 — это вердикт SoundCloud о токене.
+ * Всё остальное (5xx нашего бэка, таймаут, обрыв) говорит о доступности хоста,
+ * а не о сессии.
+ */
+function isSessionDead(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 401;
+}
 
 let rlHits: number[] = [];
 let inFlight: Promise<void> | null = null;
@@ -67,22 +77,29 @@ async function runRenew(manual: boolean): Promise<void> {
       if (cancelledGen === myGen) return;
       const s = useAuthRecoveryStore.getState();
       s.setBusy(false);
-      const needsReauth = e instanceof ApiError && e.status === 401;
-      if (manual) {
-        if (needsReauth) s.setPhase('modal');
-      } else if (needsReauth || silentAttempts + 1 >= MAX_SILENT_ATTEMPTS) {
+      // Отказ обновления бывает ДВУХ родов, и путать их нельзя.
+      // 401 — SC отверг refresh: сессия действительно мертва, нужен ре-логин.
+      // 5xx/таймаут/транспорт — лежит НАШ бэкенд: сессия цела, ре-логин её не
+      // воскресит, а юзера выкинет. Раньше сюда попадало и то и другое (два
+      // любых провала подряд → модалка), и во время падения main пользователю
+      // предлагали перелогиниться на ровном месте.
+      const needsReauth = isSessionDead(e);
+      if (needsReauth) {
         silentAttempts = 0;
         s.setPhase('modal');
-      } else {
+      } else if (!manual) {
+        // Бэкенд лежит — ждём его, не трогая сессию. Пауза растёт, чтобы не
+        // долбить упавший хост, но потолок держим: хост вернётся сам.
         silentAttempts++;
         s.setPhase('idle');
         clearRetryTimer();
         const scheduledAt = Date.now();
+        const delay = Math.min(SILENT_RETRY_DELAY_MS * silentAttempts, OUTAGE_RETRY_MAX_MS);
         retryTimer = setTimeout(() => {
           retryTimer = null;
           if (lastSuccessAt > scheduledAt) return; // ожило само за паузу
           void runRenew(false);
-        }, SILENT_RETRY_DELAY_MS);
+        }, delay);
       }
     } finally {
       inFlight = null;
