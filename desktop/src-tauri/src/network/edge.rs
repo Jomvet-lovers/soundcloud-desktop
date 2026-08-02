@@ -42,6 +42,7 @@ const RELAYS: &[(&str, &str)] = &[
     ("stream-star.scnative.space", "stream-star"),
     ("images.scnative.space", "images"),
     ("storage.scnative.space", "storage"),
+    ("storage-star.scnative.space", "storage-star"),
     ("pay.scnative.space", "pay"),
     ("call.scnative.space", "call"),
 ];
@@ -50,7 +51,13 @@ const RELAYS: &[(&str, &str)] = &[
 /// только ядро (read-only), сам вердикт не наберёт быстро; но storage и stream
 /// на одном main-host и банятся вместе, а stream активно щупает фронт — так
 /// storage переезжает на relay сразу, без холодного таймаута.
-const INHERIT: &[(&str, &str)] = &[("storage.scnative.space", "stream.scnative.space")];
+///
+/// То же и на резерве: `storage-star` и `stream-star` живут на одном star-host,
+/// банятся вместе, и щупает из них фронт только stream-star.
+const INHERIT: &[(&str, &str)] = &[
+    ("storage.scnative.space", "stream.scnative.space"),
+    ("storage-star.scnative.space", "stream-star.scnative.space"),
+];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -530,8 +537,26 @@ pub fn edge_note(origin: String, tier: Tier, ok: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        audio_tier_order, direct_infrastructure_headers, relay_hosts, Tier, RELAYS, RELAY_NODES,
+        audio_tier_order, direct_infrastructure_headers, relay_hosts, Tier, INHERIT, RELAYS,
+        RELAY_NODES,
     };
+
+    #[test]
+    fn every_inherit_pair_is_a_domain_we_route() {
+        // Наследование вердикта от домена не из `RELAYS` молча не сработает:
+        // `plan`/`audio_plan` для чужого origin'а возвращают пустой список ещё
+        // до чтения вердикта. Пара живёт, только пока оба конца наши.
+        for (origin, source) in INHERIT {
+            assert!(
+                !relay_hosts(origin).is_empty(),
+                "origin {origin} наследует вердикт, но сам не в RELAYS"
+            );
+            assert!(
+                !relay_hosts(source).is_empty(),
+                "{origin} наследует у {source}, которого нет в RELAYS"
+            );
+        }
+    }
 
     #[test]
     fn relay_host_is_built_per_pool_node() {

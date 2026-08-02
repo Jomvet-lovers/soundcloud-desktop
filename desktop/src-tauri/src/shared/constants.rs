@@ -10,6 +10,7 @@ pub const DOMAIN_WHITELIST: &[&str] = &[
     "stream.scnative.space",
     "api-star.scnative.space",
     "stream-star.scnative.space",
+    "storage-star.scnative.space",
     "stream-premium.scnative.space",
     "pay.scnative.space",
 ];

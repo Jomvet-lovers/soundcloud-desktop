@@ -4,17 +4,21 @@ import { useAppStatusStore } from '../stores/app-status';
 import { useAuthStore } from '../stores/auth';
 import { noteAuthGap, noteRateLimit, noteSuccess } from './auth-recovery';
 import { API_BASE, API_STAR_BASE } from './constants';
-import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
+import { logHttpError, logHttpFailure, logInfo, trackAsync } from './diagnostics';
 import { edgeFetch } from './edge';
 import {
   getHostVerdict,
   isHealthy,
   isIncidentActive,
+  isMainDegraded,
   isTimeoutError,
   markHealthy,
+  markMainDegraded,
   markUnhealthy,
+  noteMainBadResponse,
   noteRequestTimeout,
   preferredControlBase,
+  SLOW_RESPONSE_MS,
 } from './host-status';
 import { getIsPremium, requestPremiumRecheck } from './premium-cache';
 
@@ -22,8 +26,38 @@ import { getIsPremium, requestPremiumRecheck } from './premium-cache';
 
 let sessionId: string | null = null;
 
+/**
+ * Зеркало сессии заполняет ровно одно место — `applyAuthFromServer`, и до этого
+ * момента авторизованный запрос обречён: уходит без `x-session-id` и получает
+ * 401 «Missing or malformed». На старте так сгорали `/history` и `/tracks` от
+ * восстановленного из кеша плеера — два гарантированных 401 в логе ещё до того,
+ * как приложение узнало, залогинен ли юзер вообще.
+ *
+ * Поэтому первый запрос ждёт, пока мост ответит хоть что-нибудь (в т.ч. «нет
+ * сессии» — это тоже ответ). Ожидание с потолком: у трея свой webview, моста
+ * там нет, и без потолка его запросы висели бы вечно.
+ */
+let sessionKnown = false;
+let announceSessionKnown: () => void = () => {};
+const sessionKnownPromise = new Promise<void>((resolve) => {
+  announceSessionKnown = resolve;
+});
+const SESSION_WAIT_MS = 3_000;
+
 export function setSessionId(id: string | null) {
   sessionId = id;
+  if (!sessionKnown) {
+    sessionKnown = true;
+    announceSessionKnown();
+  }
+}
+
+function awaitSessionKnown(): Promise<unknown> {
+  if (sessionKnown) return Promise.resolve();
+  return Promise.race([
+    sessionKnownPromise,
+    new Promise((resolve) => setTimeout(resolve, SESSION_WAIT_MS)),
+  ]);
 }
 
 export function getSessionId() {
@@ -100,28 +134,53 @@ const DATA_PLANE_TIMEOUT_MS = 90_000;
 const DOWN_HOST_TIMEOUT_MS = 10_000;
 
 /**
+ * main опустился до роли страховки? Вердикта пробы для этого мало: 'down'
+ * ставится по `/health`, а он отвечает и когда хост уже ничего не обслуживает
+ * (см. `host-status/degraded.ts`). Деградация — тот же приговор для роутинга,
+ * но только для того, кому star ответит: не-премиум получит там 403, и уводить
+ * его туда значит менять медленный ответ на быстрый отказ.
+ */
+function mainIsLastResort(): boolean {
+  if (getHostVerdict(API_BASE) === 'down') return true;
+  return isMainDegraded() && getIsPremium();
+}
+
+/**
  * Базы запроса, primary первой.
- * /me/subscription — открыт на star (bootstrap-сигнал премиума): перебор обоих, primary по вердикту main.
+ * /me/subscription — открыт на star (bootstrap-сигнал премиума): перебор обоих, primary по состоянию main.
  * /auth/login* — прибит к main: OAuth redirect_uri зарегистрирован в SC только на основной хост.
  * остальной /auth/* (refresh, link/*, logout) — ровно ОДИН хост по вердикту: refresh нельзя
  *   фейловерить перебором (per-process refresh_locks на бэке → двойная ротация refresh_token),
  *   link-токены single-use.
- * data-plane — как раньше: премиум → star, GET/HEAD с фолбэком. Мутации тоже
+ * data-plane — премиум → star, main страховкой. GET/HEAD фейловерят свободно, мутации
  * знают main как страховку, но переключаются туда только на явной
  * инфраструктурной HTML-ошибке (запрос не дошёл до приложения).
  */
 function apiBasesFor(path: string): string[] {
   if (path === '/me/subscription') {
-    return getHostVerdict(API_BASE) === 'down'
-      ? [API_STAR_BASE, API_BASE]
-      : [API_BASE, API_STAR_BASE];
+    return mainIsLastResort() ? [API_STAR_BASE, API_BASE] : [API_BASE, API_STAR_BASE];
   }
   if (path.startsWith('/auth/login')) return [API_BASE];
-  if (path.startsWith('/auth/')) return [preferredControlBase()];
-  if (getIsPremium() && sessionId && isHealthy(API_STAR_BASE)) {
-    return [API_STAR_BASE, API_BASE];
+  if (path.startsWith('/auth/refresh')) {
+    // Единственная control-plane мутация, которую можно переиграть на соседе, и
+    // делать это обязательно: 401 отсюда — приговор «сессия мертва», после
+    // которого юзеру показывают ре-логин. Сессия у хостов ОБЩАЯ, так что 401 от
+    // одного при живой сессии значит «сломан этот хост», а не «сессия умерла».
+    // Проверять чужой вердикт до того, как выкинуть человека из аккаунта, —
+    // минимум приличия. Переигрываем строго по 401 (см. `canReplayOnNextHost`).
+    const primary = preferredControlBase();
+    return [primary, primary === API_BASE ? API_STAR_BASE : API_BASE];
   }
-  return [API_BASE];
+  if (path.startsWith('/auth/')) return [preferredControlBase()];
+  if (!getIsPremium() || !sessionId) return [API_BASE];
+  // Cooldown star'а уводит премиум на main только пока main есть чем ответить.
+  // Иначе star остаётся первым: его 30-секундная отсидка — это одна осечка, а
+  // не приговор, и переиграть её дешевле, чем встать в конвой на main. Раньше
+  // тут был `[API_BASE]` без star вовсе — любая осечка star'а на полминуты
+  // намертво возвращала подписчика на main, даже когда main уже задыхался.
+  return isHealthy(API_STAR_BASE) || mainIsLastResort()
+    ? [API_STAR_BASE, API_BASE]
+    : [API_BASE, API_STAR_BASE];
 }
 
 /** Бюджет запроса по его пути. */
@@ -129,6 +188,21 @@ function planeTimeout(path: string): number {
   if (path.startsWith('/auth/')) return AUTH_TIMEOUT_MS;
   if (path === '/me/subscription') return SUBSCRIPTION_TIMEOUT_MS;
   return DATA_PLANE_TIMEOUT_MS;
+}
+
+/**
+ * Сэмпл для детектора деградации main. Провал плох всегда; медленный ответ —
+ * только вне `/auth/*`: там бэк round-trip'ит в SoundCloud, и замеренные на
+ * логине 4.2–11.7 с это норма хендлера, а не состояние хоста.
+ */
+function isMainBadSample(path: string, ok: boolean, elapsedMs: number): boolean {
+  if (!ok) return true;
+  return !path.startsWith('/auth/') && elapsedMs >= SLOW_RESPONSE_MS;
+}
+
+/** Короткое имя хоста для логов перебора. */
+function hostLabel(base: string): string {
+  return base === API_BASE ? 'main' : base === API_STAR_BASE ? 'star' : base;
 }
 
 /** Host-фейл → фейловер. 4xx-контракты (400/404/…) — валидный ответ, не фейлим. */
@@ -147,16 +221,36 @@ function isInfrastructureFailure(status: number, body: string): boolean {
   return b.includes('<html') || b.includes('no server is available');
 }
 
+/**
+ * Можно ли повторить ЭТОТ запрос на следующем хосте. GET/HEAD — всегда,
+ * инфраструктурный отказ — всегда (до приложения не дошло).
+ *
+ * Отдельный случай — 401 на `/auth/refresh`. Refresh прибит к одному хосту
+ * ровно из-за риска двойной ротации refresh_token, но 401 приходит из lookup'а
+ * сессии ДО всякой ротации: `Backend/api/src/modules/auth/service.rs`,
+ * `refresh_session` — `get_session` → 401 «Session not found», и только ниже
+ * лок и `do_refresh`. Ротации не было, переигрывать безопасно. Таймаут и 5xx
+ * по-прежнему нельзя: там запрос мог дойти и примениться.
+ */
+function canReplayOnNextHost(path: string, method: string, status: number, body: string): boolean {
+  if (method === 'GET' || method === 'HEAD') return true;
+  if (isInfrastructureFailure(status, body)) return true;
+  return path.startsWith('/auth/refresh') && status === 401;
+}
+
 export async function apiRequest<T = unknown>(
   path: string,
   options: ApiRequestOptions = {},
   timeoutMs?: number,
 ): Promise<T> {
   const { silentStatuses, ...init } = options;
+  // Мост мог ещё не дойти до зеркала — иначе запрос уйдёт без сессии в никуда.
+  if (!sessionKnown) await awaitSessionKnown();
   const headers = new Headers(init.headers);
   // Защита от попадания строки "undefined"/"null" в header при апгрейдах формата API.
-  if (sessionId && sessionId !== 'undefined' && sessionId !== 'null') {
-    headers.set('x-session-id', sessionId);
+  const authenticated = !!sessionId && sessionId !== 'undefined' && sessionId !== 'null';
+  if (authenticated) {
+    headers.set('x-session-id', sessionId as string);
   }
   if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
 
@@ -165,6 +259,10 @@ export async function apiRequest<T = unknown>(
   const bases = apiBasesFor(path);
   const effectiveTimeout = timeoutMs ?? planeTimeout(path);
   let lastError: unknown = null;
+  /** main отказал по этой сессии — ждём, что скажет сосед по ней же. */
+  let mainRefused = false;
+  /** Первый 401 в переборе: приговор сессии выносит он, а не гейтовый 403 star'а. */
+  let authRejection: ApiError | null = null;
 
   for (let i = 0; i < bases.length; i++) {
     const base = bases[i];
@@ -189,9 +287,23 @@ export async function apiRequest<T = unknown>(
       // ≥500 — пассивный фейл: cooldown + проба main; вердикт down ставит только проба.
       if (res.status < 500) markHealthy(base);
       else markUnhealthy(base);
+      if (
+        base === API_BASE &&
+        isMainBadSample(path, res.status < 500, performance.now() - attemptStart)
+      ) {
+        noteMainBadResponse();
+      }
       // Успех star для не-премиума — probe-сигнал, не «онлайн» (иначе флап offline↔online).
       if (base === API_BASE || getIsPremium()) {
         useAppStatusStore.getState().setBackendReachable(true);
+      }
+
+      // Сосед отдал по ТОЙ ЖЕ сессии то, в чём main только что отказал. Сессия
+      // общая — значит сломан main, а не она. Доказательство, а не сэмпл:
+      // уводим туда весь трафик сразу, не набирая окно.
+      if (res.ok && mainRefused && base !== API_BASE) {
+        markMainDegraded();
+        logInfo(`[Host] main отказал в ${label}, star отдал по той же сессии → идём со star`);
       }
 
       if (!res.ok) {
@@ -207,20 +319,39 @@ export async function apiRequest<T = unknown>(
         // глушим тихо — без тоста, без recovery, без error-лога.
         if (silentStatuses?.includes(res.status)) throw err;
 
-        const idempotent = method === 'GET' || method === 'HEAD';
-        const canFailover = idempotent || isInfrastructureFailure(res.status, body);
-        if (!isLast && isHostFailover(res.status) && canFailover) {
+        if (res.status === 401) authRejection ??= err;
+
+        if (
+          !isLast &&
+          isHostFailover(res.status) &&
+          canReplayOnNextHost(path, method, res.status, body)
+        ) {
           lastError = err;
+          if (base === API_BASE) mainRefused = true;
+          // Промежуточный отказ раньше не попадал в лог вообще (logHttpError
+          // зовётся только на последней базе). Снаружи это читалось как «на star
+          // запросы не уходят», хотя уходили первыми — просто молча. Перебор
+          // обязан быть видимым, иначе его не отладить.
+          logInfo(`[Host] ${label}: ${hostLabel(base)} → ${res.status}, пробуем следующий`);
+          // Сосед сейчас ответит по той же сессии — а значит 401 отсюда ещё не
+          // повод будить recovery. Разбудим его на последнем хосте, если и там
+          // откажут; иначе сломанный хост в одиночку выкидывал бы из аккаунта.
           continue;
         }
 
-        logHttpError(label, res.status, url, body);
+        // Гейтовый 403 star'а — «хост не твой», а не ответ по сессии. Если main
+        // до него сказал 401, приговор выносит именно 401: иначе отказ доступа к
+        // резервному хосту маскировал бы мёртвую сессию, и ре-логин не
+        // предложили бы никогда — юзер остался бы с вечно пустым экраном.
+        const verdict = starDeny && authRejection ? authRejection : err;
+
+        logHttpError(label, verdict.status, url, verdict.body);
 
         // Rate-limit — копим, одиночный не дёргает recovery.
-        if (isRateLimitError(res.status, body)) {
+        if (isRateLimitError(verdict.status, verdict.body)) {
           noteRateLimit();
-          console.error(`HTTP ERROR: url: ${path}, `, err);
-          throw err;
+          console.error(`HTTP ERROR: url: ${path}, `, verdict);
+          throw verdict;
         }
 
         // Протухший токен (401) либо юзер пропал из сайдбара — сильный
@@ -231,12 +362,12 @@ export async function apiRequest<T = unknown>(
         // «Renewing your session, try again shortly») уводил в recovery, а через
         // две тихих попытки — в модалку «сессия истекла».
         const looksLikeAuthGap =
-          res.status === 401 ||
-          (res.status < 500 && useAuthStore.getState().user == null && !starDeny);
+          verdict.status === 401 ||
+          (verdict.status < 500 && useAuthStore.getState().user == null && !starDeny);
         if (looksLikeAuthGap) {
           noteAuthGap();
-          console.error(`HTTP ERROR: url: ${path}, `, err);
-          throw err;
+          console.error(`HTTP ERROR: url: ${path}, `, verdict);
+          throw verdict;
         }
 
         if (!starDeny) handleApiError(err);
@@ -245,8 +376,9 @@ export async function apiRequest<T = unknown>(
       }
 
       // Успешный ответ — чистит rate-limit накопитель и само-гасит recovery,
-      // если всё ожило само.
-      noteSuccess();
+      // если всё ожило само. Только авторизованный: публичная 200 про сессию
+      // не говорит ничего и не имеет права снимать вердикт.
+      noteSuccess(authenticated);
 
       const ct = res.headers.get('content-type');
       const reply = await (ct?.includes('application/json') ? res.json() : (res.text() as T));
@@ -261,9 +393,11 @@ export async function apiRequest<T = unknown>(
     } catch (error) {
       if (error instanceof ApiError) throw error;
       markUnhealthy(base);
+      if (base === API_BASE) noteMainBadResponse();
       if (isTimeoutError(error)) noteRequestTimeout();
       if (!isLast) {
         lastError = error;
+        logInfo(`[Host] ${label}: ${hostLabel(base)} не ответил, пробуем следующий`);
         continue;
       }
       logHttpFailure(label, url, error, performance.now() - attemptStart);

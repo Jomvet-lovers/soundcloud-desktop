@@ -15,7 +15,7 @@ function writeLog(level: 'INFO' | 'WARN' | 'ERROR', message: string) {
   void coreInvoke('diagnostics_log', { level, message }).catch(() => undefined);
 }
 
-function logInfo(message: string) {
+export function logInfo(message: string) {
   console.info(message);
   writeLog('INFO', message);
 }

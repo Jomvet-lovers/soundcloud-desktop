@@ -137,7 +137,16 @@ function usePresence(open: boolean, ms = 200) {
             setMounted(true);
             // double rAF so the first painted frame is the `closed` state, then flip
             const id = requestAnimationFrame(() => requestAnimationFrame(() => setState('open')));
-            return () => cancelAnimationFrame(id);
+            // Страховка на случай, если rAF не доедет (так уже было: кап FPS
+            // голодал вложенные колбэки). Открытость модалки — не косметика:
+            // без флипа она остаётся смонтированной на `opacity: 0`, и снаружи
+            // это выглядит как «модалки нет». Таймаут заведомо длиннее кадра,
+            // так что закрытое состояние успевает отрисоваться и анимация цела.
+            const fallback = setTimeout(() => setState('open'), 100);
+            return () => {
+                cancelAnimationFrame(id);
+                clearTimeout(fallback);
+            };
         }
         setState('closed');
         const t = setTimeout(() => setMounted(false), ms);

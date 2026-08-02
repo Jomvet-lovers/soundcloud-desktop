@@ -11,6 +11,7 @@ import { trackedInvoke as invoke, setupUiWatchdog } from './lib/diagnostics';
 import { initEdge } from './lib/edge';
 import { installFpsCap } from './lib/fps-cap';
 import { queryClient } from './lib/query-client';
+import { bootstrapPremium } from './lib/subscription';
 import './fonts';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
@@ -88,6 +89,12 @@ async function bootstrap() {
   // Seed the Rust-owned session into the frontend mirror + subscribe to
   // auth:changed before the first render so the shell/login gate is correct.
   await initAuthBridge();
+
+  // «Есть ли подписка?» — у ОБОИХ хостов сразу, до первого рендера. Первый
+  // рендер поднимает пачку запросов; если premium к этому моменту неизвестен,
+  // вся пачка уходит на main, и при сломанном main экран остаётся пустым.
+  // Ответ нужен до неё, поэтому дожидаемся (свой короткий бюджет внутри).
+  await bootstrapPremium();
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

@@ -8,6 +8,9 @@ export const STREAMING_PREMIUM_BASE =
   import.meta.env.VITE_STREAMING_PREMIUM_BASE || 'https://stream-star.scnative.space';
 export const IMAGES_BASE = import.meta.env.VITE_IMAGES_BASE || 'https://images.scnative.space';
 export const STORAGE_BASE = import.meta.env.VITE_STORAGE_BASE || 'https://storage.scnative.space';
+/** Резервная точка отдачи медиа для премиума (S3 read-only на star-host). */
+export const STORAGE_PREMIUM_BASE =
+  import.meta.env.VITE_STORAGE_PREMIUM_BASE || 'https://storage-star.scnative.space';
 /** STAR payment backend (separate service; not host-routed like the catalog API). */
 export const PAY_BASE = import.meta.env.VITE_PAY_BASE || 'https://pay.scnative.space';
 

@@ -6,6 +6,15 @@
 //! только off-screen). Поэтому троттлим `requestAnimationFrame`: пропущенные
 //! кадры переназначаем (чтобы rAF-циклы не рвались), `cancelAnimationFrame`
 //! сохраняем рабочим. На дисплеях ≤ целевого FPS — фактически no-op.
+//!
+//! Решение о пропуске кадра — ОДНО на кадр, и разрешённый кадр забирает ВСЕХ
+//! ожидающих разом. Иначе получается голодание: раньше у каждого колбэка была
+//! своя проверка против общего `last`, первый отработавший двигал `last` на
+//! `now`, и все остальные в том же кадре видели дельту 0 и откладывались. Пока
+//! в приложении крутится хоть один постоянный rAF-цикл, он двигает `last`
+//! каждый кадр — и отложенные не выполняются НИКОГДА. Так молча умирал переход
+//! `data-state` у модалки: она монтировалась и оставалась на `opacity: 0`,
+//! то есть «модалки нет» при живом DOM.
 
 const DEFAULT_FPS = 60;
 
@@ -19,35 +28,39 @@ export function installFpsCap(targetFps: number = DEFAULT_FPS): void {
   const rafNative = window.requestAnimationFrame.bind(window);
   const cafNative = window.cancelAnimationFrame.bind(window);
 
-  // Наш handle → текущий нативный id (живёт через переназначения пропущенных
-  // кадров, чтобы cancelAnimationFrame отменял именно ожидающий кадр).
-  const pending = new Map<number, number>();
+  /** Наш handle → колбэк, ожидающий ближайшего разрешённого кадра. */
+  const pending = new Map<number, FrameRequestCallback>();
   let nextHandle = 1;
+  let nativeId: number | null = null;
   let last = 0;
+
+  function schedule(): void {
+    if (nativeId === null) nativeId = rafNative(pump);
+  }
+
+  function pump(now: number): void {
+    nativeId = null;
+    if (now - last < minDelta - 1) {
+      schedule(); // кадр пропускаем целиком — вместе со всеми, без исключений
+      return;
+    }
+    last = now;
+    // Снимок: колбэк вправе тут же заказать следующий кадр, и он должен попасть
+    // в СЛЕДУЮЩУЮ пачку, а не быть съеденным текущей итерацией.
+    const batch = Array.from(pending.values());
+    pending.clear();
+    for (const cb of batch) cb(now);
+  }
 
   window.requestAnimationFrame = (cb: FrameRequestCallback): number => {
     const handle = nextHandle++;
-    const tick = (now: number) => {
-      if (now - last >= minDelta - 1) {
-        last = now;
-        pending.delete(handle);
-        cb(now);
-      } else {
-        pending.set(handle, rafNative(tick));
-      }
-    };
-    pending.set(handle, rafNative(tick));
+    pending.set(handle, cb);
+    schedule();
     return handle;
   };
 
   window.cancelAnimationFrame = (handle: number): void => {
-    const nativeId = pending.get(handle);
-    if (nativeId !== undefined) {
-      pending.delete(handle);
-      cafNative(nativeId);
-    } else {
-      // id не из нашего пула (например, выдан до установки капа) — в нативный.
-      cafNative(handle);
-    }
+    // id не из нашего пула (например, выдан до установки капа) — в нативный.
+    if (!pending.delete(handle)) cafNative(handle);
   };
 }
