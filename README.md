@@ -213,7 +213,7 @@ npx biome check src/     # линтинг
 ## Статистика
 
 <p align="center">
-<img src="https://api.star-history.com/svg?repos=zxcloli666/SoundCloud-Desktop&type=Date" alt="Star History" />
+<img src="https://api.star-history.com/chart?repos=zxcloli666%2Fsoundcloud-desktop&type=date&theme=dark&legend=top-left&sealed_token=L7HmrysXvAF2F-KHbNCQwWtEHc7isP3JLFIpAHGUgDTsVf3elOFK00lq1TfqgSg6swsgysRz7Bb-Z9_nhfdRqhiCwVTI9j70Ntv-qjE9T4I6boQqdCL8Jw" alt="Star History" />
 </p>
 
 <p align="center">
