@@ -67,3 +67,10 @@ pub async fn provision(_endpoint_url: &str, _input: ProvisionInput) -> Result<Id
 pub async fn run_agent(_cfg: AgentConfig) -> Result<(), Error> {
     Err(Error::Disabled)
 }
+
+pub async fn run_agent_session(
+    _cfg: AgentConfig,
+    _on_ready: impl FnOnce() + Send + 'static,
+) -> Result<(), Error> {
+    Err(Error::Disabled)
+}
