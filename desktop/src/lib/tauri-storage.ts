@@ -1,5 +1,5 @@
 import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
-import type { StateStorage } from 'zustand/middleware';
+import type { PersistStorage, StateStorage, StorageValue } from 'zustand/middleware';
 
 const BASE_DIR = BaseDirectory.AppData;
 
@@ -50,3 +50,71 @@ export const tauriStorage: StateStorage = {
     }
   },
 };
+
+export function createThrottledJsonStorage<S>(delayMs = 500): PersistStorage<S> {
+  const pending = new Map<string, StorageValue<S>>();
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const lastWrite = new Map<string, number>();
+
+  const write = (name: string) => {
+    const value = pending.get(name);
+    if (value === undefined) return;
+    pending.delete(name);
+    lastWrite.set(name, Date.now());
+    void tauriStorage.setItem(name, JSON.stringify(value));
+  };
+
+  const flush = () => {
+    for (const [name, timer] of timers) {
+      clearTimeout(timer);
+      timers.delete(name);
+      write(name);
+    }
+  };
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush();
+    });
+    window.addEventListener('beforeunload', flush);
+  }
+
+  return {
+    getItem: async (name) => {
+      const raw = await tauriStorage.getItem(name);
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as StorageValue<S>;
+      } catch {
+        return null;
+      }
+    },
+
+    setItem: (name, value) => {
+      pending.set(name, value);
+      if (timers.has(name)) return;
+      const since = Date.now() - (lastWrite.get(name) ?? 0);
+      if (since >= delayMs) {
+        write(name);
+        return;
+      }
+      timers.set(
+        name,
+        setTimeout(() => {
+          timers.delete(name);
+          write(name);
+        }, delayMs - since),
+      );
+    },
+
+    removeItem: (name) => {
+      const timer = timers.get(name);
+      if (timer) {
+        clearTimeout(timer);
+        timers.delete(name);
+      }
+      pending.delete(name);
+      void tauriStorage.removeItem(name);
+    },
+  };
+}

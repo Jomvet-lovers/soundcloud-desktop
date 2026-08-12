@@ -6,7 +6,14 @@ import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router-dom';
 import {useShallow} from 'zustand/shallow';
 import {api} from '../../lib/api';
-import {getCurrentTime, getDuration, handlePrev, seek, subscribe} from '../../lib/audio';
+import {
+    getCurrentTime,
+    getDownloadProgress,
+    getDuration,
+    handlePrev,
+    seek,
+    subscribe,
+} from '../../lib/audio';
 import {toggleDislike, useDislikeStatus} from '../../lib/dislikes';
 import {art, formatTime} from '../../lib/formatters';
 import {invalidateAllLikesCache} from '../../lib/hooks';
@@ -55,7 +62,7 @@ import {UploadKindDot} from '../music/UploadKindDot';
 /** Smoothed download-progress value (0-1) for display, or null when not loading.
  *  Holds briefly after completion so a finished load doesn't flicker away. */
 function useLoadProgress(): number | null {
-  const downloadProgress = usePlayerStore((s) => s.downloadProgress);
+  const downloadProgress = useSyncExternalStore(subscribe, getDownloadProgress);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProgressRef = useRef<number | null>(null);
   const [visibleProgress, setVisibleProgress] = useState<number | null>(null);

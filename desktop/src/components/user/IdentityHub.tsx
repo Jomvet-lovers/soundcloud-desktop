@@ -1,6 +1,7 @@
 import {useTranslation} from 'react-i18next';
 import {type Aura, auraRgba} from '../../lib/aura';
 import {Calendar, Globe, Sparkles} from '../../lib/icons';
+import {likedTracksCount} from '../../lib/likes';
 import {usePerfMode} from '../../lib/perf';
 import {CopyLinkButton} from '../ui/CopyLinkButton';
 import {GlassHeroPanel} from '../ui/GlassHeroPanel';
@@ -34,6 +35,7 @@ interface IdentityHubProps {
     followings_count?: number | null;
     track_count?: number | null;
     public_favorites_count?: number | null;
+    likes_count?: number | null;
   };
   hasStar: boolean;
   webProfiles:
@@ -181,7 +183,7 @@ export function IdentityHub({
             accent={auraRgba(aura, 0.14)}
           />
           <StatOrb
-            value={user.public_favorites_count}
+            value={likedTracksCount(user)}
             label={t('user.likes')}
             accent={auraRgba(aura, 0.12)}
           />
@@ -201,7 +203,7 @@ export function IdentityHub({
         />
         <StatOrb value={user.track_count} label={t('user.tracks')} accent={auraRgba(aura, 0.14)} />
         <StatOrb
-          value={user.public_favorites_count}
+          value={likedTracksCount(user)}
           label={t('user.likes')}
           accent={auraRgba(aura, 0.12)}
         />

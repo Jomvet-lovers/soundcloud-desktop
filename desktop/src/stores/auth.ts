@@ -14,7 +14,8 @@ interface User {
   followings_count: number;
   track_count: number;
   playlist_count: number;
-  public_favorites_count: number;
+  public_favorites_count?: number;
+  likes_count?: number;
 }
 
 interface AuthState {

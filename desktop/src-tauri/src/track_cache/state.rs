@@ -20,6 +20,7 @@ use crate::track_cache::transcode;
 
 const MIN_AUDIO_SIZE: u64 = 8192;
 const AUDIO_SNIFF_LEN: usize = 16;
+const PROGRESS_EMIT_STEP: f64 = 0.01;
 const STREAM_WRITE_BUFFER_SIZE: usize = 256 * 1024;
 const STORAGE_CONNECT_TIMEOUT_MS: u64 = 800;
 const STORAGE_TIMEOUT_MS: u64 = 1200;
@@ -703,6 +704,7 @@ async fn write_response_to_cache(
     let mut stream = response.bytes_stream();
     let mut total_size = 0u64;
     let mut sniff = Vec::with_capacity(AUDIO_SNIFF_LEN);
+    let mut emitted_progress = -1.0f64;
 
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
@@ -726,17 +728,37 @@ async fn write_response_to_cache(
 
         if let Some(app) = app_handle
             && content_length > 0 {
-                let _ = app.emit(
-                    "track:download-progress",
-                    serde_json::json!({
-                        "urn": urn,
-                        "downloaded": total_size,
-                        "total": content_length,
-                        "progress": total_size as f64 / content_length as f64,
-                        "source": source.label(),
-                    }),
-                );
+                let progress = total_size as f64 / content_length as f64;
+                if progress - emitted_progress >= PROGRESS_EMIT_STEP {
+                    emitted_progress = progress;
+                    let _ = app.emit(
+                        "track:download-progress",
+                        serde_json::json!({
+                            "urn": urn,
+                            "downloaded": total_size,
+                            "total": content_length,
+                            "progress": progress,
+                            "source": source.label(),
+                        }),
+                    );
+                }
             }
+    }
+
+    if let Some(app) = app_handle
+        && content_length > 0
+        && emitted_progress < 1.0
+    {
+        let _ = app.emit(
+            "track:download-progress",
+            serde_json::json!({
+                "urn": urn,
+                "downloaded": total_size,
+                "total": content_length,
+                "progress": (total_size as f64 / content_length as f64).min(1.0),
+                "source": source.label(),
+            }),
+        );
     }
 
     if let Err(err) = writer.flush().await {

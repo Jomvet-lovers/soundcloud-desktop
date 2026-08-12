@@ -1,6 +1,9 @@
 import {create} from 'zustand';
-import {createJSONStorage, persist} from 'zustand/middleware';
-import {tauriStorage} from '../lib/tauri-storage';
+import {persist} from 'zustand/middleware';
+import {createThrottledJsonStorage} from '../lib/tauri-storage';
+
+const PERSISTED_QUEUE_BEHIND = 30;
+const PERSISTED_QUEUE_WINDOW = 300;
 
 export interface EnrichmentArtist {
   id: string;
@@ -191,8 +194,6 @@ interface PlayerState {
   repeat: RepeatMode;
     /** A-B segment loop for the current track, or null when disabled. */
     abLoop: AbLoop | null;
-  /** Download progress 0-1 when loading from API, null when not downloading */
-  downloadProgress: number | null;
   playbackQuality: PlaybackQuality | null;
   playbackSource: PlaybackSource | null;
 
@@ -243,7 +244,6 @@ export const usePlayerStore = create<PlayerState>()(
       shuffle: false,
       repeat: 'off',
         abLoop: null,
-      downloadProgress: null,
       playbackQuality: null,
       playbackSource: null,
       playbackRate: PLAYBACK_RATE_DEFAULT,
@@ -537,21 +537,23 @@ export const usePlayerStore = create<PlayerState>()(
     }),
     {
       name: 'sc-player',
-      storage: createJSONStorage(() => tauriStorage),
+      storage: createThrottledJsonStorage(),
       version: 3,
-      partialize: (state) => ({
-        volume: state.volume,
-        volumeBeforeMute: state.volumeBeforeMute,
-        currentTrack: state.currentTrack,
-        queue: state.queue,
-        originalQueue: state.originalQueue,
-        queueIndex: state.queueIndex,
-        shuffle: state.shuffle,
-        repeat: state.repeat,
-        playbackRate: state.playbackRate,
-        pitchSemitones: state.pitchSemitones,
-        pitchControlMode: state.pitchControlMode,
-      }),
+      partialize: (state) => {
+        const start = Math.max(0, state.queueIndex - PERSISTED_QUEUE_BEHIND);
+        return {
+          volume: state.volume,
+          volumeBeforeMute: state.volumeBeforeMute,
+          currentTrack: state.currentTrack,
+          queue: state.queue.slice(start, start + PERSISTED_QUEUE_WINDOW),
+          queueIndex: state.queueIndex < 0 ? state.queueIndex : state.queueIndex - start,
+          shuffle: state.shuffle,
+          repeat: state.repeat,
+          playbackRate: state.playbackRate,
+          pitchSemitones: state.pitchSemitones,
+          pitchControlMode: state.pitchControlMode,
+        };
+      },
     },
   ),
 );

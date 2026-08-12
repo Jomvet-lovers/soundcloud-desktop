@@ -7,11 +7,6 @@ function pickRandom<T>(arr: T[]): T {
     return arr[Math.floor(Math.random() * arr.length)];
 }
 
-/** Shuffle-play the whole liked collection. Start instantly off the loaded page,
- *  then let the queue-continuation source stream the rest of the likes in —
- *  shuffled across the ENTIRE collection, not just the loaded page (см.
- *  lib/queue-continuation.ts → createShuffledLikesContinuationSource). Shared so
- *  the masthead and any other "play everything" entry point behave identically. */
 export function useShuffleLikes() {
     const {tracks: likedTracks} = useLikedTracks();
     const [loading, setLoading] = useState(false);
@@ -21,25 +16,32 @@ export function useShuffleLikes() {
         usePlayerStore.setState({shuffle: true});
         const {play} = usePlayerStore.getState();
 
-        // Есть подгруженная страница → стартуем мгновенно со случайного из неё;
-        // play() под shuffle перемешает её, а прослойка дотянет ВЕСЬ остаток
-        // лайков перемешанным по мере опустошения очереди.
-        if (likedTracks.length > 0) {
-            play(pickRandom(likedTracks), likedTracks);
-            armLikesContinuation();
+        if (likedTracks.length === 0) {
+            setLoading(true);
+            try {
+                const all = await fetchAllLikedTracks();
+                if (all.length === 0) return;
+                play(pickRandom(all), all);
+            } finally {
+                setLoading(false);
+            }
             return;
         }
 
-        // Ничего не подгружено (редкий случай — masthead до загрузки лайков) →
-        // тянем список (заодно греем общий кеш для прослойки), стартуем с одного
-        // случайного трека, остальное дотянет перемешанная прослойка.
+        play(pickRandom(likedTracks), likedTracks);
+        const started = usePlayerStore.getState().queue;
+        armLikesContinuation();
+
         setLoading(true);
         try {
             const all = await fetchAllLikedTracks();
-            if (all.length === 0) return;
-            const start = pickRandom(all);
-            play(start, [start]);
-            armLikesContinuation();
+            const {queue, addToQueue} = usePlayerStore.getState();
+            if (queue !== started) return;
+            const queued = new Set(queue.map((t) => t.urn));
+            const rest = all.filter((t) => !queued.has(t.urn));
+            if (rest.length > 0) addToQueue(rest);
+        } catch (e) {
+            console.debug('[likes] full-collection fetch failed, staying on lazy continuation:', e);
         } finally {
             setLoading(false);
         }

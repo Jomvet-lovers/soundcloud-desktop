@@ -18,6 +18,7 @@ import {
 import { useEditableUserAura, useUserAura } from '../components/user/useUserAura';
 import { useUser, useUserSubscription, useUserWebProfiles } from '../lib/hooks';
 import { Loader2 } from '../lib/icons';
+import { likedTracksCount } from '../lib/likes';
 import {usePerfMode} from '../lib/perf';
 import { useSubscription } from '../lib/subscription';
 import { useAuthStore } from '../stores/auth';
@@ -83,7 +84,7 @@ export function UserPage() {
       { id: 'popular' as const, label: t('user.popular'), count: undefined },
       { id: 'tracks' as const, label: t('user.tracks'), count: user.track_count },
       { id: 'playlists' as const, label: t('user.playlists'), count: user.playlist_count },
-      { id: 'likes' as const, label: t('user.likes'), count: user.public_favorites_count },
+      { id: 'likes' as const, label: t('user.likes'), count: likedTracksCount(user) },
       { id: 'followers' as const, label: t('user.followers'), count: user.followers_count },
       { id: 'following' as const, label: t('user.following'), count: user.followings_count },
     ] as const;

@@ -11,6 +11,7 @@ import {PlaylistCard} from '../components/music/PlaylistCard';
 import {TrackCard} from '../components/music/TrackCard';
 import {useLikedTracks, useMyFollowings, useMyLikedPlaylists, useMyPlaylists} from '../lib/hooks';
 import {Bookmark, Heart, ListMusic, Users} from '../lib/icons';
+import {likedTracksCount} from '../lib/likes';
 import {armLikesContinuation} from '../lib/queue-continuation';
 import {useAuthStore} from '../stores/auth';
 
@@ -106,7 +107,7 @@ export const Library = React.memo(() => {
           <CollectionRail
             icon={<Heart size={16} />}
             title={t('library.likedTracks')}
-            count={user.public_favorites_count}
+            count={likedTracksCount(user)}
             to="/library/likes"
           >
             {likesPreview.map((tr) => (

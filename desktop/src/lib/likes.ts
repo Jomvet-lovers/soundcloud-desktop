@@ -58,6 +58,17 @@ export function useLiked(urn: string): boolean {
   );
 }
 
+/* ── Liked-tracks counter ───────────────────────────────── */
+
+interface UserLikeCounters {
+  likes_count?: number | null;
+  public_favorites_count?: number | null;
+}
+
+export function likedTracksCount(user: UserLikeCounters | null | undefined): number | undefined {
+  return user?.likes_count ?? user?.public_favorites_count ?? undefined;
+}
+
 /* ── Optimistic toggle (TanStack Query cache) ───────────── */
 
 export function optimisticToggleLike(qc: QueryClient, track: Track, nowLiked: boolean) {
@@ -70,8 +81,12 @@ export function optimisticToggleLike(qc: QueryClient, track: Track, nowLiked: bo
   // Update favorites count in auth store
   const { user } = useAuthStore.getState();
   if (user) {
+    const delta = nowLiked ? 1 : -1;
     useAuthStore.setState({
-      user: { ...user, public_favorites_count: user.public_favorites_count + (nowLiked ? 1 : -1) },
+      user:
+        user.likes_count != null
+          ? { ...user, likes_count: user.likes_count + delta }
+          : { ...user, public_favorites_count: (user.public_favorites_count ?? 0) + delta },
     });
   }
 

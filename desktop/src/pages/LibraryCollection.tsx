@@ -9,6 +9,7 @@ import {LikesTab} from '../components/library/LikesTab';
 import {PlaylistsTab} from '../components/library/PlaylistsTab';
 import {useSoundprint} from '../components/library/useSoundprint';
 import {useLikedTracks} from '../lib/hooks';
+import {likedTracksCount} from '../lib/likes';
 import {useAuthStore} from '../stores/auth';
 
 type Section = 'likes' | 'playlists' | 'following' | 'history';
@@ -40,7 +41,7 @@ export const LibraryCollection = React.memo(() => {
 
     const count =
         sec === 'likes'
-            ? user.public_favorites_count
+            ? likedTracksCount(user)
             : sec === 'playlists'
                 ? user.playlist_count
                 : sec === 'following'
