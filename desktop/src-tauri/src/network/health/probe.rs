@@ -3,104 +3,166 @@ use std::time::{Duration, Instant};
 use futures_util::stream::{self, StreamExt};
 use reqwest::Client;
 
-use super::model::{Endpoint, Sample, Topology};
+use super::link;
+use super::model::{PROBE_PATH, Sample, Topology};
 use crate::network::edge::{self, Tier};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_PARALLEL_ENDPOINTS: usize = 4;
+const MAX_PARALLEL: usize = 4;
+const ORIGIN_ZONE: &str = "scnative.space";
 
-pub async fn probe_all(client: &Client, topology: &Topology) -> Vec<Sample> {
+pub struct Pool {
+    pub relays: Vec<String>,
+    pub calls: Vec<String>,
+}
+
+/// Каждый круг все пути щупаются пробой, которая заведомо переваливает за порог
+/// счётчика: только так видно «дошло N килобайт и тишина». Глубокий замер полосы
+/// дорогой, поэтому за круг его получает одна нода, по очереди.
+pub async fn probe_paths(client: &Client, pool: &Pool, round: usize) -> Vec<Sample> {
+    let mut targets: Vec<(String, String)> = pool
+        .relays
+        .iter()
+        .map(|node| {
+            (
+                node.clone(),
+                format!("https://{node}.{}{PROBE_PATH}", edge::relay_zone()),
+            )
+        })
+        .collect();
+    targets.extend(
+        pool.calls
+            .iter()
+            .map(|node| (node.clone(), format!("https://{node}.{ORIGIN_ZONE}{PROBE_PATH}"))),
+    );
+    targets.push((
+        "direct".to_string(),
+        format!("https://health.{ORIGIN_ZONE}{PROBE_PATH}"),
+    ));
+
+    let deep_at = if targets.is_empty() {
+        0
+    } else {
+        round % targets.len()
+    };
+
+    stream::iter(targets.into_iter().enumerate())
+        .map(|(at, (node, url))| {
+            let client = client.clone();
+            async move {
+                let mut measured = link::probe(&client, &url, link::PROBE_BYTES).await;
+                if at == deep_at && measured.shape == link::Shape::Clear {
+                    measured = measure_bandwidth(&client, &url).await;
+                }
+                Sample {
+                    ep: format!("@{node}"),
+                    via: "direct".to_string(),
+                    ok: measured.shape.usable(),
+                    ms: Some(measured.ms),
+                    fail: (!measured.shape.usable())
+                        .then(|| measured.shape.as_str().to_string()),
+                    link: Some(measured.link),
+                }
+            }
+        })
+        .buffer_unordered(MAX_PARALLEL)
+        .collect()
+        .await
+}
+
+/// Задушенный путь отдаёт маленький объект на полной скорости, а большой ползёт:
+/// до срабатывания счётчика он просто не доходит. Узкий канал ползёт на обоих.
+async fn measure_bandwidth(client: &Client, url: &str) -> link::Measured {
+    let deep = link::probe(client, url, link::DEEP_BYTES).await;
+    if deep.shape != link::Shape::Slow {
+        return deep;
+    }
+    let small = link::probe(client, url, link::SMALL_BYTES).await;
+    let shape = link::attribute(&deep, &small);
+    link::Measured {
+        shape,
+        link: super::model::Link {
+            shape: shape.as_str(),
+            ..deep.link
+        },
+        ..deep
+    }
+}
+
+pub async fn probe_services(client: &Client, topology: &Topology, pool: &Pool) -> Vec<Sample> {
     let batches = stream::iter(topology.endpoints.clone())
         .map(|endpoint| {
             let client = client.clone();
-            async move { probe_endpoint(&client, &endpoint).await }
+            let routes = endpoint.routes(&pool.relays);
+            async move {
+                let mut samples = Vec::with_capacity(routes.len());
+                let mut direct_ok = false;
+                let mut relay_ok = false;
+                for route in routes {
+                    let outcome = hit(&client, &route.url).await;
+                    if route.via == "direct" {
+                        direct_ok = outcome.ok;
+                        edge::note_url(&endpoint.url, Tier::Direct, outcome.ok);
+                    } else {
+                        relay_ok |= outcome.ok;
+                    }
+                    samples.push(Sample {
+                        ep: endpoint.id.clone(),
+                        via: route.via,
+                        ok: outcome.ok,
+                        ms: outcome.ms,
+                        fail: outcome.fail.map(str::to_string),
+                        link: None,
+                    });
+                }
+                if !direct_ok && relay_ok {
+                    edge::note_url(&endpoint.url, Tier::Relay, true);
+                }
+                samples
+            }
         })
-        .buffer_unordered(MAX_PARALLEL_ENDPOINTS)
+        .buffer_unordered(MAX_PARALLEL)
         .collect::<Vec<_>>()
         .await;
 
     batches.into_iter().flatten().collect()
 }
 
-async fn probe_endpoint(client: &Client, endpoint: &Endpoint) -> Vec<Sample> {
-    let mut samples = Vec::new();
-    // Direct and the relay pool are independent infrastructure. Probe both
-    // concurrently so the status page can answer "is the relay ready right now?"
-    // even while the primary route is healthy.
-    let direct_fut = hit(client, &endpoint.direct);
-    let relay_fut = async {
-        match endpoint.relay.as_deref() {
-            Some(relay) => Some(hit(client, relay).await),
-            None => None,
-        }
-    };
-    let (direct, relay) = tokio::join!(direct_fut, relay_fut);
-
-    samples.push(sample(endpoint, "direct", &direct));
-    edge::note_url(&endpoint.direct, Tier::Direct, direct.ok);
-
-    if let Some(outcome) = relay {
-        samples.push(sample(endpoint, "relay", &outcome));
-        if !direct.ok && outcome.ok {
-            edge::note_url(&endpoint.direct, Tier::Relay, true);
-            return samples;
-        }
-    }
-
-    if direct.ok {
-        return samples;
-    }
-
-
-    samples
+struct Outcome {
+    ok: bool,
+    ms: Option<i32>,
+    fail: Option<&'static str>,
 }
 
 async fn hit(client: &Client, url: &str) -> Outcome {
-    let request = client.get(url).timeout(PROBE_TIMEOUT);
-
     let started = Instant::now();
-    match request.send().await {
+    match client.get(url).timeout(PROBE_TIMEOUT).send().await {
         Ok(response) if response.status().is_success() || response.status().is_redirection() => {
-            Outcome::ok(started.elapsed().as_millis() as i32)
+            Outcome {
+                ok: true,
+                ms: Some(started.elapsed().as_millis().min(i32::MAX as u128) as i32),
+                fail: None,
+            }
         }
-        Ok(_) => Outcome::error("status"),
-        Err(error) if error.is_timeout() => Outcome::error("timeout"),
-        Err(error) if error.is_connect() => Outcome::error("connect"),
-        Err(_) => Outcome::error("request"),
-    }
-}
-
-struct Outcome {
-    ok: bool,
-    latency_ms: Option<i32>,
-    err_kind: Option<String>,
-}
-
-impl Outcome {
-    fn ok(latency_ms: i32) -> Self {
-        Self {
-            ok: true,
-            latency_ms: Some(latency_ms),
-            err_kind: None,
-        }
-    }
-
-    fn error(kind: &str) -> Self {
-        Self {
+        Ok(_) => Outcome {
             ok: false,
-            latency_ms: None,
-            err_kind: Some(kind.to_string()),
-        }
-    }
-}
-
-fn sample(endpoint: &Endpoint, tier: &str, outcome: &Outcome) -> Sample {
-    Sample {
-        endpoint: endpoint.id.clone(),
-        host: endpoint.host.clone(),
-        tier: tier.to_string(),
-        ok: outcome.ok,
-        latency_ms: outcome.latency_ms,
-        err_kind: outcome.err_kind.clone(),
+            ms: None,
+            fail: Some("status"),
+        },
+        Err(error) if error.is_timeout() => Outcome {
+            ok: false,
+            ms: None,
+            fail: Some("timeout"),
+        },
+        Err(error) if error.is_connect() => Outcome {
+            ok: false,
+            ms: None,
+            fail: Some("reset"),
+        },
+        Err(_) => Outcome {
+            ok: false,
+            ms: None,
+            fail: Some("reset"),
+        },
     }
 }

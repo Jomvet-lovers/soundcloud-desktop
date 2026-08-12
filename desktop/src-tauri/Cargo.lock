@@ -1326,16 +1326,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpi-desync"
-version = "0.1.0"
-dependencies = [
- "libc",
- "reqwest 0.12.28",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "dtoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4941,7 +4931,6 @@ dependencies = [
  "cpal",
  "decrypt-client",
  "discord-rich-presence",
- "dpi-desync",
  "ffmpeg-sidecar",
  "futures-util",
  "hex",

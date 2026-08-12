@@ -3,15 +3,16 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::Serialize;
 
-use super::model::{IngestSink, Sample, Topology};
+use super::model::{Sample, Topology};
 
 const DELIVERY_TIMEOUT: Duration = Duration::from_secs(6);
+const MAX_SAMPLES: usize = 256;
 
 #[derive(Serialize)]
 struct Report<'a> {
-    client_id: &'a str,
-    app_version: &'a str,
-    topology_version: u32,
+    client: &'a str,
+    version: &'a str,
+    topology: u32,
     samples: &'a [Sample],
 }
 
@@ -25,22 +26,16 @@ impl Delivery {
     }
 
     pub async fn fetch_topology(&self, topology: &Topology) -> Option<Topology> {
-        for sink in &topology.ingest {
-            let Some(origin) = sink.origin() else {
+        for origin in &topology.ingest {
+            let url = format!("{}/topology", origin.trim_end_matches('/'));
+            let Ok(response) = self.client.get(&url).timeout(DELIVERY_TIMEOUT).send().await else {
                 continue;
             };
-            let url = format!("{origin}/topology");
-            for target in targets(sink, &url) {
-                let request = self.client.get(&target.url).timeout(DELIVERY_TIMEOUT);
-                let Ok(response) = request.send().await else {
-                    continue;
-                };
-                if !response.status().is_success() {
-                    continue;
-                }
-                if let Ok(fresh) = response.json::<Topology>().await {
-                    return Some(fresh);
-                }
+            if !response.status().is_success() {
+                continue;
+            }
+            if let Ok(fresh) = response.json::<Topology>().await {
+                return Some(fresh.sanitized());
             }
         }
         None
@@ -53,47 +48,34 @@ impl Delivery {
         app_version: &str,
         samples: &[Sample],
     ) -> bool {
+        if samples.is_empty() {
+            return true;
+        }
         let Ok(body) = serde_json::to_vec(&Report {
-            client_id,
-            app_version,
-            topology_version: topology.meta.version,
-            samples,
+            client: client_id,
+            version: app_version,
+            topology: topology.version,
+            samples: &samples[..samples.len().min(MAX_SAMPLES)],
         }) else {
             return false;
         };
 
-        for sink in &topology.ingest {
-            let Some(origin) = sink.origin() else {
-                continue;
-            };
-            let url = format!("{origin}/report");
-            for target in targets(sink, &url) {
-                let request = self
-                    .client
-                    .post(&target.url)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-                    .body(body.clone())
-                    .timeout(DELIVERY_TIMEOUT);
-                if request
-                    .send()
-                    .await
-                    .is_ok_and(|response| response.status().is_success())
-                {
-                    return true;
-                }
+        for origin in &topology.ingest {
+            let url = format!("{}/report", origin.trim_end_matches('/'));
+            let request = self
+                .client
+                .post(&url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body.clone())
+                .timeout(DELIVERY_TIMEOUT);
+            if request
+                .send()
+                .await
+                .is_ok_and(|response| response.status().is_success())
+            {
+                return true;
             }
         }
         false
     }
-}
-
-/// Воркер-тира больше нет: синк — это всегда конкретный URL.
-fn targets(_sink: &IngestSink, url: &str) -> Vec<Target> {
-    vec![Target {
-        url: url.to_string(),
-    }]
-}
-
-struct Target {
-    url: String,
 }

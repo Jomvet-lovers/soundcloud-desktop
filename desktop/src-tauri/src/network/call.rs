@@ -1,16 +1,19 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use call_client::{run_agent, AgentConfig, Identity, IdentityStore, ProvisionInput};
-use serde::{Deserialize, Serialize};
 use crate::rt::AppHandle;
+use call_client::{AgentConfig, Identity, IdentityStore, ProvisionInput, run_agent_session};
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 const FLAG_FILE: &str = "call_enabled.json";
-const DEFAULT_ENDPOINT: &str = "https://call.scnative.space:444";
+const DEVICE_FILE: &str = "call_device.json";
+const ORIGIN_ZONE: &str = "scnative.space";
+const DEFAULT_ENDPOINT: &str = "https://call.scnative.space";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -29,6 +32,7 @@ struct EnabledFlag {
 
 pub struct CallState {
     config_path: PathBuf,
+    device_id: String,
     status: Mutex<CallStatus>,
     runtime: tokio::runtime::Handle,
     cancel: Mutex<Option<tokio::task::AbortHandle>>,
@@ -37,6 +41,7 @@ pub struct CallState {
 impl CallState {
     pub fn init(app_data_dir: PathBuf, runtime: tokio::runtime::Handle) -> Arc<Self> {
         Arc::new(Self {
+            device_id: load_or_create_device_id(&app_data_dir),
             config_path: app_data_dir.join(FLAG_FILE),
             status: Mutex::new(CallStatus::Disabled),
             runtime,
@@ -74,37 +79,35 @@ pub fn maybe_autostart(app: &AppHandle, state: Arc<CallState>) {
 }
 
 async fn spawn_agent(app: AppHandle, state: Arc<CallState>) {
-    {
-        let mut cancel = state.cancel.lock().await;
-        if let Some(h) = cancel.take() {
-            h.abort();
-        }
+    let mut cancel = state.cancel.lock().await;
+    if let Some(handle) = cancel.take() {
+        handle.abort();
     }
     let s = state.clone();
     let handle = tokio::spawn(async move {
         supervise(app, s).await;
     });
-    *state.cancel.lock().await = Some(handle.abort_handle());
+    *cancel = Some(handle.abort_handle());
 }
 
-/// Эндпоинт релея перебирается по тирам (прямой → temp-relay), обрыв — не конец
-/// агента: переподключаемся с бэкоффом, иначе один сетевой чих выключает call
-/// до перезапуска приложения.
 async fn supervise(app: AppHandle, state: Arc<CallState>) {
     let mut backoff = Duration::from_secs(5);
     loop {
         let mut connected = false;
 
-        for hop in endpoint_candidates() {
-            match run_call_loop(app.clone(), state.clone(), &hop.url).await {
+        for endpoint in endpoint_candidates(&state.device_id).await {
+            let became_active = Arc::new(AtomicBool::new(false));
+            let result =
+                run_call_loop(app.clone(), state.clone(), &endpoint, became_active.clone()).await;
+            if became_active.load(Ordering::Relaxed) {
+                connected = true;
+            }
+            match result {
                 Ok(()) => {
-                    hop.note(true);
-                    connected = true;
                     break;
                 }
                 Err(e) => {
-                    hop.note(false);
-                    warn!(endpoint = %hop.url, error = %e, "call agent terminated");
+                    warn!(endpoint = %endpoint, error = %e, "call agent terminated");
                     *state.status.lock().await = CallStatus::Failed { error: e };
                 }
             }
@@ -122,9 +125,66 @@ async fn supervise(app: AppHandle, state: Arc<CallState>) {
     }
 }
 
-fn endpoint_candidates() -> Vec<crate::network::edge::Hop> {
-    let configured = std::env::var("CALL_EDGE_ENDPOINT").ok();
-    crate::network::edge::call_endpoints(configured.as_deref().unwrap_or(DEFAULT_ENDPOINT))
+async fn endpoint_candidates(device_id: &str) -> Vec<String> {
+    if let Ok(configured) = std::env::var("CALL_EDGE_ENDPOINT") {
+        return vec![configured];
+    }
+    let pool = crate::network::edge::call_pool();
+    if pool.is_empty() {
+        return vec![DEFAULT_ENDPOINT.to_string()];
+    }
+
+    let ordered = super::call_nodes::order(device_id, &pool);
+    let http = match reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+    {
+        Ok(http) => http,
+        Err(_) => return vec![DEFAULT_ENDPOINT.to_string()],
+    };
+
+    let mut usable = Vec::new();
+    for node in ordered {
+        let endpoint = format!("https://{node}.{ORIGIN_ZONE}");
+        let reach = super::call_nodes::reach(&http, &endpoint).await;
+        if reach.usable() {
+            usable.push(endpoint);
+        } else {
+            warn!(node = %node, reach = reach.as_str(), "call node path unusable, skipping");
+        }
+    }
+    if usable.is_empty() {
+        vec![DEFAULT_ENDPOINT.to_string()]
+    } else {
+        usable
+    }
+}
+
+fn load_or_create_device_id(dir: &std::path::Path) -> String {
+    let path = dir.join(DEVICE_FILE);
+    if let Ok(raw) = std::fs::read(&path)
+        && let Ok(stored) = serde_json::from_slice::<DeviceId>(&raw)
+    {
+        let id = stored.device_id.trim();
+        if !id.is_empty() && id.len() <= 64 {
+            return id.to_string();
+        }
+    }
+    let device_id = uuid::Uuid::new_v4().to_string();
+    if let Ok(raw) = serde_json::to_vec(&DeviceId {
+        device_id: device_id.clone(),
+    }) {
+        let temp = path.with_extension("tmp");
+        if std::fs::write(&temp, raw).is_ok() && std::fs::rename(&temp, &path).is_err() {
+            let _ = std::fs::remove_file(temp);
+        }
+    }
+    device_id
+}
+
+#[derive(Serialize, Deserialize)]
+struct DeviceId {
+    device_id: String,
 }
 
 fn fmt_chain<E: std::error::Error + ?Sized>(e: &E) -> String {
@@ -142,6 +202,7 @@ async fn run_call_loop(
     _app: AppHandle,
     state: Arc<CallState>,
     endpoint: &str,
+    became_active: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let endpoint_url = endpoint.to_string();
     let pow_difficulty = std::env::var("CALL_POW_DIFFICULTY_BITS")
@@ -170,22 +231,37 @@ async fn run_call_loop(
 
     *state.status.lock().await = CallStatus::Connecting;
 
-    let http = crate::network::dpi::apply(
-        reqwest::Client::builder().connect_timeout(Duration::from_secs(5)),
-    )
-    .build()
-    .map_err(|e| fmt_chain(&e))?;
+    let http = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|e| fmt_chain(&e))?;
 
-    *state.status.lock().await = CallStatus::Active;
-    info!("call agent active");
-    match run_agent(AgentConfig {
-        endpoint_url,
-        identity: Arc::new(identity),
-        http,
-        heartbeat_interval_ms: 5000,
-    })
-    .await
-    {
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let session = run_agent_session(
+        AgentConfig {
+            endpoint_url,
+            identity: Arc::new(identity),
+            http,
+            heartbeat_interval_ms: 5000,
+        },
+        move || {
+            let _ = ready_tx.send(());
+        },
+    );
+    tokio::pin!(session);
+    let result = tokio::select! {
+        biased;
+        ready = ready_rx => {
+            if ready.is_ok() {
+                became_active.store(true, Ordering::Relaxed);
+                *state.status.lock().await = CallStatus::Active;
+                info!("call agent active");
+            }
+            session.await
+        },
+        result = &mut session => result,
+    };
+    match result {
         Ok(()) => Ok(()),
         Err(e) if e.is_disabled() => {
             *state.status.lock().await = CallStatus::Disabled;
@@ -255,4 +331,17 @@ pub async fn call_status(state: State<'_, Arc<CallState>>) -> Result<CallStatus,
 
 pub fn manage_state(app: &AppHandle, state: Arc<CallState>) {
     app.manage(state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DEFAULT_ENDPOINT;
+
+    #[test]
+    fn default_edge_endpoint_uses_standard_https_port() {
+        let endpoint = url::Url::parse(DEFAULT_ENDPOINT).expect("valid default Edge URL");
+
+        assert_eq!(endpoint.port(), None);
+        assert_eq!(endpoint.port_or_known_default(), Some(443));
+    }
 }

@@ -658,8 +658,6 @@
     "wpKeyHint": "Stored locally. Grab one in your Wallhaven account settings.",
     "wpKeyNeeded": "Enter your Wallhaven API key to unlock 18+ results.",
     "bypassWhitelistSoonDesc": "We're shipping bypass routing — stay tuned",
-    "dpiBypass": "Bypass DPI blocking",
-    "dpiBypassDesc": "Helps SoundCloud work when your provider blocks or throttles it.",
     "import": "Import",
     "importYandex": "Import from Yandex Music"
   },

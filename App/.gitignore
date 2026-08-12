@@ -1,0 +1,3 @@
+# dev-only bootstrap: sc-rpc пишет сюда {port,token} для превью в браузере.
+# Токен одноразовый (регенерится при каждом старте sc-rpc) — в гит не класть.
+public/rpc-endpoint.json

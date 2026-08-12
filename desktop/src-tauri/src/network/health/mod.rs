@@ -1,10 +1,6 @@
-//! Crowd-sourced endpoint health for the maintained Tauri client.
-//!
-//! This is a compatibility adapter for the server-owned health contract. The
-//! future Core/RN agent remains independent; Tauri only mirrors `/topology`,
-//! `/report`, per-route probing, and anonymous per-install identity.
-
 mod delivery;
+mod discovery;
+mod link;
 mod model;
 mod net_watch;
 mod probe;
@@ -20,6 +16,8 @@ use uuid::Uuid;
 
 use self::delivery::Delivery;
 use self::model::Topology;
+use self::probe::Pool;
+use crate::network::edge;
 use crate::app::diagnostics::log_native;
 
 const IDENTITY_FILE: &str = "health_identity.json";
@@ -42,14 +40,22 @@ struct Agent {
 pub fn start(data_dir: PathBuf, app: crate::rt::AppHandle, runtime: Handle) {
     let app_version = env!("CARGO_PKG_VERSION").to_string();
     let client_id = load_or_create_identity(&data_dir);
-    let client = match reqwest::Client::builder()
-        .no_proxy()
-        .user_agent(format!("soundcloud-desktop-health/{app_version}"))
-        .connect_timeout(Duration::from_secs(3))
-        .build()
-    {
-        Ok(client) => client,
-        Err(error) => {
+    let build = |pooled: bool| {
+        let builder = reqwest::Client::builder()
+            .no_proxy()
+            .user_agent(format!("soundcloud-desktop-health/{app_version}"))
+            .connect_timeout(Duration::from_secs(3));
+        if pooled {
+            builder.build()
+        } else {
+            builder.pool_max_idle_per_host(0).build()
+        }
+    };
+    // Счётчик объёма у DPI живёт на TCP-сессии: переиспользованная приходит к
+    // пробе уже за порогом, и тогда любой замер показывает вмешательство.
+    let (client, probe_client) = match (build(true), build(false)) {
+        (Ok(client), Ok(probe_client)) => (client, probe_client),
+        (Err(error), _) | (_, Err(error)) => {
             log_native(
                 &app,
                 "WARN",
@@ -63,8 +69,8 @@ pub fn start(data_dir: PathBuf, app: crate::rt::AppHandle, runtime: Handle) {
         app,
         app_version,
         client_id,
-        delivery: Delivery::new(client.clone()),
-        probe_client: client,
+        delivery: Delivery::new(client),
+        probe_client,
         nudge: Arc::new(Notify::new()),
     };
     runtime.spawn(agent.run());
@@ -76,32 +82,50 @@ impl Agent {
         tokio::spawn(net_watch::run(watcher_nudge));
 
         let mut topology = Topology::bootstrap();
+        let mut round = 0usize;
         loop {
             let started = Instant::now();
+            round = round.wrapping_add(1);
             if let Some(fresh) = self.delivery.fetch_topology(&topology).await {
                 topology = fresh;
             }
 
-            let samples = probe::probe_all(&self.probe_client, &topology).await;
-            let delivered = self
+            let pool = Pool {
+                relays: discovery::relays(&topology.relays).await,
+                calls: discovery::calls(&topology.call_nodes()).await,
+            };
+            edge::set_pool(pool.relays.clone(), topology.weighted_calls(&pool.calls));
+
+            let paths = probe::probe_paths(&self.probe_client, &pool, round).await;
+            let early = self
                 .delivery
-                .report(&topology, &self.client_id, &self.app_version, &samples)
+                .report(&topology, &self.client_id, &self.app_version, &paths)
                 .await;
-            let ok = samples.iter().filter(|sample| sample.ok).count();
+
+            let services = probe::probe_services(&self.probe_client, &topology, &pool).await;
+            let late = self
+                .delivery
+                .report(&topology, &self.client_id, &self.app_version, &services)
+                .await;
+
+            let delivered = early || late;
+            let ok = services.iter().filter(|sample| sample.ok).count();
             log_native(
                 &self.app,
                 if delivered { "INFO" } else { "WARN" },
                 format!(
-                    "[Health] topology={} samples={} reachable={} delivered={} elapsed={}ms",
-                    topology.meta.version,
-                    samples.len(),
+                    "[Health] topology={} relays={} calls={} samples={} reachable={} delivered={} elapsed={}ms",
+                    topology.version,
+                    pool.relays.len(),
+                    pool.calls.len(),
+                    paths.len() + services.len(),
                     ok,
                     delivered,
                     started.elapsed().as_millis()
                 ),
             );
 
-            let interval = Duration::from_secs(topology.meta.probe_interval_secs.max(30));
+            let interval = Duration::from_secs(topology.probe_interval_secs.max(30));
             tokio::select! {
                 _ = tokio::time::sleep(interval) => {}
                 _ = self.nudge.notified() => {

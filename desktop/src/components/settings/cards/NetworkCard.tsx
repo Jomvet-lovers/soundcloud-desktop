@@ -83,8 +83,6 @@ export function NetworkCard() {
     const {t} = useTranslation();
     const bypassWhitelist = useSettingsStore((s) => s.bypassWhitelist);
     const setBypassWhitelist = useSettingsStore((s) => s.setBypassWhitelist);
-    const dpiBypass = useSettingsStore((s) => s.dpiBypass);
-    const setDpiBypass = useSettingsStore((s) => s.setDpiBypass);
     const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
     const {data: isPremium} = useSubscription(isAuthenticated);
 
@@ -108,12 +106,6 @@ export function NetworkCard() {
                     </Row>
                     <ComingSoonOverlay/>
                 </div>
-
-                <div className="border-t border-white/[0.05]"/>
-
-                <Row title={t('settings.dpiBypass')} desc={t('settings.dpiBypassDesc')}>
-                    <Toggle checked={dpiBypass} onChange={() => setDpiBypass(!dpiBypass)}/>
-                </Row>
             </div>
         </Card>
     );

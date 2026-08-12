@@ -568,8 +568,6 @@
     "wpKeyHint": "Yerel olarak saklanir. Wallhaven hesap ayarlarindan alabilirsiniz.",
     "wpKeyNeeded": "18+ sonuclar icin Wallhaven API anahtarini girin.",
     "bypassWhitelistSoonDesc": "Atlatma rotalamasi gelistirme asamasinda",
-    "dpiBypass": "DPI engellemeyi atla",
-    "dpiBypassDesc": "Saglayicin engelliyor veya yavaslatiyorsa SoundCloud'un calismasina yardim eder.",
     "import": "Ice aktar",
     "importYandex": "Yandex Music'ten ice aktar"
   },
