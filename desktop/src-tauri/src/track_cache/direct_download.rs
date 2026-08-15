@@ -10,7 +10,7 @@ use std::pin::Pin;
 use base64::Engine as _;
 use bytes::Bytes;
 use futures_util::future::select_all;
-use reqwest::Client;
+use wreq::Client;
 
 use super::sc_anon::hls::{download_hls_full, download_progressive};
 use super::state::PlaybackQuality;

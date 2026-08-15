@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
-use reqwest::Client;
+use wreq::Client;
 use sha2::{Digest, Sha256};
 
 use super::model::Link;

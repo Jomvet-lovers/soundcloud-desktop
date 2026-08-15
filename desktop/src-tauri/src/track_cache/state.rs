@@ -7,7 +7,8 @@ use std::sync::Mutex as StdMutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
-use reqwest::{Client, Url};
+use wreq::Url;
+use wreq::Client;
 use tauri::Emitter;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -207,7 +208,7 @@ fn normalize_error_body(body: &str) -> Option<String> {
     }
 }
 
-fn format_reqwest_error(err: reqwest::Error) -> String {
+fn format_reqwest_error(err: wreq::Error) -> String {
     let mut details = Vec::new();
     if err.is_timeout() {
         details.push("timeout".to_string());
@@ -541,7 +542,9 @@ pub struct TrackCacheState {
     /// transcode into the clean m4a caches (`audio_dir` / `liked_dir` = folder "Б").
     pub incoming_dir: PathBuf,
     pub client: Client,
-    pub storage_client: Client,
+    /// Свой storage — обычный клиент.
+    pub storage_client: wreq::Client,
+    /// Прямая загрузка с CDN SoundCloud — с браузерным отпечатком TLS/HTTP2.
     pub direct_client: Client,
     pub app_handle: Option<crate::rt::AppHandle>,
     /// Managed ffmpeg binary, populated asynchronously at startup (system PATH
@@ -575,8 +578,8 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         sweep_temp_files(dir);
     }
 
-    let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
+    let client = sc_fingerprint::builder(None)
+        .redirect(wreq::redirect::Policy::limited(10))
         .tcp_nodelay(true)
         .pool_max_idle_per_host(16)
         .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
@@ -584,8 +587,8 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         .build()
         .expect("failed to build reqwest client");
 
-    let storage_client = Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
+    let storage_client = wreq::Client::builder()
+        .redirect(wreq::redirect::Policy::limited(10))
         .tcp_nodelay(true)
         .pool_max_idle_per_host(4)
         .connect_timeout(Duration::from_millis(STORAGE_CONNECT_TIMEOUT_MS))
@@ -593,8 +596,8 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         .build()
         .expect("failed to build storage client");
 
-    let direct_client = Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
+    let direct_client = sc_fingerprint::builder(None)
+        .redirect(wreq::redirect::Policy::limited(10))
         .tcp_nodelay(true)
         .pool_max_idle_per_host(16)
         .connect_timeout(Duration::from_millis(DIRECT_CONNECT_TIMEOUT_MS))
@@ -602,8 +605,8 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         .build()
         .expect("failed to build direct client");
 
-    let anon_client = Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
+    let anon_client = sc_fingerprint::builder(None)
+        .redirect(wreq::redirect::Policy::limited(10))
         .tcp_nodelay(true)
         .pool_max_idle_per_host(16)
         .connect_timeout(Duration::from_millis(DOWNLOAD_CONNECT_TIMEOUT_MS))
@@ -689,7 +692,7 @@ async fn write_cache_metadata(path: &Path, meta: &TrackCacheMetadata) {
 async fn write_response_to_cache(
     target_dir: &Path,
     urn: &str,
-    response: reqwest::Response,
+    response: wreq::Response,
     quality: PlaybackQuality,
     source: DownloadSource,
     app_handle: Option<&crate::rt::AppHandle>,

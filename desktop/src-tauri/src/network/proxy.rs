@@ -9,7 +9,7 @@ use crate::shared::constants::is_domain_whitelisted;
 
 pub struct State {
     pub assets_dir: PathBuf,
-    pub http_client: reqwest::Client,
+    pub http_client: wreq::Client,
     pub rt_handle: tokio::runtime::Handle,
 }
 

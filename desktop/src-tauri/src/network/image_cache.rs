@@ -16,7 +16,7 @@ use crate::shared::constants::is_domain_whitelisted;
 /// a single directory.
 pub struct ImageCache {
     pub dir: PathBuf,
-    pub http_client: reqwest::Client,
+    pub http_client: wreq::Client,
 }
 
 pub static STATE: OnceLock<ImageCache> = OnceLock::new();

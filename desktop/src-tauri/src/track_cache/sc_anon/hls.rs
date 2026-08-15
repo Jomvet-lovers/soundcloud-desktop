@@ -6,7 +6,7 @@
 //! back to the streaming server).
 
 use bytes::{Bytes, BytesMut};
-use reqwest::Client;
+use wreq::Client;
 use url::Url;
 
 const HLS_PREFETCH_SEGMENTS: usize = 3;

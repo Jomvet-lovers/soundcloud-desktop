@@ -111,15 +111,15 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-22.04-arm'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libasound2-dev protobuf-compiler
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libasound2-dev protobuf-compiler cmake clang libclang-dev golang-go pkg-config
 
       - name: Install dependencies (macos only)
         if: matrix.platform == 'macos-latest'
-        run: brew install autoconf automake libtool protobuf
+        run: brew install autoconf automake libtool protobuf cmake go
 
       - name: Install protoc (windows only)
         if: matrix.platform == 'windows-latest'
-        run: choco install protoc -y --no-progress
+        run: choco install protoc cmake golang nasm -y --no-progress
 
       - name: Checkout internal repo (when PAT present)
         if: ${{ env.HAS_INTERNAL_PAT == 'true' }}
@@ -266,6 +266,8 @@ jobs:
     needs: [version, build, flatpak]
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.published.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -309,3 +311,28 @@ jobs:
             ### НЕ ЗНАЕШЬ КАКОЙ ФАЙЛ КАЧАТЬ? СКАЧАЙ НА САЙТЕ - https://soundcloud-desktop.fun/download
 
             ---
+
+      # release-helper создаёт релиз через GITHUB_TOKEN — событие release:published
+      # от него НЕ триггерит другие воркфлоу (защита от рекурсии), поэтому AUR
+      # дёргаем явно через workflow_call (см. job publish-aur ниже).
+      # Отдаём тег только если релиз реально опубликован (не draft из коммита с !draft).
+      - name: Resolve published tag
+        id: published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          for T in "$V" "v$V"; do
+            if [ "$(gh release view "$T" --json isDraft -q .isDraft 2>/dev/null)" = "false" ]; then
+              echo "tag=$T" >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done
+
+  publish-aur:
+    needs: [version, release]
+    if: ${{ needs.release.result == 'success' && needs.release.outputs.tag != '' }}
+    uses: ./.github/workflows/aur-publish.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit

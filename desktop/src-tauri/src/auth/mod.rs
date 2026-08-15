@@ -31,14 +31,14 @@ pub struct AuthState {
 pub struct SessionStore {
     path: PathBuf,
     state: RwLock<AuthState>,
-    http: reqwest::Client,
+    http: wreq::Client,
     rt: tokio::runtime::Handle,
 }
 
 impl SessionStore {
     pub fn init(
         app_data_dir: PathBuf,
-        http: reqwest::Client,
+        http: wreq::Client,
         rt: tokio::runtime::Handle,
     ) -> Arc<Self> {
         let path = app_data_dir.join(SESSION_FILE);

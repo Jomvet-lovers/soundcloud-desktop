@@ -328,7 +328,7 @@ pub fn note(origin: &str, tier: Tier, ok: bool) {
     }
 }
 
-pub fn hop_ok(hop: &Hop, resp: &reqwest::Response) -> bool {
+pub fn hop_ok(hop: &Hop, resp: &wreq::Response) -> bool {
     let status = resp.status().as_u16();
     match hop.tier {
         Tier::Direct => {
@@ -348,11 +348,11 @@ pub fn hop_ok(hop: &Hop, resp: &reqwest::Response) -> bool {
     }
 }
 
-fn direct_infrastructure_error(resp: &reqwest::Response) -> bool {
+fn direct_infrastructure_error(resp: &wreq::Response) -> bool {
     let status = resp.status().as_u16();
     let content_type = resp
         .headers()
-        .get(reqwest::header::CONTENT_TYPE)
+        .get(wreq::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     direct_infrastructure_headers(status, content_type)

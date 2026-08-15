@@ -77,7 +77,9 @@ pub fn run() {
 
             network::edge::init(data_dir.clone());
 
-            let http_client = reqwest::Client::new();
+            let http_client = sc_fingerprint::client(None)
+                .map(|c| (*c).clone())
+                .expect("failed to build HTTP client");
             let auth_http_client = http_client.clone();
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 

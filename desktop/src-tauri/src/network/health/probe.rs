@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use futures_util::stream::{self, StreamExt};
-use reqwest::Client;
+use wreq::Client;
 
 use super::link;
 use super::model::{PROBE_PATH, Sample, Topology};

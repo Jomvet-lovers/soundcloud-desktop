@@ -9,6 +9,12 @@ on:
         description: "Тег релиза (например 7.5.0). Пусто = взять из release event."
         required: false
         default: ""
+  workflow_call:
+    inputs:
+      tag:
+        description: "Тег опубликованного релиза"
+        required: true
+        type: string
 
 jobs:
   publish-to-aur:

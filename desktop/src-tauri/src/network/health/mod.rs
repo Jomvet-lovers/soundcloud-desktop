@@ -33,7 +33,7 @@ struct Agent {
     app_version: String,
     client_id: String,
     delivery: Delivery,
-    probe_client: reqwest::Client,
+    probe_client: wreq::Client,
     nudge: Arc<Notify>,
 }
 
@@ -41,7 +41,7 @@ pub fn start(data_dir: PathBuf, app: crate::rt::AppHandle, runtime: Handle) {
     let app_version = env!("CARGO_PKG_VERSION").to_string();
     let client_id = load_or_create_identity(&data_dir);
     let build = |pooled: bool| {
-        let builder = reqwest::Client::builder()
+        let builder = wreq::Client::builder()
             .no_proxy()
             .user_agent(format!("soundcloud-desktop-health/{app_version}"))
             .connect_timeout(Duration::from_secs(3));

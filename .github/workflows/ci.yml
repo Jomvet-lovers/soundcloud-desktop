@@ -38,7 +38,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev cmake clang libclang-dev golang-go pkg-config
 
       - name: Install dependencies (macos only)
         if: matrix.platform == 'macos-latest'
@@ -204,11 +204,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev protobuf-compiler
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev protobuf-compiler cmake clang libclang-dev golang-go pkg-config
       - if: matrix.platform == 'macos-latest'
-        run: brew install autoconf automake libtool protobuf
+        run: brew install autoconf automake libtool protobuf cmake go
       - if: matrix.platform == 'windows-latest'
-        run: choco install protoc -y --no-progress
+        run: choco install protoc cmake golang nasm -y --no-progress
 
       - uses: pnpm/action-setup@v4
         with:

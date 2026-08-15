@@ -8,7 +8,7 @@
 pub(super) mod hls;
 
 use bytes::Bytes;
-use reqwest::Client;
+use wreq::Client;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;

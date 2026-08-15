@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use reqwest::Client;
+use wreq::Client;
 use serde::Serialize;
 
 use super::model::{Sample, Topology};
@@ -65,7 +65,7 @@ impl Delivery {
             let request = self
                 .client
                 .post(&url)
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .header(wreq::header::CONTENT_TYPE, "application/json")
                 .body(body.clone())
                 .timeout(DELIVERY_TIMEOUT);
             if request

@@ -10,14 +10,14 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use reqwest::{Client, Response};
+use wreq::{Client, Response};
 
 use super::edge::{self, Hop};
 
 const HEDGE_DELAY: Duration = Duration::from_millis(300);
 
 type Attempt =
-    Pin<Box<dyn Future<Output = (Hop, Result<Response, reqwest::Error>)> + Send + 'static>>;
+    Pin<Box<dyn Future<Output = (Hop, Result<Response, wreq::Error>)> + Send + 'static>>;
 
 pub async fn get(
     client: &Client,
@@ -110,7 +110,7 @@ mod tests {
         ];
         let started = Instant::now();
         let (response, hop) = get_from_hops(
-            &reqwest::Client::new(),
+            &wreq::Client::new(),
             hops,
             None,
             Duration::from_millis(40),
