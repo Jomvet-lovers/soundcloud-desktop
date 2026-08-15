@@ -96,7 +96,7 @@ pub async fn ym_import_start(
 ) -> Result<(), String> {
     CANCEL_FLAG.store(false, Ordering::Relaxed);
 
-    let client = reqwest::Client::new();
+    let client = wreq::Client::new();
 
     let uid_resp = client
         .get("https://api.music.yandex.net/account/status")

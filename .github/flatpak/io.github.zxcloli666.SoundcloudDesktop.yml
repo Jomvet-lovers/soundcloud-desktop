@@ -5,6 +5,7 @@ sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
   - org.freedesktop.Sdk.Extension.node22
+  - org.freedesktop.Sdk.Extension.llvm20
 
 command: soundcloud-desktop
 
@@ -25,10 +26,12 @@ finish-args:
   - --filesystem=xdg-run/app/com.discordapp.Discord
 
 build-options:
-  append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin
+  append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
+  prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
   env:
     CARGO_HOME: /run/build/soundcloud-desktop/cargo
     npm_config_nodedir: /usr/lib/sdk/node22
+    LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
 
 modules:
   - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json

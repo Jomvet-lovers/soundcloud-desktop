@@ -542,9 +542,7 @@ pub struct TrackCacheState {
     /// transcode into the clean m4a caches (`audio_dir` / `liked_dir` = folder "Б").
     pub incoming_dir: PathBuf,
     pub client: Client,
-    /// Свой storage — обычный клиент.
-    pub storage_client: wreq::Client,
-    /// Прямая загрузка с CDN SoundCloud — с браузерным отпечатком TLS/HTTP2.
+    pub storage_client: Client,
     pub direct_client: Client,
     pub app_handle: Option<crate::rt::AppHandle>,
     /// Managed ffmpeg binary, populated asynchronously at startup (system PATH

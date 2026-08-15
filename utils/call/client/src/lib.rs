@@ -56,7 +56,7 @@ pub struct ProvisionInput {
 pub struct AgentConfig {
     pub endpoint_url: String,
     pub identity: Arc<Identity>,
-    pub http: reqwest::Client,
+    pub http: wreq::Client,
     pub heartbeat_interval_ms: u64,
 }
 

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use reqwest::Client;
+use wreq::Client;
 use sha2::{Digest, Sha256};
 
 const PROBE_PATH: &str = "/health50kb";

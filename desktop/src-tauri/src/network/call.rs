@@ -135,7 +135,7 @@ async fn endpoint_candidates(device_id: &str) -> Vec<String> {
     }
 
     let ordered = super::call_nodes::order(device_id, &pool);
-    let http = match reqwest::Client::builder()
+    let http = match sc_fingerprint::builder(None)
         .connect_timeout(Duration::from_secs(5))
         .build()
     {
@@ -231,7 +231,7 @@ async fn run_call_loop(
 
     *state.status.lock().await = CallStatus::Connecting;
 
-    let http = reqwest::Client::builder()
+    let http = sc_fingerprint::builder(None)
         .connect_timeout(Duration::from_secs(5))
         .build()
         .map_err(|e| fmt_chain(&e))?;

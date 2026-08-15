@@ -237,7 +237,7 @@ pub async fn load_url(
 ) -> Result<AudioLoadResult, String> {
     let generation = state.load_gen.load(Ordering::Relaxed);
 
-    let client = reqwest::Client::new();
+    let client = wreq::Client::new();
     let retry_delays = [300u64, 800, 2000];
     let mut last_err = String::new();
     let mut bytes: Vec<u8> = Vec::new();

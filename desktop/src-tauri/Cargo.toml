@@ -26,11 +26,8 @@ tauri-plugin-http = "2.5.7"
 base64 = "0.22"
 sha2 = "0.10"
 hex = "0.4"
-reqwest = { version = "0.12", features = ["rustls-tls", "stream", "json", "socks"], default-features = false }
-# Запросы к SoundCloud (CDN, apiv2, анонимный client_id) идут с браузерным
-# отпечатком TLS/HTTP2 — см. sc-fingerprint. Свой storage остаётся на reqwest.
 sc-fingerprint = { git = "https://github.com/zxcloli666/SoundCloud-Backend", tag = "v8.5.8" }
-wreq = { version = "5", features = ["json", "stream", "gzip", "brotli"] }
+wreq = { version = "5", features = ["json", "stream", "gzip", "brotli", "socks"] }
 futures-util = "0.3"
 http = "1"
 urlencoding = "2"
