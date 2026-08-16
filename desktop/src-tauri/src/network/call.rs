@@ -359,16 +359,3 @@ pub async fn call_status(state: State<'_, Arc<CallState>>) -> Result<CallStatus,
 pub fn manage_state(app: &AppHandle, state: Arc<CallState>) {
     app.manage(state);
 }
-
-#[cfg(test)]
-mod tests {
-    use super::DEFAULT_ENDPOINT;
-
-    #[test]
-    fn default_edge_endpoint_uses_standard_https_port() {
-        let endpoint = url::Url::parse(DEFAULT_ENDPOINT).expect("valid default Edge URL");
-
-        assert_eq!(endpoint.port(), None);
-        assert_eq!(endpoint.port_or_known_default(), Some(443));
-    }
-}

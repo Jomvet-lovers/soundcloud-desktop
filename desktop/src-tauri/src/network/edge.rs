@@ -20,6 +20,7 @@ const RELAYS: &[(&str, &str)] = &[
     ("images.scnative.space", "images"),
     ("storage.scnative.space", "storage"),
     ("storage-star.scnative.space", "storage-star"),
+    ("s3.scnative.space", "s3"),
     ("pay.scnative.space", "pay"),
 ];
 
