@@ -13,7 +13,6 @@ use tracing::{info, warn};
 const FLAG_FILE: &str = "call_enabled.json";
 const DEVICE_FILE: &str = "call_device.json";
 const ORIGIN_ZONE: &str = "scnative.space";
-const DEFAULT_ENDPOINT: &str = "https://call.scnative.space";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -94,8 +93,12 @@ async fn supervise(app: AppHandle, state: Arc<CallState>) {
     let mut backoff = Duration::from_secs(5);
     loop {
         let mut connected = false;
+        let candidates = endpoint_candidates(&state.device_id).await;
+        if candidates.is_empty() {
+            warn!(zone = ORIGIN_ZONE, "в зоне не нашлось ни одной call-ноды");
+        }
 
-        for endpoint in endpoint_candidates(&state.device_id).await {
+        for endpoint in candidates {
             let became_active = Arc::new(AtomicBool::new(false));
             let result =
                 run_call_loop(app.clone(), state.clone(), &endpoint, became_active.clone()).await;
@@ -126,38 +129,61 @@ async fn supervise(app: AppHandle, state: Arc<CallState>) {
 }
 
 async fn endpoint_candidates(device_id: &str) -> Vec<String> {
-    if let Ok(configured) = std::env::var("CALL_EDGE_ENDPOINT") {
-        return vec![configured];
-    }
-    let pool = crate::network::edge::call_pool();
-    if pool.is_empty() {
-        return vec![DEFAULT_ENDPOINT.to_string()];
-    }
+    let configured = std::env::var("CALL_EDGE_ENDPOINT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
-    let ordered = super::call_nodes::order(device_id, &pool);
-    let http = match sc_fingerprint::builder(None)
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-    {
-        Ok(http) => http,
-        Err(_) => return vec![DEFAULT_ENDPOINT.to_string()],
+    let pool = crate::network::edge::call_pool();
+    let ordered: Vec<String> = if pool.is_empty() {
+        call_client::nodes::discover(ORIGIN_ZONE)
+            .await
+            .into_iter()
+            .map(|host| format!("https://{host}"))
+            .collect()
+    } else {
+        super::call_nodes::order(device_id, &pool)
+            .into_iter()
+            .map(|node| format!("https://{node}.{ORIGIN_ZONE}"))
+            .collect()
     };
 
-    let mut usable = Vec::new();
-    for node in ordered {
-        let endpoint = format!("https://{node}.{ORIGIN_ZONE}");
-        let reach = super::call_nodes::reach(&http, &endpoint).await;
-        if reach.usable() {
-            usable.push(endpoint);
+    let http = sc_fingerprint::builder(None)
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .ok();
+
+    let mut preferred = Vec::new();
+    let mut fallback = Vec::new();
+    for endpoint in ordered {
+        let Some(http) = &http else {
+            preferred.push(endpoint);
+            continue;
+        };
+        let probe = super::call_nodes::inspect(http, &endpoint).await;
+        if probe.usable() {
+            info!(
+                endpoint = %endpoint,
+                node_version = probe.version_or_unknown(),
+                "call node reachable"
+            );
+            preferred.push(endpoint);
         } else {
-            warn!(node = %node, reach = reach.as_str(), "call node path unusable, skipping");
+            warn!(
+                endpoint = %endpoint,
+                reach = probe.reach.as_str(),
+                node_version = probe.version_or_unknown(),
+                "call node path degraded, trying it last"
+            );
+            fallback.push(endpoint);
         }
     }
-    if usable.is_empty() {
-        vec![DEFAULT_ENDPOINT.to_string()]
-    } else {
-        usable
-    }
+
+    let mut candidates = configured.into_iter().collect::<Vec<_>>();
+    candidates.extend(preferred);
+    candidates.extend(fallback);
+    candidates.dedup();
+    candidates
 }
 
 fn load_or_create_device_id(dir: &std::path::Path) -> String {
@@ -243,6 +269,7 @@ async fn run_call_loop(
             identity: Arc::new(identity),
             http,
             heartbeat_interval_ms: 5000,
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
         },
         move || {
             let _ = ready_tx.send(());

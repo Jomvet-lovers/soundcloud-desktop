@@ -1,6 +1,35 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub mod nodes {
+    pub const NODE_PREFIX: &str = "call-";
+    pub const MISSES_TO_STOP: usize = 2;
+    pub const MAX_INDEX: usize = 64;
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct Node {
+        pub id: String,
+        pub weight: f64,
+    }
+
+    impl Node {
+        pub fn new(id: impl Into<String>, weight: f64) -> Self {
+            Self {
+                id: id.into(),
+                weight: weight.max(0.0),
+            }
+        }
+    }
+
+    pub fn order(_device_id: &str, _nodes: &[Node]) -> Vec<String> {
+        Vec::new()
+    }
+
+    pub async fn discover(_zone: &str) -> Vec<String> {
+        Vec::new()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("call-client disabled")]
@@ -58,6 +87,7 @@ pub struct AgentConfig {
     pub identity: Arc<Identity>,
     pub http: wreq::Client,
     pub heartbeat_interval_ms: u64,
+    pub app_version: String,
 }
 
 pub async fn provision(_endpoint_url: &str, _input: ProvisionInput) -> Result<Identity, Error> {

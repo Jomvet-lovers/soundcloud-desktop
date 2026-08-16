@@ -4,9 +4,11 @@ use futures_util::StreamExt;
 use wreq::Client;
 use sha2::{Digest, Sha256};
 
-const PROBE_PATH: &str = "/health50kb";
-const PROBE_BYTES: u64 = 50 * 1024;
+const PROBE_PATH: &str = "/probe";
+const PROBE_BYTES: u64 = 64 * 1024;
 const DIGEST_HEADER: &str = "x-probe-sha256";
+const VERSION_HEADER: &str = "x-node-version";
+const MAX_VERSION_LEN: usize = 32;
 const DEADLINE: Duration = Duration::from_secs(20);
 const STALL: Duration = Duration::from_secs(6);
 
@@ -58,13 +60,39 @@ fn score(device_id: &str, node: &str, weight: f64) -> f64 {
     weight / -unit.ln()
 }
 
-pub async fn reach(http: &Client, base: &str) -> Reach {
-    let url = format!("{}{PROBE_PATH}", base.trim_end_matches('/'));
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Probe {
+    pub reach: Reach,
+    pub node_version: Option<String>,
+}
+
+impl Probe {
+    fn dead(reach: Reach) -> Self {
+        Self {
+            reach,
+            node_version: None,
+        }
+    }
+
+    pub fn usable(&self) -> bool {
+        self.reach.usable()
+    }
+
+    pub fn version_or_unknown(&self) -> &str {
+        self.node_version.as_deref().unwrap_or("unknown")
+    }
+}
+
+pub async fn inspect(http: &Client, base: &str) -> Probe {
+    let url = format!(
+        "{}{PROBE_PATH}?bytes={PROBE_BYTES}",
+        base.trim_end_matches('/')
+    );
     let response = match http.get(&url).timeout(DEADLINE).send().await {
         Ok(response) if response.status().is_success() => response,
-        Ok(_) => return Reach::Dead,
-        Err(error) if error.is_timeout() => return Reach::Blackhole,
-        Err(_) => return Reach::Dead,
+        Ok(_) => return Probe::dead(Reach::Dead),
+        Err(error) if error.is_timeout() => return Probe::dead(Reach::Blackhole),
+        Err(_) => return Probe::dead(Reach::Dead),
     };
 
     let expected = response
@@ -72,6 +100,18 @@ pub async fn reach(http: &Client, base: &str) -> Reach {
         .get(DIGEST_HEADER)
         .and_then(|value| value.to_str().ok())
         .map(str::to_ascii_lowercase);
+    let node_version = response
+        .headers()
+        .get(VERSION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= MAX_VERSION_LEN)
+        .map(str::to_string);
+
+    let done = |reach: Reach| Probe {
+        reach,
+        node_version: node_version.clone(),
+    };
 
     let mut body = response.bytes_stream();
     let mut digest = Sha256::new();
@@ -79,10 +119,10 @@ pub async fn reach(http: &Client, base: &str) -> Reach {
     loop {
         let next = match tokio::time::timeout(STALL, body.next()).await {
             Ok(next) => next,
-            Err(_) => return Reach::Blackhole,
+            Err(_) => return done(Reach::Blackhole),
         };
         let Some(chunk) = next else { break };
-        let Ok(chunk) = chunk else { return Reach::Cut };
+        let Ok(chunk) = chunk else { return done(Reach::Cut) };
         digest.update(&chunk);
         read += chunk.len() as u64;
         if read >= PROBE_BYTES {
@@ -91,11 +131,11 @@ pub async fn reach(http: &Client, base: &str) -> Reach {
     }
 
     if read < PROBE_BYTES {
-        return Reach::Cut;
+        return done(Reach::Cut);
     }
     match expected {
-        Some(expected) if hex(digest.finalize().as_slice()) != expected => Reach::Tamper,
-        _ => Reach::Clear,
+        Some(expected) if hex(digest.finalize().as_slice()) != expected => done(Reach::Tamper),
+        _ => done(Reach::Clear),
     }
 }
 
