@@ -853,9 +853,15 @@ async fn handle(
             }
         }
         ("GET", ["users", urn, "web-profiles"]) => {
-            let id = id_of(urn);
+            // SoundCloud's /web-profiles requires the urn form
+            // (`soundcloud:users:<id>`), not the bare numeric id.
+            let sc_id = if urn.contains(':') {
+                urn.to_string()
+            } else {
+                format!("soundcloud:users:{urn}")
+            };
             match s
-                .sc_get(&format!("/users/{id}/web-profiles"), token.as_deref())
+                .sc_get(&format!("/users/{sc_id}/web-profiles"), token.as_deref())
                 .await
             {
                 Ok((status, v)) => json_resp(status, &v),
@@ -1040,34 +1046,22 @@ async fn handle(
                 return Ok(ok(empty_page(page_no, limit)));
             }
 
-            let filter = match kind {
-                "tracks" => "track",
-                "playlists" | "albums" => "playlist",
-                "users" => "user",
+            let endpoint = match kind {
+                "tracks" => "tracks",
+                "playlists" => "playlists",
+                "users" => "users",
+                "albums" => "albums",
                 "artists" => return Ok(ok(empty_page(page_no, limit))),
-                _ => "track",
+                _ => "tracks",
             };
             let path = format!(
-                "/search?q={}&filter={filter}&limit={limit}&offset={offset}",
+                "/search/{endpoint}?q={}&limit={limit}&offset={offset}",
                 urlencoding::encode(&query)
             );
             match s.sc_get(&path, token.as_deref()).await {
                 Ok((status, v)) if (200..300).contains(&status) => {
-                    let mut items: Vec<Value> =
+                    let items: Vec<Value> =
                         sc_items(&v).into_iter().map(normalize_urn).collect();
-                    if kind == "albums" {
-                        items.retain(|p| {
-                            p.get("is_album").and_then(Value::as_bool).unwrap_or(false)
-                                || matches!(
-                                    p.get("kind").and_then(Value::as_str),
-                                    Some("album") | Some("ep") | Some("single") | Some("compilation")
-                                )
-                        });
-                        if items.is_empty() {
-                            // Fall back to playlists so the tab is not empty.
-                            items = sc_items(&v).into_iter().map(normalize_urn).collect();
-                        }
-                    }
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
                 Ok((_status, _v)) => ok(empty_page(page_no, limit)),
