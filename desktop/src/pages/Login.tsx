@@ -13,7 +13,9 @@ import {
     RefreshCw,
     Smartphone,
 } from '../lib/icons';
+import { trackedInvoke as invoke } from '../lib/diagnostics';
 import {usePerfMode} from '../lib/perf';
+import {DIRECT_MODE} from '../lib/constants';
 import {queryClient} from '../lib/query-client';
 import {useOAuthFlow} from '../lib/use-oauth-flow';
 import {useAppStatusStore} from '../stores/app-status';
@@ -28,6 +30,28 @@ export function Login() {
   const setOfflineBypass = useAppStatusStore((s) => s.setOfflineBypass);
   const [copied, setCopied] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+
+  const handleDirectLogin = async () => {
+    const value = tokenInput.trim();
+    if (!value || tokenBusy) return;
+    setTokenBusy(true);
+    setTokenError(null);
+    try {
+      await invoke<string>('direct_login', { token: value });
+      // Apply the session to the frontend mirror synchronously (the
+      // auth:changed event may still be in flight when fetchUser runs).
+      await setSession(value);
+      await fetchUser();
+      queryClient.invalidateQueries();
+    } catch (e) {
+      setTokenError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTokenBusy(false);
+    }
+  };
 
   const handleEnterOffline = () => {
     setOfflineBypass(true);
@@ -149,27 +173,58 @@ export function Login() {
                         </div>
                     ) : (
                         <div className="flex flex-col items-stretch gap-3">
-                            <PrimaryButton onClick={handleLogin} idle={perf.idleAnim}>
-                                {t('auth.signIn')}
-                                <ChevronRight size={16} strokeWidth={2.4}/>
-                            </PrimaryButton>
-                            <button
-                                type="button"
-                                onClick={() => setQrOpen(true)}
-                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12.5px] font-medium text-white/45 hover:text-white/80 hover:bg-white/[0.04] transition-all cursor-pointer"
-                            >
-                                <Smartphone size={14}/>
-                                {t('qrLink.scanQr')}
-                            </button>
+                            {!DIRECT_MODE && (
+                                <>
+                                    <PrimaryButton onClick={handleLogin} idle={perf.idleAnim}>
+                                        {t('auth.signIn')}
+                                        <ChevronRight size={16} strokeWidth={2.4}/>
+                                    </PrimaryButton>
+                                    <button
+                                        type="button"
+                                        onClick={() => setQrOpen(true)}
+                                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[12.5px] font-medium text-white/45 hover:text-white/80 hover:bg-white/[0.04] transition-all cursor-pointer"
+                                    >
+                                        <Smartphone size={14}/>
+                                        {t('qrLink.scanQr')}
+                                    </button>
 
-                            <div
-                                className="my-1 flex items-center gap-3 text-[10px] uppercase tracking-[0.22em] text-white/25">
-                                <div className="h-px flex-1 bg-gradient-to-r from-transparent to-white/10"/>
-                                {t('auth.orSeparator')}
-                                <div className="h-px flex-1 bg-gradient-to-l from-transparent to-white/10"/>
-                            </div>
+                                    <div
+                                        className="my-1 flex items-center gap-3 text-[10px] uppercase tracking-[0.22em] text-white/25">
+                                        <div className="h-px flex-1 bg-gradient-to-r from-transparent to-white/10"/>
+                                        {t('auth.orSeparator')}
+                                        <div className="h-px flex-1 bg-gradient-to-l from-transparent to-white/10"/>
+                                    </div>
+                                </>
+                            )}
 
                             <OfflineEntryCard onClick={handleEnterOffline}/>
+
+                            <div className="mt-1 flex flex-col gap-2">
+                                <p className="text-[10.5px] leading-snug text-white/30">
+                                    {t('auth.directHint')}
+                                </p>
+                                <input
+                                    type="password"
+                                    value={tokenInput}
+                                    onChange={(e) => setTokenInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') void handleDirectLogin();
+                                    }}
+                                    placeholder={t('auth.directTokenPlaceholder')}
+                                    className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[12px] text-white/80 outline-none transition-colors placeholder:text-white/25 focus:border-white/20"
+                                />
+                                {tokenError && (
+                                    <p className="break-words text-[11px] text-red-400/80">{tokenError}</p>
+                                )}
+                                <button
+                                    type="button"
+                                    disabled={tokenBusy || !tokenInput.trim()}
+                                    onClick={() => void handleDirectLogin()}
+                                    className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] py-2.5 text-[12px] font-medium text-white/60 transition-all hover:bg-white/[0.08] hover:text-white/85 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                    {tokenBusy ? t('auth.directConnecting') : t('auth.directConnect')}
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>

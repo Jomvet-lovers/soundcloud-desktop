@@ -1,6 +1,7 @@
 mod app;
 mod audio;
 mod auth;
+mod direct;
 mod discord;
 mod import;
 mod network;
@@ -80,6 +81,7 @@ pub fn run() {
             let http_client = sc_fingerprint::client(None)
                 .map(|c| (*c).clone())
                 .expect("failed to build HTTP client");
+            let direct_http = http_client.clone();
             let auth_http_client = http_client.clone();
             let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
@@ -101,6 +103,11 @@ pub fn run() {
             let (static_port, proxy_port) = rt.block_on(network::server::start_all(wallpapers_dir));
             let rt_handle = rt.handle().clone();
 
+            // Direct mode: local API replacing the remote backend.
+            let direct_state = direct::DirectState::init(data_dir.clone(), direct_http);
+            let api_port = rt.block_on(direct::routes::start(direct_state.clone()));
+            app.manage(direct_state);
+
             std::thread::spawn(move || {
                 rt.block_on(std::future::pending::<()>());
             });
@@ -108,10 +115,13 @@ pub fn run() {
             app.manage(Arc::new(ServerState {
                 static_port,
                 proxy_port,
+                api_port,
             }));
             app::diagnostics::mark_session_started(app.handle());
             app::diagnostics::start_linux_fd_monitor(app.handle());
-            network::health::start(data_dir.clone(), app.handle().clone(), rt_handle.clone());
+            // Direct-mode fork: no telemetry/health beacons to the developer
+            // infrastructure. Re-enable if you host your own backend.
+            // network::health::start(data_dir.clone(), app.handle().clone(), rt_handle.clone());
             app.manage(Arc::new(DiscordState {
                 client: Mutex::new(None),
             }));
@@ -149,7 +159,8 @@ pub fn run() {
 
             let call_state = network::call::CallState::init(data_dir.clone(), rt_handle);
             network::call::manage_state(app.handle(), call_state.clone());
-            network::call::maybe_autostart(app.handle(), call_state);
+            // Direct-mode fork: do not join the developer's P2P network.
+            // network::call::maybe_autostart(app.handle(), call_state);
 
             Ok(())
         })
@@ -236,6 +247,7 @@ pub fn run() {
             network::edge::edge_config,
             network::edge::edge_note,
             network::wallpapers::wallpaper_search,
+            direct::direct_login,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

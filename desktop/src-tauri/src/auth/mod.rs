@@ -52,6 +52,22 @@ impl SessionStore {
             rt,
         })
     }
+
+    /// Programmatic session set (direct-mode token login). Persists and
+    /// broadcasts exactly like the `auth_set_session` command.
+    pub async fn set_token(&self, app: &crate::rt::AppHandle, token: String) -> Result<(), String> {
+        let new = AuthState {
+            token: Some(token),
+            premium: false,
+        };
+        let mut guard = self.state.write().await;
+        *guard = new.clone();
+        if let Err(e) = write_state(&self.path, &guard) {
+            log_native(app, "ERROR", format!("[auth] persist failed: {e}"));
+        }
+        app.emit(EVENT, new).ok();
+        Ok(())
+    }
 }
 
 fn is_usable(token: &str) -> bool {

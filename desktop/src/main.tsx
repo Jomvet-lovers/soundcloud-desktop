@@ -6,7 +6,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { changeAppLanguage } from './i18n';
 import { initAuthBridge } from './lib/auth-session';
 import { setupCacheMaintenance } from './lib/cache';
-import { setServerPorts } from './lib/constants';
+import { setApiBase, setServerPorts } from './lib/constants';
 import { trackedInvoke as invoke, setupUiWatchdog } from './lib/diagnostics';
 import { initEdge } from './lib/edge';
 import { installFpsCap } from './lib/fps-cap';
@@ -79,8 +79,11 @@ async function bootstrap() {
   const settings = useSettingsStore.getState();
   await changeAppLanguage(settings.language);
 
-  const [staticPort, proxyPort] = await invoke<[number, number]>('get_server_ports');
+  const [staticPort, proxyPort, apiPort] = await invoke<[number, number, number]>(
+    'get_server_ports',
+  );
   setServerPorts(staticPort, proxyPort);
+  setApiBase(apiPort);
 
   // Вердикт транспорта (прямой / relay / воркеры) — до первого запроса,
   // иначе забаненный юзер платит таймаутом на логине.

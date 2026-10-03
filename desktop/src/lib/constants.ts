@@ -1,18 +1,27 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || 'https://api.scnative.space';
-/** Резервный star-хост API для премиума (роутинг в `api-client.ts`). */
-export const API_STAR_BASE =
-  import.meta.env.VITE_API_STAR_BASE || 'https://api-star.scnative.space';
-export const STREAMING_BASE =
-  import.meta.env.VITE_STREAMING_BASE || 'https://stream.scnative.space';
-export const STREAMING_PREMIUM_BASE =
-  import.meta.env.VITE_STREAMING_PREMIUM_BASE || 'https://stream-star.scnative.space';
-export const IMAGES_BASE = import.meta.env.VITE_IMAGES_BASE || 'https://images.scnative.space';
-export const STORAGE_BASE = import.meta.env.VITE_STORAGE_BASE || 'https://storage.scnative.space';
-/** Резервная точка отдачи медиа для премиума (S3 read-only на star-host). */
-export const STORAGE_PREMIUM_BASE =
-  import.meta.env.VITE_STORAGE_PREMIUM_BASE || 'https://storage-star.scnative.space';
-/** STAR payment backend (separate service; not host-routed like the catalog API). */
-export const PAY_BASE = import.meta.env.VITE_PAY_BASE || 'https://pay.scnative.space';
+// ── Direct mode base URLs ────────────────────────────────────
+// All API traffic is served by the in-app Rust server (see direct/routes.rs).
+// The port is assigned at runtime; `main.tsx` calls `setApiBase` before the
+// first request. The values below are only a placeholder until then.
+export let API_BASE = 'http://127.0.0.1:1';
+export let API_STAR_BASE = API_BASE;
+export let STREAMING_BASE = API_BASE;
+export let STREAMING_PREMIUM_BASE = API_BASE;
+export let STORAGE_BASE = API_BASE;
+export let STORAGE_PREMIUM_BASE = API_BASE;
+export let PAY_BASE = API_BASE;
+/** Artwork is loaded straight from SoundCloud's public image CDN. */
+export let IMAGES_BASE = 'https://i1.sndcdn.com';
+
+export function setApiBase(port: number) {
+  const base = `http://127.0.0.1:${port}`;
+  API_BASE = base;
+  API_STAR_BASE = base;
+  STREAMING_BASE = base;
+  STREAMING_PREMIUM_BASE = base;
+  STORAGE_BASE = base;
+  STORAGE_PREMIUM_BASE = base;
+  PAY_BASE = base;
+}
 
 export const GITHUB_OWNER = 'zxcloli666';
 export const GITHUB_REPO = 'SoundCloud-Desktop';
@@ -21,6 +30,8 @@ export const APP_VERSION = __APP_VERSION__;
 
 export const SHOW_NEWS = true;
 export const CHECK_UPDATES = true;
+/** Direct mode: no backend, SoundCloud is queried by the app itself. */
+export const DIRECT_MODE = true;
 
 export interface NewsItem {
   id: string;

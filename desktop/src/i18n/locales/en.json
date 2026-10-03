@@ -82,7 +82,11 @@
     "errorServerTitle": "Can't reach the server",
     "errorServerDesc": "The backend isn't responding. Check your connection or try again in a moment.",
     "errorExpiredTitle": "Sign-in expired",
-    "errorFailedTitle": "Sign-in failed"
+    "errorFailedTitle": "Sign-in failed",
+    "directHint": "Direct mode: paste the value of your SoundCloud \"oauth_token\" cookie to sign in without the backend.",
+    "directTokenPlaceholder": "oauth_token",
+    "directConnect": "Sign in with token",
+    "directConnecting": "Checking token..."
   },
   "recovery": {
     "title": "Session Interrupted",

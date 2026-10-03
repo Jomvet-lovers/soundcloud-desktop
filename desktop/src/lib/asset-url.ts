@@ -12,6 +12,7 @@ const WHITELIST = [
   'stream.scnative.space',
   'stream-star.scnative.space',
   'storage.scnative.space',
+  'sndcdn.com',
   'unpkg.com',
 ];
 const RETRY_BYPASS_CACHE_PARAM = '__scproxy_bust';

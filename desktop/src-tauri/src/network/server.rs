@@ -3,11 +3,12 @@ use std::path::PathBuf;
 pub struct ServerState {
     pub static_port: u16,
     pub proxy_port: u16,
+    pub api_port: u16,
 }
 
 #[tauri::command]
-pub fn get_server_ports(state: tauri::State<'_, std::sync::Arc<ServerState>>) -> (u16, u16) {
-    (state.static_port, state.proxy_port)
+pub fn get_server_ports(state: tauri::State<'_, std::sync::Arc<ServerState>>) -> (u16, u16, u16) {
+    (state.static_port, state.proxy_port, state.api_port)
 }
 
 pub fn cors() -> warp::cors::Builder {
@@ -22,6 +23,7 @@ pub fn cors() -> warp::cors::Builder {
             "accept",
             "authorization",
             "accept-encoding",
+            "x-session-id",
         ])
         .expose_headers(vec!["content-range", "content-length", "accept-ranges"])
 }
