@@ -718,14 +718,25 @@ async fn handle(
                 let tracks: Vec<Value> = refs
                     .iter()
                     .filter_map(|r| {
+                        if let Some(u) = r.get("urn").and_then(Value::as_str) {
+                            return store_likes
+                                .iter()
+                                .find(|t| t.get("urn").and_then(Value::as_str) == Some(u))
+                                .cloned();
+                        }
                         let id = r
                             .get("id")
                             .or_else(|| r.get("track_id"))
                             .map(|v| v.to_string().trim_matches('"').to_string());
                         id.and_then(|id| {
-                            store_likes.iter().find(|t| {
-                                t.get("id").map(|v| v.to_string().trim_matches('"') == id.as_str()).unwrap_or(false)
-                            }).cloned()
+                            store_likes
+                                .iter()
+                                .find(|t| {
+                                    t.get("id")
+                                        .map(|v| v.to_string().trim_matches('"') == id.as_str())
+                                        .unwrap_or(false)
+                                })
+                                .cloned()
                         })
                     })
                     .collect();
@@ -735,6 +746,74 @@ async fn handle(
                         obj.insert("track_count".into(), json!(tracks.len()));
                     }
                 }
+            }
+            store.upsert_playlist(playlist.clone());
+            ok(playlist)
+        }
+        ("POST", ["playlists", urn, "tracks"]) => {
+            let b = body_json(&body);
+            let add = b.get("add").and_then(Value::as_str).map(str::to_string);
+            let order: Option<Vec<String>> = b
+                .get("order")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                });
+
+            // Resolve the added track before locking the store.
+            let fetched = match add.as_deref() {
+                Some(u) => {
+                    let id = id_of(u);
+                    let resolved = match token.as_deref() {
+                        Some(t) => s.sc_get_opt(&format!("/tracks/{id}"), Some(t)).await,
+                        None => None,
+                    };
+                    resolved
+                        .map(normalize_urn)
+                        .or_else(|| Some(json!({ "urn": u, "id": id.parse::<u64>().unwrap_or(0) })))
+                }
+                None => None,
+            };
+
+            let mut store = s.store.lock().await;
+            let mut playlist = store.find_playlist(urn).unwrap_or_else(|| {
+                json!({ "urn": urn, "tracks": [], "track_count": 0, "local": true })
+            });
+            let mut tracks: Vec<Value> = playlist
+                .get("tracks")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+
+            if let Some(track) = fetched {
+                let t_urn = urn_of(&track).unwrap_or_default();
+                if !tracks
+                    .iter()
+                    .any(|t| urn_of(t).as_deref() == Some(t_urn.as_str()))
+                {
+                    tracks.push(track);
+                }
+            }
+
+            if let Some(order) = order {
+                let mut ordered: Vec<Value> = Vec::new();
+                for u in &order {
+                    if let Some(t) = tracks.iter().find(|t| urn_of(t).as_deref() == Some(u.as_str())) {
+                        ordered.push(t.clone());
+                    } else {
+                        let id = id_of(u);
+                        ordered.push(json!({ "urn": u, "id": id.parse::<u64>().unwrap_or(0) }));
+                    }
+                }
+                tracks = ordered;
+            }
+
+            if let Some(obj) = playlist.as_object_mut() {
+                obj.insert("track_count".into(), json!(tracks.len()));
+                obj.insert("tracks".into(), json!(tracks));
             }
             store.upsert_playlist(playlist.clone());
             ok(playlist)
