@@ -18,7 +18,13 @@ pub async fn start(state: Arc<DirectState>) -> u16 {
     let routes = warp::any()
         .and(warp::method())
         .and(warp::path::full())
-        .and(warp::query::raw())
+        // `query::raw()` rejects requests without a query string, so default
+        // to an empty one instead of failing every GET without params.
+        .and(
+            warp::query::raw()
+                .or(warp::any().map(String::new))
+                .unify(),
+        )
         .and(warp::header::headers_cloned())
         .and(warp::body::bytes())
         .and(warp::any().map(move || state.clone()))
@@ -589,8 +595,8 @@ async fn handle(
             store.save();
             ok(entry)
         }
-        ("GET", ["tracks", urn, "sharing"]) => ok(json!({ "sharing": "public" })),
-        ("PUT", ["tracks", urn, "sharing"]) | ("DELETE", ["tracks", urn, "sharing"]) => {
+        ("GET", ["tracks", _urn, "sharing"]) => ok(json!({ "sharing": "public" })),
+        ("PUT", ["tracks", _urn, "sharing"]) | ("DELETE", ["tracks", _urn, "sharing"]) => {
             ok(json!({ "ok": true }))
         }
 
@@ -856,7 +862,7 @@ async fn handle(
                 Err(e) => err(502, &e),
             }
         }
-        ("GET", ["users", urn, "subscription"]) => ok(json!({ "premium": false })),
+        ("GET", ["users", _urn, "subscription"]) => ok(json!({ "premium": false })),
         ("GET", ["users", _urn, "aura"]) => ok(json!({ "aura_id": null, "custom_hex": null })),
         ("GET", ["users", urn, "followings"]) => {
             let id = id_of(urn);
