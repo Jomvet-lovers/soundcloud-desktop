@@ -930,6 +930,31 @@ async fn handle(
                 Err(e) => err(502, &e),
             }
         }
+        ("GET", ["users", urn, "likes", "tracks"]) => {
+            let id = id_of(urn);
+            let limit = q_u64(&q, "limit", 30);
+            let page_no = q_u64(&q, "page", 0);
+            let offset = page_no * limit;
+            match s
+                .sc_get(
+                    &format!("/users/{id}/track_likes?limit={limit}&offset={offset}"),
+                    token.as_deref(),
+                )
+                .await
+            {
+                Ok((status, v)) if (200..300).contains(&status) => {
+                    let items: Vec<Value> = sc_items(&v)
+                        .into_iter()
+                        .filter_map(|it| it.get("track").cloned())
+                        .filter(|t| !t.is_null())
+                        .map(normalize_urn)
+                        .collect();
+                    let items = merge_local_likes(s, items, page_no).await;
+                    ok(page(items, page_no, limit, sc_has_more(&v)))
+                }
+                _ => ok(empty_page(page_no, limit)),
+            }
+        }
         ("GET", ["users", urn, "track_likes"]) | ("GET", ["users", urn, "likes"]) => {
             let id = id_of(urn);
             let limit = q_u64(&q, "limit", 30);
