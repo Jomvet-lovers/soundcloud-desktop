@@ -7,11 +7,13 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use serde_json::{json, Value};
+use tauri::Manager;
 use warp::http::{HeaderMap, Method, StatusCode};
 use warp::reply::{Reply, Response};
 use warp::{path::FullPath, Filter};
 
-use super::sc::{fetch_me, id_of};
+use super::sc::{fetch_me, id_of, SC_API};
+use super::webview::spawn_write;
 use super::DirectState;
 
 pub async fn start(state: Arc<DirectState>) -> u16 {
@@ -280,6 +282,22 @@ async fn handle(
                 store.followed.push(urn.to_string());
                 store.save();
             }
+            drop(store);
+            // Best-effort sync. SoundCloud's web client adds a signed query
+            // param here; without it the server may reject the call, in which
+            // case the local follow still stands.
+            let id = id_of(urn);
+            if let Some(t) = token.as_deref() {
+                if let Ok(cid) = s.client_id().await {
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "POST",
+                        format!("{SC_API}/me/followings/{id}?client_id={cid}"),
+                        None,
+                    );
+                }
+            }
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["me", "followings", urn]) => {
@@ -288,6 +306,19 @@ async fn handle(
             if !store.unfollowed.iter().any(|u| u == urn) {
                 store.unfollowed.push(urn.to_string());
                 store.save();
+            }
+            drop(store);
+            let id = id_of(urn);
+            if let Some(t) = token.as_deref() {
+                if let Ok(cid) = s.client_id().await {
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "DELETE",
+                        format!("{SC_API}/me/followings/{id}?client_id={cid}"),
+                        None,
+                    );
+                }
             }
             ok(json!({ "ok": true }))
         }
@@ -421,7 +452,7 @@ async fn handle(
             let store = s.store.lock().await;
             ok(json!({ "liked": store.is_liked(urn) }))
         }
-        ("PUT", ["likes", "tracks", urn]) => {
+        ("PUT", ["likes", "tracks", urn]) | ("POST", ["likes", "tracks", urn]) => {
             let id = id_of(urn);
             let track = match token.as_deref() {
                 Some(t) => s
@@ -431,10 +462,34 @@ async fn handle(
                 None => json!({ "urn": urn, "id": id.parse::<u64>().unwrap_or(0) }),
             };
             s.store.lock().await.like_track(normalize_urn(track));
+            // Best-effort SoundCloud sync (DataDome-protected; via writer webview).
+            if let Some(t) = token.as_deref() {
+                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "PUT",
+                        format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}"),
+                        None,
+                    );
+                }
+            }
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["likes", "tracks", urn]) => {
             s.store.lock().await.unlike_track(urn);
+            let id = id_of(urn);
+            if let Some(t) = token.as_deref() {
+                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "DELETE",
+                        format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}"),
+                        None,
+                    );
+                }
+            }
             ok(json!({ "ok": true }))
         }
 
@@ -442,7 +497,7 @@ async fn handle(
             let store = s.store.lock().await;
             ok(json!({ "liked": store.is_playlist_liked(urn) }))
         }
-        ("PUT", ["likes", "playlists", urn]) => {
+        ("PUT", ["likes", "playlists", urn]) | ("POST", ["likes", "playlists", urn]) => {
             let id = id_of(urn);
             let playlist = match token.as_deref() {
                 Some(t) => s
@@ -452,10 +507,33 @@ async fn handle(
                 None => json!({ "urn": urn }),
             };
             s.store.lock().await.like_playlist(normalize_urn(playlist));
+            if let Some(t) = token.as_deref() {
+                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "PUT",
+                        format!("{SC_API}/users/{my}/playlist_likes/{id}?client_id={cid}"),
+                        None,
+                    );
+                }
+            }
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["likes", "playlists", urn]) => {
             s.store.lock().await.unlike_playlist(urn);
+            let id = id_of(urn);
+            if let Some(t) = token.as_deref() {
+                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "DELETE",
+                        format!("{SC_API}/users/{my}/playlist_likes/{id}?client_id={cid}"),
+                        None,
+                    );
+                }
+            }
             ok(json!({ "ok": true }))
         }
 
@@ -593,6 +671,26 @@ async fn handle(
             let mut store = s.store.lock().await;
             store.comments.insert(0, entry.clone());
             store.save();
+            drop(store);
+            // Best-effort SoundCloud sync of the comment.
+            let id = id_of(urn);
+            if let Some(t) = token.as_deref() {
+                if let Ok(cid) = s.client_id().await {
+                    let payload = json!({
+                        "comment": {
+                            "body": comment.get("body").cloned().unwrap_or(Value::Null),
+                            "timestamp": comment.get("timestamp").cloned().unwrap_or(Value::Null),
+                        }
+                    });
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "POST",
+                        format!("{SC_API}/tracks/{id}/comments?client_id={cid}"),
+                        Some(payload),
+                    );
+                }
+            }
             ok(entry)
         }
         ("GET", ["tracks", _urn, "sharing"]) => ok(json!({ "sharing": "public" })),
@@ -784,15 +882,34 @@ async fn handle(
                 None => None,
             };
 
-            let mut store = s.store.lock().await;
-            let mut playlist = store.find_playlist(urn).unwrap_or_else(|| {
-                json!({ "urn": urn, "tracks": [], "track_count": 0, "local": true })
-            });
-            let mut tracks: Vec<Value> = playlist
-                .get("tracks")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
+            let is_sc = urn.starts_with("soundcloud:playlists:");
+            let local = {
+                let store = s.store.lock().await;
+                store.find_playlist(urn)
+            };
+            // Base list: the local copy when present, otherwise the current
+            // SoundCloud list for SC-owned playlists (so a first edit keeps
+            // the existing tracks).
+            let mut tracks: Vec<Value> = if let Some(lp) = &local {
+                lp.get("tracks")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+            } else if is_sc {
+                let id = id_of(urn);
+                match s
+                    .sc_get(
+                        &format!("/playlists/{id}/tracks?limit=500&offset=0"),
+                        token.as_deref(),
+                    )
+                    .await
+                {
+                    Ok((_, v)) => sc_items(&v).into_iter().map(normalize_urn).collect(),
+                    Err(_) => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
 
             if let Some(track) = fetched {
                 let t_urn = urn_of(&track).unwrap_or_default();
@@ -817,11 +934,39 @@ async fn handle(
                 tracks = ordered;
             }
 
+            let mut playlist = local.unwrap_or_else(|| {
+                json!({ "urn": urn, "tracks": [], "track_count": 0, "local": !is_sc })
+            });
             if let Some(obj) = playlist.as_object_mut() {
                 obj.insert("track_count".into(), json!(tracks.len()));
                 obj.insert("tracks".into(), json!(tracks));
             }
-            store.upsert_playlist(playlist.clone());
+            s.store.lock().await.upsert_playlist(playlist.clone());
+
+            // Best-effort SoundCloud sync: PUT the full ordered track list.
+            if is_sc {
+                if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
+                    let ids: Vec<Value> = tracks
+                        .iter()
+                        .filter_map(|tr| urn_of(tr))
+                        .map(|u| {
+                            let id = id_of(&u);
+                            match id.parse::<i64>() {
+                                Ok(n) => json!({ "id": n }),
+                                Err(_) => json!({ "id": id }),
+                            }
+                        })
+                        .collect();
+                    let payload = json!({ "playlist": { "tracks": ids } });
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "PUT",
+                        format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn)),
+                        Some(payload),
+                    );
+                }
+            }
             ok(playlist)
         }
         ("DELETE", ["playlists", urn]) => {
@@ -1200,6 +1345,111 @@ async fn handle(
             let mut store = s.store.lock().await;
             store.disliked.retain(|u| u != urn);
             store.save();
+            ok(json!({ "ok": true }))
+        }
+
+        // ── debug: DataDome write-path probe (never changes account state) ──
+        ("POST", ["debug", "write-probe"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let id = q_str(&q, "id").unwrap_or_default();
+            let method = q_str(&q, "method").unwrap_or_else(|| "PUT".into());
+            let my = match need_my_id(s, Some(t)).await {
+                Ok(v) => v,
+                Err(r) => return Ok(r),
+            };
+            // Only run a PUT when the track is already liked (idempotent), and
+            // only run a DELETE when it is not liked (no-op) — the probe must
+            // never change the account state.
+            let ids = s
+                .sc_get("/me/track_likes/ids", Some(t))
+                .await
+                .ok()
+                .map(|(_, v)| {
+                    v.get("collection")
+                        .and_then(Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_u64().map(|n| n.to_string()))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                })
+                .unwrap_or_default();
+            let is_liked = ids.iter().any(|x| x == &id);
+            if (method == "PUT" && !is_liked) || (method == "DELETE" && is_liked) {
+                return Ok(ok(json!({
+                    "status": 0,
+                    "skipped": "probe would change state",
+                    "is_liked": is_liked,
+                })));
+            }
+            let cid = match s.client_id().await {
+                Ok(c) => c,
+                Err(e) => return Ok(err(502, &e)),
+            };
+            let url = format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}");
+            let req = if method == "DELETE" {
+                s.http.delete(&url)
+            } else {
+                s.http.put(&url)
+            };
+            let mut req = req
+                .header("Authorization", format!("OAuth {t}"))
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                )
+                .header("Accept", "application/json, text/javascript, */*; q=0.1")
+                .header("Origin", "https://soundcloud.com")
+                .header("Referer", "https://soundcloud.com/");
+            if let Some(dd) = q_str(&q, "dd").filter(|v| !v.is_empty()) {
+                req = req.header("Cookie", format!("datadome={dd}"));
+            }
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let datadome = resp
+                        .headers()
+                        .get("x-datadome")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("-")
+                        .to_string();
+                    let body = resp.text().await.unwrap_or_default();
+                    let body: String = body.chars().take(300).collect();
+                    ok(json!({
+                        "status": status,
+                        "x_datadome": datadome,
+                        "is_liked": is_liked,
+                        "body": body,
+                    }))
+                }
+                Err(e) => err(502, &e.to_string()),
+            }
+        }
+
+        // ── debug: show/hide the writer webview for manual interaction ──
+        ("POST", ["debug", "show-writer"]) => {
+            if let Some(wv) = super::webview::ensure_window(&s.app) {
+                if let Some(t) = token.as_deref() {
+                    super::webview::inject_session(&wv, t);
+                }
+                let _ = wv.show();
+                let _ = wv.set_focus();
+                // Reload so the injected session cookie applies to the page.
+                if let Ok(url) = "https://soundcloud.com/".parse::<tauri::Url>() {
+                    let _ = wv.navigate(url);
+                }
+                ok(json!({ "ok": true }))
+            } else {
+                err(500, "writer unavailable")
+            }
+        }
+        ("POST", ["debug", "hide-writer"]) => {
+            if let Some(wv) = s.app.get_webview_window(super::webview::LABEL) {
+                let _ = wv.hide();
+            }
             ok(json!({ "ok": true }))
         }
 

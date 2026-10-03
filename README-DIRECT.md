@@ -26,9 +26,16 @@ actions locally.
 ## What does not work (yet)
 
 - Syncing likes / follows / playlist edits back to SoundCloud. SoundCloud
-  protects write endpoints with DataDome bot protection; only registered API
-  apps (currently Artist Pro) can write. The app therefore stores them
-  locally.
+  protects write endpoints with DataDome bot protection. Every non-trusted
+  client is rejected:
+  - plain HTTP with the `oauth_token` header -> `403 x-datadome: protected`
+  - the app's Chrome-TLS-impersonating client -> `403`
+  - replaying the browser's `datadome` cookie -> `403`
+  - a fetch from the app's own WebView2 -> DataDome challenge stuck at
+    "verifying"
+  The app therefore stores likes, follows, playlist edits, comments, history
+  and dislikes locally (`direct_store.json`). The experimental WebView writer
+  lives in `src-tauri/src/direct/webview.rs` behind `SYNC_ENABLED = false`.
 - Premium / ML features from the original backend: Discover catalog, Aura,
   SoundWave recommendations, vibe search, Yandex Music import. These show
   empty states.

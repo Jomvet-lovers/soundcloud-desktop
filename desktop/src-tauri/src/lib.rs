@@ -104,7 +104,16 @@ pub fn run() {
             let rt_handle = rt.handle().clone();
 
             // Direct mode: local API replacing the remote backend.
-            let direct_state = direct::DirectState::init(data_dir.clone(), direct_http);
+            let direct_state = direct::DirectState::init(
+                data_dir.clone(),
+                direct_http,
+                app.handle().clone(),
+            );
+            // Hidden WebView used for SoundCloud writes (DataDome-protected).
+            // Only created when the sync experiment is enabled.
+            if direct::webview::SYNC_ENABLED {
+                let _ = direct::webview::ensure_window(app.handle());
+            }
             let api_port = rt.block_on(direct::routes::start(direct_state.clone()));
             app.manage(direct_state);
 
