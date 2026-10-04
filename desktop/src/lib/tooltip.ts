@@ -194,6 +194,23 @@ export function initTooltips(): void {
     true,
   );
 
+  // After a click the control state (and its title) changes. Refresh the
+  // tooltip once React has committed so it reports the new state instead of
+  // staying hidden until the pointer leaves the element.
+  document.addEventListener(
+    'click',
+    (e) => {
+      const el = triggerOf(e.target);
+      if (!el) return;
+      window.setTimeout(() => {
+        if (!el.isConnected) return;
+        if (el.matches(':hover')) scheduleShow(el, 0, true);
+        else if (anchor === el) show(el, false);
+      }, 0);
+    },
+    true,
+  );
+
   document.addEventListener(
     'keydown',
     (e) => {
