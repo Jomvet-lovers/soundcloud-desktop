@@ -137,6 +137,38 @@ fn urn_of(v: &Value) -> Option<String> {
     v.get("urn").and_then(Value::as_str).map(str::to_string)
 }
 
+/// SoundCloud selections/search entries often expose only
+/// `calculated_artwork_url`; mirror it into `artwork_url`/`cover_url` so the
+/// frontend has a single field to render. Nested selection items are handled
+/// recursively.
+fn with_artwork_fallback(mut item: Value) -> Value {
+    if item.get("artwork_url").map(Value::is_null).unwrap_or(true) {
+        if let Some(art) = item.get("calculated_artwork_url").cloned() {
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert("artwork_url".into(), art);
+            }
+        }
+    }
+    if item.get("cover_url").is_none() {
+        if let Some(art) = item.get("artwork_url").cloned() {
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert("cover_url".into(), art);
+            }
+        }
+    }
+    if let Some(collection) = item
+        .get_mut("items")
+        .and_then(|i| i.get_mut("collection"))
+        .and_then(Value::as_array_mut)
+    {
+        for entry in collection.iter_mut() {
+            let taken = entry.take();
+            *entry = with_artwork_fallback(taken);
+        }
+    }
+    item
+}
+
 async fn need_my_id(state: &DirectState, token: Option<&str>) -> Result<u64, Response> {
     let Some(t) = token else {
         return Err(err(401, "unauthorized"));
@@ -1230,8 +1262,11 @@ async fn handle(
             );
             match s.sc_get(&path, token.as_deref()).await {
                 Ok((status, v)) if (200..300).contains(&status) => {
-                    let items: Vec<Value> =
-                        sc_items(&v).into_iter().map(normalize_urn).collect();
+                    let items: Vec<Value> = sc_items(&v)
+                        .into_iter()
+                        .map(normalize_urn)
+                        .map(with_artwork_fallback)
+                        .collect();
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
                 Ok((_status, _v)) => ok(empty_page(page_no, limit)),
@@ -1278,7 +1313,11 @@ async fn handle(
                 .await
             {
                 Ok((status, v)) if (200..300).contains(&status) => {
-                    let items: Vec<Value> = sc_items(&v).into_iter().map(normalize_urn).collect();
+                    let items: Vec<Value> = sc_items(&v)
+                        .into_iter()
+                        .map(normalize_urn)
+                        .map(with_artwork_fallback)
+                        .collect();
                     ok(json!({ "collection": items }))
                 }
                 Ok((status, v)) => json_resp(status, &v),

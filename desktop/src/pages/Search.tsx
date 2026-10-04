@@ -14,7 +14,7 @@ import {
   useSearchDbTracks,
   useSearchDbUsers,
 } from '../lib/hooks';
-import { Loader2 } from '../lib/icons';
+import { Loader2, Music } from '../lib/icons';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchHistoryStore } from '../stores/searchHistory';
 import { useSearchQueryStore } from '../stores/searchQuery';
@@ -31,7 +31,7 @@ function DiscoverCard({
   busy: boolean;
   onPlay: (item: MixedSelectionItem) => void;
 }) {
-  const cover = art(item.artwork_url, 't500x500');
+  const cover = art(item.artwork_url ?? item.calculated_artwork_url ?? null, 't500x500');
   return (
     <button
       type="button"
@@ -61,6 +61,18 @@ function DiscoverCard({
         {item.short_description || item.description || ''}
       </p>
     </button>
+  );
+}
+
+/** Small list thumbnail with a music-note placeholder when artwork is missing. */
+function RowArt({ src, rounded }: { src: string | null; rounded: 'full' | 'lg' }) {
+  const cls = rounded === 'full' ? 'rounded-full' : 'rounded-lg';
+  return src ? (
+    <img src={src} alt="" className={`size-9 ${cls} bg-white/[0.06] object-cover`} />
+  ) : (
+    <div className={`flex size-9 shrink-0 items-center justify-center ${cls} bg-white/[0.06]`}>
+      <Music size={14} className="text-white/25" />
+    </div>
   );
 }
 
@@ -224,11 +236,7 @@ export function Search() {
                     to={`/user/${encodeURIComponent(user.urn)}`}
                     className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
                   >
-                    <img
-                      src={art(user.avatar_url, 't120x120') ?? ''}
-                      alt=""
-                      className="size-9 rounded-full bg-white/[0.06] object-cover"
-                    />
+                    <RowArt src={art(user.avatar_url, 't120x120')} rounded="full" />
                     <span className="text-[13px] text-white/85">{user.username}</span>
                   </Link>
                 ))}
@@ -241,11 +249,7 @@ export function Search() {
                     to={`/playlist/${encodeURIComponent(playlist.urn)}`}
                     className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
                   >
-                    <img
-                      src={art(playlist.artwork_url, 't120x120') ?? ''}
-                      alt=""
-                      className="size-9 rounded-lg bg-white/[0.06] object-cover"
-                    />
+                    <RowArt src={art(playlist.artwork_url, 't120x120')} rounded="lg" />
                     <span className="text-[13px] text-white/85">{playlist.title}</span>
                   </Link>
                 ))}
@@ -258,11 +262,7 @@ export function Search() {
                     to={`/album/${encodeURIComponent(album.id)}`}
                     className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
                   >
-                    <img
-                      src={art(album.cover_url ?? null, 't120x120') ?? ''}
-                      alt=""
-                      className="size-9 rounded-lg bg-white/[0.06] object-cover"
-                    />
+                    <RowArt src={art(album.cover_url ?? null, 't120x120')} rounded="lg" />
                     <span className="text-[13px] text-white/85">{album.title}</span>
                   </Link>
                 ))}

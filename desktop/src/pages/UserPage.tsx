@@ -116,7 +116,7 @@ export function UserPage() {
             onPickCustom={editable.onPickCustom}
           />
 
-          <div className="mt-10 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="mt-5 mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <TabDock tabs={tabs} active={activeTab} onChange={setActiveTab} aura={aura} />
             <div className="md:max-w-sm md:w-80 w-full">
               <UserSearchBox

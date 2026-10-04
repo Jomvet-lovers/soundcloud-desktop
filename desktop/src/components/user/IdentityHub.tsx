@@ -1,12 +1,12 @@
 import { useTranslation } from 'react-i18next';
-import { type Aura, auraRgba } from '../../lib/aura';
+import type { Aura } from '../../lib/aura';
+import { fc } from '../../lib/formatters';
 import { Calendar, Globe } from '../../lib/icons';
 import { likedTracksCount } from '../../lib/likes';
 import { CopyLinkButton } from '../ui/CopyLinkButton';
 import { GlassHeroPanel } from '../ui/GlassHeroPanel';
 import { AvatarArtifact } from './AvatarArtifact';
 import { FollowBtn } from './FollowBtn';
-import { StatOrb } from './StatOrb';
 import { getWebIcon, InfoChip, ProChip, VerifiedBadge } from './UserChips';
 
 function dateFormattedLong(dateStr: string | null | undefined) {
@@ -46,7 +46,17 @@ interface IdentityHubProps {
   onPickCustom: (hex: string) => void;
 }
 
-/** Compact profile header — avatar + identity + stats in one tight block. */
+/** Plain inline stat — no boxes, just number + label. */
+function Stat({ value, label }: { value?: number | null; label: string }) {
+  return (
+    <span className="whitespace-nowrap">
+      <span className="font-semibold text-white/90">{value != null ? fc(value) : '—'}</span>{' '}
+      <span className="text-white/40">{label}</span>
+    </span>
+  );
+}
+
+/** Compact profile header — one tight block, no framed stat boxes. */
 export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: IdentityHubProps) {
   const { t } = useTranslation();
   const formattedDate = dateFormattedLong(user.created_at);
@@ -54,7 +64,7 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
 
   return (
     <GlassHeroPanel hasStar={hasStar} aura={aura}>
-      <div className="relative flex flex-col items-center gap-4 p-4 sm:flex-row sm:items-start md:gap-6 md:p-6">
+      <div className="relative flex flex-col items-center gap-4 p-4 sm:flex-row sm:items-start md:gap-5 md:p-5">
         <AvatarArtifact
           username={user.username}
           avatarUrl={user.avatar_url}
@@ -62,30 +72,34 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
           aura={aura}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2.5 text-center sm:text-left">
-          <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 text-center sm:text-left">
+          <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 sm:justify-start">
+            <h1 className="max-w-full break-words text-xl font-black leading-tight tracking-tight text-white md:text-3xl">
+              {user.username}
+            </h1>
             {user.verified && <VerifiedBadge title={t('user.verifiedArtist')} />}
             {user.plan && user.plan !== 'Free' && <ProChip plan={user.plan} />}
             {formattedDate && <InfoChip icon={<Calendar size={11} />}>{formattedDate}</InfoChip>}
             {country && <InfoChip icon={<Globe size={11} />}>{country}</InfoChip>}
-          </div>
-
-          <div className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1 sm:justify-start">
-            <h1 className="max-w-full break-words text-2xl font-black leading-tight tracking-tight text-white md:text-4xl">
-              {user.username}
-            </h1>
             {user.full_name && user.full_name !== user.username && (
-              <p className="text-[12.5px] font-medium text-white/40">{user.full_name}</p>
+              <p className="text-[12px] font-medium text-white/40">{user.full_name}</p>
             )}
           </div>
 
           {user.description && (
-            <p className="selectable line-clamp-2 max-w-2xl text-[13px] leading-relaxed text-white/60">
+            <p className="selectable line-clamp-2 max-w-2xl text-[12.5px] leading-relaxed text-white/60">
               {user.description}
             </p>
           )}
 
-          <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[12.5px] sm:justify-start">
+            <Stat value={user.followers_count} label={t('user.followers')} />
+            <Stat value={user.followings_count} label={t('user.following')} />
+            <Stat value={user.track_count} label={t('user.tracks')} />
+            <Stat value={likedTracksCount(user)} label={t('user.likes')} />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5 sm:justify-start">
             {!isOwnProfile && <FollowBtn userUrn={user.urn} aura={aura} />}
             {user.permalink_url && <CopyLinkButton url={user.permalink_url} size="sm" />}
             {webProfiles?.map((link) => (
@@ -104,29 +118,6 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
                 <span className="max-w-[140px] truncate">{link.title}</span>
               </a>
             ))}
-          </div>
-
-          <div className="flex flex-wrap justify-center gap-2 pt-0.5 sm:justify-start">
-            <StatOrb
-              value={user.followers_count}
-              label={t('user.followers')}
-              accent={auraRgba(aura, 0.2)}
-            />
-            <StatOrb
-              value={user.followings_count}
-              label={t('user.following')}
-              accent={auraRgba(aura, 0.16)}
-            />
-            <StatOrb
-              value={user.track_count}
-              label={t('user.tracks')}
-              accent={auraRgba(aura, 0.14)}
-            />
-            <StatOrb
-              value={likedTracksCount(user)}
-              label={t('user.likes')}
-              accent={auraRgba(aura, 0.12)}
-            />
           </div>
         </div>
       </div>
