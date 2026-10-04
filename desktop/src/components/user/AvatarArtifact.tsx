@@ -14,9 +14,9 @@ function AvatarArtifactImpl(props: AvatarArtifactProps) {
   const { username, avatarUrl } = props;
   const url = art(avatarUrl, 't500x500');
   return (
-    <div className="relative shrink-0 self-center lg:self-start w-[148px] h-[148px] md:w-[180px] md:h-[180px]">
+    <div className="relative shrink-0 self-center w-[96px] h-[96px] md:w-[112px] md:h-[112px]">
       <div
-        className="relative w-full h-full rounded-[2rem] overflow-hidden"
+        className="relative w-full h-full rounded-[1.5rem] overflow-hidden"
         style={{
           background: 'rgba(255,255,255,0.03)',
           border: '0.5px solid rgba(255,255,255,0.10)',
@@ -26,7 +26,7 @@ function AvatarArtifactImpl(props: AvatarArtifactProps) {
           <img src={url} alt={username} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <Users size={56} className="text-white/15" />
+            <Users size={40} className="text-white/15" />
           </div>
         )}
       </div>

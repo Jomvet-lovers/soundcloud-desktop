@@ -13,7 +13,7 @@ function GlassHeroPanelImpl(props: GlassHeroPanelProps) {
   const { className, children } = props;
   return (
     <div
-      className={`relative rounded-[2.5rem] border border-white/[0.08] bg-[#141417] ${className ?? ''}`}
+      className={`relative rounded-3xl border border-white/[0.08] bg-[#141417] ${className ?? ''}`}
     >
       {children}
     </div>

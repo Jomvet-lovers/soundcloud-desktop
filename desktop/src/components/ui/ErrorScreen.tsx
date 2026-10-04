@@ -45,20 +45,16 @@ export function ErrorScreen({
           </div>
 
           <h1 className="text-[26px] font-black tracking-tight leading-tight text-white">
-            {t('errors.title', 'Что-то пошло не так')}
+            {t('errors.title')}
           </h1>
           <p className="mt-2.5 text-[13.5px] leading-relaxed text-white/45">
-            {t(
-              'errors.subtitle',
-              'Произошёл сбой при отрисовке. Можно попробовать снова или перезагрузить.',
-            )}
+            {t('errors.subtitle')}
           </p>
 
           {message && (
             <details className="group mt-5 text-left">
               <summary className="cursor-pointer list-none text-[11px] font-medium text-white/35 transition-colors hover:text-white/60">
-                <span className="text-[var(--color-accent)]">▸</span>{' '}
-                {t('errors.details', 'Подробности')}
+                <span className="text-[var(--color-accent)]">▸</span> {t('errors.details')}
               </summary>
               <pre className="mt-2 max-h-40 overflow-auto rounded-xl border border-white/[0.06] bg-black/40 p-3 text-[11px] leading-relaxed text-red-300/80 whitespace-pre-wrap break-words">
                 {message}
@@ -78,7 +74,7 @@ export function ErrorScreen({
                 }}
               >
                 <RefreshCw size={16} strokeWidth={2.2} />
-                {t('errors.retry', 'Попробовать снова')}
+                {t('errors.retry')}
               </button>
             )}
             <div className="flex gap-2.5">
@@ -88,7 +84,7 @@ export function ErrorScreen({
                 className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-white/[0.1] bg-white/[0.04] text-[13px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white/90 active:scale-[0.97] cursor-pointer"
               >
                 <RefreshCw size={14} />
-                {t('errors.reload', 'Перезагрузить')}
+                {t('errors.reload')}
               </button>
               <button
                 type="button"
@@ -98,7 +94,7 @@ export function ErrorScreen({
                 className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-white/[0.1] bg-white/[0.04] text-[13px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white/90 active:scale-[0.97] cursor-pointer"
               >
                 <Home size={14} />
-                {t('errors.home', 'На главную')}
+                {t('errors.home')}
               </button>
             </div>
           </div>

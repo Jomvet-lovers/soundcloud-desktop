@@ -58,7 +58,7 @@ export function FollowBtn({ userUrn }: FollowBtnProps) {
       type="button"
       onClick={toggle}
       disabled={busy}
-      className={`inline-flex items-center justify-center gap-2 px-7 h-11 rounded-full text-[13px] font-semibold tracking-wide transition-colors cursor-pointer disabled:opacity-60 ${
+      className={`inline-flex items-center justify-center gap-2 h-9 px-5 rounded-full text-[12px] font-semibold tracking-wide transition-colors cursor-pointer disabled:opacity-60 ${
         following ? 'text-white/80 hover:text-white' : 'text-black hover:bg-white/90'
       }`}
       style={{

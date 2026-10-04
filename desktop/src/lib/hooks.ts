@@ -2,18 +2,18 @@ import {
   type DefaultError,
   type InfiniteData,
   type QueryKey,
-  useInfiniteQuery,
   type UseInfiniteQueryResult,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import {useEffect, useMemo, useRef} from 'react';
-import type {Track} from '../stores/player';
-import {api} from './api';
-import {initLikedUrns} from './likes';
-import {rememberLikedTracks, rememberTracks} from './offline-index';
-import {fetchRelatedTracks} from './related';
+import { useEffect, useMemo, useRef } from 'react';
+import type { Track } from '../stores/player';
+import { api } from './api';
+import { initLikedUrns } from './likes';
+import { rememberLikedTracks, rememberTracks } from './offline-index';
+import { fetchRelatedTracks } from './related';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -1125,6 +1125,47 @@ export function useDiscoverFeed() {
   const recommended = useRecommendedTracks(pool, 40);
   const byGenre = useDiscoverData(pool, likedTracks);
   return { likedTracks, isLoading, recommended, byGenre };
+}
+
+/* ── SoundCloud mixed selections ("Made for you" / stations) ───── */
+
+export interface MixedSelectionItem {
+  urn: string;
+  title: string;
+  short_title?: string | null;
+  description?: string | null;
+  short_description?: string | null;
+  artwork_url?: string | null;
+  playlist_type?: string | null;
+  tracking_feature_name?: string | null;
+  user?: { urn?: string; id?: number; username?: string } | null;
+}
+
+export interface MixedSelection {
+  urn: string;
+  title: string;
+  description?: string | null;
+  items: { collection: MixedSelectionItem[] };
+}
+
+/** Personalized SoundCloud selections: Made for you, Discover with Stations, … */
+export function useDiscoverMixed() {
+  return useQuery({
+    queryKey: ['discover', 'mixed'],
+    queryFn: () => api<{ collection: MixedSelection[] }>('/discover/mixed'),
+    staleTime: 1000 * 60 * 10,
+    gcTime: INFINITE_GC_MS,
+  });
+}
+
+/** Tracks of a SoundCloud system playlist (Daily Drops, Weekly Wave, …). */
+export async function fetchSystemPlaylistTracks(urn: string): Promise<Track[]> {
+  const pl = await api<{ tracks?: Track[] | { collection?: Track[] } }>(
+    `/system-playlists/${encodeURIComponent(urn)}`,
+  );
+  const raw = pl.tracks;
+  const arr = Array.isArray(raw) ? raw : (raw?.collection ?? []);
+  return arr.filter((t) => t?.urn && (t as { kind?: string }).kind !== 'playlist');
 }
 
 /* ── Infinite scroll ───────────────────────────────────────────── */

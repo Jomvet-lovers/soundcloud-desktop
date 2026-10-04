@@ -1271,6 +1271,31 @@ async fn handle(
             "fresh_count": 0,
             "fresh_window_days": 7,
         })),
+        // SoundCloud "Made for you" / "Discover with Stations" selections.
+        ("GET", ["discover", "mixed"]) => {
+            match s
+                .sc_get("/mixed-selections?limit=20", token.as_deref())
+                .await
+            {
+                Ok((status, v)) if (200..300).contains(&status) => {
+                    let items: Vec<Value> = sc_items(&v).into_iter().map(normalize_urn).collect();
+                    ok(json!({ "collection": items }))
+                }
+                Ok((status, v)) => json_resp(status, &v),
+                Err(e) => err(502, &e),
+            }
+        }
+        // SoundCloud system playlists (Daily Drops, Weekly Wave, …).
+        ("GET", ["system-playlists", urn]) => {
+            let enc = urlencoding::encode(urn);
+            match s
+                .sc_get(&format!("/system-playlists/{enc}"), token.as_deref())
+                .await
+            {
+                Ok((status, v)) => json_resp(status, &normalize_urn(v)),
+                Err(e) => err(502, &e),
+            }
+        }
         ("GET", ["discover", _rest @ ..]) => ok(json!({ "items": [], "next_cursor": null })),
 
         // ── recommendations (stubs) ─────────────────────────────────
