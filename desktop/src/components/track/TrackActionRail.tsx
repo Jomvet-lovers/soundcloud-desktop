@@ -25,14 +25,8 @@ export const TrackActionRail = React.memo(function TrackActionRail({
     <div className="flex items-center gap-3 flex-wrap">
       <PlayPill isPlaying={isPlaying} onClick={onPlay} />
       <LikeBtn trackUrn={track.urn} count={track.favoritings_count ?? track.likes_count} />
-      <div
-        className="flex items-center gap-0.5 h-11 px-1.5 rounded-2xl"
-        style={{
-          background: 'rgba(255,255,255,0.04)',
-          border: '0.5px solid rgba(255,255,255,0.07)',
-        }}
-      >
-        <span className="w-px h-5 bg-white/[0.08] mx-0.5" aria-hidden />
+      <span className="w-px h-5 bg-white/[0.08] mx-1" aria-hidden />
+      <div className="flex items-center gap-0.5">
         <AddToPlaylistDialog trackUrns={[track.urn]}>
           <button
             type="button"
