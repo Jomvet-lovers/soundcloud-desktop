@@ -20,7 +20,6 @@ import { useUser, useUserSubscription, useUserWebProfiles } from '../lib/hooks';
 import { Loader2 } from '../lib/icons';
 import { likedTracksCount } from '../lib/likes';
 import {usePerfMode} from '../lib/perf';
-import { useSubscription } from '../lib/subscription';
 import { useAuthStore } from '../stores/auth';
 
 /**
@@ -68,7 +67,7 @@ export function UserPage() {
 
   const isOwnProfile = !!user && currentUser?.urn === user.urn;
 
-  const { data: myStar = false } = useSubscription(isOwnProfile);
+  const myStar = false;
   const { data: otherStar = false } = useUserSubscription(!isOwnProfile && urn ? urn : undefined);
   const hasStar = isOwnProfile ? myStar : otherStar;
 

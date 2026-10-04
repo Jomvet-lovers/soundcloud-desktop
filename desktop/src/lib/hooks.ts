@@ -36,6 +36,20 @@ export interface PagedResponse<T> {
   has_more: boolean;
 }
 
+export interface CatalogArtist {
+  id: string;
+  name: string;
+  avatar_url?: string;
+  [key: string]: unknown;
+}
+
+export interface CatalogAlbum {
+  id: string;
+  title: string;
+  cover_url?: string;
+  [key: string]: unknown;
+}
+
 type TrackPage = PagedResponse<Track>;
 
 export interface Comment {
@@ -876,7 +890,7 @@ export function useSearchDbUsers(q: string) {
 }
 
 export function useSearchDbArtists(q: string) {
-  const query = usePagedQuery<import('./discover').CatalogArtist>({
+  const query = usePagedQuery<CatalogArtist>({
     queryKey: ['search', 'db', 'artists', q],
     url: (page, limit) => pagedUrl('/search/db/artists', page, limit, `q=${encodeURIComponent(q)}`),
     limit: SEARCH_DB_LIMIT,
@@ -889,7 +903,7 @@ export function useSearchDbArtists(q: string) {
 }
 
 export function useSearchDbAlbums(q: string) {
-  const query = usePagedQuery<import('./discover').CatalogAlbum>({
+  const query = usePagedQuery<CatalogAlbum>({
     queryKey: ['search', 'db', 'albums', q],
     url: (page, limit) => pagedUrl('/search/db/albums', page, limit, `q=${encodeURIComponent(q)}`),
     limit: SEARCH_DB_LIMIT,

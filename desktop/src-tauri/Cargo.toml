@@ -46,7 +46,6 @@ libc = "0.2"
 url = "2"
 regex = { version = "1", default-features = false, features = ["std"] }
 bytes = "1"
-call-client = { path = "../../utils/call/client" }
 decrypt-client = { path = "../../utils/decrypt-client" }
 tracing = "0.1"
 ffmpeg-sidecar = "2.5.2"

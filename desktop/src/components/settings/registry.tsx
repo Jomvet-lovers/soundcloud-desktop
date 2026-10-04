@@ -1,11 +1,9 @@
 import type {ReactNode} from 'react';
-import {Cloud, Database, Globe, Headphones, Link, Sparkles, User} from '../../lib/icons';
-import {CallProxySection} from './CallProxySection';
+import {Cloud, Database, Eye, Globe, Headphones, Link, User} from '../../lib/icons';
 import {AccountCard} from './cards/AccountCard';
 import {AudioDeviceCard} from './cards/AudioDeviceCard';
 import {CacheCard} from './cards/CacheCard';
 import {DiscordCard} from './cards/DiscordCard';
-import {ImportCard} from './cards/ImportCard';
 import {LanguageCard} from './cards/LanguageCard';
 import {NetworkCard} from './cards/NetworkCard';
 import {PerformanceCard} from './cards/PerformanceCard';
@@ -47,7 +45,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     {
         id: 'appearance',
         labelKey: 'settings.catAppearance',
-        icon: <Sparkles size={17}/>,
+        icon: <Eye size={17}/>,
         Body: () => (
             <>
                 <ThemeCard/>
@@ -74,7 +72,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         Body: () => (
             <>
                 <NetworkCard/>
-                <CallProxySection/>
             </>
         ),
     },
@@ -85,7 +82,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         Body: () => (
             <>
                 <DiscordCard/>
-                <ImportCard/>
             </>
         ),
     },

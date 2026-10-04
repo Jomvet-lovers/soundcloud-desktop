@@ -1,7 +1,5 @@
 import React from 'react';
 import type {Aura} from '../../lib/aura';
-import {Star} from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
 
 export type StarSeed = {
   i: number;
@@ -16,108 +14,17 @@ export type StarSeed = {
   max: number;
 };
 
-const makeSeeds = (count: number, salt = 0): StarSeed[] =>
-  Array.from({ length: count }, (_, i) => {
-    const k = i + salt;
-    return {
-      i,
-      size: 6 + ((k * 7) % 14),
-      left: (k * 37) % 100,
-      top: (k * 53) % 100,
-      rot: (k * 41) % 360,
-      hueShift: ((k * 13) % 70) - 35,
-      delay: (k * 0.27) % 5,
-      duration: 4 + (k % 5),
-      min: 0.18 + (k % 4) * 0.06,
-      max: 0.55 + (k % 4) * 0.12,
-    };
-  });
-
-const DOT_SEEDS = Array.from({ length: 44 }, (_, i) => ({
-  i,
-  size: 2 + (i % 3),
-  left: (i * 71) % 100,
-  top: (i * 29) % 100,
-  delay: (i * 0.31) % 4,
-  duration: 3 + (i % 4),
-  min: 0.2 + (i % 3) * 0.1,
-  max: 0.55 + (i % 3) * 0.12,
-}));
-
-export const HERO_STAR_SEEDS = makeSeeds(34, 1);
-export const PAGE_STAR_SEEDS = makeSeeds(46, 7);
+export const HERO_STAR_SEEDS: StarSeed[] = [];
+export const PAGE_STAR_SEEDS: StarSeed[] = [];
 
 interface StarFieldProps {
-  aura: Aura;
-  seeds: StarSeed[];
+  aura?: Aura;
+  seeds?: StarSeed[];
   intensity?: number;
-    /** Per-star glow (drop-shadow/box-shadow). Off for cheaper pages. Default on. */
-    glow?: boolean;
+  glow?: boolean;
 }
 
-function StarFieldImpl({aura, seeds, intensity = 1, glow = true}: StarFieldProps) {
-    const perf = usePerfMode();
-    const allowGlow = glow && perf.glow;
-    const dots = DOT_SEEDS.slice(0, perf.particles(DOT_SEEDS.length));
-    const stars = seeds.slice(0, perf.particles(seeds.length));
-    if (dots.length === 0 && stars.length === 0) return null;
-
-  return (
-    <div
-      className="absolute inset-0 pointer-events-none overflow-hidden"
-      style={{ contain: 'strict', transform: 'translateZ(0)' }}
-    >
-        {dots.map((d) => {
-        const color = aura.orbs[d.i % 3];
-        return (
-          <div
-            key={`d-${d.i}`}
-            className="absolute rounded-full"
-            style={
-              {
-                width: `${d.size}px`,
-                height: `${d.size}px`,
-                left: `${d.left}%`,
-                top: `${d.top}%`,
-                background: color,
-                  boxShadow: allowGlow ? `0 0 ${d.size * 2}px ${color}` : undefined,
-                ['--min' as keyof React.CSSProperties]: d.min * intensity,
-                ['--max' as keyof React.CSSProperties]: d.max * intensity,
-                  animation: perf.idleAnim
-                      ? `star-twinkle ${d.duration}s ease-in-out ${d.delay}s infinite`
-                      : undefined,
-              } as React.CSSProperties
-            }
-          />
-        );
-      })}
-        {stars.map((s) => {
-        const color = aura.orbs[s.i % 3];
-        return (
-          <div
-            key={`s-${s.i}`}
-            className="absolute"
-            style={
-              {
-                left: `${s.left}%`,
-                top: `${s.top}%`,
-                color,
-                transform: `rotate(${s.rot}deg)`,
-                  filter: allowGlow ? `drop-shadow(0 0 ${s.size}px ${color})` : undefined,
-                ['--min' as keyof React.CSSProperties]: s.min * intensity,
-                ['--max' as keyof React.CSSProperties]: s.max * intensity,
-                  animation: perf.idleAnim
-                      ? `star-twinkle ${s.duration}s ease-in-out ${s.delay}s infinite`
-                      : undefined,
-              } as React.CSSProperties
-            }
-          >
-            <Star size={s.size} fill="currentColor" />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-export const StarField = React.memo(StarFieldImpl);
+/** Decorative star field removed — renders nothing. */
+export const StarField = React.memo(function StarField(_props: StarFieldProps) {
+  return null;
+});

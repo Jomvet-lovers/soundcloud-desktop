@@ -564,14 +564,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "call-client"
-version = "0.1.0"
-dependencies = [
- "thiserror 2.0.18",
- "wreq",
-]
-
-[[package]]
 name = "camino"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5210,7 +5202,6 @@ dependencies = [
  "base64 0.22.1",
  "biquad",
  "bytes",
- "call-client",
  "chrono",
  "cpal",
  "decrypt-client",

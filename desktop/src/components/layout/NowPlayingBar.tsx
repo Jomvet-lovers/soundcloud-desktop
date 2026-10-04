@@ -21,7 +21,7 @@ import {
     audioLines16,
     Heart,
     listMusic16,
-    MicVocal,
+
     pauseBlack20,
     playBlack20,
     repeat1Icon16,
@@ -39,7 +39,6 @@ import {
 import {optimisticToggleLike} from '../../lib/likes';
 import {usePerfMode} from '../../lib/perf';
 import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
-import {useLyricsStore} from '../../stores/lyrics';
 import {
     AB_MIN_GAP,
     getEffectivePitchSemitones,
@@ -57,7 +56,7 @@ import {ArtistNameLinks} from '../music/ArtistNameLinks';
 import {EqualizerPanel} from '../music/EqualizerPanel';
 import {UploadKindDot} from '../music/UploadKindDot';
 
-/* ── Track loading progress (SC → SCD download) ──────────────── */
+/* ── Track loading progress (SC ↁESCD download) ──────────────── */
 
 /** Smoothed download-progress value (0-1) for display, or null when not loading.
  *  Holds briefly after completion so a finished load doesn't flicker away. */
@@ -154,11 +153,11 @@ const AbLoopOverlay = React.memo(({ duration }: { duration: number }) => {
     const rect = root.getBoundingClientRect();
     if (rect.width <= 0) return;
     // Drive the overlay via direct DOM writes during the drag and commit to the store
-    // (which pushes once to Rust) only on release — avoids per-frame JS↔Rust bridge spam.
+    // (which pushes once to Rust) only on release  Eavoids per-frame JS↔Rust bridge spam.
     const lo = which === 'a' ? 0 : a + AB_MIN_GAP;
     const hi = which === 'a' ? (b ?? duration) - AB_MIN_GAP : duration;
     let latest = which === 'a' ? a : (b ?? a);
-    // Time bubble above the dragged handle — driven by direct DOM writes like the
+    // Time bubble above the dragged handle  Edriven by direct DOM writes like the
     // handle itself, so the per-frame drag stays React-render-free.
     const showTip = (timeSec: number, pct: number) => {
       const tip = tipRef.current;
@@ -241,7 +240,7 @@ export const ProgressSlider = React.memo(() => {
   const rangeRef = useRef<HTMLSpanElement>(null);
   const thumbRef = useRef<HTMLSpanElement>(null);
 
-  // Direct DOM updates at 60fps — zero React re-renders
+  // Direct DOM updates at 60fps  Ezero React re-renders
   useEffect(() => {
     return subscribe(() => {
       if (draggingRef.current) return;
@@ -668,24 +667,6 @@ const QueueBtn = React.memo(({ onClick, active }: { onClick: () => void; active:
   </button>
 ));
 
-const LyricsBtn = React.memo(() => {
-  const open = useLyricsStore((s) => s.open);
-  const closePanel = useLyricsStore((s) => s.close);
-  const openPanel = useLyricsStore((s) => s.openPanel);
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        if (open) closePanel();
-        else openPanel({ tab: 'lyrics', rightPanelOpen: true });
-      }}
-      className={btnClass(open, 'sm')}
-    >
-      <MicVocal size={16} />
-    </button>
-  );
-});
-
 const EqBtn = React.memo(() => {
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   return (
@@ -951,7 +932,6 @@ const PillTrackBody = React.memo(function PillTrackBody({
   navigate: ReturnType<typeof useNavigate>;
   loadProgress: number | null;
 }) {
-  const openLyricsPanel = useLyricsStore((s) => s.openPanel);
   const artistDisplay = useArtistDisplay(track);
   const displayTitle = useDisplayTitle(track);
   const artistLinks = useArtistLinkItems(track);
@@ -960,9 +940,9 @@ const PillTrackBody = React.memo(function PillTrackBody({
 
   return (
     <div className="npb-meta">
-      <div className="npb-art" onClick={() => openLyricsPanel({ rightPanelOpen: false })}>
+      <div className="npb-art">
         {artworkSmall ? <img src={artworkSmall} alt="" /> : <div className="npb-artfb" />}
-        {/* spinning vinyl ring + live "playing" equaliser — animated only while playing */}
+        {/* spinning vinyl ring + live "playing" equaliser  Eanimated only while playing */}
         <span className="npb-ring" />
         <span className="npb-eq">
           <i />
@@ -1077,13 +1057,13 @@ export const NowPlayingBar = React.memo(
           className={`npb-dock${loadProgress != null ? ' is-loading' : ''}`}
           data-playing={playingNow ? 'true' : 'false'}
         >
-          {/* glass — the only backdrop-filter, isolated in its own layer */}
+          {/* glass  Ethe only backdrop-filter, isolated in its own layer */}
           <div className="npb-glass" />
 
-          {/* accent outline that fills as the track downloads (SC → SCD) */}
+          {/* accent outline that fills as the track downloads (SC ↁESCD) */}
           <DockLoadingRing progress={loadProgress} />
 
-          {/* content — repaints here never re-blur the glass below */}
+          {/* content  Erepaints here never re-blur the glass below */}
           <div className="npb-content">
             <div className="npb-row">
               <PillTrack loadProgress={loadProgress} />
@@ -1105,7 +1085,6 @@ export const NowPlayingBar = React.memo(
               <div className="flex items-center gap-0.5">
                 <TuningBtn />
                 <EqBtn />
-                <LyricsBtn />
                 <QueueBtn onClick={onQueueToggle} active={queueOpen} />
                 <ControlVolumeBtn size="sm" />
                 <div className="npb-vol-slider flex items-center gap-2 pl-1">

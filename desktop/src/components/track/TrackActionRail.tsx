@@ -1,11 +1,10 @@
 import React from 'react';
 import {useTranslation} from 'react-i18next';
-import {ListPlus, MicVocal} from '../../lib/icons';
-import {useLyricsStore} from '../../stores/lyrics';
+import {ListPlus} from '../../lib/icons';
 import type {Track} from '../../stores/player';
 import {AddToPlaylistDialog} from '../music/AddToPlaylistDialog';
 import {SharingToggle} from '../music/SharingToggle';
-import {CopyIconAction, DownloadButton, IconAction, LikeBtn, PlayPill} from './actions';
+import {CopyIconAction, DownloadButton, LikeBtn, PlayPill} from './actions';
 
 /** Hero transport + engagement + utility rail. Lives OUTSIDE the genre-scoped
  *  wave wrapper, so play/like keep the user's own accent. */
@@ -21,7 +20,6 @@ export const TrackActionRail = React.memo(function TrackActionRail({
     onPlay: () => void;
 }) {
     const {t} = useTranslation();
-    const openLyrics = useLyricsStore((s) => s.openPanel);
 
     return (
         <div className="flex items-center gap-3 flex-wrap">
@@ -34,11 +32,6 @@ export const TrackActionRail = React.memo(function TrackActionRail({
                     border: '0.5px solid rgba(255,255,255,0.07)',
                 }}
             >
-                <IconAction
-                    icon={<MicVocal size={16}/>}
-                    label={t('track.lyrics')}
-                    onClick={() => openLyrics('lyrics')}
-                />
                 <span className="w-px h-5 bg-white/[0.08] mx-0.5" aria-hidden/>
                 <AddToPlaylistDialog trackUrns={[track.urn]}>
                     <button

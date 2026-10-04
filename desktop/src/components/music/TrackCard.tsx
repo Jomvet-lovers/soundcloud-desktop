@@ -4,7 +4,6 @@ import {useNavigate} from 'react-router-dom';
 import {preloadTrack} from '../../lib/audio';
 import {art, dur, fc} from '../../lib/formatters';
 import {ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32} from '../../lib/icons';
-import {recordClusterFeedback, setUrnCluster, useClusterFeedback} from '../../lib/recsFeedback';
 import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
 import {useAutoHide} from '../../lib/useAutoHide';
 import {useTrackPlay} from '../../lib/useTrackPlay';
@@ -29,14 +28,7 @@ export const TrackCard = React.memo(
     const navigate = useNavigate();
     const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue, onPlay);
     const showPlayingOverlay = useAutoHide(isThisPlaying);
-    const clusterId = useClusterFeedback();
-    const togglePlay = React.useCallback(() => {
-      if (clusterId) {
-        setUrnCluster(track.urn, clusterId);
-        recordClusterFeedback(clusterId, 'click');
-      }
-      togglePlayRaw();
-    }, [clusterId, track.urn, togglePlayRaw]);
+    const togglePlay = togglePlayRaw;
     const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
     const artwork = art(track.artwork_url, 't300x300');
     const artistDisplay = useArtistDisplay(track);

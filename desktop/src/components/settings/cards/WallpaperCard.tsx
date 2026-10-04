@@ -8,10 +8,10 @@ import {
     removeWallpaper,
     saveWallpaperFromBuffer,
 } from '../../../lib/cache';
-import {Link, Loader2, Search, X} from '../../../lib/icons';
+import {Link, Loader2, X} from '../../../lib/icons';
 import {useSettingsStore} from '../../../stores/settings';
 import {Card, RangeSlider} from '../primitives';
-import {WallpaperSearch} from './WallpaperSearch';
+
 
 export function WallpaperCard() {
     const {t} = useTranslation();
@@ -29,22 +29,7 @@ export function WallpaperCard() {
     const [downloading, setDownloading] = useState(false);
     const [urlInput, setUrlInput] = useState('');
     const [showUrlInput, setShowUrlInput] = useState(false);
-    const [showSearch, setShowSearch] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const handlePickOnline = useCallback(
-        async (url: string) => {
-            try {
-                const name = await downloadWallpaper(url);
-                setWallpapers((prev) => (prev.includes(name) ? prev : [...prev, name]));
-                setBackgroundImage(name);
-                toast.success(t('settings.wallpaperAdded'));
-            } catch {
-                toast.error(t('settings.bgLoadError'));
-            }
-        },
-        [setBackgroundImage, t],
-    );
 
     useEffect(() => {
         listWallpapers().then((names) => {
@@ -189,26 +174,7 @@ export function WallpaperCard() {
                         <Link size={12} className="text-white/30"/>
                         <span className="text-[9px] text-white/25 font-medium">URL</span>
                     </button>
-
-                    <button
-                        type="button"
-                        onClick={() => setShowSearch((v) => !v)}
-                        className={`w-20 h-14 rounded-xl border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 ${
-                            showSearch
-                                ? 'bg-[var(--color-accent-glow)]'
-                                : 'border-white/[0.1] hover:border-white/[0.2] hover:bg-white/[0.02]'
-                        }`}
-                        style={showSearch ? {borderColor: 'var(--color-accent)'} : undefined}
-                    >
-                        <Search
-                            size={12}
-                            className={showSearch ? 'text-[var(--color-accent)]' : 'text-white/30'}
-                        />
-                        <span className="text-[9px] text-white/25 font-medium">{t('settings.wpSearch')}</span>
-                    </button>
                 </div>
-
-                {showSearch && <WallpaperSearch onPick={handlePickOnline}/>}
 
                 {showUrlInput && (
                     <div className="flex gap-2 animate-fade-in-up">

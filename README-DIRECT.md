@@ -27,18 +27,24 @@ actions locally.
 
 - Syncing likes / follows / playlist edits back to SoundCloud. SoundCloud
   protects write endpoints with DataDome bot protection. Every non-trusted
-  client is rejected:
-  - plain HTTP with the `oauth_token` header -> `403 x-datadome: protected`
-  - the app's Chrome-TLS-impersonating client -> `403`
-  - replaying the browser's `datadome` cookie -> `403`
-  - a fetch from the app's own WebView2 -> DataDome challenge stuck at
-    "verifying"
-  The app therefore stores likes, follows, playlist edits, comments, history
-  and dislikes locally (`direct_store.json`). The experimental WebView writer
-  lives in `src-tauri/src/direct/webview.rs` behind `SYNC_ENABLED = false`.
-- Premium / ML features from the original backend: Discover catalog, Aura,
-  SoundWave recommendations, vibe search, Yandex Music import. These show
-  empty states.
+  client is rejected (plain HTTP, TLS-impersonated HTTP, replayed datadome
+  cookie, and an embedded WebView2 whose challenge never finishes). Writes
+  stay local in `direct_store.json`; the experimental writer lives in
+  `src-tauri/src/direct/webview.rs` behind `SYNC_ENABLED = false`.
+
+## Removed in this fork
+
+Backend-only features were removed together with the "vibe" decoration layer:
+
+- Discover catalog, Star/premium pages and pay flows
+- SoundWave / recommendations / vibe search / clusters
+- Aura palettes and decorative star fields (neutralised stubs remain so the
+  API surface still compiles)
+- Lyrics panel, Yandex Music import, QR session transfer, P2P call network,
+  host-status banners
+- Wallhaven online wallpaper search (custom image / URL wallpaper remains)
+- Gradients, glow shadows, backdrop blur, decorative badges and the
+  Fraunces/Unbounded display fonts (Inter + JetBrains Mono only)
 
 ## Signing in
 

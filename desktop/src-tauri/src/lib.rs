@@ -3,7 +3,6 @@ mod audio;
 mod auth;
 mod direct;
 mod discord;
-mod import;
 mod network;
 mod rt;
 mod shared;
@@ -128,9 +127,6 @@ pub fn run() {
             }));
             app::diagnostics::mark_session_started(app.handle());
             app::diagnostics::start_linux_fd_monitor(app.handle());
-            // Direct-mode fork: no telemetry/health beacons to the developer
-            // infrastructure. Re-enable if you host your own backend.
-            // network::health::start(data_dir.clone(), app.handle().clone(), rt_handle.clone());
             app.manage(Arc::new(DiscordState {
                 client: Mutex::new(None),
             }));
@@ -165,11 +161,6 @@ pub fn run() {
             let auth_state =
                 auth::SessionStore::init(data_dir.clone(), auth_http_client, rt_handle.clone());
             app.manage(auth_state);
-
-            let call_state = network::call::CallState::init(data_dir.clone(), rt_handle);
-            network::call::manage_state(app.handle(), call_state.clone());
-            // Direct-mode fork: do not join the developer's P2P network.
-            // network::call::maybe_autostart(app.handle(), call_state);
 
             Ok(())
         })
@@ -224,8 +215,6 @@ pub fn run() {
             audio::audio_preview_play,
             audio::audio_preview_stop,
             audio::save_track_to_path,
-            import::ym_import_start,
-            import::ym_import_stop,
             track_cache::track_ensure_cached,
             track_cache::track_export,
             track_cache::track_is_cached,
@@ -246,16 +235,12 @@ pub fn run() {
             track_cache::track_cancel_cache_likes,
             network::image_cache::image_cache_size,
             network::image_cache::image_cache_clear,
-            network::call::call_set_enabled,
-            network::call::call_is_enabled,
-            network::call::call_status,
             auth::auth_status,
             auth::auth_set_session,
             auth::auth_logout,
             auth::auth_set_premium,
             network::edge::edge_config,
             network::edge::edge_note,
-            network::wallpapers::wallpaper_search,
             direct::direct_login,
         ])
         .run(tauri::generate_context!())

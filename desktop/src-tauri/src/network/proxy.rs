@@ -165,7 +165,7 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
             state
                 .http_client
                 .get(target_url.as_str())
-                .header("User-Agent", crate::network::wallpapers::BROWSER_UA)
+                .header("User-Agent", crate::network::BROWSER_UA)
         } else {
             state
                 .http_client

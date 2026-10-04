@@ -1,8 +1,6 @@
 import {memo} from 'react';
 import {useTranslation} from 'react-i18next';
-import {Power, Sparkles} from '../../../lib/icons';
-import {useSubscription} from '../../../lib/subscription';
-import {useAuthStore} from '../../../stores/auth';
+import {Power} from '../../../lib/icons';
 import {useSettingsStore} from '../../../stores/settings';
 import {Card, LockedToggle, PremiumBadge, Row, Toggle} from '../primitives';
 
@@ -66,11 +64,6 @@ const ComingSoonOverlay = memo(function ComingSoonOverlay() {
                     boxShadow: '0 6px 22px rgba(139,92,246,0.32), inset 0 1px 0 rgba(255,255,255,0.14)',
                 }}
             >
-                <Sparkles
-                    size={12}
-                    className="text-amber-300"
-                    style={{filter: 'drop-shadow(0 0 6px rgba(252,211,77,0.6))'}}
-                />
                 <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/95">
           {t('settings.bypassWhitelistSoon')}
         </span>
@@ -83,8 +76,7 @@ export function NetworkCard() {
     const {t} = useTranslation();
     const bypassWhitelist = useSettingsStore((s) => s.bypassWhitelist);
     const setBypassWhitelist = useSettingsStore((s) => s.setBypassWhitelist);
-    const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-    const {data: isPremium} = useSubscription(isAuthenticated);
+    const isPremium = false;
 
     return (
         <Card title={t('settings.bypassTitle')} icon={<Power size={17}/>}>

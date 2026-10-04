@@ -24,7 +24,6 @@ import {isUrnDisliked} from './dislikes';
 import {recordEvent} from './events';
 import {art} from './formatters';
 import {rememberTracks} from './offline-index';
-import {getUrnCluster, recordClusterFeedback} from './recsFeedback';
 import {getArtistDisplay, getDisplayTitle} from './track-display';
 
 const SKIP_THRESHOLD_SEC = 30;
@@ -551,8 +550,6 @@ listen('audio:ended', () => {
     if (playedEnough) {
       const positionPct = cachedDuration > 0 ? Math.min(1, cachedTime / cachedDuration) : undefined;
       recordEvent('full_play', currentUrn, positionPct);
-      const cluster = getUrnCluster(currentUrn);
-      if (cluster) recordClusterFeedback(cluster, 'complete');
     }
     lastEndedUrn = currentUrn;
   }

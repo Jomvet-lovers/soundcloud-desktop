@@ -3,7 +3,6 @@ import {type Aura, auraRgba} from '../../lib/aura';
 import { art } from '../../lib/formatters';
 import { Users } from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
-import { StarBadge } from '../layout/StarSubscription';
 
 interface AvatarArtifactProps {
   username: string;
@@ -65,7 +64,6 @@ function AvatarArtifactImpl({ username, avatarUrl, hasStar, aura }: AvatarArtifa
                 filter: perf.glow ? `drop-shadow(0 4px 12px ${auraRgba(aura, 0.6)})` : undefined,
             }}
           >
-            <StarBadge size="lg" />
           </div>
         )}
       </div>

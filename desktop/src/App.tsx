@@ -4,11 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { HostStatusBanner } from './components/host-status/HostStatusBanner';
-import { HostStatusModal } from './components/host-status/HostStatusModal';
 import { AppShell } from './components/layout/AppShell';
-import YMImportFloatingStatus from './components/music/YMImportFloatingStatus';
-import { SessionRecoveryModal } from './components/SessionRecoveryModal';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
 import { CHECK_UPDATES } from './lib/constants';
@@ -16,7 +12,6 @@ import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
 import { getAppMode, useAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
 import { type StartupPage, useSettingsStore } from './stores/settings';
-import { useYmImportStore } from './stores/ym-import';
 
 const Home = lazy(() => import('./pages/Home').then((module) => ({ default: module.Home })));
 const Library = lazy(() =>
@@ -47,12 +42,6 @@ const ArtistPage = lazy(() =>
 );
 const AlbumPage = lazy(() =>
   import('./pages/AlbumPage').then((module) => ({ default: module.AlbumPage })),
-);
-const Discover = lazy(() =>
-  import('./pages/Discover').then((module) => ({ default: module.Discover })),
-);
-const StarPage = lazy(() =>
-  import('./pages/StarPage').then((module) => ({ default: module.StarPage })),
 );
 const UpdateChecker = lazy(() =>
   import('./components/UpdateChecker').then((module) => ({ default: module.UpdateChecker })),
@@ -95,10 +84,6 @@ export default function App() {
   // Offline-only shell is the explicit "browse offline" choice from Login — NOT
   // a fallback for being logged out. An explicit logout always lands on <Login/>.
   const showOfflineOnlyShell = !canUseMainShell && offlineBypass;
-
-  useEffect(() => {
-    useYmImportStore.getState().initBridge();
-  }, []);
 
   useEffect(() => {
     const syncOnline = () => {
@@ -201,12 +186,7 @@ export default function App() {
           },
         }}
       />
-      <SessionRecoveryModal />
-      <YMImportFloatingStatus />
       <BrowserRouter>
-        {/* Внутри Router ради navigate('/offline'); видны и над Login (он тоже в Router). */}
-        <HostStatusModal />
-        <HostStatusBanner />
         {showOfflineOnlyShell ? (
           <Routes>
             <Route element={<AppShell />}>
@@ -324,22 +304,6 @@ export default function App() {
                   element={
                     <RouteLoader>
                       <AlbumPage />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="discover"
-                  element={
-                    <RouteLoader>
-                      <Discover />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="star"
-                  element={
-                    <RouteLoader>
-                      <StarPage />
                     </RouteLoader>
                   }
                 />

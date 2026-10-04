@@ -1,7 +1,5 @@
 import {useTranslation} from 'react-i18next';
 import {Headphones} from '../../../lib/icons';
-import {useSubscription} from '../../../lib/subscription';
-import {useAuthStore} from '../../../stores/auth';
 import {useSettingsStore} from '../../../stores/settings';
 import {Card, LockedToggle, PremiumBadge, Row, Toggle} from '../primitives';
 
@@ -16,8 +14,7 @@ export function PlaybackCard() {
     const highQualityStreaming = useSettingsStore((s) => s.highQualityStreaming);
     const setHighQualityStreaming = useSettingsStore((s) => s.setHighQualityStreaming);
 
-    const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-    const {data: isPremium} = useSubscription(isAuthenticated);
+    const isPremium = false;
 
     return (
         <Card title={t('settings.playback')} icon={<Headphones size={17}/>}>

@@ -2,7 +2,6 @@ import {useQuery} from '@tanstack/react-query';
 import React, {useCallback, useEffect, useMemo} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate, useParams} from 'react-router-dom';
-import {SoundWaveSimilarBlock} from '../components/music/soundwave';
 import {Atmosphere} from '../components/search/Atmosphere';
 import {ROOM_KEYFRAMES} from '../components/track/keyframes';
 import {LinerNotes} from '../components/track/LinerNotes';
@@ -190,8 +189,6 @@ export const TrackPage = React.memo(function TrackPage() {
                 />
 
                 <LinerNotes track={track} aura={aura}/>
-
-                <SoundWaveSimilarBlock trackUrn={track.urn}/>
 
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 lg:gap-8 items-start">
                     <RoomVoices

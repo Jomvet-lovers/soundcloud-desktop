@@ -1,40 +1,31 @@
-import {useMemo, useState} from 'react';
-import {ArchiveStation} from '../components/home/river/ArchiveStation';
-import {RIVER_KEYFRAMES} from '../components/home/river/keyframes';
-import {RiverFlow} from '../components/home/river/RiverFlow';
-import {RiverMasthead} from '../components/home/river/RiverMasthead';
-import {WaveFrame} from '../components/home/WaveFrame';
-import {useSoundprint} from '../components/library/useSoundprint';
-import {SoundWaveLockOverlay} from '../components/music/soundwave';
+import {useTranslation} from 'react-i18next';
+import {TrackCard} from '../components/music/TrackCard';
 import {useLikedTracks} from '../lib/hooks';
 import {useAuthStore} from '../stores/auth';
 
-/** Главная — «Течение»: река твоей музыки. Устье (играющее + waveform-вода),
- *  русло «Волны» и притоки вдоль нити течения; внизу — затоны (архив). */
+/** Home — a plain shelf of recently liked tracks. */
 export function Home() {
+  const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
-  const likedTracksQuery = useLikedTracks(100);
-
-  // Выбранный жанр спектра ретинтит всю страницу (атмосфера + шапка).
-  const [genre, setGenre] = useState<string | null>(null);
-  const sound = useSoundprint(likedTracksQuery.tracks, genre);
-
-  const likedShelfTracks = useMemo(
-    () => likedTracksQuery.tracks.slice(0, 50),
-    [likedTracksQuery.tracks],
-  );
+  const liked = useLikedTracks(60);
+  const tracks = liked.tracks;
 
   return (
-    <WaveFrame sound={sound}>
-      <style>{RIVER_KEYFRAMES}</style>
-      {user && <RiverMasthead user={user} sound={sound} selected={genre} onSelect={setGenre} />}
+    <div className="px-5 py-6 md:px-8">
+      <h1 className="text-[24px] font-semibold tracking-tight text-white/92">
+        {user ? t('library.greetDay', { name: user.username }) : t('nav.home')}
+      </h1>
+      <p className="mt-1 text-[13px] text-white/45">{t('library.likedTracks')}</p>
 
-      <div className="relative">
-        <RiverFlow tint={sound.tint} />
-        <SoundWaveLockOverlay />
-      </div>
-
-      <ArchiveStation likedTracks={likedShelfTracks} likedLoading={likedTracksQuery.isLoading} />
-    </WaveFrame>
+      {tracks.length === 0 ? (
+        <p className="mt-6 text-[13px] text-white/35">{t('library.noLikedTracks')}</p>
+      ) : (
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {tracks.map((track) => (
+            <TrackCard key={track.urn} track={track} queue={tracks} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
