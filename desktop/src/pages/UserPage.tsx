@@ -99,7 +99,7 @@ export function UserPage() {
       <style>{USER_PAGE_KEYFRAMES}</style>
       <div className="relative w-full min-h-screen">
         <div
-          className="relative z-10 w-full max-w-[1480px] mx-auto px-4 md:px-8 pt-10 md:pt-16 pb-32"
+          className="relative z-10 w-full max-w-[1480px] mx-auto px-4 md:px-8 pt-10 md:pt-16"
           style={{ isolation: 'isolate' }}
         >
           <IdentityHub
@@ -137,7 +137,7 @@ export function UserPage() {
               if (activeTab === 'popular') return <UserPopularTab urn={urn!} aura={aura} />;
               if (activeTab === 'tracks') return <UserTracksTab urn={urn!} aura={aura} />;
               if (activeTab === 'playlists') return <UserPlaylistsTab urn={urn!} />;
-              if (activeTab === 'likes') return <UserLikesTab urn={urn!} aura={aura} />;
+              if (activeTab === 'likes') return <UserLikesTab key={urn} urn={urn!} aura={aura} />;
               if (activeTab === 'followers')
                 return <UserConnectionsTab urn={urn!} mode="followers" />;
               if (activeTab === 'following')

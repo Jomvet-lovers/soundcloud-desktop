@@ -643,7 +643,11 @@
     "seeAll": "Tumunu Gor",
     "cancel": "Iptal",
     "back": "Geri",
-    "empty": "Burada henuz bir sey yok"
+    "empty": "Burada henuz bir sey yok",
+    "prevPage": "Onceki sayfa",
+    "nextPage": "Sonraki sayfa",
+    "page": "Sayfa {{page}}",
+    "pageOf": "Sayfa {{page}} / {{pages}}"
   },
   "star": {
     "title": "Star Abonelik",

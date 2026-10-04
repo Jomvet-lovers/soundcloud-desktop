@@ -1376,23 +1376,36 @@ async fn handle(
             let id = id_of(urn);
             let limit = q_u64(&q, "limit", 30);
             let page_no = q_u64(&q, "page", 0);
-            let offset = page_no * limit;
-            match s
-                .sc_get(
-                    &format!("/users/{id}/track_likes?limit={limit}&offset={offset}"),
-                    token.as_deref(),
-                )
-                .await
-            {
+            // SoundCloud's track_likes is cursor-paged: a numeric `offset`
+            // is rejected ("invalid cursor format"). The opaque cursor comes
+            // from the previous page's `next_href`, so pass it through.
+            let cursor = q_str(&q, "cursor");
+            let path = match cursor.as_deref() {
+                Some(c) if c.starts_with(SC_API) => c[SC_API.len()..].to_string(),
+                _ => format!("/users/{id}/track_likes?limit={limit}&offset=0"),
+            };
+            match s.sc_get(&path, token.as_deref()).await {
                 Ok((status, v)) if (200..300).contains(&status) => {
+                    let next_cursor = v
+                        .get("next_href")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
                     let items: Vec<Value> = sc_items(&v)
                         .into_iter()
                         .filter_map(|it| it.get("track").cloned())
                         .filter(|t| !t.is_null())
                         .map(normalize_urn)
                         .collect();
-                    let items = merge_local_likes(s, items, page_no).await;
-                    ok(page(items, page_no, limit, sc_has_more(&v)))
+                    let items = if cursor.is_none() {
+                        merge_local_likes(s, items, 0).await
+                    } else {
+                        items
+                    };
+                    let mut body = page(items, page_no, limit, next_cursor.is_some());
+                    if let Some(nc) = next_cursor {
+                        body["next_cursor"] = json!(nc);
+                    }
+                    ok(body)
                 }
                 _ => ok(empty_page(page_no, limit)),
             }

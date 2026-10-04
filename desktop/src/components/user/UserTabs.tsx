@@ -1,20 +1,23 @@
-import React, { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { Aura } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
 import {
+  prefetchUserLikedTracksPage,
   useInfiniteScroll,
   useSearchDbPlaylists,
   useSearchDbTracks,
   useUserFollowers,
   useUserFollowings,
-  useUserLikedTracks,
+  useUserLikedTracksPage,
   useUserPlaylists,
   useUserPopularTracks,
   useUserTracks,
 } from '../../lib/hooks';
-import { Loader2, Music } from '../../lib/icons';
+import { ChevronLeft, ChevronRight, Loader2, Music } from '../../lib/icons';
+import type { Track } from '../../stores/player';
 import { PlaylistCard } from '../music/PlaylistCard';
 import { Avatar } from '../ui/Avatar';
 import { VirtualGrid } from '../ui/VirtualGrid';
@@ -123,28 +126,101 @@ export function UserPlaylistsTab({ urn }: { urn: string }) {
   );
 }
 
+const pageBtn =
+  'flex size-8 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/90 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent';
+
+/**
+ * Profile likes, one cursor page (30) at a time. SoundCloud's track_likes is
+ * cursor-paged (numeric offsets are rejected), so the cursor that opens each
+ * page is remembered; adjacent pages are prefetched to make prev/next instant.
+ */
 export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
-  const q = useUserLikedTracks(urn);
-  const ref = useInfiniteScroll(!!q.hasNextPage, !!q.isFetchingNextPage, q.fetchNextPage);
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  // Remounted via `key={urn}` from the page, so a new profile starts fresh.
+  const [page, setPage] = useState(0);
+  const [cursors, setCursors] = useState<Array<string | null>>([null]);
+
+  const q = useUserLikedTracksPage(urn, cursors[page] ?? null);
+  const tracks = q.data?.collection ?? [];
+  const nextCursor = q.data?.next_cursor ?? null;
+  // SoundCloud reports `next_href` even on the last page, so probe the next
+  // page: an empty probe means there is nothing more to show.
+  const next = useUserLikedTracksPage(urn, nextCursor, !!nextCursor);
+  const canPrev = page > 0;
+  const canNext = !!nextCursor && (next.data?.collection.length ?? 0) > 0;
+
+  // Row numbers keep counting across pages (1…30, 31…60, …).
+  const [counts, setCounts] = useState<number[]>([]);
+  useEffect(() => {
+    if (q.isPlaceholderData) return;
+    const n = q.data?.collection.length;
+    if (n === undefined) return;
+    setCounts((prev) => (prev[page] === n ? prev : [...prev.slice(0, page), n]));
+  }, [q.data, q.isPlaceholderData, page]);
+  const base = counts.slice(0, page).reduce((sum, n) => sum + n, 0);
+
+  // Remember the cursor that opens the next page.
+  useEffect(() => {
+    if (!nextCursor) return;
+    setCursors((prev) => {
+      if (prev[page + 1] === nextCursor) return prev;
+      const next = prev.slice(0, page + 1);
+      next[page + 1] = nextCursor;
+      return next;
+    });
+  }, [nextCursor, page]);
+
+  // Preload the previous page (the next one is already probed above).
+  useEffect(() => {
+    if (!urn || page === 0) return;
+    void prefetchUserLikedTracksPage(queryClient, urn, cursors[page - 1] ?? null);
+  }, [urn, page, cursors, queryClient]);
+
   const renderItem = useCallback(
-    (track: (typeof q.tracks)[number], i: number) => (
-      <ThemedTrackRow track={track} index={i} queue={q.tracks} aura={aura} />
+    (track: Track, i: number) => (
+      <ThemedTrackRow track={track} index={base + i} queue={tracks} aura={aura} />
     ),
-    [aura, q.tracks],
+    [aura, tracks, base],
   );
+
   return (
-    <TabWrapper isLoading={q.isLoading} isEmpty={q.tracks.length === 0}>
+    <TabWrapper isLoading={q.isLoading && tracks.length === 0} isEmpty={tracks.length === 0}>
       <VirtualList
-        items={q.tracks}
+        key={page}
+        items={tracks}
         rowHeight={64}
         overscan={8}
         className="flex flex-col gap-1"
         getItemKey={(t) => t.urn}
         renderItem={renderItem}
       />
-      <div ref={ref} className="h-16 flex items-center justify-center">
-        {q.isFetchingNextPage && <Loader2 size={20} className="text-white/20 animate-spin" />}
-      </div>
+      {(canPrev || nextCursor) && (
+        <div className="mt-1 flex items-center justify-center gap-2 border-t border-white/[0.05] pt-2">
+          <button
+            type="button"
+            disabled={!canPrev}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            title={t('common.prevPage')}
+            className={pageBtn}
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <span className="min-w-[96px] text-center text-[12px] text-white/45">
+            {t('common.page', { page: page + 1 })}
+          </span>
+          <button
+            type="button"
+            disabled={!canNext}
+            onClick={() => setPage((p) => p + 1)}
+            title={t('common.nextPage')}
+            className={pageBtn}
+          >
+            <ChevronRight size={16} />
+          </button>
+          {q.isFetching && <Loader2 size={14} className="animate-spin text-white/25" />}
+        </div>
+      )}
     </TabWrapper>
   );
 }

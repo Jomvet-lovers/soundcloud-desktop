@@ -741,7 +741,11 @@
     "back": "Back",
     "empty": "Nothing here yet",
     "expand": "Read more",
-    "collapse": "Collapse"
+    "collapse": "Collapse",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "page": "Page {{page}}",
+    "pageOf": "Page {{page}} / {{pages}}"
   },
   "star": {
     "title": "Star Subscription",

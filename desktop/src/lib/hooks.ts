@@ -1,6 +1,8 @@
 import {
   type DefaultError,
   type InfiniteData,
+  keepPreviousData,
+  type QueryClient,
   type QueryKey,
   type UseInfiniteQueryResult,
   useInfiniteQuery,
@@ -160,6 +162,9 @@ const INFINITE_GC_MS = 1000 * 60 * 3;
  * (like/unlike/follow/playlist updates).
  */
 const COLD_CACHE_MS = Number.POSITIVE_INFINITY;
+
+/** Page size for the profile likes pagination (page-based, not infinite). */
+const USER_LIKES_PAGE_SIZE = 30;
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
@@ -555,19 +560,54 @@ export function useUserPlaylists(userUrn: string | undefined) {
   return { playlists: query.items, ...query };
 }
 
-export function useUserLikedTracks(userUrn: string | undefined) {
-  const query = usePagedQuery<Track>({
-    queryKey: ['user', userUrn, 'likes', 'tracks'],
-    url: (page, limit) =>
-      pagedUrl(`/users/${encodeURIComponent(userUrn!)}/likes/tracks`, page, limit),
-    limit: 30,
-    staleTime: COLD_CACHE_MS,
-    maxPages: 8,
-    enabled: !!userUrn,
-    dedupe: (t) => t.urn,
-  });
+/** Page envelope with an opaque cursor for the next page. */
+export interface CursorPage<T> extends PagedResponse<T> {
+  next_cursor?: string | null;
+}
 
-  return { tracks: query.items, ...query };
+/**
+ * Liked tracks of a profile, one cursor page (30) at a time. SoundCloud's
+ * track_likes is cursor-paged — a numeric offset is rejected — so each page is
+ * addressed by the previous page's `next_cursor`.
+ */
+export function userLikedTracksQueryKey(userUrn: string, cursor: string | null) {
+  return ['user', userUrn, 'likes', 'tracks', cursor ?? 'first'] as const;
+}
+
+export function fetchUserLikedTracksPage(userUrn: string, cursor: string | null) {
+  const params = new URLSearchParams({ limit: String(USER_LIKES_PAGE_SIZE) });
+  if (cursor) params.set('cursor', cursor);
+  return api<CursorPage<Track>>(
+    `/users/${encodeURIComponent(userUrn)}/likes/tracks?${params.toString()}`,
+  );
+}
+
+export function useUserLikedTracksPage(
+  userUrn: string | undefined,
+  cursor: string | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: userLikedTracksQueryKey(userUrn ?? '', cursor),
+    queryFn: () => fetchUserLikedTracksPage(userUrn!, cursor),
+    enabled: !!userUrn && enabled,
+    staleTime: COLD_CACHE_MS,
+    // Keep the previous page on screen while the next one arrives.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Warm the cache for an adjacent likes page so paging feels instant. */
+export function prefetchUserLikedTracksPage(
+  queryClient: QueryClient,
+  userUrn: string,
+  cursor: string | null,
+) {
+  return queryClient.prefetchQuery({
+    queryKey: userLikedTracksQueryKey(userUrn, cursor),
+    queryFn: () => fetchUserLikedTracksPage(userUrn, cursor),
+    staleTime: COLD_CACHE_MS,
+  });
 }
 
 export function useUserFollowings(userUrn: string | undefined) {
