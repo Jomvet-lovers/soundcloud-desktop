@@ -5,14 +5,17 @@
 //! and persisted through [`SessionStore`] — the same path as the manual
 //! token paste in [`super::direct_login`], without the DevTools detour.
 //!
-//! The WebView2 profile is persistent, so the SoundCloud web session
-//! survives app restarts and a later re-login is one click.
+//! The window always opens signed out: the persistent WebView profile would
+//! otherwise keep the previous SoundCloud session and prevent switching
+//! accounts. The whole web browsing profile (cookies, storage, service
+//! workers) is wiped before the sign-in page is shown.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tauri::webview::Cookie;
 use tauri::{Emitter, Manager};
 
 use crate::auth::SessionStore;
@@ -25,6 +28,8 @@ pub const LABEL: &str = "sc-login";
 const EVENT: &str = "sc-login";
 const HOME: &str = "https://soundcloud.com/signin";
 const POLL_MS: u64 = 1000;
+/// Sign-out polling budget (300 ms apart) while the webview warms up.
+const CLEAR_ATTEMPTS: usize = 10;
 /// Consecutive cookie-read failures before giving up (unsupported platform).
 const MAX_COOKIE_ERRORS: u32 = 30;
 
@@ -35,22 +40,28 @@ static WATCHING: AtomicBool = AtomicBool::new(false);
 /// Open (or focus) the SoundCloud login window and watch for its cookie.
 #[tauri::command]
 pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
-    let _ = window(&app)?;
-    if !WATCHING.swap(true, Ordering::SeqCst) {
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            watch(app).await;
-            WATCHING.store(false, Ordering::SeqCst);
-        });
+    let w = window(&app)?;
+    if WATCHING.swap(true, Ordering::SeqCst) {
+        // A watcher is already running (window open or still clearing) —
+        // just bring the window to the front.
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
     }
+    // Keep the window hidden until the previous web session is cleared so the
+    // old account never flashes on screen.
+    let _ = w.hide();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        watch(app).await;
+        WATCHING.store(false, Ordering::SeqCst);
+    });
     Ok(())
 }
 
 fn window(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(w) = app.get_webview_window(LABEL) {
-        let _ = w.show();
         let _ = w.unminimize();
-        let _ = w.set_focus();
         return Ok(w);
     }
     let url: tauri::Url = HOME.parse().map_err(|e| format!("{e}"))?;
@@ -60,7 +71,7 @@ fn window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .min_inner_size(480.0, 600.0)
         .zoom_hotkeys_enabled(true)
         .center()
-        .focused(true)
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())
 }
@@ -69,10 +80,76 @@ fn emit(app: &AppHandle, payload: Value) {
     app.emit(EVENT, payload).ok();
 }
 
+fn home_url() -> Option<tauri::Url> {
+    HOME.parse().ok()
+}
+
+/// SoundCloud auth cookies currently held by the login webview.
+fn auth_cookies(wv: &WebviewWindow) -> Option<Vec<Cookie<'static>>> {
+    let url = home_url()?;
+    wv.cookies_for_url(url).ok().map(|cookies| {
+        cookies
+            .into_iter()
+            .filter(|c| c.name().contains("oauth_token"))
+            .collect()
+    })
+}
+
+/// Sign the persistent web session out by wiping the login window's browsing
+/// data (cookies, localStorage, IndexedDB, service workers, cache). Removing
+/// just the `oauth_token` cookie is not enough: the SoundCloud web app keeps
+/// refresh state outside cookies and silently re-authenticates, which made the
+/// window open already signed in. Returns the stale token so the watcher can
+/// refuse to accept it again.
+async fn clear_previous_session(app: &AppHandle) -> Option<String> {
+    // Let the freshly created webview spin up before touching its profile.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let Some(wv) = app.get_webview_window(LABEL) else {
+        return None;
+    };
+
+    let stale = auth_cookies(&wv).and_then(|cookies| cookies.first().map(|c| c.value().to_string()));
+    if stale.is_some() {
+        eprintln!("[login] stale oauth_token found; wiping the web session");
+    }
+
+    for attempt in 0..CLEAR_ATTEMPTS {
+        if let Err(e) = wv.clear_all_browsing_data() {
+            eprintln!("[login] clear_all_browsing_data failed: {e}");
+        }
+        // The profile wipe is asynchronous; give it a beat, then verify.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        match auth_cookies(&wv) {
+            Some(cookies) if cookies.is_empty() => {
+                eprintln!("[login] previous web session cleared");
+                break;
+            }
+            _ if attempt + 1 == CLEAR_ATTEMPTS => {
+                eprintln!("[login] WARNING: oauth_token still present after wipe");
+            }
+            _ => {}
+        }
+    }
+
+    // Reload the sign-in page with the clean profile.
+    if let Some(url) = home_url() {
+        let _ = wv.navigate(url);
+    }
+    stale
+}
+
 /// Poll the window cookies until a usable `oauth_token` shows up, the user
 /// closes the window, or cookie access is unsupported.
 async fn watch(app: AppHandle) {
-    let mut last_tried: Option<String> = None;
+    let stale = clear_previous_session(&app).await;
+    if let Some(wv) = app.get_webview_window(LABEL) {
+        let _ = wv.show();
+        let _ = wv.set_focus();
+    }
+
+    // The stale token must never complete the flow: only a freshly issued one
+    // (the user actually signed in) is accepted.
+    let mut last_tried: Option<String> = stale;
     let mut cookie_errors: u32 = 0;
 
     loop {
@@ -84,35 +161,20 @@ async fn watch(app: AppHandle) {
             return;
         };
 
-        let Ok(url) = HOME.parse::<tauri::Url>() else {
-            return;
-        };
-        let cookies = match wv.cookies_for_url(url) {
-            Ok(c) => {
-                cookie_errors = 0;
-                c
+        let Some(cookies) = auth_cookies(&wv) else {
+            cookie_errors += 1;
+            if cookie_errors >= MAX_COOKIE_ERRORS {
+                emit(
+                    &app,
+                    json!({ "status": "error", "message": "cookie access unavailable" }),
+                );
+                return;
             }
-            Err(e) => {
-                cookie_errors += 1;
-                if cookie_errors == 1 {
-                    eprintln!("[login] cookies_for_url failed: {e}");
-                }
-                if cookie_errors >= MAX_COOKIE_ERRORS {
-                    emit(
-                        &app,
-                        json!({ "status": "error", "message": "cookie access unavailable" }),
-                    );
-                    return;
-                }
-                continue;
-            }
+            continue;
         };
+        cookie_errors = 0;
 
-        let Some(token) = cookies
-            .iter()
-            .find(|c| c.name() == "oauth_token")
-            .map(|c| c.value().to_string())
-        else {
+        let Some(token) = cookies.first().map(|c| c.value().to_string()) else {
             continue;
         };
         if token.is_empty() || last_tried.as_deref() == Some(token.as_str()) {
