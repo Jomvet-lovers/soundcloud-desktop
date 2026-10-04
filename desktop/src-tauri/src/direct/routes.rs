@@ -179,12 +179,15 @@ fn normalize_deep(mut item: Value) -> Value {
 /// back without `urn`/`media`) with full track objects. Unresolvable stubs are
 /// dropped so the frontend never renders empty rows.
 async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>, tracks: &mut Vec<Value>) {
+    // A stub is any entry without a title: the raw `{id}` refs from SC
+    // playlists, and the `{urn,id}` placeholders older reorder code wrote.
     let ids: Vec<String> = tracks
         .iter()
-        .filter(|t| t.get("urn").is_none())
+        .filter(|t| t.get("title").is_none())
         .filter_map(|t| {
             t.get("id")
                 .map(|i| i.to_string().trim_matches('"').to_string())
+                .or_else(|| t.get("urn").and_then(Value::as_str).map(id_of))
         })
         .collect();
     if ids.is_empty() {
@@ -209,13 +212,14 @@ async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>, tracks: &
         }
     }
     tracks.retain_mut(|t| {
-        if t.get("urn").is_some() {
+        if t.get("title").is_some() {
             return true;
         }
-        match t
+        let id = t
             .get("id")
             .map(|i| i.to_string().trim_matches('"').to_string())
-        {
+            .or_else(|| t.get("urn").and_then(Value::as_str).map(id_of));
+        match id {
             Some(id) => match by_id.remove(&id) {
                 Some(full) => {
                     *t = full;
@@ -226,6 +230,73 @@ async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>, tracks: &
             None => false,
         }
     });
+}
+
+/// Local playlist copy with stubs hydrated and (for SC-owned playlists) any
+/// missing metadata refilled from the SoundCloud detail. The repair is
+/// persisted, but a partial fetch never drops stored tracks.
+async fn repaired_local_playlist(
+    state: &DirectState,
+    token: Option<&str>,
+    urn: &str,
+) -> Option<Value> {
+    let local = {
+        let store = state.store.lock().await;
+        store.find_playlist(urn)
+    }?;
+    let mut repaired = local;
+    let mut changed = false;
+
+    let mut tracks = repaired
+        .get("tracks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let before = tracks.clone();
+    hydrate_track_stubs(state, token, &mut tracks).await;
+    if tracks != before && tracks.len() == before.len() {
+        if let Some(obj) = repaired.as_object_mut() {
+            obj.insert("track_count".into(), json!(tracks.len()));
+            obj.insert("tracks".into(), json!(tracks));
+        }
+        changed = true;
+    }
+
+    // The old reorder fallback could create a bare entry without a title or
+    // artwork; refill those from the SoundCloud detail.
+    if urn.starts_with("soundcloud:playlists:") && repaired.get("title").is_none() {
+        let id = id_of(urn);
+        if let Ok((status, detail)) = state.sc_get(&format!("/playlists/{id}"), token).await {
+            if (200..300).contains(&status) {
+                if let (Some(dst), Some(src)) = (repaired.as_object_mut(), detail.as_object()) {
+                    for key in [
+                        "title",
+                        "description",
+                        "artwork_url",
+                        "user",
+                        "genre",
+                        "created_at",
+                        "sharing",
+                        "permalink_url",
+                        "duration",
+                    ] {
+                        let empty = dst.get(key).map(Value::is_null).unwrap_or(true);
+                        if empty {
+                            if let Some(val) = src.get(key) {
+                                dst.insert(key.to_string(), val.clone());
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if changed {
+        state.store.lock().await.upsert_playlist(repaired.clone());
+    }
+    Some(repaired)
 }
 
 /// Raw SoundCloud playlist -> the `AlbumDetail` shape the frontend renders.
@@ -954,14 +1025,15 @@ async fn handle(
             ok(playlist)
         }
         ("GET", ["playlists", urn]) => {
-            let store = s.store.lock().await;
-            if store.is_deleted_playlist(urn) {
-                return Ok(err(404, "playlist deleted"));
+            {
+                let store = s.store.lock().await;
+                if store.is_deleted_playlist(urn) {
+                    return Ok(err(404, "playlist deleted"));
+                }
             }
-            if let Some(local) = store.find_playlist(urn) {
+            if let Some(local) = repaired_local_playlist(s, token.as_deref(), urn).await {
                 return Ok(ok(local));
             }
-            drop(store);
             let id = id_of(urn);
             match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
                 Ok((status, mut v)) if (200..300).contains(&status) => {
@@ -980,10 +1052,7 @@ async fn handle(
             let limit = q_u64(&q, "limit", 200);
             let page_no = q_u64(&q, "page", 0);
             let offset = page_no * limit;
-            let local = {
-                let store = s.store.lock().await;
-                store.find_playlist(urn)
-            };
+            let local = repaired_local_playlist(s, token.as_deref(), urn).await;
             if let Some(local) = local {
                 let all: Vec<Value> = local
                     .get("tracks")
@@ -1106,33 +1175,31 @@ async fn handle(
             };
 
             let is_sc = urn.starts_with("soundcloud:playlists:");
-            let local = {
-                let store = s.store.lock().await;
-                store.find_playlist(urn)
-            };
-            // Base list: the local copy when present, otherwise the current
-            // SoundCloud list for SC-owned playlists (so a first edit keeps
-            // the existing tracks).
-            let mut tracks: Vec<Value> = if let Some(lp) = &local {
-                lp.get("tracks")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
-            } else if is_sc {
+            // Base: the hydrated local copy when present; otherwise the full
+            // playlist detail for SC-owned playlists (SC dropped
+            // `/playlists/{id}/tracks`, and the detail also carries the
+            // metadata the local copy needs).
+            let local = repaired_local_playlist(s, token.as_deref(), urn).await;
+            let mut playlist = local.clone();
+            let mut tracks: Vec<Value> = local
+                .as_ref()
+                .and_then(|lp| lp.get("tracks").and_then(Value::as_array).cloned())
+                .unwrap_or_default();
+            if playlist.is_none() && is_sc {
                 let id = id_of(urn);
-                match s
-                    .sc_get(
-                        &format!("/playlists/{id}/tracks?limit=500&offset=0"),
-                        token.as_deref(),
-                    )
-                    .await
+                if let Ok((status, v)) = s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await
                 {
-                    Ok((_, v)) => sc_items(&v).into_iter().map(normalize_urn).collect(),
-                    Err(_) => Vec::new(),
+                    if (200..300).contains(&status) {
+                        let detail = normalize_urn(v);
+                        if let Some(list) = detail.get("tracks").and_then(Value::as_array) {
+                            let mut list = list.clone();
+                            hydrate_track_stubs(s, token.as_deref(), &mut list).await;
+                            tracks = list.into_iter().map(normalize_urn).collect();
+                        }
+                        playlist = Some(detail);
+                    }
                 }
-            } else {
-                Vec::new()
-            };
+            }
 
             if let Some(track) = fetched {
                 let t_urn = urn_of(&track).unwrap_or_default();
@@ -1150,14 +1217,22 @@ async fn handle(
                     if let Some(t) = tracks.iter().find(|t| urn_of(t).as_deref() == Some(u.as_str())) {
                         ordered.push(t.clone());
                     } else {
+                        // Unknown urn: resolve the full track instead of
+                        // persisting a data-less stub.
                         let id = id_of(u);
-                        ordered.push(json!({ "urn": u, "id": id.parse::<u64>().unwrap_or(0) }));
+                        let fetched = match token.as_deref() {
+                            Some(t) => s.sc_get_opt(&format!("/tracks/{id}"), Some(t)).await,
+                            None => None,
+                        };
+                        ordered.push(fetched.map(normalize_urn).unwrap_or_else(|| {
+                            json!({ "urn": u, "id": id.parse::<u64>().unwrap_or(0) })
+                        }));
                     }
                 }
                 tracks = ordered;
             }
 
-            let mut playlist = local.unwrap_or_else(|| {
+            let mut playlist = playlist.unwrap_or_else(|| {
                 json!({ "urn": urn, "tracks": [], "track_count": 0, "local": !is_sc })
             });
             if let Some(obj) = playlist.as_object_mut() {
