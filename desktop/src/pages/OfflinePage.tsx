@@ -7,6 +7,7 @@ import { ensureTrackCached } from '../lib/cache';
 import { art, dur } from '../lib/formatters';
 import { Download, Loader2, Pause, Play, Shuffle, Trash2 } from '../lib/icons';
 import { useCacheLikes } from '../lib/likes-cache';
+import { withViewTransition } from '../lib/view-transition';
 import { useAppStatusStore } from '../stores/app-status';
 import { useAuthStore } from '../stores/auth';
 import { usePlayerStore } from '../stores/player';
@@ -113,25 +114,37 @@ export function OfflinePage() {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => setSection('likes')}
-          className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
-            section === 'likes'
-              ? 'bg-white/[0.1] text-white/90'
-              : 'text-white/45 hover:bg-white/[0.05]'
+          onClick={() => withViewTransition(() => setSection('likes'))}
+          className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
+            section === 'likes' ? 'text-white/90' : 'text-white/45 hover:text-white/70'
           }`}
         >
-          {t('offline.likesTitle')} {lib.likesEntries.length}
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute inset-0 rounded-lg ${
+              section === 'likes' ? 'vt-offline-pill bg-white/[0.1]' : ''
+            }`}
+          />
+          <span className="relative">
+            {t('offline.likesTitle')} {lib.likesEntries.length}
+          </span>
         </button>
         <button
           type="button"
-          onClick={() => setSection('cached')}
-          className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
-            section === 'cached'
-              ? 'bg-white/[0.1] text-white/90'
-              : 'text-white/45 hover:bg-white/[0.05]'
+          onClick={() => withViewTransition(() => setSection('cached'))}
+          className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
+            section === 'cached' ? 'text-white/90' : 'text-white/45 hover:text-white/70'
           }`}
         >
-          {t('offline.cachedTitle')} {lib.cachedEntries.length}
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute inset-0 rounded-lg ${
+              section === 'cached' ? 'vt-offline-pill bg-white/[0.1]' : ''
+            }`}
+          />
+          <span className="relative">
+            {t('offline.cachedTitle')} {lib.cachedEntries.length}
+          </span>
         </button>
 
         <button

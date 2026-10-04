@@ -8,6 +8,7 @@ import {
   EQ_PRESETS,
 } from '../../lib/equalizer';
 import { AudioLines, Power, RotateCcw, X } from '../../lib/icons';
+import { withViewTransition } from '../../lib/view-transition';
 import { useSettingsStore } from '../../stores/settings';
 import { Modal, ModalClose, ModalContent, ModalTrigger } from '../ui/Modal';
 
@@ -138,14 +139,20 @@ const PresetBtn = React.memo(function PresetBtn({
   return (
     <button
       type="button"
-      onClick={() => onClick(id)}
-      className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer border ${
-        active
-          ? 'bg-white text-black border-white'
-          : 'bg-white/[0.04] text-white/50 border-white/[0.08] hover:bg-white/[0.08] hover:text-white/80'
+      onClick={() => withViewTransition(() => onClick(id))}
+      className={`group relative px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+        active ? 'text-black' : 'text-white/50 hover:text-white/80'
       }`}
     >
-      {label}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 rounded-lg border transition-colors ${
+          active
+            ? 'vt-eq-pill bg-white border-white'
+            : 'bg-white/[0.04] border-white/[0.08] group-hover:bg-white/[0.08]'
+        }`}
+      />
+      <span className="relative">{label}</span>
     </button>
   );
 });

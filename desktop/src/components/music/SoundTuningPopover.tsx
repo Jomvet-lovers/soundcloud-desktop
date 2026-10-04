@@ -2,6 +2,7 @@ import * as Popover from '@radix-ui/react-popover';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { audioLines16 } from '../../lib/icons';
+import { withViewTransition } from '../../lib/view-transition';
 import {
   getEffectivePitchSemitones,
   PITCH_SEMITONES_MAX,
@@ -106,23 +107,35 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                 <div className="flex overflow-hidden rounded-md border border-white/[0.1]">
                   <button
                     type="button"
-                    onClick={() => setPitchControlMode('auto')}
+                    onClick={() => withViewTransition(() => setPitchControlMode('auto'))}
                     title={t('player.pitchModeAuto')}
-                    className={`h-5 px-1.5 text-[9px] transition-colors ${
-                      !isManual ? 'bg-white/[0.14] text-white' : 'text-white/45 hover:text-white/75'
+                    className={`relative h-5 px-1.5 text-[9px] transition-colors ${
+                      !isManual ? 'text-white' : 'text-white/45 hover:text-white/75'
                     }`}
                   >
-                    {t('player.pitchModeAutoShort')}
+                    <span
+                      aria-hidden
+                      className={`pointer-events-none absolute inset-0 ${
+                        !isManual ? 'vt-pitch-pill bg-white/[0.14]' : ''
+                      }`}
+                    />
+                    <span className="relative">{t('player.pitchModeAutoShort')}</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPitchControlMode('manual')}
+                    onClick={() => withViewTransition(() => setPitchControlMode('manual'))}
                     title={t('player.pitchModeManual')}
-                    className={`h-5 border-l border-white/[0.1] px-1.5 text-[9px] transition-colors ${
-                      isManual ? 'bg-white/[0.14] text-white' : 'text-white/45 hover:text-white/75'
+                    className={`relative h-5 border-l border-white/[0.1] px-1.5 text-[9px] transition-colors ${
+                      isManual ? 'text-white' : 'text-white/45 hover:text-white/75'
                     }`}
                   >
-                    {t('player.pitchModeManualShort')}
+                    <span
+                      aria-hidden
+                      className={`pointer-events-none absolute inset-0 ${
+                        isManual ? 'vt-pitch-pill bg-white/[0.14]' : ''
+                      }`}
+                    />
+                    <span className="relative">{t('player.pitchModeManualShort')}</span>
                   </button>
                 </div>
               </div>

@@ -45,7 +45,7 @@ function TabWrapperImpl({ children, isLoading, isEmpty, emptyText }: TabWrapperP
           <p className="text-white/30 text-sm">{emptyText ?? t('common.empty')}</p>
         </div>
       ) : (
-        <div className="animate-in fade-in duration-500">{children}</div>
+        <div className="animate-soft-in">{children}</div>
       )}
     </div>
   );
@@ -186,15 +186,16 @@ export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
 
   return (
     <TabWrapper isLoading={q.isLoading && tracks.length === 0} isEmpty={tracks.length === 0}>
-      <VirtualList
-        key={page}
-        items={tracks}
-        rowHeight={64}
-        overscan={8}
-        className="flex flex-col gap-1"
-        getItemKey={(t) => t.urn}
-        renderItem={renderItem}
-      />
+      <div key={page} className="animate-soft-in">
+        <VirtualList
+          items={tracks}
+          rowHeight={64}
+          overscan={8}
+          className="flex flex-col gap-1"
+          getItemKey={(t) => t.urn}
+          renderItem={renderItem}
+        />
+      </div>
       {(canPrev || nextCursor) && (
         <div className="mt-1 flex items-center justify-center gap-2 border-t border-white/[0.05] pt-2">
           <button

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Aura } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
+import { withViewTransition } from '../../lib/view-transition';
 
 export type TabId = 'popular' | 'tracks' | 'playlists' | 'likes' | 'followers' | 'following';
 
@@ -134,15 +135,21 @@ function TabDockImpl<T extends string>({ tabs, active, onChange }: TabDockProps<
               key={tab.id}
               type="button"
               data-tab={tab.id}
-              onClick={() => onChange(tab.id)}
-              className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-md text-[12px] sm:text-[12.5px] font-medium transition-colors ${
+              onClick={() => withViewTransition(() => onChange(tab.id))}
+              className={`relative shrink-0 inline-flex items-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-md text-[12px] sm:text-[12.5px] font-medium transition-colors ${
                 overflows ? 'cursor-grab' : 'cursor-pointer'
-              } ${isActive ? 'bg-white/[0.08] text-white' : 'text-white/45 hover:text-white/80'}`}
+              } ${isActive ? 'text-white' : 'text-white/45 hover:text-white/80'}`}
             >
-              <span className="whitespace-nowrap">{tab.label}</span>
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 rounded-md ${
+                  isActive ? 'vt-dock-pill bg-white/[0.08]' : ''
+                }`}
+              />
+              <span className="relative whitespace-nowrap">{tab.label}</span>
               {tab.count != null && (
                 <span
-                  className={`hidden sm:inline-flex text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded-md ${
+                  className={`relative hidden sm:inline-flex text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded-md ${
                     isActive ? 'text-white/80' : 'text-white/30'
                   }`}
                 >

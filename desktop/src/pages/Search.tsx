@@ -15,6 +15,7 @@ import {
   useSearchDbUsers,
 } from '../lib/hooks';
 import { ChevronRight, Loader2, Music, Play } from '../lib/icons';
+import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
 import { useSearchQueryStore } from '../stores/searchQuery';
@@ -250,21 +251,30 @@ export function Search() {
       ) : (
         <>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            {tabs.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setTab(item.id)}
-                className={`rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                  tab === item.id
-                    ? 'bg-white/[0.1] text-white/90'
-                    : 'text-white/45 hover:bg-white/[0.05] hover:text-white/70'
-                }`}
-              >
-                {item.label}
-                {item.count > 0 && <span className="ml-1.5 text-white/35">{item.count}</span>}
-              </button>
-            ))}
+            {tabs.map((item) => {
+              const on = tab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => withViewTransition(() => setTab(item.id))}
+                  className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                    on ? 'text-white/90' : 'text-white/45 hover:text-white/70'
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className={`pointer-events-none absolute inset-0 rounded-lg bg-white/[0.1] transition-opacity duration-200 ease-out ${
+                      on ? 'vt-tab-pill opacity-100' : 'opacity-0'
+                    }`}
+                  />
+                  <span className="relative">
+                    {item.label}
+                    {item.count > 0 && <span className="ml-1.5 text-white/35">{item.count}</span>}
+                  </span>
+                </button>
+              );
+            })}
             {tab === 'tracks' && (
               <div className="ml-auto flex items-center gap-0.5">
                 {[
@@ -272,25 +282,32 @@ export function Search() {
                   { id: 'plays' as const, label: t('search.sort_plays') },
                   { id: 'newest' as const, label: t('search.sort_newest') },
                   { id: 'likes' as const, label: t('search.sort_likes') },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setSort(opt.id)}
-                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
-                      sort === opt.id
-                        ? 'bg-white/[0.1] text-white/90'
-                        : 'text-white/40 hover:bg-white/[0.05] hover:text-white/70'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                ].map((opt) => {
+                  const on = sort === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => withViewTransition(() => setSort(opt.id))}
+                      className={`relative rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                        on ? 'text-white/90' : 'text-white/40 hover:text-white/70'
+                      }`}
+                    >
+                      <span
+                        aria-hidden
+                        className={`pointer-events-none absolute inset-0 rounded-lg bg-white/[0.1] transition-opacity duration-200 ease-out ${
+                          on ? 'vt-sort-pill opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                      <span className="relative">{opt.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          <div className="mt-5">
+          <div key={tab} className="mt-5 animate-soft-in">
             {empty ? (
               <p className="text-[13px] text-white/35">{t('search.noResults')}</p>
             ) : tab === 'tracks' ? (

@@ -263,6 +263,72 @@ select:focus-visible {
   animation: fadeInUp 0.5s var(--ease-apple) both;
 }
 
+/* Soft entrance for tab / page switches — quick, small, transform+opacity only. */
+@keyframes softIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-soft-in {
+  animation: softIn 0.22s var(--ease-apple) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-soft-in {
+    animation: none;
+  }
+}
+
+/* ── Tab highlight morph (View Transitions) ─────────────────────────────
+   The active pill is the only named element; everything else swaps
+   instantly, so the highlight glides between tabs without a page fade. */
+.vt-tab-pill {
+  view-transition-name: tab-pill;
+}
+.vt-sort-pill {
+  view-transition-name: sort-pill;
+}
+.vt-dock-pill {
+  view-transition-name: dock-pill;
+}
+.vt-settings-pill {
+  view-transition-name: settings-pill;
+}
+.vt-offline-pill {
+  view-transition-name: offline-pill;
+}
+.vt-artist-sort-pill {
+  view-transition-name: artist-sort-pill;
+}
+.vt-artist-view-pill {
+  view-transition-name: artist-view-pill;
+}
+.vt-eq-pill {
+  view-transition-name: eq-pill;
+}
+.vt-pitch-pill {
+  view-transition-name: pitch-pill;
+}
+::view-transition-group(*) {
+  animation-duration: 220ms;
+  animation-timing-function: var(--ease-apple);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*) {
+    animation: none;
+  }
+}
+
 .hero-greeting {
   color: rgba(255, 255, 255, 0.96);
 }

@@ -4,6 +4,7 @@ import { type Aura, auraRgba } from '../../lib/aura';
 import { dur, fc } from '../../lib/formatters';
 import { Calendar, ListMusic, Loader2, Music } from '../../lib/icons';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
+import { withViewTransition } from '../../lib/view-transition';
 import type { Track } from '../../stores/player';
 import { TrackStatusBadges } from '../music/TrackStatusBadges';
 import { VirtualList } from '../ui/VirtualList';
@@ -254,20 +255,26 @@ const SortToggle = memo(
             <button
               key={o.id}
               type="button"
-              onClick={() => onChange(o.id)}
+              onClick={() => withViewTransition(() => onChange(o.id))}
               className={`relative px-4 h-8 rounded-xl text-[12px] font-semibold cursor-pointer transition-all ${
                 active ? 'text-white' : 'text-white/40 hover:text-white/70'
               }`}
-              style={
-                active
-                  ? {
-                      background: auraRgba(aura, 0.2),
-                      boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`,
-                    }
-                  : undefined
-              }
             >
-              {o.label}
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 rounded-xl ${
+                  active ? 'vt-artist-sort-pill' : ''
+                }`}
+                style={
+                  active
+                    ? {
+                        background: auraRgba(aura, 0.2),
+                        boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`,
+                      }
+                    : undefined
+                }
+              />
+              <span className="relative">{o.label}</span>
             </button>
           );
         })}
@@ -307,21 +314,29 @@ const ViewToggle = memo(
             <button
               key={o.id}
               type="button"
-              onClick={() => onChange(o.id)}
+              onClick={() => withViewTransition(() => onChange(o.id))}
               className={`relative inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-[12px] font-semibold cursor-pointer transition-all ${
                 active ? 'text-white' : 'text-white/40 hover:text-white/70'
               }`}
-              style={
-                active
-                  ? {
-                      background: auraRgba(aura, 0.2),
-                      boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`,
-                    }
-                  : undefined
-              }
             >
-              {o.icon}
-              {o.label}
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 rounded-xl ${
+                  active ? 'vt-artist-view-pill' : ''
+                }`}
+                style={
+                  active
+                    ? {
+                        background: auraRgba(aura, 0.2),
+                        boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`,
+                      }
+                    : undefined
+                }
+              />
+              <span className="relative inline-flex items-center gap-1.5">
+                {o.icon}
+                {o.label}
+              </span>
             </button>
           );
         })}
