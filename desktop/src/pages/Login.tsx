@@ -96,7 +96,10 @@ export function Login() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center relative overflow-hidden">
+    <div
+      className="h-screen flex items-center justify-center relative overflow-hidden"
+      data-tauri-drag-region
+    >
       <AuthBackdrop />
 
       <div className="relative z-10 w-full max-w-[400px] mx-4" style={{ isolation: 'isolate' }}>

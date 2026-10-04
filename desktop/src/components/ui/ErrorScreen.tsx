@@ -21,6 +21,7 @@ export function ErrorScreen({
         fullscreen ? 'h-screen' : 'min-h-full'
       }`}
       style={{ background: fullscreen ? 'var(--bg-primary, #08080a)' : undefined }}
+      data-tauri-drag-region={fullscreen ? true : undefined}
     >
       <div className="relative z-10 w-full max-w-[460px]">
         <div

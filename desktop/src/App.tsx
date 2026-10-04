@@ -337,6 +337,7 @@ function AppLoadingScreen({ fullscreen = false }: { fullscreen?: boolean }) {
   return (
     <div
       className={`flex items-center justify-center px-6 py-8 ${fullscreen ? 'h-screen' : 'min-h-[42vh]'}`}
+      data-tauri-drag-region={fullscreen ? true : undefined}
     >
       <div className="flex items-center gap-3 rounded-[24px] border border-white/8 bg-white/[0.035] px-4 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.24)]">
         <div className="flex size-10 items-center justify-center rounded-[16px] border border-accent/18 bg-accent/[0.10]">
