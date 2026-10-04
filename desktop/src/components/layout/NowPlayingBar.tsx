@@ -107,6 +107,12 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
   );
   const { time, duration } = useAudioClock();
   const artwork = art(currentTrack?.artwork_url, 't200x200');
+  const repeatTitle =
+    repeat === 'off'
+      ? t('player.repeatOff')
+      : repeat === 'one'
+        ? t('player.repeatOne')
+        : t('player.repeatAll');
 
   return (
     <footer className="flex h-[72px] flex-none items-center gap-4 border-t border-white/[0.08] bg-[#0b0b0e] px-4">
@@ -166,9 +172,14 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             type="button"
             className={`${iconBtn} ${repeat !== 'off' ? 'text-accent' : ''}`}
             onClick={toggleRepeat}
-            title={t('player.repeat')}
+            title={repeatTitle}
           >
-            {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
+            <span className="relative flex items-center justify-center">
+              {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
+              {repeat !== 'off' && (
+                <span className="absolute top-full left-1/2 mt-[2px] size-1 -translate-x-1/2 rounded-full bg-accent" />
+              )}
+            </span>
           </button>
         </div>
 
