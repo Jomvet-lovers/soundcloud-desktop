@@ -58,6 +58,17 @@
   `auth_session.json`（OAuth トークン）、`sc-settings.json`（設定）。消すと再ログイン。
 - `CLAUDE.md`（旧・別プロジェクト向けの内容）は削除済み。
 
+### セッション終了時に観測した問題（要調査）
+
+- **audio-output スレッドのパニック** — 出力デバイスが取得できない環境で
+  `src-tauri/src/audio/state.rs:113` が
+  `no audio output device: "No audio output: Error opening the stream with the OS"` で panic し、
+  その後フロントの `audio_switch_device` が `sending on a closed channel` で失敗し続ける。
+  デバイス無しでも落ちない graceful なフォールバック（再検出ループ等）が望ましい。
+- **`track_enforce_cache_limit` がハング** — dev ログで「Slow task still running:
+  invoke:track_enforce_cache_limit」が 20 分以上続き、完了しなかった（`track_cache` 側の
+  ブロッキング I/O かロック競合の疑い）。次回調査候補。
+
 ## 次の候補
 
 1. 最新 UI で **NSIS インストーラーをビルド**して配布（必要なときに）
