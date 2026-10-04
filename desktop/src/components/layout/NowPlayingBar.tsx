@@ -176,12 +176,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             onClick={toggleRepeat}
             title={repeatTitle}
           >
-            <span className="relative flex items-center justify-center">
-              {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
-              {repeat !== 'off' && (
-                <span className="absolute top-full left-1/2 mt-[2px] size-1 -translate-x-1/2 rounded-full bg-accent" />
-              )}
-            </span>
+            {repeat === 'one' ? repeat1Icon16 : repeatIcon16}
           </button>
         </div>
 
