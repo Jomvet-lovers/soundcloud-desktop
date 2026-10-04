@@ -64,7 +64,8 @@ export function looksLikeRoleTag(inner: string): boolean {
  * Role-теги ("трек (cover)") не трогаем — их обрабатывает stripInlineTags.
  * "Beyoncé (Sasha Fierce)" не срезается (обе стороны latin).
  */
-export function stripTranslitParens(s: string): string {
+export function stripTranslitParens(s: string | null | undefined): string {
+  if (!s) return '';
   const trimmed = s.replace(/\s+$/, '');
   if (!trimmed.endsWith(')')) return s;
   const open = trimmed.lastIndexOf('(');
@@ -93,8 +94,8 @@ export function stripTranslitParens(s: string): string {
 const TAG_PATTERN =
   /\s*[([][^)\]]*(?:prod\.?|produced\s+by|prod\s+by|feat\.?|featuring|ft\.?|with|remix|rmx|edit|version|cover|instrumental|free\s+(?:dl|download)|out\s+now|original\s+mix|extended\s+mix|radio\s+edit|premiere|exclusive|hd|hq|official(?:\s+(?:audio|video))?|lyrics|lyric\s+video|visualizer)\b[^)\]]*[)\]]/gi;
 
-export function stripInlineTags(title: string): string {
-  let prev = title;
+export function stripInlineTags(title: string | null | undefined): string {
+  let prev = title ?? '';
   for (let i = 0; i < 4; i++) {
     const next = prev
       .replace(TAG_PATTERN, '')
@@ -103,5 +104,5 @@ export function stripInlineTags(title: string): string {
     if (next === prev) break;
     prev = next;
   }
-  return prev || title;
+  return prev || (title ?? '');
 }

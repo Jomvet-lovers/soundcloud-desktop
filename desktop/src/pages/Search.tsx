@@ -88,6 +88,19 @@ function RowArt({ src, rounded }: { src: string | null; rounded: 'full' | 'lg' }
   );
 }
 
+/** De-duplicates selection items (SC repeats the same artist in "Recently Played"). */
+function dedupeItems(items: MixedSelectionItem[]): MixedSelectionItem[] {
+  const seen = new Set<string>();
+  const out: MixedSelectionItem[] = [];
+  for (const item of items) {
+    const key = item.urn ?? `${item.kind}:${item.title}:${item.artwork_url ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 /** Search — tabs over SoundCloud, with Discover selections when the query is empty. */
 export function Search() {
   const { t } = useTranslation();
@@ -227,7 +240,7 @@ export function Search() {
             <p className="text-[13px] text-white/35">{t('search.firstTimeTitle')}</p>
           ) : (
             selections.map((sel) => {
-              const items = sel.items?.collection ?? [];
+              const items = dedupeItems(sel.items?.collection ?? []);
               if (items.length === 0) return null;
               return (
                 <section key={sel.urn}>
@@ -235,9 +248,9 @@ export function Search() {
                     {sel.title}
                   </h2>
                   <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                    {items.slice(0, 10).map((item) => (
+                    {items.slice(0, 10).map((item, idx) => (
                       <DiscoverCard
-                        key={item.urn}
+                        key={item.urn ?? idx}
                         item={item}
                         busy={busyUrn === item.urn}
                         onPlay={startDiscoverItem}

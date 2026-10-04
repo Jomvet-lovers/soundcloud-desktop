@@ -175,6 +175,59 @@ fn normalize_deep(mut item: Value) -> Value {
     item
 }
 
+/// Replaces id-only track stubs (removed/unavailable SoundCloud tracks come
+/// back without `urn`/`media`) with full track objects. Unresolvable stubs are
+/// dropped so the frontend never renders empty rows.
+async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>, tracks: &mut Vec<Value>) {
+    let ids: Vec<String> = tracks
+        .iter()
+        .filter(|t| t.get("urn").is_none())
+        .filter_map(|t| {
+            t.get("id")
+                .map(|i| i.to_string().trim_matches('"').to_string())
+        })
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let mut by_id: HashMap<String, Value> = HashMap::new();
+    for chunk in ids.chunks(50) {
+        let path = format!("/tracks?ids={}", chunk.join(","));
+        if let Ok((st, hv)) = state.sc_get(&path, token).await {
+            if (200..300).contains(&st) {
+                if let Some(arr) = hv.as_array() {
+                    for t in arr {
+                        if let Some(id) = t
+                            .get("id")
+                            .map(|i| i.to_string().trim_matches('"').to_string())
+                        {
+                            by_id.insert(id, normalize_urn(t.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    tracks.retain_mut(|t| {
+        if t.get("urn").is_some() {
+            return true;
+        }
+        match t
+            .get("id")
+            .map(|i| i.to_string().trim_matches('"').to_string())
+        {
+            Some(id) => match by_id.remove(&id) {
+                Some(full) => {
+                    *t = full;
+                    true
+                }
+                None => false,
+            },
+            None => false,
+        }
+    });
+}
+
 /// Raw SoundCloud playlist -> the `AlbumDetail` shape the frontend renders.
 fn album_detail(v: &Value) -> Value {
     let id = v
@@ -911,7 +964,15 @@ async fn handle(
             drop(store);
             let id = id_of(urn);
             match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
-                Ok((status, v)) => json_resp(status, &normalize_urn(v)),
+                Ok((status, mut v)) if (200..300).contains(&status) => {
+                    if let Some(slot) = v.get_mut("tracks").and_then(Value::as_array_mut) {
+                        let mut list = std::mem::take(slot);
+                        hydrate_track_stubs(s, token.as_deref(), &mut list).await;
+                        *slot = list;
+                    }
+                    json_resp(status, &normalize_urn(v))
+                }
+                Ok((status, v)) => json_resp(status, &v),
                 Err(e) => err(502, &e),
             }
         }
@@ -943,11 +1004,12 @@ async fn handle(
             // already carries the full track objects, so paginate those.
             match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
                 Ok((_status, v)) => {
-                    let all = v
+                    let mut all = v
                         .get("tracks")
                         .and_then(Value::as_array)
                         .cloned()
                         .unwrap_or_default();
+                    hydrate_track_stubs(s, token.as_deref(), &mut all).await;
                     let total = all.len() as u64;
                     let slice: Vec<Value> = all
                         .into_iter()
@@ -1310,7 +1372,14 @@ async fn handle(
         ("GET", ["albums", urn]) => {
             let id = id_of(urn);
             match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
-                Ok((status, v)) if (200..300).contains(&status) => ok(album_detail(&v)),
+                Ok((status, mut v)) if (200..300).contains(&status) => {
+                    if let Some(slot) = v.get_mut("tracks").and_then(Value::as_array_mut) {
+                        let mut list = std::mem::take(slot);
+                        hydrate_track_stubs(s, token.as_deref(), &mut list).await;
+                        *slot = list;
+                    }
+                    ok(album_detail(&v))
+                }
                 Ok((status, v)) => json_resp(status, &v),
                 Err(e) => err(502, &e),
             }
