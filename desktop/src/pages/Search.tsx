@@ -16,7 +16,6 @@ import {
 } from '../lib/hooks';
 import { ChevronRight, Loader2, Music, Play } from '../lib/icons';
 import { type Track, usePlayerStore } from '../stores/player';
-import { useSearchHistoryStore } from '../stores/searchHistory';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
 import { useSearchQueryStore } from '../stores/searchQuery';
 
@@ -105,8 +104,6 @@ export function Search() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const q = useSearchQueryStore((s) => s.q);
-  const setQ = useSearchQueryStore((s) => s.setQ);
-  const addQuery = useSearchHistoryStore((s) => s.addQuery);
   const [debounced, setDebounced] = useState(q);
   const tab = useSearchPrefsStore((s) => s.tab);
   const setTab = useSearchPrefsStore((s) => s.setTab);
@@ -139,10 +136,6 @@ export function Search() {
       ] as const,
     [t, tracks.tracks.length, users.users.length, playlists.playlists.length, albums.albums.length],
   );
-
-  const submit = () => {
-    if (query) addQuery(query);
-  };
 
   const startDiscoverItem = async (item: MixedSelectionItem) => {
     if (busyUrn) return;
@@ -221,18 +214,6 @@ export function Search() {
       <h1 className="text-[24px] font-semibold tracking-tight text-white/92">
         {t('search.caption')}
       </h1>
-
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') submit();
-        }}
-        autoComplete="off"
-        spellCheck={false}
-        placeholder={t('search.placeholder')}
-        className="mt-4 w-full max-w-[520px] rounded-xl border border-white/[0.08] bg-white/[0.05] px-3.5 py-2.5 text-[13px] text-white/85 outline-none placeholder:text-white/25 focus:border-white/20"
-      />
 
       {!query ? (
         <div className="mt-6 flex flex-col gap-8">
