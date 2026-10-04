@@ -13,11 +13,6 @@ interface FavUser {
   avatar_url: string;
 }
 
-const PANEL = {
-  background: 'rgba(255,255,255,0.035)',
-  border: '0.5px solid rgba(255,255,255,0.07)',
-} as const;
-
 /** The sleeve: who made it, who else was in the room, and where to go next. */
 export const RoomSleeve = React.memo(function RoomSleeve({
   track,
@@ -45,8 +40,7 @@ export const RoomSleeve = React.memo(function RoomSleeve({
       <button
         type="button"
         onClick={() => navigate(`/user/${encodeURIComponent(u.urn)}`)}
-        className="group/ac w-full rounded-[1.5rem] p-6 flex flex-col items-center text-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] hover:-translate-y-0.5 cursor-pointer"
-        style={PANEL}
+        className="group/ac w-full flex flex-col items-center text-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] hover:-translate-y-0.5 cursor-pointer"
       >
         <img
           src={art(u.avatar_url, 't200x200') ?? ''}
@@ -68,7 +62,7 @@ export const RoomSleeve = React.memo(function RoomSleeve({
       </button>
 
       {shown.length > 0 && (
-        <div className="rounded-[1.5rem] p-5" style={PANEL}>
+        <div className="flex flex-col">
           <h3 className="text-[11px] font-medium text-white/40 mb-3.5">{t('track.whoVibes')}</h3>
           <div className="flex items-center">
             <div className="flex -space-x-3">

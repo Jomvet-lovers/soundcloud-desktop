@@ -14,11 +14,16 @@ export type SearchSource = 'db' | 'sc';
  */
 export type SearchMode = 'text' | 'vibe';
 
+/** Active tab on the Search page — kept across navigation (back button). */
+export type SearchTab = 'tracks' | 'users' | 'playlists' | 'albums';
+
 interface SearchPrefsState {
   source: SearchSource;
   setSource: (s: SearchSource) => void;
-    mode: SearchMode;
-    setMode: (m: SearchMode) => void;
+  mode: SearchMode;
+  setMode: (m: SearchMode) => void;
+  tab: SearchTab;
+  setTab: (t: SearchTab) => void;
 }
 
 export const useSearchPrefsStore = create<SearchPrefsState>()(
@@ -26,8 +31,10 @@ export const useSearchPrefsStore = create<SearchPrefsState>()(
     (set) => ({
       source: 'db',
       setSource: (source) => set({ source }),
-        mode: 'text',
-        setMode: (mode) => set({mode}),
+      mode: 'text',
+      setMode: (mode) => set({ mode }),
+      tab: 'tracks',
+      setTab: (tab) => set({ tab }),
     }),
     {
       name: 'sc-search-prefs',

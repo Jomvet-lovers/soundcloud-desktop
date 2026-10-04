@@ -29,7 +29,7 @@ function AlbumCoverArtifactImpl({ title, coverUrl, hasStar, aura }: AlbumCoverAr
       )}
 
       <div
-        className="relative w-full h-full rounded-[2.2rem] overflow-hidden"
+        className="relative w-full h-full rounded-xl overflow-hidden"
         style={{
           background: 'rgba(255,255,255,0.03)',
           boxShadow: hasStar
@@ -38,12 +38,7 @@ function AlbumCoverArtifactImpl({ title, coverUrl, hasStar, aura }: AlbumCoverAr
         }}
       >
         {coverUrl ? (
-          <img
-            src={coverUrl}
-            alt={title}
-            className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-[1.06]"
-            decoding="async"
-          />
+          <img src={coverUrl} alt={title} className="w-full h-full object-cover" decoding="async" />
         ) : (
           <div
             className="w-full h-full flex items-center justify-center"
@@ -54,8 +49,6 @@ function AlbumCoverArtifactImpl({ title, coverUrl, hasStar, aura }: AlbumCoverAr
             <Disc3 size={72} className="text-white/15" />
           </div>
         )}
-
-        <div className="absolute inset-x-0 top-0 h-1/2 pointer-events-none bg-gradient-to-b from-white/10 to-transparent mix-blend-overlay" />
       </div>
     </div>
   );

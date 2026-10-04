@@ -1238,6 +1238,50 @@ async fn handle(
         }
         ("GET", ["users", _urn, "subscription"]) => ok(json!({ "premium": false })),
         ("GET", ["users", _urn, "aura"]) => ok(json!({ "aura_id": null, "custom_hex": null })),
+        ("GET", ["users", my_urn, "followings", target_urn]) => {
+            let target_id = id_of(target_urn);
+            {
+                let store = s.store.lock().await;
+                if store.followed.iter().any(|u| u == target_urn) {
+                    return Ok(ok(json!(true)));
+                }
+                if store.unfollowed.iter().any(|u| u == target_urn) {
+                    return Ok(ok(json!(false)));
+                }
+            }
+            let my_id = id_of(my_urn);
+            let mut following = false;
+            let limit = 200u64;
+            let mut offset = 0u64;
+            loop {
+                match s
+                    .sc_get(
+                        &format!("/users/{my_id}/followings?limit={limit}&offset={offset}"),
+                        token.as_deref(),
+                    )
+                    .await
+                {
+                    Ok((status, v)) if (200..300).contains(&status) => {
+                        let hit = sc_items(&v).iter().any(|u| {
+                            u.get("id")
+                                .and_then(Value::as_u64)
+                                .map(|i| i.to_string())
+                                == Some(target_id.clone())
+                        });
+                        if hit {
+                            following = true;
+                            break;
+                        }
+                        if !sc_has_more(&v) || offset >= 1000 {
+                            break;
+                        }
+                        offset += limit;
+                    }
+                    _ => break,
+                }
+            }
+            ok(json!(following))
+        }
         ("GET", ["users", urn, "followings"]) => {
             let id = id_of(urn);
             let limit = q_u64(&q, "limit", 50);

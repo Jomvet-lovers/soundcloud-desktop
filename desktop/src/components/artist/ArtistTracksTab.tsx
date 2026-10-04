@@ -187,16 +187,7 @@ function ArtistTracksTabImpl({
       {wanted.length > 0 && (
         <div className="space-y-3 pt-4">
           <div className="flex items-center gap-3 px-2">
-            <span
-              className="text-[10px] font-medium px-3 py-1 rounded-full"
-              style={{
-                background: auraRgba(aura, 0.16),
-                color: '#fff',
-                boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.3)}`,
-              }}
-            >
-              {t('artist.comingSoon')}
-            </span>
+            <span className="text-[10px] font-medium text-white/45">{t('artist.comingSoon')}</span>
             <span className="text-[11px] text-white/30 tabular-nums">{fc(wanted.length)}</span>
             <div className="flex-1 h-px bg-white/[0.05]" />
           </div>
@@ -263,11 +254,7 @@ const SortToggle = memo(
     ];
     return (
       <div
-        className={`inline-flex items-center gap-1 p-1 rounded-2xl transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
-        style={{
-          background: 'rgba(20,20,24,0.9)',
-          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-        }}
+        className={`inline-flex items-center gap-1 transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
       >
         {options.map((o) => {
           const active = o.id === sort;
@@ -321,13 +308,7 @@ const ViewToggle = memo(
       },
     ];
     return (
-      <div
-        className="inline-flex items-center gap-1 p-1 rounded-2xl"
-        style={{
-          background: 'rgba(20,20,24,0.9)',
-          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-        }}
-      >
+      <div className="inline-flex items-center gap-1">
         {options.map((o) => {
           const active = o.id === view;
           return (
@@ -361,10 +342,7 @@ const WantedRow = memo(({ track, index }: { track: Track; index: number }) => {
   const displayTitle = useDisplayTitle(track);
   const artistDisplay = useArtistDisplay(track);
   return (
-    <div
-      className="flex items-center gap-4 px-4 py-2.5 rounded-2xl opacity-50"
-      style={{ background: 'rgba(255,255,255,0.015)' }}
-    >
+    <div className="flex items-center gap-4 px-1 py-2.5 opacity-50">
       <div className="w-10 h-10 flex items-center justify-center shrink-0">
         <span className="text-[12px] text-white/20 tabular-nums font-semibold">{index + 1}</span>
       </div>

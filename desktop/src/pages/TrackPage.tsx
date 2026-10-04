@@ -24,7 +24,7 @@ import { type Track, usePlayerStore } from '../stores/player';
 
 function HeroSkeleton() {
   return (
-    <div className="relative rounded-[2rem] overflow-hidden border border-white/[0.08] bg-[#141417] p-6 md:p-8">
+    <div className="relative">
       <div className="flex flex-col lg:flex-row gap-8">
         <div className="w-[180px] h-[180px] md:w-[220px] md:h-[220px] rounded-[2.2rem] skeleton-shimmer shrink-0 self-center lg:self-start" />
         <div className="flex-1 space-y-4 w-full">
@@ -151,7 +151,7 @@ export const TrackPage = React.memo(function TrackPage() {
       <style>{ROOM_KEYFRAMES}</style>
 
       <div
-        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-7"
+        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-6"
         style={{ isolation: 'isolate' }}
       >
         <div className="flex items-center justify-between">
@@ -179,7 +179,7 @@ export const TrackPage = React.memo(function TrackPage() {
 
         <LinerNotes track={track} aura={aura} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 lg:gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
           <RoomVoices
             trackUrn={track.urn}
             commentCount={track.comment_count}

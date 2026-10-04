@@ -17,15 +17,8 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
   return (
     <div className="grid lg:grid-cols-3 gap-6 py-2">
       {/* Bio */}
-      <div
-        className="lg:col-span-2 p-7 rounded-3xl"
-        style={{
-          background: 'rgba(20,20,24,0.9)',
-          border: '0.5px solid rgba(255,255,255,0.07)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3), inset 0 0.5px 0 rgba(255,255,255,0.06)',
-        }}
-      >
-        <h3 className="text-[10px] font-medium text-white/40 mb-4 flex items-center gap-2">
+      <section className="lg:col-span-2 flex flex-col gap-4">
+        <h3 className="text-[10px] font-medium text-white/40 flex items-center gap-2">
           <MicVocal size={11} /> {t('artist.aboutTitle')}
         </h3>
         {artist.bio ? (
@@ -35,7 +28,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
         ) : (
           <p className="text-[13px] text-white/30 italic">{t('artist.noBio')}</p>
         )}
-        <div className="mt-6 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
           {artist.country && (
             <Stat icon={<Globe size={12} />} label={t('artist.country')} value={artist.country} />
           )}
@@ -45,20 +38,13 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
             value={`${(artist.confidence * 100).toFixed(0)}%`}
           />
         </div>
-      </div>
+      </section>
 
       {/* Side: SC accounts + extra socials */}
       <div className="flex flex-col gap-6">
         {artist.sc_accounts.length > 0 && (
-          <div
-            className="p-5 rounded-3xl"
-            style={{
-              background: 'rgba(20,20,24,0.9)',
-              border: '0.5px solid rgba(255,85,0,0.18)',
-              boxShadow: `inset 0 0.5px 0 rgba(255,255,255,0.06)`,
-            }}
-          >
-            <h3 className="text-[10px] font-medium text-orange-300/80 mb-3 flex items-center gap-2">
+          <div className="flex flex-col gap-3">
+            <h3 className="text-[10px] font-medium text-orange-300/80 flex items-center gap-2">
               <SocialIcon kind="soundcloud" size={11} />
               {t('artist.scAccounts')}
             </h3>
@@ -70,17 +56,13 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
                   onClick={() =>
                     navigate(`/user/${encodeURIComponent(`soundcloud:users:${acc.sc_user_id}`)}`)
                   }
-                  className="group flex items-center gap-3 px-3 py-2.5 rounded-xl text-left cursor-pointer hover:scale-[1.02] transition-all"
-                  style={{
-                    background: 'rgba(255,85,0,0.08)',
-                    border: '0.5px solid rgba(255,85,0,0.16)',
-                  }}
+                  className="group flex items-center gap-3 text-left cursor-pointer transition-colors"
                 >
-                  <span className="w-7 h-7 rounded-lg flex items-center justify-center bg-white/[0.04]">
+                  <span className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center ring-1 ring-white/10 transition-colors group-hover:ring-white/25">
                     <SocialIcon kind="soundcloud" size={14} className="text-orange-300" />
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-semibold text-white/85 truncate">
+                    <p className="text-[12px] font-semibold text-white/85 truncate transition-colors group-hover:text-white">
                       {acc.role === 'main'
                         ? t('artist.mainAccount')
                         : acc.role === 'demo'
@@ -99,14 +81,8 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
         )}
 
         {artist.socials.length > 0 && (
-          <div
-            className="p-5 rounded-3xl"
-            style={{
-              background: 'rgba(20,20,24,0.9)',
-              border: '0.5px solid rgba(255,255,255,0.06)',
-            }}
-          >
-            <h3 className="text-[10px] font-medium text-white/40 mb-3">{t('artist.links')}</h3>
+          <div className="flex flex-col gap-3">
+            <h3 className="text-[10px] font-medium text-white/40">{t('artist.links')}</h3>
             <div className="flex flex-col gap-1">
               {artist.socials.map((s) => (
                 <a
@@ -140,13 +116,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
 
 const Stat = memo(
   ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
-    <span
-      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold"
-      style={{
-        background: 'rgba(255,255,255,0.04)',
-        border: '0.5px solid rgba(255,255,255,0.08)',
-      }}
-    >
+    <span className="inline-flex items-center gap-2 text-[11px] font-semibold">
       <span className="text-white/45">{icon}</span>
       <span className="text-white/40 text-[10px]">{label}</span>
       <span className="text-white/85">{value}</span>

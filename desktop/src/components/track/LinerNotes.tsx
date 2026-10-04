@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { dateFormatted, durLong } from '../../lib/formatters';
+import { dateFormatted, durLong, fc } from '../../lib/formatters';
 import { ChevronDown, ChevronUp, Hash } from '../../lib/icons';
 import type { Track } from '../../stores/player';
-import { StatOrb } from '../user/StatOrb';
 import type { TrackAura } from './useTrackAura';
 
 function parseTags(tagList?: string): string[] {
@@ -42,11 +41,19 @@ function Credit({
   );
 }
 
+function Stat({ value, label }: { value?: number | null; label: string }) {
+  return (
+    <span className="whitespace-nowrap">
+      <span className="font-semibold text-white/90">{value != null ? fc(value) : '—'}</span>{' '}
+      <span className="text-white/40">{label}</span>
+    </span>
+  );
+}
+
 /** The record-sleeve back: glanceable stats, the artist's written notes,
  *  credits-as-typography (album, release, language, ISRC…) and tags. */
 export const LinerNotes = React.memo(function LinerNotes({
   track,
-  aura,
 }: {
   track: Track;
   aura: TrackAura;
@@ -82,22 +89,14 @@ export const LinerNotes = React.memo(function LinerNotes({
   if (isrc) credits.push({ label: t('track.isrc'), value: isrc });
 
   return (
-    <section className="border border-white/[0.08] bg-[#141417] rounded-[2rem] p-6 md:p-7 space-y-6">
-      <div className="flex flex-wrap gap-2.5">
-        <StatOrb value={track.playback_count} label={t('track.plays')} accent={aura.accentGlow} />
-        <StatOrb
-          value={track.favoritings_count ?? track.likes_count}
-          label={t('track.likes')}
-          accent={aura.accentGlow}
-        />
+    <section className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]">
+        <Stat value={track.playback_count} label={t('track.plays')} />
+        <Stat value={track.favoritings_count ?? track.likes_count} label={t('track.likes')} />
         {track.reposts_count != null && (
-          <StatOrb
-            value={track.reposts_count}
-            label={t('track.reposts')}
-            accent={aura.accentGlow}
-          />
+          <Stat value={track.reposts_count} label={t('track.reposts')} />
         )}
-        <StatOrb value={track.comment_count} label={t('track.comments')} accent={aura.accentGlow} />
+        <Stat value={track.comment_count} label={t('track.comments')} />
       </div>
 
       {desc && (
@@ -137,7 +136,7 @@ export const LinerNotes = React.memo(function LinerNotes({
           {tags.map((tag) => (
             <span
               key={tag}
-              className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-white/[0.04] text-white/40 border border-white/[0.05] hover:bg-white/[0.07] hover:text-white/60 transition-all duration-200 cursor-default"
+              className="text-[10px] font-medium text-white/40 hover:text-white/60 transition-colors cursor-default"
             >
               {tag}
             </span>

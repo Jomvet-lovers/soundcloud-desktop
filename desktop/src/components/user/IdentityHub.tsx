@@ -4,10 +4,9 @@ import { fc } from '../../lib/formatters';
 import { Calendar, Globe } from '../../lib/icons';
 import { likedTracksCount } from '../../lib/likes';
 import { CopyLinkButton } from '../ui/CopyLinkButton';
-import { GlassHeroPanel } from '../ui/GlassHeroPanel';
 import { AvatarArtifact } from './AvatarArtifact';
 import { FollowBtn } from './FollowBtn';
-import { getWebIcon, InfoChip, ProChip, VerifiedBadge } from './UserChips';
+import { getWebIcon, ProChip, VerifiedBadge } from './UserChips';
 
 function dateFormattedLong(dateStr: string | null | undefined) {
   if (!dateStr) return null;
@@ -63,8 +62,8 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
   const country = [user.city, user.country_code].filter(Boolean).join(', ');
 
   return (
-    <GlassHeroPanel hasStar={hasStar} aura={aura}>
-      <div className="relative flex flex-col items-center gap-4 p-4 sm:flex-row sm:items-start md:gap-5 md:p-5">
+    <div className="flex flex-col">
+      <div className="relative flex flex-col items-center gap-4 sm:flex-row sm:items-start md:gap-5">
         <AvatarArtifact
           username={user.username}
           avatarUrl={user.avatar_url}
@@ -79,8 +78,16 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
             </h1>
             {user.verified && <VerifiedBadge title={t('user.verifiedArtist')} />}
             {user.plan && user.plan !== 'Free' && <ProChip plan={user.plan} />}
-            {formattedDate && <InfoChip icon={<Calendar size={11} />}>{formattedDate}</InfoChip>}
-            {country && <InfoChip icon={<Globe size={11} />}>{country}</InfoChip>}
+            {formattedDate && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55">
+                <Calendar size={11} className="text-white/45" /> {formattedDate}
+              </span>
+            )}
+            {country && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55">
+                <Globe size={11} className="text-white/45" /> {country}
+              </span>
+            )}
             {user.full_name && user.full_name !== user.username && (
               <p className="text-[12px] font-medium text-white/40">{user.full_name}</p>
             )}
@@ -108,11 +115,7 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
                 href={link.url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-medium text-white/55 transition-colors hover:text-white"
-                style={{
-                  background: 'rgba(28,28,32,0.85)',
-                  border: '0.5px solid rgba(255,255,255,0.08)',
-                }}
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55 transition-colors hover:text-white"
               >
                 <span className="text-white/45">{getWebIcon(link.service)}</span>
                 <span className="max-w-[140px] truncate">{link.title}</span>
@@ -121,6 +124,6 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
           </div>
         </div>
       </div>
-    </GlassHeroPanel>
+    </div>
   );
 }

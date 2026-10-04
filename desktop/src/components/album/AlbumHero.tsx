@@ -1,12 +1,10 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { type Aura, auraRgba } from '../../lib/aura';
+import type { Aura } from '../../lib/aura';
 import { dur } from '../../lib/formatters';
 import { Calendar, Disc3, ListMusic, MicVocal } from '../../lib/icons';
 import { Avatar } from '../ui/Avatar';
-import { GlassHeroPanel } from '../ui/GlassHeroPanel';
-import { InfoChip } from '../user/UserChips';
 import { AlbumCoverArtifact } from './AlbumCoverArtifact';
 import { AlbumPlayButton } from './AlbumPlayButton';
 import type { AlbumArtist, AlbumDetail } from './types';
@@ -29,31 +27,22 @@ const ArtistChip = memo(function ArtistChip({
   name,
   role,
   avatarUrl,
-  aura,
 }: {
   id: string;
   name: string;
   role: string;
   avatarUrl?: string;
-  aura: Aura;
 }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const isPrimary = role === 'primary';
   const subLabel = ROLE_LABEL_KEY[role] ? t(ROLE_LABEL_KEY[role]) : role;
   return (
     <button
       type="button"
       onClick={() => navigate(`/artist/${encodeURIComponent(id)}`)}
-      className="group inline-flex items-center gap-2.5 pl-1 pr-3.5 py-1 rounded-full cursor-pointer transition-all duration-300 hover:scale-105"
-      style={{
-        background: 'rgba(28,28,32,0.85)',
-        boxShadow: isPrimary
-          ? `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`
-          : 'inset 0 0 0 1px rgba(255,255,255,0.08)',
-      }}
+      className="group inline-flex items-center gap-2 cursor-pointer"
     >
-      <span className="relative w-7 h-7 rounded-full overflow-hidden ring-1 ring-white/15">
+      <span className="relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-white/15">
         <Avatar src={avatarUrl} alt={name} size={28} />
       </span>
       <span className="flex flex-col items-start leading-tight">
@@ -75,101 +64,83 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
     let total = 0;
     let indexed = 0;
     const feat: AlbumArtist[] = [];
-    for (const tr of album.tracks) {
+    for (const tr of album.tracks ?? []) {
       total += tr.duration ?? 0;
       if (tr.enrichment?.availability !== 'wanted') indexed++;
     }
-    for (const a of album.artists) if (a.role !== 'primary') feat.push(a);
+    for (const a of album.artists ?? []) if (a.role !== 'primary') feat.push(a);
     return { totalDuration: total, indexedCount: indexed, featured: feat };
   }, [album.tracks, album.artists]);
 
   return (
-    <GlassHeroPanel hasStar={hasStar} aura={aura}>
-      <div className="relative p-5 md:p-6 flex flex-col lg:flex-row gap-5 lg:gap-6 items-center lg:items-start">
-        <AlbumCoverArtifact
-          title={album.title}
-          coverUrl={album.cover_url}
-          hasStar={hasStar}
-          aura={aura}
-        />
+    <div className="flex flex-col items-center gap-5 md:flex-row md:items-start md:gap-6">
+      <AlbumCoverArtifact
+        title={album.title}
+        coverUrl={album.cover_url}
+        hasStar={hasStar}
+        aura={aura}
+      />
 
-        <div className="flex-1 min-w-0 flex flex-col gap-4 text-center lg:text-left">
-          <div className="flex flex-wrap items-center gap-2 justify-center lg:justify-start">
-            <span
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium"
-              style={{
-                background: 'rgba(28,28,32,0.85)',
-                color: hasStar ? '#fff' : 'rgba(255,255,255,0.7)',
-                boxShadow: hasStar
-                  ? `inset 0 0 0 1px ${auraRgba(aura, 0.4)}`
-                  : 'inset 0 0 0 1px rgba(255,255,255,0.08)',
-              }}
-            >
-              <Disc3 size={11} /> {kindLabel}
+      <div className="flex w-full min-w-0 flex-1 flex-col gap-3 text-center md:text-left">
+        <span className="inline-flex items-center justify-center gap-1.5 text-[11px] font-medium text-white/55 md:justify-start">
+          <Disc3 size={11} /> {kindLabel}
+        </span>
+
+        <h1 className="max-w-full break-words text-3xl font-black leading-tight tracking-tight text-white md:text-5xl">
+          {album.title}
+        </h1>
+
+        {(album.primary_artist || featured.length > 0) && (
+          <div className="flex flex-wrap items-center justify-center gap-3 md:justify-start">
+            {album.primary_artist && (
+              <ArtistChip
+                id={album.primary_artist.id}
+                name={album.primary_artist.name}
+                role="primary"
+                avatarUrl={album.primary_artist.avatar_url}
+              />
+            )}
+            {featured.map((a) => (
+              <ArtistChip
+                key={a.id}
+                id={a.id}
+                name={a.name}
+                role={a.role}
+                avatarUrl={a.avatar_url}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-white/45 md:justify-start">
+          {album.release_year && (
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar size={11} /> {album.release_year}
             </span>
-          </div>
-
-          <h1 className="text-3xl md:text-5xl font-black leading-tight tracking-tight wrap-break-word max-w-full text-white">
-            {album.title}
-          </h1>
-
-          {(album.primary_artist || featured.length > 0) && (
-            <div className="flex flex-wrap gap-2 justify-center lg:justify-start items-center">
-              {album.primary_artist && (
-                <ArtistChip
-                  id={album.primary_artist.id}
-                  name={album.primary_artist.name}
-                  role="primary"
-                  avatarUrl={album.primary_artist.avatar_url}
-                  aura={aura}
-                />
-              )}
-              {featured.map((a) => (
-                <ArtistChip
-                  key={a.id}
-                  id={a.id}
-                  name={a.name}
-                  role={a.role}
-                  avatarUrl={a.avatar_url}
-                  aura={aura}
-                />
-              ))}
-            </div>
           )}
+          <span className="inline-flex items-center gap-1.5">
+            <ListMusic size={11} /> {t('album.tracksCount', { count: album.tracks?.length ?? 0 })}
+          </span>
+          {totalDuration > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <MicVocal size={11} /> {dur(totalDuration)}
+            </span>
+          )}
+          {indexedCount < (album.tracks?.length ?? 0) && (
+            <span>
+              {t('album.availability', {
+                indexed: indexedCount,
+                total: album.tracks?.length ?? 0,
+              })}
+            </span>
+          )}
+        </div>
 
-          <div className="flex flex-wrap items-center gap-2 justify-center lg:justify-start">
-            {album.release_year && (
-              <InfoChip icon={<Calendar size={11} />}>{album.release_year}</InfoChip>
-            )}
-            <InfoChip icon={<ListMusic size={11} />}>
-              {t('album.tracksCount', { count: album.tracks.length })}
-            </InfoChip>
-            {totalDuration > 0 && (
-              <InfoChip icon={<MicVocal size={11} />}>{dur(totalDuration)}</InfoChip>
-            )}
-            {indexedCount < album.tracks.length && (
-              <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium"
-                style={{
-                  background: auraRgba(aura, 0.12),
-                  color: '#fff',
-                  boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.3)}`,
-                }}
-              >
-                {t('album.availability', {
-                  indexed: indexedCount,
-                  total: album.tracks.length,
-                })}
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 pt-1 justify-center lg:justify-start">
-            <AlbumPlayButton tracks={album.tracks} aura={aura} />
-          </div>
+        <div className="flex flex-wrap items-center justify-center gap-3 pt-1 md:justify-start">
+          <AlbumPlayButton tracks={album.tracks ?? []} aura={aura} />
         </div>
       </div>
-    </GlassHeroPanel>
+    </div>
   );
 }
 

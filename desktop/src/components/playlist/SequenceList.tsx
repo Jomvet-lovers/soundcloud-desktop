@@ -17,16 +17,10 @@ import type { Track } from '../../stores/player';
 import { VirtualList } from '../ui/VirtualList';
 import { SequenceRow, SequenceRowOverlay, SortableSequenceRow } from './SequenceRow';
 
-const PANEL = {
-  background: 'rgba(255,255,255,0.02)',
-  border: '0.5px solid rgba(255,255,255,0.06)',
-  boxShadow: '0 24px 60px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04)',
-} as const;
-
 function Header({ count }: { count: number }) {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center justify-between px-3 pt-1 pb-3">
+    <div className="flex items-center justify-between px-1 pt-1 pb-3">
       <span className="inline-flex items-center gap-2 text-[11px] font-medium text-white/55">
         <ListMusic size={12} /> {t('playlist.theSequence')}
         <span className="text-white/25 ml-1 tabular-nums">{count}</span>
@@ -92,7 +86,7 @@ export const SequenceList = React.memo(function SequenceList({
   ) : null;
 
   return (
-    <div className="rounded-[2rem] p-3 md:p-4" style={PANEL}>
+    <div className="flex flex-col">
       <Header count={tracks.length} />
       {isOwner ? (
         <DndContext

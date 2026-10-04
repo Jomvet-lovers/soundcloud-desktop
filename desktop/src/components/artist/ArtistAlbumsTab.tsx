@@ -118,11 +118,7 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
     <button
       type="button"
       onClick={() => navigate(`/album/${encodeURIComponent(album.id)}`)}
-      className="group relative flex flex-col gap-2 text-left p-3 rounded-2xl cursor-pointer transition-all duration-500 hover:scale-[1.03]"
-      style={{
-        background: 'rgba(20,20,24,0.9)',
-        border: '0.5px solid rgba(255,255,255,0.06)',
-      }}
+      className="group relative flex flex-col gap-2 text-left cursor-pointer transition-all duration-500 hover:scale-[1.03]"
     >
       <div
         className="aspect-square rounded-xl overflow-hidden relative"

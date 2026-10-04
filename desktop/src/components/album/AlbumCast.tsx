@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { type Aura, auraRgba } from '../../lib/aura';
+import type { Aura } from '../../lib/aura';
 import { Users } from '../../lib/icons';
 import { Avatar } from '../ui/Avatar';
 import type { AlbumArtist } from './types';
@@ -55,20 +55,16 @@ const CastCard = memo(function CastCard({
     <button
       type="button"
       onClick={() => navigate(`/artist/${encodeURIComponent(artist.id)}`)}
-      className="group relative flex items-center gap-3 p-2.5 rounded-2xl cursor-pointer transition-all duration-500 hover:scale-[1.04]"
-      style={{
-        background: 'rgba(255,255,255,0.03)',
-        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-      }}
+      className="group flex cursor-pointer items-center gap-3 text-left"
     >
-      <span className="relative w-12 h-12 rounded-full overflow-hidden shrink-0 ring-2 ring-white/10 group-hover:ring-white/30 transition-all duration-500">
+      <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full ring-1 ring-white/10 transition-colors group-hover:ring-white/25">
         <Avatar src={artist.avatar_url} alt={artist.name} size={48} />
       </span>
-      <span className="min-w-0 flex flex-col leading-tight">
-        <span className="text-[12px] font-semibold text-white/90 truncate group-hover:text-white">
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span className="truncate text-[12px] font-semibold text-white/90 group-hover:text-white">
           {artist.name}
         </span>
-        <span className="text-[9px] font-medium text-white/30">{roleLabel}</span>
+        <span className="text-[10px] font-medium text-white/35">{roleLabel}</span>
       </span>
     </button>
   );
@@ -79,10 +75,10 @@ const CastRow = memo(function CastRow({ role, items }: { role: string; items: Al
   const roleLabel = ROLE_LABEL_KEY[role] ? t(ROLE_LABEL_KEY[role]) : role;
   return (
     <div className="flex flex-col gap-3">
-      <span className="text-[9px] font-medium text-white/30">
+      <span className="text-[10px] font-medium text-white/30">
         {roleLabel} · {items.length}
       </span>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {items.map((artist) => (
           <CastCard key={artist.id} artist={artist} roleLabel={roleLabel} />
         ))}
@@ -91,43 +87,26 @@ const CastRow = memo(function CastRow({ role, items }: { role: string; items: Al
   );
 });
 
-function AlbumCastImpl({ artists, aura }: AlbumCastProps) {
+function AlbumCastImpl({ artists }: AlbumCastProps) {
   const { t } = useTranslation();
   const groups = useMemo(() => groupByRole(artists), [artists]);
 
   if (artists.length === 0) return null;
 
   return (
-    <div
-      className="rounded-[2rem] p-5 md:p-7"
-      style={{
-        background: 'rgba(20,20,24,0.9)',
-        boxShadow:
-          '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
-      }}
-    >
-      <div className="flex items-center gap-3 mb-5">
-        <span
-          className="w-8 h-8 rounded-xl flex items-center justify-center"
-          style={{
-            background: auraRgba(aura, 0.12),
-            boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.25)}`,
-          }}
-        >
-          <Users size={14} className="text-white/70" />
-        </span>
-        <h3 className="text-[11px] font-medium text-white/60">
-          {t('album.cast')}
-          <span className="text-white/25 ml-2">{artists.length}</span>
+    <section className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <Users size={14} className="text-white/45" />
+        <h3 className="text-[13px] font-medium text-white/70">
+          {t('album.cast')} <span className="ml-1 text-white/30">{artists.length}</span>
         </h3>
       </div>
-
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-5">
         {groups.map((g) => (
           <CastRow key={g.role} role={g.role} items={g.items} />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 

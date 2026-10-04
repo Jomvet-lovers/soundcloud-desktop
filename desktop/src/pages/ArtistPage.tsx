@@ -80,18 +80,11 @@ export function ArtistPage() {
         >
           <ArtistHero artist={artist} hasStar={hasStar} aura={aura} />
 
-          <div className="mt-10 mb-8">
+          <div className="mt-6 mb-5">
             <TabDock<ArtistTabId> tabs={tabs} active={tab} onChange={setTab} aura={aura} />
           </div>
 
-          <div
-            className="rounded-[2rem] p-3 md:p-5"
-            style={{
-              background: 'rgba(20,20,24,0.9)',
-              boxShadow:
-                '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
-            }}
-          >
+          <div>
             {tab === 'tracks' && (
               <ArtistTracksTab
                 artistId={artist.id}

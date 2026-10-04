@@ -113,7 +113,7 @@ export function UserPage() {
             onPickCustom={editable.onPickCustom}
           />
 
-          <div className="mt-5 mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="mt-4 mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <TabDock tabs={tabs} active={activeTab} onChange={setActiveTab} aura={aura} />
             <div className="md:max-w-sm md:w-80 w-full">
               <UserSearchBox
@@ -125,10 +125,7 @@ export function UserPage() {
             </div>
           </div>
 
-          <div
-            className="rounded-[2rem] border border-white/[0.06] p-3 md:p-5"
-            style={{ background: 'rgba(18,18,22,0.85)' }}
-          >
+          <div>
             {(() => {
               const searching = !!debouncedSearch && isSearchableScope(activeTab);
               if (searching && (activeTab === 'tracks' || activeTab === 'popular')) {

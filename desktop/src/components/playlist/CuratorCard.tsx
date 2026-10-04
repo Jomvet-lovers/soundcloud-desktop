@@ -2,11 +2,11 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
+import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
 import { useUser } from '../../lib/hooks';
 import { Avatar } from '../ui/Avatar';
 import { FollowBtn } from '../user/FollowBtn';
-import { StatOrb } from '../user/StatOrb';
 
 type Curator = Playlist['user'];
 
@@ -34,13 +34,7 @@ export const CuratorCard = React.memo(function CuratorCard({
   const trimmed = note?.trim();
 
   return (
-    <div
-      className="rounded-[1.4rem] p-4 md:p-5"
-      style={{
-        background: 'rgba(255,255,255,0.035)',
-        border: '0.5px solid rgba(255,255,255,0.07)',
-      }}
-    >
+    <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3.5">
         <button type="button" onClick={goUser} className="shrink-0 cursor-pointer">
           <Avatar
@@ -64,18 +58,24 @@ export const CuratorCard = React.memo(function CuratorCard({
       </div>
 
       {(followers != null || trackCount != null) && (
-        <div className="flex flex-wrap gap-2.5 mt-4">
+        <div className="flex flex-wrap gap-x-5 gap-y-2 text-[12.5px]">
           {followers != null && (
-            <StatOrb value={followers} label={t('user.followers')} accent={auraRgba(aura, 0.18)} />
+            <span className="whitespace-nowrap">
+              <span className="font-semibold text-white/90">{fc(followers)}</span>{' '}
+              <span className="text-white/40">{t('user.followers')}</span>
+            </span>
           )}
           {trackCount != null && (
-            <StatOrb value={trackCount} label={t('user.tracks')} accent={auraRgba(aura, 0.18)} />
+            <span className="whitespace-nowrap">
+              <span className="font-semibold text-white/90">{fc(trackCount)}</span>{' '}
+              <span className="text-white/40">{t('user.tracks')}</span>
+            </span>
           )}
         </div>
       )}
 
       {trimmed && (
-        <div className="mt-4 pl-3.5" style={{ borderLeft: `2px solid ${auraRgba(aura, 0.45)}` }}>
+        <div className="pl-3.5" style={{ borderLeft: `2px solid ${auraRgba(aura, 0.45)}` }}>
           <p className="text-[9px] font-medium text-white/30 mb-1.5">{t('playlist.linerNote')}</p>
           <p className="selectable text-[12.5px] text-white/55 leading-relaxed whitespace-pre-wrap break-words line-clamp-4 hover:line-clamp-none transition-all duration-500">
             {trimmed}

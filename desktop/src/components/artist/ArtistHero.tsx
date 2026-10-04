@@ -1,12 +1,11 @@
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { type Aura, auraRgb, auraRgba } from '../../lib/aura';
+import { type Aura, auraRgb } from '../../lib/aura';
+import { fc } from '../../lib/formatters';
 import { Check, ChevronDown, Globe, ListMusic, MicVocal, Music, Users } from '../../lib/icons';
-import { GlassHeroPanel } from '../ui/GlassHeroPanel';
 import { AvatarArtifact } from '../user/AvatarArtifact';
-import { StatOrb } from '../user/StatOrb';
-import { InfoChip, VerifiedBadge } from '../user/UserChips';
+import { VerifiedBadge } from '../user/UserChips';
 import { SocialIcon, socialLabel } from './socials';
 import type { ArtistDetail } from './types';
 
@@ -22,13 +21,9 @@ const SocialChip = memo(({ kind, url, title }: { kind: string; url: string; titl
       href={url}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold text-white/55 hover:text-white transition-all duration-300 hover:scale-105"
-      style={{
-        background: 'rgba(28,28,32,0.85)',
-        border: '0.5px solid rgba(255,255,255,0.08)',
-      }}
+      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-white/55 hover:text-white transition-colors"
     >
-      <span className="text-white/45 group-hover:text-white">
+      <span className="text-white/45">
         <SocialIcon kind={kind} size={13} />
       </span>
       <span className="truncate max-w-[140px]">{title}</span>
@@ -46,11 +41,7 @@ const ScAccountChip = memo(
       <button
         type="button"
         onClick={() => navigate(`/user/${encodeURIComponent(`soundcloud:users:${scUserId}`)}`)}
-        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold cursor-pointer transition-all duration-300 hover:scale-105 text-orange-200/85 hover:text-orange-100"
-        style={{
-          background: 'rgba(28,28,32,0.85)',
-          border: '0.5px solid rgba(255,85,0,0.25)',
-        }}
+        className="inline-flex items-center gap-1.5 text-[11px] font-semibold cursor-pointer transition-colors text-orange-200/85 hover:text-orange-100"
         title={role}
       >
         <SocialIcon kind="soundcloud" size={13} />
@@ -64,11 +55,10 @@ const ScAccountChip = memo(
 function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
   const { t } = useTranslation();
   const [bioExpanded, setBioExpanded] = useState(false);
-  const accent = auraRgba(aura, 0.18);
 
   return (
-    <GlassHeroPanel hasStar={hasStar} aura={aura}>
-      <div className="relative p-6 md:p-10 flex flex-col lg:flex-row gap-8 lg:gap-10 items-center lg:items-stretch">
+    <div className="flex flex-col">
+      <div className="relative flex flex-col lg:flex-row gap-6 lg:gap-8 items-center lg:items-stretch">
         <AvatarArtifact
           username={artist.name}
           avatarUrl={artist.avatar_url}
@@ -84,8 +74,14 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
                 title={t('track.verifiedArtist', { confidence: artist.confidence.toFixed(2) })}
               />
             )}
-            {artist.country && <InfoChip icon={<Globe size={11} />}>{artist.country}</InfoChip>}
-            <InfoChip icon={<MicVocal size={11} />}>{t('artist.title')}</InfoChip>
+            {artist.country && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55">
+                <Globe size={11} className="text-white/45" /> {artist.country}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55">
+              <MicVocal size={11} className="text-white/45" /> {t('artist.title')}
+            </span>
           </div>
 
           {/* Name */}
@@ -143,64 +139,46 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
 
         {/* Right column stats */}
         <div className="hidden lg:flex flex-col gap-3 self-stretch min-w-[180px]">
-          <StatOrb
-            value={artist.track_count_primary}
-            label={t('artist.statsTracks')}
-            accent={accent}
-          />
-          <StatOrb
-            value={artist.track_count_featured}
-            label={t('artist.statsFeatured')}
-            accent={accent}
-          />
-          <StatOrb value={artist.album_count} label={t('artist.statsAlbums')} accent={accent} />
-          <StatOrb
-            value={artist.related_artists.length}
-            label={t('artist.statsRelated')}
-            accent={accent}
-          />
+          <HeroStat value={artist.track_count_primary} label={t('artist.statsTracks')} />
+          <HeroStat value={artist.track_count_featured} label={t('artist.statsFeatured')} />
+          <HeroStat value={artist.album_count} label={t('artist.statsAlbums')} />
+          <HeroStat value={artist.related_artists.length} label={t('artist.statsRelated')} />
         </div>
       </div>
 
       {/* Stats strip on narrow */}
-      <div className="lg:hidden flex flex-wrap gap-2 px-6 md:px-10 pb-6 md:pb-8 justify-center">
-        <CompactStat
+      <div className="lg:hidden flex flex-wrap gap-x-5 gap-y-2 mt-4 justify-center">
+        <HeroStat
           icon={<Music size={12} />}
           value={artist.track_count_primary}
           label={t('artist.statsTracks')}
         />
-        <CompactStat
+        <HeroStat
           icon={<MicVocal size={12} />}
           value={artist.track_count_featured}
           label={t('artist.statsFeatured')}
         />
-        <CompactStat
+        <HeroStat
           icon={<ListMusic size={12} />}
           value={artist.album_count}
           label={t('artist.statsAlbums')}
         />
-        <CompactStat
+        <HeroStat
           icon={<Users size={12} />}
           value={artist.related_artists.length}
           label={t('artist.statsRelated')}
         />
       </div>
-    </GlassHeroPanel>
+    </div>
   );
 }
 
-const CompactStat = memo(
-  ({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) => {
+const HeroStat = memo(
+  ({ icon, value, label }: { icon?: React.ReactNode; value: number; label: string }) => {
     return (
-      <div
-        className="inline-flex items-baseline gap-2 px-3.5 py-2 rounded-xl"
-        style={{
-          background: 'rgba(28,28,32,0.85)',
-          border: '0.5px solid rgba(255,255,255,0.08)',
-        }}
-      >
-        <span className="text-white/40">{icon}</span>
-        <span className="text-[15px] font-black tabular-nums text-white">{value}</span>
+      <div className="inline-flex items-baseline gap-2">
+        {icon && <span className="text-white/40">{icon}</span>}
+        <span className="text-[15px] font-black tabular-nums text-white">{fc(value)}</span>
         <span className="text-[10px] font-medium text-white/35">{label}</span>
       </div>
     );

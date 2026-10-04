@@ -37,7 +37,7 @@ export function AlbumPage() {
       <style>{USER_PAGE_KEYFRAMES}</style>
       <div className="relative w-full min-h-screen">
         <div
-          className="relative z-10 w-full max-w-[1480px] mx-auto px-4 md:px-8 pt-10 md:pt-16 pb-32 flex flex-col gap-8"
+          className="relative z-10 w-full max-w-[1480px] mx-auto px-4 md:px-8 pt-6 md:pt-8 pb-32 flex flex-col gap-6"
           style={{ isolation: 'isolate' }}
         >
           <AlbumHero album={data} hasStar={hasStar} aura={aura} />

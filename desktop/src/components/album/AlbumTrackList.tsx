@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type Aura, auraRgba } from '../../lib/aura';
+import type { Aura } from '../../lib/aura';
 import { dur, fc } from '../../lib/formatters';
 import { ListMusic, Music } from '../../lib/icons';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
@@ -90,22 +90,13 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
   }
 
   return (
-    <div
-      className="rounded-[2rem] p-3 md:p-5"
-      style={{
-        background: 'rgba(20,20,24,0.9)',
-        boxShadow:
-          '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
-      }}
-    >
-      <div className="flex items-center justify-between px-3 pt-2 pb-4">
-        <span className="inline-flex items-center gap-2 text-[11px] font-medium text-white/55">
+    <section className="flex flex-col gap-1">
+      <div className="flex items-center justify-between px-1 pb-3">
+        <span className="inline-flex items-center gap-2 text-[12px] font-medium text-white/60">
           <ListMusic size={12} /> {t('album.tracks')}
-          <span className="text-white/25 ml-1">{available.length}</span>
+          <span className="ml-1 text-white/30">{available.length}</span>
         </span>
-        <span className="text-[11px] text-white/30 font-medium tabular-nums">
-          {dur(totalDuration)}
-        </span>
+        <span className="text-[11px] tabular-nums text-white/30">{dur(totalDuration)}</span>
       </div>
 
       {available.length > 0 && (
@@ -124,19 +115,10 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
 
       {wanted.length > 0 && (
         <div className="mt-6 space-y-3">
-          <div className="flex items-center gap-3 px-3">
-            <span
-              className="text-[10px] font-medium px-3 py-1 rounded-full"
-              style={{
-                background: auraRgba(aura, 0.16),
-                color: '#fff',
-                boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.3)}`,
-              }}
-            >
-              {t('album.comingSoon')}
-            </span>
-            <span className="text-[11px] text-white/30 tabular-nums">{fc(wanted.length)}</span>
-            <div className="flex-1 h-px bg-white/[0.05]" />
+          <div className="flex items-center gap-3 px-1">
+            <span className="text-[10px] font-medium text-white/45">{t('album.comingSoon')}</span>
+            <span className="text-[11px] tabular-nums text-white/30">{fc(wanted.length)}</span>
+            <div className="h-px flex-1 bg-white/[0.05]" />
           </div>
           <div className="flex flex-col gap-1">
             {wanted.map((track, i) => (
@@ -145,7 +127,7 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

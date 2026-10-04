@@ -50,11 +50,7 @@ const RelatedCard = memo(
       <button
         type="button"
         onClick={() => navigate(`/artist/${encodeURIComponent(item.id)}`)}
-        className="group relative flex flex-col items-center gap-3 p-5 rounded-3xl cursor-pointer transition-all duration-500 overflow-hidden hover:scale-[1.03]"
-        style={{
-          background: 'rgba(20,20,24,0.9)',
-          border: '0.5px solid rgba(255,255,255,0.06)',
-        }}
+        className="group relative flex flex-col items-center gap-3 cursor-pointer transition-all duration-500 hover:scale-[1.03]"
       >
         <div className="relative w-20 h-20 rounded-full overflow-hidden ring-2 ring-white/10 group-hover:ring-white/30 transition-all duration-500">
           <Avatar src={item.avatar_url} alt={item.name} size={80} />

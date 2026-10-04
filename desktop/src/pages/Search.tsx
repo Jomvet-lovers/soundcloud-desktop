@@ -17,9 +17,8 @@ import {
 import { ChevronRight, Loader2, Music, Play } from '../lib/icons';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchHistoryStore } from '../stores/searchHistory';
+import { useSearchPrefsStore } from '../stores/searchPrefs';
 import { useSearchQueryStore } from '../stores/searchQuery';
-
-type Tab = 'tracks' | 'users' | 'playlists' | 'albums';
 
 /** Discover card for a SoundCloud mixed-selection item (mix or artist station). */
 function DiscoverCard({
@@ -109,7 +108,8 @@ export function Search() {
   const setQ = useSearchQueryStore((s) => s.setQ);
   const addQuery = useSearchHistoryStore((s) => s.addQuery);
   const [debounced, setDebounced] = useState(q);
-  const [tab, setTab] = useState<Tab>('tracks');
+  const tab = useSearchPrefsStore((s) => s.tab);
+  const setTab = useSearchPrefsStore((s) => s.setTab);
   const [busyUrn, setBusyUrn] = useState<string | null>(null);
   const play = usePlayerStore((s) => s.play);
 

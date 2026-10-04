@@ -3,7 +3,6 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { art } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
-import { usePerfMode } from '../../lib/perf';
 import {
   getArtistDisplay,
   getArtistLinkItems,
@@ -49,7 +48,6 @@ export const RoomHero = React.memo(function RoomHero({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const perf = usePerfMode();
 
   const cover = art(track.artwork_url, 't500x500');
   const title = getDisplayTitle(track);
@@ -72,7 +70,6 @@ export const RoomHero = React.memo(function RoomHero({
       ? `/user/${encodeURIComponent(track.user.urn)}`
       : getArtistTarget(track);
   const year = track.release_year ?? track.enrichment?.album?.year;
-  const hb = perf.blur(90);
 
   const titleStyle = aura.hasGenre
     ? {
@@ -85,23 +82,8 @@ export const RoomHero = React.memo(function RoomHero({
     : { color: 'rgba(255,255,255,0.96)', textShadow: '0 6px 22px rgba(0,0,0,0.5)' };
 
   return (
-    <section
-      className="relative rounded-[2rem] overflow-hidden border border-white/[0.08] bg-[#141417]"
-      style={{ isolation: 'isolate' }}
-    >
-      {cover && hb > 0 && (
-        <div className="absolute inset-0 pointer-events-none" aria-hidden>
-          <img
-            src={cover}
-            alt=""
-            className="w-full h-full object-cover scale-[1.4] opacity-[0.20]"
-            style={{ filter: `blur(${hb}px) saturate(1.4)` }}
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/[0.66]" />
-        </div>
-      )}
-
-      <div className="relative p-6 md:p-8 flex flex-col gap-7">
+    <section className="relative" style={{ isolation: 'isolate' }}>
+      <div className="relative flex flex-col gap-6">
         <div className="flex flex-col lg:flex-row items-center lg:items-start gap-6 lg:gap-8">
           <TrackCover
             title={title}
@@ -117,16 +99,14 @@ export const RoomHero = React.memo(function RoomHero({
               <TrackStatusBadges meta={track._scd_meta} />
               {track.genre && (
                 <span
-                  className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/[0.06] text-white/55 border border-white/[0.06]"
+                  className="text-[10px] font-semibold text-white/55"
                   style={{ color: aura.hasGenre ? aura.accent : undefined }}
                 >
                   {track.genre}
                 </span>
               )}
               {year && (
-                <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/[0.05] text-white/40 border border-white/[0.06] tabular-nums">
-                  {year}
-                </span>
+                <span className="text-[10px] font-semibold text-white/40 tabular-nums">{year}</span>
               )}
             </div>
 
