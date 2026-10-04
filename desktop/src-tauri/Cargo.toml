@@ -58,7 +58,8 @@ uuid = { version = "1", features = ["v4"] }
 cef = ["tauri/cef"]
 
 [profile.release]
-lto = true
+# thin LTO: nearly fat-LTO runtime quality with a much faster build.
+lto = "thin"
 
 # Экспериментальная ветка Tauri с рантаймом tauri-runtime-cef и фичей `cef`.
 # Патчим ТОЛЬКО `tauri` (одна крейта на весь граф → плагины с crates.io разделяют
