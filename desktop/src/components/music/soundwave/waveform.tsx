@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { getCurrentTime, getDuration, seek, subscribe } from '../../../lib/audio';
-import {type PerfMode, usePerfMode} from '../../../lib/perf';
+import { type PerfMode, usePerfMode } from '../../../lib/perf';
 import { useTrackWaveform } from '../../../lib/waveform';
 import type { Track } from '../../../stores/player';
 
@@ -8,9 +8,9 @@ const BAR_COUNT = 160;
 
 /** Rendered bars per mode (drawn twice: muted + accent layer). */
 function barsForMode(mode: PerfMode): number {
-    if (mode === 'light') return 64;
-    if (mode === 'medium') return 120;
-    return BAR_COUNT;
+  if (mode === 'light') return 64;
+  if (mode === 'medium') return 120;
+  return BAR_COUNT;
 }
 
 /** Downsample SC waveform samples into BAR_COUNT averaged bars (0..1). */
@@ -35,9 +35,9 @@ function downsample(samples: number[], height: number, count: number): number[] 
 
 /** Decorative fallback pattern used during load / when SC has no waveform. */
 function fallbackBars(count: number): number[] {
-    const arr = new Array<number>(count);
-    for (let i = 0; i < count; i++) {
-        const x = i / count;
+  const arr = new Array<number>(count);
+  for (let i = 0; i < count; i++) {
+    const x = i / count;
     const base = 0.35 + 0.28 * Math.sin(x * Math.PI * 2);
     const detail = 0.18 * Math.sin(x * Math.PI * 14 + 1.3);
     arr[i] = Math.max(0.22, Math.min(0.95, base + detail));
@@ -59,13 +59,13 @@ interface Props {
  */
 export const LiveWaveform = React.memo(
   function LiveWaveform({ track, isCurrent }: Props) {
-    const { data: samples, isLoading } = useTrackWaveform(track);
-      const {mode} = usePerfMode();
-      const barCount = barsForMode(mode);
+    const { data: samples } = useTrackWaveform(track);
+    const { mode } = usePerfMode();
+    const barCount = barsForMode(mode);
 
     const bars = useMemo(() => {
-        if (!samples) return fallbackBars(barCount);
-        return downsample(samples.values, samples.height, barCount);
+      if (!samples) return fallbackBars(barCount);
+      return downsample(samples.values, samples.height, barCount);
     }, [samples, barCount]);
 
     const rootRef = useRef<HTMLDivElement>(null);
@@ -112,18 +112,6 @@ export const LiveWaveform = React.memo(
             <div key={i} className="sw-bar flex-1" style={{ height: `${v * 100}%` }} />
           ))}
         </div>
-        {isLoading && (
-          <div
-            className="absolute inset-0 pointer-events-none"
-            aria-hidden
-            style={{
-              background:
-                'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%)',
-              backgroundSize: '200% 100%',
-              animation: 'shimmer 1.8s ease-in-out infinite',
-            }}
-          />
-        )}
         {isCurrent && (
           <div
             ref={hintRef}
@@ -131,7 +119,6 @@ export const LiveWaveform = React.memo(
             style={{
               left: '0%',
               background: 'var(--color-accent)',
-              boxShadow: '0 0 8px var(--color-accent-glow), 0 0 16px var(--color-accent-glow)',
             }}
           />
         )}

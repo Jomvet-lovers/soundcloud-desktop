@@ -1,16 +1,15 @@
-import {memo, useMemo} from 'react';
-import {useTranslation} from 'react-i18next';
-import {type Aura, auraRgba} from '../../lib/aura';
-import {dur, fc} from '../../lib/formatters';
-import {Calendar, ListMusic, Loader2, Music} from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
-import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
-import type {Track} from '../../stores/player';
-import {TrackStatusBadges} from '../music/TrackStatusBadges';
-import {VirtualList} from '../ui/VirtualList';
-import {ThemedTrackRow} from '../user/ThemedTrackRow';
-import type {TracksSort} from './types';
-import {useArtistTracks} from './useArtistData';
+import { memo, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { type Aura, auraRgba } from '../../lib/aura';
+import { dur, fc } from '../../lib/formatters';
+import { Calendar, ListMusic, Loader2, Music } from '../../lib/icons';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
+import type { Track } from '../../stores/player';
+import { TrackStatusBadges } from '../music/TrackStatusBadges';
+import { VirtualList } from '../ui/VirtualList';
+import { ThemedTrackRow } from '../user/ThemedTrackRow';
+import type { TracksSort } from './types';
+import { useArtistTracks } from './useArtistData';
 
 export type TracksView = 'list' | 'years';
 
@@ -90,12 +89,7 @@ function ArtistTracksTabImpl({
   // popularity) and pull a deep page — otherwise low-play recent tracks (a fresh
   // album) fall past the popularity cutoff and the newest year bucket is empty.
   const yearsView = view === 'years';
-  const query = useArtistTracks(
-    artistId,
-    role,
-    yearsView ? 'recent' : sort,
-    yearsView ? 200 : 80,
-  );
+  const query = useArtistTracks(artistId, role, yearsView ? 'recent' : sort, yearsView ? 200 : 80);
   const tracks = query.data ?? [];
   const { available, wanted } = useMemo(() => partition(tracks), [tracks]);
   const yearBuckets = useMemo(
@@ -229,10 +223,7 @@ const YearBlock = memo(
             <span
               className="font-black leading-none tabular-nums tracking-tight whitespace-nowrap text-[clamp(48px,7vw,80px)]"
               style={{
-                background: `linear-gradient(180deg, ${auraRgba(aura, 0.95)}, ${auraRgba(aura, 0.4)})`,
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
+                color: auraRgba(aura, 0.95),
                 filter: `drop-shadow(0 4px 24px ${auraRgba(aura, 0.35)})`,
               }}
             >
@@ -269,7 +260,6 @@ const SortToggle = memo(
     disabled?: boolean;
   }) => {
     const { t } = useTranslation();
-    const b = usePerfMode().blur(20);
     const options: Array<{ id: TracksSort; label: string }> = [
       { id: 'popular', label: t('artist.sortPopular') },
       { id: 'recent', label: t('artist.sortRecent') },
@@ -278,10 +268,8 @@ const SortToggle = memo(
       <div
         className={`inline-flex items-center gap-1 p-1 rounded-2xl transition-opacity ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
         style={{
-          background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
+          background: 'rgba(20,20,24,0.9)',
           boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
-          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         }}
       >
         {options.map((o) => {
@@ -297,8 +285,8 @@ const SortToggle = memo(
               style={
                 active
                   ? {
-                      background: `linear-gradient(180deg, ${auraRgba(aura, 0.22)}, ${auraRgba(aura, 0.06)})`,
-                      boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}, 0 4px 12px ${auraRgba(aura, 0.2)}`,
+                      background: auraRgba(aura, 0.2),
+                      boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`,
                     }
                   : undefined
               }
@@ -323,7 +311,6 @@ const ViewToggle = memo(
     aura: Aura;
   }) => {
     const { t } = useTranslation();
-    const b = usePerfMode().blur(20);
     const options: Array<{ id: TracksView; label: string; icon: React.ReactNode }> = [
       {
         id: 'list',
@@ -340,10 +327,8 @@ const ViewToggle = memo(
       <div
         className="inline-flex items-center gap-1 p-1 rounded-2xl"
         style={{
-          background: b > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
+          background: 'rgba(20,20,24,0.9)',
           boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
-          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
         }}
       >
         {options.map((o) => {
@@ -359,8 +344,8 @@ const ViewToggle = memo(
               style={
                 active
                   ? {
-                      background: `linear-gradient(180deg, ${auraRgba(aura, 0.22)}, ${auraRgba(aura, 0.06)})`,
-                      boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}, 0 4px 12px ${auraRgba(aura, 0.2)}`,
+                      background: auraRgba(aura, 0.2),
+                      boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.35)}`,
                     }
                   : undefined
               }

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Users } from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
 import { Avatar } from '../ui/Avatar';
 import type { AlbumArtist } from './types';
 
@@ -47,11 +46,9 @@ function groupByRole(artists: AlbumArtist[]): CastGroup[] {
 const CastCard = memo(function CastCard({
   artist,
   roleLabel,
-  aura,
 }: {
   artist: AlbumArtist;
   roleLabel: string;
-  aura: Aura;
 }) {
   const navigate = useNavigate();
   return (
@@ -64,10 +61,7 @@ const CastCard = memo(function CastCard({
         boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
       }}
     >
-      <span
-        className="relative w-12 h-12 rounded-full overflow-hidden shrink-0 ring-2 ring-white/10 group-hover:ring-white/30 transition-all duration-500"
-        style={{ boxShadow: `0 8px 18px ${auraRgba(aura, 0.18)}` }}
-      >
+      <span className="relative w-12 h-12 rounded-full overflow-hidden shrink-0 ring-2 ring-white/10 group-hover:ring-white/30 transition-all duration-500">
         <Avatar src={artist.avatar_url} alt={artist.name} size={48} />
       </span>
       <span className="min-w-0 flex flex-col leading-tight">
@@ -82,15 +76,7 @@ const CastCard = memo(function CastCard({
   );
 });
 
-const CastRow = memo(function CastRow({
-  role,
-  items,
-  aura,
-}: {
-  role: string;
-  items: AlbumArtist[];
-  aura: Aura;
-}) {
+const CastRow = memo(function CastRow({ role, items }: { role: string; items: AlbumArtist[] }) {
   const { t } = useTranslation();
   const roleLabel = ROLE_LABEL_KEY[role] ? t(ROLE_LABEL_KEY[role]) : role;
   return (
@@ -100,7 +86,7 @@ const CastRow = memo(function CastRow({
       </span>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         {items.map((artist) => (
-          <CastCard key={artist.id} artist={artist} roleLabel={roleLabel} aura={aura} />
+          <CastCard key={artist.id} artist={artist} roleLabel={roleLabel} />
         ))}
       </div>
     </div>
@@ -109,22 +95,15 @@ const CastRow = memo(function CastRow({
 
 function AlbumCastImpl({ artists, aura }: AlbumCastProps) {
   const { t } = useTranslation();
-  const perf = usePerfMode();
   const groups = useMemo(() => groupByRole(artists), [artists]);
 
   if (artists.length === 0) return null;
 
-  const b = perf.blur(28);
   return (
     <div
       className="rounded-[2rem] p-5 md:p-7"
       style={{
-        background:
-            b > 0
-                ? 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)'
-                : 'rgba(18,18,22,0.85)',
-        backdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
-        WebkitBackdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
+        background: 'rgba(20,20,24,0.9)',
         boxShadow:
           '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
       }}
@@ -147,7 +126,7 @@ function AlbumCastImpl({ artists, aura }: AlbumCastProps) {
 
       <div className="flex flex-col gap-6">
         {groups.map((g) => (
-          <CastRow key={g.role} role={g.role} items={g.items} aura={aura} />
+          <CastRow key={g.role} role={g.role} items={g.items} />
         ))}
       </div>
     </div>

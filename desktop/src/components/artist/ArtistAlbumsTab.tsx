@@ -1,11 +1,10 @@
-import {memo, useMemo} from 'react';
-import {useTranslation} from 'react-i18next';
-import {useNavigate} from 'react-router-dom';
-import {type Aura, auraRgba} from '../../lib/aura';
-import {Disc3, Loader2} from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
-import type {ArtistAlbum} from './types';
-import {useArtistAlbums} from './useArtistData';
+import { memo, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { type Aura, auraRgba } from '../../lib/aura';
+import { Disc3, Loader2 } from '../../lib/icons';
+import type { ArtistAlbum } from './types';
+import { useArtistAlbums } from './useArtistData';
 
 interface ArtistAlbumsTabProps {
   artistId: string;
@@ -82,17 +81,14 @@ const YearGroup = memo(
   ({ year, items, aura }: { year: number | null; items: ArtistAlbum[]; aura: Aura }) => {
     const { t } = useTranslation();
     return (
-        <div className="flex flex-col md:flex-row md:gap-8 gap-4">
+      <div className="flex flex-col md:flex-row md:gap-8 gap-4">
         {/* Year marker */}
         <div className="md:w-[200px] md:shrink-0 flex md:flex-col md:items-end items-center md:sticky md:top-24 self-start">
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">
             <span
               className="font-black leading-none tabular-nums tracking-tight whitespace-nowrap text-[clamp(48px,7vw,80px)]"
               style={{
-                background: `linear-gradient(180deg, ${auraRgba(aura, 0.95)}, ${auraRgba(aura, 0.4)})`,
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
+                color: auraRgba(aura, 0.95),
                 filter: `drop-shadow(0 4px 24px ${auraRgba(aura, 0.35)})`,
               }}
             >
@@ -118,11 +114,8 @@ const YearGroup = memo(
 const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-    const perf = usePerfMode();
   const kind = (album.type ?? 'album').toLowerCase();
   const kindLabel = t(`artist.kind.${kind}`, { defaultValue: kind });
-    const cb = perf.blur(20);
-    const badgeB = perf.blur(12);
 
   return (
     <button
@@ -130,16 +123,14 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
       onClick={() => navigate(`/album/${encodeURIComponent(album.id)}`)}
       className="group relative flex flex-col gap-2 text-left p-3 rounded-2xl cursor-pointer transition-all duration-500 hover:scale-[1.03]"
       style={{
-          background: cb > 0 ? 'rgba(255,255,255,0.03)' : 'rgba(22,22,26,0.85)',
+        background: 'rgba(20,20,24,0.9)',
         border: '0.5px solid rgba(255,255,255,0.06)',
-          backdropFilter: cb > 0 ? `blur(${cb}px)` : undefined,
-          WebkitBackdropFilter: cb > 0 ? `blur(${cb}px)` : undefined,
       }}
     >
       <div
         className="aspect-square rounded-xl overflow-hidden relative"
         style={{
-          background: `linear-gradient(135deg, ${auraRgba(aura, 0.22)}, rgba(255,255,255,0.04))`,
+          background: auraRgba(aura, 0.2),
           border: '0.5px solid rgba(255,255,255,0.08)',
         }}
       >
@@ -161,8 +152,6 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
           style={{
             background: 'rgba(0,0,0,0.55)',
             color: '#fff',
-              backdropFilter: badgeB > 0 ? `blur(${badgeB}px)` : undefined,
-              WebkitBackdropFilter: badgeB > 0 ? `blur(${badgeB}px)` : undefined,
             border: '0.5px solid rgba(255,255,255,0.12)',
           }}
         >

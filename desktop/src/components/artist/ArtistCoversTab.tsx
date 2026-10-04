@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type Aura } from '../../lib/aura';
+import type { Aura } from '../../lib/aura';
 import { Loader2, Music } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { VirtualList } from '../ui/VirtualList';

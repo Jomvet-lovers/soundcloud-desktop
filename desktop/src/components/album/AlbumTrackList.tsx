@@ -1,12 +1,11 @@
-import {memo, useMemo} from 'react';
-import {useTranslation} from 'react-i18next';
-import {type Aura, auraRgba} from '../../lib/aura';
-import {dur, fc} from '../../lib/formatters';
-import {ListMusic, Music} from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
-import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
-import type {Track} from '../../stores/player';
-import {AlbumTrackRow} from './AlbumTrackRow';
+import { memo, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { type Aura, auraRgba } from '../../lib/aura';
+import { dur, fc } from '../../lib/formatters';
+import { ListMusic, Music } from '../../lib/icons';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
+import type { Track } from '../../stores/player';
+import { AlbumTrackRow } from './AlbumTrackRow';
 
 interface AlbumTrackListProps {
   tracks: Track[];
@@ -71,7 +70,6 @@ const WantedRow = memo(function WantedRow({ track, position }: { track: Track; p
 
 function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
   const { t } = useTranslation();
-  const perf = usePerfMode();
   const { available, wanted, totalDuration } = useMemo(() => partition(tracks), [tracks]);
 
   if (tracks.length === 0) {
@@ -91,17 +89,11 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
     );
   }
 
-  const b = perf.blur(28);
   return (
     <div
       className="rounded-[2rem] p-3 md:p-5"
       style={{
-        background:
-          b > 0
-            ? 'linear-gradient(180deg, rgba(255,255,255,0.035) 0%, rgba(255,255,255,0.015) 100%)'
-            : 'rgba(18,18,22,0.85)',
-        backdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
-        WebkitBackdropFilter: b > 0 ? `blur(${b}px) saturate(160%)` : undefined,
+        background: 'rgba(20,20,24,0.9)',
         boxShadow:
           '0 30px 80px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.05)',
       }}

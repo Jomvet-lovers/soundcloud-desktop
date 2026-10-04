@@ -1,15 +1,23 @@
-import {useQueryClient} from '@tanstack/react-query';
-import React, {useEffect, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {toast} from 'sonner';
-import {api} from '../../lib/api';
-import {downloadTrack} from '../../lib/cache';
-import {fc} from '../../lib/formatters';
-import {invalidateAllLikesCache} from '../../lib/hooks';
-import {Check, Download, Heart, LinkIcon, Loader2, pauseCurrent16, playCurrent16,} from '../../lib/icons';
-import {optimisticToggleLike, setLikedUrn, useLiked} from '../../lib/likes';
-import {getTrackDisplay} from '../../lib/track-display';
-import type {Track} from '../../stores/player';
+import { useQueryClient } from '@tanstack/react-query';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { api } from '../../lib/api';
+import { downloadTrack } from '../../lib/cache';
+import { fc } from '../../lib/formatters';
+import { invalidateAllLikesCache } from '../../lib/hooks';
+import {
+  Check,
+  Download,
+  Heart,
+  LinkIcon,
+  Loader2,
+  pauseCurrent16,
+  playCurrent16,
+} from '../../lib/icons';
+import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
+import { getTrackDisplay } from '../../lib/track-display';
+import type { Track } from '../../stores/player';
 
 /** Accent like-chip: icon + count, glows accent when active. */
 const EngagementChip = React.memo(function EngagementChip({
@@ -194,19 +202,10 @@ export const PlayPill = React.memo(function PlayPill({
     <button
       type="button"
       onClick={onClick}
-      className={`group relative overflow-hidden inline-flex items-center gap-2.5 pl-4 pr-6 h-11 rounded-full text-[14px] font-semibold transition-all duration-500 ease-[var(--ease-apple)] cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
+      className={`inline-flex items-center gap-2.5 pl-4 pr-6 h-11 rounded-full text-[14px] font-semibold transition-all duration-500 ease-[var(--ease-apple)] cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
         isPlaying ? 'bg-white text-black' : 'bg-accent text-accent-contrast'
       }`}
-      style={{
-        boxShadow: '0 12px 32px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.3)',
-      }}
     >
-      <span
-        className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-[var(--ease-apple)] pointer-events-none"
-        style={{
-          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent)',
-        }}
-      />
       {isPlaying ? pauseCurrent16 : playCurrent16}
       {isPlaying ? t('track.pause') : t('track.play')}
     </button>

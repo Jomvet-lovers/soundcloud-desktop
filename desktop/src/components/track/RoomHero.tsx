@@ -1,9 +1,9 @@
 import React from 'react';
-import {Trans, useTranslation} from 'react-i18next';
-import {useNavigate} from 'react-router-dom';
-import {art} from '../../lib/formatters';
-import type {Comment} from '../../lib/hooks';
-import {usePerfMode} from '../../lib/perf';
+import { Trans, useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { art } from '../../lib/formatters';
+import type { Comment } from '../../lib/hooks';
+import { usePerfMode } from '../../lib/perf';
 import {
   getArtistDisplay,
   getArtistLinkItems,
@@ -11,14 +11,14 @@ import {
   getDisplayTitle,
   getParticipants,
 } from '../../lib/track-display';
-import type {Track} from '../../stores/player';
-import {ArtistNameLinks} from '../music/ArtistNameLinks';
-import {TrackStatusBadges} from '../music/TrackStatusBadges';
-import {ArtistLinks} from './ArtistLinks';
-import {RoomFloor} from './RoomFloor';
-import {TrackActionRail} from './TrackActionRail';
-import {TrackCover} from './TrackCover';
-import type {TrackAura} from './useTrackAura';
+import type { Track } from '../../stores/player';
+import { ArtistNameLinks } from '../music/ArtistNameLinks';
+import { TrackStatusBadges } from '../music/TrackStatusBadges';
+import { ArtistLinks } from './ArtistLinks';
+import { RoomFloor } from './RoomFloor';
+import { TrackActionRail } from './TrackActionRail';
+import { TrackCover } from './TrackCover';
+import type { TrackAura } from './useTrackAura';
 
 const KIND_TONE: Record<string, string> = {
   original: 'bg-emerald-500/15 text-emerald-300/90',
@@ -97,12 +97,7 @@ export const RoomHero = React.memo(function RoomHero({
             className="w-full h-full object-cover scale-[1.4] opacity-[0.20]"
             style={{ filter: `blur(${hb}px) saturate(1.4)` }}
           />
-          <div
-            className="absolute inset-0"
-            style={{
-              background: 'linear-gradient(180deg, rgba(10,10,12,0.40), rgba(10,10,12,0.66))',
-            }}
-          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/[0.66]" />
         </div>
       )}
 

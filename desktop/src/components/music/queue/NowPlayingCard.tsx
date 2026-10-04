@@ -1,12 +1,12 @@
 import React from 'react';
-import {useShallow} from 'zustand/shallow';
-import {art, dur} from '../../../lib/formatters';
-import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../../lib/track-display';
-import {type Track, usePlayerStore} from '../../../stores/player';
-import {ArtistNameLinks} from '../ArtistNameLinks';
-import {TrackStatusBadges} from '../TrackStatusBadges';
-import {UploadKindDot} from '../UploadKindDot';
-import {PlayingOverlay} from './PlayingOverlay';
+import { useShallow } from 'zustand/shallow';
+import { art, dur } from '../../../lib/formatters';
+import { useArtistDisplay, useArtistLinkItems, useDisplayTitle } from '../../../lib/track-display';
+import { type Track, usePlayerStore } from '../../../stores/player';
+import { ArtistNameLinks } from '../ArtistNameLinks';
+import { TrackStatusBadges } from '../TrackStatusBadges';
+import { UploadKindDot } from '../UploadKindDot';
+import { PlayingOverlay } from './PlayingOverlay';
 
 const NowPlayingBody = React.memo(({ track }: { track: Track }) => {
   const artistDisplay = useArtistDisplay(track);
@@ -50,13 +50,6 @@ export const NowPlayingCard = React.memo(() => {
       className="relative w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl overflow-hidden text-left cursor-pointer ring-1 ring-[var(--color-accent)]/25 transition-all duration-200 hover:ring-[var(--color-accent)]/40"
       style={{ background: 'var(--color-accent-glow)' }}
     >
-      {/* accent wash for depth */}
-      <span
-        className="absolute inset-0 pointer-events-none opacity-60"
-        style={{
-          background: 'linear-gradient(105deg, var(--color-accent-glow) 0%, transparent 55%)',
-        }}
-      />
       <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-white/[0.04] ring-1 ring-white/[0.1]">
         {artwork ? (
           <img src={artwork} alt="" className="w-full h-full object-cover" decoding="async" />

@@ -60,9 +60,9 @@ function AlbumPlayButtonImpl({ tracks, aura }: AlbumPlayButtonProps) {
       disabled={empty}
       className="group relative inline-flex items-center gap-3 h-11 pl-2 pr-5 rounded-full text-[13px] font-semibold cursor-pointer transition-all duration-500 hover:scale-[1.03] active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed"
       style={{
-        background: `linear-gradient(180deg, ${auraRgba(aura, 0.85)}, ${auraRgba(aura, 0.65)})`,
+        background: auraRgb(aura),
         color: lightAura ? '#000' : '#fff',
-        boxShadow: `0 12px 32px ${auraRgba(aura, 0.45)}, inset 0 0 0 1px ${auraRgba(aura, 0.55)}, inset 0 1px 0 rgba(255,255,255,0.3)`,
+        boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.55)}, inset 0 1px 0 rgba(255,255,255,0.3)`,
       }}
     >
       <span
@@ -77,10 +77,6 @@ function AlbumPlayButtonImpl({ tracks, aura }: AlbumPlayButtonProps) {
       <span className="tracking-wide">
         {isPlayingFromAlbum ? t('album.pauseAlbum') : t('album.playAlbum')}
       </span>
-      <span
-        className="absolute inset-0 rounded-full pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-700"
-        style={{ boxShadow: `0 0 60px ${auraRgb(aura)}` }}
-      />
     </button>
   );
 }
