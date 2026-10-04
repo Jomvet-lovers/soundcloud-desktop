@@ -11,7 +11,8 @@
     "tauri:cef": "cargo build --manifest-path src-tauri/Cargo.toml --features cef && cp -ru \"$(find src-tauri/target/debug/build -type d -path '*cef-dll-sys*/out/cef_linux_x86_64' | head -1)/.\" src-tauri/target/debug/ && tauri dev -f cef -- -- --no-sandbox --ozone-platform=x11",
     "lint": "biome lint --write src/",
     "format": "biome format --write src/",
-    "check": "biome check --write src/"
+    "check": "biome check --write src/",
+    "i18n:check": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
