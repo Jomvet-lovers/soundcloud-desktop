@@ -28,15 +28,6 @@ export function SettingsNav({
                   : 'text-white/45 hover:text-white/80 hover:bg-white/[0.04]'
               }`}
             >
-              {on && (
-                <span
-                  aria-hidden
-                  className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full"
-                  style={{
-                    background: 'var(--color-accent)',
-                  }}
-                />
-              )}
               <span
                 className={`transition-colors ${
                   on ? 'text-[var(--color-accent)]' : 'text-white/40 group-hover:text-white/70'
