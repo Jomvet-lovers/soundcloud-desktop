@@ -1,249 +1,148 @@
-> **Unofficial personal build.** This repository is a standalone, modified copy of
+# SCD-Direct
+
+> **Unofficial personal build.** This is a standalone, modified copy of
 > [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) by
-> [@zxcloli666](https://github.com/zxcloli666), used under the MIT License. All
-> original credit belongs to the upstream project. See
-> [README-DIRECT.md](README-DIRECT.md) for what this build changes.
+> [@zxcloli666](https://github.com/zxcloli666), used under the MIT License.
+> All original credit belongs to the upstream project.
 
-<p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/main/_refs/soundcloud.png" width="180px" style="border-radius: 50%;" />
-</a>
-</p>
+A backend-free **direct mode** build of SoundCloud Desktop (Tauri v2 + React + Rust).
+Instead of relying on the original developer backend (`api.scnative.space`), the app
+talks to SoundCloud itself: search and playback go straight to the public api-v2, and
+your actions (likes, follows, playlists, comments, history) are stored locally.
 
-<h1 align="center"><a href="https://soundcloud-desktop.fun/">SoundCloud Desktop</a></h1>
+## Features
 
-<p align="center">
-<b>[<a href="https://github.com/okeydw/SoundCloud-Android">Android версия</a>]</b><br>
-<b>Нативное десктопное приложение для SoundCloud</b><br>
-Без рекламы · Без капчи · Без цензуры · Доступно в России
-</p>
+- **Search** — tracks / playlists / users / albums via the public SoundCloud api-v2
+  (`client_id` extracted from the SoundCloud homepage).
+- **Playback** — streamed and cached directly from SoundCloud, no relay infrastructure.
+- **Library** — liked tracks, playlists, followings and the following feed
+  (read-only import from your SoundCloud account).
+- **Browsing** — tracks, playlists, users, albums, comments (read).
+- **Local actions**, persisted in `direct_store.json` (app data dir):
+  like / unlike tracks and playlists, follow / unfollow users, create / edit / delete
+  playlists, local comments, playback history, dislikes.
+- **Flat UI** — no gradients / glow / backdrop blur, compact artwork, Spotify-style
+  playing indicator.
 
-<p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://img.shields.io/github/v/release/zxcloli666/SoundCloud-Desktop?style=for-the-badge&logo=github&color=FF5500&label=VERSION" alt="Version"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases">
-<img src="https://img.shields.io/github/downloads/zxcloli666/SoundCloud-Desktop/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/stargazers">
-<img src="https://img.shields.io/github/stars/zxcloli666/SoundCloud-Desktop?style=for-the-badge&logo=github&color=FF5500&label=Stars" alt="Stars"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/blob/main/LICENSE">
-<img src="https://img.shields.io/badge/License-MIT-FF5500?style=for-the-badge" alt="License"/>
-</a>
-</p>
+## Limitations
 
-<p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://img.shields.io/badge/Скачать-Последнюю_Версию-FF5500?style=for-the-badge" alt="Download"/>
-</a>
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop-EN">
-<img src="https://img.shields.io/badge/English-README-0066FF?style=for-the-badge" alt="English"/>
-</a>
-</p>
+- Write actions are **not synced** back to soundcloud.com. SoundCloud protects its
+  write endpoints with DataDome bot protection; every non-trusted client is rejected.
+  Everything stays local in `direct_store.json`. The experimental writer lives in
+  `src-tauri/src/direct/webview.rs` behind `SYNC_ENABLED = false`.
 
----
+## Differences from upstream
 
-![wave-net](https://github.com/user-attachments/assets/616f80f0-c6d3-42ae-8093-0d2d3067cc17)
+Backend-only features were removed together with the decorative layer:
 
----
+- Discover catalog, Star / premium pages and pay flows
+- SoundWave / recommendations / vibe search / clusters
+- Aura palettes and decorative star fields (neutralised stubs remain so the API
+  surface still compiles)
+- Lyrics panel, Yandex Music import, QR session transfer, P2P call network,
+  host-status banners
+- Wallhaven online wallpaper search (custom image / URL wallpaper remains)
+- Gradients, glow shadows, backdrop blur, decorative badges and the
+  Fraunces / Unbounded display fonts (Inter + JetBrains Mono only)
 
-## Что это?
+## Signing in
 
-**SoundCloud Desktop** — полноценное десктопное приложение для прослушивания музыки на SoundCloud. Написано на Tauri 2 + React 19 — работает нативно, потребляет минимум ресурсов и не тормозит.
+Direct mode uses the `oauth_token` cookie of your SoundCloud web session:
 
-Более **100 000 скачиваний**. Работает на Windows, Linux и macOS.
+1. Log in at https://soundcloud.com in your browser.
+2. Open DevTools (F12) → Application → Storage → Cookies → https://soundcloud.com
+3. Copy the value of the `oauth_token` cookie.
+4. Paste it into the login screen and press "Sign in with token".
 
----
+The token is stored locally in the app data directory (Rust session store) and is
+only sent to SoundCloud.
 
-## Почему SoundCloud Desktop
+## Build
 
-### Доступно в России
+Requirements (Windows): Rust (MSVC), VS Build Tools, CMake, NASM, LLVM (libclang),
+Node 20+.
 
-SoundCloud заблокирован Роскомнадзором — веб-версия не открывается. SoundCloud Desktop работает напрямую без каких-либо дополнительных программ. Весь каталог SoundCloud доступен полностью.
-
-### Никакой рекламы
-
-Ноль рекламных баннеров, ноль промо-вставок между треками, ноль всплывающих окон «оформи подписку». Чистый интерфейс, только музыка.
-
-### Без капчи
-
-Никаких бесконечных проверок «я не робот». Открыл — слушаешь.
-
-### Без цензуры
-
-Доступ ко всему каталогу SoundCloud без региональных ограничений. Все треки, все артисты, все жанры.
-
-### Нативное и лёгкое
-
-Построено на **Tauri 2** (Rust) вместо Electron. Результат:
-- Размер установщика **~15 МБ** (а не 200+ МБ как у Electron-приложений)
-- Потребление оперативной памяти **~80–120 МБ** при воспроизведении
-- Мгновенный запуск
-- Плавный интерфейс на 60 FPS даже на слабом железе
-
-### Полностью на русском
-
-Интерфейс переведён на русский язык. Язык определяется автоматически по системе — ничего настраивать не нужно.
-
-### Системная интеграция
-
-- **Управление из системы** — медиа-кнопки на клавиатуре, системный центр уведомлений (Windows), MPRIS (Linux)
-- **Discord Rich Presence** — показывай друзьям, что слушаешь
-- **Трей** — приложение работает в фоне
-- **Автообновления** — новые версии устанавливаются в один клик
-
----
-
-## Скачать
-
-### Windows
-
-Перейди на [страницу релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest) и скачай:
-- **`.exe`** (NSIS-установщик) — рекомендуется
-- **`.msi`** — альтернативный установщик
-
-Требования: Windows 10 (1809+) или Windows 11
-
-### Linux
-
-| Формат | Архитектура | Описание |
-|--------|------------|----------|
-| `.deb` | amd64, arm64 | Ubuntu, Debian, Mint, Pop!_OS |
-| `.rpm` | amd64, arm64 | Fedora, openSUSE, CentOS |
-| `.AppImage` | amd64, arm64 | Универсальный, работает везде |
-| `.flatpak` | amd64 | Песочница, автообновления |
-
-Скачай нужный формат со [страницы релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest).
-
-Для AppImage:
-```bash
-chmod +x soundcloud-desktop-*.AppImage
-./soundcloud-desktop-*.AppImage
+```sh
+cd desktop
+corepack pnpm install
+corepack pnpm tauri dev     # development (Vite HMR)
+corepack pnpm tauri build   # release + installer
 ```
 
-### macOS
+## Credits & License
 
-- **Apple Silicon** (M1/M2/M3/M4): `*_arm64.dmg`
-- **Intel**: `*_x64.dmg`
-
-Скачай со [страницы релизов](https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest).
-
-> [!NOTE]
-> **macOS блокирует запуск?** Приложение не подписано Apple Developer сертификатом, поэтому Gatekeeper может показать ошибку «приложение повреждено». Исправляется одной командой:
-> ```bash
-> xattr -cr /Applications/soundcloud-desktop.app
-> ```
-> После этого приложение запустится нормально.
+Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop).
+MIT License — see [LICENSE](LICENSE).
 
 ---
 
-## Скриншоты
+# SCD-Direct（日本語）
 
-<p align="center">
+> **非公式の個人ビルドです。** 本リポジトリは
+> [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)
+> （[@zxcloli666](https://github.com/zxcloli666) 氏、MIT ライセンス）を元にした
+> 独立した改造版です。オリジナルのクレジットはすべて上流プロジェクトに帰属します。
 
-![home-screen](https://github.com/user-attachments/assets/66d6abb5-7ecd-493c-a0a1-19e7b22d2da5)
+開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドです
+（Tauri v2 + React + Rust）。検索・再生は公開 api-v2 に直接アクセスし、いいね・
+フォロー・プレイリストなどの操作はすべてローカルに保存されます。
 
-![liked-tracks](https://github.com/user-attachments/assets/d590bfe7-487b-4578-90fd-2c21646e262a)
+## 機能
 
-</p>
+- **検索** — トラック / プレイリスト / ユーザー / アルバム（公開 api-v2、`client_id` は
+  SoundCloud トップページから取得）
+- **再生** — SoundCloud から直接ストリーミング＋キャッシュ（中継サーバー不要）
+- **ライブラリ** — いいねしたトラック、プレイリスト、フォロー一覧、フォローフィード
+  （SoundCloud アカウントからの読み取りインポート）
+- **ページ閲覧** — トラック / プレイリスト / ユーザー / アルバム / コメント（読み取り）
+- **ローカル操作**（`direct_store.json` に保存）— いいね/解除、フォロー/解除、
+  プレイリスト作成・編集・削除、ローカルコメント、再生履歴、低評価
+- **フラット UI** — グラデーション・グロー・ぼかしなし、コンパクトなサムネイル、
+  Spotify 風の再生インジケーター
 
----
+## 制限事項
 
-## Обратная связь
+- 書き込み操作は **soundcloud.com に同期されません**。SoundCloud は書き込み
+  エンドポイントを DataDome の bot 保護で守っており、非信頼クライアントは拒否されます。
+  すべて `direct_store.json` にローカル保存されます。実験的な同期実装は
+  `src-tauri/src/direct/webview.rs` に `SYNC_ENABLED = false` で残しています。
 
-| | |
-|---|---|
-| Предложить идею | [Обсуждение #121](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/121) |
-| Что-то не работает? | [Обсуждение #144](https://github.com/zxcloli666/SoundCloud-Desktop/discussions/144) |
-| Поставить звезду | [GitHub Stars](https://github.com/zxcloli666/SoundCloud-Desktop/stargazers) — помогает продвижению! |
+## 上流からの変更（削除された機能）
 
-Pull requests приветствуются. Для крупных изменений сначала откройте issue.
+- Discover カタログ、Star / プレミアムページ、課金フロー
+- SoundWave / レコメンド / バイブ検索 / クラスタ
+- Aura パレット、星の装飾（API 互換のためスタブは残存）
+- 歌詞パネル、Yandex Music インポート、QR セッション移行、P2P 通話、
+  ホスト状態バナー
+- Wallhaven オンライン壁紙検索（画像 / URL 壁紙は残存）
+- グラデーション、グロー、背景ぼかし、装飾バッジ、Fraunces / Unbounded フォント
+  （Inter + JetBrains Mono のみ）
 
----
+## サインイン
 
-## Сборка из исходников
+direct モードでは SoundCloud Web セッションの `oauth_token` Cookie を使用します:
 
-<details>
-<summary><b>Инструкция для разработчиков</b></summary>
+1. ブラウザで https://soundcloud.com にログイン
+2. DevTools (F12) → Application → Storage → Cookies → https://soundcloud.com
+3. `oauth_token` の値をコピー
+4. ログイン画面に貼り付けて「Sign in with token」
 
-### Требования
+トークンはアプリのデータディレクトリ（Rust セッションストア）にローカル保存され、
+SoundCloud にのみ送信されます。
 
-- **Node.js** 22+
-- **pnpm** 10+
-- **Rust** 1.77+ (stable)
+## ビルド
 
-### Запуск
+必要環境（Windows）: Rust (MSVC)、VS Build Tools、CMake、NASM、LLVM (libclang)、
+Node 20+
 
-```bash
-git clone https://github.com/zxcloli666/SoundCloud-Desktop.git
-cd SoundCloud-Desktop/desktop
-pnpm install
-pnpm tauri dev
+```sh
+cd desktop
+corepack pnpm install
+corepack pnpm tauri dev     # 開発（Vite HMR）
+corepack pnpm tauri build   # リリース＋インストーラー
 ```
 
-### Production-сборка
+## クレジット / ライセンス
 
-```bash
-pnpm tauri build
-```
-
-Артефакты появятся в `src-tauri/target/release/bundle/`.
-
-### Проверки
-
-```bash
-npx tsc --noEmit        # типы TypeScript
-cargo check              # компиляция Rust
-npx biome check src/     # линтинг
-```
-
-</details>
-
----
-
-## Стек
-
-| Компонент | Технология |
-|-----------|-----------|
-| Оболочка | Tauri 2 (Rust) |
-| Фронтенд | React 19, Vite 7, Tailwind CSS 4 |
-| Стейт | Zustand, TanStack Query |
-| Аудио | rodio (rust) |
-| UI-компоненты | Radix UI |
-| Бэкенд | NestJS 11, TypeORM, PostgreSQL |
-| CI/CD | GitHub Actions — сборка под все платформы |
-| Линтер | Biome |
-
----
-
-## Статистика
-
-<p align="center">
-<img src="https://api.star-history.com/chart?repos=zxcloli666%2Fsoundcloud-desktop&type=date&theme=dark&legend=top-left&sealed_token=L7HmrysXvAF2F-KHbNCQwWtEHc7isP3JLFIpAHGUgDTsVf3elOFK00lq1TfqgSg6swsgysRz7Bb-Z9_nhfdRqhiCwVTI9j70Ntv-qjE9T4I6boQqdCL8Jw" alt="Star History" />
-</p>
-
-<p align="center">
-<img src="https://zxcloli666.github.io/download-history/zxcloli666_SoundCloud-Desktop.svg" alt="Download History" />
-</p>
-
----
-
-## Лицензия
-
-MIT. Подробности — в файле [LICENSE](LICENSE).
-
-SoundCloud — торговая марка SoundCloud Ltd. Это приложение не аффилировано с SoundCloud.
-
----
-
-<p align="center">
-<code>soundcloud desktop</code> · <code>soundcloud приложение</code> · <code>soundcloud клиент</code> · <code>soundcloud для пк</code> · <code>soundcloud windows</code> · <code>soundcloud linux</code> · <code>soundcloud macos</code> · <code>soundcloud без рекламы</code> · <code>soundcloud россия</code> · <code>soundcloud в россии</code> · <code>soundcloud не открывается</code> · <code>soundcloud заблокирован</code> · <code>soundcloud blocked russia</code> · <code>soundcloud desktop app</code> · <code>soundcloud desktop client</code> · <code>soundcloud player</code> · <code>soundcloud app for pc</code> · <code>soundcloud без капчи</code> · <code>скачать soundcloud на компьютер</code> · <code>soundcloud desktop download</code> · <code>soundcloud alternative client</code> · <code>soundcloud no ads</code> · <code>музыкальный плеер soundcloud</code>
-</p>
-
-<p align="center">
-<a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
-<img src="https://img.shields.io/badge/Скачать_SoundCloud_Desktop-FF5500?style=for-the-badge&logoColor=white" alt="Download" height="50"/>
-</a>
-</p>
-
+[zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) を
+元にしています。MIT ライセンス — [LICENSE](LICENSE) を参照。
