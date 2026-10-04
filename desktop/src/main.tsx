@@ -11,6 +11,7 @@ import { trackedInvoke as invoke, setupUiWatchdog } from './lib/diagnostics';
 import { initEdge } from './lib/edge';
 import { installFpsCap } from './lib/fps-cap';
 import { queryClient } from './lib/query-client';
+import { initTooltips } from './lib/tooltip';
 import './fonts';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
@@ -27,6 +28,10 @@ document.addEventListener('contextmenu', (e) => {
 // дисплеях убирает лишние кадры (CPU/GPU), на ≤60 Гц — no-op. Ставить максимально
 // рано, до первых rAF-циклов.
 installFpsCap(60);
+
+// Replace WebView-native `title` bubbles with one delegated custom tooltip
+// node (lib/tooltip.ts) — zero per-element listeners, no re-renders.
+initTooltips();
 
 // Sync language from persisted settings → i18n after tauriStorage rehydration
 useSettingsStore.persist.onFinishHydration((state) => {
