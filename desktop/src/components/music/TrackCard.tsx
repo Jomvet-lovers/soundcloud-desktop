@@ -101,9 +101,14 @@ export const TrackCard = React.memo(
             </div>
           </div>
 
-          {/* Duration pill */}
-          <div className="absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <div className="text-[10px] font-medium bg-black/50 text-white/80 px-2 py-0.5 rounded-full">
+          {/* Play count + duration, always visible */}
+          <div className="absolute bottom-2 right-2 flex items-center gap-1">
+            {track.playback_count != null && (
+              <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full tabular-nums">
+                {fc(track.playback_count)} {t('track.plays')}
+              </div>
+            )}
+            <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full">
               {dur(track.duration)}
             </div>
           </div>
@@ -176,16 +181,10 @@ export const TrackCard = React.memo(
               )}
             </span>
           </p>
-          {isWanted ? (
+          {isWanted && (
             <p className="text-[10px] text-white/25 mt-1">
               {t('track.notFoundOnSc', 'not found on SoundCloud')}
             </p>
-          ) : (
-            track.playback_count != null && (
-              <p className="text-[10px] text-white/20 mt-1 tabular-nums">
-                {fc(track.playback_count)} plays
-              </p>
-            )
           )}
         </div>
       </div>
