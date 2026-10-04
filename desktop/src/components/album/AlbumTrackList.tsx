@@ -99,11 +99,11 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
       }}
     >
       <div className="flex items-center justify-between px-3 pt-2 pb-4">
-        <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-white/55">
+        <span className="inline-flex items-center gap-2 text-[11px] font-medium text-white/55">
           <ListMusic size={12} /> {t('album.tracks')}
           <span className="text-white/25 ml-1">{available.length}</span>
         </span>
-        <span className="text-[11px] text-white/30 font-bold uppercase tracking-[0.18em] tabular-nums">
+        <span className="text-[11px] text-white/30 font-medium tabular-nums">
           {dur(totalDuration)}
         </span>
       </div>
@@ -126,7 +126,7 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
         <div className="mt-6 space-y-3">
           <div className="flex items-center gap-3 px-3">
             <span
-              className="text-[10px] font-bold uppercase tracking-[0.22em] px-3 py-1 rounded-full"
+              className="text-[10px] font-medium px-3 py-1 rounded-full"
               style={{
                 background: auraRgba(aura, 0.16),
                 color: '#fff',

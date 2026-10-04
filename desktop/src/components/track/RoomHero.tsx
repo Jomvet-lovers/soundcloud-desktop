@@ -86,7 +86,7 @@ export const RoomHero = React.memo(function RoomHero({
 
   return (
     <section
-      className="relative rounded-[2rem] overflow-hidden glass-featured"
+      className="relative rounded-[2rem] overflow-hidden border border-white/[0.08] bg-[#141417]"
       style={{ isolation: 'isolate' }}
     >
       {cover && hb > 0 && (
@@ -117,7 +117,7 @@ export const RoomHero = React.memo(function RoomHero({
               <TrackStatusBadges meta={track._scd_meta} />
               {track.genre && (
                 <span
-                  className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/[0.06] text-white/55 border border-white/[0.06] uppercase tracking-[0.14em]"
+                  className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-white/[0.06] text-white/55 border border-white/[0.06]"
                   style={{ color: aura.hasGenre ? aura.accent : undefined }}
                 >
                   {track.genre}
@@ -177,7 +177,7 @@ export const RoomHero = React.memo(function RoomHero({
                 )}
                 {ad.uploadKind && (
                   <span
-                    className={`px-1.5 py-0.5 rounded-md text-[9px] uppercase tracking-wider font-semibold ${
+                    className={`px-1.5 py-0.5 rounded-md text-[9px] tracking-wider font-semibold ${
                       KIND_TONE[ad.uploadKind] ?? 'bg-white/[0.06] text-white/50'
                     }`}
                     title={t(`track.uploadKind.${ad.uploadKind}`)}

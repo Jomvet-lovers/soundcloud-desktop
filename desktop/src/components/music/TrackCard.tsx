@@ -1,19 +1,19 @@
 import React from 'react';
-import {useTranslation} from 'react-i18next';
-import {useNavigate} from 'react-router-dom';
-import {preloadTrack} from '../../lib/audio';
-import {art, dur, fc} from '../../lib/formatters';
-import {ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32} from '../../lib/icons';
-import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
-import {useAutoHide} from '../../lib/useAutoHide';
-import {useTrackPlay} from '../../lib/useTrackPlay';
-import type {Track} from '../../stores/player';
-import {usePlayerStore} from '../../stores/player';
-import {AddToPlaylistDialog} from './AddToPlaylistDialog';
-import {ArtistNameLinks} from './ArtistNameLinks';
-import {LikeButton} from './LikeButton';
-import {TrackStatusBadges} from './TrackStatusBadges';
-import {UploadKindDot} from './UploadKindDot';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { preloadTrack } from '../../lib/audio';
+import { art, dur, fc } from '../../lib/formatters';
+import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
+import { useArtistDisplay, useArtistLinkItems, useDisplayTitle } from '../../lib/track-display';
+import { useAutoHide } from '../../lib/useAutoHide';
+import { useTrackPlay } from '../../lib/useTrackPlay';
+import type { Track } from '../../stores/player';
+import { usePlayerStore } from '../../stores/player';
+import { AddToPlaylistDialog } from './AddToPlaylistDialog';
+import { ArtistNameLinks } from './ArtistNameLinks';
+import { LikeButton } from './LikeButton';
+import { TrackStatusBadges } from './TrackStatusBadges';
+import { UploadKindDot } from './UploadKindDot';
 
 interface TrackCardProps {
   track: Track;
@@ -68,10 +68,8 @@ export const TrackCard = React.memo(
 
           {/* Hover overlay */}
           <div
-            className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:bg-black/30 group-hover:backdrop-blur-[2px] group-hover:opacity-100 ${
-              showPlayingOverlay
-                ? 'bg-black/30 backdrop-blur-[2px] opacity-100'
-                : 'bg-black/0 opacity-0'
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-300 group-hover:bg-black/30 group-hover:opacity-100 ${
+              showPlayingOverlay ? 'bg-black/30 opacity-100' : 'bg-black/0 opacity-0'
             }`}
           >
             <div
@@ -85,7 +83,7 @@ export const TrackCard = React.memo(
 
           {/* Duration pill */}
           <div className="absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-            <div className="text-[10px] font-medium bg-black/50 backdrop-blur-md text-white/80 px-2 py-0.5 rounded-full">
+            <div className="text-[10px] font-medium bg-black/50 text-white/80 px-2 py-0.5 rounded-full">
               {dur(track.duration)}
             </div>
           </div>
@@ -104,7 +102,7 @@ export const TrackCard = React.memo(
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="cursor-pointer w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+                className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
                 title={t('playlist.addToPlaylist')}
               >
                 <ListPlus size={14} />
@@ -113,7 +111,7 @@ export const TrackCard = React.memo(
             <button
               type="button"
               onClick={handleAddToQueue}
-              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
               title={t('player.addToQueue')}
             >
               <ListMusic size={14} />

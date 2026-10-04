@@ -149,7 +149,7 @@ function ArtistTracksTabImpl({
             />
             <ViewToggle view={view} onChange={onViewChange} aura={aura} />
           </div>
-          <span className="text-[11px] text-white/30 font-bold uppercase tracking-[0.18em] tabular-nums">
+          <span className="text-[11px] text-white/30 font-medium tabular-nums">
             {fc(tracks.length)} · {dur(totalDuration)}
             {view === 'years' && taggedYears > 0 && (
               <span className="ml-2 text-white/20">· {taggedYears} y</span>
@@ -188,7 +188,7 @@ function ArtistTracksTabImpl({
         <div className="space-y-3 pt-4">
           <div className="flex items-center gap-3 px-2">
             <span
-              className="text-[10px] font-bold uppercase tracking-[0.22em] px-3 py-1 rounded-full"
+              className="text-[10px] font-medium px-3 py-1 rounded-full"
               style={{
                 background: auraRgba(aura, 0.16),
                 color: '#fff',
@@ -222,14 +222,11 @@ const YearBlock = memo(
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">
             <span
               className="font-black leading-none tabular-nums tracking-tight whitespace-nowrap text-[clamp(48px,7vw,80px)]"
-              style={{
-                color: auraRgba(aura, 0.95),
-                filter: `drop-shadow(0 4px 24px ${auraRgba(aura, 0.35)})`,
-              }}
+              style={{ color: auraRgba(aura, 0.95) }}
             >
               {bucket.year ?? '∞'}
             </span>
-            <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/30 md:text-right whitespace-nowrap">
+            <span className="text-[10px] font-medium text-white/30 md:text-right whitespace-nowrap">
               {bucket.year != null ? t('artist.releaseYear') : t('artist.unknownYear')} ·{' '}
               {bucket.items.length} · {dur(total)}
             </span>

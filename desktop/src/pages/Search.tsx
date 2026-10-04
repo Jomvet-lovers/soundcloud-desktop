@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { TrackCard } from '../components/music/TrackCard';
 import { api } from '../lib/api';
 import { art } from '../lib/formatters';
@@ -14,7 +14,7 @@ import {
   useSearchDbTracks,
   useSearchDbUsers,
 } from '../lib/hooks';
-import { Loader2, Music } from '../lib/icons';
+import { ChevronRight, Loader2, Music, Play } from '../lib/icons';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchHistoryStore } from '../stores/searchHistory';
 import { useSearchQueryStore } from '../stores/searchQuery';
@@ -47,11 +47,23 @@ function DiscoverCard({
             loading="lazy"
             className="size-full object-cover transition-opacity group-hover:opacity-85"
           />
-        ) : null}
-        {busy && (
+        ) : (
+          <div className="flex size-full items-center justify-center">
+            <Music size={22} className="text-white/20" />
+          </div>
+        )}
+        {busy ? (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
             <Loader2 size={20} className="animate-spin text-white/80" />
           </div>
+        ) : item.kind === 'user' ? null : (
+          <span className="absolute bottom-2 right-2 flex size-8 items-center justify-center rounded-full bg-black/65 text-white/85">
+            {item.urn?.startsWith('soundcloud:playlists:') ? (
+              <ChevronRight size={15} />
+            ) : (
+              <Play size={13} fill="currentColor" strokeWidth={0} className="ml-px" />
+            )}
+          </span>
         )}
       </div>
       <p className="mt-2 truncate text-[13px] font-medium text-white/85">
@@ -79,6 +91,7 @@ function RowArt({ src, rounded }: { src: string | null; rounded: 'full' | 'lg' }
 /** Search — tabs over SoundCloud, with Discover selections when the query is empty. */
 export function Search() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const q = useSearchQueryStore((s) => s.q);
   const setQ = useSearchQueryStore((s) => s.setQ);
   const addQuery = useSearchHistoryStore((s) => s.addQuery);
@@ -120,27 +133,64 @@ export function Search() {
 
   const startDiscoverItem = async (item: MixedSelectionItem) => {
     if (busyUrn) return;
-    setBusyUrn(item.urn);
-    try {
-      let list: Track[] = [];
-      if (item.playlist_type === 'ARTIST_STATION') {
-        // Station playback is not exposed by api-v2 anymore — build a local
-        // radio from the artist's tracks (shuffled).
-        const userId = item.urn.split(':').pop();
-        const res = await api<PagedResponse<Track>>(`/users/${userId}/tracks?limit=50&offset=0`);
-        list = (res.collection ?? []).filter((track) => track?.urn);
-        for (let i = list.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [list[i], list[j]] = [list[j], list[i]];
+    const urn = item.urn;
+    if (!urn) return;
+
+    // Artists ("Recently Played", "New Music From …") open their profile.
+    if (item.kind === 'user' || urn.startsWith('soundcloud:users:')) {
+      navigate(`/user/${encodeURIComponent(urn)}`);
+      return;
+    }
+
+    // Artist / track stations -> local radio (SC's station playback API is gone).
+    const stationUser = urn.match(/artist-stations:(\d+)/)?.[1];
+    const stationTrack = urn.match(/track-stations:(\d+)/)?.[1];
+    if (stationUser || stationTrack || item.playlist_type === 'ARTIST_STATION') {
+      if (!stationUser && !stationTrack) return;
+      setBusyUrn(urn);
+      try {
+        let list: Track[] = [];
+        if (stationUser) {
+          const res = await api<PagedResponse<Track>>(
+            `/users/${stationUser}/tracks?limit=50&offset=0`,
+          );
+          list = (res.collection ?? []).filter((track) => track?.urn);
+          for (let i = list.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [list[i], list[j]] = [list[j], list[i]];
+          }
+        } else if (stationTrack) {
+          const res = await api<PagedResponse<Track>>(
+            `/tracks/${stationTrack}/related?limit=30&offset=0`,
+          );
+          list = (res.collection ?? []).filter((track) => track?.urn);
         }
-      } else {
-        list = await fetchSystemPlaylistTracks(item.urn);
+        if (list.length > 0) play(list[0], list);
+      } catch {
+        // Card just stops spinning; keep the page usable.
+      } finally {
+        setBusyUrn(null);
       }
-      if (list.length > 0) play(list[0], list);
-    } catch {
-      // Card just stops spinning; keep the page usable.
-    } finally {
-      setBusyUrn(null);
+      return;
+    }
+
+    // SoundCloud system mixes (Your Mix, Daily Drops, Trending, …) play in place.
+    if (urn.startsWith('soundcloud:system-playlists:')) {
+      setBusyUrn(urn);
+      try {
+        const list = await fetchSystemPlaylistTracks(urn);
+        if (list.length > 0) play(list[0], list);
+      } catch {
+        // ignore
+      } finally {
+        setBusyUrn(null);
+      }
+      return;
+    }
+
+    // Regular SoundCloud playlists/albums open their page.
+    if (urn.startsWith('soundcloud:playlists:')) {
+      navigate(`/playlist/${encodeURIComponent(urn)}`);
     }
   };
 

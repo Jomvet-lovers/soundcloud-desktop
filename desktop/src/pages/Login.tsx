@@ -1,14 +1,14 @@
-import {type ReactNode, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {useNavigate} from 'react-router-dom';
-import {AuthBackdrop} from '../components/auth/AuthBackdrop';
-import {BrandMark} from '../components/auth/BrandMark';
-import {OfflineEntryCard} from '../components/auth/OfflineEntryCard';
-import {AlertCircle} from '../lib/icons';
-import {trackedInvoke as invoke} from '../lib/diagnostics';
-import {queryClient} from '../lib/query-client';
-import {useAppStatusStore} from '../stores/app-status';
-import {useAuthStore} from '../stores/auth';
+import { type ReactNode, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { AuthBackdrop } from '../components/auth/AuthBackdrop';
+import { BrandMark } from '../components/auth/BrandMark';
+import { OfflineEntryCard } from '../components/auth/OfflineEntryCard';
+import { trackedInvoke as invoke } from '../lib/diagnostics';
+import { AlertCircle } from '../lib/icons';
+import { queryClient } from '../lib/query-client';
+import { useAppStatusStore } from '../stores/app-status';
+import { useAuthStore } from '../stores/auth';
 
 export function Login() {
   const { t } = useTranslation();
@@ -85,7 +85,7 @@ export function Login() {
               {tokenBusy ? t('auth.directConnecting') : t('auth.directConnect')}
             </PrimaryButton>
 
-            <div className="my-1 flex items-center gap-3 text-[10px] uppercase tracking-[0.22em] text-white/25">
+            <div className="my-1 flex items-center gap-3 text-[10px] text-white/25">
               <div className="h-px flex-1 bg-white/10" />
               {t('auth.orSeparator')}
               <div className="h-px flex-1 bg-white/10" />

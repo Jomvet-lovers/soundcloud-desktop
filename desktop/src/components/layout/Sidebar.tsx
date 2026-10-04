@@ -153,7 +153,7 @@ export const Sidebar = React.memo(() => {
             }}
           />
           <span
-            className="absolute inset-0 flex items-center gap-2 px-2 text-[10px] uppercase tracking-[0.18em] text-white/25 font-semibold whitespace-nowrap"
+            className="absolute inset-0 flex items-center gap-2 px-2 text-[10px] text-white/25 font-semibold whitespace-nowrap"
             style={{ opacity: collapsed ? 0 : 1, transition: 'opacity 240ms ease' }}
           >
             {t('sidebar.quickAccess')}

@@ -1,14 +1,14 @@
-import {useSortable} from '@dnd-kit/sortable';
-import {CSS} from '@dnd-kit/utilities';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import React from 'react';
-import {art, dur} from '../../../lib/formatters';
-import {GripVertical, X} from '../../../lib/icons';
-import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../../lib/track-display';
-import {type Track, usePlayerStore} from '../../../stores/player';
-import {ArtistNameLinks} from '../ArtistNameLinks';
-import {TrackStatusBadges} from '../TrackStatusBadges';
-import {UploadKindDot} from '../UploadKindDot';
-import {PlayingOverlay} from './PlayingOverlay';
+import { art, dur } from '../../../lib/formatters';
+import { GripVertical, X } from '../../../lib/icons';
+import { useArtistDisplay, useArtistLinkItems, useDisplayTitle } from '../../../lib/track-display';
+import { type Track, usePlayerStore } from '../../../stores/player';
+import { ArtistNameLinks } from '../ArtistNameLinks';
+import { TrackStatusBadges } from '../TrackStatusBadges';
+import { UploadKindDot } from '../UploadKindDot';
+import { PlayingOverlay } from './PlayingOverlay';
 
 const QueueTrackRowBody = React.memo(function QueueTrackRowBody({
   track,
@@ -130,7 +130,7 @@ export const QueueRow = React.memo(function QueueRow({
 export const QueueRowClone = React.memo(function QueueRowClone({ track }: { track: Track }) {
   const artwork = art(track.artwork_url, 't200x200');
   return (
-    <div className="flex items-center gap-2.5 pl-2 pr-3 py-2 rounded-xl bg-[rgba(28,28,34,0.96)] ring-1 ring-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.55)] backdrop-blur-xl cursor-grabbing">
+    <div className="flex items-center gap-2.5 pl-2 pr-3 py-2 rounded-xl bg-[rgba(28,28,34,0.96)] ring-1 ring-white/15 shadow-[0_20px_50px_rgba(0,0,0,0.55)] cursor-grabbing">
       <GripVertical size={14} className="text-white/45 shrink-0" />
       <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-white/[0.04]">
         {artwork && (

@@ -87,14 +87,11 @@ const YearGroup = memo(
           <div className="flex items-baseline gap-3 md:flex-col md:items-end md:gap-1 min-w-0 max-w-full">
             <span
               className="font-black leading-none tabular-nums tracking-tight whitespace-nowrap text-[clamp(48px,7vw,80px)]"
-              style={{
-                color: auraRgba(aura, 0.95),
-                filter: `drop-shadow(0 4px 24px ${auraRgba(aura, 0.35)})`,
-              }}
+              style={{ color: auraRgba(aura, 0.95) }}
             >
               {year ?? '∞'}
             </span>
-            <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/30 md:text-right whitespace-nowrap">
+            <span className="text-[10px] font-medium text-white/30 md:text-right whitespace-nowrap">
               {year != null ? t('artist.releaseYear') : t('artist.unknownYear')} · {items.length}
             </span>
           </div>
@@ -148,7 +145,7 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
           </div>
         )}
         <div
-          className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-[0.18em]"
+          className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[9px] font-medium"
           style={{
             background: 'rgba(0,0,0,0.55)',
             color: '#fff',

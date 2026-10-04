@@ -65,7 +65,7 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
       title={t('track.likes')}
       className={`inline-flex items-center gap-1.5 px-3.5 h-11 rounded-2xl text-[12.5px] font-semibold tabular-nums transition-all duration-300 ease-[var(--ease-apple)] cursor-pointer border active:scale-[0.96] ${
         liked
-          ? 'bg-accent/15 text-accent border-accent/30 shadow-[0_0_18px_var(--color-accent-glow)]'
+          ? 'bg-accent/15 text-accent border-accent/30'
           : 'bg-white/[0.04] border-white/[0.07] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.12]'
       }`}
     >

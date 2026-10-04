@@ -104,8 +104,7 @@ export const Titlebar = React.memo(() => {
             data-tauri-drag-region
             className="w-8 h-8 rounded-[10px] shrink-0"
             style={{
-              boxShadow:
-                '0 2px 12px var(--color-accent-glow), inset 0 0 0 0.5px rgba(255,255,255,0.1)',
+              boxShadow: 'inset 0 0 0 0.5px rgba(255,255,255,0.1)',
             }}
           />
           {/* Always rendered; collapses purely via CSS so there's no JS mount/unmount

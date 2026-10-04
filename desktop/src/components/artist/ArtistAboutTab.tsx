@@ -25,7 +25,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
           boxShadow: '0 20px 60px rgba(0,0,0,0.3), inset 0 0.5px 0 rgba(255,255,255,0.06)',
         }}
       >
-        <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/40 mb-4 flex items-center gap-2">
+        <h3 className="text-[10px] font-medium text-white/40 mb-4 flex items-center gap-2">
           <MicVocal size={11} /> {t('artist.aboutTitle')}
         </h3>
         {artist.bio ? (
@@ -58,7 +58,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
               boxShadow: `inset 0 0.5px 0 rgba(255,255,255,0.06)`,
             }}
           >
-            <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-orange-300/80 mb-3 flex items-center gap-2">
+            <h3 className="text-[10px] font-medium text-orange-300/80 mb-3 flex items-center gap-2">
               <SocialIcon kind="soundcloud" size={11} />
               {t('artist.scAccounts')}
             </h3>
@@ -106,9 +106,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
               border: '0.5px solid rgba(255,255,255,0.06)',
             }}
           >
-            <h3 className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/40 mb-3">
-              {t('artist.links')}
-            </h3>
+            <h3 className="text-[10px] font-medium text-white/40 mb-3">{t('artist.links')}</h3>
             <div className="flex flex-col gap-1">
               {artist.socials.map((s) => (
                 <a
@@ -129,9 +127,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
                     <SocialIcon kind={s.kind} size={13} />
                   </span>
                   <span className="flex-1 truncate font-medium">{socialLabel(s.kind)}</span>
-                  <span className="text-[9px] uppercase tracking-[0.18em] text-white/20 font-bold">
-                    {s.source}
-                  </span>
+                  <span className="text-[9px] text-white/20 font-medium">{s.source}</span>
                 </a>
               ))}
             </div>
@@ -152,7 +148,7 @@ const Stat = memo(
       }}
     >
       <span className="text-white/45">{icon}</span>
-      <span className="text-white/40 uppercase tracking-[0.18em] text-[10px]">{label}</span>
+      <span className="text-white/40 text-[10px]">{label}</span>
       <span className="text-white/85">{value}</span>
     </span>
   ),

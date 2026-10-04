@@ -9,8 +9,8 @@ import { isSoundCloudUrl } from '../search/utils';
 
 /* The one global search field — lives in the titlebar, present on every page.
  * Writes the shared query store and routes to /search; the Search page reads
- * that store, so there's a single search input app-wide. Glass lens, accent glow
- * on focus, ⌘K hint, recent-search dropdown. */
+ * that store, so there's a single search input app-wide. Flat lens, ⌘K hint,
+ * recent-search dropdown. */
 export const GlobalSearch = memo(function GlobalSearch() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -85,7 +85,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
           className="flex-1 min-w-0 bg-transparent outline-none text-[14px] text-white/90 placeholder:text-white/35 select-text"
         />
         {isUrl && (
-          <span className="shrink-0 text-[10px] uppercase tracking-wide text-accent/90 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20">
+          <span className="shrink-0 text-[10px] text-accent/90 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20">
             {t('search.urlHint')}
           </span>
         )}
@@ -100,7 +100,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
           </button>
         ) : (
           !focused && (
-            <kbd className="shrink-0 hidden sm:flex items-center gap-0.5 h-6 px-2 mr-1 rounded-md text-[10px] font-semibold tracking-wide text-white/30 bg-white/[0.05] border border-white/10">
+            <kbd className="shrink-0 hidden sm:flex items-center gap-0.5 h-6 px-2 mr-1 rounded-md text-[10px] font-semibold text-white/30 bg-white/[0.05] border border-white/10">
               {isMac() ? '⌘' : 'Ctrl'} K
             </kbd>
           )

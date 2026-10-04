@@ -1,10 +1,10 @@
 import React from 'react';
-import {useTranslation} from 'react-i18next';
-import {useNavigate} from 'react-router-dom';
-import {useArtistDisplay, useArtistLinkItems, useDisplayTitle} from '../../lib/track-display';
-import type {Track} from '../../stores/player';
-import {ArtistNameLinks} from './ArtistNameLinks';
-import {UploadKindDot} from './UploadKindDot';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import { useArtistDisplay, useArtistLinkItems, useDisplayTitle } from '../../lib/track-display';
+import type { Track } from '../../stores/player';
+import { ArtistNameLinks } from './ArtistNameLinks';
+import { UploadKindDot } from './UploadKindDot';
 
 interface TrackTitleArtistProps {
   track: Track;
@@ -43,7 +43,7 @@ export const TrackTitleArtist = React.memo(function TrackTitleArtist({
       <p
         className={`${TITLE_CLS[size]} font-medium truncate transition-colors duration-150 ${
           highlight
-            ? 'text-accent drop-shadow-[0_0_8px_rgba(255,85,0,0.4)]'
+            ? 'text-accent'
             : isWanted
               ? 'text-white/55'
               : 'text-white/90 hover:text-white cursor-pointer'

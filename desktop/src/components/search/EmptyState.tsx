@@ -10,7 +10,7 @@ interface EmptyStateProps {
   onAction?: () => void;
 }
 
-/* One big inviting glass plaque — used wherever the wall would otherwise be
+/* One big inviting dark plaque — used wherever the wall would otherwise be
  * blank (landing/dive/text/vibe). Never a gray "no results". */
 export const EmptyState = memo(function EmptyState({
   icon,

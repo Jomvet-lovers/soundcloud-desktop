@@ -113,7 +113,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
               >
                 {artist.bio}
               </p>
-              <span className="inline-flex items-center gap-1 mt-1 text-[11px] font-semibold text-white/30 uppercase tracking-[0.18em] group-hover:text-white/60 transition-colors">
+              <span className="inline-flex items-center gap-1 mt-1 text-[11px] font-semibold text-white/30 group-hover:text-white/60 transition-colors">
                 <ChevronDown
                   size={12}
                   className={`transition-transform duration-500 ${bioExpanded ? 'rotate-180' : ''}`}
@@ -201,9 +201,7 @@ const CompactStat = memo(
       >
         <span className="text-white/40">{icon}</span>
         <span className="text-[15px] font-black tabular-nums text-white">{value}</span>
-        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
-          {label}
-        </span>
+        <span className="text-[10px] font-medium text-white/35">{label}</span>
       </div>
     );
   },

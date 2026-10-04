@@ -1,36 +1,34 @@
-import type {DragEndEvent} from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
 import * as Dialog from '@radix-ui/react-dialog';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {useNavigate, useParams} from 'react-router-dom';
-import {toast} from 'sonner';
-import {useShallow} from 'zustand/shallow';
-import {CrateLedger} from '../components/playlist/CrateLedger';
-import {PLAYLIST_KEYFRAMES} from '../components/playlist/keyframes';
-import {MoreCrates} from '../components/playlist/MoreCrates';
-import {PlaylistHero} from '../components/playlist/PlaylistHero';
-import {SequenceList} from '../components/playlist/SequenceList';
-import {SetRibbon} from '../components/playlist/SetRibbon';
-import {usePlaylistAura} from '../components/playlist/usePlaylistAura';
-import {Atmosphere} from '../components/search/Atmosphere';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate, useParams } from 'react-router-dom';
+import { toast } from 'sonner';
+import { useShallow } from 'zustand/shallow';
+import { CrateLedger } from '../components/playlist/CrateLedger';
+import { PLAYLIST_KEYFRAMES } from '../components/playlist/keyframes';
+import { MoreCrates } from '../components/playlist/MoreCrates';
+import { PlaylistHero } from '../components/playlist/PlaylistHero';
+import { SequenceList } from '../components/playlist/SequenceList';
+import { SetRibbon } from '../components/playlist/SetRibbon';
+import { usePlaylistAura } from '../components/playlist/usePlaylistAura';
 import {
-    useDeletePlaylist,
-    useInfiniteScroll,
-    usePlaylist,
-    usePlaylistTracks,
-    useUpdatePlaylistTracks,
+  useDeletePlaylist,
+  useInfiniteScroll,
+  usePlaylist,
+  usePlaylistTracks,
+  useUpdatePlaylistTracks,
 } from '../lib/hooks';
-import {AlertCircle, ChevronLeft, X} from '../lib/icons';
-import {usePerfMode} from '../lib/perf';
-import {rawPlaylistCover} from '../lib/playlist-cover';
-import {armPlaylistContinuation} from '../lib/queue-continuation';
-import {useAuthStore} from '../stores/auth';
-import {type Track, usePlayerStore} from '../stores/player';
-import {useSettingsStore} from '../stores/settings';
+import { AlertCircle, ChevronLeft, X } from '../lib/icons';
+import { rawPlaylistCover } from '../lib/playlist-cover';
+import { armPlaylistContinuation } from '../lib/queue-continuation';
+import { useAuthStore } from '../stores/auth';
+import { type Track, usePlayerStore } from '../stores/player';
+import { useSettingsStore } from '../stores/settings';
 
 function HeroSkeleton() {
   return (
-    <div className="relative rounded-[2.5rem] overflow-hidden glass-featured p-6 md:p-10">
+    <div className="relative rounded-[2.5rem] overflow-hidden border border-white/[0.08] bg-[#141417] p-6 md:p-10">
       <div className="flex flex-col lg:flex-row gap-10">
         <div className="w-[150px] h-[150px] md:w-[200px] md:h-[200px] rounded-[1.7rem] skeleton-shimmer shrink-0 self-center lg:self-start" />
         <div className="flex-1 space-y-4 w-full">
@@ -48,7 +46,6 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
   const { urn } = useParams<{ urn: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const perf = usePerfMode();
   const myUrn = useAuthStore((s) => s.user?.urn);
 
   const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
@@ -72,7 +69,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
   );
 
   const isLoading = playlistLoading || tracksLoading;
-  const isOwner = !!playlist && !!myUrn && playlist.user.urn === myUrn;
+  const isOwner = !!playlist && !!myUrn && playlist.user?.urn === myUrn;
   const isPinned = pinnedPlaylists.some((item) => item.urn === playlist?.urn);
 
   const serverTracks: Track[] = useMemo(() => {
@@ -216,7 +213,6 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     return (
       <div className="relative min-h-full w-full">
         <style>{PLAYLIST_KEYFRAMES}</style>
-        {perf.atmosphere && <Atmosphere />}
         <div
           className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10"
           style={{ isolation: 'isolate' }}
@@ -232,12 +228,6 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
   return (
     <div className="relative min-h-full w-full">
       <style>{PLAYLIST_KEYFRAMES}</style>
-      {perf.atmosphere && (
-        <Atmosphere
-          tint={aura.tint}
-          energy={isPlayingFromThis ? Math.min(1, aura.energy + 0.12) : aura.energy}
-        />
-      )}
 
       <div
         className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-7"
@@ -276,7 +266,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
               border: '0.5px solid rgba(255,255,255,0.06)',
             }}
           >
-            <div className="flex items-center gap-2 mb-4 text-[11px] font-bold uppercase tracking-[0.22em] text-white/45">
+            <div className="flex items-center gap-2 mb-4 text-[11px] font-medium text-white/45">
               {t('playlist.theSet')}
             </div>
             <SetRibbon tracks={tracks} onJump={handleJump} />
@@ -294,17 +284,19 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
           isFetchingNextPage={isFetchingNextPage}
         />
 
-        <MoreCrates
-          curatorUrn={playlist.user.urn}
-          curatorName={playlist.user.username}
-          excludeUrn={playlist.urn}
-        />
+        {playlist.user?.urn && (
+          <MoreCrates
+            curatorUrn={playlist.user.urn}
+            curatorName={playlist.user.username}
+            excludeUrn={playlist.urn}
+          />
+        )}
       </div>
 
       <Dialog.Root open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-fade-in" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[380px] rounded-2xl glass border border-white/[0.08] shadow-2xl animate-fade-in-up p-6 space-y-4">
+          <Dialog.Overlay className="fixed inset-0 bg-black/60 z-50 animate-fade-in" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[380px] rounded-2xl bg-[#141417] border border-white/[0.08] shadow-2xl animate-fade-in-up p-6 space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
                 <AlertCircle size={20} className="text-red-400" />

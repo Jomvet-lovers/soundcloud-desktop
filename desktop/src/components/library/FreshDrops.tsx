@@ -62,7 +62,7 @@ const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queu
             isThisPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
         >
-          <span className="w-12 h-12 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center">
+          <span className="w-12 h-12 rounded-full bg-white/15 flex items-center justify-center">
             {isThisPlaying ? pauseWhite14 : playWhite14}
           </span>
         </div>
@@ -71,7 +71,7 @@ const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queu
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2.5 mb-2">
           <span
-            className="text-[10px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full"
+            className="text-[10px] font-medium px-2 py-0.5 rounded-full"
             style={{ color: aura.accent, background: aura.accentSoft }}
           >
             {t('library.freshNew')}

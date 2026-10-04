@@ -1131,6 +1131,7 @@ export function useDiscoverFeed() {
 
 export interface MixedSelectionItem {
   urn: string;
+  kind?: string | null;
   title: string;
   short_title?: string | null;
   description?: string | null;

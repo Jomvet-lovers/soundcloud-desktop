@@ -1,10 +1,10 @@
-import React, {useCallback, useMemo, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {proxiedAssetUrl} from '../lib/asset-url';
-import {NEWS, type NewsItem, SHOW_NEWS} from '../lib/constants';
-import {X} from '../lib/icons';
-import {useNewsStore} from '../stores/news';
-import {Modal, ModalClose, ModalContent, ModalTitle, ModalTrigger} from './ui/Modal';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { proxiedAssetUrl } from '../lib/asset-url';
+import { NEWS, type NewsItem, SHOW_NEWS } from '../lib/constants';
+import { X } from '../lib/icons';
+import { useNewsStore } from '../stores/news';
+import { Modal, ModalClose, ModalContent, ModalTitle, ModalTrigger } from './ui/Modal';
 
 // ─── Toast Card (bottom-left) ──────────────────────────────
 
@@ -13,13 +13,6 @@ const accentBorder: Record<string, string> = {
   amber: 'border-amber-400/20 hover:border-amber-400/30',
   sky: 'border-sky-400/20 hover:border-sky-400/30',
   emerald: 'border-emerald-400/20 hover:border-emerald-400/30',
-};
-
-const accentGlow: Record<string, string> = {
-  violet: 'shadow-[0_0_30px_rgba(139,92,246,0.08)]',
-  amber: 'shadow-[0_0_30px_rgba(251,191,36,0.08)]',
-  sky: 'shadow-[0_0_30px_rgba(56,189,248,0.08)]',
-  emerald: 'shadow-[0_0_30px_rgba(52,211,153,0.08)]',
 };
 
 const accentDot: Record<string, string> = {
@@ -42,7 +35,6 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
 
   const accent = item.accent ?? 'violet';
   const border = accentBorder[accent] ?? accentBorder.violet;
-  const glow = accentGlow[accent] ?? accentGlow.violet;
   const dot = accentDot[accent] ?? accentDot.violet;
 
   // Dismiss from the toast cross — never opens the modal.
@@ -73,10 +65,10 @@ const SingleNewsToast = React.memo(function SingleNewsToast({
         <ModalTrigger asChild>
           <button
             type="button"
-            className={`relative flex w-[340px] cursor-pointer items-start gap-3.5 rounded-2xl border bg-[#1a1a1e]/90 px-4 py-3.5 text-left backdrop-blur-xl transition-all duration-300 ease-[var(--ease-apple)] ${border} ${glow} hover:bg-[#1e1e24]/95 hover:scale-[1.01]`}
+            className={`relative flex w-[340px] cursor-pointer items-start gap-3.5 rounded-2xl border bg-[#1a1a1e]/90 px-4 py-3.5 text-left transition-all duration-300 ease-[var(--ease-apple)] ${border} hover:bg-[#1e1e24]/95 hover:scale-[1.01]`}
           >
             {/* Accent dot */}
-            <div className={`mt-1.5 size-2 shrink-0 rounded-full ${dot} animate-pulse`} />
+            <div className={`mt-1.5 size-2 shrink-0 rounded-full ${dot}`} />
 
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-semibold text-white/90 leading-tight">

@@ -5,7 +5,6 @@ import { AlbumHero } from '../components/album/AlbumHero';
 import { AlbumTrackList } from '../components/album/AlbumTrackList';
 import { useAlbumDetail } from '../components/album/useAlbumData';
 import { useArtistStar } from '../components/artist/useArtistData';
-import { AuraField } from '../components/user/AuraField';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
 import { Loader2 } from '../lib/icons';
 
@@ -37,8 +36,6 @@ export function AlbumPage() {
     <>
       <style>{USER_PAGE_KEYFRAMES}</style>
       <div className="relative w-full min-h-screen">
-        <AuraField aura={aura} isStar={hasStar} />
-
         <div
           className="relative z-10 w-full max-w-[1480px] mx-auto px-4 md:px-8 pt-10 md:pt-16 pb-32 flex flex-col gap-8"
           style={{ isolation: 'isolate' }}

@@ -1,16 +1,24 @@
-import {useSortable} from '@dnd-kit/sortable';
-import {CSS} from '@dnd-kit/utilities';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import React from 'react';
-import {useTranslation} from 'react-i18next';
-import {preloadTrack} from '../../lib/audio';
-import {art, dur, fc} from '../../lib/formatters';
-import {GripVertical, headphones9, heart9, musicIcon12, pauseWhite12, playWhite12, Trash2,} from '../../lib/icons';
-import {useTrackPlay} from '../../lib/useTrackPlay';
-import type {Track} from '../../stores/player';
-import {LikeButton} from '../music/LikeButton';
-import {sameScdMeta, TrackStatusBadges} from '../music/TrackStatusBadges';
-import {TrackTitleArtist} from '../music/TrackTitleArtist';
-import {genreColor} from '../search/utils';
+import { useTranslation } from 'react-i18next';
+import { preloadTrack } from '../../lib/audio';
+import { art, dur, fc } from '../../lib/formatters';
+import {
+  GripVertical,
+  headphones9,
+  heart9,
+  musicIcon12,
+  pauseWhite12,
+  playWhite12,
+  Trash2,
+} from '../../lib/icons';
+import { useTrackPlay } from '../../lib/useTrackPlay';
+import type { Track } from '../../stores/player';
+import { LikeButton } from '../music/LikeButton';
+import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
+import { TrackTitleArtist } from '../music/TrackTitleArtist';
+import { genreColor } from '../search/utils';
 
 /** Shared row body. The left hue-tick is colored by THIS track's genre, so the
  *  sequence visibly shifts color as you flip the crate. */
@@ -38,7 +46,6 @@ function RowBody({
           style={{
             background: hue,
             opacity: isThis ? 1 : 0.4,
-            boxShadow: isThis ? `0 0 10px ${hue}` : undefined,
           }}
         />
       )}
@@ -48,7 +55,7 @@ function RowBody({
         onMouseEnter={() => preloadTrack(track.urn)}
       >
         {isThisPlaying ? (
-          <div className="w-7 h-7 rounded-full bg-accent text-accent-contrast flex items-center justify-center shadow-[0_0_12px_var(--color-accent-glow)]">
+          <div className="w-7 h-7 rounded-full bg-accent text-accent-contrast flex items-center justify-center">
             {pauseWhite12}
           </div>
         ) : (

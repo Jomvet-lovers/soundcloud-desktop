@@ -68,9 +68,7 @@ const CastCard = memo(function CastCard({
         <span className="text-[12px] font-semibold text-white/90 truncate group-hover:text-white">
           {artist.name}
         </span>
-        <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/30">
-          {roleLabel}
-        </span>
+        <span className="text-[9px] font-medium text-white/30">{roleLabel}</span>
       </span>
     </button>
   );
@@ -81,7 +79,7 @@ const CastRow = memo(function CastRow({ role, items }: { role: string; items: Al
   const roleLabel = ROLE_LABEL_KEY[role] ? t(ROLE_LABEL_KEY[role]) : role;
   return (
     <div className="flex flex-col gap-3">
-      <span className="text-[9px] font-bold uppercase tracking-[0.28em] text-white/30">
+      <span className="text-[9px] font-medium text-white/30">
         {roleLabel} · {items.length}
       </span>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
@@ -118,7 +116,7 @@ function AlbumCastImpl({ artists, aura }: AlbumCastProps) {
         >
           <Users size={14} className="text-white/70" />
         </span>
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/60">
+        <h3 className="text-[11px] font-medium text-white/60">
           {t('album.cast')}
           <span className="text-white/25 ml-2">{artists.length}</span>
         </h3>

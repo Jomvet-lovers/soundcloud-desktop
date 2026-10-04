@@ -1,21 +1,21 @@
 import {
-    closestCenter,
-    DndContext,
-    type DragEndEvent,
-    DragOverlay,
-    type DragStartEvent,
-    KeyboardSensor,
-    PointerSensor,
-    useSensor,
-    useSensors,
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  DragOverlay,
+  type DragStartEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
 } from '@dnd-kit/core';
-import {SortableContext, verticalListSortingStrategy} from '@dnd-kit/sortable';
-import React, {useMemo, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {Clock, ListMusic, Loader2} from '../../lib/icons';
-import type {Track} from '../../stores/player';
-import {VirtualList} from '../ui/VirtualList';
-import {SequenceRow, SequenceRowOverlay, SortableSequenceRow} from './SequenceRow';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Clock, ListMusic, Loader2 } from '../../lib/icons';
+import type { Track } from '../../stores/player';
+import { VirtualList } from '../ui/VirtualList';
+import { SequenceRow, SequenceRowOverlay, SortableSequenceRow } from './SequenceRow';
 
 const PANEL = {
   background: 'rgba(255,255,255,0.02)',
@@ -27,7 +27,7 @@ function Header({ count }: { count: number }) {
   const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between px-3 pt-1 pb-3">
-      <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-white/55">
+      <span className="inline-flex items-center gap-2 text-[11px] font-medium text-white/55">
         <ListMusic size={12} /> {t('playlist.theSequence')}
         <span className="text-white/25 ml-1 tabular-nums">{count}</span>
       </span>

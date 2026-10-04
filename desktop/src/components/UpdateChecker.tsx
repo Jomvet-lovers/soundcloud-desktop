@@ -1,10 +1,10 @@
-import {openUrl} from '@tauri-apps/plugin-opener';
-import {useMemo} from 'react';
-import {useTranslation} from 'react-i18next';
-import {proxiedAssetUrl} from '../lib/asset-url';
-import {APP_VERSION} from '../lib/constants';
-import {AlertCircle, ExternalLink, Sparkles, X} from '../lib/icons';
-import type {GithubRelease} from '../lib/update-check';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { proxiedAssetUrl } from '../lib/asset-url';
+import { APP_VERSION } from '../lib/constants';
+import { AlertCircle, ExternalLink, Sparkles, X } from '../lib/icons';
+import type { GithubRelease } from '../lib/update-check';
 
 function stripLeadingV(version: string) {
   return version.replace(/^v/, '');
@@ -126,7 +126,7 @@ function renderReleaseBody(body: string) {
           <div className="flex items-start gap-2">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wide opacity-80">{kind}</p>
+              <p className="text-[11px] font-semibold opacity-80">{kind}</p>
               <div className="mt-1 space-y-1 text-[12px] leading-relaxed opacity-90">
                 {bodyLines.map((calloutLine, calloutIndex) => (
                   <p key={`${index}-${calloutIndex}`}>
@@ -164,8 +164,8 @@ export function UpdateChecker({
   if (!release) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e]/95 backdrop-blur-2xl border border-white/[0.12] shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
+      <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e]/95 border border-white/[0.12] shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div className="flex items-center gap-2.5">
@@ -197,8 +197,7 @@ export function UpdateChecker({
 
         {/* Release notes */}
         {release.body && (
-            <div
-                className="selectable mx-5 mb-4 max-h-60 overflow-y-auto rounded-xl bg-black/30 border border-white/[0.08] p-4 space-y-1">
+          <div className="selectable mx-5 mb-4 max-h-60 overflow-y-auto rounded-xl bg-black/30 border border-white/[0.08] p-4 space-y-1">
             {renderedNotes}
           </div>
         )}
@@ -215,7 +214,7 @@ export function UpdateChecker({
           <button
             type="button"
             onClick={() => openUrl(release.html_url)}
-            className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_20px_var(--color-accent-glow)]"
+            className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
           >
             {t('update.download')}
             <ExternalLink size={13} />

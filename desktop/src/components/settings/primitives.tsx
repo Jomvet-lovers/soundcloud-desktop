@@ -21,7 +21,6 @@ export function Toggle({
       className={`relative w-11 h-6 rounded-full transition-all duration-200 shrink-0 ${
         disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
       } ${checked ? 'bg-accent' : 'bg-white/10'}`}
-      style={checked && !disabled ? { boxShadow: '0 0 16px var(--color-accent-glow)' } : undefined}
     >
       <span
         className={`absolute top-0.5 w-5 h-5 rounded-full shadow-md transition-all duration-200 ${

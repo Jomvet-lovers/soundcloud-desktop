@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 import { art } from '../../lib/formatters';
 import { Loader2, Shuffle, User as UserIcon } from '../../lib/icons';
-import { usePerfMode } from '../../lib/perf';
 import type { Track } from '../../stores/player';
 import { ArtworkMosaic } from './ArtworkMosaic';
 import { SoundprintBars } from './SoundprintBars';
@@ -23,41 +22,9 @@ function greetingKey(): string {
   return 'library.greetEvening';
 }
 
-/** Tiny "now playing" equalizer — a borrowed flourish that signals the room is
- *  alive. Idle-only (gates on perf.idleAnim, pauses with the global hidden gate). */
-const EqBars = memo(function EqBars({ color }: { color: string }) {
-  const perf = usePerfMode();
-  if (!perf.idleAnim) return null;
-  const delays = ['-0.2s', '-0.56s', '-0.08s', '-0.38s'];
-  return (
-    <span className="inline-flex items-end gap-[2px] h-[9px]">
-      {delays.map((d) => (
-        <i
-          key={d}
-          className="sp-eq w-[2px] rounded-full"
-          style={{
-            height: '9px',
-            background: color,
-            transformOrigin: 'bottom',
-            animation: `sp-eq 900ms ease-in-out ${d} infinite`,
-          }}
-        />
-      ))}
-    </span>
-  );
-});
-
 const AvatarOrb = memo(function AvatarOrb({ url, aura }: { url: string | null; aura: Aura }) {
-  const perf = usePerfMode();
   return (
     <div className="relative shrink-0 w-[84px] h-[84px] md:w-[100px] md:h-[100px]">
-      <div
-        className="absolute -inset-2 rounded-full pointer-events-none transition-[background] duration-500"
-        style={{
-          background: auraRgba(aura, 0.2),
-          filter: perf.glow ? 'blur(10px)' : undefined,
-        }}
-      />
       <div
         className="relative w-full h-full rounded-full overflow-hidden transition-[border-color,box-shadow] duration-500"
         style={{ border: `0.5px solid ${auraRgba(aura, 0.4)}` }}
@@ -91,9 +58,9 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
   const { t } = useTranslation();
   const { shuffle, loading } = useShuffleLikes();
   const avatar = art(user.avatar_url, 't300x300');
-  // Glossy, accent-lit "play" surface borrowed from the focus concept.
+  // Flat accent "play" surface.
   const playSurface = auraRgb(sound.aura);
-  const playGlow = 'inset 0 0 0 1px rgba(255,255,255,0.22)';
+  const playRing = 'inset 0 0 0 1px rgba(255,255,255,0.22)';
 
   return (
     <section
@@ -103,7 +70,7 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
         boxShadow: '0 30px 80px rgba(0,0,0,0.42)',
       }}
     >
-      {/* frost — blurs the page atmosphere behind the slab */}
+      {/* flat dark surface under the content */}
       <div
         className="absolute inset-0 rounded-[inherit] transition-[background] duration-500"
         style={{
@@ -118,18 +85,12 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
         <div className="flex items-center gap-5">
           <AvatarOrb url={avatar} aura={sound.aura} />
           <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.28em] text-white/40 font-bold mb-1.5">
-              <EqBars color={auraRgb(sound.aura)} />
+            <p className="flex items-center gap-1.5 text-[11px] text-white/40 font-medium mb-1.5">
               {t('nav.library')}
             </p>
             <h1
               className="text-[26px] md:text-[34px] font-black tracking-tight leading-[1.05] break-words"
-              style={{
-                backgroundImage: sound.aura.nameGradient,
-                WebkitBackgroundClip: 'text',
-                backgroundClip: 'text',
-                color: 'transparent',
-              }}
+              style={{ color: auraRgb(sound.aura) }}
             >
               {t(greetingKey(), { name: user.username })}
             </h1>
@@ -142,7 +103,7 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
             style={{
               color: isLight(sound.aura) ? '#0a0a0c' : '#fff',
               background: playSurface,
-              boxShadow: playGlow,
+              boxShadow: playRing,
             }}
           >
             {loading ? <Loader2 size={18} className="animate-spin" /> : <Shuffle size={18} />}
@@ -162,7 +123,7 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
           style={{
             color: isLight(sound.aura) ? '#0a0a0c' : '#fff',
             background: playSurface,
-            boxShadow: playGlow,
+            boxShadow: playRing,
           }}
         >
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Shuffle size={16} />}

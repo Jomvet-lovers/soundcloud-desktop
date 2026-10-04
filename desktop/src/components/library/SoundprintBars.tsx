@@ -2,7 +2,6 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { parseCssColor, type Rgb, rgbaCss, rgbCss } from '../../lib/genre-aura';
 import { AudioLines } from '../../lib/icons';
-import { usePerfMode } from '../../lib/perf';
 import type { GenreShare } from '../search/utils';
 
 /** The signature: your top genres as a row of luminous light-columns. Height is
@@ -19,7 +18,6 @@ export const SoundprintBars = memo(function SoundprintBars({
   onSelect: (genre: string | null) => void;
 }) {
   const { t } = useTranslation();
-  const perf = usePerfMode();
   if (spectrum.length === 0) return null;
   const max = spectrum[0].share || 1;
   const hasSel = selected != null;
@@ -28,19 +26,13 @@ export const SoundprintBars = memo(function SoundprintBars({
     <div>
       <div className="flex items-center gap-2 mb-3">
         <AudioLines size={13} style={{ color: spectrum[0].color }} />
-        <span className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">
-          {t('library.soundprint')}
-        </span>
+        <span className="text-[10px] font-medium text-white/45">{t('library.soundprint')}</span>
       </div>
       <div className="flex items-end gap-2 h-[88px]">
         {spectrum.map((g, i) => {
           const rgb: Rgb = parseCssColor(g.color) ?? [255, 255, 255];
           const h = 32 + (g.share / max) * 68;
           const isSel = selected === g.genre;
-          const breathe =
-            perf.idleAnim && i > 0
-              ? `sp-breathe ${(5.5 + i * 0.6).toFixed(1)}s ease-in-out ${(0.3 + i * 0.18).toFixed(2)}s infinite`
-              : undefined;
           return (
             <button
               type="button"
@@ -55,14 +47,13 @@ export const SoundprintBars = memo(function SoundprintBars({
             >
               <div className="relative flex-1 flex items-end">
                 <div
-                  className="sp-breathe w-full rounded-t-[7px] transition-[filter,box-shadow] duration-300"
+                  className="w-full rounded-t-[7px] transition-[filter,box-shadow] duration-300"
                   style={{
                     height: `${h}%`,
                     transformOrigin: 'bottom',
                     background: rgbCss(rgb),
                     boxShadow: `inset 0 1px 0 ${rgbaCss(rgb, 0.85)}`,
                     filter: isSel ? 'saturate(1.2) brightness(1.08)' : undefined,
-                    animation: breathe,
                   }}
                 />
               </div>

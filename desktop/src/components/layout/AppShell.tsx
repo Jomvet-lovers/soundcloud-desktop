@@ -1,18 +1,18 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import React, {lazy, Suspense, useCallback, useEffect, useRef, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {Outlet} from 'react-router-dom';
-import {useShallow} from 'zustand/shallow';
-import {getCurrentTime, getDuration, handlePrev, seek} from '../../lib/audio';
-import {getWallpaperUrl} from '../../lib/cache';
-import {usePerfMode} from '../../lib/perf';
-import {isMac} from '../../lib/platform';
-import {toggleWindowFullscreen} from '../../lib/window';
-import {usePlayerStore} from '../../stores/player';
-import {useSettingsStore} from '../../stores/settings';
-import {NowPlayingBar} from './NowPlayingBar';
-import {Sidebar} from './Sidebar';
-import {Titlebar} from './Titlebar';
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Outlet } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
+import { getWallpaperUrl } from '../../lib/cache';
+import { usePerfMode } from '../../lib/perf';
+import { isMac } from '../../lib/platform';
+import { toggleWindowFullscreen } from '../../lib/window';
+import { usePlayerStore } from '../../stores/player';
+import { useSettingsStore } from '../../stores/settings';
+import { NowPlayingBar } from './NowPlayingBar';
+import { Sidebar } from './Sidebar';
+import { Titlebar } from './Titlebar';
 
 const QueuePanel = lazy(() =>
   import('../music/QueuePanel').then((module) => ({ default: module.QueuePanel })),
@@ -35,7 +35,7 @@ const keybindings: Keybinding[] = [
   { key: 'p', label: 'kb.prevTrack', group: 'playback', display: 'P' },
   { key: 's', label: 'kb.shuffle', group: 'playback', display: 'S' },
   { key: 'r', label: 'kb.repeat', group: 'playback', display: 'R' },
-    {key: 'b', label: 'kb.abLoop', group: 'playback', display: 'B'},
+  { key: 'b', label: 'kb.abLoop', group: 'playback', display: 'B' },
   { key: 'ArrowUp', label: 'kb.volumeUp', group: 'playback', display: '↑' },
   { key: 'ArrowDown', label: 'kb.volumeDown', group: 'playback', display: '↓' },
   { key: 'm', label: 'kb.mute', group: 'playback', display: 'M' },
@@ -82,8 +82,8 @@ const KeybindingsDialog = React.memo(
     return (
       <Dialog.Root open={open} onOpenChange={onOpenChange}>
         <Dialog.Portal>
-          <Dialog.Overlay className="dialog-overlay fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" />
-          <Dialog.Content className="dialog-content fixed z-[80] top-1/2 left-1/2 w-full max-w-[520px] bg-[#1a1a1e]/95 backdrop-blur-2xl border border-white/[0.08] rounded-3xl shadow-2xl overflow-hidden">
+          <Dialog.Overlay className="dialog-overlay fixed inset-0 z-[80] bg-black/60" />
+          <Dialog.Content className="dialog-content fixed z-[80] top-1/2 left-1/2 w-full max-w-[520px] bg-[#1a1a1e]/95 border border-white/[0.08] rounded-3xl shadow-2xl overflow-hidden">
             {/* Header */}
             <div className="px-7 pt-6 pb-4 border-b border-white/[0.06]">
               <Dialog.Title className="text-[18px] font-bold text-white/90 tracking-tight">
@@ -98,9 +98,7 @@ const KeybindingsDialog = React.memo(
             <div className="px-7 py-5 space-y-6 max-h-[60vh] overflow-y-auto">
               {groups.map((group) => (
                 <div key={group.id}>
-                  <h3 className="text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3">
-                    {t(group.label)}
-                  </h3>
+                  <h3 className="text-[11px] font-medium text-white/30 mb-3">{t(group.label)}</h3>
                   <div className="space-y-1">
                     {group.bindings.map((bind) => (
                       <div
@@ -143,8 +141,8 @@ const KeybindingsDialog = React.memo(
 /** Wallpaper layer — the photo lives at the very back, full-bleed and crisp.
  *  `bgOpacity` is the flat readability dim on top; no motion (it's a backdrop). */
 const CustomBackground = React.memo(() => {
-    const perf = usePerfMode();
-    const {bgName, bgOpacity, bgBlur} = useSettingsStore(
+  const perf = usePerfMode();
+  const { bgName, bgOpacity, bgBlur } = useSettingsStore(
     useShallow((s) => ({
       bgName: s.backgroundImage,
       bgOpacity: s.backgroundOpacity,
@@ -155,27 +153,27 @@ const CustomBackground = React.memo(() => {
   const bgUrl = bgName ? getWallpaperUrl(bgName) : null;
   if (!bgUrl) return null;
 
-    const effBlur = perf.blur(bgBlur);
-    const dim = bgOpacity; // edge/vignette + chrome readability framing
+  const effBlur = perf.blur(bgBlur);
+  const dim = bgOpacity; // edge/vignette + chrome readability framing
 
   return (
-      <div
-          className="absolute inset-0 pointer-events-none overflow-hidden"
-          style={{contain: 'strict', transform: 'translateZ(0)'}}
-      >
-          <img
-              src={bgUrl}
-              alt=""
-              aria-hidden="true"
-              decoding="async"
-              className="absolute inset-0 w-full h-full object-cover select-none"
-              style={{
-                  filter: effBlur > 0 ? `blur(${effBlur}px)` : undefined,
-                  transform: 'translateZ(0)',
-              }}
-          />
-          {/* Flat readability dim — no vignette, no chrome gradients. */}
-          <div className="absolute inset-0 bg-[rgb(6,6,9)]" style={{opacity: dim}} />
+    <div
+      className="absolute inset-0 pointer-events-none overflow-hidden"
+      style={{ contain: 'strict', transform: 'translateZ(0)' }}
+    >
+      <img
+        src={bgUrl}
+        alt=""
+        aria-hidden="true"
+        decoding="async"
+        className="absolute inset-0 w-full h-full object-cover select-none"
+        style={{
+          filter: effBlur > 0 ? `blur(${effBlur}px)` : undefined,
+          transform: 'translateZ(0)',
+        }}
+      />
+      {/* Flat readability dim — no vignette, no chrome gradients. */}
+      <div className="absolute inset-0 bg-[rgb(6,6,9)]" style={{ opacity: dim }} />
     </div>
   );
 });
@@ -201,44 +199,44 @@ export const AppShell = React.memo(() => {
   });
   const onQueueToggle = useCallback(() => setQueueOpen((v) => !v), []);
   const onQueueClose = useCallback(() => setQueueOpen(false), []);
-    const mainRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
-    // Mirror panel state into refs so the global keydown listener binds once.
-    const queueOpenRef = useRef(queueOpen);
-    queueOpenRef.current = queueOpen;
-    const kbOpenRef = useRef(kbOpen);
-    kbOpenRef.current = kbOpen;
+  // Mirror panel state into refs so the global keydown listener binds once.
+  const queueOpenRef = useRef(queueOpen);
+  queueOpenRef.current = queueOpen;
+  const kbOpenRef = useRef(kbOpen);
+  kbOpenRef.current = kbOpen;
 
-    // Anti-sticky-hover: WebKitGTK doesn't re-hit-test :hover while the content
-    // scrolls under a stationary cursor, so cards "freeze" hovered or light up the
-    // wrong tile. Flag the scroll container while scrolling (CSS drops pointer
-    // events app-wide); clear the instant the pointer actually moves or presses.
-    useEffect(() => {
-        const main = mainRef.current;
-        if (!main) return;
-        let t: ReturnType<typeof setTimeout> | null = null;
-        const clear = () => {
-            if (t) {
-                clearTimeout(t);
-                t = null;
-            }
-            if (main.hasAttribute('data-scrolling')) main.removeAttribute('data-scrolling');
-        };
-        const onScroll = () => {
-            if (!main.hasAttribute('data-scrolling')) main.setAttribute('data-scrolling', '1');
-            if (t) clearTimeout(t);
-            t = setTimeout(clear, 120);
-        };
-        main.addEventListener('scroll', onScroll, {passive: true});
-        main.addEventListener('pointermove', clear, {passive: true});
-        main.addEventListener('pointerdown', clear, {passive: true});
-        return () => {
-            main.removeEventListener('scroll', onScroll);
-            main.removeEventListener('pointermove', clear);
-            main.removeEventListener('pointerdown', clear);
-            if (t) clearTimeout(t);
-        };
-    }, []);
+  // Anti-sticky-hover: WebKitGTK doesn't re-hit-test :hover while the content
+  // scrolls under a stationary cursor, so cards "freeze" hovered or light up the
+  // wrong tile. Flag the scroll container while scrolling (CSS drops pointer
+  // events app-wide); clear the instant the pointer actually moves or presses.
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const clear = () => {
+      if (t) {
+        clearTimeout(t);
+        t = null;
+      }
+      if (main.hasAttribute('data-scrolling')) main.removeAttribute('data-scrolling');
+    };
+    const onScroll = () => {
+      if (!main.hasAttribute('data-scrolling')) main.setAttribute('data-scrolling', '1');
+      if (t) clearTimeout(t);
+      t = setTimeout(clear, 120);
+    };
+    main.addEventListener('scroll', onScroll, { passive: true });
+    main.addEventListener('pointermove', clear, { passive: true });
+    main.addEventListener('pointerdown', clear, { passive: true });
+    return () => {
+      main.removeEventListener('scroll', onScroll);
+      main.removeEventListener('pointermove', clear);
+      main.removeEventListener('pointerdown', clear);
+      if (t) clearTimeout(t);
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -256,7 +254,7 @@ export const AppShell = React.memo(() => {
       // Ctrl+K — focus search (always, even in input)
       if (code === 'KeyK' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-          document.getElementById('global-search-input')?.focus();
+        document.getElementById('global-search-input')?.focus();
         return;
       }
 
@@ -270,7 +268,7 @@ export const AppShell = React.memo(() => {
       // / — focus search (not in input)
       if ((e.key === '/' || code === 'Slash') && !inInput) {
         e.preventDefault();
-          document.getElementById('global-search-input')?.focus();
+        document.getElementById('global-search-input')?.focus();
         return;
       }
 
@@ -326,9 +324,9 @@ export const AppShell = React.memo(() => {
         case 'KeyR':
           player.toggleRepeat();
           break;
-          case 'KeyB':
-              player.cycleAbPoint(getCurrentTime());
-              break;
+        case 'KeyB':
+          player.cycleAbPoint(getCurrentTime());
+          break;
         case 'KeyQ':
           setQueueOpen((v) => !v);
           break;
@@ -336,7 +334,7 @@ export const AppShell = React.memo(() => {
           useSettingsStore.getState().toggleSidebar();
           break;
         case 'Escape':
-            if (kbOpenRef.current) {
+          if (kbOpenRef.current) {
             setKbOpen(false);
             break;
           }
@@ -365,8 +363,8 @@ export const AppShell = React.memo(() => {
       <Titlebar />
       <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
         <Sidebar />
-          {/* docked now-playing bar sits below this row */}
-          <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden pb-6">
+        {/* docked now-playing bar sits below this row */}
+        <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden pb-6">
           <StableOutlet />
         </main>
       </div>

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { SETTINGS_CATEGORIES, type SettingsCategoryId } from '../components/settings/registry';
 import { SettingsFrame } from '../components/settings/SettingsFrame';
 import { SettingsNav } from '../components/settings/SettingsNav';
+import { auraRgb } from '../lib/aura';
 import { useViewerAura } from '../lib/useViewerAura';
 
 /** Settings — a star-lit two-pane workspace: a frosted category rail on the
@@ -31,17 +32,10 @@ export function Settings() {
               {category.icon}
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-white/35 font-bold mb-1">
-                {t('settings.title')}
-              </p>
+              <p className="text-[11px] text-white/35 font-medium mb-1">{t('settings.title')}</p>
               <h1
                 className="text-[30px] font-black tracking-tight leading-none"
-                style={{
-                  backgroundImage: aura.nameGradient,
-                  WebkitBackgroundClip: 'text',
-                  backgroundClip: 'text',
-                  color: 'transparent',
-                }}
+                style={{ color: auraRgb(aura) }}
               >
                 {t(category.labelKey)}
               </h1>

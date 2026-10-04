@@ -1,10 +1,10 @@
-import {useQuery} from '@tanstack/react-query';
-import {useMemo} from 'react';
-import {api} from '../../lib/api';
-import {type Aura, resolveAura} from '../../lib/aura';
-import {useViewerAura} from '../../lib/useViewerAura';
-import type {Track} from '../../stores/player';
-import type {ArtistAlbum, ArtistDetail, TracksSort} from './types';
+import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { api } from '../../lib/api';
+import { type Aura, resolveAura } from '../../lib/aura';
+import { useViewerAura } from '../../lib/useViewerAura';
+import type { Track } from '../../stores/player';
+import type { ArtistAlbum, ArtistDetail, RelatedArtist, TracksSort } from './types';
 
 const STALE_DETAIL = 60_000;
 const STALE_TRACKS = 30_000;
@@ -39,16 +39,13 @@ export function useArtistTracks(
   });
 }
 
-export function useArtistCovers(id: string | undefined) {
+export function useArtistRelated(id: string | undefined) {
   return useQuery({
-    queryKey: ['artist', id, 'covers'],
-    queryFn: () =>
-      api<{ collection: Track[] }>(
-        `/artists/${encodeURIComponent(id!)}/covers?limit=80`,
-      ),
+    queryKey: ['artist', id, 'related'],
+    queryFn: () => api<RelatedArtist[]>(`/artists/${encodeURIComponent(id!)}/related`),
     enabled: !!id,
-    staleTime: STALE_TRACKS,
-    select: (d) => d.collection,
+    staleTime: STALE_ALBUMS,
+    select: (d) => (Array.isArray(d) ? d : []),
   });
 }
 
@@ -82,10 +79,10 @@ export function useArtistStar(id: string | undefined): ArtistStar {
     gcTime: GC_STAR,
   });
 
-    const viewerAura = useViewerAura();
+  const viewerAura = useViewerAura();
   return useMemo(() => {
     const data = query.data;
-      if (!data?.premium) return {hasStar: false, aura: viewerAura};
+    if (!data?.premium) return { hasStar: false, aura: viewerAura };
     return {
       hasStar: true,
       aura: resolveAura(data.aura_id, data.custom_hex),

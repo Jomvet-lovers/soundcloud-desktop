@@ -1,7 +1,7 @@
-import {Compass, Pause, Play, Sparkles} from 'lucide-react';
-import {memo} from 'react';
-import {useTranslation} from 'react-i18next';
-import {preloadTrack} from '../../lib/audio';
+import { Compass, Pause, Play, Sparkles } from 'lucide-react';
+import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { preloadTrack } from '../../lib/audio';
 import {
   hardStopHoverPreview,
   PREVIEW_WINDOW_MS,
@@ -9,12 +9,11 @@ import {
   stopHoverPreview,
   useIsPreviewActive,
 } from '../../lib/audioPreview';
-import {art} from '../../lib/formatters';
-import {usePerfMode} from '../../lib/perf';
-import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
-import {useTrackPlay} from '../../lib/useTrackPlay';
-import type {Track} from '../../stores/player';
-import {hashStr, type WallItem} from './utils';
+import { art } from '../../lib/formatters';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
+import { useTrackPlay } from '../../lib/useTrackPlay';
+import type { Track } from '../../stores/player';
+import type { WallItem } from './utils';
 
 interface CoverTileProps {
   item: WallItem;
@@ -23,19 +22,8 @@ interface CoverTileProps {
   onDive?: (track: Track) => void;
 }
 
-/** Breathing phase seeded from the track's urn (stable across re-weaves), so a
- *  tile that shifts position doesn't restart/jump its animation. No will-change:
- *  the running keyframe already self-promotes onscreen tiles to their own layer. */
-function breathStyle(urn: string): React.CSSProperties {
-  const h = hashStr(urn);
-  const dur = 7 + (h % 35) / 10; // 7.0 .. 10.4s
-  const delay = -((h % 90) / 10); // -0 .. -8.9s (desync start phase)
-  return { animation: `tg-breathe ${dur}s ease-in-out ${delay}s infinite` };
-}
-
 export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: CoverTileProps) {
   const { t } = useTranslation();
-  const perf = usePerfMode();
   const { track, kind, matchedLine, hero } = item;
   const displayTitle = useDisplayTitle(track);
   const artistDisplay = useArtistDisplay(track);
@@ -63,34 +51,14 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
         gridRow: span,
       }}
     >
-      {kind === 'vibe' &&
-        (() => {
-          const hb = perf.blur(18);
-          // Light: no blurred halo — a crisp accent ring on hover instead.
-          if (hb <= 0)
-            return (
-              <div
-                className="absolute inset-0 rounded-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-                style={{ boxShadow: 'inset 0 0 0 1.5px var(--color-accent)' }}
-              />
-            );
-          return (
-            <div
-              className="absolute -inset-1.5 rounded-3xl pointer-events-none opacity-50 group-hover:opacity-100 transition-opacity duration-700"
-              style={{
-                background:
-                  'radial-gradient(60% 60% at 50% 50%, var(--color-accent-glow), transparent 70%)',
-                filter: `blur(${hb}px)`,
-                mixBlendMode: 'screen',
-              }}
-            />
-          );
-        })()}
+      {kind === 'vibe' && (
+        <div
+          className="absolute inset-0 rounded-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+          style={{ boxShadow: 'inset 0 0 0 1.5px var(--color-accent)' }}
+        />
+      )}
 
-      <div
-        className="tg-breath relative w-full h-full"
-        style={perf.idleAnim ? breathStyle(track.urn) : undefined}
-      >
+      <div className="relative w-full h-full">
         <div
           role="button"
           tabIndex={0}
@@ -115,13 +83,7 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.08]"
             />
           ) : (
-            <div
-              className="absolute inset-0"
-              style={{
-                background:
-                  'linear-gradient(140deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01))',
-              }}
-            />
+            <div className="absolute inset-0 bg-white/[0.04]" />
           )}
 
           {/* Lyric hit: the matched line is the signal — a pull-quote over the cover. */}
@@ -208,7 +170,7 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
           <div
             className="absolute inset-0 rounded-2xl pointer-events-none"
             style={{
-              boxShadow: 'inset 0 0 0 2px var(--color-accent), 0 0 24px var(--color-accent-glow)',
+              boxShadow: 'inset 0 0 0 2px var(--color-accent)',
             }}
           />
         )}
@@ -235,7 +197,6 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
                   '--tg-ring-len': '1000',
                   strokeDashoffset: 1000,
                   animation: `tg-ring-sweep ${PREVIEW_WINDOW_MS}ms linear forwards`,
-                  filter: 'drop-shadow(0 0 5px var(--color-accent-glow))',
                 } as React.CSSProperties
               }
             />

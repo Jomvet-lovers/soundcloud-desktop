@@ -137,13 +137,19 @@ fn urn_of(v: &Value) -> Option<String> {
     v.get("urn").and_then(Value::as_str).map(str::to_string)
 }
 
-/// SoundCloud selections/search entries often expose only
-/// `calculated_artwork_url`; mirror it into `artwork_url`/`cover_url` so the
-/// frontend has a single field to render. Nested selection items are handled
-/// recursively.
-fn with_artwork_fallback(mut item: Value) -> Value {
+/// Normalizes an item (and nested selection items) for the frontend:
+/// - ensures a `urn` (playlists/users without one get it from `id`/`kind`),
+/// - mirrors `calculated_artwork_url` / `avatar_url` into `artwork_url`,
+/// - mirrors `artwork_url` into `cover_url`.
+fn normalize_deep(mut item: Value) -> Value {
+    item = normalize_urn(item);
     if item.get("artwork_url").map(Value::is_null).unwrap_or(true) {
-        if let Some(art) = item.get("calculated_artwork_url").cloned() {
+        let fallback = item
+            .get("calculated_artwork_url")
+            .filter(|v| !v.is_null())
+            .cloned()
+            .or_else(|| item.get("avatar_url").filter(|v| !v.is_null()).cloned());
+        if let Some(art) = fallback {
             if let Some(obj) = item.as_object_mut() {
                 obj.insert("artwork_url".into(), art);
             }
@@ -163,10 +169,125 @@ fn with_artwork_fallback(mut item: Value) -> Value {
     {
         for entry in collection.iter_mut() {
             let taken = entry.take();
-            *entry = with_artwork_fallback(taken);
+            *entry = normalize_deep(taken);
         }
     }
     item
+}
+
+/// Raw SoundCloud playlist -> the `AlbumDetail` shape the frontend renders.
+fn album_detail(v: &Value) -> Value {
+    let id = v
+        .get("id")
+        .map(|x| x.to_string().trim_matches('"').to_string())
+        .unwrap_or_default();
+    let is_album = v.get("is_album").and_then(Value::as_bool).unwrap_or(false);
+    let set_type = v.get("set_type").and_then(Value::as_str).unwrap_or("");
+    let ty = if !set_type.is_empty() {
+        set_type
+    } else if is_album {
+        "album"
+    } else {
+        "playlist"
+    };
+    let release_year = v
+        .get("release_date")
+        .and_then(Value::as_str)
+        .and_then(|d| d.get(0..4))
+        .and_then(|y| y.parse::<u64>().ok());
+    let primary = v.get("user").and_then(|u| {
+        let uid = u
+            .get("id")
+            .map(|x| x.to_string().trim_matches('"').to_string())?;
+        Some(json!({
+            "id": uid,
+            "name": u.get("username").cloned().unwrap_or(Value::Null),
+            "role": "primary",
+            "avatar_url": u.get("avatar_url").cloned().unwrap_or(Value::Null),
+        }))
+    });
+    let artists = match &primary {
+        Some(p) => json!([p.clone()]),
+        None => json!([]),
+    };
+    let tracks: Vec<Value> = v
+        .get("tracks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(normalize_urn)
+        .collect();
+    json!({
+        "id": id,
+        "title": v.get("title").cloned().unwrap_or(Value::Null),
+        "type": ty,
+        "release_year": release_year,
+        "cover_url": v.get("artwork_url").cloned().unwrap_or(Value::Null),
+        "confidence": 1.0,
+        "primary_artist": primary,
+        "artists": artists,
+        "tracks": tracks,
+    })
+}
+
+/// Raw SoundCloud playlist -> the `ArtistAlbum` list item shape.
+fn artist_album(p: &Value) -> Value {
+    let id = p
+        .get("id")
+        .map(|x| x.to_string().trim_matches('"').to_string())
+        .unwrap_or_default();
+    let is_album = p.get("is_album").and_then(Value::as_bool).unwrap_or(false);
+    let set_type = p.get("set_type").and_then(Value::as_str).unwrap_or("");
+    let ty = if !set_type.is_empty() {
+        set_type
+    } else if is_album {
+        "album"
+    } else {
+        "playlist"
+    };
+    let release_year = p
+        .get("release_date")
+        .and_then(Value::as_str)
+        .and_then(|d| d.get(0..4))
+        .and_then(|y| y.parse::<u64>().ok());
+    json!({
+        "id": id,
+        "title": p.get("title").cloned().unwrap_or(Value::Null),
+        "type": ty,
+        "release_year": release_year,
+        "cover_url": p.get("artwork_url").cloned().unwrap_or(Value::Null),
+        "role": "primary",
+    })
+}
+
+/// Raw SoundCloud user -> the `ArtistDetail` shape the frontend renders.
+fn artist_detail(v: &Value, socials: Vec<Value>) -> Value {
+    let id = v
+        .get("id")
+        .map(|x| x.to_string().trim_matches('"').to_string())
+        .unwrap_or_default();
+    let track_count = v.get("track_count").and_then(Value::as_u64).unwrap_or(0);
+    let playlist_count = v
+        .get("playlist_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    json!({
+        "id": id,
+        "name": v.get("username").cloned().unwrap_or(Value::Null),
+        "country": v.get("country_code").cloned().unwrap_or(Value::Null),
+        "bio": v.get("description").cloned().unwrap_or(Value::Null),
+        "avatar_url": v.get("avatar_url").cloned().unwrap_or(Value::Null),
+        "confidence": 1.0,
+        "socials": socials,
+        "sc_accounts": [],
+        "track_count": track_count,
+        "track_count_primary": track_count,
+        "track_count_featured": 0,
+        "album_count": playlist_count,
+        "popular_tracks": [],
+        "related_artists": [],
+    })
 }
 
 async fn need_my_id(state: &DirectState, token: Option<&str>) -> Result<u64, Response> {
@@ -818,16 +939,24 @@ async fn handle(
                 return Ok(ok(page(slice, page_no, limit, has_more)));
             }
             let id = id_of(urn);
-            match s
-                .sc_get(
-                    &format!("/playlists/{id}/tracks?limit={limit}&offset={offset}"),
-                    token.as_deref(),
-                )
-                .await
-            {
+            // SoundCloud dropped `/playlists/{id}/tracks`; the playlist detail
+            // already carries the full track objects, so paginate those.
+            match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
                 Ok((_status, v)) => {
-                    let items = sc_items(&v).into_iter().map(normalize_urn).collect();
-                    ok(page(items, page_no, limit, sc_has_more(&v)))
+                    let all = v
+                        .get("tracks")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let total = all.len() as u64;
+                    let slice: Vec<Value> = all
+                        .into_iter()
+                        .skip(offset as usize)
+                        .take(limit as usize)
+                        .map(normalize_urn)
+                        .collect();
+                    let has_more = offset + (slice.len() as u64) < total;
+                    ok(page(slice, page_no, limit, has_more))
                 }
                 Err(e) => err(502, &e),
             }
@@ -1177,11 +1306,12 @@ async fn handle(
             }
         }
 
-        // ── albums / artists (catalog stubs) ────────────────────────
+        // ── albums / artists ────────────────────────────────────────
         ("GET", ["albums", urn]) => {
             let id = id_of(urn);
             match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
-                Ok((status, v)) => json_resp(status, &normalize_urn(v)),
+                Ok((status, v)) if (200..300).contains(&status) => ok(album_detail(&v)),
+                Ok((status, v)) => json_resp(status, &v),
                 Err(e) => err(502, &e),
             }
         }
@@ -1195,21 +1325,99 @@ async fn handle(
                 .await
             {
                 Ok((_status, v)) => {
-                    let items: Vec<Value> = sc_items(&v)
-                        .into_iter()
-                        .filter(|p| {
-                            p.get("is_album").and_then(Value::as_bool).unwrap_or(false)
-                                || matches!(
-                                    p.get("kind").and_then(Value::as_str),
-                                    Some("album") | Some("ep") | Some("single") | Some("compilation")
-                                )
-                        })
-                        .map(normalize_urn)
-                        .collect();
+                    let items: Vec<Value> =
+                        sc_items(&v).into_iter().map(|p| artist_album(&p)).collect();
                     ok(json!(items))
                 }
                 Err(_) => ok(json!([])),
             }
+        }
+        ("GET", ["artists", urn, "tracks"]) => {
+            let id = id_of(urn);
+            let role = q_str(&q, "role").unwrap_or_else(|| "primary".to_string());
+            let limit = q_u64(&q, "limit", 80);
+            let offset = q_u64(&q, "offset", 0);
+            let filter = if role == "featured" {
+                "&filter=featured"
+            } else {
+                ""
+            };
+            match s
+                .sc_get(
+                    &format!("/users/{id}/tracks?limit={limit}&offset={offset}{filter}"),
+                    token.as_deref(),
+                )
+                .await
+            {
+                Ok((status, v)) if (200..300).contains(&status) => {
+                    let items: Vec<Value> =
+                        sc_items(&v).into_iter().map(normalize_urn).collect();
+                    ok(json!({ "collection": items }))
+                }
+                Ok((status, v)) => json_resp(status, &v),
+                Err(e) => err(502, &e),
+            }
+        }
+        ("GET", ["artists", urn, "related"]) => {
+            let id = id_of(urn);
+            let mut counts: HashMap<u64, (Value, u32)> = HashMap::new();
+            if let Ok((status, v)) = s
+                .sc_get(
+                    &format!("/users/{id}/tracks?limit=3&offset=0"),
+                    token.as_deref(),
+                )
+                .await
+            {
+                if (200..300).contains(&status) {
+                    for track in sc_items(&v).into_iter().take(3) {
+                        let tid = track
+                            .get("id")
+                            .map(|x| x.to_string().trim_matches('"').to_string());
+                        let Some(tid) = tid else { continue };
+                        let Ok((st, rv)) = s
+                            .sc_get(
+                                &format!("/tracks/{tid}/related?limit=12"),
+                                token.as_deref(),
+                            )
+                            .await
+                        else {
+                            continue;
+                        };
+                        if !(200..300).contains(&st) {
+                            continue;
+                        }
+                        for rel in sc_items(&rv) {
+                            if let Some(user) = rel.get("user") {
+                                if let Some(uid) = user.get("id").and_then(Value::as_u64) {
+                                    if uid.to_string() == id {
+                                        continue;
+                                    }
+                                    let entry =
+                                        counts.entry(uid).or_insert_with(|| (user.clone(), 0));
+                                    entry.1 += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let mut list: Vec<(u64, Value, u32)> =
+                counts.into_iter().map(|(k, (u, c))| (k, u, c)).collect();
+            list.sort_by(|a, b| b.2.cmp(&a.2));
+            let out: Vec<Value> = list
+                .into_iter()
+                .take(8)
+                .map(|(uid, u, c)| {
+                    json!({
+                        "id": uid.to_string(),
+                        "name": u.get("username").cloned().unwrap_or(Value::Null),
+                        "country": u.get("country_code").cloned().unwrap_or(Value::Null),
+                        "avatar_url": u.get("avatar_url").cloned().unwrap_or(Value::Null),
+                        "weight": c,
+                    })
+                })
+                .collect();
+            ok(json!(out))
         }
         ("GET", ["artists", urn, "star"]) => {
             let _ = urn;
@@ -1218,7 +1426,29 @@ async fn handle(
         ("GET", ["artists", urn]) => {
             let id = id_of(urn);
             match s.sc_get(&format!("/users/{id}"), token.as_deref()).await {
-                Ok((status, v)) => json_resp(status, &normalize_urn(v)),
+                Ok((status, v)) if (200..300).contains(&status) => {
+                    let profiles = s
+                        .sc_get_opt(&format!("/users/{id}/web-profiles"), token.as_deref())
+                        .await;
+                    let socials: Vec<Value> = profiles
+                        .as_ref()
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|p| {
+                            let url = p.get("url").and_then(Value::as_str)?;
+                            Some(json!({
+                                "kind": p.get("service").and_then(Value::as_str).unwrap_or("link"),
+                                "url": url,
+                                "source": "sc",
+                                "verified": false,
+                            }))
+                        })
+                        .collect();
+                    ok(artist_detail(&v, socials))
+                }
+                Ok((status, v)) => json_resp(status, &v),
                 Err(e) => err(502, &e),
             }
         }
@@ -1265,7 +1495,7 @@ async fn handle(
                     let items: Vec<Value> = sc_items(&v)
                         .into_iter()
                         .map(normalize_urn)
-                        .map(with_artwork_fallback)
+                        .map(normalize_deep)
                         .collect();
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
@@ -1313,25 +1543,67 @@ async fn handle(
                 .await
             {
                 Ok((status, v)) if (200..300).contains(&status) => {
-                    let items: Vec<Value> = sc_items(&v)
-                        .into_iter()
-                        .map(normalize_urn)
-                        .map(with_artwork_fallback)
-                        .collect();
+                    let items: Vec<Value> =
+                        sc_items(&v).into_iter().map(normalize_deep).collect();
                     ok(json!({ "collection": items }))
                 }
                 Ok((status, v)) => json_resp(status, &v),
                 Err(e) => err(502, &e),
             }
         }
-        // SoundCloud system playlists (Daily Drops, Weekly Wave, …).
+        // SoundCloud system playlists (Daily Drops, Weekly Wave, …). Their
+        // `tracks` come as id-only stubs, so hydrate them via /tracks?ids=.
         ("GET", ["system-playlists", urn]) => {
             let enc = urlencoding::encode(urn);
             match s
                 .sc_get(&format!("/system-playlists/{enc}"), token.as_deref())
                 .await
             {
-                Ok((status, v)) => json_resp(status, &normalize_urn(v)),
+                Ok((status, mut v)) if (200..300).contains(&status) => {
+                    if let Some(tracks) = v.get_mut("tracks").and_then(Value::as_array_mut) {
+                        let ids: Vec<String> = tracks
+                            .iter()
+                            .filter_map(|t| {
+                                t.get("id")
+                                    .map(|i| i.to_string().trim_matches('"').to_string())
+                            })
+                            .collect();
+                        if !ids.is_empty() {
+                            let mut by_id: HashMap<String, Value> = HashMap::new();
+                            for chunk in ids.chunks(50) {
+                                let path = format!("/tracks?ids={}", chunk.join(","));
+                                if let Ok((st, hv)) = s.sc_get(&path, token.as_deref()).await {
+                                    if (200..300).contains(&st) {
+                                        if let Some(arr) = hv.as_array() {
+                                            for t in arr {
+                                                if let Some(id) = t
+                                                    .get("id")
+                                                    .map(|i| {
+                                                        i.to_string().trim_matches('"').to_string()
+                                                    })
+                                                {
+                                                    by_id.insert(id, normalize_urn(t.clone()));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            for stub in tracks.iter_mut() {
+                                if let Some(id) = stub
+                                    .get("id")
+                                    .map(|i| i.to_string().trim_matches('"').to_string())
+                                {
+                                    if let Some(full) = by_id.get(&id) {
+                                        *stub = full.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    json_resp(status, &normalize_urn(v))
+                }
+                Ok((status, v)) => json_resp(status, &v),
                 Err(e) => err(502, &e),
             }
         }
@@ -1424,7 +1696,7 @@ async fn handle(
                 Err(r) => return Ok(r),
             };
             // Only run a PUT when the track is already liked (idempotent), and
-            // only run a DELETE when it is not liked (no-op) — the probe must
+            // only run a DELETE when it is not liked (no-op)  Ethe probe must
             // never change the account state.
             let ids = s
                 .sc_get("/me/track_likes/ids", Some(t))

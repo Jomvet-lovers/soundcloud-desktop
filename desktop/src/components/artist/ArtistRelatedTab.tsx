@@ -76,7 +76,7 @@ const RelatedCard = memo(
             }}
           />
         </div>
-        <span className="text-[9px] font-bold uppercase tracking-[0.22em] text-white/30">
+        <span className="text-[9px] font-medium text-white/30">
           {t('artist.affinity')} {(pct * 100).toFixed(0)}%
         </span>
       </button>

@@ -3,8 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { dur } from '../../lib/formatters';
-import { Calendar, Check, Disc3, ListMusic, MicVocal } from '../../lib/icons';
-import { usePerfMode } from '../../lib/perf';
+import { Calendar, Disc3, ListMusic, MicVocal } from '../../lib/icons';
 import { Avatar } from '../ui/Avatar';
 import { GlassHeroPanel } from '../ui/GlassHeroPanel';
 import { InfoChip } from '../user/UserChips';
@@ -61,9 +60,7 @@ const ArtistChip = memo(function ArtistChip({
         <span className="text-[12px] font-semibold text-white/90 group-hover:text-white">
           {name}
         </span>
-        <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">
-          {subLabel}
-        </span>
+        <span className="text-[10px] font-medium text-white/35">{subLabel}</span>
       </span>
     </button>
   );
@@ -71,7 +68,6 @@ const ArtistChip = memo(function ArtistChip({
 
 function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
   const { t } = useTranslation();
-  const perf = usePerfMode();
   const kind = (album.type ?? 'album').toLowerCase();
   const kindLabel = t(`artist.kind.${kind}`, { defaultValue: kind });
 
@@ -89,30 +85,7 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
 
   return (
     <GlassHeroPanel hasStar={hasStar} aura={aura}>
-      {album.cover_url &&
-        perf.bloom &&
-        (() => {
-          const hb = perf.blur(50);
-          return (
-            <div
-              className="absolute -top-10 left-6 md:left-10 w-[220px] h-[220px] md:w-[280px] md:h-[280px] pointer-events-none rounded-[3rem] overflow-hidden opacity-50"
-              style={{
-                filter: `blur(${hb}px)`,
-                transform: 'translateZ(0)',
-                contain: 'strict',
-              }}
-            >
-              <img
-                src={album.cover_url}
-                alt=""
-                className="w-full h-full object-cover scale-150"
-                decoding="async"
-              />
-            </div>
-          );
-        })()}
-
-      <div className="relative p-6 md:p-10 flex flex-col lg:flex-row gap-8 lg:gap-12 items-center lg:items-start">
+      <div className="relative p-5 md:p-6 flex flex-col lg:flex-row gap-5 lg:gap-6 items-center lg:items-start">
         <AlbumCoverArtifact
           title={album.title}
           coverUrl={album.cover_url}
@@ -120,10 +93,10 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
           aura={aura}
         />
 
-        <div className="flex-1 min-w-0 flex flex-col gap-5 text-center lg:text-left">
+        <div className="flex-1 min-w-0 flex flex-col gap-4 text-center lg:text-left">
           <div className="flex flex-wrap items-center gap-2 justify-center lg:justify-start">
             <span
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-[0.28em]"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium"
               style={{
                 background: 'rgba(28,28,32,0.85)',
                 color: hasStar ? '#fff' : 'rgba(255,255,255,0.7)',
@@ -134,35 +107,9 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
             >
               <Disc3 size={11} /> {kindLabel}
             </span>
-            {album.confidence >= 0.7 && (
-              <span
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300"
-                style={{
-                  background: 'rgba(16,185,129,0.08)',
-                  boxShadow: 'inset 0 0 0 1px rgba(16,185,129,0.22)',
-                }}
-              >
-                <Check size={11} /> {t('album.verified')}
-              </span>
-            )}
           </div>
 
-          <h1
-            className="text-5xl md:text-7xl font-black leading-[0.85] tracking-tighter wrap-break-word max-w-full"
-            style={
-              hasStar
-                ? {
-                    background: aura.nameGradient,
-                    backgroundSize: '200% auto',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                    animation: perf.idleAnim ? 'prismatic-shift 6s linear infinite' : undefined,
-                    filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))',
-                  }
-                : { color: '#fff', textShadow: '0 8px 24px rgba(0,0,0,0.5)' }
-            }
-          >
+          <h1 className="text-3xl md:text-5xl font-black leading-tight tracking-tight wrap-break-word max-w-full text-white">
             {album.title}
           </h1>
 
@@ -202,7 +149,7 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
             )}
             {indexedCount < album.tracks.length && (
               <span
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-[0.16em]"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium"
                 style={{
                   background: auraRgba(aura, 0.12),
                   color: '#fff',

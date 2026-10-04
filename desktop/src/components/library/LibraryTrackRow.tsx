@@ -1,15 +1,23 @@
 import React from 'react';
-import {useTranslation} from 'react-i18next';
-import {preloadTrack} from '../../lib/audio';
-import {art, dur, fc} from '../../lib/formatters';
-import {headphones11, heart11, ListMusic, ListPlus, Music, pauseWhite14, playWhite14,} from '../../lib/icons';
-import {useTrackPlay} from '../../lib/useTrackPlay';
-import type {Track} from '../../stores/player';
-import {usePlayerStore} from '../../stores/player';
-import {AddToPlaylistDialog} from '../music/AddToPlaylistDialog';
-import {LikeButton} from '../music/LikeButton';
-import {sameScdMeta, TrackStatusBadges} from '../music/TrackStatusBadges';
-import {TrackTitleArtist} from '../music/TrackTitleArtist';
+import { useTranslation } from 'react-i18next';
+import { preloadTrack } from '../../lib/audio';
+import { art, dur, fc } from '../../lib/formatters';
+import {
+  headphones11,
+  heart11,
+  ListMusic,
+  ListPlus,
+  Music,
+  pauseWhite14,
+  playWhite14,
+} from '../../lib/icons';
+import { useTrackPlay } from '../../lib/useTrackPlay';
+import type { Track } from '../../stores/player';
+import { usePlayerStore } from '../../stores/player';
+import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
+import { LikeButton } from '../music/LikeButton';
+import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
+import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
 export const LibraryTrackRow = React.memo(
   function LibraryTrackRow({
@@ -37,9 +45,7 @@ export const LibraryTrackRow = React.memo(
     return (
       <div
         className={`group flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 ease-[var(--ease-apple)] ${
-          isThis
-            ? 'bg-accent/[0.06] ring-1 ring-accent/20 shadow-[inset_0_0_20px_rgba(255,85,0,0.05)]'
-            : 'hover:bg-white/[0.04]'
+          isThis ? 'bg-accent/[0.06] ring-1 ring-accent/20' : 'hover:bg-white/[0.04]'
         }`}
       >
         <div
@@ -48,7 +54,7 @@ export const LibraryTrackRow = React.memo(
           onMouseEnter={() => preloadTrack(track.urn)}
         >
           {isThisPlaying ? (
-            <div className="w-8 h-8 rounded-full bg-accent text-accent-contrast flex items-center justify-center shadow-[0_0_15px_var(--color-accent-glow)] scale-100 animate-fade-in-up">
+            <div className="w-8 h-8 rounded-full bg-accent text-accent-contrast flex items-center justify-center scale-100 animate-fade-in-up">
               {pauseWhite14}
             </div>
           ) : (
@@ -67,7 +73,7 @@ export const LibraryTrackRow = React.memo(
           {cover ? (
             <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/[0.05] to-transparent">
+            <div className="w-full h-full flex items-center justify-center bg-white/[0.04]">
               <Music size={14} className="text-white/20" />
             </div>
           )}
