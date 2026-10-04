@@ -107,6 +107,8 @@ export function Search() {
   const [debounced, setDebounced] = useState(q);
   const tab = useSearchPrefsStore((s) => s.tab);
   const setTab = useSearchPrefsStore((s) => s.setTab);
+  const sort = useSearchPrefsStore((s) => s.sort);
+  const setSort = useSearchPrefsStore((s) => s.setSort);
   const [busyUrn, setBusyUrn] = useState<string | null>(null);
   const play = usePlayerStore((s) => s.play);
 
@@ -116,7 +118,7 @@ export function Search() {
   }, [q]);
 
   const query = debounced.trim();
-  const tracks = useSearchDbTracks(query);
+  const tracks = useSearchDbTracks(query, undefined, sort);
   const users = useSearchDbUsers(query);
   const playlists = useSearchDbPlaylists(query);
   const albums = useSearchDbAlbums(query);
@@ -263,6 +265,29 @@ export function Search() {
                 {item.count > 0 && <span className="ml-1.5 text-white/35">{item.count}</span>}
               </button>
             ))}
+            {tab === 'tracks' && (
+              <div className="ml-auto flex items-center gap-0.5">
+                {[
+                  { id: 'relevance' as const, label: t('search.sort_relevance') },
+                  { id: 'plays' as const, label: t('search.sort_plays') },
+                  { id: 'newest' as const, label: t('search.sort_newest') },
+                  { id: 'likes' as const, label: t('search.sort_likes') },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setSort(opt.id)}
+                    className={`rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                      sort === opt.id
+                        ? 'bg-white/[0.1] text-white/90'
+                        : 'text-white/40 hover:bg-white/[0.05] hover:text-white/70'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="mt-5">

@@ -127,6 +127,10 @@
   },
   "search": {
     "placeholder": "Search tracks, playlists, users...",
+    "sort_relevance": "Relevance",
+    "sort_plays": "Plays",
+    "sort_newest": "Newest",
+    "sort_likes": "Likes",
     "globalPlaceholder": "What do you want to hear?",
     "tracks": "Tracks",
     "playlists": "Playlists",

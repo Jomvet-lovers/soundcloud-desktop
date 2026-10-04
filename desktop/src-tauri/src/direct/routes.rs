@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use serde_json::{json, Value};
@@ -297,6 +298,34 @@ async fn repaired_local_playlist(
         state.store.lock().await.upsert_playlist(repaired.clone());
     }
     Some(repaired)
+}
+
+/// Local ordering for search results (SoundCloud ignores `sort`).
+fn sort_tracks(items: &mut [Value], sort: &str) {
+    let num = |v: &Value, keys: &[&str]| -> i64 {
+        keys.iter()
+            .find_map(|k| v.get(*k).and_then(Value::as_i64))
+            .unwrap_or(0)
+    };
+    match sort {
+        "plays" => items.sort_by(|a, b| {
+            num(b, &["playback_count"]).cmp(&num(a, &["playback_count"]))
+        }),
+        "likes" => items.sort_by(|a, b| {
+            num(b, &["favoritings_count", "likes_count"])
+                .cmp(&num(a, &["favoritings_count", "likes_count"]))
+        }),
+        "newest" => items.sort_by(|a, b| {
+            let ts = |v: &Value| {
+                v.get("created_at")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            ts(b).cmp(&ts(a))
+        }),
+        _ => {}
+    }
 }
 
 /// Raw SoundCloud playlist -> the `AlbumDetail` shape the frontend renders.
@@ -1696,6 +1725,53 @@ async fn handle(
             let offset = page_no * limit;
             let query = q_str(&q, "q").unwrap_or_default();
             let user_urn = q_str(&q, "user_urn");
+
+            // SoundCloud's search ignores `sort`, so the non-relevance orders
+            // fetch one wide window, sort it locally and paginate from the
+            // cached result.
+            let sort = q_str(&q, "sort").unwrap_or_else(|| "relevance".to_string());
+            if kind == "tracks" && user_urn.is_none() && sort != "relevance" && !query.is_empty() {
+                let cache_key = format!("{query}\u{1}{sort}");
+                let cached = {
+                    let cache = s.search_cache.lock().await;
+                    cache.get(&cache_key).cloned()
+                };
+                let all = match cached {
+                    Some((at, items)) if at.elapsed() < Duration::from_secs(120) => items,
+                    _ => {
+                        let path = format!(
+                            "/search/tracks?q={}&limit=200&offset=0",
+                            urlencoding::encode(&query)
+                        );
+                        let items = match s.sc_get(&path, token.as_deref()).await {
+                            Ok((st, v)) if (200..300).contains(&st) => {
+                                let mut items: Vec<Value> = sc_items(&v)
+                                    .into_iter()
+                                    .map(normalize_urn)
+                                    .map(normalize_deep)
+                                    .collect();
+                                sort_tracks(&mut items, &sort);
+                                items
+                            }
+                            _ => Vec::new(),
+                        };
+                        let mut cache = s.search_cache.lock().await;
+                        if cache.len() > 24 {
+                            cache.clear();
+                        }
+                        cache.insert(cache_key, (Instant::now(), items.clone()));
+                        items
+                    }
+                };
+                let total = all.len() as u64;
+                let slice: Vec<Value> = all
+                    .into_iter()
+                    .skip(offset as usize)
+                    .take(limit as usize)
+                    .collect();
+                let has_more = (offset + slice.len() as u64) < total;
+                return Ok(ok(page(slice, page_no, limit, has_more)));
+            }
 
             if let Some(u) = user_urn.as_deref() {
                 let id = id_of(u);

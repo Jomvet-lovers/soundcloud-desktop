@@ -127,6 +127,10 @@
   },
   "search": {
     "placeholder": "Треки, плейлисты, пользователи...",
+    "sort_relevance": "По релевантности",
+    "sort_plays": "Прослушивания",
+    "sort_newest": "Новые",
+    "sort_likes": "Лайки",
     "globalPlaceholder": "Что хочешь послушать?",
     "tracks": "Треки",
     "playlists": "Плейлисты",

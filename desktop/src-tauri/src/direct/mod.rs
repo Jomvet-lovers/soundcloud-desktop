@@ -9,8 +9,10 @@ pub mod sc;
 pub mod store;
 pub mod webview;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use serde_json::Value;
 use tauri::State;
@@ -26,6 +28,8 @@ pub struct DirectState {
     pub client_id: Mutex<Option<String>>,
     pub me_cache: Mutex<Option<sc::MeCache>>,
     pub store: Mutex<LocalStore>,
+    /// Short-lived cache of sorted search windows (key: query + sort).
+    pub search_cache: Mutex<HashMap<String, (Instant, Vec<Value>)>>,
 }
 
 impl DirectState {
@@ -37,6 +41,7 @@ impl DirectState {
             client_id: Mutex::new(None),
             me_cache: Mutex::new(None),
             store: Mutex::new(store),
+            search_cache: Mutex::new(HashMap::new()),
         })
     }
 }

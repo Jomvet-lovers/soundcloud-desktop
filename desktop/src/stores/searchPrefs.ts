@@ -17,6 +17,9 @@ export type SearchMode = 'text' | 'vibe';
 /** Active tab on the Search page — kept across navigation (back button). */
 export type SearchTab = 'tracks' | 'users' | 'playlists' | 'albums';
 
+/** Result ordering on the Search page (SoundCloud search ignores `sort`). */
+export type SearchSort = 'relevance' | 'plays' | 'newest' | 'likes';
+
 interface SearchPrefsState {
   source: SearchSource;
   setSource: (s: SearchSource) => void;
@@ -24,6 +27,8 @@ interface SearchPrefsState {
   setMode: (m: SearchMode) => void;
   tab: SearchTab;
   setTab: (t: SearchTab) => void;
+  sort: SearchSort;
+  setSort: (s: SearchSort) => void;
 }
 
 export const useSearchPrefsStore = create<SearchPrefsState>()(
@@ -35,6 +40,8 @@ export const useSearchPrefsStore = create<SearchPrefsState>()(
       setMode: (mode) => set({ mode }),
       tab: 'tracks',
       setTab: (tab) => set({ tab }),
+      sort: 'relevance',
+      setSort: (sort) => set({ sort }),
     }),
     {
       name: 'sc-search-prefs',

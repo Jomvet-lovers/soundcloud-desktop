@@ -88,6 +88,10 @@
   },
   "search": {
     "placeholder": "Parca, calma listesi, kullanici ara...",
+    "sort_relevance": "Ilgililik",
+    "sort_plays": "Dinlenme",
+    "sort_newest": "En yeni",
+    "sort_likes": "Begeniler",
     "globalPlaceholder": "Ne dinlemek istersin?",
     "tracks": "Parcalar",
     "playlists": "Calma listeleri",

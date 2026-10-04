@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
+import type { SearchSort } from '../stores/searchPrefs';
 import { api } from './api';
 import { initLikedUrns } from './likes';
 import { rememberLikedTracks, rememberTracks } from './offline-index';
@@ -878,15 +879,17 @@ export function useSearchUsers(q: string) {
 const SEARCH_DB_LIMIT = 20;
 const SEARCH_DB_MAX_PAGES = 10;
 
-export function useSearchDbTracks(q: string, userUrn?: string) {
+export function useSearchDbTracks(q: string, userUrn?: string, sort: SearchSort = 'relevance') {
   const query = usePagedQuery<Track>({
-    queryKey: ['search', 'db', 'tracks', q, userUrn ?? ''],
+    queryKey: ['search', 'db', 'tracks', q, userUrn ?? '', sort],
     url: (page, limit) =>
       pagedUrl(
         '/search/db/tracks',
         page,
         limit,
-        `q=${encodeURIComponent(q)}${userUrn ? `&user_urn=${encodeURIComponent(userUrn)}` : ''}`,
+        `q=${encodeURIComponent(q)}${userUrn ? `&user_urn=${encodeURIComponent(userUrn)}` : ''}${
+          sort !== 'relevance' ? `&sort=${sort}` : ''
+        }`,
       ),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
