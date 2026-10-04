@@ -1,9 +1,9 @@
-import React, {useEffect, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {Link} from 'react-router-dom';
-import {useShallow} from 'zustand/shallow';
-import {getCurrentTime, getDuration, handlePrev, seek, subscribe} from '../../lib/audio';
-import {art, formatTime} from '../../lib/formatters';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
+import { useShallow } from 'zustand/shallow';
+import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
+import { art, formatTime } from '../../lib/formatters';
 import {
   listMusic16,
   pauseBlack20,
@@ -18,14 +18,15 @@ import {
   volume2Icon16,
   volumeXIcon16,
 } from '../../lib/icons';
-import {useArtistDisplay, useDisplayTitle} from '../../lib/track-display';
-import {type Track, usePlayerStore} from '../../stores/player';
-import {EqualizerPanel} from '../music/EqualizerPanel';
-import {LikeButton} from '../music/LikeButton';
+import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
+import { type Track, usePlayerStore } from '../../stores/player';
+import { EqualizerPanel } from '../music/EqualizerPanel';
+import { LikeButton } from '../music/LikeButton';
+import { SoundTuningPopover } from '../music/SoundTuningPopover';
 
 /** Position/duration clock, refreshed on audio events + a slow interval. */
 function useAudioClock() {
-  const [state, setState] = useState({time: 0, duration: 0});
+  const [state, setState] = useState({ time: 0, duration: 0 });
   useEffect(() => {
     const update = () => {
       const time = getCurrentTime();
@@ -33,7 +34,7 @@ function useAudioClock() {
       setState((prev) =>
         Math.abs(prev.time - time) < 0.2 && Math.abs(prev.duration - duration) < 0.2
           ? prev
-          : {time, duration},
+          : { time, duration },
       );
     };
     const unsub = subscribe(update);
@@ -47,7 +48,7 @@ function useAudioClock() {
   return state;
 }
 
-function TrackMeta({track}: {track: Track}) {
+function TrackMeta({ track }: { track: Track }) {
   const displayTitle = useDisplayTitle(track);
   const artistDisplay = useArtistDisplay(track);
   return (
@@ -74,7 +75,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
   onQueueToggle: () => void;
   queueOpen: boolean;
 }) {
-  const {t} = useTranslation();
+  const { t } = useTranslation();
   const {
     currentTrack,
     isPlaying,
@@ -104,7 +105,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
       setVolume: s.setVolume,
     })),
   );
-  const {time, duration} = useAudioClock();
+  const { time, duration } = useAudioClock();
   const artwork = art(currentTrack?.artwork_url, 't200x200');
 
   return (
@@ -135,7 +136,12 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           >
             {shuffleIcon16}
           </button>
-          <button type="button" className={iconBtn} onClick={handlePrev} title={t('player.prevTrack')}>
+          <button
+            type="button"
+            className={iconBtn}
+            onClick={handlePrev}
+            title={t('player.prevTrack')}
+          >
             {skipBack20}
           </button>
           <button
@@ -179,7 +185,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             disabled={!currentTrack || duration <= 0}
             onChange={(e) => seek(Number(e.target.value))}
             className="h-1 w-full cursor-pointer disabled:cursor-default"
-            style={{accentColor: 'var(--color-accent)'}}
+            style={{ accentColor: 'var(--color-accent)' }}
           />
           <span className="w-10 font-mono text-[10.5px] tabular-nums text-white/40">
             {formatTime(duration)}
@@ -187,8 +193,9 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
         </div>
       </div>
 
-      {/* Right: queue, EQ, volume */}
+      {/* Right: tuning, queue, EQ, volume */}
       <div className="flex flex-1 items-center justify-end gap-2">
+        <SoundTuningPopover />
         <EqualizerPanel>
           <button type="button" className={iconBtn} title={t('eq.title')}>
             {slidersHorizontal16}
@@ -218,10 +225,9 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           value={Math.min(volume, 100)}
           onChange={(e) => setVolume(Number(e.target.value))}
           className="h-1 w-24 cursor-pointer"
-          style={{accentColor: 'var(--color-accent)'}}
+          style={{ accentColor: 'var(--color-accent)' }}
         />
       </div>
     </footer>
   );
 });
-

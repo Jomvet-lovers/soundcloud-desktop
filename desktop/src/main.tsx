@@ -15,6 +15,14 @@ import './fonts';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
 
+// Native webview context menu (Back/Reload/Inspect/…) is not part of the app UI.
+// Keep it off everywhere except text fields, where right-click paste is expected.
+document.addEventListener('contextmenu', (e) => {
+  const el = e.target as HTMLElement | null;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+  e.preventDefault();
+});
+
 // Кап 60 fps: троттл requestAnimationFrame (см. lib/fps-cap.ts). На высокогерцовых
 // дисплеях убирает лишние кадры (CPU/GPU), на ≤60 Гц — no-op. Ставить максимально
 // рано, до первых rAF-циклов.
@@ -76,9 +84,8 @@ async function bootstrap() {
   const settings = useSettingsStore.getState();
   await changeAppLanguage(settings.language);
 
-  const [staticPort, proxyPort, apiPort] = await invoke<[number, number, number]>(
-    'get_server_ports',
-  );
+  const [staticPort, proxyPort, apiPort] =
+    await invoke<[number, number, number]>('get_server_ports');
   setServerPorts(staticPort, proxyPort);
   setApiBase(apiPort);
 

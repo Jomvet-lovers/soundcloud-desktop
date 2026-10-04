@@ -1,8 +1,8 @@
-import {Lock} from 'lucide-react';
+import { Lock } from 'lucide-react';
 import React from 'react';
-import {useTranslation} from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
-import {type Aura, auraRgb, auraRgba, isLight} from '../../lib/aura';
+import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 import { art, dur, fc } from '../../lib/formatters';
 import {
   headphones11,
@@ -14,12 +14,11 @@ import {
   playBlack14,
   playWhite14,
 } from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
-import {sameScdMeta, TrackStatusBadges} from '../music/TrackStatusBadges';
+import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
 interface ThemedTrackRowProps {
@@ -30,21 +29,18 @@ interface ThemedTrackRowProps {
 }
 
 function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) {
-    const {t} = useTranslation();
+  const { t } = useTranslation();
   const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
   const lightAura = isLight(aura);
   const playIcon = lightAura ? playBlack14 : playWhite14;
   const pauseIcon = lightAura ? pauseBlack14 : pauseWhite14;
-    const pb = usePerfMode().blur(16);
 
   return (
     <div
       className="group flex items-center gap-4 px-4 py-2.5 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] select-none"
       style={{
-        background: isThis
-          ? `linear-gradient(90deg, ${auraRgba(aura, 0.16)}, ${auraRgba(aura, 0.04)} 70%, transparent)`
-          : undefined,
+        background: isThis ? auraRgba(aura, 0.12) : undefined,
         boxShadow: isThis ? `inset 0 0 0 0.5px ${auraRgba(aura, 0.35)}` : undefined,
       }}
       onMouseEnter={(e) => {
@@ -78,17 +74,8 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
               <div
                 className="w-9 h-9 rounded-full flex items-center justify-center"
                 style={{
-                    background:
-                        pb > 0
-                            ? lightAura
-                                ? auraRgba(aura, 0.8)
-                                : 'rgba(255,255,255,0.1)'
-                            : lightAura
-                                ? auraRgb(aura)
-                                : 'rgba(48,48,54,0.92)',
+                  background: lightAura ? auraRgb(aura) : 'rgba(48,48,54,0.92)',
                   border: `0.5px solid ${auraRgba(aura, 0.3)}`,
-                    backdropFilter: pb > 0 ? `blur(${pb}px)` : undefined,
-                    WebkitBackdropFilter: pb > 0 ? `blur(${pb}px)` : undefined,
                 }}
               >
                 {playIcon}
@@ -109,14 +96,14 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
             <Music size={16} className="text-white/20" />
           </div>
         )}
-          {track.sharing === 'private' && (
-              <div
-                  title={t('sharing.private')}
-                  aria-label={t('sharing.private')}
-                  className="absolute top-0.5 left-0.5 flex items-center justify-center w-4 h-4 rounded-full bg-black/65 backdrop-blur-md text-amber-300/90"
-              >
-                  <Lock size={9}/>
-              </div>
+        {track.sharing === 'private' && (
+          <div
+            title={t('sharing.private')}
+            aria-label={t('sharing.private')}
+            className="absolute top-0.5 left-0.5 flex items-center justify-center w-4 h-4 rounded-full bg-black/65 text-amber-300/90"
+          >
+            <Lock size={9} />
+          </div>
         )}
       </div>
 
@@ -165,8 +152,8 @@ const areEqual = (prev: ThemedTrackRowProps, next: ThemedTrackRowProps) =>
   prev.aura.accent[0] === next.aura.accent[0] &&
   prev.aura.accent[1] === next.aura.accent[1] &&
   prev.aura.accent[2] === next.aura.accent[2] &&
-    prev.track.user_favorite === next.track.user_favorite &&
-    prev.track.sharing === next.track.sharing &&
-    sameScdMeta(prev.track._scd_meta, next.track._scd_meta);
+  prev.track.user_favorite === next.track.user_favorite &&
+  prev.track.sharing === next.track.sharing &&
+  sameScdMeta(prev.track._scd_meta, next.track._scd_meta);
 
 export const ThemedTrackRow = React.memo(ThemedTrackRowImpl, areEqual);

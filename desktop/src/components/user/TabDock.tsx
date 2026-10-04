@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { type Aura, auraRgba } from '../../lib/aura';
-import {fc} from '../../lib/formatters';
-import {usePerfMode} from '../../lib/perf';
+import type { Aura } from '../../lib/aura';
+import { fc } from '../../lib/formatters';
 
 export type TabId = 'popular' | 'tracks' | 'playlists' | 'likes' | 'followers' | 'following';
 
@@ -20,9 +19,7 @@ interface TabDockProps<T extends string = string> {
 
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
-function TabDockImpl<T extends string>({ tabs, active, onChange, aura }: TabDockProps<T>) {
-    const perf = usePerfMode();
-    const dockB = perf.blur(40);
+function TabDockImpl<T extends string>({ tabs, active, onChange }: TabDockProps<T>) {
   const dockRef = useRef<HTMLDivElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
   const [overflows, setOverflows] = useState(false);
@@ -140,11 +137,8 @@ function TabDockImpl<T extends string>({ tabs, active, onChange, aura }: TabDock
           overflows ? 'cursor-grab' : 'cursor-default'
         }`}
         style={{
-            background: dockB > 0 ? 'rgba(15,15,18,0.55)' : 'rgba(15,15,18,0.92)',
-            backdropFilter: dockB > 0 ? `blur(${dockB}px) saturate(180%)` : undefined,
-            WebkitBackdropFilter: dockB > 0 ? `blur(${dockB}px) saturate(180%)` : undefined,
-          boxShadow:
-            '0 24px 60px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.08)',
+          background: '#141417',
+          border: '0.5px solid rgba(255,255,255,0.08)',
         }}
       >
         {pill && (
@@ -153,9 +147,8 @@ function TabDockImpl<T extends string>({ tabs, active, onChange, aura }: TabDock
             style={{
               left: pill.x,
               width: pill.w,
-              background: `linear-gradient(180deg, ${auraRgba(aura, 0.22)}, ${auraRgba(aura, 0.06)})`,
-              border: `0.5px solid ${auraRgba(aura, 0.35)}`,
-              boxShadow: `0 6px 20px ${auraRgba(aura, 0.25)}, inset 0 0.5px 0 rgba(255,255,255,0.12)`,
+              background: 'rgba(255,255,255,0.10)',
+              border: '0.5px solid rgba(255,255,255,0.12)',
             }}
           />
         )}

@@ -1,15 +1,14 @@
-import {useTranslation} from 'react-i18next';
-import {type Aura, auraRgba} from '../../lib/aura';
-import {Calendar, Globe, Sparkles} from '../../lib/icons';
-import {likedTracksCount} from '../../lib/likes';
-import {usePerfMode} from '../../lib/perf';
-import {CopyLinkButton} from '../ui/CopyLinkButton';
-import {GlassHeroPanel} from '../ui/GlassHeroPanel';
-import {AuraPicker} from './AuraPicker';
-import {AvatarArtifact} from './AvatarArtifact';
-import {FollowBtn} from './FollowBtn';
-import {StatOrb} from './StatOrb';
-import {getWebIcon, InfoChip, ProChip, VerifiedBadge} from './UserChips';
+import { useTranslation } from 'react-i18next';
+import { type Aura, auraRgba } from '../../lib/aura';
+import { Calendar, Globe } from '../../lib/icons';
+import { likedTracksCount } from '../../lib/likes';
+import { CopyLinkButton } from '../ui/CopyLinkButton';
+import { GlassHeroPanel } from '../ui/GlassHeroPanel';
+import { AuraPicker } from './AuraPicker';
+import { AvatarArtifact } from './AvatarArtifact';
+import { FollowBtn } from './FollowBtn';
+import { StatOrb } from './StatOrb';
+import { getWebIcon, InfoChip, ProChip, VerifiedBadge } from './UserChips';
 
 function dateFormattedLong(dateStr: string | null | undefined) {
   if (!dateStr) return null;
@@ -59,9 +58,6 @@ export function IdentityHub({
   onPickCustom,
 }: IdentityHubProps) {
   const { t } = useTranslation();
-    const perf = usePerfMode();
-    const cpB = perf.blur(20);
-    const lb = perf.blur(16);
   const formattedDate = dateFormattedLong(user.created_at);
   const country = [user.city, user.country_code].filter(Boolean).join(', ');
 
@@ -81,28 +77,10 @@ export function IdentityHub({
             {user.plan && user.plan !== 'Free' && <ProChip plan={user.plan} />}
             {formattedDate && <InfoChip icon={<Calendar size={11} />}>{formattedDate}</InfoChip>}
             {country && <InfoChip icon={<Globe size={11} />}>{country}</InfoChip>}
-            {isOwnProfile && (
-              <InfoChip icon={<Sparkles size={11} />}>{t('user.publicProfile')}</InfoChip>
-            )}
           </div>
 
           <div className="flex flex-col items-center lg:items-start gap-3">
-            <h1
-              className="text-5xl md:text-7xl font-black leading-[0.85] tracking-tighter break-words max-w-full"
-              style={
-                hasStar
-                  ? {
-                      background: aura.nameGradient,
-                      backgroundSize: '200% auto',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
-                        animation: perf.idleAnim ? 'prismatic-shift 6s linear infinite' : undefined,
-                      filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.5))',
-                    }
-                  : { color: '#fff', textShadow: '0 8px 24px rgba(0,0,0,0.5)' }
-              }
-            >
+            <h1 className="text-5xl md:text-7xl font-black leading-[0.85] tracking-tighter break-words max-w-full text-white">
               {user.username}
             </h1>
 
@@ -112,7 +90,7 @@ export function IdentityHub({
           </div>
 
           {user.description && (
-              <p className="selectable text-[14px] md:text-[15px] text-white/65 leading-relaxed max-w-2xl line-clamp-3 hover:line-clamp-none transition-all duration-700 cursor-help">
+            <p className="selectable text-[14px] md:text-[15px] text-white/65 leading-relaxed max-w-2xl line-clamp-3 hover:line-clamp-none transition-all duration-700 cursor-help">
               {user.description}
             </p>
           )}
@@ -125,12 +103,10 @@ export function IdentityHub({
                   href={link.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold text-white/55 hover:text-white transition-all duration-300 hover:scale-105"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold text-white/55 hover:text-white transition-colors"
                   style={{
-                      background: lb > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(28,28,32,0.85)',
+                    background: 'rgba(28,28,32,0.85)',
                     border: '0.5px solid rgba(255,255,255,0.08)',
-                      backdropFilter: lb > 0 ? `blur(${lb}px)` : undefined,
-                      WebkitBackdropFilter: lb > 0 ? `blur(${lb}px)` : undefined,
                   }}
                 >
                   <span className="text-white/45">{getWebIcon(link.service)}</span>
@@ -146,10 +122,8 @@ export function IdentityHub({
               <div
                 className="h-11 px-1 inline-flex items-center rounded-full"
                 style={{
-                    background: cpB > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(28,28,32,0.85)',
+                  background: 'rgba(28,28,32,0.85)',
                   border: '0.5px solid rgba(255,255,255,0.08)',
-                    backdropFilter: cpB > 0 ? `blur(${cpB}px)` : undefined,
-                    WebkitBackdropFilter: cpB > 0 ? `blur(${cpB}px)` : undefined,
                 }}
               >
                 <CopyLinkButton url={user.permalink_url} />

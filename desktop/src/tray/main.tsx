@@ -1,19 +1,26 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import {changeAppLanguage} from '../i18n';
-import {applyAccentVars, applyBgVars, applyPerfMode} from '../lib/apply-theme';
-import {setupVisibilityGate} from '../lib/perf';
-import {useSettingsStore} from '../stores/settings';
+import { changeAppLanguage } from '../i18n';
+import { applyAccentVars, applyBgVars, applyPerfMode } from '../lib/apply-theme';
+import { setupVisibilityGate } from '../lib/perf';
+import { useSettingsStore } from '../stores/settings';
 import '../index.css';
 import './tray.css';
-import {MiniPlayer} from './MiniPlayer';
+import { MiniPlayer } from './MiniPlayer';
+
+// Native webview context menu is not part of the app UI; text fields keep paste.
+document.addEventListener('contextmenu', (e) => {
+  const el = e.target as HTMLElement | null;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+  e.preventDefault();
+});
 
 /** Mirror the main window's accent/perf theming into this separate webview context. */
 function applyTheme() {
-    const s = useSettingsStore.getState();
-    applyAccentVars(s.accentColor);
-    applyBgVars(s.bgPrimary);
-    applyPerfMode(s.perfMode);
+  const s = useSettingsStore.getState();
+  applyAccentVars(s.accentColor);
+  applyBgVars(s.bgPrimary);
+  applyPerfMode(s.perfMode);
 }
 
 /**
@@ -24,38 +31,38 @@ function applyTheme() {
  * (wry, целочисленный scale) — no-op.
  */
 async function fixPopoverScale() {
-    try {
-        const {getCurrentWindow} = await import('@tauri-apps/api/window');
-        const {getCurrentWebview} = await import('@tauri-apps/api/webview');
-        const scale = await getCurrentWindow().scaleFactor();
-        const dpr = window.devicePixelRatio || 1;
-        const ratio = scale / dpr;
-        if (Math.abs(ratio - 1) > 0.02) {
-            await getCurrentWebview().setZoom(ratio);
-        }
-    } catch {}
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+    const scale = await getCurrentWindow().scaleFactor();
+    const dpr = window.devicePixelRatio || 1;
+    const ratio = scale / dpr;
+    if (Math.abs(ratio - 1) > 0.02) {
+      await getCurrentWebview().setZoom(ratio);
+    }
+  } catch {}
 }
 
 async function bootstrap() {
-    await fixPopoverScale();
-    await useSettingsStore.persist.rehydrate();
-    applyTheme();
-    await changeAppLanguage(useSettingsStore.getState().language);
+  await fixPopoverScale();
+  await useSettingsStore.persist.rehydrate();
+  applyTheme();
+  await changeAppLanguage(useSettingsStore.getState().language);
 
-    ReactDOM.createRoot(document.getElementById('tray-root')!).render(
-        <React.StrictMode>
-            <MiniPlayer/>
-        </React.StrictMode>,
-    );
+  ReactDOM.createRoot(document.getElementById('tray-root')!).render(
+    <React.StrictMode>
+      <MiniPlayer />
+    </React.StrictMode>,
+  );
 
-    setupVisibilityGate();
+  setupVisibilityGate();
 
-    // Re-pick theme/language changes made in the main window each time the popover re-shows
-    // (separate store instance — it only reads the shared on-disk state on demand).
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState !== 'visible') return;
-        void Promise.resolve(useSettingsStore.persist.rehydrate()).then(applyTheme);
-    });
+  // Re-pick theme/language changes made in the main window each time the popover re-shows
+  // (separate store instance — it only reads the shared on-disk state on demand).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    void Promise.resolve(useSettingsStore.persist.rehydrate()).then(applyTheme);
+  });
 }
 
 void bootstrap();

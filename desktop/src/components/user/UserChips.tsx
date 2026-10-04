@@ -1,11 +1,10 @@
 import React from 'react';
 import { Check, Globe, Instagram, LinkIcon, Twitter, Youtube } from '../../lib/icons';
-import {usePerfMode} from '../../lib/perf';
 
 export const VerifiedBadge = React.memo(function VerifiedBadge({ title }: { title: string }) {
   return (
     <div
-      className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center ring-2 ring-white/20 shadow-[0_0_16px_rgba(59,130,246,0.55)]"
+      className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center"
       title={title}
     >
       <Check size={13} className="text-white" strokeWidth={3.5} />
@@ -14,21 +13,15 @@ export const VerifiedBadge = React.memo(function VerifiedBadge({ title }: { titl
 });
 
 export const ProChip = React.memo(function ProChip({ plan }: { plan: string }) {
-    const b = usePerfMode().blur(12);
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-[0.18em] text-orange-300/90"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium text-orange-300/90"
       style={{
-          background:
-              b > 0
-                  ? 'linear-gradient(135deg, rgba(255,85,0,0.18), rgba(255,0,128,0.10))'
-                  : 'linear-gradient(135deg, rgba(58,28,14,0.92), rgba(48,16,32,0.92))',
-        border: '0.5px solid rgba(255,85,0,0.25)',
-          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
-          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
+        background: 'rgba(255,85,0,0.12)',
+        border: '0.5px solid rgba(255,85,0,0.28)',
       }}
     >
-      <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shadow-[0_0_6px_#ff5500]" />
+      <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
       {plan}
     </span>
   );
@@ -41,15 +34,12 @@ export const InfoChip = React.memo(function InfoChip({
   icon: React.ReactNode;
   children: React.ReactNode;
 }) {
-    const b = usePerfMode().blur(12);
   return (
     <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium text-white/55"
       style={{
-          background: b > 0 ? 'rgba(255,255,255,0.04)' : 'rgba(28,28,32,0.85)',
+        background: 'rgba(28,28,32,0.85)',
         border: '0.5px solid rgba(255,255,255,0.07)',
-          backdropFilter: b > 0 ? `blur(${b}px)` : undefined,
-          WebkitBackdropFilter: b > 0 ? `blur(${b}px)` : undefined,
       }}
     >
       <span className="text-white/45">{icon}</span>

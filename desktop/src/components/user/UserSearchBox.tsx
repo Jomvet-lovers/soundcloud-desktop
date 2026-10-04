@@ -58,7 +58,7 @@ function UserSearchBoxImpl({ value, onChange, scopeLabel, disabled }: UserSearch
           </button>
         )}
         <div
-          className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] uppercase tracking-widest font-semibold text-white/40 bg-white/[0.04] border border-white/[0.05]"
+          className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium text-white/40 bg-white/[0.04] border border-white/[0.05]"
           title={t('search.source.dbHint')}
         >
           <Database size={9} />
