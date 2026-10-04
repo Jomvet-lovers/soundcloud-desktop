@@ -1,381 +1,133 @@
-# Desktop (Tauri + React)
+# SCD-Direct — エージェント向けガイド（Tauri + React + Rust）
 
-## Стек
+このリポジトリは [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)（MIT）の
+非公式改造版で、開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドです。
+アプリは SoundCloud 本体と直接通信し、書き込みはローカルに保存します。
 
-### Frontend
+- **リポジトリ**: `Jomvet-lovers/SCD-Direct`（private / デフォルトブランチ `direct-mode`）
+- **上流**: `zxcloli666/SoundCloud-Desktop`（remote `upstream`）
+- **引継ぎ資料**: リポジトリ直下の [`../HANDOVER.md`](../HANDOVER.md)（現在の状態・既知の問題・次の作業）
 
-- **Tauri v2** — нативная оболочка
-- **React 19** + Vite — фронтенд
-- **Tailwind CSS 4** — стили (`@tailwindcss/vite`)
-- **Zustand** — стейт-менеджмент, персист через `lib/tauri-storage.ts` (НЕ localStorage)
-- **TanStack Query** — серверный стейт, кеширование, инвалидация
-- **@tanstack/react-virtual** — основа для `VirtualList` / `VirtualGrid`
-- **React Router 7** — роутинг
-- **Radix UI** — dialog, popover, slider
-- **@dnd-kit** — drag-and-drop (очередь и т.п.)
-- **i18next + react-i18next** — переводы
-- **sonner** — тосты
-- **react-markdown** — markdown в новостях/комментариях
-- **qr-code-styling** — QR-логин
-- **simple-icons / lucide-react** — иконки
-- **Biome** — линтер + форматтер (НЕ ESLint/Prettier)
-- **pnpm** — пакетный менеджер
+## リポジトリとリモート
 
-### Rust (src-tauri)
+| remote | URL | 用途 |
+|---|---|---|
+| `origin` | `https://github.com/Jomvet-lovers/SCD-Direct.git` | 作業の push 先 |
+| `upstream` | `https://github.com/zxcloli666/SoundCloud-Desktop.git` | 上流の取り込み（`git fetch upstream`） |
 
-- **tokio** — async рантайм, в `setup` запускается единый `Runtime` и держится живым отдельным `std::thread`
-- **warp** — все HTTP-серверы (proxy / static / static_server / wallpapers)
-- **reqwest** (rustls, socks, stream) — единственный HTTP-клиент
-- **rodio** + **symphonia** (mp3, aac/m4a/mp4, ogg) — аудио-движок и декодеры
-- **cpal** — устройства вывода
-- **biquad** — параметрический EQ
-- **rustfft** — анализатор спектра (FFT в выделенном потоке)
-- **souvlaki** — системные media controls (MPRIS / SMTC / NowPlaying)
-- **discord-rich-presence** — Discord RPC
-- **chrono / tracing / serde / sha2 / base64 / hex** — служебные
-- Внутренние крейты из `../utils/`: `call-client`, `decrypt-client`, `dpi-desync`
+- ブランチ: `direct-mode`（作業・デフォルト）/ `main`（上流ベースライン）
+- GitHub CLI は認証済み（アカウント `Natsumil`）。実行ファイルは
+  `C:\Program Files\GitHub CLI\gh.exe`
+- 作業後は必ず `git push`（`origin` へ）
 
-## Структура
+## 開発ワークフロー
+
+- **UI 確認は dev で**: `desktop/` で `corepack pnpm tauri dev`（Vite HMR → `http://localhost:1420`）。
+  リリースビルドはインストーラーが必要なときだけ。
+- **単一インスタンス制限**: dev を起動する前に、起動中の `soundcloud-desktop.exe`
+  （インストール版含む）をすべて閉じること。閉じないと新しいインスタンスが即終了する。
+- **リリースビルド**: `corepack pnpm tauri build --bundles nsis`。MSI はファイルロックで
+  失敗しやすいため NSIS のみを使う。
+  - **注意**: `target\release\soundcloud-desktop.exe` を起動したままにするとビルドが失敗する。
+    動作確認はインストール版アプリで行う。
+- **Rust のビルド環境（Windows）**: `LIBCLANG_PATH=C:\Program Files\LLVM\bin` を設定し、
+  PATH を再取得してから `cargo` を実行する。
+- ユーザーデータ: `%APPDATA%\fun.natsumi.scd.direct\`（`auth_session.json` / `direct_store.json` /
+  `sc-settings.json` など）。消すと再ログインが必要になる。
+
+## チェック（変更後に必ず）
+
+- `npx tsc --noEmit` — TypeScript 型チェック
+- `npx biome check --write src` — リント＋フォーマット（Biome。ESLint / Prettier は使わない）
+- `cargo check`（`src-tauri/`）— Rust コンパイル確認
+
+## 構成（このフォーク時点）
 
 ```
 desktop/
   src/
-    App.tsx, main.tsx
-    components/
-      layout/        AppShell, Sidebar, Titlebar, NowPlayingBar, StarSubscription
-      ui/            VirtualList, VirtualGrid, GlassButton, GlassCard, GlassHeroPanel,
-                     HorizontalScroll, Skeleton, Avatar, CopyLinkButton
-      music/         TrackCard, PlaylistCard, LikeButton, EqualizerPanel, LyricsPanel,
-                     QueuePanel, FloatingComments, AddToPlaylistDialog,
-                     TrackStatusBadges, TrackTitleArtist, UploadKindDot,
-                     YMImportDialog, YMImportFloatingStatus,
-                     cluster/   (рекомендательные «соседи»: ClusterHeader/Row, NeighborCard…)
-                     soundwave/ (бесконечная лента «волны»: home-block, similar-block,
-                                 waveform, vibe-search-bar, strip, ambient, lock-overlay/…)
-      album/         AlbumHero, AlbumCast, AlbumTrackList, AlbumTrackRow,
-                     AlbumPlayButton, AlbumCoverArtifact, useAlbumData
-      artist/        ArtistHero, Artist*Tab (About/Tracks/Albums/Covers/Related),
-                     socials, useArtistData, wave/ArtistSoundWave
-      user/          IdentityHub, AuraField, AuraPicker, StarField, StatOrb,
-                     TabDock, UserTabs, UserChips, UserSearchBox, ThemedTrackRow,
-                     AvatarArtifact, FollowBtn, useUserAura
-      discover/      DiscoverHero, DiscoverSpotlight, AlbumsCatalog,
-                     ArtistsCatalog, *GridCard, FilterRow, InfiniteSentinel,
-                     useDebouncedValue, visuals
-      auth/          QrCode, QrLinkSheet, useQrLink
-      settings/      CallProxySection
-      NewsToast.tsx, SessionRecoveryModal.tsx, ThemeProvider.tsx, UpdateChecker.tsx
-    pages/           Home, Library, Search, Discover, Login, Settings, OfflinePage,
-                     TrackPage, UserPage, PlaylistPage, AlbumPage, ArtistPage
-    stores/          player, auth, auth-recovery, settings, app-status,
-                     lyrics, news, searchHistory, searchPrefs, ym-import
-    lib/             api / api-client / streaming — HTTP к нашему бэку
-                     audio — оркестратор плеера + слушатель `audio:*` событий
-                     asset-url, scproxy — проксирование изображений
-                     cache, premium-cache, offline-index, host-health — клиентские кеши
-                     equalizer, lyrics, waveform, soundwave, discover, dislikes,
-                     likes, recsFeedback, subscription, track-display, queue-autopilot,
-                     useTrackPlay — фичевая логика
-                     auth-recovery, auth-status, use-oauth-flow, qr-link — авторизация
-                     events, hooks, useAutoHide — общие утилиты
-                     diagnostics — `trackedInvoke`, watchdog event-loop, slow-call логи
-                     tauri-storage — `StateStorage` для zustand persist на ФС
-                     call, discord, dpi, tray, window, platform, update-check, semver
-                     query-client, formatters, icons, constants
-    i18n/locales/    en.json, ru.json
-  src-tauri/
-    src/
-      lib.rs, main.rs    — bootstrap, регистрация команд, `scproxy://` scheme
-      app/               diagnostics (app_log_dir/desktop.log + FD-monitor на Linux), tray
-      audio/             engine, decode (symphonia + cached normalization gain),
-                         eq (biquad), analyser (rustfft, отдельный поток),
-                         device (cpal + follow-default-output),
-                         media_controls (souvlaki), tick (emit `audio:tick`/`audio:ended`),
-                         timing (lyrics / floating-comments timelines), state, types, commands
-      network/           proxy (`scproxy://` handler, cache по SHA256(url)),
-                         proxy_server (warp: `/p/...`, `/img/...`),
-                         static_server (warp: `/wallpapers/...`),
-                         server (общий cors + регистрация портов),
-                         image_cache (постоянный кеш картинок в app_data_dir/images),
-                         dpi (dpi-desync через SOCKS, подмешивается в reqwest builder),
-                         call (call-client agent, флаг enabled в `call_enabled.json`)
-      track_cache/       commands, state, direct_download, sc_anon/{mod,hls}
-      discord/           mod + commands
-      import/            ym (Yandex Music likes → SoundCloud)
-      shared/            constants (whitelisted домены и пр.)
-    capabilities/        Tauri permissions (default.json)
+    pages/        Home, Library, LibraryCollection, Search, Login, Settings,
+                  OfflinePage, TrackPage, UserPage, PlaylistPage, AlbumPage, ArtistPage
+    components/   layout (AppShell / Sidebar / Titlebar / NowPlayingBar / GlobalSearch),
+                  ui (VirtualList / VirtualGrid / Avatar / Skeleton / CopyLinkButton …),
+                  music (TrackCard / PlaylistCard / LikeButton / PlayingBars /
+                         AddToPlaylistDialog / TrackStatusBadges / TrackTitleArtist …),
+                  album, artist, user, library, playlist, search, settings, track,
+                  auth, offline
+    stores/       player, auth, auth-recovery, settings, app-status, news,
+                  searchHistory, searchPrefs
+    lib/          api / api-client（direct バックエンド）, audio, cache, likes, dislikes,
+                  track-display, scproxy, tauri-storage, diagnostics, icons, formatters …
+    i18n/locales/ en.json, ru.json, tr.json
+  src-tauri/src/
+    direct/       mod, routes（HTTP ルート + フロント向けマッピング）, sc（api-v2 クライアント）,
+                  store（direct_store.json）, webview（実験的ライター）
+    audio/        engine, decode, eq, analyser, device, media_controls, tick, timing …
+    network/      proxy（scproxy://）, proxy_server, static_server, image_cache, dpi
+    track_cache/  sc_anon（HLS）, direct_download, commands, state
+    app/          diagnostics, tray
 ```
 
-### Локальные директории (создаются в `setup`)
+## direct モードの仕組み（重要）
 
-- `app_cache_dir/audio/` — кеш треков
-- `app_cache_dir/audio_liked/` — отдельная квота под лайки
-- `app_cache_dir/assets/` — кеш ответов прокси (картинки/шрифты/css/js)
-- `app_cache_dir/wallpapers/` — скачанные обои
-- `app_data_dir/images/` — постоянный кеш картинок (чистится только вручную)
-- `app_data_dir/*.json` — zustand-сторы через `tauri-storage.ts`
-- `app_data_dir/call_enabled.json` — флаг call-режима
-- `app_log_dir/desktop.log` — лог из `diagnostics_log`
+- **読み取り** — 公開 `api-v2`（`client_id` を SoundCloud トップページから抽出）。
+  `src-tauri/src/direct/routes.rs` が生データをフロント期待の形へマッピングする。
+- **書き込み** — `direct_store.json` にローカル保存。SoundCloud への同期は DataDome の
+  bot 保護で拒否されるため未実装（`webview.rs` の実験実装は `SYNC_ENABLED = false`）。
+- **認証** — SoundCloud Web の `oauth_token` Cookie をログイン画面に貼り付けて使用。
+  `auth_session.json` に保存され、SoundCloud にのみ送信される。
+- **既知の SC API の癖**:
+  - システムプレイリストの `tracks` は id のみのスタブ → `/tracks?ids=` でハイドレートし、
+    解決できないものは除外
+  - `/playlists/{id}/tracks` は 404
+  - `web-profiles` は `network` フィールドで返る（`service` にマッピング）
+  - ステーション再生 API は廃止（404）→ アーティストの曲でローカルラジオを構築
+  - Discover は `mixed-selections` から取得
 
-## i18n (ОБЯЗАТЕЛЬНО)
+## UI ルール（このフォーク固有）
 
-- **ВСЕ пользовательские строки** — через `t('key')` из `react-i18next`. НИКОГДА не хардкодить английский/русский текст
-  в JSX.
-- Переводы в `src/i18n/locales/{en,ru}.json`. При добавлении/изменении строк — обновлять ОБА файла.
-- Плюрализация для русского: `_one`, `_few`, `_many` (а не `_one`/`_other` как в английском).
+デザインは上流の装飾層を撤去した**フラット**な見た目で統一する。
 
-## Правила для React
+- **禁止**: グラデーション、グロー（発光系 `box-shadow`）、`backdrop-blur`、大文字マイクロラベル
+- **角丸カードで要素を囲わない**（カードの入れ子も禁止）。セクション → 見出し → 内容を余白と
+  hairline で区切る。角丸が許されるのはモーダル / ポップオーバー、ボタン、入力欄、アートワーク、
+  アバター、小さなチップのみ
+- **背景は solid で指定**。`index.css` の flat pass（`[style*="gradient"]` など）が inline の
+  背景を消すため、gradient 前提のスタイルは使わない
+- **サムネイルは小さく・高密度**（スクロール量を抑える）。行のカバーは 36–40px 目安
+- **再生中の行** — Spotify 風: 背景ハイライトなし、左に `PlayingBars`（イコライザー）、
+  タイトルをアクセント色
+- **検索バー** — 内側のフォーカス枠なし（`input` / `textarea` / `select` の `:focus-visible` は
+  無効化済み）、ブラウザ自動入力なし（`autoComplete="off"`）、Recent searches ドロップダウンは
+  **不透明**
+- **アクセント色** — 必ず CSS 変数 `--color-accent` / `--color-accent-hover` /
+  `--color-accent-contrast` を使う。ハードコード禁止
+- ページレイアウトはアルバムページを基準に統一する
 
-- **Не раздувать файлы.** Большие/мультиответственные файлы — разбивать на модули, компоненты, хуки и утилиты. Правило
-  относится и к Rust-коду.
-- **Не дублировать код.** Повторяющаяся логика/маппинг/форматирование/UI-паттерн — в shared-хуки, utils, helpers, shared
-  components или Rust-модули.
-- **Переиспользуемо, а не одноразово.** Сразу проектировать функции/компоненты под повторное использование.
-- **Фронт должен быть тонким.** Рендер, композиция, оркестрация, лёгкий state binding — всё остальное по возможности в
-  Rust.
-- **Не тащить тяжёлую логику в React.** Парсинг, scheduling, агрегации, тяжёлые вычисления, потоковая обработка,
-  файловая работа, сетевой orchestration — выносить из фронта.
-- **Большие наборы данных — только через virtualization.** Использовать shared `VirtualList` / `VirtualGrid` (на
-  `@tanstack/react-virtual`) с разумным overscan.
-- **Не рендерить невидимое.** Никаких «оно работает, пусть висит» — на экране только видимые элементы плюс overscan.
-- **React.memo** — на компоненты, склонные к лишним ре-рендерам.
-- **Изолированные подписки.** Zustand-селекторы: `usePlayerStore((s) => s.isPlaying)`, а не `usePlayerStore()`.
-- **60fps анимации через DOM refs**, НЕ через React state. Пример: `ProgressSlider` обновляет `ref.style.left` внутри
-  `subscribe()` listener'а — React не ре-рендерится.
-- **useSyncExternalStore** — для аудио-стейта (`currentTime`, `duration`). Snapshot должен возвращать стабильное
-  значение (например, `Math.floor()` для секунд), иначе 60 ре-рендеров/сек.
-- **TanStack Query**: `staleTime`, `setQueriesData` для optimistic updates, `invalidateQueries` с задержкой если бэк
-  eventual-consistent.
-- **useCallback/useMemo** — только где реально нужно (тяжёлые вычисления, пропсы в memo-компоненты). Не на каждую функцию.
-- **Data storage.** НЕ используй `localStorage` — на проде при каждом запуске меняется порт. Для zustand-persist
-  использовать `tauri-storage.ts` (см. `stores/auth.ts`, `stores/player.ts`).
-- **Desktop adaptive layout обязателен.** Хотя это desktop-app, интерфейсы должны работать на разных размерах и
-  пропорциях: узкие окна, вертикальные мониторы, 16:9, 21:9, split-view. Не проектировать только под один «широкий
-  горизонтальный» макет.
-- **Все инвоки — через `trackedInvoke`** из `lib/diagnostics.ts` (импорт как `invoke`). Голый `invoke` из
-  `@tauri-apps/api/core` использовать только внутри самой `diagnostics.ts`.
+## コードルール（上流から継承・要約）
 
-## Правила для Tauri (Rust)
+### 共通
+- ファイルを肥大化させない。重複を作らない。フロントは薄く、重い処理は Rust へ
+- 大きなリストは `VirtualList` / `VirtualGrid`。見えていないものはレンダリングしない
+- i18n: ユーザー文字列は必ず `t('key')`。`src/i18n/locales/{en,ru,tr}.json` を更新する
+  （少なくとも英語とロシア語は必須）
+- `localStorage` 禁止。zustand persist は `lib/tauri-storage.ts`
+- Tauri invoke は `lib/diagnostics.ts` の `trackedInvoke` 経由（例外: diagnostics.ts 自身）
 
-- **Тяжёлое выносить в Rust.** Если логика дешевле/надёжнее в Rust — приоритет у Rust.
-- **Rust-модули тоже держать маленькими.** Не строить god-files; делить по ответственности, чтобы изменения были
-  локальными.
-- **Не грузить фронт лишним.** Не прокидывать в JS лишние данные/события, если можно отдать уже подготовленный
-  компактный результат.
-- **Warp** — единственный HTTP-сервер. НЕ переключаться на actix/axum: warp уже async на tokio.
-- **reqwest** — единственный HTTP-клиент. НЕ писать свой. Не забывать прогонять билдер через `network::dpi::apply(...)`,
-  если запрос должен уметь идти через SOCKS-десинк.
-- **tokio** — рантайм. НЕ использовать `std::thread` для I/O. Блокирующие операции — `tokio::spawn_blocking`.
-  Долгоживущие фоновые потоки (audio output, audio-tick, FFT) — это допустимый случай для именованных
-  `std::thread::Builder`.
-- **Не плодить рантаймы.** Единый `Runtime` создаётся в `setup` и шарится через `rt.handle()`; новый Runtime в фичах не
-  создавать.
-- **Аудио-движок (Rust).** Состояние — `AudioState`, выделенный поток `audio-output` рулит `cpal`-устройством и
-  обрабатывает `AudioThreadCmd` (переключение/восстановление device). Поток `audio-tick` шлёт `audio:tick` (позиция, ~10
-  Гц), `audio:ended`, `audio:device-reconnected`, плюс лирика и floating-comments через `timing::process_*`. Frontend
-  ТОЛЬКО зовёт `audio_*` команды и слушает `audio:*` / `media:*` события.
-- **`get_pos()` у player'а** — единственный источник истины для позиции. Не вычислять позицию из времени старта.
-- **Кеширование в прокси.** Cacheable GET-ответы (image/*, font/*, text/css, javascript без `no-store`/`no-cache`)
-  пишутся в `{cache_dir}/assets/`. Ключ — `SHA256(url)`. Запись на диск — `tokio::spawn`, не блокировать ответ.
-  Картинки, идущие через `/img/...`, кешируются отдельно в `{data_dir}/images/` и НЕ чистятся автоматически.
-- **Track cache.** Источников два: `sc_anon` (HLS через анонимный SC API) и `direct_download` (наше SCD-хранилище).
-  Раздаётся через статический сервер из `{cache_dir}/audio[_liked]/` с поддержкой Range. Файлы — через `tokio::fs`, не
-  `std::fs`.
-- **Custom URI scheme `scproxy://`** регистрируется в `lib.rs` как асинхронный, отвечает через `proxy::handle_uri`. На
-  non-macOS используется sharded `http://scproxy-N.localhost:PORT/p/...` (N=0..19) — обходит per-host лимит соединений
-  WebView и параллелит загрузки.
-- **`#[cfg(not(dev))]`** — для localhost plugin / navigate. В dev — Vite devUrl.
-- **Не буферизовать** большие ответы целиком, если не нужно кешировать — стримить через `Body::wrap_stream`.
-- **Ошибки** — возвращать HTTP-статусы (502, 400, 404), НЕ паниковать. `.unwrap()` допустим только для заведомо валидных
-  builder-операций, `.expect("...")` — только в `setup` для критической инициализации.
-- **Диагностика.** Тяжёлые/подозрительные операции логировать через `app::diagnostics::log_native` (пишет в
-  `app_log_dir/desktop.log`). Фронту аналог — `trackedInvoke` + watchdog event-loop в `lib/diagnostics.ts`.
-- **Проверка**: `cargo check` после каждого изменения в Rust.
+### React
+- Zustand はセレクタで購読する（`usePlayerStore((s) => s.isPlaying)`）。`React.memo` は
+  必要な箇所のみ
+- 60fps の更新は DOM ref / `useSyncExternalStore`（audio の `subscribe` + `notify` パターン）。
+  位置は `Math.floor()` で秒に丸めて再レンダーを抑える
+- アニメーションは `transform` / `opacity` のみ（`width` / `height` / `font-size` を動かさない）
 
-## Акцентный цвет и CSS-переменные
+### Rust
+- HTTP は **warp**（サーバー）/ **reqwest**（クライアント）のみ。tokio は単一 Runtime を
+  `setup` で作って共有する
+- ブロッキングは `spawn_blocking`。エラーは HTTP ステータスで返し、パニックしない
+- ファイル I/O は `tokio::fs`。カスタムスキーム `scproxy://` は `lib.rs` で登録
 
-Акцентный цвет задаётся в настройках (`stores/settings.ts` → `accentColor`). `ThemeProvider` обновляет CSS-переменные на
-`:root`:
+## 参考
 
-- `--color-accent` — основной цвет (`#hex`)
-- `--color-accent-hover` — чуть светлее (+26 на каждый канал)
-- `--color-accent-glow` — `rgba(r,g,b, 0.2)` для теней/свечений
-- `--color-accent-selection` — `rgba(r,g,b, 0.3)` для `::selection`
-
-**Всегда** использовать эти переменные. НЕ хардкодить `#ff5500` или `rgba(255,85,0,...)`. Нужна другая прозрачность —
-добавить новую переменную в `ThemeProvider` и `:root` в `index.css`.
-
-## Режимы производительности (perf modes)
-
-Дизайн намеренно тяжёлый (backdrop-filter, частицы, aurora-орбы, per-char караоке). Чтобы он масштабировался под слабое
-железо, есть единый рубильник `perfMode: 'light' | 'medium' | 'beauty'` (`stores/settings.ts`, дефолт **beauty**, экран
-в Настройки → Производительность). **`beauty` обязан быть байт-в-байт как без режимов** — это продакшен-дизайн, его не
-трогаем.
-
-**Как устроено:**
-
-- `ThemeProvider` пишет `html[data-perf]`; `lib/perf.ts` отдаёт хук `usePerfMode()` → профиль (стабильный объект на
-  режим):
-  - `blur(px)` — масштабирует радиус блюра. beauty→px, medium→~½, light→**0**.
-  - `particles(n)` — масштабирует число декоративных элементов. beauty→n, medium→~45%, light→**0**.
-  - `idleAnim` — крутить ли idle-анимации (дрейфы, твинклы, спины, маркизы). light→`false`.
-  - `atmosphere` — монтировать ли атмосферу страницы (орбы, звёздные поля, ambient-слои). light→`false`.
-  - `glow` — per-element `drop-shadow`/`box-shadow` свечения на частицах. medium/light→`false`.
-  - `bloom` — монтировать ли тяжёлые фоновые блумы (`AmbientGlow`, per-card гало). light→`false`.
-- Вне React: `getPerfProfile(useSettingsStore.getState().perfMode)`.
-- **Глобальный visibility-gate**: один слушатель в `lib/perf.ts` (`setupVisibilityGate`) ставит `html[data-app-hidden]`,
-  а `index.css` паузит ВСЕ анимации при свёрнутом окне (WebView не throttle'ит). `lib/audio.ts notify()` тоже
-  early-return при hidden. **Не изобретать поштучную visibility-паузу в компонентах** — она уже глобальная.
-
-**Гибрид — где что гейтить:**
-
-- **CSS-классовые эффекты** (`.glass`/`.glass-featured`/`.npb-glass`, кейфреймы в `index.css`) — гейтятся в `index.css`
-  через `[data-perf="…"]`: радиусы на `var(--glass-blur | --glass-blur-strong | --glass-blur-soft)`, light = solid-tint
-  своп. Добавляешь новый glass-класс — вешай радиус на `var(--glass-blur)` и добавь его в light-блок.
-- **Инлайновые эффекты** (`style={{ backdropFilter, filter, animation }}`, число частиц, целые декоративные
-  поддеревья) — гейтятся в компоненте через `usePerfMode()`. Инлайн-стиль CSS-классом не перебить, только JS.
-
-**Паттерны** (правило: выражай эффект ЧЕРЕЗ API — тогда в beauty `blur()`/`particles()` вернут оригинал, булевы =
-`true`,
-и beauty сходится к исходнику сам; НИКОГДА не хардкодить уменьшенную константу):
-
-```tsx
-const perf = usePerfMode();
-const b = perf.blur(40);
-// blur → 0 в light: дропни backdrop-filter и подставь solid-tint (тёмный фрост сохраняется плоским)
-style = {
-{
-  backdropFilter: b ? `blur(${b}px) saturate(160%)` : undefined,
-          WebkitBackdropFilter
-:
-  b ? `blur(${b}px) saturate(160%)` : undefined,
-          background
-:
-  b ? '<оригинальный bg>' : 'rgba(20,20,24,0.85)',
-}
-}
-// частицы:        SEEDS.slice(0, perf.particles(SEEDS.length))   // 0 → не рендерить
-// атмосфера/блум: {perf.atmosphere && <AuraField/>}  /  {perf.bloom && <Glow/>}
-// idle-анимация:  animation: perf.idleAnim ? 'drift 8s infinite' : undefined   // hover-анимации НЕ трогать
-// glow:           boxShadow: perf.glow ? '0 0 6px var(--color-accent-glow)' : undefined
-```
-
-- **`scale` на blur запрещён** (пересчёт гаусса каждый кадр, см. коммент `sw-aurora` в `index.css`). Если дизайн требует
-  «дыхание» орба в beauty — ДВА кейфрейма: `orb-drift` (со `scale`) для beauty, `orb-drift-lite` (только `translate3d`)
-  для medium; компонент выбирает по `perf.mode === 'beauty'`. Образец — `AuraField` / `search/Atmosphere`.
-- `settings.glassBlur` — **мёртвый**, не использовать; блюр гонит только `perfMode`.
-
-## Как верстать экран
-
-1. **Дизайн — через skill.** Любой новый экран / редизайн / нетривиальный компонент верстать с подключённым skill
-   **`frontend-design`** — он даёт отличительный, не «AI-generic» вид. Без него выходит шаблонно. (Концепт-метафора
-   важнее раскладки — не рескин.)
-2. **Атмосферный фон** — `fixed inset-0` + `contain:strict` + `translateZ(0)`, контент `relative z-10` +
-   `isolation:isolate` (см. `AuraField` / `search/Atmosphere`). Монтаж гейтить на `perf.atmosphere`.
-3. Каждый инлайновый `backdrop-filter`/`filter:blur` — через `perf.blur()` + solid-tint своп на 0.
-4. Любое декоративное поле частиц/звёзд — счётчик через `perf.particles()`, свечения под `perf.glow`, анимации под
-   `perf.idleAnim`.
-5. Большие наборы — только `VirtualList`/`VirtualGrid`; горизонтальные ленты — кап/виртуализация, не «пусть висит».
-6. Проверить во ВСЕХ трёх режимах: beauty = как задумано, light = плоско/быстро но узнаваемо, medium = посередине.
-7. **Выделение текста.** Весь UI по умолчанию `user-select:none` (`body` в `index.css`) — это нативный десктоп-фил,
-   нельзя выделить случайный div. Копируемый ТЕКСТ-КОНТЕНТ (описания, био, тела комментов, markdown/новости) опт-инить
-   классом `selectable` (наследуется детям); инпуты/`[contenteditable]` уже selectable глобально. Хром — заголовки,
-   имена, числа, длительности, бейджи, лейблы, лирику (click-to-seek) — НЕ опт-инить.
-8. **Никаких карточек-обёрток (общее правило).** Не заворачивать контентные секции в скруглённые контейнеры
-   (`rounded-*` + фон/бордер/тень). Вёрстка открытая: секция → заголовок → содержимое, разделяемое отступами и
-   hairline-разделителями. Скруглённые поверхности допустимы только для модалок/поповеров, кнопок, полей ввода,
-   артворка/аватаров и мелких чипов. Не вкладывать карточку в карточку.
-
-## Производительность CSS (КРИТИЧНО)
-
-Это десктоп на WebView (WebKitGTK / WebView2), не браузер. WebView НЕ throttle'ит таймеры/rAF при сворачивании. Каждый
-лишний repaint стоит дорого.
-
-### Blur и backdrop-filter
-- **`filter: blur()` и `backdrop-filter: blur()`** — самые дорогие CSS-свойства. Blur пересчитывается при КАЖДОМ repaint в той же compositing layer.
-- **НИКОГДА** не класть динамический контент (слайдеры, анимации, скролл) в один compositing layer с blur-элементом. Blur-фон и контент ОБЯЗАНЫ быть в разных слоях.
-- Blur-элемент: `contain: strict` + `transform: translateZ(0)` — выносит в отдельный GPU layer.
-- Контент поверх blur: `isolation: isolate` — создаёт новый stacking context, repaints не каскадируют к blur.
-- Пример правильной структуры:
-  ```tsx
-  <div className="relative">
-    {/* GPU-isolated blur background */}
-    <div className="absolute inset-0 blur-3xl" style={{ contain: 'strict', transform: 'translateZ(0)' }} />
-    {/* Content — repaints here don't recalculate blur */}
-    <div className="relative" style={{ isolation: 'isolate' }}>
-      <DynamicContent />
-    </div>
-  </div>
-  ```
-
-### Атмосферный слой страницы (свечение / орбы)
-
-Иммерсивные страницы (Search, UserPage, ArtistPage, Discover, AlbumPage) накладывают фон-свечение — дрейфующие орбы (
-`mix-blend-screen`, `blur 120–160px`). Контент скроллится внутри `<main>` (`overflow-y-auto`, глобальный `pb-[136px]`
-под парящий NowPlayingBar), а плеер парит ПОВЕРХ контента.
-
-- **Атмосферный слой позиционируй `fixed inset-0`, НЕ `absolute inset-0`.** `absolute` привязывает свечение к боксу
-  контента: на длинной странице орбы уезжают со скроллом, а низ вьюпорта (за парящим плеером) и боковые края остаются
-  тёмными. `fixed` крепит слой к вьюпорту — свечение всегда на весь экран, включая низ и бока.
-- Обязательно: `pointer-events-none` + `contain: strict` + `transform: translateZ(0)` (свой GPU-слой). Контент над ним —
-  `relative z-10` + `isolation: isolate` (порядок стекинга среди positioned-сиблингов = DOM-order, так что `fixed`-фон
-  остаётся позади).
-- Распредели орбы так, чтобы хотя бы один светил **снизу** (`-bottom-[…]`), иначе нижняя кромка пустая даже при `fixed`.
-- **Вспоминать когда:** делаешь/правишь страницу с фоновой атмосферой и «снизу/по бокам нет свечения» или оно «уезжает
-  при скролле». Общий слой — `components/user/AuraField.tsx` (User/Artist/Discover/Album), у Search свой
-  `components/search/Atmosphere.tsx`; оба уже `fixed`.
-
-### Transitions и анимации
-
-- **НИКОГДА** не анимировать `font-size`, `width`, `height`, `padding`, `margin` — это layout properties, вызывают
-  reflow всего поддерева.
-- Для визуального увеличения текста — `transform: scale()`, не `font-size`. Scale — composite-only, GPU.
-- Безопасные для анимации: `transform`, `opacity`, `color`, `background-color`.
-- `will-change: transform` — на элементах с частыми style changes (слайдеры, progress bars). Не злоупотреблять: каждый
-  `will-change` — отдельный GPU layer и память.
-
-### DOM-обновления
-
-- **querySelectorAll** — дорого. Один раз на mount, кеш в `useRef`. Не в циклах/таймерах.
-- **scrollTo({ behavior: 'smooth' })** — запускает CSS-анимацию скролла. Не чаще раза в 200ms.
-
-## Производительность JS
-
-### Таймеры и циклы обновления
-
-- **requestAnimationFrame** — 60 вызовов/сек. Использовать только когда нужна синхронизация с vsync (drag, жесты). Для
-  progress bars достаточно `setInterval(100)` (~10fps).
-- **Частота обновления = скорости изменения данных.** Прогресс-бар: 10–30fps. Синхронизированная лирика: 5fps.
-  MediaSession sync: раз в 5 сек.
-- **Visibility API** — при `document.visibilityState === 'hidden'` полностью останавливать UI-обновления (
-  setInterval/rAF). Оставлять только фоновые задачи (MediaSession sync). WebView НЕ замедляет таймеры автоматически.
-
-### Аудио engine (lib/audio.ts)
-
-- Сам декод и воспроизведение живут в Rust (`audio/engine.rs`). Frontend держит ровно две переменные — `cachedTime` /
-  `cachedDuration` — и обновляет их по событию `audio:tick` от Rust.
-- `subscribe()` + `notify()` — паттерн для `useSyncExternalStore`. `notify()` вызывается из listener'а `audio:tick`, НЕ
-  в rAF.
-- Listeners читают кеш, НЕ зовут лишних `invoke('audio_get_position')`. `invoke` на каждый кадр — гарантированный тормоз
-  через JS↔Rust bridge.
-- При `visibilitychange: hidden` тяжёлые UI-подписки тушатся; MediaSession и Discord Presence продолжают идти от событий
-  Rust.
-- Команды от media-keys / системных контролов приходят как `media:play|pause|toggle|next|prev|seek|seek-relative`. Не
-  дублировать обработку в JS.
-
-### Общие правила
-
-- **Не подписываться на audio subscribe из компонентов без необходимости.** Если данные обновляются редко (лирика,
-  waveform), завести свой `setInterval` с подходящей частотой.
-- **Partial DOM updates.** Из 100 элементов изменился один — обновлять только его.
-- **Кешировать DOM-ссылки.** `querySelectorAll` → `useRef<HTMLElement[]>`, обновлять при mount/unmount.
-- **Сначала думать о цене решения.** Перед добавлением логики оценивать цену по re-render, layout, paint, GC, bridge
-  JS↔Rust, I/O и памяти. Если можно убрать архитектурно — убирать, а не маскировать `memo`.
-
-## Проверки
-
-- **UI-правки** проверять через `pnpm tauri dev` (Vite HMR, без релизной сборки). Релизный `pnpm tauri build` — только
-  когда нужен установщик.
-- `npx tsc --noEmit` — типы React/TS
-- `cargo check` (в `src-tauri/`) — компиляция Rust
-- `pnpm check` (или `npx biome check`) — линтинг + форматирование (Biome в режиме `--write`)
+- [`../HANDOVER.md`](../HANDOVER.md) — 現在の状態、既知の問題、次の作業
+- `../README.md` — プロジェクト概要（英語 / 日本語）
