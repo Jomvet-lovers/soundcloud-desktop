@@ -46,8 +46,10 @@ export function OfflinePage() {
   );
 
   const handleSignIn = useCallback(() => {
+    // Dropping the offline bypass re-renders App into <Login/>; there is no
+    // /login route, so just reset the location to a real one.
     useAppStatusStore.getState().setOfflineBypass(false);
-    navigate('/login');
+    navigate('/');
   }, [navigate]);
 
   const handleTryOnline = useCallback(() => {
