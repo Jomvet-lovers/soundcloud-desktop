@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AudioLines, Compass, Disc3, Headphones, playBlack14, Sparkles } from '../../../lib/icons';
+import { AudioLines, Compass, Disc3, Headphones, playBlack14 } from '../../../lib/icons';
 import { usePlayerStore } from '../../../stores/player';
 import { useSettingsStore } from '../../../stores/settings';
 import {
@@ -115,17 +115,6 @@ export const SoundWaveSimilarBlock = React.memo(function SoundWaveSimilarBlock({
               <h2 className="soundwave-title text-[18px] font-black tracking-tight leading-none">
                 {t('soundwave.similar.title')}
               </h2>
-              <span
-                className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.16em] px-2 py-[3px] rounded-full text-white/90"
-                style={{
-                  background:
-                    'linear-gradient(135deg, var(--color-accent-glow), rgba(255,255,255,0.06))',
-                  border: '0.5px solid var(--color-accent-glow)',
-                }}
-              >
-                <Sparkles size={9} style={{ color: 'var(--color-accent)' }} />
-                AI
-              </span>
             </div>
             <p className="text-[11.5px] text-white/45 mt-1 truncate">
               {t('soundwave.similar.desc')}

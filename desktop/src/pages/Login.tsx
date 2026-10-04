@@ -14,7 +14,6 @@ import {
     Smartphone,
 } from '../lib/icons';
 import { trackedInvoke as invoke } from '../lib/diagnostics';
-import {usePerfMode} from '../lib/perf';
 import {DIRECT_MODE} from '../lib/constants';
 import {queryClient} from '../lib/query-client';
 import {useOAuthFlow} from '../lib/use-oauth-flow';
@@ -24,7 +23,6 @@ import {useAuthStore} from '../stores/auth';
 export function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-    const perf = usePerfMode();
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
   const setOfflineBypass = useAppStatusStore((s) => s.setOfflineBypass);
@@ -103,12 +101,8 @@ export function Login() {
                 className="relative overflow-hidden rounded-[2.25rem] px-8 pt-9 pb-7"
                 style={{
                     border: '0.5px solid rgba(255,255,255,0.1)',
-                    background:
-                        'linear-gradient(165deg, rgba(255,255,255,0.06), rgba(255,255,255,0.018) 60%, rgba(255,255,255,0.035))',
-                    backdropFilter: 'blur(60px) saturate(1.5)',
-                    WebkitBackdropFilter: 'blur(60px) saturate(1.5)',
-                    boxShadow:
-                        '0 40px 100px rgba(0,0,0,0.55), 0 0 80px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.08)',
+                    background: 'rgba(18, 18, 22, 0.97)',
+                    boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
                 }}
             >
           <span
@@ -137,7 +131,7 @@ export function Login() {
                                     </p>
                                 </div>
                             </div>
-                            <PrimaryButton onClick={handleLogin} idle={perf.idleAnim}>
+                            <PrimaryButton onClick={handleLogin}>
                                 <RefreshCw size={15} strokeWidth={2}/>
                                 {t('auth.retry')}
                             </PrimaryButton>
@@ -176,7 +170,7 @@ export function Login() {
                         <div className="flex flex-col items-stretch gap-3">
                             {!DIRECT_MODE && (
                                 <>
-                                    <PrimaryButton onClick={handleLogin} idle={perf.idleAnim}>
+                                    <PrimaryButton onClick={handleLogin}>
                                         {t('auth.signIn')}
                                         <ChevronRight size={16} strokeWidth={2.4}/>
                                     </PrimaryButton>
@@ -237,14 +231,12 @@ export function Login() {
   );
 }
 
-/** Primary accent CTA with a sweeping shine. */
+/** Primary accent CTA (flat). */
 function PrimaryButton({
                            onClick,
-                           idle,
                            children,
                        }: {
     onClick: () => void;
-    idle: boolean;
     children: ReactNode;
 }) {
   return (
@@ -254,21 +246,9 @@ function PrimaryButton({
       className="group relative w-full h-12 overflow-hidden rounded-2xl text-sm font-bold cursor-pointer transition-transform duration-200 ease-[var(--ease-apple)] hover:scale-[1.02] active:scale-[0.97]"
       style={{
           color: 'var(--color-accent-contrast)',
-          background: 'linear-gradient(180deg, var(--color-accent), var(--color-accent-hover))',
-          boxShadow:
-              '0 14px 40px var(--color-accent-glow), 0 0 30px var(--color-accent-glow), inset 0 1px 0 rgba(255,255,255,0.28)',
+          background: 'var(--color-accent)',
       }}
     >
-        {idle && (
-            <span
-                aria-hidden
-                className="auth-anim absolute inset-y-0 left-0 w-1/3"
-                style={{
-                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent)',
-                    animation: 'auth-shine 4.5s ease-in-out infinite',
-                }}
-            />
-        )}
         <span className="relative flex items-center justify-center gap-2">{children}</span>
     </button>
   );

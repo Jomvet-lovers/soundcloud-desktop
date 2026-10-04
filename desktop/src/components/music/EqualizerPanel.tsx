@@ -89,9 +89,9 @@ const BandSlider = React.memo(function BandSlider({
             bottom: gain >= 0 ? '50%' : `${pct * 100}%`,
             top: gain >= 0 ? `${(1 - pct) * 100}%` : '50%',
             background: isPositive
-              ? 'linear-gradient(to top, rgba(52,211,153,0.6), rgba(52,211,153,0.2))'
+              ? 'rgba(52,211,153,0.5)'
               : isNegative
-                ? 'linear-gradient(to bottom, rgba(96,165,250,0.6), rgba(96,165,250,0.2))'
+                ? 'rgba(96,165,250,0.5)'
                 : 'transparent',
           }}
         />

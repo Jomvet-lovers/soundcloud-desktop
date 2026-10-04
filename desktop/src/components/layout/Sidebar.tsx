@@ -45,13 +45,11 @@ const navItems: { to: string; icon: IconCmp; label: string }[] = [
 const ROW = 'group relative w-full flex items-center h-10 rounded-xl transition-all duration-200';
 const LABEL_T = 'max-width 320ms cubic-bezier(0.2,0.8,0.2,1), opacity 240ms ease';
 
-// Active = accent-glow glass pill (matches the header). Readable on any accent
-// because the accent is a translucent wash over dark glass, text stays white.
+// Active = flat accent wash. Readable on any accent because the accent is a
+// translucent wash over the dark surface; text stays white.
 const ACTIVE: React.CSSProperties = {
   color: '#fff',
-  background:
-    'linear-gradient(180deg, var(--color-accent-glow), transparent), rgba(255,255,255,0.05)',
-  boxShadow: '0 0 18px var(--color-accent-glow), inset 0 0.5px 0 rgba(255,255,255,0.14)',
+  background: 'rgba(255,255,255,0.08)',
 };
 
 /** A label that always exists but folds away purely via CSS on collapse — no JS

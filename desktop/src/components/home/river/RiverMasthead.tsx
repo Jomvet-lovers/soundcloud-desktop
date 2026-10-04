@@ -1,10 +1,7 @@
 import {memo} from 'react';
 import {useTranslation} from 'react-i18next';
-import {auraRgba} from '../../../lib/aura';
 import {art} from '../../../lib/formatters';
 import {User as UserIcon} from '../../../lib/icons';
-import {usePerfMode} from '../../../lib/perf';
-import {usePlayerStore} from '../../../stores/player';
 import {SoundprintBars} from '../../library/SoundprintBars';
 import type {Soundprint} from '../../library/useSoundprint';
 import {VibePortal} from '../../music/soundwave/vibe-portal';
@@ -36,55 +33,19 @@ export const RiverMasthead = memo(function RiverMasthead({
   onSelect: (genre: string | null) => void;
 }) {
   const { t } = useTranslation();
-  const perf = usePerfMode();
-  const isPlaying = usePlayerStore((s) => s.isPlaying);
   const avatar = art(user.avatar_url, 't300x300');
 
   return (
     <header className="pt-2">
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0">
-          <div className="mb-2.5 flex items-center gap-2.5">
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.12] px-2.5 py-1 text-[9.5px] font-bold tracking-[0.16em] text-white/70"
-              style={{ background: 'rgba(255,255,255,0.03)' }}
-            >
-              <span
-                className="riv-anim size-[6px] rounded-full"
-                style={{
-                  background: 'var(--color-accent)',
-                  boxShadow: perf.glow ? '0 0 8px var(--color-accent)' : undefined,
-                  animation:
-                    isPlaying && perf.idleAnim ? 'riv-pulse 1.6s ease-in-out infinite' : undefined,
-                }}
-              />
-              {t('soundwave.river.live')}
-            </span>
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.22em] text-white/30">
-              {t('soundwave.river.personal')}
-            </span>
-          </div>
-          <h1
-            className="break-words text-[26px] font-black leading-[1.05] tracking-tight md:text-[32px]"
-            style={{
-              backgroundImage: sound.aura.nameGradient,
-              WebkitBackgroundClip: 'text',
-              backgroundClip: 'text',
-              color: 'transparent',
-            }}
-          >
+          <h1 className="break-words text-[26px] font-black leading-[1.05] tracking-tight text-white/92 md:text-[32px]">
             {t(greetingKey(), { name: user.username })}
           </h1>
           <p className="mt-2 text-[13.5px] text-white/50">{t('soundwave.tagline')}</p>
         </div>
 
-        <div
-          className="relative size-16 flex-none overflow-hidden rounded-full"
-          style={{
-            border: `0.5px solid ${auraRgba(sound.aura, 0.4)}`,
-            boxShadow: `0 10px 30px ${sound.accentGlow}`,
-          }}
-        >
+        <div className="relative size-16 flex-none overflow-hidden rounded-full ring-1 ring-white/10">
           {avatar ? (
             <img src={avatar} alt="" className="size-full object-cover" decoding="async" />
           ) : (

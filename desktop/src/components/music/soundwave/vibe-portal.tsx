@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router-dom';
-import {AudioLines, ChevronRight, Sparkles} from '../../../lib/icons';
+import {AudioLines, ChevronRight} from '../../../lib/icons';
 import {usePerfMode} from '../../../lib/perf';
 import {useSearchPrefsStore} from '../../../stores/searchPrefs';
 
@@ -220,17 +220,6 @@ export const VibePortal = React.memo(function VibePortal({className}: Props) {
           <span className="flex items-center gap-2">
             <span className="vp-title text-[15px] font-semibold leading-tight text-white/95">
               {t('soundwave.vibeCta.title')}
-            </span>
-            <span
-                className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.14em]"
-                style={{
-                    color: 'var(--color-accent-contrast)',
-                    background: 'var(--color-accent)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.25)',
-                }}
-            >
-              <Sparkles size={9} style={{color: 'var(--color-accent-contrast)'}}/>
-                {t('soundwave.vibeCta.badge')}
             </span>
           </span>
           <span className="mt-0.5 block truncate text-[12px] text-white/50">

@@ -1311,3 +1311,29 @@ select,
         animation: none;
     }
 }
+
+/* ── Flat pass ──────────────────────────────────────────────────
+   The fork strips the decorative layer: no gradient text, no gradient
+   backgrounds, no glow shadows. These rules also hit inline styles, so
+   one block covers every screen. */
+[style*="background-clip"] {
+    background-image: none !important;
+    color: rgba(255, 255, 255, 0.92) !important;
+    -webkit-text-fill-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+[style*="gradient"] {
+    background-image: none !important;
+}
+
+[style*="glow"] {
+    box-shadow: none !important;
+}
+
+/* Now-playing bar: flat surface, no glow ring. */
+.npb,
+.npb-glass,
+.npb-dock {
+    background-image: none !important;
+    box-shadow: none !important;
+}
