@@ -155,7 +155,6 @@ pub fn run() {
             audio::start_default_output_monitor(app.handle());
             audio::start_fft_thread(app.handle().clone(), analyser_buffer);
 
-            app.manage(app::popover::TrayState::default());
             app::tray::setup_tray(app).expect("failed to setup tray");
 
             let auth_state =
@@ -169,17 +168,6 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
-            // Transient popover (tray left-click) dismisses on blur; a pinned one
-            // (opened from the "Mini player" menu) stays put — closed only by its ✕.
-            tauri::WindowEvent::Focused(false)
-            if window.label() == app::popover::LABEL =>
-                {
-                    let st = window.app_handle().state::<app::popover::TrayState>();
-                    if !st.is_pinned() {
-                        let _ = window.hide();
-                        st.mark_hidden();
-                    }
-                }
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![

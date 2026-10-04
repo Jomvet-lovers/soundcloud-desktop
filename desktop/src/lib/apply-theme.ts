@@ -1,7 +1,6 @@
 /**
- * Shared theme/perf var application. Used by the main-window ThemeProvider and the
- * standalone tray-popover window (a separate webview context that can't read the
- * main window's :root vars), so the accent + perf gating stay byte-identical.
+ * Shared theme/perf var application: accent + background vars and perf gating,
+ * written onto the app root by the ThemeProvider.
  */
 
 function hexToRgb(hex: string): string {

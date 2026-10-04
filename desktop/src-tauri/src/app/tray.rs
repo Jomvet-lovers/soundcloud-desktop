@@ -12,7 +12,6 @@
 
 use tauri::{Emitter, Manager};
 
-use crate::app::popover;
 use crate::rt::AppHandle;
 
 pub fn setup_tray(app: &crate::rt::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -39,7 +38,6 @@ fn run_action(app: &AppHandle, id: &str) {
                 let _ = w.set_focus();
             }
         }
-        "mini" => popover::open_pinned(&h),
         "quit" => {
             // На CEF graceful `app.exit()` может зависнуть в teardown (кросс-процессный
             // OnBeforeClose окон/вебвью не завершается) → жёсткий выход; Chromium-хелперы
@@ -54,12 +52,6 @@ fn run_action(app: &AppHandle, id: &str) {
         }
         _ => {}
     });
-}
-
-/// Тоггл мини-плеера у точки клика (на main-потоке).
-fn toggle_popover(app: &AppHandle, cursor: Option<(f64, f64)>) {
-    let h = app.clone();
-    let _ = app.run_on_main_thread(move || popover::toggle(&h, cursor));
 }
 
 // ---------------------------------------------------------------------------
@@ -86,9 +78,9 @@ mod linux {
         fn icon_pixmap(&self) -> Vec<ksni::Icon> {
             self.icon.clone()
         }
-        // Левый клик по иконке → мини-плеер у курсора.
-        fn activate(&mut self, x: i32, y: i32) {
-            super::toggle_popover(&self.app, Some((x as f64, y as f64)));
+        // Левый клик по иконке → показать главное окно.
+        fn activate(&mut self, _x: i32, _y: i32) {
+            super::run_action(&self.app, "show");
         }
         fn menu(&self) -> Vec<MenuItem<Self>> {
             use ksni::menu::StandardItem;
@@ -102,7 +94,6 @@ mod linux {
             };
             vec![
                 item("Show", "show"),
-                item("Mini player", "mini"),
                 MenuItem::Separator,
                 item("Play / Pause", "play_pause"),
                 item("Previous", "prev"),
@@ -155,21 +146,20 @@ mod native {
 
     pub fn setup(app: &crate::rt::App) -> Result<(), Box<dyn std::error::Error>> {
         let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
-        let mini = MenuItemBuilder::with_id("mini", "Mini player").build(app)?;
         let play_pause = MenuItemBuilder::with_id("play_pause", "Play / Pause").build(app)?;
         let next = MenuItemBuilder::with_id("next", "Next").build(app)?;
         let prev = MenuItemBuilder::with_id("prev", "Previous").build(app)?;
         let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
         let menu = MenuBuilder::new(app)
-            .items(&[&show, &mini, &play_pause, &prev, &next, &quit])
+            .items(&[&show, &play_pause, &prev, &next, &quit])
             .build()?;
 
         TrayIconBuilder::new()
             .icon(app.default_window_icon().cloned().expect("no app icon"))
             .tooltip("SoundCloud Desktop")
             .menu(&menu)
-            // Левый клик открывает мини-плеер (ниже); меню — на правый клик.
+            // Левый клик показывает главное окно; меню — на правый клик.
             .show_menu_on_left_click(false)
             .on_menu_event(|app, event| super::run_action(app, event.id().as_ref()))
             .on_tray_icon_event(|tray, event| {
@@ -178,11 +168,10 @@ mod native {
                 if let tauri::tray::TrayIconEvent::Click {
                     button: tauri::tray::MouseButton::Left,
                     button_state: tauri::tray::MouseButtonState::Up,
-                    position,
                     ..
                 } = event
                 {
-                    super::toggle_popover(tray.app_handle(), Some((position.x, position.y)));
+                    super::run_action(tray.app_handle(), "show");
                 }
             })
             .build(app)?;
