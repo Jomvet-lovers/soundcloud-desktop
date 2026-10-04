@@ -1,14 +1,11 @@
 import type {ReactNode} from 'react';
-import {Cloud, Database, Eye, Globe, Headphones, Link, User} from '../../lib/icons';
+import {Database, Eye, Globe, Headphones, Link, User} from '../../lib/icons';
 import {AccountCard} from './cards/AccountCard';
 import {AudioDeviceCard} from './cards/AudioDeviceCard';
 import {CacheCard} from './cards/CacheCard';
 import {DiscordCard} from './cards/DiscordCard';
-import {LanguageCard} from './cards/LanguageCard';
-import {NetworkCard} from './cards/NetworkCard';
 import {PerformanceCard} from './cards/PerformanceCard';
 import {PlaybackCard} from './cards/PlaybackCard';
-import {SoundForgeCard} from './cards/SoundForgeCard';
 import {StartupCard} from './cards/StartupCard';
 import {ThemeCard} from './cards/ThemeCard';
 import {WallpaperCard} from './cards/WallpaperCard';
@@ -17,7 +14,6 @@ export type SettingsCategoryId =
     | 'general'
     | 'appearance'
     | 'audio'
-    | 'network'
     | 'integrations'
     | 'storage'
     | 'account';
@@ -37,7 +33,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         icon: <Globe size={17}/>,
         Body: () => (
             <>
-                <LanguageCard/>
                 <StartupCard/>
             </>
         ),
@@ -66,16 +61,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         ),
     },
     {
-        id: 'network',
-        labelKey: 'settings.catNetwork',
-        icon: <Cloud size={17}/>,
-        Body: () => (
-            <>
-                <NetworkCard/>
-            </>
-        ),
-    },
-    {
         id: 'integrations',
         labelKey: 'settings.catIntegrations',
         icon: <Link size={17}/>,
@@ -91,7 +76,6 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         icon: <Database size={17}/>,
         Body: () => (
             <>
-                <SoundForgeCard/>
                 <CacheCard/>
             </>
         ),

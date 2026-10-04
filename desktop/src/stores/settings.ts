@@ -70,7 +70,6 @@ export interface SettingsState {
   eqPreset: string;
   normalizeVolume: boolean;
   highQualityStreaming: boolean;
-  bypassWhitelist: boolean;
   sidebarCollapsed: boolean;
   floatingComments: boolean;
   startupPage: StartupPage;
@@ -78,13 +77,6 @@ export interface SettingsState {
   discordRpcEnabled: boolean;
   discordRpcMode: DiscordRpcMode;
   discordRpcShowButton: boolean;
-  soundwaveLanguages: string[];
-  soundwaveMode: 'similar' | 'diverse';
-  soundwaveHideLiked: boolean;
-  soundwaveHideListened: boolean;
-  lyricsVisualizer: boolean;
-  artistWaveCollapsed: boolean;
-  wallhavenApiKey: string;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -102,7 +94,6 @@ export interface SettingsState {
   setEqBand: (index: number, gain: number) => void;
   setNormalizeVolume: (enabled: boolean) => void;
   setHighQualityStreaming: (enabled: boolean) => void;
-  setBypassWhitelist: (enabled: boolean) => void;
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   setStartupPage: (page: StartupPage) => void;
@@ -111,13 +102,6 @@ export interface SettingsState {
   setDiscordRpcEnabled: (enabled: boolean) => void;
   setDiscordRpcMode: (mode: DiscordRpcMode) => void;
   setDiscordRpcShowButton: (show: boolean) => void;
-  setSoundwaveLanguages: (langs: string[]) => void;
-  setSoundwaveMode: (mode: 'similar' | 'diverse') => void;
-  setSoundwaveHideLiked: (v: boolean) => void;
-  setSoundwaveHideListened: (v: boolean) => void;
-  setLyricsVisualizer: (v: boolean) => void;
-  setArtistWaveCollapsed: (v: boolean) => void;
-  setWallhavenApiKey: (key: string) => void;
   resetTheme: () => void;
 }
 
@@ -140,7 +124,6 @@ const DEFAULTS = {
   eqPreset: 'flat',
   normalizeVolume: true,
   highQualityStreaming: false,
-  bypassWhitelist: false,
   sidebarCollapsed: false,
   floatingComments: true,
   startupPage: 'home' as StartupPage,
@@ -148,13 +131,6 @@ const DEFAULTS = {
   discordRpcEnabled: true,
   discordRpcMode: 'track' as DiscordRpcMode,
   discordRpcShowButton: true,
-  soundwaveLanguages: [] as string[],
-  soundwaveMode: 'similar' as 'similar' | 'diverse',
-  soundwaveHideLiked: false,
-  soundwaveHideListened: true,
-  lyricsVisualizer: false,
-  artistWaveCollapsed: false,
-  wallhavenApiKey: '',
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -190,7 +166,6 @@ export const useSettingsStore = create<SettingsState>()(
         }),
       setNormalizeVolume: (normalizeVolume) => set({ normalizeVolume }),
       setHighQualityStreaming: (highQualityStreaming) => set({ highQualityStreaming }),
-      setBypassWhitelist: (bypassWhitelist) => set({ bypassWhitelist }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setStartupPage: (startupPage) => set({ startupPage }),
@@ -208,13 +183,6 @@ export const useSettingsStore = create<SettingsState>()(
       setDiscordRpcEnabled: (discordRpcEnabled) => set({ discordRpcEnabled }),
       setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
-      setSoundwaveLanguages: (soundwaveLanguages) => set({ soundwaveLanguages }),
-      setSoundwaveMode: (soundwaveMode) => set({ soundwaveMode }),
-      setSoundwaveHideLiked: (soundwaveHideLiked) => set({ soundwaveHideLiked }),
-      setSoundwaveHideListened: (soundwaveHideListened) => set({ soundwaveHideListened }),
-      setLyricsVisualizer: (lyricsVisualizer) => set({ lyricsVisualizer }),
-      setArtistWaveCollapsed: (artistWaveCollapsed) => set({ artistWaveCollapsed }),
-      setWallhavenApiKey: (wallhavenApiKey) => set({ wallhavenApiKey }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -235,16 +203,11 @@ export const useSettingsStore = create<SettingsState>()(
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;
         };
-        // v13 → v14: diversity-slider (0..1) → toggle ('similar' | 'diverse').
-        // > 0.5 трактуем как 'diverse', иначе 'similar'.
-        const inferredMode: 'similar' | 'diverse' =
-          typeof prev.soundwaveDiversity === 'number' && prev.soundwaveDiversity > 0.5
-            ? 'diverse'
-            : 'similar';
+        // v13 → v14 migration kept for compatibility: drop the old
+        // diversity slider value; SoundWave was removed entirely.
         return {
           ...DEFAULTS,
           ...prev,
-          soundwaveMode: prev.soundwaveMode ?? inferredMode,
         } as SettingsState;
       },
       partialize: (s) => ({
@@ -264,7 +227,6 @@ export const useSettingsStore = create<SettingsState>()(
         eqPreset: s.eqPreset,
         normalizeVolume: s.normalizeVolume,
         highQualityStreaming: s.highQualityStreaming,
-        bypassWhitelist: s.bypassWhitelist,
         sidebarCollapsed: s.sidebarCollapsed,
         floatingComments: s.floatingComments,
         startupPage: s.startupPage,
@@ -272,13 +234,6 @@ export const useSettingsStore = create<SettingsState>()(
         discordRpcEnabled: s.discordRpcEnabled,
         discordRpcMode: s.discordRpcMode,
         discordRpcShowButton: s.discordRpcShowButton,
-        soundwaveLanguages: s.soundwaveLanguages,
-        soundwaveMode: s.soundwaveMode,
-        soundwaveHideLiked: s.soundwaveHideLiked,
-        soundwaveHideListened: s.soundwaveHideListened,
-        lyricsVisualizer: s.lyricsVisualizer,
-        artistWaveCollapsed: s.artistWaveCollapsed,
-        wallhavenApiKey: s.wallhavenApiKey,
       }),
     },
   ),

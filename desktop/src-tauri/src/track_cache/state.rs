@@ -1603,7 +1603,7 @@ impl TrackCacheState {
         // 2. Try anon: download directly from SC public API v2.
         //    Saves a hop through our streaming infra when the user can reach
         //    SoundCloud directly.
-        match self.anon.get_stream(urn).await {
+        match self.anon.get_stream(urn, hq).await {
             Ok(Some(result)) => {
                 let line = format!("[TrackCache] {urn} → anon (SC api v2)");
                 println!("{line}");

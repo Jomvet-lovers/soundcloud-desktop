@@ -27,6 +27,8 @@ const SC_USER_AGENT: &str =
 /// Preset preference: progressive first (one GET, no chunk failures), then
 /// HLS by preset preference.
 const PRESET_ORDER: &[&str] = &["mp3_1_0", "aac_160k", "opus_0_0", "abr_sq"];
+/// High-quality preference: AAC first (160k / abr_sq), MP3 as a fallback.
+const HQ_PRESET_ORDER: &[&str] = &["aac_160k", "abr_sq", "mp3_1_0", "opus_0_0"];
 
 /// Circuit breaker: trip after this many consecutive network failures so users
 /// behind a regulator that blocks SC don't pay 1.5s connect-timeout per track.
@@ -140,11 +142,15 @@ impl AnonClient {
     /// Returns `Ok(None)` if SC has no usable transcoding (geo-blocked,
     /// preview-only, etc.) so the caller can fall through to the next source.
     /// `Err` is reserved for network failures and feeds the circuit breaker.
-    pub async fn get_stream(&self, track_urn: &str) -> Result<Option<AnonStreamResult>, String> {
+    pub async fn get_stream(
+        &self,
+        track_urn: &str,
+        hq: bool,
+    ) -> Result<Option<AnonStreamResult>, String> {
         if self.in_cooldown() {
             return Ok(None);
         }
-        let result = self.do_get_stream(track_urn).await;
+        let result = self.do_get_stream(track_urn, hq).await;
         match &result {
             Ok(Some(_)) => self.note_success(),
             Err(_) => self.note_failure(),
@@ -153,7 +159,11 @@ impl AnonClient {
         result
     }
 
-    async fn do_get_stream(&self, track_urn: &str) -> Result<Option<AnonStreamResult>, String> {
+    async fn do_get_stream(
+        &self,
+        track_urn: &str,
+        hq: bool,
+    ) -> Result<Option<AnonStreamResult>, String> {
         let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
 
         let track = match self.get_track_by_id(track_id).await {
@@ -201,7 +211,7 @@ impl AnonClient {
         };
 
         match self
-            .stream_from_transcodings(transcodings, track_auth.as_deref())
+            .stream_from_transcodings(transcodings, track_auth.as_deref(), hq)
             .await
         {
             Ok(Some(r)) => Ok(Some(r)),
@@ -227,7 +237,7 @@ impl AnonClient {
                 if retry_transcodings.is_empty() {
                     return Ok(None);
                 }
-                self.stream_from_transcodings(&retry_transcodings, retry_auth.as_deref())
+                self.stream_from_transcodings(&retry_transcodings, retry_auth.as_deref(), hq)
                     .await
             }
         }
@@ -237,8 +247,9 @@ impl AnonClient {
         &self,
         transcodings: &[Transcoding],
         track_auth: Option<&str>,
+        hq: bool,
     ) -> Result<Option<AnonStreamResult>, String> {
-        let ranked = ranked_transcodings(transcodings);
+        let ranked = ranked_transcodings(transcodings, hq);
         if ranked.is_empty() {
             return Ok(None);
         }
@@ -400,7 +411,8 @@ impl AnonClient {
 
 /// Drop previews/snipped/restricted, then rank: progressive first, then HLS,
 /// each ordered by preset preference.
-fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
+fn ranked_transcodings(transcodings: &[Transcoding], hq: bool) -> Vec<&Transcoding> {
+    let order = if hq { HQ_PRESET_ORDER } else { PRESET_ORDER };
     let candidates: Vec<&Transcoding> = transcodings
         .iter()
         .filter(|t| {
@@ -424,7 +436,7 @@ fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
 
     let mut ordered: Vec<&Transcoding> = Vec::with_capacity(candidates.len());
 
-    for preset in PRESET_ORDER {
+    for preset in order {
         if let Some(t) = candidates
             .iter()
             .find(|t| is_progressive(t) && t.preset.as_deref() == Some(preset))
@@ -437,7 +449,7 @@ fn ranked_transcodings(transcodings: &[Transcoding]) -> Vec<&Transcoding> {
             ordered.push(t);
         }
     }
-    for preset in PRESET_ORDER {
+    for preset in order {
         if let Some(t) = candidates
             .iter()
             .find(|t| !is_progressive(t) && t.preset.as_deref() == Some(preset))

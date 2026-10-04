@@ -1,20 +1,16 @@
 import {useTranslation} from 'react-i18next';
 import {Headphones} from '../../../lib/icons';
 import {useSettingsStore} from '../../../stores/settings';
-import {Card, LockedToggle, PremiumBadge, Row, Toggle} from '../primitives';
+import {Card, Row, Toggle} from '../primitives';
 
 export function PlaybackCard() {
     const {t} = useTranslation();
     const floatingComments = useSettingsStore((s) => s.floatingComments);
     const setFloatingComments = useSettingsStore((s) => s.setFloatingComments);
-    const lyricsVisualizer = useSettingsStore((s) => s.lyricsVisualizer);
-    const setLyricsVisualizer = useSettingsStore((s) => s.setLyricsVisualizer);
     const normalizeVolume = useSettingsStore((s) => s.normalizeVolume);
     const setNormalizeVolume = useSettingsStore((s) => s.setNormalizeVolume);
     const highQualityStreaming = useSettingsStore((s) => s.highQualityStreaming);
     const setHighQualityStreaming = useSettingsStore((s) => s.setHighQualityStreaming);
-
-    const isPremium = false;
 
     return (
         <Card title={t('settings.playback')} icon={<Headphones size={17}/>}>
@@ -25,12 +21,6 @@ export function PlaybackCard() {
                         onChange={() => setFloatingComments(!floatingComments)}
                     />
                 </Row>
-                <Row title={t('settings.lyricsVisualizer')} desc={t('settings.lyricsVisualizerDesc')}>
-                    <Toggle
-                        checked={lyricsVisualizer}
-                        onChange={() => setLyricsVisualizer(!lyricsVisualizer)}
-                    />
-                </Row>
                 <Row title={t('settings.normalizeVolume')} desc={t('settings.normalizeVolumeDesc')}>
                     <Toggle checked={normalizeVolume} onChange={() => setNormalizeVolume(!normalizeVolume)}/>
                 </Row>
@@ -38,17 +28,10 @@ export function PlaybackCard() {
                     title={t('settings.highQualityStreaming')}
                     desc={t('settings.highQualityStreamingDesc')}
                 >
-                    {isPremium ? (
-                        <Toggle
-                            checked={highQualityStreaming}
-                            onChange={() => setHighQualityStreaming(!highQualityStreaming)}
-                        />
-                    ) : (
-                        <>
-                            <PremiumBadge/>
-                            <LockedToggle/>
-                        </>
-                    )}
+                    <Toggle
+                        checked={highQualityStreaming}
+                        onChange={() => setHighQualityStreaming(!highQualityStreaming)}
+                    />
                 </Row>
             </div>
         </Card>
