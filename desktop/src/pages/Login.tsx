@@ -1,4 +1,5 @@
-import { type ReactNode, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AuthBackdrop } from '../components/auth/AuthBackdrop';
@@ -19,6 +20,9 @@ export function Login() {
   const [tokenInput, setTokenInput] = useState('');
   const [tokenBusy, setTokenBusy] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
+  const [windowBusy, setWindowBusy] = useState(false);
+  const windowBusyRef = useRef(false);
+  const unlistenRef = useRef<(() => void) | null>(null);
 
   const handleEnterOffline = () => {
     setOfflineBypass(true);
@@ -42,6 +46,52 @@ export function Login() {
       setTokenError(e instanceof Error ? e.message : String(e));
     } finally {
       setTokenBusy(false);
+    }
+  };
+
+  useEffect(() => () => unlistenRef.current?.(), []);
+
+  /** Sign in through a real SoundCloud web session in an in-app window. */
+  const handleBrowserLogin = async () => {
+    if (windowBusyRef.current) return;
+    windowBusyRef.current = true;
+    setWindowBusy(true);
+    setTokenError(null);
+    unlistenRef.current?.();
+    const unlisten = await listen<{
+      status: 'ok' | 'error' | 'cancel';
+      token?: string;
+      username?: string;
+      message?: string;
+    }>('sc-login', async (e) => {
+      unlisten();
+      unlistenRef.current = null;
+      windowBusyRef.current = false;
+      setWindowBusy(false);
+      if (e.payload.status === 'ok' && e.payload.token) {
+        try {
+          await setSession(e.payload.token);
+          setOfflineBypass(false);
+          await fetchUser();
+          queryClient.invalidateQueries();
+        } catch (err) {
+          setTokenError(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+      if (e.payload.status === 'error') {
+        setTokenError(e.payload.message ?? t('auth.browserSignInFailed'));
+      }
+    });
+    unlistenRef.current = unlisten;
+    try {
+      await invoke('open_login_window');
+    } catch (err) {
+      unlisten();
+      unlistenRef.current = null;
+      windowBusyRef.current = false;
+      setWindowBusy(false);
+      setTokenError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -69,6 +119,16 @@ export function Login() {
                 <p className="break-words text-[12px] leading-snug text-white/60">{tokenError}</p>
               </div>
             )}
+
+            <PrimaryButton disabled={windowBusy} onClick={handleBrowserLogin}>
+              {windowBusy ? t('auth.browserSignInWaiting') : t('auth.browserSignIn')}
+            </PrimaryButton>
+
+            <div className="my-1 flex items-center gap-3 text-[10px] text-white/25">
+              <div className="h-px flex-1 bg-white/10" />
+              {t('auth.orPasteToken')}
+              <div className="h-px flex-1 bg-white/10" />
+            </div>
 
             <p className="text-[10.5px] leading-snug text-white/35">{t('auth.directHint')}</p>
             <input

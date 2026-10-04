@@ -61,6 +61,10 @@
     "copyLink": "Baglantiyi kopyala",
     "copied": "Kopyalandi!",
     "tagline": "Muziginiz, sizin tarzinizda",
+    "browserSignIn": "SoundCloud ile giris yap",
+    "browserSignInWaiting": "Giris bekleniyor…",
+    "browserSignInFailed": "Giris basarisiz",
+    "orPasteToken": "veya tokeni elle yapistirin",
     "orSeparator": "veya",
     "continueOffline": "Giris yapmadan devam et",
     "continueOfflineDesc": "Yerel kutuphanenizdeki indirilmis parcalari ve begenileri dinleyin"

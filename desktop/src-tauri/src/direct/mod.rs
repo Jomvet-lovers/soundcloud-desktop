@@ -3,6 +3,7 @@
 //! are best-effort synced to SoundCloud through the hidden writer webview
 //! (see `webview`).
 
+pub mod login;
 pub mod routes;
 pub mod sc;
 pub mod store;
