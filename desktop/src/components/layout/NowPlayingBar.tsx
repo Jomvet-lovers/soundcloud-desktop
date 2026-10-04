@@ -65,7 +65,9 @@ function TrackMeta({ track }: { track: Track }) {
 }
 
 const iconBtn =
-  'flex size-8 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/90 disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent';
+  'flex size-8 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent';
+const iconBtnIdle = `${iconBtn} text-white/55 hover:text-white/90`;
+const iconBtnOn = `${iconBtn} text-accent hover:text-accent-hover`;
 
 /** Docked, Spotify-style now-playing bar. */
 export const NowPlayingBar = React.memo(function NowPlayingBar({
@@ -136,7 +138,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className={`${iconBtn} ${shuffle ? 'text-accent' : ''}`}
+            className={shuffle ? iconBtnOn : iconBtnIdle}
             onClick={toggleShuffle}
             title={t('player.shuffle')}
           >
@@ -144,7 +146,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           </button>
           <button
             type="button"
-            className={iconBtn}
+            className={iconBtnIdle}
             onClick={handlePrev}
             title={t('player.prevTrack')}
           >
@@ -162,7 +164,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           <button
             type="button"
             disabled={!currentTrack}
-            className={iconBtn}
+            className={iconBtnIdle}
             onClick={next}
             title={t('player.nextTrack')}
           >
@@ -170,7 +172,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           </button>
           <button
             type="button"
-            className={`${iconBtn} ${repeat !== 'off' ? 'text-accent' : ''}`}
+            className={repeat !== 'off' ? iconBtnOn : iconBtnIdle}
             onClick={toggleRepeat}
             title={repeatTitle}
           >
@@ -208,13 +210,13 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
       <div className="flex flex-1 items-center justify-end gap-2">
         <SoundTuningPopover />
         <EqualizerPanel>
-          <button type="button" className={iconBtn} title={t('eq.title')}>
+          <button type="button" className={iconBtnIdle} title={t('eq.title')}>
             {slidersHorizontal16}
           </button>
         </EqualizerPanel>
         <button
           type="button"
-          className={`${iconBtn} ${queueOpen ? 'text-accent' : ''}`}
+          className={queueOpen ? iconBtnOn : iconBtnIdle}
           onClick={onQueueToggle}
           title={t('player.queue')}
         >
@@ -222,7 +224,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
         </button>
         <button
           type="button"
-          className={iconBtn}
+          className={iconBtnIdle}
           onClick={() => setVolume(volume > 0 ? 0 : volumeBeforeMute)}
           title={t('player.mute')}
         >
