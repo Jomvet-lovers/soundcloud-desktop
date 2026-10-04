@@ -1,7 +1,7 @@
 import React from 'react';
 import {useTranslation} from 'react-i18next';
 import type {AuthStatus} from '../../lib/auth-status';
-import {Clock, RotateCcw, Wifi, WifiOff} from '../../lib/icons';
+import {ArrowRight, Clock, RotateCcw, Wifi, WifiOff} from '../../lib/icons';
 import {usePerfMode} from '../../lib/perf';
 
 /** Шапка: кикер + заголовок слева, единый статус сети / очередь синка справа. */
@@ -9,10 +9,14 @@ export const OfflineHead = React.memo(function OfflineHead({
   online,
   authStatus,
   onTryOnline,
+  showSignIn,
+  onSignIn,
 }: {
   online: boolean;
   authStatus: AuthStatus | undefined;
   onTryOnline: () => void;
+  showSignIn?: boolean;
+  onSignIn?: () => void;
 }) {
   const { t } = useTranslation();
   const perf = usePerfMode();
@@ -59,6 +63,16 @@ export const OfflineHead = React.memo(function OfflineHead({
           {online ? <Wifi size={11} /> : <WifiOff size={11} />}
           {online ? t('offline.netOnline') : t('offline.netOffline')}
         </span>
+        {showSignIn && onSignIn && (
+          <button
+            type="button"
+            onClick={onSignIn}
+            className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-accent/30 bg-accent/[0.12] px-3.5 py-1.5 text-[12px] font-semibold text-white/90 transition-colors hover:border-accent/45 hover:bg-accent/[0.2]"
+          >
+            <ArrowRight size={12} />
+            {t('offline.signIn')}
+          </button>
+        )}
         {!online && (
           <button
             type="button"

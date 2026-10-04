@@ -17,6 +17,7 @@ import {ensureTrackCached} from '../lib/cache';
 import {useCacheLikes} from '../lib/likes-cache';
 import {usePerfMode} from '../lib/perf';
 import {useAppStatusStore} from '../stores/app-status';
+import {useAuthStore} from '../stores/auth';
 import {usePlayerStore} from '../stores/player';
 
 function shuffled<T>(items: T[]): T[] {
@@ -37,6 +38,7 @@ export const OfflinePage = React.memo(() => {
   const cacheLikes = useCacheLikes(() => void lib.refreshInventory());
   const online = lib.appMode === 'online';
   const authStatus = useAuthStatus({ enabled: online });
+  const hasSession = useAuthStore((s) => s.hasSession);
 
   const [section, setSection] = useState<OfflineSection>('likes');
   const [sort, setSort] = useState<SortMode>('custom');
@@ -116,6 +118,13 @@ export const OfflinePage = React.memo(() => {
     navigate('/home');
   }, [navigate]);
 
+  // Explicit way back to the login screen: clear the persisted offline bypass
+  // (the unauthenticated shell renders <Login/> once it is off).
+  const handleSignIn = useCallback(() => {
+    useAppStatusStore.getState().setOfflineBypass(false);
+    navigate('/login');
+  }, [navigate]);
+
   const sortable = section === 'cached' && sort === 'custom' && query.trim() === '';
   const deckBlur = perf.blur(24);
   const emptyText = query.trim()
@@ -133,7 +142,13 @@ export const OfflinePage = React.memo(() => {
         className="relative z-10 mx-auto flex w-full max-w-[1180px] flex-col gap-5"
         style={{ isolation: 'isolate' }}
       >
-        <OfflineHead online={online} authStatus={authStatus.data} onTryOnline={handleTryOnline} />
+        <OfflineHead
+          online={online}
+          authStatus={authStatus.data}
+          onTryOnline={handleTryOnline}
+          showSignIn={!hasSession}
+          onSignIn={handleSignIn}
+        />
 
         {lib.loading ? (
           <>

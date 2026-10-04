@@ -502,6 +502,7 @@
     "title": "Локальная фонотека",
     "netOnline": "онлайн",
     "netOffline": "офлайн",
+    "signIn": "Войти в аккаунт",
     "tryOnline": "Попробовать онлайн",
     "pendingCount_one": "{{count}} ожидает",
     "pendingCount_few": "{{count}} ожидают",

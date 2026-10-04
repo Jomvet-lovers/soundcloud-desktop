@@ -44,6 +44,7 @@ export function Login() {
       // Apply the session to the frontend mirror synchronously (the
       // auth:changed event may still be in flight when fetchUser runs).
       await setSession(value);
+      setOfflineBypass(false);
       await fetchUser();
       queryClient.invalidateQueries();
     } catch (e) {

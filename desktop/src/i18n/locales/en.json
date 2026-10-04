@@ -498,6 +498,7 @@
     "title": "Local library",
     "netOnline": "online",
     "netOffline": "offline",
+    "signIn": "Sign in",
     "tryOnline": "Try online again",
     "pendingCount": "{{count}} pending",
     "failedCount": "{{count}} failed",
