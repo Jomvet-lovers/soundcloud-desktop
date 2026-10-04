@@ -1,6 +1,11 @@
-# Direct Mode fork
+# Direct Mode build
 
-This fork removes the hard dependency on the developer backend
+Personal, modified build based on
+[SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) by
+[@zxcloli666](https://github.com/zxcloli666) — MIT License, all original
+credit belongs to the upstream project.
+
+This build removes the hard dependency on the developer backend
 (`api.scnative.space`). The app talks to SoundCloud itself and keeps user
 actions locally.
 

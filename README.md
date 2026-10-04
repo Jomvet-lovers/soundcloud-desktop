@@ -1,3 +1,9 @@
+> **Unofficial personal build.** This repository is a standalone, modified copy of
+> [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) by
+> [@zxcloli666](https://github.com/zxcloli666), used under the MIT License. All
+> original credit belongs to the upstream project. See
+> [README-DIRECT.md](README-DIRECT.md) for what this build changes.
+
 <p align="center">
 <a href="https://github.com/zxcloli666/SoundCloud-Desktop/releases/latest">
 <img src="https://raw.githubusercontent.com/zxcloli666/SoundCloud-Desktop/main/_refs/soundcloud.png" width="180px" style="border-radius: 50%;" />
