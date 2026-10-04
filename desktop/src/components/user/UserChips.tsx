@@ -48,8 +48,8 @@ export const InfoChip = React.memo(function InfoChip({
   );
 });
 
-export function getWebIcon(service: string) {
-  switch (service.toLowerCase()) {
+export function getWebIcon(service: string | null | undefined) {
+  switch ((service ?? '').toLowerCase()) {
     case 'instagram':
       return <Instagram size={14} />;
     case 'twitter':

@@ -73,7 +73,7 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
   }, [album.tracks, album.artists]);
 
   return (
-    <div className="flex flex-col items-center gap-5 md:flex-row md:items-start md:gap-6">
+    <div className="flex flex-col items-center gap-5 md:flex-row md:items-center md:gap-6">
       <AlbumCoverArtifact
         title={album.title}
         coverUrl={album.cover_url}
@@ -82,10 +82,6 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
       />
 
       <div className="flex w-full min-w-0 flex-1 flex-col gap-3 text-center md:text-left">
-        <span className="inline-flex items-center justify-center gap-1.5 text-[11px] font-medium text-white/55 md:justify-start">
-          <Disc3 size={11} /> {kindLabel}
-        </span>
-
         <h1 className="max-w-full break-words text-3xl font-black leading-tight tracking-tight text-white md:text-5xl">
           {album.title}
         </h1>
@@ -113,6 +109,9 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
         )}
 
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-white/45 md:justify-start">
+          <span className="inline-flex items-center gap-1.5">
+            <Disc3 size={11} /> {kindLabel}
+          </span>
           {album.release_year && (
             <span className="inline-flex items-center gap-1.5">
               <Calendar size={11} /> {album.release_year}

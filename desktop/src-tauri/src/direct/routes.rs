@@ -1232,6 +1232,36 @@ async fn handle(
                 .sc_get(&format!("/users/{sc_id}/web-profiles"), token.as_deref())
                 .await
             {
+                Ok((status, v)) if (200..300).contains(&status) => {
+                    // SC items use `network`; the frontend expects `service`.
+                    let items: Vec<Value> = v
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            let url = p
+                                .get("url")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string();
+                            json!({
+                                "id": if url.is_empty() { format!("wp-{i}") } else { url.clone() },
+                                "kind": "web-profile",
+                                "service": p
+                                    .get("network")
+                                    .or_else(|| p.get("service"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("link"),
+                                "title": p.get("title").and_then(Value::as_str).unwrap_or(""),
+                                "url": url,
+                                "username": p.get("username").cloned().unwrap_or(Value::Null),
+                            })
+                        })
+                        .collect();
+                    ok(json!(items))
+                }
                 Ok((status, v)) => json_resp(status, &v),
                 Err(e) => err(502, &e),
             }
@@ -1552,7 +1582,11 @@ async fn handle(
                         .filter_map(|p| {
                             let url = p.get("url").and_then(Value::as_str)?;
                             Some(json!({
-                                "kind": p.get("service").and_then(Value::as_str).unwrap_or("link"),
+                                "kind": p
+                                    .get("network")
+                                    .or_else(|| p.get("service"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("link"),
                                 "url": url,
                                 "source": "sc",
                                 "verified": false,

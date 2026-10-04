@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
-import { AlbumCast } from '../components/album/AlbumCast';
 import { AlbumHero } from '../components/album/AlbumHero';
 import { AlbumTrackList } from '../components/album/AlbumTrackList';
 import { useAlbumDetail } from '../components/album/useAlbumData';
@@ -41,7 +40,6 @@ export function AlbumPage() {
           style={{ isolation: 'isolate' }}
         >
           <AlbumHero album={data} hasStar={hasStar} aura={aura} />
-          <AlbumCast artists={data.artists} aura={aura} />
           <AlbumTrackList tracks={data.tracks} aura={aura} />
         </div>
       </div>

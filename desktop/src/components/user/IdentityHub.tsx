@@ -111,7 +111,7 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
             {user.permalink_url && <CopyLinkButton url={user.permalink_url} size="sm" />}
             {webProfiles?.map((link) => (
               <a
-                key={link.id}
+                key={link.id ?? link.url}
                 href={link.url}
                 target="_blank"
                 rel="noreferrer"

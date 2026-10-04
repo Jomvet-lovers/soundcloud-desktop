@@ -1,9 +1,19 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { preloadTrack } from '../../lib/audio';
+import { downloadTrack } from '../../lib/cache';
 import { art, dur, fc } from '../../lib/formatters';
-import { ListMusic, ListPlus, pauseBlack20, playBlack20, playIcon32 } from '../../lib/icons';
+import {
+  Download,
+  LinkIcon,
+  ListMusic,
+  ListPlus,
+  pauseBlack20,
+  playBlack20,
+  playIcon32,
+} from '../../lib/icons';
 import { useArtistDisplay, useArtistLinkItems, useDisplayTitle } from '../../lib/track-display';
 import { useAutoHide } from '../../lib/useAutoHide';
 import { useTrackPlay } from '../../lib/useTrackPlay';
@@ -39,6 +49,39 @@ export const TrackCard = React.memo(
     const handleAddToQueue = (e: React.MouseEvent) => {
       e.stopPropagation();
       addToQueueNext([track]);
+    };
+
+    const [busyDownload, setBusyDownload] = React.useState(false);
+
+    const handleDownload = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (busyDownload) return;
+      setBusyDownload(true);
+      try {
+        await downloadTrack(
+          track.urn,
+          artistDisplay.primary || track.user?.username || '',
+          displayTitle,
+          { artworkUrl: track.artwork_url, durationMs: track.duration },
+        );
+        toast.success(t('track.downloaded'));
+      } catch (err) {
+        if (!String(err).includes('cancelled')) toast.error(t('common.error'));
+      } finally {
+        setBusyDownload(false);
+      }
+    };
+
+    const handleShare = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const url = track.permalink_url;
+      if (!url) return;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success(t('auth.copied'));
+      } catch {
+        toast.error(t('common.error'));
+      }
     };
 
     return (
@@ -115,6 +158,23 @@ export const TrackCard = React.memo(
               title={t('player.addToQueue')}
             >
               <ListMusic size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={busyDownload}
+              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200 disabled:opacity-50"
+              title={t('track.download')}
+            >
+              <Download size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleShare}
+              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+              title={t('auth.copyLink')}
+            >
+              <LinkIcon size={14} />
             </button>
           </div>
         </div>
