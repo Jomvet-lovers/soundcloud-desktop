@@ -16,15 +16,7 @@ function ArtistRelatedTabImpl({ related, aura }: ArtistRelatedTabProps) {
   if (related.length === 0) {
     return (
       <div className="py-24 flex flex-col items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center"
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '0.5px solid rgba(255,255,255,0.06)',
-          }}
-        >
-          <Users size={24} className="text-white/15" />
-        </div>
+        <Users size={24} className="text-white/15" />
         <p className="text-white/30 text-sm">{t('artist.noRelated')}</p>
       </div>
     );
@@ -33,7 +25,7 @@ function ArtistRelatedTabImpl({ related, aura }: ArtistRelatedTabProps) {
   const max = Math.max(...related.map((r) => r.weight), 1);
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
       {related.map((a) => (
         <RelatedCard key={a.id} item={a} aura={aura} maxWeight={max} />
       ))}

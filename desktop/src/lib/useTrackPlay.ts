@@ -20,10 +20,10 @@ export function useTrackPlay(track: Track, queue?: Track[] | (() => Track[]), on
 
   const trackRef = useRef(track);
   const queueRef = useRef(queue);
-    const onPlayRef = useRef(onPlay);
+  const onPlayRef = useRef(onPlay);
   trackRef.current = track;
   queueRef.current = queue;
-    onPlayRef.current = onPlay;
+  onPlayRef.current = onPlay;
 
   useEffect(() => {
     void rememberTracks([track]);
@@ -34,10 +34,10 @@ export function useTrackPlay(track: Track, queue?: Track[] | (() => Track[]), on
     if (isThisPlaying) pause();
     else if (isThis) resume();
     else {
-        const q = queueRef.current;
-        const resolved = typeof q === 'function' ? q() : q;
-        play(trackRef.current, resolved?.length ? resolved : [trackRef.current]);
-        onPlayRef.current?.();
+      const q = queueRef.current;
+      const resolved = typeof q === 'function' ? q() : q;
+      play(trackRef.current, resolved?.length ? resolved : [trackRef.current]);
+      onPlayRef.current?.();
     }
   }, [isThis, isThisPlaying]);
 

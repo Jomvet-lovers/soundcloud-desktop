@@ -3,10 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { preloadTrack } from '../../lib/audio';
-import { downloadTrack } from '../../lib/cache';
 import { art, dur, fc } from '../../lib/formatters';
 import {
-  Download,
   LinkIcon,
   ListMusic,
   ListPlus,
@@ -51,27 +49,6 @@ export const TrackCard = React.memo(
       addToQueueNext([track]);
     };
 
-    const [busyDownload, setBusyDownload] = React.useState(false);
-
-    const handleDownload = async (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (busyDownload) return;
-      setBusyDownload(true);
-      try {
-        await downloadTrack(
-          track.urn,
-          artistDisplay.primary || track.user?.username || '',
-          displayTitle,
-          { artworkUrl: track.artwork_url, durationMs: track.duration },
-        );
-        toast.success(t('track.downloaded'));
-      } catch (err) {
-        if (!String(err).includes('cancelled')) toast.error(t('common.error'));
-      } finally {
-        setBusyDownload(false);
-      }
-    };
-
     const handleShare = async (e: React.MouseEvent) => {
       e.stopPropagation();
       const url = track.permalink_url;
@@ -92,7 +69,7 @@ export const TrackCard = React.memo(
       >
         {/* Artwork */}
         <div
-          className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.03] cursor-pointer ring-1 ring-white/[0.06] group-hover:ring-white/[0.12] transition-all duration-300 ease-[var(--ease-apple)]"
+          className="@container relative aspect-square rounded-2xl overflow-hidden bg-white/[0.03] cursor-pointer ring-1 ring-white/[0.06] group-hover:ring-white/[0.12] transition-all duration-300 ease-[var(--ease-apple)]"
           onClick={togglePlay}
         >
           {artwork ? (
@@ -116,7 +93,7 @@ export const TrackCard = React.memo(
             }`}
           >
             <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl group-hover:scale-100 ${
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-xl group-hover:scale-100 ${
                 showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
               }`}
             >
@@ -131,50 +108,43 @@ export const TrackCard = React.memo(
             </div>
           </div>
 
-          {/* Cache / analysis badges — bottom left */}
-          <div className="absolute bottom-2 left-2 flex">
+          {/* Bottom left: status badges */}
+          <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
             <TrackStatusBadges meta={track._scd_meta} variant="overlay" />
           </div>
 
-          {/* Like button — top left */}
-          <LikeButton track={track} variant="overlay" />
+          {/* Like — top left */}
+          <div className="absolute top-2 left-2 flex">
+            <LikeButton track={track} variant="chip" />
+          </div>
 
-          {/* Top right: add to playlist + add to queue */}
-          <div className="absolute top-2 right-2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {/* Top right: playlist / queue / share (share hidden on narrow cards) */}
+          <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <AddToPlaylistDialog trackUrns={[track.urn]}>
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+                className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
                 title={t('playlist.addToPlaylist')}
               >
-                <ListPlus size={14} />
+                <ListPlus size={12} />
               </button>
             </AddToPlaylistDialog>
             <button
               type="button"
               onClick={handleAddToQueue}
-              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+              className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
               title={t('player.addToQueue')}
             >
-              <ListMusic size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={handleDownload}
-              disabled={busyDownload}
-              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200 disabled:opacity-50"
-              title={t('track.download')}
-            >
-              <Download size={14} />
+              <ListMusic size={12} />
             </button>
             <button
               type="button"
               onClick={handleShare}
-              className="cursor-pointer w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+              className="cursor-pointer w-6 h-6 rounded-full bg-black/50 hidden @[120px]:inline-flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
               title={t('auth.copyLink')}
             >
-              <LinkIcon size={14} />
+              <LinkIcon size={12} />
             </button>
           </div>
         </div>

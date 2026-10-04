@@ -1,11 +1,11 @@
 import React from 'react';
-import {preloadTrack} from '../../lib/audio';
-import {art, dur, fc} from '../../lib/formatters';
-import {Headphones, musicIcon14, pauseBlack11, playBlack11} from '../../lib/icons';
-import {useTrackPlay} from '../../lib/useTrackPlay';
-import type {Track} from '../../stores/player';
-import {sameScdMeta, TrackStatusBadges} from '../music/TrackStatusBadges';
-import {TrackTitleArtist} from '../music/TrackTitleArtist';
+import { preloadTrack } from '../../lib/audio';
+import { art, dur, fc } from '../../lib/formatters';
+import { Headphones, musicIcon14, pauseBlack11, playBlack11 } from '../../lib/icons';
+import { useTrackPlay } from '../../lib/useTrackPlay';
+import type { Track } from '../../stores/player';
+import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
+import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
 export const RelatedRow = React.memo(
   function RelatedRow({ track, queue }: { track: Track; queue: Track[] | (() => Track[]) }) {

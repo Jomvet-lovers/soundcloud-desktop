@@ -1,5 +1,5 @@
 import React from 'react';
-import {pauseTextWhite12} from '../../../lib/icons';
+import { pauseTextWhite12 } from '../../../lib/icons';
 
 /** Artwork overlay shown on the playing track: animated EQ bars while playing,
  *  a pause glyph when paused. Shared by the now-playing card and the queue row. */

@@ -13,55 +13,41 @@ export function SettingsNav({
 }) {
   const { t } = useTranslation();
   return (
-    <nav className="w-[212px] shrink-0 hidden md:block">
-      <div
-        className="sticky top-8 rounded-[1.75rem] p-2.5"
-        style={{
-          border: '0.5px solid rgba(255,255,255,0.07)',
-          background: '#141417',
-        }}
-      >
-        <div className="flex flex-col gap-1">
-          {categories.map((c) => {
-            const on = c.id === active;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => onChange(c.id)}
-                className={`group relative flex items-center gap-3 h-11 pl-3.5 pr-3 rounded-2xl text-[13.5px] font-semibold text-left transition-all duration-200 cursor-pointer ${
-                  on ? 'text-white' : 'text-white/45 hover:text-white/85 hover:bg-white/[0.05]'
-                }`}
-                style={
-                  on
-                    ? {
-                        background: 'rgba(255,255,255,0.08)',
-                      }
-                    : undefined
-                }
-              >
-                {on && (
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-full"
-                    style={{
-                      background: 'var(--color-accent)',
-                      boxShadow: '0 0 10px var(--color-accent)',
-                    }}
-                  />
-                )}
+    <nav className="w-[200px] shrink-0 hidden md:block">
+      <div className="sticky top-8 flex flex-col gap-0.5">
+        {categories.map((c) => {
+          const on = c.id === active;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => onChange(c.id)}
+              className={`group relative flex items-center gap-3 h-10 pl-3 pr-3 rounded-md text-[13px] font-medium text-left transition-colors cursor-pointer ${
+                on
+                  ? 'text-white bg-white/[0.06]'
+                  : 'text-white/45 hover:text-white/80 hover:bg-white/[0.04]'
+              }`}
+            >
+              {on && (
                 <span
-                  className={`transition-colors duration-200 ${
-                    on ? 'text-[var(--color-accent)]' : 'text-white/40 group-hover:text-white/70'
-                  }`}
-                >
-                  {c.icon}
-                </span>
-                {t(c.labelKey)}
-              </button>
-            );
-          })}
-        </div>
+                  aria-hidden
+                  className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full"
+                  style={{
+                    background: 'var(--color-accent)',
+                  }}
+                />
+              )}
+              <span
+                className={`transition-colors ${
+                  on ? 'text-[var(--color-accent)]' : 'text-white/40 group-hover:text-white/70'
+                }`}
+              >
+                {c.icon}
+              </span>
+              {t(c.labelKey)}
+            </button>
+          );
+        })}
       </div>
     </nav>
   );

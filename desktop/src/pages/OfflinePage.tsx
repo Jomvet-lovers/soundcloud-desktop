@@ -1,15 +1,15 @@
-import {useCallback, useMemo, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {useNavigate} from 'react-router-dom';
-import {ensureTrackCached} from '../lib/cache';
-import {art, dur} from '../lib/formatters';
-import {Download, Loader2, Pause, Play, Shuffle, Trash2} from '../lib/icons';
-import {useCacheLikes} from '../lib/likes-cache';
-import {useAppStatusStore} from '../stores/app-status';
-import {useAuthStore} from '../stores/auth';
-import {usePlayerStore} from '../stores/player';
-import type {OfflineEntry} from '../components/offline/types';
-import {useOfflineLibrary} from '../components/offline/useOfflineLibrary';
+import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
+import type { OfflineEntry } from '../components/offline/types';
+import { useOfflineLibrary } from '../components/offline/useOfflineLibrary';
+import { ensureTrackCached } from '../lib/cache';
+import { art, dur } from '../lib/formatters';
+import { Download, Loader2, Pause, Play, Shuffle, Trash2 } from '../lib/icons';
+import { useCacheLikes } from '../lib/likes-cache';
+import { useAppStatusStore } from '../stores/app-status';
+import { useAuthStore } from '../stores/auth';
+import { usePlayerStore } from '../stores/player';
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -19,7 +19,7 @@ function formatBytes(bytes: number): string {
 
 /** Offline — downloaded library, plain layout. */
 export function OfflinePage() {
-  const {t} = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const lib = useOfflineLibrary();
   const cacheLikes = useCacheLikes(() => void lib.refreshInventory());
@@ -97,7 +97,7 @@ export function OfflinePage() {
               type="button"
               onClick={handleSignIn}
               className="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white"
-              style={{background: 'var(--color-accent)'}}
+              style={{ background: 'var(--color-accent)' }}
             >
               {t('offline.signIn')}
             </button>
@@ -115,7 +115,9 @@ export function OfflinePage() {
           type="button"
           onClick={() => setSection('likes')}
           className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
-            section === 'likes' ? 'bg-white/[0.1] text-white/90' : 'text-white/45 hover:bg-white/[0.05]'
+            section === 'likes'
+              ? 'bg-white/[0.1] text-white/90'
+              : 'text-white/45 hover:bg-white/[0.05]'
           }`}
         >
           {t('offline.likesTitle')} {lib.likesEntries.length}
@@ -124,7 +126,9 @@ export function OfflinePage() {
           type="button"
           onClick={() => setSection('cached')}
           className={`rounded-lg px-3 py-1.5 text-[12px] font-medium ${
-            section === 'cached' ? 'bg-white/[0.1] text-white/90' : 'text-white/45 hover:bg-white/[0.05]'
+            section === 'cached'
+              ? 'bg-white/[0.1] text-white/90'
+              : 'text-white/45 hover:bg-white/[0.05]'
           }`}
         >
           {t('offline.cachedTitle')} {lib.cachedEntries.length}
@@ -135,7 +139,7 @@ export function OfflinePage() {
           disabled={!playable.length}
           onClick={() => void usePlayerStore.getState().play(playable[0], playable)}
           className="ml-2 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40"
-          style={{background: 'var(--color-accent)'}}
+          style={{ background: 'var(--color-accent)' }}
         >
           <Play size={13} /> {t('offline.playAll')}
         </button>
@@ -176,6 +180,7 @@ export function OfflinePage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          autoComplete="off"
           placeholder={t('offline.searchPlaceholder')}
           className="ml-auto w-56 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] text-white/80 outline-none placeholder:text-white/25 focus:border-white/20"
         />

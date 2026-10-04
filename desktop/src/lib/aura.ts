@@ -31,9 +31,7 @@ const neutral = (id: AuraId, name: string): Aura => ({
   nameGradient: 'none',
 });
 
-export const AURAS: ReadonlyArray<Aura> = [
-  neutral('void', 'Neutral'),
-];
+export const AURAS: ReadonlyArray<Aura> = [neutral('void', 'Neutral')];
 
 export const DEFAULT_AURA: Aura = AURAS[0];
 export const DEFAULT_CUSTOM_HEX = '#9ca3af';

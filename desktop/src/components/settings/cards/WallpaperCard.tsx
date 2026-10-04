@@ -178,6 +178,7 @@ export function WallpaperCard() {
           <div className="flex gap-2 animate-fade-in-up">
             <input
               type="text"
+              autoComplete="off"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleDownloadUrl()}

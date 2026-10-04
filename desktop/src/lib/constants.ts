@@ -10,7 +10,7 @@ export let STORAGE_BASE = API_BASE;
 export let STORAGE_PREMIUM_BASE = API_BASE;
 export let PAY_BASE = API_BASE;
 /** Artwork is loaded straight from SoundCloud's public image CDN. */
-export let IMAGES_BASE = 'https://i1.sndcdn.com';
+export const IMAGES_BASE = 'https://i1.sndcdn.com';
 
 export function setApiBase(port: number) {
   const base = `http://127.0.0.1:${port}`;

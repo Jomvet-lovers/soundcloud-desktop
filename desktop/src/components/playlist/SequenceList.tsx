@@ -65,15 +65,7 @@ export const SequenceList = React.memo(function SequenceList({
   if (tracks.length === 0) {
     return (
       <div className="py-20 flex flex-col items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center"
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '0.5px solid rgba(255,255,255,0.06)',
-          }}
-        >
-          <ListMusic size={24} className="text-white/15" />
-        </div>
+        <ListMusic size={24} className="text-white/15" />
         <p className="text-white/30 text-sm">{t('playlist.emptyCrate')}</p>
       </div>
     );
@@ -102,7 +94,7 @@ export const SequenceList = React.memo(function SequenceList({
           <SortableContext items={ids} strategy={verticalListSortingStrategy}>
             <VirtualList
               items={tracks}
-              rowHeight={68}
+              rowHeight={62}
               overscan={12}
               className="space-y-0.5"
               getItemKey={(tr) => tr.urn}
@@ -126,7 +118,7 @@ export const SequenceList = React.memo(function SequenceList({
       ) : (
         <VirtualList
           items={tracks}
-          rowHeight={68}
+          rowHeight={62}
           overscan={10}
           className="space-y-0.5"
           getItemKey={(tr) => tr.urn}

@@ -1,19 +1,19 @@
-import React, {useMemo, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {ArtistMiniCard} from '../components/library/ArtistMiniCard';
-import {CollectionRail} from '../components/library/CollectionRail';
-import {ContinueRow} from '../components/library/ContinueRow';
-import {FreshDrops} from '../components/library/FreshDrops';
-import {LibraryFrame} from '../components/library/LibraryFrame';
-import {SoundPrintMasthead} from '../components/library/SoundPrintMasthead';
-import {useSoundprint} from '../components/library/useSoundprint';
-import {PlaylistCard} from '../components/music/PlaylistCard';
-import {TrackCard} from '../components/music/TrackCard';
-import {useLikedTracks, useMyFollowings, useMyLikedPlaylists, useMyPlaylists} from '../lib/hooks';
-import {Bookmark, Heart, ListMusic, Users} from '../lib/icons';
-import {likedTracksCount} from '../lib/likes';
-import {armLikesContinuation} from '../lib/queue-continuation';
-import {useAuthStore} from '../stores/auth';
+import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ArtistMiniCard } from '../components/library/ArtistMiniCard';
+import { CollectionRail } from '../components/library/CollectionRail';
+import { ContinueRow } from '../components/library/ContinueRow';
+import { FreshDrops } from '../components/library/FreshDrops';
+import { LibraryFrame } from '../components/library/LibraryFrame';
+import { SoundPrintMasthead } from '../components/library/SoundPrintMasthead';
+import { useSoundprint } from '../components/library/useSoundprint';
+import { PlaylistCard } from '../components/music/PlaylistCard';
+import { TrackCard } from '../components/music/TrackCard';
+import { useLikedTracks, useMyFollowings, useMyLikedPlaylists, useMyPlaylists } from '../lib/hooks';
+import { Bookmark, Heart, ListMusic, Users } from '../lib/icons';
+import { likedTracksCount } from '../lib/likes';
+import { armLikesContinuation } from '../lib/queue-continuation';
+import { useAuthStore } from '../stores/auth';
 
 /** Library "Hub" — a living home base. Your identity up top, then the reason to
  *  come back (fresh drops from who you follow), then a way back into what you
@@ -69,7 +69,7 @@ export const Library = React.memo(() => {
             to="/library/playlists"
           >
             {playlistPreview.map((p) => (
-              <div key={p.urn} className="w-[160px] shrink-0">
+              <div key={p.urn} className="w-[120px] shrink-0">
                 <PlaylistCard playlist={p} />
               </div>
             ))}
@@ -83,7 +83,7 @@ export const Library = React.memo(() => {
             to="/library/playlists"
           >
             {likedPlaylistPreview.map((p) => (
-              <div key={p.urn} className="w-[160px] shrink-0">
+              <div key={p.urn} className="w-[120px] shrink-0">
                 <PlaylistCard playlist={p} />
               </div>
             ))}
@@ -111,7 +111,7 @@ export const Library = React.memo(() => {
             to="/library/likes"
           >
             {likesPreview.map((tr) => (
-              <div key={tr.urn} className="w-[150px] shrink-0">
+              <div key={tr.urn} className="w-[112px] shrink-0">
                 <TrackCard
                   track={tr}
                   queue={likesPreview}

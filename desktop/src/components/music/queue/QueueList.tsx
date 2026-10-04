@@ -1,8 +1,15 @@
-import {closestCenter, DndContext, DragOverlay, PointerSensor, useSensor, useSensors,} from '@dnd-kit/core';
-import {SortableContext, verticalListSortingStrategy} from '@dnd-kit/sortable';
-import React, {useState} from 'react';
-import {usePlayerStore} from '../../../stores/player';
-import {QueueRow, QueueRowClone} from './QueueRow';
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import React, { useState } from 'react';
+import { usePlayerStore } from '../../../stores/player';
+import { QueueRow, QueueRowClone } from './QueueRow';
 
 // Cap rendered up-next rows; dnd-kit measures every mounted sortable, so an
 // unbounded queue would mount thousands of nodes.

@@ -10,10 +10,10 @@ export const UserCard = React.memo(({ user }: { user: SCUser }) => {
 
   return (
     <div
-      className="group flex flex-col items-center gap-4 p-5 rounded-3xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-300 cursor-pointer"
+      className="group flex flex-col items-center gap-2 p-3 cursor-pointer"
       onClick={() => navigate(`/user/${encodeURIComponent(user.urn)}`)}
     >
-      <div className="relative w-24 h-24 rounded-full shadow-xl overflow-hidden ring-2 ring-white/[0.05] group-hover:ring-white/[0.15] group-hover:scale-105 transition-all duration-500">
+      <div className="relative h-16 w-16 overflow-hidden rounded-full ring-1 ring-white/[0.05] transition-colors group-hover:ring-white/[0.15]">
         {avatar ? (
           <img
             src={avatar}
@@ -23,16 +23,16 @@ export const UserCard = React.memo(({ user }: { user: SCUser }) => {
           />
         ) : (
           <div className="w-full h-full bg-white/5 flex items-center justify-center">
-            <User size={32} className="text-white/20" />
+            <User size={24} className="text-white/20" />
           </div>
         )}
       </div>
 
       <div className="text-center w-full">
-        <p className="text-[15px] font-bold text-white/90 truncate group-hover:text-white transition-colors">
+        <p className="truncate text-[13px] font-medium text-white/85 group-hover:text-white transition-colors">
           {user.username}
         </p>
-        <div className="flex items-center justify-center gap-3 mt-2 text-[11px] text-white/30 font-medium">
+        <div className="flex items-center justify-center gap-3 mt-0.5 text-[10.5px] text-white/30">
           <span className="flex items-center gap-1">
             <Users size={10} />
             {fc(user.followers_count)}

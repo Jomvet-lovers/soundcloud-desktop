@@ -49,15 +49,7 @@ function ArtistAlbumsTabImpl({ artistId, aura }: ArtistAlbumsTabProps) {
   if (items.length === 0) {
     return (
       <div className="py-24 flex flex-col items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center"
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '0.5px solid rgba(255,255,255,0.06)',
-          }}
-        >
-          <Disc3 size={24} className="text-white/15" />
-        </div>
+        <Disc3 size={24} className="text-white/15" />
         <p className="text-white/30 text-sm">{t('artist.noAlbums')}</p>
       </div>
     );
@@ -98,7 +90,7 @@ const YearGroup = memo(
         </div>
 
         {/* Albums grid */}
-        <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+        <div className="flex-1 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
           {items.map((al) => (
             <AlbumCard key={al.id} album={al} aura={aura} />
           ))}

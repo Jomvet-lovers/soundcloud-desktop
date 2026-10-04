@@ -228,6 +228,8 @@ export function Search() {
         onKeyDown={(e) => {
           if (e.key === 'Enter') submit();
         }}
+        autoComplete="off"
+        spellCheck={false}
         placeholder={t('search.placeholder')}
         className="mt-4 w-full max-w-[520px] rounded-xl border border-white/[0.08] bg-white/[0.05] px-3.5 py-2.5 text-[13px] text-white/85 outline-none placeholder:text-white/25 focus:border-white/20"
       />
@@ -247,7 +249,7 @@ export function Search() {
                   <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
                     {sel.title}
                   </h2>
-                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
                     {items.slice(0, 10).map((item, idx) => (
                       <DiscoverCard
                         key={item.urn ?? idx}
@@ -286,7 +288,7 @@ export function Search() {
             {empty ? (
               <p className="text-[13px] text-white/35">{t('search.noResults')}</p>
             ) : tab === 'tracks' ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
                 {tracks.tracks.map((track) => (
                   <TrackCard key={track.urn} track={track} queue={tracks.tracks} />
                 ))}

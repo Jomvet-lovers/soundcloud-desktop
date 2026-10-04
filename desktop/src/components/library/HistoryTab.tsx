@@ -65,7 +65,7 @@ export const HistoryTab = React.memo(function HistoryTab() {
       ) : rows.length > 0 ? (
         <VirtualList
           items={rows}
-          rowHeight={60}
+          rowHeight={68}
           overscan={10}
           className="flex flex-col"
           disabled={rows.length < 60}

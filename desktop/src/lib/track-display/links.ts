@@ -1,7 +1,7 @@
-import type {EnrichmentArtist, Track} from '../../stores/player';
-import {type DisplayInput, getTrackDisplay} from './display';
-import {foldName} from './fold';
-import {splitNames} from './split';
+import type { EnrichmentArtist, Track } from '../../stores/player';
+import { type DisplayInput, getTrackDisplay } from './display';
+import { foldName } from './fold';
+import { splitNames } from './split';
 
 /** Имя в строке авторов + куда оно ведёт (null — некликабельно). */
 export interface ArtistLinkItem {

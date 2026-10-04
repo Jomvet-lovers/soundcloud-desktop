@@ -4,20 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 import { art, dur, fc } from '../../lib/formatters';
-import {
-  headphones11,
-  heart11,
-  ListPlus,
-  Music,
-  pauseBlack14,
-  pauseWhite14,
-  playBlack14,
-  playWhite14,
-} from '../../lib/icons';
+import { headphones11, heart11, ListPlus, Music, playBlack14, playWhite14 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
+import { PlayingBars } from '../music/PlayingBars';
 import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
@@ -34,21 +26,16 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
   const cover = art(track.artwork_url, 't200x200');
   const lightAura = isLight(aura);
   const playIcon = lightAura ? playBlack14 : playWhite14;
-  const pauseIcon = lightAura ? pauseBlack14 : pauseWhite14;
 
   return (
     <div
-      className="group flex items-center gap-4 px-4 py-2.5 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] select-none"
-      style={{
-        background: isThis ? auraRgba(aura, 0.12) : undefined,
-        boxShadow: isThis ? `inset 0 0 0 0.5px ${auraRgba(aura, 0.35)}` : undefined,
-      }}
+      className="group flex items-center gap-4 px-4 py-2.5 rounded-md transition-colors duration-150 select-none"
       onMouseEnter={(e) => {
         preloadTrack(track.urn);
-        if (!isThis) e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+        e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
       }}
       onMouseLeave={(e) => {
-        if (!isThis) e.currentTarget.style.background = '';
+        e.currentTarget.style.background = '';
       }}
     >
       <div
@@ -56,15 +43,7 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
         onClick={togglePlay}
       >
         {isThisPlaying ? (
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center transition-transform duration-300"
-            style={{
-              background: auraRgb(aura),
-              boxShadow: `0 0 24px ${auraRgba(aura, 0.5)}`,
-            }}
-          >
-            {pauseIcon}
-          </div>
+          <PlayingBars playing={isThisPlaying} />
         ) : (
           <>
             <span className="text-[12px] text-white/25 tabular-nums font-semibold group-hover:opacity-0 transition-opacity">
@@ -86,7 +65,7 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
       </div>
 
       <div
-        className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 transition-transform duration-500 group-hover:scale-105"
+        className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]"
         style={{ border: '0.5px solid rgba(255,255,255,0.08)' }}
       >
         {cover ? (

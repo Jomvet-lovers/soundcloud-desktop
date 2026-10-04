@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
-import { Heart, ListMusic, Play, pauseBlack22 } from '../../lib/icons';
+import { Heart, ListMusic, Play, pauseBlack20 } from '../../lib/icons';
 import { useAutoHide } from '../../lib/useAutoHide';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
@@ -83,14 +83,14 @@ export const PlaylistCard = React.memo(
             >
               <div
                 onClick={handlePlay}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 group-hover:scale-100 ${
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 ease-[var(--ease-apple)] shadow-2xl hover:scale-110 active:scale-95 group-hover:scale-100 ${
                   showPlayingOverlay ? 'bg-white scale-100' : 'bg-white/90 scale-75'
                 }`}
               >
                 {isPlayingFromThis ? (
-                  pauseBlack22
+                  pauseBlack20
                 ) : (
-                  <Play size={22} fill="black" strokeWidth={0} className="ml-1" />
+                  <Play size={20} fill="black" strokeWidth={0} className="ml-1" />
                 )}
               </div>
             </div>

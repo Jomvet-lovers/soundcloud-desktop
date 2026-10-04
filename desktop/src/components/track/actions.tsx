@@ -39,10 +39,8 @@ const EngagementChip = React.memo(function EngagementChip({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`inline-flex items-center gap-1.5 px-3.5 h-11 rounded-2xl text-[12.5px] font-semibold tabular-nums border transition-all duration-300 ease-[var(--ease-apple)] cursor-pointer active:scale-[0.96] ${
-        active
-          ? 'bg-accent/15 border-accent/30 text-accent'
-          : 'bg-white/[0.04] border-white/[0.07] text-white/65 hover:bg-white/[0.07] hover:text-white/90 hover:border-white/[0.12]'
+      className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-md text-[12.5px] font-medium tabular-nums transition-colors cursor-pointer ${
+        active ? 'text-accent' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
       }`}
     >
       {icon}

@@ -1,6 +1,6 @@
-import {useMemo} from 'react';
-import {useSettingsStore} from '../stores/settings';
-import {type Aura, auraFromHex, DEFAULT_AURA} from './aura';
+import { useMemo } from 'react';
+import { useSettingsStore } from '../stores/settings';
+import { type Aura, auraFromHex, DEFAULT_AURA } from './aura';
 
 /**
  * Аура по умолчанию для профилей без «звезды»: строится из акцентного цвета
@@ -9,6 +9,6 @@ import {type Aura, auraFromHex, DEFAULT_AURA} from './aura';
  * не участвует.
  */
 export function useViewerAura(): Aura {
-    const accentColor = useSettingsStore((s) => s.accentColor);
-    return useMemo(() => auraFromHex(accentColor) ?? DEFAULT_AURA, [accentColor]);
+  const accentColor = useSettingsStore((s) => s.accentColor);
+  return useMemo(() => auraFromHex(accentColor) ?? DEFAULT_AURA, [accentColor]);
 }

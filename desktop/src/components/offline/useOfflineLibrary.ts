@@ -2,14 +2,19 @@
 //! (Rust) + живой прогресс докачек. Один IPC-вызов на список, никакого
 //! по-трекового дёрганья моста.
 
-import {listen} from '@tauri-apps/api/event';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {type CacheInventoryEntry, getCacheInventory, removeCachedTrack} from '../../lib/cache';
-import {fetchAllLikedTracks} from '../../lib/hooks';
-import {getCacheOrder, getOfflineLikedTracks, getOfflineTracksByUrns, saveCacheOrder,} from '../../lib/offline-index';
-import {useAppMode} from '../../stores/app-status';
-import type {Track} from '../../stores/player';
-import {buildCachedEntries, buildLikesEntries} from './lib';
+import { listen } from '@tauri-apps/api/event';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CacheInventoryEntry, getCacheInventory, removeCachedTrack } from '../../lib/cache';
+import { fetchAllLikedTracks } from '../../lib/hooks';
+import {
+  getCacheOrder,
+  getOfflineLikedTracks,
+  getOfflineTracksByUrns,
+  saveCacheOrder,
+} from '../../lib/offline-index';
+import { useAppMode } from '../../stores/app-status';
+import type { Track } from '../../stores/player';
+import { buildCachedEntries, buildLikesEntries } from './lib';
 
 const DOWNLOADS_FLUSH_MS = 250;
 const INVENTORY_REFRESH_DEBOUNCE_MS = 1500;

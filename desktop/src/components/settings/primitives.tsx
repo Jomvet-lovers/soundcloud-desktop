@@ -71,37 +71,12 @@ export function Card({
   children: ReactNode;
 }) {
   return (
-    <section
-      className="group relative rounded-3xl p-6 overflow-hidden transition-[box-shadow,border-color] duration-500 hover:border-white/[0.14]"
-      style={{
-        border: '0.5px solid rgba(255,255,255,0.1)',
-        background: 'rgba(20,20,24,0.85)',
-        boxShadow: '0 18px 50px rgba(0,0,0,0.4)',
-      }}
-    >
-      {/* top specular hairline */}
-      <span
-        aria-hidden
-        className="absolute inset-x-6 top-0 h-px"
-        style={{
-          background: 'rgba(255,255,255,0.06)',
-        }}
-      />
-      <div className="relative flex items-start justify-between gap-4 mb-5">
+    <section className="group relative flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          {icon && (
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-[var(--color-accent)]"
-              style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '0.5px solid rgba(255,255,255,0.1)',
-              }}
-            >
-              {icon}
-            </div>
-          )}
+          {icon && <span className="shrink-0 text-[var(--color-accent)]">{icon}</span>}
           <div className="min-w-0">
-            <h3 className="text-[15px] font-bold text-white/85 tracking-tight">{title}</h3>
+            <h3 className="text-[14px] font-semibold text-white/90 tracking-tight">{title}</h3>
             {desc && <p className="text-[11.5px] text-white/35 mt-0.5 leading-snug">{desc}</p>}
           </div>
         </div>
@@ -135,19 +110,11 @@ export function Segmented<T extends string>({
             key={o.id}
             type="button"
             onClick={() => onChange(o.id)}
-            className={`rounded-xl border px-3 py-2.5 text-[12.5px] font-semibold transition-all duration-200 cursor-pointer ${
+            className={`rounded-md px-3 py-2 text-[12.5px] font-medium transition-colors cursor-pointer ${
               active
-                ? 'text-white'
-                : 'text-white/45 hover:text-white/70 hover:bg-white/[0.05] border-white/[0.05] bg-white/[0.02]'
+                ? 'bg-white/[0.08] text-white'
+                : 'text-white/45 hover:text-white/80 hover:bg-white/[0.04]'
             }`}
-            style={
-              active
-                ? {
-                    background: 'rgba(255,255,255,0.08)',
-                    borderColor: 'var(--color-accent)',
-                  }
-                : undefined
-            }
           >
             {o.label}
           </button>

@@ -37,16 +37,8 @@ function TabWrapperImpl({ children, isLoading, isEmpty, emptyText }: TabWrapperP
           <Loader2 size={28} className="text-white/20 animate-spin" />
         </div>
       ) : isEmpty ? (
-        <div className="py-24 flex flex-col items-center gap-4">
-          <div
-            className="w-16 h-16 rounded-2xl flex items-center justify-center"
-            style={{
-              background: 'rgba(255,255,255,0.03)',
-              border: '0.5px solid rgba(255,255,255,0.06)',
-            }}
-          >
-            <Music size={24} className="text-white/15" />
-          </div>
+        <div className="py-24 flex flex-col items-center gap-3">
+          <Music size={28} className="text-white/15" />
           <p className="text-white/30 text-sm">{emptyText ?? t('common.empty')}</p>
         </div>
       ) : (
@@ -71,7 +63,7 @@ export function UserTracksTab({ urn, aura }: { urn: string; aura: Aura }) {
     <TabWrapper isLoading={q.isLoading} isEmpty={q.tracks.length === 0}>
       <VirtualList
         items={q.tracks}
-        rowHeight={72}
+        rowHeight={64}
         overscan={8}
         className="flex flex-col gap-1"
         getItemKey={(t) => t.urn}
@@ -96,7 +88,7 @@ export function UserPopularTab({ urn, aura }: { urn: string; aura: Aura }) {
     <TabWrapper isLoading={isLoading} isEmpty={data.length === 0}>
       <VirtualList
         items={data}
-        rowHeight={72}
+        rowHeight={64}
         overscan={8}
         className="flex flex-col gap-1"
         getItemKey={(t) => t.urn}
@@ -117,9 +109,9 @@ export function UserPlaylistsTab({ urn }: { urn: string }) {
     <TabWrapper isLoading={q.isLoading} isEmpty={q.playlists.length === 0}>
       <VirtualGrid
         items={q.playlists}
-        itemHeight={320}
-        minColumnWidth={200}
-        gap={28}
+        itemHeight={250}
+        minColumnWidth={140}
+        gap={16}
         overscan={3}
         getItemKey={(p, i) => `${p.urn}-${i}`}
         renderItem={renderItem}
@@ -144,7 +136,7 @@ export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
     <TabWrapper isLoading={q.isLoading} isEmpty={q.tracks.length === 0}>
       <VirtualList
         items={q.tracks}
-        rowHeight={72}
+        rowHeight={64}
         overscan={8}
         className="flex flex-col gap-1"
         getItemKey={(t) => t.urn}
@@ -189,7 +181,7 @@ export function UserSearchTracksTab({
     >
       <VirtualList
         items={q.tracks}
-        rowHeight={72}
+        rowHeight={64}
         overscan={8}
         className="flex flex-col gap-1"
         getItemKey={(t) => t.urn}
@@ -221,9 +213,9 @@ export function UserSearchPlaylistsTab({ urn, query }: { urn: string; query: str
     >
       <VirtualGrid
         items={q.playlists}
-        itemHeight={320}
-        minColumnWidth={200}
-        gap={28}
+        itemHeight={250}
+        minColumnWidth={140}
+        gap={16}
         overscan={3}
         getItemKey={(p, i) => `${p.urn}-${i}`}
         renderItem={renderItem}
@@ -254,21 +246,17 @@ export function UserConnectionsTab({
       <button
         type="button"
         onClick={() => nav(`/user/${encodeURIComponent(user.urn)}`)}
-        className="group relative h-full w-full flex flex-col items-center gap-3 p-6 rounded-3xl transition-transform duration-500 cursor-pointer overflow-hidden hover:scale-[1.02]"
-        style={{
-          background: 'rgba(24,24,28,0.85)',
-          border: '0.5px solid rgba(255,255,255,0.06)',
-        }}
+        className="group flex h-full w-full flex-col items-center gap-2 p-3 cursor-pointer"
       >
-        <div className="w-20 h-20 rounded-full overflow-hidden ring-2 ring-white/10 group-hover:ring-white/30 transition-all duration-500">
-          <Avatar src={user.avatar_url} alt={user.username} size={80} />
+        <div className="h-16 w-16 overflow-hidden rounded-full ring-1 ring-white/10 transition-colors group-hover:ring-white/30">
+          <Avatar src={user.avatar_url} alt={user.username} size={64} />
         </div>
-        <div className="text-center min-w-0 w-full">
-          <p className="text-[13px] font-semibold text-white/90 truncate group-hover:text-white">
+        <div className="min-w-0 w-full text-center">
+          <p className="truncate text-[13px] font-medium text-white/85 group-hover:text-white">
             {user.username}
           </p>
           {user.followers_count != null && (
-            <p className="text-[10px] text-white/30 mt-1 tabular-nums font-medium">
+            <p className="mt-0.5 text-[10.5px] tabular-nums text-white/35">
               {fc(user.followers_count)} {t('user.followers')}
             </p>
           )}
@@ -284,9 +272,9 @@ export function UserConnectionsTab({
     <TabWrapper isLoading={q.isLoading} isEmpty={q.users.length === 0} emptyText={emptyText}>
       <VirtualGrid
         items={q.users}
-        itemHeight={220}
-        minColumnWidth={200}
-        gap={20}
+        itemHeight={132}
+        minColumnWidth={150}
+        gap={12}
         overscan={3}
         getItemKey={(u) => u.urn}
         renderItem={renderItem}

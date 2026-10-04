@@ -1,11 +1,11 @@
-import {appCacheDir, join} from '@tauri-apps/api/path';
-import {mkdir, readDir, remove, writeFile} from '@tauri-apps/plugin-fs';
-import {fetch as tauriFetch} from '@tauri-apps/plugin-http';
-import type {PlaybackQuality, PlaybackSource} from '../stores/player';
-import {useSettingsStore} from '../stores/settings';
-import {toScproxyUrl} from './asset-url';
-import {getStaticPort} from './constants';
-import {trackedInvoke as invoke} from './diagnostics';
+import { appCacheDir, join } from '@tauri-apps/api/path';
+import { mkdir, readDir, remove, writeFile } from '@tauri-apps/plugin-fs';
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import type { PlaybackQuality, PlaybackSource } from '../stores/player';
+import { useSettingsStore } from '../stores/settings';
+import { toScproxyUrl } from './asset-url';
+import { getStaticPort } from './constants';
+import { trackedInvoke as invoke } from './diagnostics';
 
 const WALLPAPERS_DIR = 'wallpapers';
 const CACHE_MAINTENANCE_INTERVAL_MS = 60 * 1000;

@@ -41,11 +41,11 @@ const WantedRow = memo(function WantedRow({ track, position }: { track: Track; p
       className="flex items-center gap-4 px-4 py-2.5 rounded-2xl opacity-50"
       style={{ background: 'rgba(255,255,255,0.015)' }}
     >
-      <div className="w-10 h-10 flex items-center justify-center shrink-0">
+      <div className="w-9 h-9 flex items-center justify-center shrink-0">
         <span className="text-[13px] text-white/25 tabular-nums font-semibold">{position}</span>
       </div>
       <div
-        className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+        className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
         style={{
           background: 'rgba(255,255,255,0.03)',
           boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
@@ -74,16 +74,8 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
 
   if (tracks.length === 0) {
     return (
-      <div className="py-24 flex flex-col items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center"
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-          }}
-        >
-          <Music size={24} className="text-white/15" />
-        </div>
+      <div className="py-24 flex flex-col items-center gap-3">
+        <Music size={28} className="text-white/15" />
         <p className="text-white/30 text-sm">{t('album.noTracks')}</p>
       </div>
     );

@@ -82,6 +82,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
           }}
           placeholder={t('search.globalPlaceholder')}
           spellCheck={false}
+          autoComplete="off"
           className="flex-1 min-w-0 bg-transparent outline-none text-[14px] text-white/90 placeholder:text-white/35 select-text"
         />
         {isUrl && (
@@ -111,7 +112,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
         <div
           className="absolute left-0 right-0 mt-2 p-1.5 rounded-2xl overflow-hidden"
           style={{
-            background: 'rgba(16,16,20,0.96)',
+            background: '#101014',
             border: '0.5px solid rgba(255,255,255,0.1)',
             boxShadow: '0 24px 60px rgba(0,0,0,0.55)',
           }}

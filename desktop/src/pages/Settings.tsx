@@ -3,12 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { SETTINGS_CATEGORIES, type SettingsCategoryId } from '../components/settings/registry';
 import { SettingsFrame } from '../components/settings/SettingsFrame';
 import { SettingsNav } from '../components/settings/SettingsNav';
-import { auraRgb } from '../lib/aura';
 import { useViewerAura } from '../lib/useViewerAura';
 
-/** Settings — a star-lit two-pane workspace: a frosted category rail on the
- *  left, the active category's cards on the right. Thin shell; each section is
- *  its own small card under components/settings/. */
+/** Settings — two-pane workspace: a flat category rail on the left, the active
+ *  category's sections on the right. */
 export function Settings() {
   const { t } = useTranslation();
   const aura = useViewerAura();
@@ -21,27 +19,16 @@ export function Settings() {
       <div className="max-w-[1080px] mx-auto px-6 md:px-8 pt-8 pb-32 flex gap-8">
         <SettingsNav categories={SETTINGS_CATEGORIES} active={active} onChange={setActive} />
         <div className="flex-1 min-w-0">
-          <header className="mb-7 flex items-center gap-4">
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 text-[var(--color-accent)]"
-              style={{
-                background: 'var(--color-accent-glow)',
-                border: '0.5px solid var(--color-accent-glow)',
-              }}
-            >
-              {category.icon}
-            </div>
+          <header className="mb-7 flex items-center gap-3">
+            <span className="shrink-0 text-[var(--color-accent)]">{category.icon}</span>
             <div className="min-w-0">
               <p className="text-[11px] text-white/35 font-medium mb-1">{t('settings.title')}</p>
-              <h1
-                className="text-[30px] font-black tracking-tight leading-none"
-                style={{ color: auraRgb(aura) }}
-              >
+              <h1 className="text-[26px] font-bold tracking-tight leading-none text-white">
                 {t(category.labelKey)}
               </h1>
             </div>
           </header>
-          <div key={active} className="space-y-5 animate-fade-in-up">
+          <div key={active} className="space-y-8 animate-fade-in-up">
             <Body />
           </div>
         </div>

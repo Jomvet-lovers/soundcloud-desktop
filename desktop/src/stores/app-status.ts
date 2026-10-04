@@ -1,6 +1,6 @@
-import {create} from 'zustand';
-import {createJSONStorage, persist} from 'zustand/middleware';
-import {tauriStorage} from '../lib/tauri-storage';
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { tauriStorage } from '../lib/tauri-storage';
 
 export type AppMode = 'online' | 'offline';
 

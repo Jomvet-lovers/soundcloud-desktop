@@ -1,19 +1,13 @@
 import { memo } from 'react';
 import { preloadTrack } from '../../lib/audio';
-import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
+import { type Aura, auraRgba, isLight } from '../../lib/aura';
 import { art, dur } from '../../lib/formatters';
-import {
-  ListPlus,
-  Music,
-  pauseBlack14,
-  pauseWhite14,
-  playBlack14,
-  playWhite14,
-} from '../../lib/icons';
+import { ListPlus, Music, playBlack14, playWhite14 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
+import { PlayingBars } from '../music/PlayingBars';
 import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
@@ -29,34 +23,24 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
   const cover = art(track.artwork_url, 't200x200');
   const lightAura = isLight(aura);
   const playIcon = lightAura ? playBlack14 : playWhite14;
-  const pauseIcon = lightAura ? pauseBlack14 : pauseWhite14;
 
   return (
     <div
-      className="group flex items-center gap-4 px-4 py-2.5 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] select-none"
-      style={{
-        background: isThis ? 'rgba(255,255,255,0.08)' : undefined,
-        boxShadow: isThis ? `inset 0 0 0 1px ${auraRgba(aura, 0.35)}` : undefined,
-      }}
+      className="group flex items-center gap-4 px-4 py-2.5 rounded-md transition-colors duration-150 select-none"
       onMouseEnter={(e) => {
         preloadTrack(track.urn);
-        if (!isThis) e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+        e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
       }}
       onMouseLeave={(e) => {
-        if (!isThis) e.currentTarget.style.background = '';
+        e.currentTarget.style.background = '';
       }}
     >
       <div
-        className="w-10 h-10 flex items-center justify-center shrink-0 cursor-pointer relative"
+        className="w-9 h-9 flex items-center justify-center shrink-0 cursor-pointer relative"
         onClick={togglePlay}
       >
         {isThisPlaying ? (
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: auraRgb(aura) }}
-          >
-            {pauseIcon}
-          </div>
+          <PlayingBars playing={isThisPlaying} />
         ) : (
           <>
             <span className="text-[13px] text-white/30 tabular-nums font-semibold group-hover:opacity-0 transition-opacity">
@@ -64,7 +48,7 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
             </span>
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center"
+                className="w-8 h-8 rounded-full flex items-center justify-center"
                 style={{
                   background: lightAura ? auraRgba(aura, 0.85) : 'rgba(54,54,60,0.92)',
                   boxShadow: `inset 0 0 0 1px ${auraRgba(aura, 0.3)}`,
@@ -78,7 +62,7 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
       </div>
 
       <div
-        className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 transition-transform duration-500 group-hover:scale-105"
+        className="relative w-9 h-9 rounded-lg overflow-hidden shrink-0 transition-transform duration-500 group-hover:scale-105"
         style={{ boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)' }}
       >
         {cover ? (

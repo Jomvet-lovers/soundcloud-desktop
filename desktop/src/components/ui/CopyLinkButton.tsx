@@ -40,11 +40,9 @@ export function CopyLinkButton({
     <button
       type="button"
       onClick={handleCopy}
-      className={`inline-flex items-center gap-1.5 font-medium transition-all duration-300 ease-[var(--ease-apple)] cursor-pointer rounded-xl border ${
-        copied
-          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-          : 'bg-white/[0.04] border-white/[0.06] text-white/50 hover:bg-white/[0.08] hover:text-white/80 hover:border-white/[0.1]'
-      } ${size === 'sm' ? 'px-3 py-1.5 text-[11px]' : 'px-4 py-2.5 text-[12px]'}`}
+      className={`inline-flex items-center gap-1.5 font-medium transition-colors cursor-pointer rounded-md ${
+        copied ? 'text-emerald-400' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
+      } ${size === 'sm' ? 'h-9 px-2.5 text-[11px]' : 'h-10 px-3 text-[12px]'}`}
     >
       {copied ? <Check size={iconSize} className="text-emerald-400" /> : <Link size={iconSize} />}
       {copied ? t('auth.copied') : t('auth.copyLink')}

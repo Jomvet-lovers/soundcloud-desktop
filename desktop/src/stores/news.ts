@@ -1,6 +1,6 @@
-import {create} from 'zustand';
-import {createJSONStorage, persist} from 'zustand/middleware';
-import {tauriStorage} from '../lib/tauri-storage';
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { tauriStorage } from '../lib/tauri-storage';
 
 interface NewsState {
   /** IDs dismissed by user — never shown again */

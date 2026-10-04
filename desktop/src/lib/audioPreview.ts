@@ -1,7 +1,7 @@
-import {useSyncExternalStore} from 'react';
-import {usePlayerStore} from '../stores/player';
-import {ensureTrackCached} from './cache';
-import {trackedInvoke as invoke} from './diagnostics';
+import { useSyncExternalStore } from 'react';
+import { usePlayerStore } from '../stores/player';
+import { ensureTrackCached } from './cache';
+import { trackedInvoke as invoke } from './diagnostics';
 
 /* ── Hover-preview controller ─────────────────────────────────────
  * A single-track sampling channel that rides the Rust preview player
@@ -30,94 +30,92 @@ let startGen = 0;
 const listeners = new Set<() => void>();
 
 function notify() {
-    for (const l of listeners) l();
+  for (const l of listeners) l();
 }
 
 function canPreview(urn: string): boolean {
-    const s = usePlayerStore.getState();
-    if (s.isPlaying) return false;
-    if (s.currentTrack?.urn === urn) return false;
-    return true;
+  const s = usePlayerStore.getState();
+  if (s.isPlaying) return false;
+  if (s.currentTrack?.urn === urn) return false;
+  return true;
 }
 
 /** Hover a tile: after a debounce, ensure it's cached and start a preview. */
 export function startHoverPreview(urn: string): void {
-    if (activeUrn === urn || pendingUrn === urn) return;
-    if (hoverTimer) clearTimeout(hoverTimer);
-    pendingUrn = urn;
-    hoverTimer = setTimeout(async () => {
-        hoverTimer = null;
-        if (pendingUrn !== urn) return;
-        if (document.visibilityState === 'hidden' || !canPreview(urn)) {
-            pendingUrn = null;
-            return;
-        }
-        const gen = ++startGen;
-        try {
-            // Reuse the cache at the user's normal quality — never force a low-quality
-            // download that could become the canonical cached copy (coalesces with the
-            // hq preloadTrack fired on the same hover).
-            const info = await ensureTrackCached(urn);
-            // Superseded by a newer hover, or no longer allowed.
-            if (gen !== startGen || pendingUrn !== urn || !info?.path || !canPreview(urn)) return;
-            const volume = (usePlayerStore.getState().volume / 100) * PREVIEW_VOLUME_FACTOR;
-            await invoke('audio_preview_play', {path: info.path, volume, gen});
-            if (gen !== startGen) {
-                invoke('audio_preview_stop', {fadeMs: 0, gen}).catch(() => {
-                });
-                return;
-            }
-            activeUrn = urn;
-            pendingUrn = null;
-            notify();
-            if (windowTimer) clearTimeout(windowTimer);
-            windowTimer = setTimeout(() => stopHoverPreview(), PREVIEW_WINDOW_MS);
-        } catch {
-            // Silent fail — a preview that can't load just never lights.
-            if (pendingUrn === urn) pendingUrn = null;
-        }
-    }, HOVER_DEBOUNCE_MS);
+  if (activeUrn === urn || pendingUrn === urn) return;
+  if (hoverTimer) clearTimeout(hoverTimer);
+  pendingUrn = urn;
+  hoverTimer = setTimeout(async () => {
+    hoverTimer = null;
+    if (pendingUrn !== urn) return;
+    if (document.visibilityState === 'hidden' || !canPreview(urn)) {
+      pendingUrn = null;
+      return;
+    }
+    const gen = ++startGen;
+    try {
+      // Reuse the cache at the user's normal quality — never force a low-quality
+      // download that could become the canonical cached copy (coalesces with the
+      // hq preloadTrack fired on the same hover).
+      const info = await ensureTrackCached(urn);
+      // Superseded by a newer hover, or no longer allowed.
+      if (gen !== startGen || pendingUrn !== urn || !info?.path || !canPreview(urn)) return;
+      const volume = (usePlayerStore.getState().volume / 100) * PREVIEW_VOLUME_FACTOR;
+      await invoke('audio_preview_play', { path: info.path, volume, gen });
+      if (gen !== startGen) {
+        invoke('audio_preview_stop', { fadeMs: 0, gen }).catch(() => {});
+        return;
+      }
+      activeUrn = urn;
+      pendingUrn = null;
+      notify();
+      if (windowTimer) clearTimeout(windowTimer);
+      windowTimer = setTimeout(() => stopHoverPreview(), PREVIEW_WINDOW_MS);
+    } catch {
+      // Silent fail — a preview that can't load just never lights.
+      if (pendingUrn === urn) pendingUrn = null;
+    }
+  }, HOVER_DEBOUNCE_MS);
 }
 
 function endPreview(fadeMs: number): void {
-    if (hoverTimer) {
-        clearTimeout(hoverTimer);
-        hoverTimer = null;
-    }
-    if (windowTimer) {
-        clearTimeout(windowTimer);
-        windowTimer = null;
-    }
-    startGen++; // cancel any in-flight start
-    pendingUrn = null;
-    if (activeUrn != null) {
-        activeUrn = null;
-        invoke('audio_preview_stop', {fadeMs, gen: 0}).catch(() => {
-        });
-        notify();
-    }
+  if (hoverTimer) {
+    clearTimeout(hoverTimer);
+    hoverTimer = null;
+  }
+  if (windowTimer) {
+    clearTimeout(windowTimer);
+    windowTimer = null;
+  }
+  startGen++; // cancel any in-flight start
+  pendingUrn = null;
+  if (activeUrn != null) {
+    activeUrn = null;
+    invoke('audio_preview_stop', { fadeMs, gen: 0 }).catch(() => {});
+    notify();
+  }
 }
 
 /** Unhover / fast-scroll / leave / route-away: gracefully fade the preview out. */
 export function stopHoverPreview(): void {
-    endPreview(FADE_OUT_MS);
+  endPreview(FADE_OUT_MS);
 }
 
 /** User committed to a real play (click / dive): cut the sample instantly so it
  *  never overlaps the main player about to start on the shared mixer. */
 export function hardStopHoverPreview(): void {
-    endPreview(0);
+  endPreview(0);
 }
 
 function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 /** Reactive per-tile: is THIS urn the one being previewed? Snapshot is a boolean,
  *  so only the tiles whose state actually flips re-render (not the whole wall). */
 export function useIsPreviewActive(urn: string): boolean {
-    return useSyncExternalStore(subscribe, () => activeUrn === urn);
+  return useSyncExternalStore(subscribe, () => activeUrn === urn);
 }
 
 /* Kill any preview the moment the main player starts or changes track, and
@@ -125,17 +123,17 @@ export function useIsPreviewActive(urn: string): boolean {
 let wired = false;
 
 export function wirePreviewGuards(): void {
-    if (wired) return;
-    wired = true;
-    usePlayerStore.subscribe((state, prev) => {
-        if (
-            (state.isPlaying && !prev.isPlaying) ||
-            state.currentTrack?.urn !== prev.currentTrack?.urn
-        ) {
-            stopHoverPreview();
-        }
-    });
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') stopHoverPreview();
-    });
+  if (wired) return;
+  wired = true;
+  usePlayerStore.subscribe((state, prev) => {
+    if (
+      (state.isPlaying && !prev.isPlaying) ||
+      state.currentTrack?.urn !== prev.currentTrack?.urn
+    ) {
+      stopHoverPreview();
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') stopHoverPreview();
+  });
 }

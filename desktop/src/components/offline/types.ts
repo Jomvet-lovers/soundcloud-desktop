@@ -1,5 +1,5 @@
-import type {CacheInventoryEntry} from '../../lib/cache';
-import type {Track} from '../../stores/player';
+import type { CacheInventoryEntry } from '../../lib/cache';
+import type { Track } from '../../stores/player';
 
 export type OfflineSection = 'likes' | 'cached';
 

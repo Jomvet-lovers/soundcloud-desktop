@@ -1,20 +1,20 @@
-import {useCallback, useEffect, useState} from 'react';
-import {useTranslation} from 'react-i18next';
-import {toast} from 'sonner';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
-    clearCache,
-    clearImageCache,
-    clearLikedCache,
-    getCacheSize,
-    getImageCacheSize,
-    getLikedCacheSize,
+  clearCache,
+  clearImageCache,
+  clearLikedCache,
+  getCacheSize,
+  getImageCacheSize,
+  getLikedCacheSize,
 } from '../../../lib/cache';
-import {formatBytes} from '../../../lib/formatters';
-import {Database, Download, Loader2, Trash2, X} from '../../../lib/icons';
-import {useCacheLikes} from '../../../lib/likes-cache';
-import {useSettingsStore} from '../../../stores/settings';
-import {Skeleton} from '../../ui/Skeleton';
-import {Card, Divider, RangeSlider} from '../primitives';
+import { formatBytes } from '../../../lib/formatters';
+import { Database, Download, Loader2, Trash2, X } from '../../../lib/icons';
+import { useCacheLikes } from '../../../lib/likes-cache';
+import { useSettingsStore } from '../../../stores/settings';
+import { Skeleton } from '../../ui/Skeleton';
+import { Card, Divider, RangeSlider } from '../primitives';
 
 function CacheRow({
   label,
@@ -45,7 +45,7 @@ function CacheRow({
         type="button"
         onClick={onClear}
         disabled={clearing || size === 0}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 transition-all duration-300 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+        className="flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-semibold bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 transition-all duration-300 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
       >
         {clearing ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
         {clearLabel}
@@ -193,7 +193,7 @@ export function CacheCard() {
             <button
               type="button"
               onClick={cancelLikes}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-semibold bg-white/[0.04] text-white/60 hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-200 cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-semibold bg-white/[0.04] text-white/60 hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-200 cursor-pointer"
             >
               <X size={12} />
               {t('common.cancel')}
@@ -203,7 +203,7 @@ export function CacheCard() {
           <button
             type="button"
             onClick={handleCacheLikes}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-semibold bg-white/[0.06] text-white/75 hover:bg-white/[0.1] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-200 cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-semibold bg-white/[0.06] text-white/75 hover:bg-white/[0.1] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-200 cursor-pointer"
           >
             <Download size={12} />
             {t('settings.cacheLikes')}

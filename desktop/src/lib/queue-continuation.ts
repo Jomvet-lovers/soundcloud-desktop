@@ -10,9 +10,9 @@
  * при исчерпании.
  */
 
-import {shuffleArray, type Track, usePlayerStore} from '../stores/player';
-import {api} from './api';
-import {fetchAllLikedTracks, fetchAllPlaylistTracks} from './hooks';
+import { shuffleArray, type Track, usePlayerStore } from '../stores/player';
+import { api } from './api';
+import { fetchAllLikedTracks, fetchAllPlaylistTracks } from './hooks';
 
 export interface QueueContinuationSource {
   /** Имя для логов. */

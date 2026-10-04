@@ -1,4 +1,4 @@
-import {useSyncExternalStore} from 'react';
+import { useSyncExternalStore } from 'react';
 
 // Isolated module to avoid circular deps: api-client/host-status ↔ subscription
 let cachedPremium = false;

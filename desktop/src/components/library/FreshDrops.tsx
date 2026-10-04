@@ -43,7 +43,7 @@ const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queu
         type="button"
         onClick={togglePlay}
         onMouseEnter={() => preloadTrack(track.urn)}
-        className="group relative shrink-0 w-[108px] h-[108px] md:w-[132px] md:h-[132px] rounded-2xl overflow-hidden ring-1 ring-white/10 cursor-pointer"
+        className="group relative shrink-0 w-[84px] h-[84px] md:w-[96px] md:h-[96px] rounded-xl overflow-hidden ring-1 ring-white/10 cursor-pointer"
       >
         {cover ? (
           <img
@@ -62,7 +62,7 @@ const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queu
             isThisPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
         >
-          <span className="w-12 h-12 rounded-full bg-white/15 flex items-center justify-center">
+          <span className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center">
             {isThisPlaying ? pauseWhite14 : playWhite14}
           </span>
         </div>

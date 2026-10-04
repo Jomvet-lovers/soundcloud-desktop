@@ -9,19 +9,17 @@ import {
   headphones9,
   heart9,
   musicIcon12,
-  pauseWhite12,
   playWhite12,
   Trash2,
 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { LikeButton } from '../music/LikeButton';
+import { PlayingBars } from '../music/PlayingBars';
 import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
-import { genreColor } from '../search/utils';
 
-/** Shared row body. The left hue-tick is colored by THIS track's genre, so the
- *  sequence visibly shifts color as you flip the crate. */
+/** Shared row body. */
 function RowBody({
   track,
   index,
@@ -36,41 +34,29 @@ function RowBody({
   togglePlay: () => void;
 }) {
   const cover = art(track.artwork_url, 't200x200');
-  const hue = track.genre ? genreColor(track.genre) : null;
 
   return (
     <>
-      {hue && (
-        <span
-          className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full transition-opacity duration-300"
-          style={{
-            background: hue,
-            opacity: isThis ? 1 : 0.4,
-          }}
-        />
-      )}
       <div
-        className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
+        className="w-9 h-9 flex items-center justify-center shrink-0 cursor-pointer"
         onClick={togglePlay}
         onMouseEnter={() => preloadTrack(track.urn)}
       >
         {isThisPlaying ? (
-          <div className="w-7 h-7 rounded-full bg-accent text-accent-contrast flex items-center justify-center">
-            {pauseWhite12}
-          </div>
+          <PlayingBars playing={isThisPlaying} />
         ) : (
           <>
             <span className="text-[12px] text-white/25 tabular-nums font-medium group-hover:hidden">
               {index + 1}
             </span>
-            <div className="hidden group-hover:flex w-7 h-7 rounded-full bg-white/10 items-center justify-center">
+            <div className="hidden group-hover:flex w-8 h-8 rounded-full bg-white/10 items-center justify-center">
               {playWhite12}
             </div>
           </>
         )}
       </div>
 
-      <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
+      <div className="relative w-9 h-9 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.06]">
         {cover ? (
           <img
             src={cover}
@@ -117,10 +103,10 @@ function RowBody({
 }
 
 const ROW_BASE =
-  'group relative flex items-center gap-3.5 pl-4 pr-4 py-3 rounded-xl transition-colors duration-200 ease-[var(--ease-apple)] select-none';
+  'group relative flex items-center gap-3.5 pl-4 pr-4 py-3 rounded-md transition-colors duration-150 ease-[var(--ease-apple)] select-none';
 
-function activeCls(isThis: boolean) {
-  return isThis ? 'bg-accent/[0.06] ring-1 ring-accent/20' : 'hover:bg-white/[0.03]';
+function activeCls(_isThis: boolean) {
+  return 'hover:bg-white/[0.03]';
 }
 
 /** Owner row — drag-to-reorder with a "pulled sleeve" tilt; remove on hover. */

@@ -1,10 +1,15 @@
 //! Bulk-кеширование лайков: общий запуск Rust-цикла `track_cache_likes` и
 //! подписка на его прогресс. Используется из Settings (CacheCard) и OfflinePage.
 
-import {listen} from '@tauri-apps/api/event';
-import {useCallback, useEffect, useRef, useState} from 'react';
-import {useSettingsStore} from '../stores/settings';
-import {cacheLikedTracks, cancelCacheLikes, isCacheLikesRunning, type LikeCacheEntry,} from './cache';
+import { listen } from '@tauri-apps/api/event';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSettingsStore } from '../stores/settings';
+import {
+  cacheLikedTracks,
+  cancelCacheLikes,
+  isCacheLikesRunning,
+  type LikeCacheEntry,
+} from './cache';
 
 export interface CacheLikesProgress {
   phase: 'start' | 'progress' | 'done' | 'cancelled';

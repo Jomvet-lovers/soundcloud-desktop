@@ -1,9 +1,9 @@
 //! Чистые хелперы офлайн-библиотеки: сборка строк, сортировка, фильтр,
 //! зеркало односторонней duration-проверки Rust (короче заявленного = обрезок).
 
-import type {CacheInventoryEntry} from '../../lib/cache';
-import type {Track} from '../../stores/player';
-import type {OfflineEntry, SortMode} from './types';
+import type { CacheInventoryEntry } from '../../lib/cache';
+import type { Track } from '../../stores/player';
+import type { OfflineEntry, SortMode } from './types';
 
 const DURATION_TOLERANCE_MS = 4000;
 const DURATION_TOLERANCE_FRAC = 0.04;

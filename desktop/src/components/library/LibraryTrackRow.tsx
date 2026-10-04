@@ -2,20 +2,13 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import { art, dur, fc } from '../../lib/formatters';
-import {
-  headphones11,
-  heart11,
-  ListMusic,
-  ListPlus,
-  Music,
-  pauseWhite14,
-  playWhite14,
-} from '../../lib/icons';
+import { headphones11, heart11, ListMusic, ListPlus, Music, playWhite14 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
+import { PlayingBars } from '../music/PlayingBars';
 import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
@@ -43,33 +36,27 @@ export const LibraryTrackRow = React.memo(
     const cover = art(track.artwork_url, 't200x200');
 
     return (
-      <div
-        className={`group flex items-center gap-4 px-4 py-3 rounded-2xl transition-all duration-300 ease-[var(--ease-apple)] ${
-          isThis ? 'bg-accent/[0.06] ring-1 ring-accent/20' : 'hover:bg-white/[0.04]'
-        }`}
-      >
+      <div className="group flex items-center gap-4 px-4 py-3 rounded-md transition-colors duration-150 hover:bg-white/[0.04]">
         <div
-          className="w-8 h-8 flex items-center justify-center shrink-0 cursor-pointer"
+          className="w-10 h-10 flex items-center justify-center shrink-0 cursor-pointer"
           onClick={togglePlay}
           onMouseEnter={() => preloadTrack(track.urn)}
         >
           {isThisPlaying ? (
-            <div className="w-8 h-8 rounded-full bg-accent text-accent-contrast flex items-center justify-center scale-100 animate-fade-in-up">
-              {pauseWhite14}
-            </div>
+            <PlayingBars playing={isThisPlaying} />
           ) : (
             <>
               <span className="text-[13px] text-white/20 tabular-nums font-medium group-hover:hidden">
                 {index + 1}
               </span>
-              <div className="hidden group-hover:flex w-8 h-8 rounded-full bg-white/10 items-center justify-center hover:bg-white/20 hover:scale-105 transition-all">
+              <div className="hidden group-hover:flex w-9 h-9 rounded-full bg-white/10 items-center justify-center hover:bg-white/20 hover:scale-105 transition-all">
                 {playWhite14}
               </div>
             </>
           )}
         </div>
 
-        <div className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md">
+        <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.08]">
           {cover ? (
             <img src={cover} alt="" className="w-full h-full object-cover" decoding="async" />
           ) : (

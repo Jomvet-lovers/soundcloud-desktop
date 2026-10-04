@@ -1,7 +1,7 @@
-import {useTranslation} from 'react-i18next';
-import {TrackCard} from '../components/music/TrackCard';
-import {useLikedTracks} from '../lib/hooks';
-import {useAuthStore} from '../stores/auth';
+import { useTranslation } from 'react-i18next';
+import { TrackCard } from '../components/music/TrackCard';
+import { useLikedTracks } from '../lib/hooks';
+import { useAuthStore } from '../stores/auth';
 
 /** Home — a plain shelf of recently liked tracks. */
 export function Home() {
@@ -20,7 +20,7 @@ export function Home() {
       {tracks.length === 0 ? (
         <p className="mt-6 text-[13px] text-white/35">{t('library.noLikedTracks')}</p>
       ) : (
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="mt-5 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
           {tracks.map((track) => (
             <TrackCard key={track.urn} track={track} queue={tracks} />
           ))}

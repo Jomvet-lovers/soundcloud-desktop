@@ -5,13 +5,10 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
-import { CrateLedger } from '../components/playlist/CrateLedger';
 import { PLAYLIST_KEYFRAMES } from '../components/playlist/keyframes';
 import { MoreCrates } from '../components/playlist/MoreCrates';
 import { PlaylistHero } from '../components/playlist/PlaylistHero';
 import { SequenceList } from '../components/playlist/SequenceList';
-import { SetRibbon } from '../components/playlist/SetRibbon';
-import { usePlaylistAura } from '../components/playlist/usePlaylistAura';
 import {
   useDeletePlaylist,
   useInfiniteScroll,
@@ -19,7 +16,7 @@ import {
   usePlaylistTracks,
   useUpdatePlaylistTracks,
 } from '../lib/hooks';
-import { AlertCircle, ChevronLeft, X } from '../lib/icons';
+import { AlertCircle, X } from '../lib/icons';
 import { rawPlaylistCover } from '../lib/playlist-cover';
 import { armPlaylistContinuation } from '../lib/queue-continuation';
 import { useAuthStore } from '../stores/auth';
@@ -122,7 +119,6 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     })),
   );
 
-  const aura = usePlaylistAura(tracks, playlist?.genre);
   const scrollRef = useInfiniteScroll(hasNextPage ?? false, isFetchingNextPage, fetchNextPage);
 
   const handleDragEnd = useCallback(
@@ -175,15 +171,6 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     armContinuation();
   }, [tracks, armContinuation]);
 
-  const handleJump = useCallback(
-    (index: number) => {
-      if (index < 0 || index >= tracks.length) return;
-      usePlayerStore.getState().play(tracks[index], tracks);
-      armContinuation();
-    },
-    [tracks, armContinuation],
-  );
-
   const handleTogglePin = useCallback(() => {
     if (!playlist) return;
     if (isPinned) {
@@ -223,49 +210,24 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     );
   }
 
-  const trackCount = playlist.track_count || tracks.length;
-
   return (
     <div className="relative min-h-full w-full">
       <style>{PLAYLIST_KEYFRAMES}</style>
 
       <div
-        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-6"
+        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-6 pb-10 space-y-6"
         style={{ isolation: 'isolate' }}
       >
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white/55 hover:text-white hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
-          aria-label={t('search.back')}
-        >
-          <ChevronLeft size={18} />
-        </button>
-
         <PlaylistHero
           playlist={playlist}
-          tracks={tracks}
-          aura={aura}
           isOwner={isOwner}
           isPlaying={isPlayingFromThis}
           isPinned={isPinned}
-          trackCount={trackCount}
           onPlayAll={handlePlayAll}
           onShuffle={handleShuffle}
           onTogglePin={handleTogglePin}
           onDelete={() => setShowDeleteConfirm(true)}
         />
-
-        <CrateLedger playlist={playlist} tracks={tracks} accentGlow={aura.accentGlow} />
-
-        {tracks.length > 1 && (
-          <section className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 text-[11px] font-medium text-white/45">
-              {t('playlist.theSet')}
-            </div>
-            <SetRibbon tracks={tracks} onJump={handleJump} />
-          </section>
-        )}
 
         <SequenceList
           tracks={tracks}

@@ -11,7 +11,7 @@ export const LikeButton = React.memo(function LikeButton({
   variant = 'inline',
 }: {
   track: Track;
-  variant?: 'overlay' | 'inline';
+  variant?: 'chip' | 'inline';
 }) {
   const liked = useLiked(track.urn);
 
@@ -36,18 +36,18 @@ export const LikeButton = React.memo(function LikeButton({
     }
   };
 
-  if (variant === 'overlay') {
+  if (variant === 'chip') {
     return (
       <button
         type="button"
         onClick={toggle}
-        className={`cursor-pointer absolute top-2 left-2 w-8 h-8 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 ${
+        className={`cursor-pointer w-6 h-6 rounded-full flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200 ${
           liked
             ? 'bg-accent/80 text-accent-contrast'
             : 'bg-black/50 text-white/80 hover:text-white hover:bg-black/70'
         }`}
       >
-        <Heart size={14} fill={liked ? 'currentColor' : 'none'} />
+        <Heart size={12} fill={liked ? 'currentColor' : 'none'} />
       </button>
     );
   }

@@ -24,7 +24,7 @@ interface ArtistTracksTabProps {
   showSort?: boolean;
 }
 
-const ROW_HEIGHT = 72;
+const ROW_HEIGHT = 64;
 
 function partition(tracks: Track[]): { available: Track[]; wanted: Track[] } {
   const available: Track[] = [];
@@ -119,16 +119,8 @@ function ArtistTracksTabImpl({
 
   if (tracks.length === 0) {
     return (
-      <div className="py-24 flex flex-col items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center"
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)',
-          }}
-        >
-          <Music size={24} className="text-white/15" />
-        </div>
+      <div className="py-24 flex flex-col items-center gap-3">
+        <Music size={28} className="text-white/15" />
         <p className="text-white/30 text-sm">
           {role === 'primary' ? t('artist.noTracks') : t('artist.noAppearances')}
         </p>

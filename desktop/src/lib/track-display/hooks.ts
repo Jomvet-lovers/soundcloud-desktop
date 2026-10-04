@@ -1,12 +1,12 @@
 import {
-    type ArtistDisplay,
-    type DisplayInput,
-    getArtistDisplay,
-    getDisplayTitle,
-    getTrackDisplay,
-    type TrackDisplay,
+  type ArtistDisplay,
+  type DisplayInput,
+  getArtistDisplay,
+  getDisplayTitle,
+  getTrackDisplay,
+  type TrackDisplay,
 } from './display';
-import {type ArtistLinkItem, getArtistLinkItems} from './links';
+import { type ArtistLinkItem, getArtistLinkItems } from './links';
 
 // Хуки — тонкие обёртки: WeakMap-кэш в display/links делает результат
 // референсно стабильным на неизменном треке, useMemo здесь лишний.

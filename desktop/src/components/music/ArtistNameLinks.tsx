@@ -1,6 +1,6 @@
 import React from 'react';
-import {useNavigate} from 'react-router-dom';
-import type {ArtistLinkItem} from '../../lib/track-display';
+import { useNavigate } from 'react-router-dom';
+import type { ArtistLinkItem } from '../../lib/track-display';
 
 /**
  * Строка авторов «A, B, C», где каждое имя — отдельная ссылка на СВОЕГО

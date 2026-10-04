@@ -19,31 +19,21 @@ interface TabDockProps<T extends string = string> {
 
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
+/** Flat, scrollable tab row — no container card, active tab is a subtle chip. */
 function TabDockImpl<T extends string>({ tabs, active, onChange }: TabDockProps<T>) {
   const dockRef = useRef<HTMLDivElement>(null);
-  const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
   const [overflows, setOverflows] = useState(false);
   const dragRef = useRef({ active: false, startX: 0, startScroll: 0, moved: false });
 
   useIsoLayoutEffect(() => {
     const dock = dockRef.current;
     if (!dock) return;
-    const btn = dock.querySelector<HTMLButtonElement>(`[data-tab="${active}"]`);
-    if (!btn) return;
-
-    const update = () => {
-      const dockRect = dock.getBoundingClientRect();
-      const r = btn.getBoundingClientRect();
-      setPill({ x: r.left - dockRect.left + dock.scrollLeft, w: r.width });
-      setOverflows(dock.scrollWidth > dock.clientWidth + 1);
-    };
-
+    const update = () => setOverflows(dock.scrollWidth > dock.clientWidth + 1);
     update();
     const ro = new ResizeObserver(update);
     ro.observe(dock);
-    ro.observe(btn);
     return () => ro.disconnect();
-  }, [active, tabs]);
+  }, [tabs]);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -133,25 +123,10 @@ function TabDockImpl<T extends string>({ tabs, active, onChange }: TabDockProps<
         onWheel={onWheel}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className={`pointer-events-auto relative flex items-center gap-0.5 sm:gap-1 p-1 sm:p-1.5 rounded-2xl min-w-0 max-w-full overflow-x-auto overscroll-x-contain touch-pan-x select-none [&::-webkit-scrollbar]:hidden [scrollbar-width:none] ${
+        className={`pointer-events-auto relative flex items-center gap-1 min-w-0 max-w-full overflow-x-auto overscroll-x-contain touch-pan-x select-none [&::-webkit-scrollbar]:hidden [scrollbar-width:none] ${
           overflows ? 'cursor-grab' : 'cursor-default'
         }`}
-        style={{
-          background: '#141417',
-          border: '0.5px solid rgba(255,255,255,0.08)',
-        }}
       >
-        {pill && (
-          <div
-            className="absolute top-1 bottom-1 sm:top-1.5 sm:bottom-1.5 rounded-xl transition-all duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
-            style={{
-              left: pill.x,
-              width: pill.w,
-              background: 'rgba(255,255,255,0.10)',
-              border: '0.5px solid rgba(255,255,255,0.12)',
-            }}
-          />
-        )}
         {tabs.map((tab) => {
           const isActive = active === tab.id;
           return (
@@ -160,18 +135,16 @@ function TabDockImpl<T extends string>({ tabs, active, onChange }: TabDockProps<
               type="button"
               data-tab={tab.id}
               onClick={() => onChange(tab.id)}
-              className={`relative z-10 shrink-0 inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 md:px-4 h-8 sm:h-9 rounded-xl text-[12px] sm:text-[12.5px] font-semibold transition-colors duration-300 ${
+              className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 sm:px-3 h-8 rounded-md text-[12px] sm:text-[12.5px] font-medium transition-colors ${
                 overflows ? 'cursor-grab' : 'cursor-pointer'
-              } ${isActive ? 'text-white' : 'text-white/45 hover:text-white/85'}`}
+              } ${isActive ? 'bg-white/[0.08] text-white' : 'text-white/45 hover:text-white/80'}`}
             >
               <span className="whitespace-nowrap">{tab.label}</span>
               {tab.count != null && (
                 <span
-                  className="hidden sm:inline-flex text-[10px] tabular-nums font-bold px-1.5 py-0.5 rounded-md transition-colors"
-                  style={{
-                    background: isActive ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)',
-                    color: isActive ? '#fff' : 'rgba(255,255,255,0.35)',
-                  }}
+                  className={`hidden sm:inline-flex text-[10px] tabular-nums font-medium px-1.5 py-0.5 rounded-md ${
+                    isActive ? 'text-white/80' : 'text-white/30'
+                  }`}
                 >
                   {fc(tab.count)}
                 </span>

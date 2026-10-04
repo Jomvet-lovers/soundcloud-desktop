@@ -73,6 +73,7 @@ export function Login() {
             <p className="text-[10.5px] leading-snug text-white/35">{t('auth.directHint')}</p>
             <input
               type="password"
+              autoComplete="off"
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
               onKeyDown={(e) => {

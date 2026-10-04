@@ -1,7 +1,7 @@
-import type {Track, TrackAvailability} from '../../stores/player';
-import {stripInlineTags, stripTranslitParens} from './clean';
-import {foldName} from './fold';
-import {type NamePart, splitNamesWithOffsets, TITLE_SEPARATORS} from './split';
+import type { Track, TrackAvailability } from '../../stores/player';
+import { stripInlineTags, stripTranslitParens } from './clean';
+import { foldName } from './fold';
+import { type NamePart, splitNamesWithOffsets, TITLE_SEPARATORS } from './split';
 
 export type DisplayInput = Pick<Track, 'title' | 'user' | 'enrichment'>;
 
