@@ -901,5 +901,10 @@
     "scAccounts": "SoundCloud hesapları",
     "mainAccount": "Ana",
     "demoAccount": "Demo"
+  },
+  "sync": {
+    "failed": "Bu değişiklik SoundCloud'a eşitlenemedi — yalnızca bu cihazda kayıtlı.",
+    "tokenExpired": "SoundCloud oturumu sona erdi — değişiklik yerel olarak kaydedildi ancak eşitlenmedi. Eşitleme için tekrar giriş yapın.",
+    "captchaFailed": "SoundCloud bot koruması bu değişikliği engelledi — yerel olarak kaydedildi. Birazdan tekrar deneyin."
   }
 }

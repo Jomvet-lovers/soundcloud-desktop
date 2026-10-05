@@ -157,6 +157,12 @@ impl LocalStore {
         self.save();
     }
 
+    pub fn rekey_playlist(&mut self, old_urn: &str, playlist: Value) {
+        self.playlists
+            .retain(|p| p.get("urn").and_then(Value::as_str) != Some(old_urn));
+        self.upsert_playlist(playlist);
+    }
+
     pub fn delete_playlist(&mut self, urn: &str) {
         self.playlists
             .retain(|p| p.get("urn").and_then(Value::as_str) != Some(urn));

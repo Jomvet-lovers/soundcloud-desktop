@@ -14,7 +14,7 @@ use warp::reply::{Reply, Response};
 use warp::{path::FullPath, Filter};
 
 use super::sc::{fetch_me, id_of, SC_API};
-use super::webview::spawn_write;
+use super::webview::{emit_sync_error, spawn_write, spawn_write_silent};
 use super::DirectState;
 
 pub async fn start(state: Arc<DirectState>) -> u16 {
@@ -451,6 +451,24 @@ async fn need_my_id(state: &DirectState, token: Option<&str>) -> Result<u64, Res
         .my_user_id(t)
         .await
         .map_err(|e| json_resp(502, &json!({ "error": e })))
+}
+
+async fn liked_track_ids(state: &DirectState, token: &str) -> Vec<String> {
+    state
+        .sc_get("/me/track_likes/ids", Some(token))
+        .await
+        .ok()
+        .map(|(_, v)| {
+            v.get("collection")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_u64().map(|n| n.to_string()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+        .unwrap_or_default()
 }
 
 // ─── dispatch ────────────────────────────────────────────────────────────
@@ -978,25 +996,6 @@ async fn handle(
             store.comments.insert(0, entry.clone());
             store.save();
             drop(store);
-            // Best-effort SoundCloud sync of the comment.
-            let id = id_of(urn);
-            if let Some(t) = token.as_deref() {
-                if let Ok(cid) = s.client_id().await {
-                    let payload = json!({
-                        "comment": {
-                            "body": comment.get("body").cloned().unwrap_or(Value::Null),
-                            "timestamp": comment.get("timestamp").cloned().unwrap_or(Value::Null),
-                        }
-                    });
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "POST",
-                        format!("{SC_API}/tracks/{id}/comments?client_id={cid}"),
-                        Some(payload),
-                    );
-                }
-            }
             ok(entry)
         }
         ("GET", ["tracks", _urn, "sharing"]) => ok(json!({ "sharing": "public" })),
@@ -1017,8 +1016,21 @@ async fn handle(
                 Some(t) => fetch_me(s, t).await.ok(),
                 None => None,
             };
-            let mut store = s.store.lock().await;
-            let urn = store.next_local_playlist_urn();
+            let title = input
+                .get("title")
+                .cloned()
+                .unwrap_or(json!("Untitled playlist"));
+            let sharing = input.get("sharing").cloned().unwrap_or(json!("private"));
+            let track_ids: Vec<u64> = input
+                .get("tracks")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|r| r.get("urn").and_then(Value::as_str))
+                        .filter_map(|u| id_of(u).parse::<u64>().ok())
+                        .collect()
+                })
+                .unwrap_or_default();
             let user = me
                 .as_ref()
                 .map(|u| {
@@ -1031,14 +1043,16 @@ async fn handle(
                     })
                 })
                 .unwrap_or(Value::Null);
+            let mut store = s.store.lock().await;
+            let urn = store.next_local_playlist_urn();
             let playlist = json!({
                 "id": urn.rsplit(':').next().and_then(|n| n.parse::<u64>().ok()).unwrap_or(0),
-                "urn": urn,
-                "title": input.get("title").cloned().unwrap_or(json!("Untitled playlist")),
+                "urn": urn.clone(),
+                "title": title.clone(),
                 "description": input.get("description").cloned().unwrap_or(Value::Null),
                 "genre": input.get("genre").cloned().unwrap_or(json!("")),
                 "tag_list": input.get("tag_list").cloned().unwrap_or(json!("")),
-                "sharing": input.get("sharing").cloned().unwrap_or(json!("private")),
+                "sharing": sharing.clone(),
                 "duration": 0,
                 "artwork_url": Value::Null,
                 "track_count": 0,
@@ -1051,6 +1065,66 @@ async fn handle(
                 "local": true,
             });
             store.upsert_playlist(playlist.clone());
+            drop(store);
+
+            if let Some(t) = token.as_deref() {
+                if let Ok(cid) = s.client_id().await {
+                    let payload = json!({
+                        "playlist": {
+                            "title": title,
+                            "sharing": sharing,
+                            "tracks": track_ids,
+                        }
+                    });
+                    let url = format!("{SC_API}/playlists?client_id={cid}");
+                    let extract = "(function(s){try{return String((JSON.parse(s)||{}).id||'');}catch(e){return '';}})";
+                    match super::webview::execute_with(
+                        &s.app,
+                        Some(t),
+                        "POST",
+                        &url,
+                        Some(&payload),
+                        Some(extract),
+                        true,
+                    )
+                    .await
+                    {
+                        Ok(o) if (200..300).contains(&o.status) => {
+                            if let Ok(id) = o.payload.trim().parse::<u64>() {
+                                let detail = match s.sc_get_opt(&format!("/playlists/{id}"), Some(t)).await
+                                {
+                                    Some(v) => normalize_urn(v),
+                                    None => {
+                                        let mut p = playlist.clone();
+                                        if let Some(obj) = p.as_object_mut() {
+                                            obj.insert("id".into(), json!(id));
+                                            obj.insert(
+                                                "urn".into(),
+                                                json!(format!("soundcloud:playlists:{id}")),
+                                            );
+                                            obj.insert("local".into(), json!(false));
+                                        }
+                                        p
+                                    }
+                                };
+                                s.store.lock().await.rekey_playlist(&urn, detail.clone());
+                                return Ok(ok(detail));
+                            }
+                        }
+                        Ok(o) => {
+                            emit_sync_error(
+                                &s.app,
+                                "POST",
+                                &url,
+                                o.status,
+                                o.captcha.is_some(),
+                                None,
+                            );
+                        }
+                        Err(e) => emit_sync_error(&s.app, "POST", &url, 0, false, Some(&e)),
+                    }
+                }
+            }
             ok(playlist)
         }
         ("GET", ["playlists", urn]) => {
@@ -1270,18 +1344,14 @@ async fn handle(
             }
             s.store.lock().await.upsert_playlist(playlist.clone());
 
-            // Best-effort SoundCloud sync: PUT the full ordered track list.
             if is_sc {
                 if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
                     let ids: Vec<Value> = tracks
                         .iter()
-                        .filter_map(|tr| urn_of(tr))
-                        .map(|u| {
+                        .filter_map(urn_of)
+                        .filter_map(|u| {
                             let id = id_of(&u);
-                            match id.parse::<i64>() {
-                                Ok(n) => json!({ "id": n }),
-                                Err(_) => json!({ "id": id }),
-                            }
+                            id.parse::<i64>().ok().map(|n| json!(n))
                         })
                         .collect();
                     let payload = json!({ "playlist": { "tracks": ids } });
@@ -1298,6 +1368,17 @@ async fn handle(
         }
         ("DELETE", ["playlists", urn]) => {
             s.store.lock().await.delete_playlist(urn);
+            if urn.starts_with("soundcloud:playlists:") {
+                if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
+                    spawn_write(
+                        s.app.clone(),
+                        t.to_string(),
+                        "DELETE",
+                        format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn)),
+                        None,
+                    );
+                }
+            }
             ok(json!({ "ok": true }))
         }
         ("PUT", ["playlists", urn, "sharing"]) => {
@@ -1949,6 +2030,10 @@ async fn handle(
         }
         ("POST", ["history"]) => {
             let mut b = body_json(&body);
+            let track_urn = b
+                .get("scTrackId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             if b.is_object() {
                 let now = chrono::Utc::now().to_rfc3339();
                 if let Some(obj) = b.as_object_mut() {
@@ -1959,6 +2044,19 @@ async fn handle(
                 store.history.insert(0, b.clone());
                 store.history.truncate(500);
                 store.save();
+            }
+            if let Some(urn) = track_urn {
+                if let Ok(id) = id_of(&urn).parse::<u64>() {
+                    if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
+                        spawn_write_silent(
+                            s.app.clone(),
+                            t.to_string(),
+                            "POST",
+                            format!("{SC_API}/me/play-history?client_id={cid}"),
+                            Some(json!({ "track_urn": format!("soundcloud:tracks:{id}") })),
+                        );
+                    }
+                }
             }
             ok(json!({ "ok": true }))
         }
@@ -2009,21 +2107,7 @@ async fn handle(
             // Only run a PUT when the track is already liked (idempotent), and
             // only run a DELETE when it is not liked (no-op)  Ethe probe must
             // never change the account state.
-            let ids = s
-                .sc_get("/me/track_likes/ids", Some(t))
-                .await
-                .ok()
-                .map(|(_, v)| {
-                    v.get("collection")
-                        .and_then(Value::as_array)
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(|x| x.as_u64().map(|n| n.to_string()))
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default()
-                })
-                .unwrap_or_default();
+            let ids = liked_track_ids(s, t).await;
             let is_liked = ids.iter().any(|x| x == &id);
             if (method == "PUT" && !is_liked) || (method == "DELETE" && is_liked) {
                 return Ok(ok(json!({
@@ -2073,6 +2157,47 @@ async fn handle(
                     }))
                 }
                 Err(e) => err(502, &e.to_string()),
+            }
+        }
+
+        // ── debug: DataDome webview write-path probe (never changes state) ──
+        ("POST", ["debug", "webview-probe"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let id = q_str(&q, "id").unwrap_or_default();
+            let method = q_str(&q, "method").unwrap_or_else(|| "PUT".into());
+            let my = match need_my_id(s, Some(t)).await {
+                Ok(v) => v,
+                Err(r) => return Ok(r),
+            };
+            let ids = liked_track_ids(s, t).await;
+            let is_liked = ids.iter().any(|x| x == &id);
+            if (method == "PUT" && !is_liked) || (method == "DELETE" && is_liked) {
+                return Ok(ok(json!({
+                    "status": 0,
+                    "skipped": "probe would change state",
+                    "is_liked": is_liked,
+                })));
+            }
+            let cid = match s.client_id().await {
+                Ok(c) => c,
+                Err(e) => return Ok(err(502, &e)),
+            };
+            let url = format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}");
+            let started = Instant::now();
+            match super::webview::execute(&s.app, Some(t), &method, &url, None).await {
+                Ok(o) => {
+                    let payload: String = o.payload.chars().take(500).collect();
+                    ok(json!({
+                        "status": o.status,
+                        "captcha": o.captcha,
+                        "is_liked": is_liked,
+                        "body": payload,
+                        "elapsed_ms": started.elapsed().as_millis() as u64,
+                    }))
+                }
+                Err(e) => err(502, &e),
             }
         }
 

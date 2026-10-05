@@ -67,6 +67,7 @@ function startDeferredRuntime() {
     void import('./lib/tray');
     void import('./lib/audio');
     void import('./lib/discord');
+    void import('./lib/sync-status');
   });
 }
 

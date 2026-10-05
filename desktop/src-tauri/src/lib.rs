@@ -108,11 +108,6 @@ pub fn run() {
                 direct_http,
                 app.handle().clone(),
             );
-            // Hidden WebView used for SoundCloud writes (DataDome-protected).
-            // Only created when the sync experiment is enabled.
-            if direct::webview::SYNC_ENABLED {
-                let _ = direct::webview::ensure_window(app.handle());
-            }
             let api_port = rt.block_on(direct::routes::start(direct_state.clone()));
             app.manage(direct_state);
 
