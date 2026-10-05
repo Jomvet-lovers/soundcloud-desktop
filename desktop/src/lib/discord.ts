@@ -9,6 +9,15 @@ let connected = false;
 let lastConnectAttemptAt = 0;
 const CONNECT_RETRY_MS = 5000;
 
+// Discord only carries the activity while audio is actually playing, so its
+// progress clock never runs during a pause. Operations are serialized because
+// a late "clear" landing after a newer "set" would hide a playing track.
+let opChain: Promise<void> = Promise.resolve();
+
+function enqueue(op: () => Promise<void>) {
+  opChain = opChain.then(op, op);
+}
+
 async function ensureConnected(): Promise<boolean> {
   if (!useSettingsStore.getState().discordRpcEnabled) {
     return false;
@@ -36,7 +45,7 @@ function stripQuery(url: string | null | undefined): string | undefined {
   return url ? `${url}`.replace(/\?.*$/, '') : undefined;
 }
 
-async function updatePresence(track: Track) {
+async function setActivity(track: Track) {
   if (!(await ensureConnected())) return;
 
   try {
@@ -77,12 +86,23 @@ let lastPlaying = false;
 let lastElapsed = 0;
 let seekSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
-function schedulePresenceSync(track: Track, delayMs: number) {
+/** Reconcile Discord with the player: playing → activity, otherwise hidden. */
+function syncPresence() {
+  enqueue(async () => {
+    const { currentTrack, isPlaying } = usePlayerStore.getState();
+    if (currentTrack && isPlaying && useSettingsStore.getState().discordRpcEnabled) {
+      await setActivity(currentTrack);
+    } else {
+      await clearPresence();
+    }
+  });
+}
+
+function schedulePresenceSync(delayMs: number) {
   if (seekSyncTimer) clearTimeout(seekSyncTimer);
   seekSyncTimer = setTimeout(() => {
     seekSyncTimer = null;
-    lastElapsed = Math.round(getCurrentTime());
-    updatePresence(track);
+    syncPresence();
   }, delayMs);
 }
 
@@ -91,31 +111,18 @@ usePlayerStore.subscribe((state) => {
 
   const trackChanged = currentTrack?.urn !== lastUrn;
   const playChanged = isPlaying !== lastPlaying;
+  if (!trackChanged && !playChanged) return;
 
-  if (!currentTrack) {
-    if (lastPlaying || trackChanged) {
-      clearPresence();
-    }
-    if (seekSyncTimer) {
-      clearTimeout(seekSyncTimer);
-      seekSyncTimer = null;
-    }
-    lastUrn = null;
-    lastPlaying = false;
-    lastElapsed = 0;
-    return;
+  if (seekSyncTimer) {
+    clearTimeout(seekSyncTimer);
+    seekSyncTimer = null;
   }
 
-  if (trackChanged || playChanged) {
-    if (seekSyncTimer) {
-      clearTimeout(seekSyncTimer);
-      seekSyncTimer = null;
-    }
-    lastUrn = currentTrack.urn;
-    lastPlaying = isPlaying;
-    lastElapsed = Math.round(getCurrentTime());
-    updatePresence(currentTrack);
-  }
+  lastUrn = currentTrack?.urn ?? null;
+  lastPlaying = isPlaying;
+  lastElapsed = currentTrack ? Math.round(getCurrentTime()) : 0;
+
+  syncPresence();
 });
 
 useSettingsStore.subscribe((state, prev) => {
@@ -131,29 +138,25 @@ useSettingsStore.subscribe((state, prev) => {
       clearTimeout(seekSyncTimer);
       seekSyncTimer = null;
     }
-    void clearPresence().finally(() => {
+    enqueue(async () => {
+      await clearPresence();
       connected = false;
-      void invoke('discord_disconnect').catch(() => undefined);
+      await invoke('discord_disconnect').catch(() => undefined);
     });
     return;
   }
 
-  const { currentTrack } = usePlayerStore.getState();
-  if (currentTrack) {
-    void updatePresence(currentTrack);
-  }
+  syncPresence();
 });
 
 subscribeAudioTime(() => {
   const { currentTrack, isPlaying } = usePlayerStore.getState();
-  if (!currentTrack || !useSettingsStore.getState().discordRpcEnabled) return;
+  if (!currentTrack || !isPlaying || !useSettingsStore.getState().discordRpcEnabled) return;
 
   if (!connected) {
-    void updatePresence(currentTrack);
+    syncPresence();
     return;
   }
-
-  if (!isPlaying) return;
 
   const elapsed = Math.round(getCurrentTime());
   const drift = Math.abs(elapsed - lastElapsed);
@@ -161,7 +164,7 @@ subscribeAudioTime(() => {
   // Re-sync Discord timestamps on manual seek / large jumps without spamming updates every second.
   if (drift >= 2) {
     lastElapsed = elapsed;
-    schedulePresenceSync(currentTrack, 180);
+    schedulePresenceSync(180);
   } else {
     lastElapsed = elapsed;
   }

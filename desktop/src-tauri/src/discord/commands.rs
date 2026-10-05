@@ -127,7 +127,9 @@ pub fn discord_set_activity(
 
     let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
-    let assets = Assets::new().large_image(large_image);
+    let assets = Assets::new()
+        .large_image(large_image)
+        .large_text(title.as_str());
 
     // `status_display_type` picks what the member list shows next to the
     // activity type: the artist (Spotify-like), the title, or the app name.
