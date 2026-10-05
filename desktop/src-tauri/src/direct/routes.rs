@@ -2093,23 +2093,9 @@ async fn handle(
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["history"]) => {
-            {
-                let mut store = s.store.lock().await;
-                store.history.clear();
-                store.save();
-            }
-            // Clear the account history too so the web/phone side agrees.
-            if let Some(t) = token.as_deref() {
-                if let Ok(cid) = s.client_id().await {
-                    spawn_write_silent(
-                        s.app.clone(),
-                        t.to_string(),
-                        "DELETE",
-                        format!("{SC_API}/me/play-history/tracks?client_id={cid}"),
-                        None,
-                    );
-                }
-            }
+            let mut store = s.store.lock().await;
+            store.history.clear();
+            store.save();
             ok(json!({ "ok": true }))
         }
 

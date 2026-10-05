@@ -50,7 +50,6 @@ export const LibraryCollection = React.memo(() => {
     <LibraryFrame sound={sound}>
       <LibrarySubHeader
         title={TITLE_KEY[sec]}
-        aura={sound.aura}
         count={count}
         filter={sec === 'history' ? undefined : filter}
         onFilter={sec === 'history' ? undefined : setFilter}

@@ -1,22 +1,19 @@
 import { memo } from 'react';
 import { Link } from 'react-router-dom';
-import { type Aura, auraRgb } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
 import { ChevronLeft, Search as SearchIcon, X } from '../../lib/icons';
 
 interface LibrarySubHeaderProps {
   title: string;
-  aura: Aura;
   count?: number;
   filter?: string;
   onFilter?: (v: string) => void;
 }
 
-/** Shared header for a deep collection page: back to the hub, the title with a
- *  soundprint-tinted accent bar, a live count and an optional filter. */
+/** Shared header for a deep collection page: back to the hub, the title, a
+ *  live count and an optional filter. */
 export const LibrarySubHeader = memo(function LibrarySubHeader({
   title,
-  aura,
   count,
   filter,
   onFilter,
@@ -32,10 +29,6 @@ export const LibrarySubHeader = memo(function LibrarySubHeader({
       </Link>
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <span
-            className="w-1 h-7 rounded-full shrink-0"
-            style={{ background: auraRgb(aura), boxShadow: `0 0 14px ${auraRgb(aura)}` }}
-          />
           <h1 className="text-[26px] md:text-[30px] font-black tracking-tight text-white/95 truncate">
             {title}
           </h1>
