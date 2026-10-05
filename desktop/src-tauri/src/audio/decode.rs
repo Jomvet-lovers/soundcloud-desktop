@@ -335,9 +335,18 @@ pub fn create_player_from_bytes(
             EqSource::new(GainSource::new(source, normalization_gain), eq_params),
             analyser_buffer,
         ));
-    } else if Decoder::new(Cursor::new(bytes.to_vec())).is_ok() {
-        let source = Decoder::new(Cursor::new(bytes.to_vec()))
-            .map_err(|e| format!("Failed to decode: {}", e))?;
+    } else if let Ok(source) = {
+        // In-memory data: rodio needs an explicit byte length for reliable
+        // random-access seeking. Without it, a backwards seek can drop the
+        // symphonia MP4 reader into EOF, which the tick thread then reports as
+        // a track end (jumping to the next track mid-drag).
+        let data = bytes.to_vec();
+        let len = data.len() as u64;
+        Decoder::builder()
+            .with_data(Cursor::new(data))
+            .with_byte_len(len)
+            .build()
+    } {
         duration = source.total_duration().map(|d| d.as_secs_f64());
         let source = SpeedSource::new(source, speed.clone());
         let source = ResampleSource::new(source, output_sample_rate);
