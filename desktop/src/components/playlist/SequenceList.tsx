@@ -11,18 +11,16 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import React, { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Clock, ListMusic, Loader2 } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { VirtualList } from '../ui/VirtualList';
 import { SequenceRow, SequenceRowOverlay, SortableSequenceRow } from './SequenceRow';
 
 function Header({ count }: { count: number }) {
-  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between px-1 pt-1 pb-3">
       <span className="inline-flex items-center gap-2 text-[11px] font-medium text-white/55">
-        <ListMusic size={12} /> {t('playlist.theSequence')}
+        <ListMusic size={12} /> {'Tracks'}
         <span className="text-white/25 ml-1 tabular-nums">{count}</span>
       </span>
       <Clock size={12} className="text-white/25" />
@@ -52,7 +50,6 @@ export const SequenceList = React.memo(function SequenceList({
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
 }) {
-  const { t } = useTranslation();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
@@ -66,7 +63,7 @@ export const SequenceList = React.memo(function SequenceList({
     return (
       <div className="py-20 flex flex-col items-center gap-4">
         <ListMusic size={24} className="text-white/15" />
-        <p className="text-white/30 text-sm">{t('playlist.emptyCrate')}</p>
+        <p className="text-white/30 text-sm">{'This crate is empty — start digging'}</p>
       </div>
     );
   }

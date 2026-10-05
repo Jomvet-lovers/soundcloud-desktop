@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { ArtistAboutTab } from '../components/artist/ArtistAboutTab';
 import { ArtistAlbumsTab } from '../components/artist/ArtistAlbumsTab';
@@ -18,7 +17,6 @@ import { Loader2 } from '../lib/icons';
 
 export function ArtistPage() {
   const { id } = useParams<{ id: string }>();
-  const { t } = useTranslation();
 
   const detail = useArtistDetail(id);
   const artist = detail.data;
@@ -37,22 +35,22 @@ export function ArtistPage() {
   const tabs = useMemo<ReadonlyArray<TabDescriptor<ArtistTabId>>>(() => {
     if (!artist) return [];
     const out: TabDescriptor<ArtistTabId>[] = [
-      { id: 'tracks', label: t('artist.tracks'), count: artist.track_count_primary },
+      { id: 'tracks', label: 'Tracks', count: artist.track_count_primary },
     ];
     out.push({
       id: 'appears',
-      label: t('artist.appearsOn'),
+      label: 'Appears on',
       count: artist.track_count_featured || undefined,
     });
-    out.push({ id: 'albums', label: t('artist.albums'), count: artist.album_count });
+    out.push({ id: 'albums', label: 'Albums', count: artist.album_count });
     out.push({
       id: 'related',
-      label: t('artist.related'),
+      label: 'Related',
       count: related.length || undefined,
     });
-    out.push({ id: 'about', label: t('artist.about'), count: undefined });
+    out.push({ id: 'about', label: 'About', count: undefined });
     return out;
-  }, [artist, t, related.length]);
+  }, [artist, related.length]);
 
   if (detail.isLoading || (!artist && !detail.error)) {
     return (
@@ -65,7 +63,7 @@ export function ArtistPage() {
   if (detail.error || !artist) {
     return (
       <div className="relative w-full min-h-screen flex items-center justify-center text-white/40 text-sm">
-        {t('common.error')}
+        {'Something went wrong'}
       </div>
     );
   }

@@ -1,4 +1,3 @@
-import { useTranslation } from 'react-i18next';
 import type { Aura } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
 import { Calendar, Globe } from '../../lib/icons';
@@ -57,7 +56,6 @@ function Stat({ value, label }: { value?: number | null; label: string }) {
 
 /** Compact profile header — one tight block, no framed stat boxes. */
 export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: IdentityHubProps) {
-  const { t } = useTranslation();
   const formattedDate = dateFormattedLong(user.created_at);
   const country = [user.city, user.country_code].filter(Boolean).join(', ');
 
@@ -76,7 +74,7 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
             <h1 className="max-w-full break-words text-xl font-black leading-tight tracking-tight text-white md:text-3xl">
               {user.username}
             </h1>
-            {user.verified && <VerifiedBadge title={t('user.verifiedArtist')} />}
+            {user.verified && <VerifiedBadge title={'Verified Artist'} />}
             {user.plan && user.plan !== 'Free' && <ProChip plan={user.plan} />}
             {formattedDate && (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55">
@@ -100,10 +98,10 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
           )}
 
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[12.5px] sm:justify-start">
-            <Stat value={user.followers_count} label={t('user.followers')} />
-            <Stat value={user.followings_count} label={t('user.following')} />
-            <Stat value={user.track_count} label={t('user.tracks')} />
-            <Stat value={likedTracksCount(user)} label={t('user.likes')} />
+            <Stat value={user.followers_count} label={'Followers'} />
+            <Stat value={user.followings_count} label={'Following'} />
+            <Stat value={user.track_count} label={'Tracks'} />
+            <Stat value={likedTracksCount(user)} label={'Likes'} />
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5 sm:justify-start">

@@ -58,7 +58,6 @@ export interface SettingsState {
   backgroundBlur: number;
   glassBlur: number;
   audioCacheLimitMB: number;
-  language: string;
   eqEnabled: boolean;
   eqGains: number[];
   eqPreset: string;
@@ -81,7 +80,6 @@ export interface SettingsState {
   setBackgroundBlur: (blur: number) => void;
   setGlassBlur: (blur: number) => void;
   setAudioCacheLimitMB: (limit: number) => void;
-  setLanguage: (lang: string) => void;
   setEqEnabled: (enabled: boolean) => void;
   setEqGains: (gains: number[]) => void;
   setEqPreset: (preset: string) => void;
@@ -112,7 +110,6 @@ const DEFAULTS = {
   backgroundBlur: 0,
   glassBlur: 40,
   audioCacheLimitMB: 1024,
-  language: navigator.language?.split('-')[0] || 'en',
   eqEnabled: false,
   eqGains: DEFAULT_EQ_GAINS,
   eqPreset: 'flat',
@@ -148,7 +145,6 @@ export const useSettingsStore = create<SettingsState>()(
       setBackgroundBlur: (backgroundBlur) => set({ backgroundBlur }),
       setGlassBlur: (glassBlur) => set({ glassBlur }),
       setAudioCacheLimitMB: (audioCacheLimitMB) => set({ audioCacheLimitMB }),
-      setLanguage: (language) => set({ language }),
       setEqEnabled: (eqEnabled) => set({ eqEnabled }),
       setEqGains: (eqGains) => set({ eqGains, eqPreset: 'custom' }),
       setEqPreset: (eqPreset) => set({ eqPreset }),
@@ -215,7 +211,6 @@ export const useSettingsStore = create<SettingsState>()(
         backgroundBlur: s.backgroundBlur,
         glassBlur: s.glassBlur,
         audioCacheLimitMB: s.audioCacheLimitMB,
-        language: s.language,
         eqEnabled: s.eqEnabled,
         eqGains: s.eqGains,
         eqPreset: s.eqPreset,

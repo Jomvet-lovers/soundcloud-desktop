@@ -1,5 +1,4 @@
 import React, { useCallback, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { art } from '../../lib/formatters';
@@ -10,7 +9,6 @@ import { VirtualList } from '../ui/VirtualList';
 import { formatHistoryDate, historyEntryToTrack, historyTrackUrn } from './history-utils';
 
 export const HistoryTab = React.memo(function HistoryTab() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const play = usePlayerStore((s) => s.play);
   const historyQuery = useHistory();
@@ -34,7 +32,7 @@ export const HistoryTab = React.memo(function HistoryTab() {
     let currentLabel = '';
 
     for (const entry of entries) {
-      const label = formatHistoryDate(entry.playedAt, t);
+      const label = formatHistoryDate(entry.playedAt);
       if (label !== currentLabel) {
         currentLabel = label;
         flat.push({ type: 'header', id: `header:${label}`, label });
@@ -43,7 +41,7 @@ export const HistoryTab = React.memo(function HistoryTab() {
     }
 
     return flat;
-  }, [entries, t]);
+  }, [entries]);
 
   return (
     <div className="min-h-[400px]">
@@ -53,7 +51,7 @@ export const HistoryTab = React.memo(function HistoryTab() {
             onClick={handleClearHistory}
             className="text-[12px] text-white/30 hover:text-red-400 transition-colors cursor-pointer"
           >
-            {t('library.clearHistory')}
+            {'Clear history'}
           </button>
         </div>
       )}
@@ -134,7 +132,7 @@ export const HistoryTab = React.memo(function HistoryTab() {
           }
         />
       ) : (
-        <div className="py-20 text-center text-white/20">{t('library.historyEmpty')}</div>
+        <div className="py-20 text-center text-white/20">{'No listening history'}</div>
       )}
 
       <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">

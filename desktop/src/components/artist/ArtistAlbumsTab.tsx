@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Disc3, Loader2 } from '../../lib/icons';
@@ -33,7 +32,6 @@ function bucketByYear(items: ArtistAlbum[]): Bucket[] {
 }
 
 function ArtistAlbumsTabImpl({ artistId, aura }: ArtistAlbumsTabProps) {
-  const { t } = useTranslation();
   const query = useArtistAlbums(artistId);
   const items = query.data ?? [];
   const buckets = useMemo(() => bucketByYear(items), [items]);
@@ -50,7 +48,7 @@ function ArtistAlbumsTabImpl({ artistId, aura }: ArtistAlbumsTabProps) {
     return (
       <div className="py-24 flex flex-col items-center gap-4">
         <Disc3 size={24} className="text-white/15" />
-        <p className="text-white/30 text-sm">{t('artist.noAlbums')}</p>
+        <p className="text-white/30 text-sm">{'No albums yet'}</p>
       </div>
     );
   }
@@ -71,7 +69,6 @@ function ArtistAlbumsTabImpl({ artistId, aura }: ArtistAlbumsTabProps) {
 
 const YearGroup = memo(
   ({ year, items, aura }: { year: number | null; items: ArtistAlbum[]; aura: Aura }) => {
-    const { t } = useTranslation();
     return (
       <div className="flex flex-col md:flex-row md:gap-8 gap-4">
         {/* Year marker */}
@@ -84,7 +81,7 @@ const YearGroup = memo(
               {year ?? '∞'}
             </span>
             <span className="text-[10px] font-medium text-white/30 md:text-right whitespace-nowrap">
-              {year != null ? t('artist.releaseYear') : t('artist.unknownYear')} · {items.length}
+              {year != null ? 'Released' : 'Undated'} · {items.length}
             </span>
           </div>
         </div>
@@ -100,11 +97,17 @@ const YearGroup = memo(
   },
 );
 
+const KIND_LABEL: Record<string, string> = {
+  album: 'Album',
+  ep: 'EP',
+  single: 'Single',
+  compilation: 'Compilation',
+};
+
 const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const kind = (album.type ?? 'album').toLowerCase();
-  const kindLabel = t(`artist.kind.${kind}`, { defaultValue: kind });
+  const kindLabel = KIND_LABEL[kind] ?? kind;
 
   return (
     <button
@@ -148,7 +151,7 @@ const AlbumCard = memo(({ album, aura }: { album: ArtistAlbum; aura: Aura }) => 
           {album.title}
         </p>
         <p className="text-[11px] text-white/35 truncate">
-          {album.role === 'primary' ? kindLabel : t('artist.featured')}
+          {album.role === 'primary' ? kindLabel : 'Featured'}
           {album.release_year != null && ` · ${album.release_year}`}
         </p>
       </div>

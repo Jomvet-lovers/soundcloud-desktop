@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Check, LinkIcon as Link } from '../../lib/icons';
 
 function cleanPermalink(url: string): string {
@@ -22,7 +21,6 @@ export function CopyLinkButton({
   url: string | undefined;
   size?: 'sm' | 'md';
 }) {
-  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -45,7 +43,7 @@ export function CopyLinkButton({
       } ${size === 'sm' ? 'h-9 px-2.5 text-[11px]' : 'h-10 px-3 text-[12px]'}`}
     >
       {copied ? <Check size={iconSize} className="text-emerald-400" /> : <Link size={iconSize} />}
-      {copied ? t('auth.copied') : t('auth.copyLink')}
+      {copied ? 'Copied!' : 'Copy link'}
     </button>
   );
 }

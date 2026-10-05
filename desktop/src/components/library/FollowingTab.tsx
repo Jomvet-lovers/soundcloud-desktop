@@ -1,12 +1,10 @@
 import React, { useEffect, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useInfiniteScroll, useMyFollowings } from '../../lib/hooks';
 import { Loader2 } from '../../lib/icons';
 import { VirtualGrid } from '../ui/VirtualGrid';
 import { UserCard } from './UserCard';
 
 export const FollowingTab = React.memo(function FollowingTab({ filter }: { filter: string }) {
-  const { t } = useTranslation();
   const followingsQuery = useMyFollowings();
   const { users: followings, isLoading } = followingsQuery;
   const sentinelRef = useInfiniteScroll(
@@ -47,7 +45,7 @@ export const FollowingTab = React.memo(function FollowingTab({ filter }: { filte
         />
       ) : (
         <div className="py-20 text-center text-white/20">
-          {filter ? t('library.noMatches') : t('library.notFollowing')}
+          {filter ? 'No matches' : 'You are not following anyone'}
         </div>
       )}
       {!filter && (

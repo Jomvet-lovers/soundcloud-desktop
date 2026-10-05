@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { dateFormatted, durLong, fc } from '../../lib/formatters';
 import { ChevronDown, ChevronUp, Hash } from '../../lib/icons';
@@ -58,7 +57,6 @@ export const LinerNotes = React.memo(function LinerNotes({
   track: Track;
   aura: TrackAura;
 }) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
 
@@ -79,29 +77,27 @@ export const LinerNotes = React.memo(function LinerNotes({
   const credits: { label: string; value: React.ReactNode; onClick?: () => void }[] = [];
   if (album?.title)
     credits.push({
-      label: t('track.album'),
+      label: 'From album',
       value: album.title,
       onClick: album.id ? () => navigate(`/album/${encodeURIComponent(album.id)}`) : undefined,
     });
-  if (released) credits.push({ label: t('track.released'), value: released });
-  if (track.language) credits.push({ label: t('track.language'), value: track.language });
-  if (full) credits.push({ label: t('track.fullLength'), value: durLong(full) });
-  if (isrc) credits.push({ label: t('track.isrc'), value: isrc });
+  if (released) credits.push({ label: 'Released', value: released });
+  if (track.language) credits.push({ label: 'Language', value: track.language });
+  if (full) credits.push({ label: 'Full length', value: durLong(full) });
+  if (isrc) credits.push({ label: 'ISRC', value: isrc });
 
   return (
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]">
-        <Stat value={track.playback_count} label={t('track.plays')} />
-        <Stat value={track.favoritings_count ?? track.likes_count} label={t('track.likes')} />
-        {track.reposts_count != null && (
-          <Stat value={track.reposts_count} label={t('track.reposts')} />
-        )}
-        <Stat value={track.comment_count} label={t('track.comments')} />
+        <Stat value={track.playback_count} label={'plays'} />
+        <Stat value={track.favoritings_count ?? track.likes_count} label={'likes'} />
+        {track.reposts_count != null && <Stat value={track.reposts_count} label={'reposts'} />}
+        <Stat value={track.comment_count} label={'Comments'} />
       </div>
 
       {desc && (
         <div>
-          <h3 className="text-[10px] font-medium text-white/30 mb-2.5">{t('track.description')}</h3>
+          <h3 className="text-[10px] font-medium text-white/30 mb-2.5">{'Description'}</h3>
           <p
             className={`selectable text-[13.5px] text-white/55 leading-relaxed whitespace-pre-wrap break-words ${
               !expanded && descLong ? 'line-clamp-4' : ''
@@ -116,7 +112,7 @@ export const LinerNotes = React.memo(function LinerNotes({
               className="flex items-center gap-1 mt-2 text-[11px] text-white/35 hover:text-white/60 transition-colors cursor-pointer"
             >
               {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-              {expanded ? t('track.showLess') : t('track.showMore')}
+              {expanded ? 'Show less' : 'Show more'}
             </button>
           )}
         </div>

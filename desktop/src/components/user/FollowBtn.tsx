@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/api';
 import type { Aura } from '../../lib/aura';
 import { Loader2 } from '../../lib/icons';
@@ -12,7 +11,6 @@ interface FollowBtnProps {
 }
 
 export function FollowBtn({ userUrn }: FollowBtnProps) {
-  const { t } = useTranslation();
   const currentUser = useAuthStore((s) => s.user);
   const qc = useQueryClient();
 
@@ -68,13 +66,7 @@ export function FollowBtn({ userUrn }: FollowBtnProps) {
           : '0.5px solid rgba(255,255,255,0.4)',
       }}
     >
-      {busy ? (
-        <Loader2 size={14} className="animate-spin" />
-      ) : following ? (
-        t('user.following')
-      ) : (
-        t('user.follow')
-      )}
+      {busy ? <Loader2 size={14} className="animate-spin" /> : following ? 'Following' : 'Follow'}
     </button>
   );
 }

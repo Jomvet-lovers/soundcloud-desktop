@@ -1,13 +1,11 @@
 import { Cloud, Sparkles, Type } from 'lucide-react';
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useSearchPrefsStore } from '../../stores/searchPrefs';
 
 /* The search-page control row: Text / Vibe mode + the SoundCloud (live) source
  * toggle. The query itself lives in the global header field — this is just how
  * the current query is interpreted. */
 export const SearchControls = memo(function SearchControls() {
-  const { t } = useTranslation();
   const mode = useSearchPrefsStore((s) => s.mode);
   const setMode = useSearchPrefsStore((s) => s.setMode);
   const source = useSearchPrefsStore((s) => s.source);
@@ -29,19 +27,19 @@ export const SearchControls = memo(function SearchControls() {
           active={mode === 'text' && source === 'db'}
           onClick={() => pickMode('text')}
           icon={<Type size={13} />}
-          label={t('search.mode.text')}
+          label={'Text'}
         />
         <Pill
           active={mode === 'vibe' && source === 'db'}
           onClick={() => pickMode('vibe')}
           icon={<Sparkles size={13} />}
-          label={t('search.mode.vibe')}
+          label={'Vibe'}
         />
       </div>
       <button
         type="button"
         onClick={() => setSource(source === 'sc' ? 'db' : 'sc')}
-        title={t('search.source.scHint')}
+        title={'Search directly on SoundCloud — slower, but covers everything.'}
         className="inline-flex items-center gap-1 h-8 px-2.5 rounded-full text-[12px] font-medium transition-all duration-300 cursor-pointer"
         style={
           source === 'sc'
@@ -58,7 +56,7 @@ export const SearchControls = memo(function SearchControls() {
         }
       >
         <Cloud size={13} />
-        {t('search.source.sc')}
+        {'SoundCloud'}
       </button>
     </div>
   );

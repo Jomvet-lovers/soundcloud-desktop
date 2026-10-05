@@ -1,4 +1,3 @@
-import { useTranslation } from 'react-i18next';
 import { withViewTransition } from '../../lib/view-transition';
 import type { SettingsCategory, SettingsCategoryId } from './registry';
 
@@ -12,7 +11,6 @@ export function SettingsNav({
   active: SettingsCategoryId;
   onChange: (id: SettingsCategoryId) => void;
 }) {
-  const { t } = useTranslation();
   return (
     <nav className="w-[200px] shrink-0 hidden md:block">
       <div className="sticky top-8 flex flex-col gap-0.5">
@@ -40,7 +38,7 @@ export function SettingsNav({
               >
                 {c.icon}
               </span>
-              <span className="relative">{t(c.labelKey)}</span>
+              <span className="relative">{c.label}</span>
             </button>
           );
         })}

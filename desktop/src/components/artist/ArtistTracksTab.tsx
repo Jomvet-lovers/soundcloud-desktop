@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { dur, fc } from '../../lib/formatters';
 import { Calendar, ListMusic, Loader2, Music } from '../../lib/icons';
@@ -85,7 +84,6 @@ function ArtistTracksTabImpl({
   onViewChange,
   showSort = true,
 }: ArtistTracksTabProps) {
-  const { t } = useTranslation();
   // Years view groups by release_year, so it must fetch by release date (not
   // popularity) and pull a deep page — otherwise low-play recent tracks (a fresh
   // album) fall past the popularity cutoff and the newest year bucket is empty.
@@ -123,7 +121,7 @@ function ArtistTracksTabImpl({
       <div className="py-24 flex flex-col items-center gap-3">
         <Music size={28} className="text-white/15" />
         <p className="text-white/30 text-sm">
-          {role === 'primary' ? t('artist.noTracks') : t('artist.noAppearances')}
+          {role === 'primary' ? 'No tracks' : 'No appearances'}
         </p>
       </div>
     );
@@ -180,7 +178,7 @@ function ArtistTracksTabImpl({
       {wanted.length > 0 && (
         <div className="space-y-3 pt-4">
           <div className="flex items-center gap-3 px-2">
-            <span className="text-[10px] font-medium text-white/45">{t('artist.comingSoon')}</span>
+            <span className="text-[10px] font-medium text-white/45">{'Coming soon'}</span>
             <span className="text-[11px] text-white/30 tabular-nums">{fc(wanted.length)}</span>
             <div className="flex-1 h-px bg-white/[0.05]" />
           </div>
@@ -197,7 +195,6 @@ function ArtistTracksTabImpl({
 
 const YearBlock = memo(
   ({ bucket, queue, aura }: { bucket: YearBucket; queue: Track[]; aura: Aura }) => {
-    const { t } = useTranslation();
     const total = bucket.items.reduce((acc, x) => acc + (x.duration ?? 0), 0);
     return (
       <div className="flex flex-col md:flex-row md:gap-8 gap-3">
@@ -211,8 +208,7 @@ const YearBlock = memo(
               {bucket.year ?? '∞'}
             </span>
             <span className="text-[10px] font-medium text-white/30 md:text-right whitespace-nowrap">
-              {bucket.year != null ? t('artist.releaseYear') : t('artist.unknownYear')} ·{' '}
-              {bucket.items.length} · {dur(total)}
+              {bucket.year != null ? 'Released' : 'Undated'} · {bucket.items.length} · {dur(total)}
             </span>
           </div>
         </div>
@@ -240,10 +236,9 @@ const SortToggle = memo(
     aura: Aura;
     disabled?: boolean;
   }) => {
-    const { t } = useTranslation();
     const options: Array<{ id: TracksSort; label: string }> = [
-      { id: 'popular', label: t('artist.sortPopular') },
-      { id: 'recent', label: t('artist.sortRecent') },
+      { id: 'popular', label: 'Popular' },
+      { id: 'recent', label: 'Recent' },
     ];
     return (
       <div
@@ -293,16 +288,15 @@ const ViewToggle = memo(
     onChange: (v: TracksView) => void;
     aura: Aura;
   }) => {
-    const { t } = useTranslation();
     const options: Array<{ id: TracksView; label: string; icon: React.ReactNode }> = [
       {
         id: 'list',
-        label: t('artist.viewList'),
+        label: 'List',
         icon: <ListMusic size={13} />,
       },
       {
         id: 'years',
-        label: t('artist.viewYears'),
+        label: 'By year',
         icon: <Calendar size={13} />,
       },
     ];

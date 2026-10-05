@@ -1,5 +1,4 @@
 import React, { useCallback, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 import {
   EQ_BAND_COUNT,
   EQ_LABELS,
@@ -164,7 +163,6 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
 }: {
   children: React.ReactNode;
 }) {
-  const { t, i18n } = useTranslation();
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   const eqGains = useSettingsStore((s) => s.eqGains);
   const eqPreset = useSettingsStore((s) => s.eqPreset);
@@ -172,8 +170,6 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
   const setEqGains = useSettingsStore((s) => s.setEqGains);
   const setEqPreset = useSettingsStore((s) => s.setEqPreset);
   const setEqBand = useSettingsStore((s) => s.setEqBand);
-
-  const isRu = i18n.language === 'ru';
 
   const handleBandChange = useCallback(
     (index: number, gain: number) => {
@@ -208,7 +204,7 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
             <div className="w-9 h-9 rounded-xl bg-white/[0.06] flex items-center justify-center">
               <AudioLines size={18} className="text-white/60" />
             </div>
-            <h2 className="text-[17px] font-bold text-white/90 tracking-tight">{t('eq.title')}</h2>
+            <h2 className="text-[17px] font-bold text-white/90 tracking-tight">{'Equalizer'}</h2>
           </div>
           <div className="flex items-center gap-2">
             {/* Power toggle */}
@@ -268,19 +264,19 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
         <div
           className={`px-6 pb-5 transition-opacity duration-300 ${eqEnabled ? '' : 'opacity-30 pointer-events-none'}`}
         >
-          <p className="text-[11px] text-white/40 font-medium mb-2.5">{t('eq.preset')}</p>
+          <p className="text-[11px] text-white/40 font-medium mb-2.5">{'Preset'}</p>
           <div className="flex flex-wrap gap-1.5">
             {Object.entries(EQ_PRESETS).map(([id, preset]) => (
               <PresetBtn
                 key={id}
                 id={id}
-                label={isRu ? preset.labelRu : preset.label}
+                label={preset.label}
                 active={eqPreset === id}
                 onClick={handlePreset}
               />
             ))}
             {eqPreset === 'custom' && (
-              <PresetBtn id="custom" label={t('eq.custom')} active onClick={() => {}} />
+              <PresetBtn id="custom" label={'Custom'} active onClick={() => {}} />
             )}
           </div>
         </div>

@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import type { TrackScdMeta } from '../../stores/player';
 
 type Variant = 'inline' | 'overlay';
@@ -63,8 +62,17 @@ function tierOf(meta: TrackScdMeta, showIndex: boolean): Tier | null {
   return showIndex ? 'pending' : null;
 }
 
+const STATUS_TITLE: Record<string, string> = {
+  analyzed: 'Cached & analyzed',
+  analyzedHq: 'Cached (HQ) & analyzed',
+  cached: 'Cached',
+  cachedHq: 'Cached (HQ)',
+  pending: 'Processing',
+  tooLong: 'Too long — not cached',
+  failed: 'Processing failed',
+};
+
 function TrackStatusBadgesInner({ meta, variant = 'inline', showIndex = true }: Props) {
-  const { t } = useTranslation();
   if (!meta) return null;
   const tier = tierOf(meta, showIndex);
   if (!tier) return null;
@@ -75,7 +83,7 @@ function TrackStatusBadgesInner({ meta, variant = 'inline', showIndex = true }: 
 
   return (
     <span
-      title={t(`track.status.${tier}${hq ? 'Hq' : ''}`)}
+      title={STATUS_TITLE[`${tier}${hq ? 'Hq' : ''}`] ?? tier}
       className={`relative inline-flex items-center justify-center w-[18px] h-[18px] rounded-[6px] text-[10px] font-bold leading-none ring-1 ring-inset select-none ${tone}`}
     >
       {letter}

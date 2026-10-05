@@ -1,6 +1,5 @@
 import { AlertCircle, Link2, Loader2 } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type ResolvedStreamingTrack, resolveTrackFromStreaming } from '../../lib/streaming';
 
@@ -29,7 +28,6 @@ function resolvedRoute(resolved: ResolvedStreamingTrack | null | undefined): str
 
 /* SoundCloud URL short-circuit: resolve the link and redirect to the matching page. */
 export const ResolveCard = memo(function ResolveCard({ url, onDone }: ResolveCardProps) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const [error, setError] = useState(false);
 
@@ -81,7 +79,7 @@ export const ResolveCard = memo(function ResolveCard({ url, onDone }: ResolveCar
         </div>
         <div className="flex flex-col gap-1">
           <p className="text-[15px] font-semibold text-white/90">
-            {error ? t('search.resolve.errorTitle') : t('search.resolve.loading')}
+            {error ? 'Could not resolve' : 'Resolving link...'}
           </p>
           <p className="flex items-center justify-center gap-1.5 text-[12px] text-white/40 font-mono">
             <Link2 size={12} />
@@ -95,7 +93,7 @@ export const ResolveCard = memo(function ResolveCard({ url, onDone }: ResolveCar
             className="h-9 px-5 rounded-full text-[13px] text-white/80 cursor-pointer transition-colors hover:bg-white/[0.06]"
             style={{ border: '0.5px solid rgba(255,255,255,0.12)' }}
           >
-            {t('search.back')}
+            {'Back'}
           </button>
         )}
       </div>

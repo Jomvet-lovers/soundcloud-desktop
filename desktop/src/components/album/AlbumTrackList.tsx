@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import type { Aura } from '../../lib/aura';
 import { dur, fc } from '../../lib/formatters';
 import { ListMusic, Music } from '../../lib/icons';
@@ -69,14 +68,13 @@ const WantedRow = memo(function WantedRow({ track, position }: { track: Track; p
 });
 
 function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
-  const { t } = useTranslation();
   const { available, wanted, totalDuration } = useMemo(() => partition(tracks), [tracks]);
 
   if (tracks.length === 0) {
     return (
       <div className="py-24 flex flex-col items-center gap-3">
         <Music size={28} className="text-white/15" />
-        <p className="text-white/30 text-sm">{t('album.noTracks')}</p>
+        <p className="text-white/30 text-sm">{'No tracks indexed yet'}</p>
       </div>
     );
   }
@@ -85,7 +83,7 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
     <section className="flex flex-col gap-1">
       <div className="flex items-center justify-between px-1 pb-3">
         <span className="inline-flex items-center gap-2 text-[12px] font-medium text-white/60">
-          <ListMusic size={12} /> {t('album.tracks')}
+          <ListMusic size={12} /> {'Tracks'}
           <span className="ml-1 text-white/30">{available.length}</span>
         </span>
         <span className="text-[11px] tabular-nums text-white/30">{dur(totalDuration)}</span>
@@ -108,7 +106,7 @@ function AlbumTrackListImpl({ tracks, aura }: AlbumTrackListProps) {
       {wanted.length > 0 && (
         <div className="mt-6 space-y-3">
           <div className="flex items-center gap-3 px-1">
-            <span className="text-[10px] font-medium text-white/45">{t('album.comingSoon')}</span>
+            <span className="text-[10px] font-medium text-white/45">{'Coming soon'}</span>
             <span className="text-[11px] tabular-nums text-white/30">{fc(wanted.length)}</span>
             <div className="h-px flex-1 bg-white/[0.05]" />
           </div>

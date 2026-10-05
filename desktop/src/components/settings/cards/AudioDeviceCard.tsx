@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { switchAudioDevice } from '../../../lib/audio';
 import { trackedInvoke } from '../../../lib/diagnostics';
@@ -13,7 +12,6 @@ interface AudioSink {
 }
 
 export function AudioDeviceCard() {
-  const { t } = useTranslation();
   const [sinks, setSinks] = useState<AudioSink[]>([]);
   const [switching, setSwitching] = useState(false);
 
@@ -35,7 +33,7 @@ export function AudioDeviceCard() {
     try {
       await switchAudioDevice(sinkName, true);
       setSinks((prev) => prev.map((s) => ({ ...s, is_default: s.name === sinkName })));
-      toast.success(t('settings.audioDeviceSwitched'));
+      toast.success('Audio device switched');
     } catch (err) {
       toast.error(String(err));
     } finally {
@@ -46,7 +44,7 @@ export function AudioDeviceCard() {
   if (sinks.length === 0) return null;
 
   return (
-    <Card title={t('settings.audioDevice')} icon={<Volume2 size={17} />}>
+    <Card title={'Audio output'} icon={<Volume2 size={17} />}>
       <div className="flex gap-2 flex-wrap">
         {sinks.map((sink) => (
           <button

@@ -1,5 +1,4 @@
 import { toast } from 'sonner';
-import i18n from '../i18n';
 import { useAppStatusStore } from '../stores/app-status';
 import { useAuthStore } from '../stores/auth';
 import { noteAuthGap, noteRateLimit, noteSuccess } from './auth-recovery';
@@ -92,7 +91,7 @@ function handleApiError(err: ApiError): void {
   if (err.status >= 500) {
     if (isIncidentActive()) return; // авария уже показана модалкой/баннером
     // Фиксированный id: sonner заменяет тост, шторм не стекается.
-    toast.error(i18n.t('errors.serverError', { status: err.status }), { id: 'api-server-error' });
+    toast.error(`Server error (${err.status})`, { id: 'api-server-error' });
   } else if (err.status >= 400 && err.status !== 401) {
     try {
       const parsed = JSON.parse(err.body);

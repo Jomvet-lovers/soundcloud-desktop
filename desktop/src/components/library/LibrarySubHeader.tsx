@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { type Aura, auraRgb } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
@@ -22,7 +21,6 @@ export const LibrarySubHeader = memo(function LibrarySubHeader({
   filter,
   onFilter,
 }: LibrarySubHeaderProps) {
-  const { t } = useTranslation();
   return (
     <div className="mb-6">
       <Link
@@ -30,7 +28,7 @@ export const LibrarySubHeader = memo(function LibrarySubHeader({
         className="inline-flex items-center gap-1 text-[12px] font-semibold text-white/40 hover:text-white/85 transition-colors mb-3"
       >
         <ChevronLeft size={15} />
-        {t('nav.library')}
+        {'Library'}
       </Link>
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
@@ -58,7 +56,7 @@ export const LibrarySubHeader = memo(function LibrarySubHeader({
               autoComplete="off"
               value={filter ?? ''}
               onChange={(e) => onFilter(e.target.value)}
-              placeholder={t('library.filter')}
+              placeholder={'Filter...'}
               className="w-full bg-white/[0.04] hover:bg-white/[0.06] focus:bg-white/[0.08] text-white/80 placeholder:text-white/25 text-[13px] py-2.5 pl-9 pr-8 rounded-xl outline-none border border-white/[0.05] focus:border-white/[0.12] transition-all duration-200"
             />
             {filter && (

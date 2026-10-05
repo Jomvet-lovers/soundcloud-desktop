@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { ArtistMiniCard } from '../components/library/ArtistMiniCard';
 import { CollectionRail } from '../components/library/CollectionRail';
 import { ContinueRow } from '../components/library/ContinueRow';
@@ -19,7 +18,6 @@ import { useAuthStore } from '../stores/auth';
  *  come back (fresh drops from who you follow), then a way back into what you
  *  were playing, then shelves into the deep pages of your collection. */
 export const Library = React.memo(() => {
-  const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const { tracks: likedTracks } = useLikedTracks();
   // Picked genre tag — retints the whole hub and filters its genre-aware shelves.
@@ -64,7 +62,7 @@ export const Library = React.memo(() => {
         {playlistPreview.length > 0 && (
           <CollectionRail
             icon={<ListMusic size={16} />}
-            title={t('library.yourPlaylists')}
+            title={'Your Playlists'}
             count={user.playlist_count}
             to="/library/playlists"
           >
@@ -79,7 +77,7 @@ export const Library = React.memo(() => {
         {likedPlaylistPreview.length > 0 && (
           <CollectionRail
             icon={<Bookmark size={16} />}
-            title={t('library.likedPlaylists')}
+            title={'Liked Playlists'}
             to="/library/playlists"
           >
             {likedPlaylistPreview.map((p) => (
@@ -93,7 +91,7 @@ export const Library = React.memo(() => {
         {artistPreview.length > 0 && (
           <CollectionRail
             icon={<Users size={16} />}
-            title={t('library.artists')}
+            title={'Artists'}
             count={user.followings_count}
             to="/library/following"
           >
@@ -106,7 +104,7 @@ export const Library = React.memo(() => {
         {likesPreview.length > 0 && (
           <CollectionRail
             icon={<Heart size={16} />}
-            title={t('library.likedTracks')}
+            title={'Liked Tracks'}
             count={likedTracksCount(user)}
             to="/library/likes"
           >

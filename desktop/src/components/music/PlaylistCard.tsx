@@ -1,6 +1,5 @@
 import { Lock } from 'lucide-react';
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
@@ -19,7 +18,6 @@ interface PlaylistCardProps {
 export const PlaylistCard = React.memo(
   function PlaylistCard({ playlist, showPlayback }: PlaylistCardProps) {
     const navigate = useNavigate();
-    const { t } = useTranslation();
 
     const trackUrns = React.useMemo(
       () => new Set((playlist.tracks ?? []).map((t: Track) => t.urn)),
@@ -100,8 +98,8 @@ export const PlaylistCard = React.memo(
 
           {playlist.sharing === 'private' && (
             <div
-              title={t('sharing.private')}
-              aria-label={t('sharing.private')}
+              title={'Private'}
+              aria-label={'Private'}
               className="absolute top-2.5 left-2.5 flex items-center justify-center w-6 h-6 rounded-full bg-black/60 text-amber-300/90 shadow-lg"
             >
               <Lock size={11} />

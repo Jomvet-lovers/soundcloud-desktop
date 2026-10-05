@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { Aura } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
@@ -32,7 +31,6 @@ interface TabWrapperProps {
 }
 
 function TabWrapperImpl({ children, isLoading, isEmpty, emptyText }: TabWrapperProps) {
-  const { t } = useTranslation();
   return (
     <div className="min-h-[420px]">
       {isLoading ? (
@@ -42,7 +40,7 @@ function TabWrapperImpl({ children, isLoading, isEmpty, emptyText }: TabWrapperP
       ) : isEmpty ? (
         <div className="py-24 flex flex-col items-center gap-3">
           <Music size={28} className="text-white/15" />
-          <p className="text-white/30 text-sm">{emptyText ?? t('common.empty')}</p>
+          <p className="text-white/30 text-sm">{emptyText ?? 'Nothing here yet'}</p>
         </div>
       ) : (
         <div className="animate-soft-in">{children}</div>
@@ -135,7 +133,6 @@ const pageBtn =
  * page is remembered; adjacent pages are prefetched to make prev/next instant.
  */
 export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
-  const { t } = useTranslation();
   const queryClient = useQueryClient();
   // Remounted via `key={urn}` from the page, so a new profile starts fresh.
   const [page, setPage] = useState(0);
@@ -202,19 +199,19 @@ export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
             type="button"
             disabled={!canPrev}
             onClick={() => setPage((p) => Math.max(0, p - 1))}
-            title={t('common.prevPage')}
+            title={'Previous page'}
             className={pageBtn}
           >
             <ChevronLeft size={16} />
           </button>
           <span className="min-w-[96px] text-center text-[12px] text-white/45">
-            {t('common.page', { page: page + 1 })}
+            {`Page ${page + 1}`}
           </span>
           <button
             type="button"
             disabled={!canNext}
             onClick={() => setPage((p) => p + 1)}
-            title={t('common.nextPage')}
+            title={'Next page'}
             className={pageBtn}
           >
             <ChevronRight size={16} />
@@ -241,7 +238,6 @@ export function UserSearchTracksTab({
   aura: Aura;
   query: string;
 }) {
-  const { t } = useTranslation();
   const q = useSearchDbTracks(query, urn);
   const ref = useInfiniteScroll(!!q.hasNextPage, !!q.isFetchingNextPage, q.fetchNextPage);
   const renderItem = useCallback(
@@ -254,7 +250,7 @@ export function UserSearchTracksTab({
     <TabWrapper
       isLoading={q.isLoading}
       isEmpty={q.tracks.length === 0}
-      emptyText={t('user.search.empty')}
+      emptyText={"No matches in this user's content"}
     >
       <VirtualList
         items={q.tracks}
@@ -275,7 +271,6 @@ export function UserSearchTracksTab({
  * Поиск плейлистов юзера в нашей базе. Та же логика, что и Tracks-вариант.
  */
 export function UserSearchPlaylistsTab({ urn, query }: { urn: string; query: string }) {
-  const { t } = useTranslation();
   const q = useSearchDbPlaylists(query, urn);
   const ref = useInfiniteScroll(!!q.hasNextPage, !!q.isFetchingNextPage, q.fetchNextPage);
   const renderItem = useCallback(
@@ -286,7 +281,7 @@ export function UserSearchPlaylistsTab({ urn, query }: { urn: string; query: str
     <TabWrapper
       isLoading={q.isLoading}
       isEmpty={q.playlists.length === 0}
-      emptyText={t('user.search.empty')}
+      emptyText={"No matches in this user's content"}
     >
       <VirtualGrid
         items={q.playlists}
@@ -311,7 +306,6 @@ export function UserConnectionsTab({
   urn: string;
   mode: 'followers' | 'followings';
 }) {
-  const { t } = useTranslation();
   const nav = useNavigate();
   const followers = useUserFollowers(mode === 'followers' ? urn : undefined);
   const followings = useUserFollowings(mode === 'followings' ? urn : undefined);
@@ -334,16 +328,16 @@ export function UserConnectionsTab({
           </p>
           {user.followers_count != null && (
             <p className="mt-0.5 text-[10.5px] tabular-nums text-white/35">
-              {fc(user.followers_count)} {t('user.followers')}
+              {fc(user.followers_count)} {'Followers'}
             </p>
           )}
         </div>
       </button>
     ),
-    [nav, t],
+    [nav],
   );
 
-  const emptyText = mode === 'followers' ? t('user.noFollowers') : t('user.noFollowings');
+  const emptyText = mode === 'followers' ? 'No followers found.' : 'No followings found.';
 
   return (
     <TabWrapper isLoading={q.isLoading} isEmpty={q.users.length === 0} emptyText={emptyText}>

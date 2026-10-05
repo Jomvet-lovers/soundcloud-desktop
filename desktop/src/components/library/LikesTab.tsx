@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useInfiniteScroll, useLikedTracks } from '../../lib/hooks';
 import { Loader2 } from '../../lib/icons';
 import { armLikesContinuation } from '../../lib/queue-continuation';
@@ -7,7 +6,6 @@ import { VirtualList } from '../ui/VirtualList';
 import { LibraryTrackRow } from './LibraryTrackRow';
 
 export const LikesTab = React.memo(function LikesTab({ filter }: { filter: string }) {
-  const { t } = useTranslation();
   const likesQuery = useLikedTracks();
   const { tracks: likedTracks, isLoading } = likesQuery;
   const sentinelRef = useInfiniteScroll(
@@ -65,10 +63,10 @@ export const LikesTab = React.memo(function LikesTab({ filter }: { filter: strin
         ) : (
           <div className="py-20 text-center text-white/20">
             {filter && likesQuery.hasNextPage
-              ? t('common.loading')
+              ? 'Loading...'
               : filter
-                ? t('library.noMatches')
-                : t('library.noLikedTracks')}
+                ? 'No matches'
+                : 'No liked tracks yet'}
           </div>
         )}
       </div>

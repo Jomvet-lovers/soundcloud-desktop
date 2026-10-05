@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/api';
 import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
@@ -23,7 +22,6 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
   playlistUrn: string;
   count?: number;
 }) {
-  const { t } = useTranslation();
   const { data: likeStatus } = useQuery({
     queryKey: ['likes', 'playlist', playlistUrn],
     queryFn: () => api<{ liked: boolean }>(`/likes/playlists/${encodeURIComponent(playlistUrn)}`),
@@ -62,7 +60,7 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
     <button
       type="button"
       onClick={toggle}
-      title={t('track.likes')}
+      title={'likes'}
       className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-md text-[12.5px] font-medium tabular-nums transition-colors cursor-pointer ${
         liked ? 'text-accent' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
       }`}
@@ -74,7 +72,6 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
 });
 
 const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?: string }) {
-  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => clearTimeout(copyTimer.current ?? undefined), []);
@@ -94,8 +91,8 @@ const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?: strin
     <button
       type="button"
       onClick={copy}
-      title={copied ? t('auth.copied') : t('auth.copyLink')}
-      aria-label={copied ? t('auth.copied') : t('auth.copyLink')}
+      title={copied ? 'Copied!' : 'Copy link'}
+      aria-label={copied ? 'Copied!' : 'Copy link'}
       className={`inline-flex items-center justify-center size-10 rounded-md transition-colors cursor-pointer ${
         copied ? 'text-emerald-400' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
       }`}
@@ -125,8 +122,6 @@ export const PlaylistActions = React.memo(function PlaylistActions({
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
-  const { t } = useTranslation();
-
   return (
     <div className="flex items-center gap-3 flex-wrap justify-center lg:justify-start">
       <button
@@ -137,17 +132,17 @@ export const PlaylistActions = React.memo(function PlaylistActions({
         }`}
       >
         {isPlaying ? pauseCurrent16 : playCurrent16}
-        {t('playlist.playAll')}
+        {'Play All'}
       </button>
 
       <button
         type="button"
         onClick={onShuffle}
-        title={t('playlist.shuffle')}
+        title={'Shuffle'}
         className="inline-flex items-center gap-1.5 h-10 px-3 rounded-md text-[12.5px] font-medium text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
       >
         <Shuffle size={14} />
-        <span className="hidden sm:inline">{t('playlist.shuffle')}</span>
+        <span className="hidden sm:inline">{'Shuffle'}</span>
       </button>
 
       <PlaylistLikeBtn playlistUrn={playlist.urn} count={playlist.likes_count} />
@@ -156,8 +151,8 @@ export const PlaylistActions = React.memo(function PlaylistActions({
         <button
           type="button"
           onClick={onTogglePin}
-          title={isPinned ? t('sidebar.unpinPlaylist') : t('sidebar.pinPlaylist')}
-          aria-label={isPinned ? t('sidebar.unpinPlaylist') : t('sidebar.pinPlaylist')}
+          title={isPinned ? 'Unpin playlist' : 'Pin playlist'}
+          aria-label={isPinned ? 'Unpin playlist' : 'Pin playlist'}
           className={`inline-flex items-center justify-center size-10 rounded-md transition-colors cursor-pointer ${
             isPinned ? 'text-accent' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
           }`}
@@ -171,8 +166,8 @@ export const PlaylistActions = React.memo(function PlaylistActions({
             <button
               type="button"
               onClick={onDelete}
-              title={t('playlist.delete')}
-              aria-label={t('playlist.delete')}
+              title={'Delete playlist'}
+              aria-label={'Delete playlist'}
               className="inline-flex items-center justify-center size-10 rounded-md text-white/55 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
             >
               <Trash2 size={16} />

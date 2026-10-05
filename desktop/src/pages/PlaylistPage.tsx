@@ -1,7 +1,6 @@
 import type { DragEndEvent } from '@dnd-kit/core';
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
@@ -41,7 +40,6 @@ function HeroSkeleton() {
 
 export const PlaylistPage = React.memo(function PlaylistPage() {
   const { urn } = useParams<{ urn: string }>();
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const myUrn = useAuthStore((s) => s.user?.urn);
 
@@ -132,18 +130,18 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
       const [moved] = next.splice(oldIndex, 1);
       next.splice(newIndex, 0, moved);
       setLocalTracks(next);
-      debouncedUpdate(next, t('playlist.reordered'));
+      debouncedUpdate(next, 'Track order saved');
     },
-    [localTracks, debouncedUpdate, t],
+    [localTracks, debouncedUpdate],
   );
 
   const handleRemoveTrack = useCallback(
     (trackUrn: string) => {
       const next = localTracks.filter((tr) => tr.urn !== trackUrn);
       setLocalTracks(next);
-      debouncedUpdate(next, t('playlist.trackRemoved'));
+      debouncedUpdate(next, 'Track removed');
     },
-    [localTracks, debouncedUpdate, t],
+    [localTracks, debouncedUpdate],
   );
 
   // Доигрываем плейлист ДО КОНЦА (пагинированный срез в очереди → потом волна),
@@ -175,7 +173,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     if (!playlist) return;
     if (isPinned) {
       unpinPlaylist(playlist.urn);
-      toast.success(t('sidebar.unpinned'));
+      toast.success('Removed from sidebar');
       return;
     }
     pinPlaylist({
@@ -183,18 +181,18 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
       title: playlist.title,
       artworkUrl: rawPlaylistCover(playlist.artwork_url, tracks),
     });
-    toast.success(t('sidebar.pinned'));
-  }, [playlist, isPinned, unpinPlaylist, pinPlaylist, tracks, t]);
+    toast.success('Pinned to sidebar');
+  }, [playlist, isPinned, unpinPlaylist, pinPlaylist, tracks]);
 
   const handleDelete = useCallback(() => {
     if (!playlist) return;
     deletePlaylist.mutate(playlist.urn, {
       onSuccess: () => {
-        toast.success(t('playlist.deleted'));
+        toast.success('Playlist deleted');
         navigate(-1);
       },
     });
-  }, [playlist, deletePlaylist, navigate, t]);
+  }, [playlist, deletePlaylist, navigate]);
 
   if (isLoading || !playlist) {
     return (
@@ -258,18 +256,18 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
                 <AlertCircle size={20} className="text-red-400" />
               </div>
               <Dialog.Title className="text-[15px] font-bold text-white/90">
-                {t('playlist.delete')}
+                {'Delete playlist'}
               </Dialog.Title>
               <Dialog.Close className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/[0.08] transition-all">
                 <X size={14} />
               </Dialog.Close>
             </div>
             <p className="text-[13px] text-white/50 leading-relaxed">
-              {t('playlist.deleteConfirm', { title: playlist.title })}
+              {`Delete "${playlist.title}"? This cannot be undone.`}
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-1">
               <Dialog.Close className="px-4 py-2 rounded-xl text-[13px] font-medium text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition-all cursor-pointer">
-                {t('common.cancel')}
+                {'Cancel'}
               </Dialog.Close>
               <button
                 type="button"
@@ -277,7 +275,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
                 disabled={deletePlaylist.isPending}
                 className="px-4 py-2 rounded-xl text-[13px] font-semibold bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20 transition-all cursor-pointer disabled:opacity-50"
               >
-                {deletePlaylist.isPending ? t('common.loading') : t('playlist.delete')}
+                {deletePlaylist.isPending ? 'Loading...' : 'Delete playlist'}
               </button>
             </div>
           </Dialog.Content>

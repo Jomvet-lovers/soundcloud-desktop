@@ -1,6 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
-import i18n from '../i18n';
 
 interface SyncErrorPayload {
   method?: string;
@@ -12,6 +11,10 @@ interface SyncErrorPayload {
 
 listen<SyncErrorPayload>('direct:sync-error', (event) => {
   const { captcha, status } = event.payload ?? {};
-  const key = captcha ? 'sync.captchaFailed' : status === 401 ? 'sync.tokenExpired' : 'sync.failed';
-  toast.error(i18n.t(key), { id: 'direct-sync-error' });
+  const message = captcha
+    ? "SoundCloud's bot protection blocked this change — it's saved locally. Try again in a moment."
+    : status === 401
+      ? 'SoundCloud session expired — this change is saved locally but not synced. Sign in again to resume syncing.'
+      : "Couldn't sync this change to SoundCloud — it's saved on this device only.";
+  toast.error(message, { id: 'direct-sync-error' });
 });

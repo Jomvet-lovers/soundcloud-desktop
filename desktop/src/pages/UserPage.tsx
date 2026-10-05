@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { IdentityHub } from '../components/user/IdentityHub';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
@@ -29,14 +28,13 @@ function isSearchableScope(tab: TabId): boolean {
   return tab === 'popular' || tab === 'tracks' || tab === 'playlists';
 }
 
-function searchableScopeLabelKey(tab: TabId): string {
-  if (tab === 'playlists') return 'playlists';
-  return 'tracks';
+function searchableScopeLabel(tab: TabId): string {
+  if (tab === 'playlists') return 'Playlists';
+  return 'Tracks';
 }
 
 export function UserPage() {
   const { urn } = useParams<{ urn: string }>();
-  const { t } = useTranslation();
   const currentUser = useAuthStore((s) => s.user);
 
   const [activeTab, setActiveTab] = useState<TabId>('popular');
@@ -77,14 +75,14 @@ export function UserPage() {
   const tabs = useMemo(() => {
     if (!user) return [] as const;
     return [
-      { id: 'popular' as const, label: t('user.popular'), count: undefined },
-      { id: 'tracks' as const, label: t('user.tracks'), count: user.track_count },
-      { id: 'playlists' as const, label: t('user.playlists'), count: user.playlist_count },
-      { id: 'likes' as const, label: t('user.likes'), count: likedTracksCount(user) },
-      { id: 'followers' as const, label: t('user.followers'), count: user.followers_count },
-      { id: 'following' as const, label: t('user.following'), count: user.followings_count },
+      { id: 'popular' as const, label: 'Popular', count: undefined },
+      { id: 'tracks' as const, label: 'Tracks', count: user.track_count },
+      { id: 'playlists' as const, label: 'Playlists', count: user.playlist_count },
+      { id: 'likes' as const, label: 'Likes', count: likedTracksCount(user) },
+      { id: 'followers' as const, label: 'Followers', count: user.followers_count },
+      { id: 'following' as const, label: 'Following', count: user.followings_count },
     ] as const;
-  }, [user, t]);
+  }, [user]);
 
   if (userLoading || !user) {
     return (
@@ -119,7 +117,7 @@ export function UserPage() {
               <UserSearchBox
                 value={searchInput}
                 onChange={setSearchInput}
-                scopeLabel={t(`user.${searchableScopeLabelKey(activeTab)}`)}
+                scopeLabel={searchableScopeLabel(activeTab)}
                 disabled={!isSearchableScope(activeTab)}
               />
             </div>

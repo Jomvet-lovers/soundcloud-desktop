@@ -1,5 +1,4 @@
 import React from 'react';
-import { Trans, useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { art } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
@@ -27,6 +26,14 @@ const KIND_TONE: Record<string, string> = {
   cover: 'bg-fuchsia-500/15 text-fuchsia-300/90',
 };
 
+const KIND_LABEL: Record<string, string> = {
+  original: 'original',
+  demo: 'demo',
+  alt: 'alt',
+  reupload: 're-upload',
+  cover: 'cover',
+};
+
 export const RoomHero = React.memo(function RoomHero({
   track,
   aura,
@@ -46,7 +53,6 @@ export const RoomHero = React.memo(function RoomHero({
   onPlay: () => void;
   onSeek: (seconds: number) => void;
 }) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const cover = art(track.artwork_url, 't500x500');
@@ -138,9 +144,7 @@ export const RoomHero = React.memo(function RoomHero({
                 {ad.isEnriched && ad.verified && (
                   <span
                     className="text-[11px] text-emerald-400/80"
-                    title={t('track.verifiedArtist', {
-                      confidence: (ad.confidence ?? 0).toFixed(2),
-                    })}
+                    title={`Verified artist (confidence ${(ad.confidence ?? 0).toFixed(2)})`}
                   >
                     ✓
                   </span>
@@ -148,9 +152,7 @@ export const RoomHero = React.memo(function RoomHero({
                 {ad.isEnriched && !ad.verified && (
                   <span
                     className="text-[11px] text-amber-400/70"
-                    title={t('track.unverifiedArtist', {
-                      confidence: (ad.confidence ?? 0).toFixed(2),
-                    })}
+                    title={`Parsed from title, not externally verified (confidence ${(ad.confidence ?? 0).toFixed(2)})`}
                   >
                     ?
                   </span>
@@ -160,9 +162,9 @@ export const RoomHero = React.memo(function RoomHero({
                     className={`px-1.5 py-0.5 rounded-md text-[9px] tracking-wider font-semibold ${
                       KIND_TONE[ad.uploadKind] ?? 'bg-white/[0.06] text-white/50'
                     }`}
-                    title={t(`track.uploadKind.${ad.uploadKind}`)}
+                    title={KIND_LABEL[ad.uploadKind] ?? ad.uploadKind}
                   >
-                    {t(`track.uploadKind.${ad.uploadKind}`)}
+                    {KIND_LABEL[ad.uploadKind] ?? ad.uploadKind}
                   </span>
                 )}
               </div>
@@ -171,7 +173,7 @@ export const RoomHero = React.memo(function RoomHero({
                 <div className="mt-1.5 text-[12px] text-white/40 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 justify-center lg:justify-start">
                   {featLinks.length > 0 && (
                     <span>
-                      {t('track.feat')}{' '}
+                      {'feat.'}{' '}
                       <ArtistNameLinks
                         items={featLinks}
                         linkClassName="cursor-pointer text-white/55 hover:text-white/85 transition-colors"
@@ -181,28 +183,26 @@ export const RoomHero = React.memo(function RoomHero({
                   {participants?.remixers && participants.remixers.length > 0 && (
                     <span>
                       {featLinks.length > 0 && '· '}
-                      <ArtistLinks artists={participants.remixers} /> {t('track.remix')}
+                      <ArtistLinks artists={participants.remixers} /> {'Remix'}
                     </span>
                   )}
                   {participants?.producers && participants.producers.length > 0 && (
                     <span>
                       {(featLinks.length > 0 || participants.remixers.length > 0) && '· '}
-                      {t('track.prod')} <ArtistLinks artists={participants.producers} />
+                      {'prod.'} <ArtistLinks artists={participants.producers} />
                     </span>
                   )}
                   {(featLinks.length > 0 || participants) && ad.uploader && <span>·</span>}
                   {ad.uploader && (
-                    <Trans
-                      i18nKey="track.uploadedBy"
-                      values={{ name: ad.uploader }}
-                      components={[
-                        <span
-                          key="u"
-                          className="text-white/55 hover:text-white/80 cursor-pointer transition-colors"
-                          onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-                        />,
-                      ]}
-                    />
+                    <span>
+                      uploaded by{' '}
+                      <span
+                        className="text-white/55 hover:text-white/80 cursor-pointer transition-colors"
+                        onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
+                      >
+                        {ad.uploader}
+                      </span>
+                    </span>
                   )}
                 </div>
               )}

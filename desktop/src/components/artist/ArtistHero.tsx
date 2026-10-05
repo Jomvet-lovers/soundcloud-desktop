@@ -1,5 +1,4 @@
 import { memo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgb } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
@@ -33,10 +32,8 @@ const SocialChip = memo(({ kind, url, title }: { kind: string; url: string; titl
 
 const ScAccountChip = memo(
   ({ scUserId, role, verified }: { scUserId: string; role: string; verified: boolean }) => {
-    const { t } = useTranslation();
     const navigate = useNavigate();
-    const label =
-      role === 'main' ? t('artist.mainAccount') : role === 'demo' ? t('artist.demoAccount') : role;
+    const label = role === 'main' ? 'Main' : role === 'demo' ? 'Demo' : role;
     return (
       <button
         type="button"
@@ -53,7 +50,6 @@ const ScAccountChip = memo(
 );
 
 function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
-  const { t } = useTranslation();
   const [bioExpanded, setBioExpanded] = useState(false);
 
   return (
@@ -71,7 +67,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
           <div className="flex flex-wrap items-center gap-2 justify-center lg:justify-start">
             {artist.confidence >= 0.7 && (
               <VerifiedBadge
-                title={t('track.verifiedArtist', { confidence: artist.confidence.toFixed(2) })}
+                title={`Verified artist (confidence ${artist.confidence.toFixed(2)})`}
               />
             )}
             {artist.country && (
@@ -80,7 +76,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
               </span>
             )}
             <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55">
-              <MicVocal size={11} className="text-white/45" /> {t('artist.title')}
+              <MicVocal size={11} className="text-white/45" /> {'Artist'}
             </span>
           </div>
 
@@ -114,7 +110,7 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
                   size={12}
                   className={`transition-transform duration-500 ${bioExpanded ? 'rotate-180' : ''}`}
                 />
-                {bioExpanded ? t('common.collapse') : t('common.expand')}
+                {bioExpanded ? 'Collapse' : 'Read more'}
               </span>
             </button>
           )}
@@ -139,34 +135,26 @@ function ArtistHeroImpl({ artist, hasStar, aura }: ArtistHeroProps) {
 
         {/* Right column stats */}
         <div className="hidden lg:flex flex-col gap-3 self-stretch min-w-[180px]">
-          <HeroStat value={artist.track_count_primary} label={t('artist.statsTracks')} />
-          <HeroStat value={artist.track_count_featured} label={t('artist.statsFeatured')} />
-          <HeroStat value={artist.album_count} label={t('artist.statsAlbums')} />
-          <HeroStat value={artist.related_artists.length} label={t('artist.statsRelated')} />
+          <HeroStat value={artist.track_count_primary} label={'Tracks'} />
+          <HeroStat value={artist.track_count_featured} label={'Featured'} />
+          <HeroStat value={artist.album_count} label={'Albums'} />
+          <HeroStat value={artist.related_artists.length} label={'Related'} />
         </div>
       </div>
 
       {/* Stats strip on narrow */}
       <div className="lg:hidden flex flex-wrap gap-x-5 gap-y-2 mt-4 justify-center">
-        <HeroStat
-          icon={<Music size={12} />}
-          value={artist.track_count_primary}
-          label={t('artist.statsTracks')}
-        />
+        <HeroStat icon={<Music size={12} />} value={artist.track_count_primary} label={'Tracks'} />
         <HeroStat
           icon={<MicVocal size={12} />}
           value={artist.track_count_featured}
-          label={t('artist.statsFeatured')}
+          label={'Featured'}
         />
-        <HeroStat
-          icon={<ListMusic size={12} />}
-          value={artist.album_count}
-          label={t('artist.statsAlbums')}
-        />
+        <HeroStat icon={<ListMusic size={12} />} value={artist.album_count} label={'Albums'} />
         <HeroStat
           icon={<Users size={12} />}
           value={artist.related_artists.length}
-          label={t('artist.statsRelated')}
+          label={'Related'}
         />
       </div>
     </div>

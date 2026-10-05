@@ -1,9 +1,7 @@
-import { useTranslation } from 'react-i18next';
 import { ChevronRight, Download, Globe } from '../../lib/icons';
 
 /** Secondary entry — browse the offline (cached) library without signing in. */
 export function OfflineEntryCard({ onClick }: { onClick: () => void }) {
-  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -20,10 +18,10 @@ export function OfflineEntryCard({ onClick }: { onClick: () => void }) {
 
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-semibold tracking-tight text-white/92">
-            {t('auth.continueOffline')}
+            {'Continue without signing in'}
           </span>
           <span className="mt-0.5 block text-[11.5px] leading-snug text-white/45">
-            {t('auth.continueOfflineDesc')}
+            {'Listen to downloaded tracks and likes from your local library'}
           </span>
         </span>
 

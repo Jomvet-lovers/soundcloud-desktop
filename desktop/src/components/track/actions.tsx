@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { downloadTrack } from '../../lib/cache';
@@ -50,7 +49,6 @@ const EngagementChip = React.memo(function EngagementChip({
 });
 
 export const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: number }) => {
-  const { t } = useTranslation();
   const liked = useLiked(trackUrn);
   const [localCount, setLocalCount] = useState(count ?? 0);
   const qc = useQueryClient();
@@ -81,7 +79,7 @@ export const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; coun
       active={liked}
       icon={<Heart size={15} fill={liked ? 'currentColor' : 'none'} />}
       count={localCount}
-      label={t('track.likes')}
+      label={'likes'}
       onClick={toggle}
     />
   );
@@ -117,7 +115,6 @@ export const IconAction = React.memo(function IconAction({
 });
 
 export const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?: string }) {
-  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   if (!url) return null;
@@ -138,8 +135,8 @@ export const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?
     <button
       type="button"
       onClick={copy}
-      title={copied ? t('auth.copied') : t('auth.copyLink')}
-      aria-label={copied ? t('auth.copied') : t('auth.copyLink')}
+      title={copied ? 'Copied!' : 'Copy link'}
+      aria-label={copied ? 'Copied!' : 'Copy link'}
       className={`inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
         copied
           ? 'text-emerald-400 bg-emerald-500/12'
@@ -152,7 +149,6 @@ export const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?
 });
 
 export const DownloadButton = React.memo(({ track }: { track: Track }) => {
-  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
 
   const download = async () => {
@@ -164,7 +160,7 @@ export const DownloadButton = React.memo(({ track }: { track: Track }) => {
         artworkUrl: track.artwork_url,
         durationMs: track.duration,
       });
-      toast.success(t('track.downloaded'));
+      toast.success('Saved');
     } catch (e: unknown) {
       if (e instanceof Error && e.message === 'cancelled') return;
       toast.error(String(e));
@@ -178,8 +174,8 @@ export const DownloadButton = React.memo(({ track }: { track: Track }) => {
       type="button"
       onClick={download}
       disabled={loading}
-      title={t('track.download')}
-      aria-label={t('track.download')}
+      title={'Download'}
+      aria-label={'Download'}
       className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer disabled:opacity-50"
     >
       {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
@@ -195,7 +191,6 @@ export const PlayPill = React.memo(function PlayPill({
   isPlaying: boolean;
   onClick: () => void;
 }) {
-  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -205,7 +200,7 @@ export const PlayPill = React.memo(function PlayPill({
       }`}
     >
       {isPlaying ? pauseCurrent16 : playCurrent16}
-      {isPlaying ? t('track.pause') : t('track.play')}
+      {isPlaying ? 'Pause' : 'Play'}
     </button>
   );
 });

@@ -1,6 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { AuthBackdrop } from '../components/auth/AuthBackdrop';
 import { BrandMark } from '../components/auth/BrandMark';
@@ -12,7 +11,6 @@ import { useAppStatusStore } from '../stores/app-status';
 import { useAuthStore } from '../stores/auth';
 
 export function Login() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
@@ -80,7 +78,7 @@ export function Login() {
         return;
       }
       if (e.payload.status === 'error') {
-        setTokenError(e.payload.message ?? t('auth.browserSignInFailed'));
+        setTokenError(e.payload.message ?? 'Sign-in failed');
       }
     });
     unlistenRef.current = unlisten;
@@ -111,7 +109,7 @@ export function Login() {
             boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
           }}
         >
-          <BrandMark subtitle={t('auth.tagline')} />
+          <BrandMark subtitle={'Your music, your way'} />
 
           <div className="mt-8 flex flex-col items-stretch gap-3">
             {tokenError && (
@@ -124,16 +122,20 @@ export function Login() {
             )}
 
             <PrimaryButton disabled={windowBusy} onClick={handleBrowserLogin}>
-              {windowBusy ? t('auth.browserSignInWaiting') : t('auth.browserSignIn')}
+              {windowBusy ? 'Waiting for sign-in…' : 'Sign in with SoundCloud'}
             </PrimaryButton>
 
             <div className="my-1 flex items-center gap-3 text-[10px] text-white/25">
               <div className="h-px flex-1 bg-white/10" />
-              {t('auth.orPasteToken')}
+              {'or paste a token manually'}
               <div className="h-px flex-1 bg-white/10" />
             </div>
 
-            <p className="text-[10.5px] leading-snug text-white/35">{t('auth.directHint')}</p>
+            <p className="text-[10.5px] leading-snug text-white/35">
+              {
+                'Direct mode: paste the value of your SoundCloud "oauth_token" cookie to sign in without the backend.'
+              }
+            </p>
             <input
               type="password"
               autoComplete="off"
@@ -142,16 +144,16 @@ export function Login() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void handleDirectLogin();
               }}
-              placeholder={t('auth.directTokenPlaceholder')}
+              placeholder={'oauth_token'}
               className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[12px] text-white/80 outline-none transition-colors placeholder:text-white/25 focus:border-white/20"
             />
             <PrimaryButton disabled={tokenBusy || !tokenInput.trim()} onClick={handleDirectLogin}>
-              {tokenBusy ? t('auth.directConnecting') : t('auth.directConnect')}
+              {tokenBusy ? 'Checking token...' : 'Sign in with token'}
             </PrimaryButton>
 
             <div className="my-1 flex items-center gap-3 text-[10px] text-white/25">
               <div className="h-px flex-1 bg-white/10" />
-              {t('auth.orSeparator')}
+              {'or'}
               <div className="h-px flex-1 bg-white/10" />
             </div>
 

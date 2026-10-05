@@ -1,5 +1,4 @@
 import { memo, useCallback, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 import { pauseBlack14, pauseWhite14, playBlack14, playWhite14 } from '../../lib/icons';
 import { useIsPlayingFrom } from '../../lib/useTrackPlay';
@@ -11,8 +10,6 @@ interface AlbumPlayButtonProps {
 }
 
 function AlbumPlayButtonImpl({ tracks, aura }: AlbumPlayButtonProps) {
-  const { t } = useTranslation();
-
   const { playable, playableUrns } = useMemo(() => {
     const list: Track[] = [];
     const urns = new Set<string>();
@@ -74,9 +71,7 @@ function AlbumPlayButtonImpl({ tracks, aura }: AlbumPlayButtonProps) {
       >
         {icon}
       </span>
-      <span className="tracking-wide">
-        {isPlayingFromAlbum ? t('album.pauseAlbum') : t('album.playAlbum')}
-      </span>
+      <span className="tracking-wide">{isPlayingFromAlbum ? 'Pause Album' : 'Play Album'}</span>
     </button>
   );
 }

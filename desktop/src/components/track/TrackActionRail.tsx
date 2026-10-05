@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { ListPlus } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
@@ -19,8 +18,6 @@ export const TrackActionRail = React.memo(function TrackActionRail({
   isOwner: boolean;
   onPlay: () => void;
 }) {
-  const { t } = useTranslation();
-
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <PlayPill isPlaying={isPlaying} onClick={onPlay} />
@@ -30,8 +27,8 @@ export const TrackActionRail = React.memo(function TrackActionRail({
         <AddToPlaylistDialog trackUrns={[track.urn]}>
           <button
             type="button"
-            title={t('playlist.addToPlaylist')}
-            aria-label={t('playlist.addToPlaylist')}
+            title={'Add to playlist'}
+            aria-label={'Add to playlist'}
             className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer"
           >
             <ListPlus size={16} />

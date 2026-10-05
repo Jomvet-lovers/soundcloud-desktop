@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 
 interface UploadKindDotProps {
   kind: string | null;
@@ -13,17 +12,24 @@ const COLORS: Record<string, string> = {
   cover: 'bg-fuchsia-400',
 };
 
+const LABELS: Record<string, string> = {
+  original: 'original',
+  demo: 'demo',
+  alt: 'alt',
+  reupload: 're-upload',
+  cover: 'cover',
+};
+
 export const UploadKindDot = React.memo(function UploadKindDot({
   kind,
   className,
 }: UploadKindDotProps) {
-  const { t } = useTranslation();
   if (!kind) return null;
   const color = COLORS[kind];
   if (!color) return null;
   return (
     <span
-      title={t(`track.uploadKind.${kind}`, kind)}
+      title={LABELS[kind] ?? kind}
       className={`inline-block w-1.5 h-1.5 rounded-full ${color} ${className ?? ''}`}
     />
   );

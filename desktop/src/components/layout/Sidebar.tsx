@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { NavLink } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { art } from '../../lib/formatters';
@@ -23,10 +22,10 @@ import { Avatar } from '../ui/Avatar';
 type IconCmp = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
 const navItems: { to: string; icon: IconCmp; label: string }[] = [
-  { to: '/home', icon: Home, label: 'nav.home' },
-  { to: '/search', icon: Search, label: 'nav.search' },
-  { to: '/library', icon: Library, label: 'nav.library' },
-  { to: '/offline', icon: Download, label: 'nav.offline' },
+  { to: '/home', icon: Home, label: 'Home' },
+  { to: '/search', icon: Search, label: 'Search' },
+  { to: '/library', icon: Library, label: 'Library' },
+  { to: '/offline', icon: Download, label: 'Offline' },
 ];
 
 const ROW = 'group relative w-full flex items-center h-10 rounded-xl transition-all duration-200';
@@ -105,7 +104,6 @@ function NavItem({
 }
 
 export const Sidebar = React.memo(() => {
-  const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const appMode = useAppMode();
   const { collapsed, pinnedPlaylists, toggleSidebar } = useSettingsStore(
@@ -133,9 +131,9 @@ export const Sidebar = React.memo(() => {
             key={item.to}
             to={item.to}
             icon={item.icon}
-            label={t(item.label)}
+            label={item.label}
             collapsed={collapsed}
-            title={collapsed ? t(item.label) : undefined}
+            title={collapsed ? item.label : undefined}
             alert={item.to === '/offline' && appMode !== 'online'}
           />
         ))}
@@ -156,16 +154,16 @@ export const Sidebar = React.memo(() => {
             className="absolute inset-0 flex items-center gap-2 px-2 text-[10px] text-white/25 font-semibold whitespace-nowrap"
             style={{ opacity: collapsed ? 0 : 1, transition: 'opacity 240ms ease' }}
           >
-            {t('sidebar.quickAccess')}
+            {'Quick Access'}
           </span>
         </div>
 
         <NavItem
           to="/library?tab=history"
           icon={Clock}
-          label={t('library.history')}
+          label={'History'}
           collapsed={collapsed}
-          title={collapsed ? t('library.history') : undefined}
+          title={collapsed ? 'History' : undefined}
         />
 
         {pinnedPlaylists.map((playlist) => {
@@ -209,7 +207,7 @@ export const Sidebar = React.memo(() => {
         <button
           type="button"
           onClick={toggleSidebar}
-          title={collapsed ? t('nav.expand') : undefined}
+          title={collapsed ? 'Expand' : undefined}
           className={btnCls}
         >
           <IconBox>
@@ -220,16 +218,16 @@ export const Sidebar = React.memo(() => {
             )}
           </IconBox>
           <Label collapsed={collapsed} className="text-[12.5px] font-medium pr-3">
-            {t('nav.collapse')}
+            {'Collapse'}
           </Label>
         </button>
 
         <NavItem
           to="/settings"
           icon={Settings}
-          label={t('nav.settings')}
+          label={'Settings'}
           collapsed={collapsed}
-          title={collapsed ? t('nav.settings') : undefined}
+          title={collapsed ? 'Settings' : undefined}
         />
       </div>
 

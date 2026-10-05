@@ -1,14 +1,14 @@
 import type { HistoryEntry } from '../../lib/hooks';
 import type { Track } from '../../stores/player';
 
-export function formatHistoryDate(dateStr: string, t: (k: string) => string): string {
+export function formatHistoryDate(dateStr: string): string {
   const d = new Date(dateStr);
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterday = new Date(today.getTime() - 86400000);
-  if (d >= today) return t('library.today');
-  if (d >= yesterday) return t('library.yesterday');
-  return t('library.earlier');
+  if (d >= today) return 'Today';
+  if (d >= yesterday) return 'Yesterday';
+  return 'Earlier';
 }
 
 /** History entries carry a bare numeric `scTrackId`; the player/stream/cache

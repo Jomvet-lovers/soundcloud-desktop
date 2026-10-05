@@ -1,5 +1,4 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Clock, Search as SearchIcon, X } from '../../lib/icons';
 import { isMac } from '../../lib/platform';
@@ -12,7 +11,6 @@ import { isSoundCloudUrl } from '../search/utils';
  * that store, so there's a single search input app-wide. Flat lens, ⌘K hint,
  * recent-search dropdown. */
 export const GlobalSearch = memo(function GlobalSearch() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const q = useSearchQueryStore((s) => s.q);
@@ -80,14 +78,14 @@ export const GlobalSearch = memo(function GlobalSearch() {
               (e.currentTarget as HTMLInputElement).blur();
             }
           }}
-          placeholder={t('search.globalPlaceholder')}
+          placeholder={'What do you want to hear?'}
           spellCheck={false}
           autoComplete="off"
           className="flex-1 min-w-0 bg-transparent outline-none text-[14px] text-white/90 placeholder:text-white/35 select-text"
         />
         {isUrl && (
           <span className="shrink-0 text-[10px] text-accent/90 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20">
-            {t('search.urlHint')}
+            {'Press Enter to open link'}
           </span>
         )}
         {q ? (
@@ -95,7 +93,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
             type="button"
             onClick={() => setQ('')}
             className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full text-white/40 hover:text-white/80 hover:bg-white/5 transition-colors cursor-pointer"
-            aria-label={t('search.clear')}
+            aria-label={'Clear'}
           >
             <X size={15} />
           </button>
@@ -118,7 +116,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
           }}
         >
           <div className="flex items-center justify-between px-2.5 py-1.5">
-            <span className="text-[11px] text-white/35">{t('search.history')}</span>
+            <span className="text-[11px] text-white/35">{'Recent searches'}</span>
             <button
               type="button"
               onMouseDown={(e) => {
@@ -127,7 +125,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
               }}
               className="text-[11px] text-white/35 hover:text-white/70 transition-colors cursor-pointer"
             >
-              {t('search.clearHistory')}
+              {'Clear all'}
             </button>
           </div>
           {history.slice(0, 8).map((item) => (
@@ -149,7 +147,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
                   removeQuery(item);
                 }}
                 className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-white/0 group-hover/h:text-white/40 hover:!text-white/80 transition-colors"
-                aria-label={t('search.clear')}
+                aria-label={'Clear'}
               >
                 <X size={13} />
               </button>

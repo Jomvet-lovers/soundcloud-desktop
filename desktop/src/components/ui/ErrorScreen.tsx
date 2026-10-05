@@ -1,4 +1,3 @@
-import { useTranslation } from 'react-i18next';
 import { AlertCircle, Home, RefreshCw } from '../../lib/icons';
 
 /** Premium crash screen shown by the ErrorBoundary. Dark, accent-lit glass,
@@ -12,7 +11,6 @@ export function ErrorScreen({
   onRetry?: () => void;
   fullscreen?: boolean;
 }) {
-  const { t } = useTranslation();
   const message = error?.message || String(error ?? '');
 
   return (
@@ -46,16 +44,16 @@ export function ErrorScreen({
           </div>
 
           <h1 className="text-[26px] font-black tracking-tight leading-tight text-white">
-            {t('errors.title')}
+            {'Something went wrong'}
           </h1>
           <p className="mt-2.5 text-[13.5px] leading-relaxed text-white/45">
-            {t('errors.subtitle')}
+            {'The interface hit a snag. Try again or reload the app.'}
           </p>
 
           {message && (
             <details className="group mt-5 text-left">
               <summary className="cursor-pointer list-none text-[11px] font-medium text-white/35 transition-colors hover:text-white/60">
-                <span className="text-[var(--color-accent)]">▸</span> {t('errors.details')}
+                <span className="text-[var(--color-accent)]">▸</span> {'Details'}
               </summary>
               <pre className="mt-2 max-h-40 overflow-auto rounded-xl border border-white/[0.06] bg-black/40 p-3 text-[11px] leading-relaxed text-red-300/80 whitespace-pre-wrap break-words">
                 {message}
@@ -75,7 +73,7 @@ export function ErrorScreen({
                 }}
               >
                 <RefreshCw size={16} strokeWidth={2.2} />
-                {t('errors.retry')}
+                {'Try again'}
               </button>
             )}
             <div className="flex gap-2.5">
@@ -85,7 +83,7 @@ export function ErrorScreen({
                 className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-white/[0.1] bg-white/[0.04] text-[13px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white/90 active:scale-[0.97] cursor-pointer"
               >
                 <RefreshCw size={14} />
-                {t('errors.reload')}
+                {'Reload'}
               </button>
               <button
                 type="button"
@@ -95,7 +93,7 @@ export function ErrorScreen({
                 className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-white/[0.1] bg-white/[0.04] text-[13px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white/90 active:scale-[0.97] cursor-pointer"
               >
                 <Home size={14} />
-                {t('errors.home')}
+                {'Home'}
               </button>
             </div>
           </div>

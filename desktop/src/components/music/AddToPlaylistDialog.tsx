@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { fc } from '../../lib/formatters';
@@ -38,7 +37,6 @@ const PlaylistOption = React.memo(function PlaylistOption({
   containsAll: boolean;
   containsSome: boolean;
 }) {
-  const { t } = useTranslation();
   const cover = playlistCoverUrl(playlist.artwork_url, playlist.tracks, 'small');
 
   return (
@@ -65,11 +63,11 @@ const PlaylistOption = React.memo(function PlaylistOption({
       </div>
       {containsAll ? (
         <span className="shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full bg-accent/12 text-accent border border-accent/20">
-          {t('playlist.alreadyAdded')}
+          {'Already added'}
         </span>
       ) : containsSome ? (
         <span className="shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full bg-white/[0.06] text-white/55 border border-white/[0.06]">
-          {t('playlist.containsSome')}
+          {'Contains some'}
         </span>
       ) : null}
       {playlist.sharing === 'private' && <Lock size={12} className="text-white/20 shrink-0" />}
@@ -86,7 +84,6 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
   trackUrns: string[];
   onCreated: () => void;
 }) {
-  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -99,12 +96,12 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
       { title, sharing: isPrivate ? 'private' : 'public', trackUrns },
       {
         onSuccess: () => {
-          toast.success(t('playlist.created'));
+          toast.success('Playlist created');
           onCreated();
         },
       },
     );
-  }, [name, isPrivate, trackUrns, createPlaylist, onCreated, t]);
+  }, [name, isPrivate, trackUrns, createPlaylist, onCreated]);
 
   return (
     <div className="px-3 pb-3">
@@ -116,7 +113,7 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-          placeholder={t('playlist.playlistName')}
+          placeholder={'Playlist name'}
           className="w-full bg-white/[0.04] text-[13px] text-white/90 placeholder:text-white/25 px-3 py-2 rounded-lg outline-none border border-white/[0.06] focus:border-accent/30 transition-colors"
           autoFocus
           disabled={createPlaylist.isPending}
@@ -128,7 +125,7 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
             className="flex items-center gap-1.5 text-[11px] text-white/40 hover:text-white/60 transition-colors cursor-pointer"
           >
             {isPrivate ? <Lock size={12} /> : <Globe size={12} />}
-            {isPrivate ? t('playlist.private') : t('playlist.public')}
+            {isPrivate ? 'Private' : 'Public'}
           </button>
           <button
             type="button"
@@ -136,7 +133,7 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
             disabled={!name.trim() || createPlaylist.isPending}
             className="px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-accent text-accent-contrast hover:bg-accent-hover disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed"
           >
-            {createPlaylist.isPending ? t('playlist.creating') : t('playlist.create')}
+            {createPlaylist.isPending ? 'Creating...' : 'Create'}
           </button>
         </div>
       </div>
@@ -150,7 +147,6 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
   trackUrns,
   children,
 }: AddToPlaylistDialogProps) {
-  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const { playlists, isLoading } = useMyPlaylists();
@@ -245,7 +241,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
     const newUrns = trackUrns.filter((u) => !existingSet.has(u));
 
     if (newUrns.length === 0) {
-      toast.info(t('playlist.alreadyInPlaylist'));
+      toast.info('Already in playlist');
       setOpen(false);
       return;
     }
@@ -254,7 +250,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
       { playlistUrn: playlist.urn, trackUrns: newUrns },
       {
         onSuccess: () => {
-          toast.success(t('playlist.addedToPlaylist'));
+          toast.success('Added to playlist');
           setOpen(false);
         },
       },
@@ -274,7 +270,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <ModalTitle className="text-[15px] font-bold text-white/90 flex items-center gap-2">
             <ListPlus size={18} />
-            {t('playlist.addToPlaylist')}
+            {'Add to playlist'}
           </ModalTitle>
           <ModalDescription className="sr-only">
             Choose a playlist for the selected track.
@@ -303,9 +299,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
               <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-accent/10 ring-1 ring-accent/20">
                 <Plus size={18} className="text-accent" />
               </div>
-              <span className="text-[13px] font-medium text-accent">
-                {t('playlist.newPlaylist')}
-              </span>
+              <span className="text-[13px] font-medium text-accent">{'New playlist'}</span>
             </button>
           </div>
         )}
@@ -321,7 +315,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
             </div>
           ) : playlists.length === 0 ? (
             <div className="py-10 text-center text-[13px] text-white/25">
-              {t('playlist.noPlaylists')}
+              {'No playlists found'}
             </div>
           ) : (
             <div className="space-y-0.5">

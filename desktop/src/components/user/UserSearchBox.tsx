@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { Database, Search as SearchIcon, X } from '../../lib/icons';
 
 interface UserSearchBoxProps {
@@ -23,8 +22,6 @@ interface UserSearchBoxProps {
  * и почему результаты могут отличаться от внешнего профиля.
  */
 function UserSearchBoxImpl({ value, onChange, scopeLabel, disabled }: UserSearchBoxProps) {
-  const { t } = useTranslation();
-
   return (
     <div className="relative w-full">
       <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
@@ -36,11 +33,7 @@ function UserSearchBoxImpl({ value, onChange, scopeLabel, disabled }: UserSearch
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        placeholder={
-          disabled
-            ? t('user.search.unavailable')
-            : t('user.search.placeholder', { scope: scopeLabel })
-        }
+        placeholder={disabled ? 'Search not available here' : `Search in their ${scopeLabel}…`}
         className={`w-full text-[13px] py-2.5 pl-10 pr-24 rounded-2xl outline-none border transition-all duration-300 ${
           disabled
             ? 'bg-white/[0.015] border-white/[0.03] text-white/30 placeholder:text-white/15 cursor-not-allowed'
@@ -53,17 +46,17 @@ function UserSearchBoxImpl({ value, onChange, scopeLabel, disabled }: UserSearch
             type="button"
             onClick={() => onChange('')}
             className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/[0.08] text-white/30 hover:text-white/80 transition-all cursor-pointer"
-            title={t('user.search.clear')}
+            title={'Clear search'}
           >
             <X size={12} />
           </button>
         )}
         <div
           className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium text-white/40 bg-white/[0.04] border border-white/[0.05]"
-          title={t('search.source.dbHint')}
+          title={'Search inside the local SCD library — fast, scoped to mirrored content.'}
         >
           <Database size={9} />
-          {t('search.source.dbBadge')}
+          {'DB'}
         </div>
       </div>
     </div>

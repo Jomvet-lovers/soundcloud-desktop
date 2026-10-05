@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 import { art } from '../../lib/formatters';
 import { Loader2, Shuffle, User as UserIcon } from '../../lib/icons';
@@ -14,12 +13,12 @@ interface MastheadUser {
   avatar_url: string;
 }
 
-function greetingKey(): string {
+function greeting(name: string): string {
   const h = new Date().getHours();
-  if (h < 5) return 'library.greetNight';
-  if (h < 12) return 'library.greetMorning';
-  if (h < 18) return 'library.greetDay';
-  return 'library.greetEvening';
+  if (h < 5) return `Late night, ${name}`;
+  if (h < 12) return `Good morning, ${name}`;
+  if (h < 18) return `Good afternoon, ${name}`;
+  return `Good evening, ${name}`;
 }
 
 const AvatarOrb = memo(function AvatarOrb({ url, aura }: { url: string | null; aura: Aura }) {
@@ -55,7 +54,6 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
   selected: string | null;
   onSelect: (genre: string | null) => void;
 }) {
-  const { t } = useTranslation();
   const { shuffle, loading } = useShuffleLikes();
   const avatar = art(user.avatar_url, 't300x300');
   // Flat accent "play" surface.
@@ -86,13 +84,13 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
           <AvatarOrb url={avatar} aura={sound.aura} />
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-1.5 text-[11px] text-white/40 font-medium mb-1.5">
-              {t('nav.library')}
+              {'Library'}
             </p>
             <h1
               className="text-[26px] md:text-[34px] font-black tracking-tight leading-[1.05] break-words"
               style={{ color: auraRgb(sound.aura) }}
             >
-              {t(greetingKey(), { name: user.username })}
+              {greeting(user.username)}
             </h1>
           </div>
           <button
@@ -107,7 +105,7 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
             }}
           >
             {loading ? <Loader2 size={18} className="animate-spin" /> : <Shuffle size={18} />}
-            {t('library.playYourSound')}
+            {'Play your sound'}
           </button>
         </div>
 
@@ -127,7 +125,7 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
           }}
         >
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Shuffle size={16} />}
-          {t('library.playYourSound')}
+          {'Play your sound'}
         </button>
       </div>
     </section>

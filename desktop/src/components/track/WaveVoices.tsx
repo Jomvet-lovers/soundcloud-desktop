@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 import { getCurrentTime, getDuration, subscribe } from '../../lib/audio';
 import { art, durLong } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
@@ -27,8 +26,6 @@ export const WaveVoices = React.memo(function WaveVoices({
   isCurrent: boolean;
   onSeek: (seconds: number) => void;
 }) {
-  const { t } = useTranslation();
-
   const dots = useMemo<Dot[]>(() => {
     if (!durationMs || durationMs <= 0) return [];
     const slots = new Map<number, Dot>();
@@ -105,7 +102,7 @@ export const WaveVoices = React.memo(function WaveVoices({
             elsRef.current[i] = el;
           }}
           onClick={() => onSeek((d.comment.timestamp ?? 0) / 1000)}
-          title={t('track.seekTo', { time: durLong(d.comment.timestamp ?? 0) })}
+          title={`Jump to ${durLong(d.comment.timestamp ?? 0)}`}
           className="wv-dot group/dot absolute bottom-0 pointer-events-auto cursor-pointer"
           style={{ left: `${d.pct * 100}%` }}
         >
@@ -130,7 +127,7 @@ export const WaveVoices = React.memo(function WaveVoices({
               </span>
               {d.count > 1 && (
                 <span className="block text-[10px] text-accent/90 tabular-nums">
-                  {t('track.voicesHere', { count: d.count })}
+                  {`${d.count} ${d.count === 1 ? 'voice left here' : 'voices left here'}`}
                 </span>
               )}
             </span>

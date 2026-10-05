@@ -1,6 +1,5 @@
 import * as Popover from '@radix-ui/react-popover';
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { audioLines16 } from '../../lib/icons';
 import { withViewTransition } from '../../lib/view-transition';
 import {
@@ -29,7 +28,6 @@ const rangeClass = 'h-1 w-full cursor-pointer disabled:cursor-default disabled:o
 
 /** Flat popover with playback speed and pitch controls, anchored in the player bar. */
 export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
-  const { t } = useTranslation();
   const playbackRate = usePlayerStore((s) => s.playbackRate);
   const setPlaybackRate = usePlayerStore((s) => s.setPlaybackRate);
   const resetPlaybackRate = usePlayerStore((s) => s.resetPlaybackRate);
@@ -53,7 +51,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
           className={`flex size-8 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] ${
             active ? 'text-accent' : 'text-white/55 hover:text-white/90'
           }`}
-          title={t('player.soundTuning')}
+          title={'Sound tuning'}
         >
           {audioLines16}
         </button>
@@ -66,17 +64,17 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
           collisionPadding={12}
           className="z-[200] w-[280px] rounded-xl border border-white/[0.1] bg-[#141417] p-4 outline-none"
         >
-          <p className="mb-3 text-[11px] font-medium text-white/45">{t('player.soundTuning')}</p>
+          <p className="mb-3 text-[11px] font-medium text-white/45">{'Sound tuning'}</p>
 
           {/* Playback speed */}
           <div className="mb-4">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] text-white/55">{t('player.playbackSpeed')}</span>
+              <span className="text-[11px] text-white/55">{'Speed'}</span>
               <button
                 type="button"
                 disabled={rateIsDefault}
                 onClick={() => resetPlaybackRate()}
-                title={t('player.playbackSpeedReset')}
+                title={'Reset to 1.00x'}
                 className={`text-[11px] tabular-nums transition-colors ${
                   rateIsDefault
                     ? 'text-white/40'
@@ -95,7 +93,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
               onChange={(e) => setPlaybackRate(Number(e.target.value))}
               className={rangeClass}
               style={{ accentColor: 'var(--color-accent)' }}
-              aria-label={t('player.playbackSpeed')}
+              aria-label={'Speed'}
             />
           </div>
 
@@ -103,12 +101,12 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
           <div>
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-white/55">{t('player.pitch')}</span>
+                <span className="text-[11px] text-white/55">{'Pitch'}</span>
                 <div className="flex overflow-hidden rounded-md border border-white/[0.1]">
                   <button
                     type="button"
                     onClick={() => withViewTransition(() => setPitchControlMode('auto'))}
-                    title={t('player.pitchModeAuto')}
+                    title={'Pitch follows speed'}
                     className={`relative h-5 px-1.5 text-[9px] transition-colors ${
                       !isManual ? 'text-white' : 'text-white/45 hover:text-white/75'
                     }`}
@@ -119,12 +117,12 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                         !isManual ? 'vt-pitch-pill bg-white/[0.14]' : ''
                       }`}
                     />
-                    <span className="relative">{t('player.pitchModeAutoShort')}</span>
+                    <span className="relative">{'Auto'}</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => withViewTransition(() => setPitchControlMode('manual'))}
-                    title={t('player.pitchModeManual')}
+                    title={'Manual pitch'}
                     className={`relative h-5 border-l border-white/[0.1] px-1.5 text-[9px] transition-colors ${
                       isManual ? 'text-white' : 'text-white/45 hover:text-white/75'
                     }`}
@@ -135,7 +133,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                         isManual ? 'vt-pitch-pill bg-white/[0.14]' : ''
                       }`}
                     />
-                    <span className="relative">{t('player.pitchModeManualShort')}</span>
+                    <span className="relative">{'Manual'}</span>
                   </button>
                 </div>
               </div>
@@ -143,7 +141,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                 type="button"
                 disabled={pitchIsDefault}
                 onClick={() => resetPitchSemitones()}
-                title={t('player.pitchReset')}
+                title={'Reset pitch'}
                 className={`text-[11px] tabular-nums transition-colors ${
                   pitchIsDefault
                     ? 'text-white/40'
@@ -163,7 +161,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
               onChange={(e) => setPitchSemitones(Number(e.target.value))}
               className={rangeClass}
               style={{ accentColor: 'var(--color-accent)' }}
-              aria-label={t('player.pitch')}
+              aria-label={'Pitch'}
             />
           </div>
         </Popover.Content>

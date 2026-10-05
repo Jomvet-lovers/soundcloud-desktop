@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useHistory } from '../../lib/hooks';
 import { ChevronRight, Clock } from '../../lib/icons';
@@ -10,7 +9,6 @@ import { historyEntryToTrack } from './history-utils';
 /** "Jump back in" — the last things you played, deduped, so resuming your world
  *  is one click from the hub. */
 export const ContinueRow = memo(function ContinueRow({ genre }: { genre?: string | null }) {
-  const { t } = useTranslation();
   const { entries } = useHistory();
 
   const tracks = useMemo(() => {
@@ -34,14 +32,12 @@ export const ContinueRow = memo(function ContinueRow({ genre }: { genre?: string
         <span className="text-white/55">
           <Clock size={16} />
         </span>
-        <h2 className="text-[16px] font-bold tracking-tight text-white/90">
-          {t('library.continue')}
-        </h2>
+        <h2 className="text-[16px] font-bold tracking-tight text-white/90">{'Jump back in'}</h2>
         <Link
           to="/library/history"
           className="ml-auto flex items-center gap-0.5 text-[12px] font-semibold text-white/45 hover:text-white/90 transition-colors"
         >
-          {t('library.seeAll')}
+          {'See all'}
           <ChevronRight size={14} />
         </Link>
       </div>

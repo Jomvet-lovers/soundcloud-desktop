@@ -1,6 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import appIcon from '../../assets/app-icon.png';
 import { ChevronLeft, ChevronRight, Fullscreen, Home, Minus, Square, X } from '../../lib/icons';
@@ -82,7 +81,6 @@ const WinButton = ({
 );
 
 export const Titlebar = React.memo(() => {
-  const { t } = useTranslation();
   const collapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const win = getCurrentWindow();
 
@@ -134,7 +132,7 @@ export const Titlebar = React.memo(() => {
 
       {/* RIGHT: window controls */}
       <div className="flex items-center gap-0.5 shrink-0">
-        <WinButton onClick={() => void toggleWindowFullscreen()} label={t('kb.fullscreen')}>
+        <WinButton onClick={() => void toggleWindowFullscreen()} label={'Toggle fullscreen'}>
           <Fullscreen size={13} />
         </WinButton>
         <WinButton onClick={() => win.minimize()} label="Minimize">

@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useArtistDisplay, useArtistLinkItems, useDisplayTitle } from '../../lib/track-display';
 import type { Track } from '../../stores/player';
@@ -31,7 +30,6 @@ export const TrackTitleArtist = React.memo(function TrackTitleArtist({
   size = 'md',
   className,
 }: TrackTitleArtistProps) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const artistDisplay = useArtistDisplay(track);
   const displayTitle = useDisplayTitle(track);
@@ -69,9 +67,7 @@ export const TrackTitleArtist = React.memo(function TrackTitleArtist({
           )}
         </span>
         {isWanted && (
-          <span className="text-[10px] text-white/25 ml-1">
-            · {t('track.notFoundOnSc', 'not found on SoundCloud')}
-          </span>
+          <span className="text-[10px] text-white/25 ml-1">· {'not found on SoundCloud'}</span>
         )}
       </p>
     </div>

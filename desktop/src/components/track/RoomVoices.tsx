@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { fc } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
 import { Loader2, MessageCircle } from '../../lib/icons';
@@ -29,8 +28,6 @@ export const RoomVoices = React.memo(function RoomVoices({
   aura: TrackAura;
   onSeek: (seconds: number) => void;
 }) {
-  const { t } = useTranslation();
-
   return (
     <section className="space-y-5">
       <div className="flex items-center gap-3">
@@ -40,7 +37,7 @@ export const RoomVoices = React.memo(function RoomVoices({
         >
           <MessageCircle size={14} />
         </span>
-        <h2 className="text-[16px] font-bold text-white/85">{t('track.listenersVoices')}</h2>
+        <h2 className="text-[16px] font-bold text-white/85">{"Listeners' voices"}</h2>
         {commentCount != null && (
           <span
             className="text-[11px] font-semibold tabular-nums px-2.5 h-6 inline-flex items-center rounded-full text-white/45"
@@ -65,7 +62,7 @@ export const RoomVoices = React.memo(function RoomVoices({
       ) : comments.length === 0 ? (
         <div className="py-16 flex flex-col items-center gap-4">
           <MessageCircle size={24} className="text-white/15" />
-          <p className="text-white/30 text-sm">{t('track.noComments')}</p>
+          <p className="text-white/30 text-sm">{'No comments yet'}</p>
         </div>
       ) : (
         <div className="space-y-3">

@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { getCurrentTime, subscribe } from '../../lib/audio';
 import { ago, art, durLong } from '../../lib/formatters';
@@ -21,7 +20,6 @@ export const VoiceCard = React.memo(function VoiceCard({
   onSeek: (seconds: number) => void;
 }) {
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const ts = comment.timestamp;
   const avatar = art(comment.user.avatar_url, 'small');
   const goUser = () => navigate(`/user/${encodeURIComponent(comment.user.urn)}`);
@@ -62,7 +60,7 @@ export const VoiceCard = React.memo(function VoiceCard({
               <button
                 type="button"
                 onClick={() => onSeek(ts / 1000)}
-                title={t('track.seekTo', { time: durLong(ts) })}
+                title={`Jump to ${durLong(ts)}`}
                 className="ml-auto inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-semibold tabular-nums cursor-pointer transition-transform duration-200 hover:scale-105 shrink-0"
                 style={{ background: accentSoft, color: accent }}
               >
@@ -93,7 +91,6 @@ export const CommentForm = React.memo(function CommentForm({
   accent: string;
   accentSoft: string;
 }) {
-  const { t } = useTranslation();
   const [body, setBody] = useState('');
   const mutation = usePostComment(trackUrn);
   const momentRef = useRef<HTMLSpanElement>(null);
@@ -131,7 +128,7 @@ export const CommentForm = React.memo(function CommentForm({
           style={{ color: accent }}
         >
           <Clock size={10} />
-          {t('track.commentAt')}{' '}
+          {'at'}{' '}
           <span ref={momentRef} className="tabular-nums">
             0:00
           </span>
@@ -147,7 +144,7 @@ export const CommentForm = React.memo(function CommentForm({
               submit();
             }
           }}
-          placeholder={t('track.addComment')}
+          placeholder={'Add a comment...'}
           rows={2}
           className="selectable flex-1 bg-transparent text-[13px] text-white/80 placeholder:text-white/20 outline-none resize-none leading-relaxed"
         />

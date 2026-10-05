@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/shallow';
 import { ListMusic, Trash2, X } from '../../lib/icons';
 import { usePlayerStore } from '../../stores/player';
@@ -11,7 +10,6 @@ import { QueueList } from './queue/QueueList';
 
 export const QueuePanel = React.memo(
   ({ open, onClose }: { open: boolean; onClose: () => void }) => {
-    const { t } = useTranslation();
     const { currentTrack, queueLength, queueIndex, isPlaying } = usePlayerStore(
       useShallow((s) => ({
         currentTrack: s.currentTrack,
@@ -67,7 +65,7 @@ export const QueuePanel = React.memo(
             >
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[15px] font-semibold tracking-tight text-white/90">
-                  {t('player.queue')}
+                  {'Queue'}
                 </h2>
                 {queueLength > 0 && (
                   <span className="text-[11px] font-semibold text-white/40 bg-white/[0.06] rounded-full px-2 py-0.5 tabular-nums">
@@ -83,13 +81,13 @@ export const QueuePanel = React.memo(
                     className="h-7 px-2.5 rounded-lg text-[11px] text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer flex items-center gap-1.5"
                   >
                     <Trash2 size={12} />
-                    {t('player.clearQueue')}
+                    {'Clear Queue'}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={onClose}
-                  title={t('common.close')}
+                  title={'Close'}
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-white/30 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer"
                 >
                   <X size={16} />
@@ -100,9 +98,7 @@ export const QueuePanel = React.memo(
             {/* Now Playing */}
             {currentTrack && (
               <div className="px-3.5 pb-2">
-                <p className="text-[11px] text-white/40 font-medium mb-2 px-1.5">
-                  {t('player.nowPlaying')}
-                </p>
+                <p className="text-[11px] text-white/40 font-medium mb-2 px-1.5">{'Now Playing'}</p>
                 <NowPlayingCard />
               </div>
             )}
@@ -112,7 +108,7 @@ export const QueuePanel = React.memo(
               {upNextCount > 0 && (
                 <>
                   <p className="text-[11px] text-white/40 font-medium mb-2 mt-3 px-1.5">
-                    {t('player.upNext')} · {upNextCount}
+                    {'Up Next'} · {upNextCount}
                   </p>
                   <QueueList
                     startIndex={queueIndex + 1}
@@ -128,11 +124,9 @@ export const QueuePanel = React.memo(
                     <ListMusic size={24} className="text-white/15" />
                   </div>
                   <div>
-                    <p className="text-[14px] text-white/40 font-medium">
-                      {t('player.queueEmpty')}
-                    </p>
+                    <p className="text-[14px] text-white/40 font-medium">{'Queue is empty'}</p>
                     <p className="text-[12px] text-white/20 mt-1 leading-relaxed max-w-[200px]">
-                      {t('player.queueEmptyHint')}
+                      {'Tracks you play next will show up here'}
                     </p>
                   </div>
                 </div>

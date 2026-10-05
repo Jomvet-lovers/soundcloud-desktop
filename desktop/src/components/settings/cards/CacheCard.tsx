@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   clearCache,
@@ -55,7 +54,6 @@ function CacheRow({
 }
 
 export function CacheCard() {
-  const { t } = useTranslation();
   const audioCacheLimitMB = useSettingsStore((s) => s.audioCacheLimitMB);
   const setAudioCacheLimitMB = useSettingsStore((s) => s.setAudioCacheLimitMB);
   const [audioSize, setAudioSize] = useState<number | null>(null);
@@ -77,7 +75,7 @@ export function CacheCard() {
   } = useCacheLikes((p) => {
     refreshLikedSize();
     if (p.phase === 'done') {
-      toast.success(t('settings.cacheLikesDone', { done: p.done - p.failed, total: p.total }));
+      toast.success(`Done: ${p.done - p.failed} of ${p.total}`);
     }
   });
 
@@ -97,30 +95,30 @@ export function CacheCard() {
       try {
         await fn();
         setSize(0);
-        toast.success(t('settings.cacheCleared'));
+        toast.success('Cache cleared');
       } catch {
-        toast.error(t('common.error'));
+        toast.error('Something went wrong');
       } finally {
         setBusy(false);
       }
     },
-    [t],
+    [],
   );
 
   const handleCacheLikes = useCallback(async () => {
     try {
       const queued = await startLikes();
-      if (queued === 0) toast(t('settings.cacheLikesEmpty'));
+      if (queued === 0) toast('No liked tracks');
     } catch (err) {
       toast.error(String(err));
     }
-  }, [startLikes, t]);
+  }, [startLikes]);
 
   const totalSize = (audioSize ?? 0) + (imagesSize ?? 0) + (likedSize ?? 0);
   const allLoaded = audioSize !== null && imagesSize !== null && likedSize !== null;
   const limitLabel =
     audioCacheLimitMB <= 0
-      ? t('settings.unlimited')
+      ? 'Unlimited'
       : audioCacheLimitMB >= 1024
         ? `${(audioCacheLimitMB / 1024).toFixed(audioCacheLimitMB % 1024 === 0 ? 0 : 1)} GB`
         : `${audioCacheLimitMB} MB`;
@@ -131,12 +129,12 @@ export function CacheCard() {
 
   return (
     <Card
-      title={t('settings.cache')}
+      title={'Cache'}
       icon={<Database size={17} />}
       action={
         allLoaded ? (
           <span className="text-[12px] text-white/30 tabular-nums">
-            {t('settings.total')}: {formatBytes(totalSize)}
+            {'Total'}: {formatBytes(totalSize)}
           </span>
         ) : (
           <Skeleton className="h-[12px] w-[80px]" />
@@ -145,43 +143,41 @@ export function CacheCard() {
     >
       <div className="divide-y divide-white/[0.04]">
         <CacheRow
-          label={t('settings.audioCacheSize')}
+          label={'Audio'}
           size={audioSize}
           clearing={clearingAudio}
-          clearLabel={t('settings.clearCache')}
+          clearLabel={'Clear'}
           onClear={() => clearWith(clearCache, setClearingAudio, setAudioSize)}
         />
         <CacheRow
-          label={t('settings.assetsCacheSize')}
+          label={'Images & assets'}
           size={imagesSize}
           clearing={clearingImages}
-          clearLabel={t('settings.clearCache')}
+          clearLabel={'Clear'}
           onClear={() => clearWith(clearImageCache, setClearingImages, setImagesSize)}
         />
         <CacheRow
-          label={t('settings.likedCacheSize')}
+          label={'Likes (protected cache)'}
           size={likedSize}
           clearing={clearingLiked}
-          clearLabel={t('settings.clearCache')}
+          clearLabel={'Clear'}
           onClear={() => clearWith(clearLikedCache, setClearingLiked, setLikedSize)}
         />
       </div>
 
       <div className="pt-3 space-y-2">
-        <p className="text-[11px] text-white/30">{t('settings.cacheLikesDesc')}</p>
+        <p className="text-[11px] text-white/30">
+          {'Downloads all likes into a separate folder that bypasses the audio cache limit.'}
+        </p>
         {cachingLikes ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-[12px] text-white/60">
               <span className="flex items-center gap-2">
                 <Loader2 size={12} className="animate-spin" />
-                {progress
-                  ? t('settings.cacheLikesProgress', { done: progress.done, total: progress.total })
-                  : t('settings.cacheLikesStarting')}
+                {progress ? `${progress.done} of ${progress.total}` : 'Preparing...'}
               </span>
               {progress && progress.failed > 0 && (
-                <span className="text-red-400/80 tabular-nums">
-                  {t('settings.cacheLikesFailed', { count: progress.failed })}
-                </span>
+                <span className="text-red-400/80 tabular-nums">{`failed: ${progress.failed}`}</span>
               )}
             </div>
             <div className="h-1 bg-white/[0.06] rounded-full overflow-hidden">
@@ -196,7 +192,7 @@ export function CacheCard() {
               className="flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-semibold bg-white/[0.04] text-white/60 hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-200 cursor-pointer"
             >
               <X size={12} />
-              {t('common.cancel')}
+              {'Cancel'}
             </button>
           </div>
         ) : (
@@ -206,7 +202,7 @@ export function CacheCard() {
             className="flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-semibold bg-white/[0.06] text-white/75 hover:bg-white/[0.1] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-200 cursor-pointer"
           >
             <Download size={12} />
-            {t('settings.cacheLikes')}
+            {'Cache liked tracks'}
           </button>
         )}
       </div>
@@ -215,8 +211,10 @@ export function CacheCard() {
       <div className="pt-3 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[13px] text-white/60 font-medium">{t('settings.audioCacheLimit')}</p>
-            <p className="text-[11px] text-white/30 mt-0.5">{t('settings.audioCacheLimitDesc')}</p>
+            <p className="text-[13px] text-white/60 font-medium">{'Audio cache limit'}</p>
+            <p className="text-[11px] text-white/30 mt-0.5">
+              {'Older cached tracks are deleted automatically when the limit is exceeded'}
+            </p>
           </div>
           <span className="text-[12px] text-white/30 tabular-nums">{limitLabel}</span>
         </div>

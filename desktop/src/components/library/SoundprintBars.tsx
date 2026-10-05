@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { parseCssColor, type Rgb, rgbaCss, rgbCss } from '../../lib/genre-aura';
 import { AudioLines } from '../../lib/icons';
 import type { GenreShare } from '../search/utils';
@@ -17,7 +16,6 @@ export const SoundprintBars = memo(function SoundprintBars({
   selected: string | null;
   onSelect: (genre: string | null) => void;
 }) {
-  const { t } = useTranslation();
   if (spectrum.length === 0) return null;
   const max = spectrum[0].share || 1;
   const hasSel = selected != null;
@@ -26,7 +24,7 @@ export const SoundprintBars = memo(function SoundprintBars({
     <div>
       <div className="flex items-center gap-2 mb-3">
         <AudioLines size={13} style={{ color: spectrum[0].color }} />
-        <span className="text-[10px] font-medium text-white/45">{t('library.soundprint')}</span>
+        <span className="text-[10px] font-medium text-white/45">{'Your soundprint'}</span>
       </div>
       <div className="flex items-end gap-2 h-[88px]">
         {spectrum.map((g, i) => {

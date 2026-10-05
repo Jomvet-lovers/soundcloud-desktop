@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import { art, dur, fc } from '../../lib/formatters';
 import { headphones11, heart11, ListMusic, ListPlus, Music, playWhite14 } from '../../lib/icons';
@@ -24,7 +23,6 @@ export const LibraryTrackRow = React.memo(
     queue: Track[];
     onPlay?: () => void;
   }) {
-    const { t } = useTranslation();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue, onPlay);
     const addToQueueNext = usePlayerStore((s) => s.addToQueueNext);
 
@@ -83,7 +81,7 @@ export const LibraryTrackRow = React.memo(
           <button
             type="button"
             className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 shrink-0"
-            title={t('playlist.addToPlaylist')}
+            title={'Add to playlist'}
           >
             <ListMusic size={16} />
           </button>
@@ -93,7 +91,7 @@ export const LibraryTrackRow = React.memo(
           type="button"
           onClick={handleAddToQueue}
           className="opacity-0 group-hover:opacity-100 w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/[0.08] transition-all duration-200 shrink-0"
-          title={t('player.addToQueue')}
+          title={'Add to Queue'}
         >
           <ListPlus size={16} />
         </button>

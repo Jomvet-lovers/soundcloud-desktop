@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { SETTINGS_CATEGORIES, type SettingsCategoryId } from '../components/settings/registry';
 import { SettingsFrame } from '../components/settings/SettingsFrame';
 import { SettingsNav } from '../components/settings/SettingsNav';
@@ -8,7 +7,6 @@ import { useViewerAura } from '../lib/useViewerAura';
 /** Settings — two-pane workspace: a flat category rail on the left, the active
  *  category's sections on the right. */
 export function Settings() {
-  const { t } = useTranslation();
   const aura = useViewerAura();
   const [active, setActive] = useState<SettingsCategoryId>('general');
   const category = SETTINGS_CATEGORIES.find((c) => c.id === active) ?? SETTINGS_CATEGORIES[0];
@@ -22,9 +20,9 @@ export function Settings() {
           <header className="mb-7 flex items-center gap-3">
             <span className="shrink-0 text-[var(--color-accent)]">{category.icon}</span>
             <div className="min-w-0">
-              <p className="text-[11px] text-white/35 font-medium mb-1">{t('settings.title')}</p>
+              <p className="text-[11px] text-white/35 font-medium mb-1">{'Settings'}</p>
               <h1 className="text-[26px] font-bold tracking-tight leading-none text-white">
-                {t(category.labelKey)}
+                {category.label}
               </h1>
             </div>
           </header>

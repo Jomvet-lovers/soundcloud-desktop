@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { preloadTrack } from '../../lib/audio';
@@ -32,7 +31,6 @@ interface TrackCardProps {
 
 export const TrackCard = React.memo(
   function TrackCard({ track, queue, onPlay }: TrackCardProps) {
-    const { t } = useTranslation();
     const navigate = useNavigate();
     const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue, onPlay);
     const showPlayingOverlay = useAutoHide(isThisPlaying);
@@ -55,9 +53,9 @@ export const TrackCard = React.memo(
       if (!url) return;
       try {
         await navigator.clipboard.writeText(url);
-        toast.success(t('auth.copied'));
+        toast.success('Copied!');
       } catch {
-        toast.error(t('common.error'));
+        toast.error('Something went wrong');
       }
     };
 
@@ -105,7 +103,7 @@ export const TrackCard = React.memo(
           <div className="absolute bottom-2 right-2 flex items-center gap-1">
             {track.playback_count != null && (
               <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full tabular-nums">
-                {fc(track.playback_count)} {t('track.plays')}
+                {fc(track.playback_count)} {'plays'}
               </div>
             )}
             <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full">
@@ -130,7 +128,7 @@ export const TrackCard = React.memo(
                 type="button"
                 onClick={(e) => e.stopPropagation()}
                 className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
-                title={t('playlist.addToPlaylist')}
+                title={'Add to playlist'}
               >
                 <ListPlus size={12} />
               </button>
@@ -139,7 +137,7 @@ export const TrackCard = React.memo(
               type="button"
               onClick={handleAddToQueue}
               className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
-              title={t('player.addToQueue')}
+              title={'Add to Queue'}
             >
               <ListMusic size={12} />
             </button>
@@ -147,7 +145,7 @@ export const TrackCard = React.memo(
               type="button"
               onClick={handleShare}
               className="cursor-pointer w-6 h-6 rounded-full bg-black/50 hidden @[120px]:inline-flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
-              title={t('auth.copyLink')}
+              title={'Copy link'}
             >
               <LinkIcon size={12} />
             </button>
@@ -182,9 +180,7 @@ export const TrackCard = React.memo(
             </span>
           </p>
           {isWanted && (
-            <p className="text-[10px] text-white/25 mt-1">
-              {t('track.notFoundOnSc', 'not found on SoundCloud')}
-            </p>
+            <p className="text-[10px] text-white/25 mt-1">{'not found on SoundCloud'}</p>
           )}
         </div>
       </div>

@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { art, fc } from '../../lib/formatters';
 import { Loader2 } from '../../lib/icons';
@@ -27,7 +26,6 @@ export const RoomSleeve = React.memo(function RoomSleeve({
   relatedLoading: boolean;
   aura: TrackAura;
 }) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const u = track.user;
 
@@ -53,9 +51,9 @@ export const RoomSleeve = React.memo(function RoomSleeve({
           </p>
           {(u.followers_count != null || u.track_count != null) && (
             <p className="text-[11px] text-white/35 tabular-nums mt-1">
-              {u.followers_count != null && `${fc(u.followers_count)} ${t('user.followers')}`}
+              {u.followers_count != null && `${fc(u.followers_count)} ${'Followers'}`}
               {u.followers_count != null && u.track_count != null && ' · '}
-              {u.track_count != null && `${fc(u.track_count)} ${t('user.tracks')}`}
+              {u.track_count != null && `${fc(u.track_count)} ${'Tracks'}`}
             </p>
           )}
         </div>
@@ -63,7 +61,7 @@ export const RoomSleeve = React.memo(function RoomSleeve({
 
       {shown.length > 0 && (
         <div className="flex flex-col">
-          <h3 className="text-[11px] font-medium text-white/40 mb-3.5">{t('track.whoVibes')}</h3>
+          <h3 className="text-[11px] font-medium text-white/40 mb-3.5">{"Who's vibing"}</h3>
           <div className="flex items-center">
             <div className="flex -space-x-3">
               {shown.map((fu) => (
@@ -96,13 +94,13 @@ export const RoomSleeve = React.memo(function RoomSleeve({
       )}
 
       <div>
-        <h3 className="text-[11px] font-medium text-white/40 mb-3 px-1">{t('track.related')}</h3>
+        <h3 className="text-[11px] font-medium text-white/40 mb-3 px-1">{'Related Tracks'}</h3>
         {relatedLoading ? (
           <div className="flex justify-center py-6">
             <Loader2 size={16} className="text-white/15 animate-spin" />
           </div>
         ) : related.length === 0 ? (
-          <p className="text-[12px] text-white/25 px-1">{t('track.relatedEmpty')}</p>
+          <p className="text-[12px] text-white/25 px-1">{'Nothing related yet'}</p>
         ) : (
           <div className="space-y-1">
             {related.map((rt) => (

@@ -1,6 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Outlet } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
@@ -28,30 +27,30 @@ interface Keybinding {
 }
 
 const keybindings: Keybinding[] = [
-  { key: ' ', label: 'kb.playPause', group: 'playback', display: 'Space' },
-  { key: 'ArrowLeft', label: 'kb.seekBack', group: 'playback', display: '←' },
-  { key: 'ArrowRight', label: 'kb.seekForward', group: 'playback', display: '→' },
-  { key: 'n', label: 'kb.nextTrack', group: 'playback', display: 'N' },
-  { key: 'p', label: 'kb.prevTrack', group: 'playback', display: 'P' },
-  { key: 's', label: 'kb.shuffle', group: 'playback', display: 'S' },
-  { key: 'r', label: 'kb.repeat', group: 'playback', display: 'R' },
-  { key: 'b', label: 'kb.abLoop', group: 'playback', display: 'B' },
-  { key: 'ArrowUp', label: 'kb.volumeUp', group: 'playback', display: '↑' },
-  { key: 'ArrowDown', label: 'kb.volumeDown', group: 'playback', display: '↓' },
-  { key: 'm', label: 'kb.mute', group: 'playback', display: 'M' },
-  { key: '/', label: 'kb.search', group: 'navigation', display: '/' },
-  { key: 'Ctrl+K', label: 'kb.search', group: 'navigation', display: isMac() ? '⌘ K' : 'Ctrl K' },
-  { key: 'q', label: 'kb.queue', group: 'panels', display: 'Q' },
-  { key: '[', label: 'kb.sidebar', group: 'panels', display: '[' },
-  { key: 'F11', label: 'kb.fullscreen', group: 'panels', display: 'F11' },
-  { key: 'Escape', label: 'kb.close', group: 'panels', display: 'Esc' },
-  { key: 'Ctrl+/', label: 'kb.showBindings', group: 'panels', display: isMac() ? '⌘ /' : 'Ctrl /' },
+  { key: ' ', label: 'Play / Pause', group: 'playback', display: 'Space' },
+  { key: 'ArrowLeft', label: 'Seek back 5s', group: 'playback', display: '←' },
+  { key: 'ArrowRight', label: 'Seek forward 5s', group: 'playback', display: '→' },
+  { key: 'n', label: 'Next track', group: 'playback', display: 'N' },
+  { key: 'p', label: 'Previous track', group: 'playback', display: 'P' },
+  { key: 's', label: 'Toggle shuffle', group: 'playback', display: 'S' },
+  { key: 'r', label: 'Toggle repeat', group: 'playback', display: 'R' },
+  { key: 'b', label: 'Cycle A-B loop point', group: 'playback', display: 'B' },
+  { key: 'ArrowUp', label: 'Volume up', group: 'playback', display: '↑' },
+  { key: 'ArrowDown', label: 'Volume down', group: 'playback', display: '↓' },
+  { key: 'm', label: 'Mute / Unmute', group: 'playback', display: 'M' },
+  { key: '/', label: 'Search', group: 'navigation', display: '/' },
+  { key: 'Ctrl+K', label: 'Search', group: 'navigation', display: isMac() ? '⌘K' : 'Ctrl K' },
+  { key: 'q', label: 'Toggle queue', group: 'panels', display: 'Q' },
+  { key: '[', label: 'Toggle sidebar', group: 'panels', display: '[' },
+  { key: 'F11', label: 'Toggle fullscreen', group: 'panels', display: 'F11' },
+  { key: 'Escape', label: 'Close', group: 'panels', display: 'Esc' },
+  { key: 'Ctrl+/', label: 'Show shortcuts', group: 'panels', display: isMac() ? '⌘/' : 'Ctrl /' },
 ];
 
 const groupLabels = {
-  playback: 'kb.groupPlayback',
-  navigation: 'kb.groupNavigation',
-  panels: 'kb.groupPanels',
+  playback: 'Playback',
+  navigation: 'Navigation',
+  panels: 'Panels',
 } as const;
 
 function getVolumeStep(repeatCount: number): number {
@@ -71,8 +70,6 @@ const KeyCap = ({ children }: { children: React.ReactNode }) => (
 
 const KeybindingsDialog = React.memo(
   ({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) => {
-    const { t } = useTranslation();
-
     const groups = (['playback', 'navigation', 'panels'] as const).map((g) => ({
       id: g,
       label: groupLabels[g],
@@ -87,10 +84,10 @@ const KeybindingsDialog = React.memo(
             {/* Header */}
             <div className="px-7 pt-6 pb-4 border-b border-white/[0.06]">
               <Dialog.Title className="text-[18px] font-bold text-white/90 tracking-tight">
-                {t('kb.title')}
+                {'Keyboard Shortcuts'}
               </Dialog.Title>
               <Dialog.Description className="text-[12px] text-white/30 mt-1">
-                {isMac() ? '⌘' : 'Ctrl'} + / {t('kb.toToggle')}
+                {isMac() ? '⌘' : 'Ctrl'} + / {'to show this dialog'}
               </Dialog.Description>
             </div>
 
@@ -98,14 +95,14 @@ const KeybindingsDialog = React.memo(
             <div className="px-7 py-5 space-y-6 max-h-[60vh] overflow-y-auto">
               {groups.map((group) => (
                 <div key={group.id}>
-                  <h3 className="text-[11px] font-medium text-white/30 mb-3">{t(group.label)}</h3>
+                  <h3 className="text-[11px] font-medium text-white/30 mb-3">{group.label}</h3>
                   <div className="space-y-1">
                     {group.bindings.map((bind) => (
                       <div
                         key={bind.key}
                         className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-white/[0.03] transition-colors"
                       >
-                        <span className="text-[13px] text-white/60">{t(bind.label)}</span>
+                        <span className="text-[13px] text-white/60">{bind.label}</span>
                         <div className="flex items-center gap-1">
                           {bind.display.split(' ').map((part, i) => (
                             <KeyCap key={i}>{part}</KeyCap>
@@ -125,7 +122,7 @@ const KeybindingsDialog = React.memo(
                   type="button"
                   className="px-5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] text-[13px] font-semibold text-white/70 hover:text-white transition-all cursor-pointer"
                 >
-                  {t('kb.close')}
+                  {'Close'}
                 </button>
               </Dialog.Close>
             </div>

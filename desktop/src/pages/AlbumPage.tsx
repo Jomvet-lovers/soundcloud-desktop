@@ -1,4 +1,3 @@
-import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { AlbumHero } from '../components/album/AlbumHero';
 import { AlbumTrackList } from '../components/album/AlbumTrackList';
@@ -9,7 +8,6 @@ import { Loader2 } from '../lib/icons';
 
 export function AlbumPage() {
   const { id } = useParams<{ id: string }>();
-  const { t } = useTranslation();
 
   const album = useAlbumDetail(id);
   const data = album.data;
@@ -26,7 +24,7 @@ export function AlbumPage() {
   if (album.error || !data) {
     return (
       <div className="relative w-full min-h-screen flex items-center justify-center text-white/40 text-sm">
-        {t('common.error')}
+        {'Something went wrong'}
       </div>
     );
   }

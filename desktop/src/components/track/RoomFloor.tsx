@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 import { getCurrentTime, subscribe } from '../../lib/audio';
 import { durLong } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
@@ -23,7 +22,6 @@ export const RoomFloor = React.memo(function RoomFloor({
   aura: TrackAura;
   onSeek: (seconds: number) => void;
 }) {
-  const { t } = useTranslation();
   const elapsedRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -61,7 +59,7 @@ export const RoomFloor = React.memo(function RoomFloor({
             style={{
               width: `${previewTail * 100}%`,
             }}
-            title={t('track.previewOnly')}
+            title={'Preview only'}
           />
         )}
         <WaveVoices
@@ -73,9 +71,7 @@ export const RoomFloor = React.memo(function RoomFloor({
       </div>
       <div className="flex items-center justify-between mt-2.5 px-0.5 text-[11px] tabular-nums text-white/35">
         <span ref={elapsedRef}>0:00</span>
-        {previewTail > 0 && (
-          <span className="text-white/25 text-[9px]">{t('track.previewOnly')}</span>
-        )}
+        {previewTail > 0 && <span className="text-white/25 text-[9px]">{'Preview only'}</span>}
         <span>{durLong(track.duration)}</span>
       </div>
     </div>

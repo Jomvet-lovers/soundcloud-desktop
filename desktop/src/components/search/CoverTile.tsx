@@ -1,6 +1,5 @@
 import { Compass, Pause, Play, Sparkles } from 'lucide-react';
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import {
   hardStopHoverPreview,
@@ -23,7 +22,6 @@ interface CoverTileProps {
 }
 
 export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: CoverTileProps) {
-  const { t } = useTranslation();
   const { track, kind, matchedLine, hero } = item;
   const displayTitle = useDisplayTitle(track);
   const artistDisplay = useArtistDisplay(track);
@@ -159,7 +157,7 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
               }}
             >
               <Compass size={12} />
-              {t('search.dive')}
+              {'Similar'}
             </button>
           )}
         </div>

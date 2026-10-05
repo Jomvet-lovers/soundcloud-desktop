@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import type { Aura } from '../../lib/aura';
 import { dur } from '../../lib/formatters';
@@ -16,10 +15,17 @@ interface AlbumHeroProps {
 }
 
 const ROLE_LABEL_KEY: Record<string, string> = {
-  primary: 'album.primaryArtist',
-  featured: 'album.featured',
-  remixer: 'album.remixer',
-  producer: 'album.producer',
+  primary: 'Primary',
+  featured: 'Featured',
+  remixer: 'Remixer',
+  producer: 'Producer',
+};
+
+const KIND_LABEL: Record<string, string> = {
+  album: 'Album',
+  ep: 'EP',
+  single: 'Single',
+  compilation: 'Compilation',
 };
 
 const ArtistChip = memo(function ArtistChip({
@@ -34,8 +40,7 @@ const ArtistChip = memo(function ArtistChip({
   avatarUrl?: string;
 }) {
   const navigate = useNavigate();
-  const { t } = useTranslation();
-  const subLabel = ROLE_LABEL_KEY[role] ? t(ROLE_LABEL_KEY[role]) : role;
+  const subLabel = ROLE_LABEL_KEY[role] ?? role;
   return (
     <button
       type="button"
@@ -56,9 +61,8 @@ const ArtistChip = memo(function ArtistChip({
 });
 
 function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
-  const { t } = useTranslation();
   const kind = (album.type ?? 'album').toLowerCase();
-  const kindLabel = t(`artist.kind.${kind}`, { defaultValue: kind });
+  const kindLabel = KIND_LABEL[kind] ?? kind;
 
   const { totalDuration, indexedCount, featured } = useMemo(() => {
     let total = 0;
@@ -118,7 +122,8 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
             </span>
           )}
           <span className="inline-flex items-center gap-1.5">
-            <ListMusic size={11} /> {t('album.tracksCount', { count: album.tracks?.length ?? 0 })}
+            <ListMusic size={11} />{' '}
+            {`${album.tracks?.length ?? 0} ${(album.tracks?.length ?? 0) === 1 ? 'track' : 'tracks'}`}
           </span>
           {totalDuration > 0 && (
             <span className="inline-flex items-center gap-1.5">
@@ -126,12 +131,7 @@ function AlbumHeroImpl({ album, hasStar, aura }: AlbumHeroProps) {
             </span>
           )}
           {indexedCount < (album.tracks?.length ?? 0) && (
-            <span>
-              {t('album.availability', {
-                indexed: indexedCount,
-                total: album.tracks?.length ?? 0,
-              })}
-            </span>
+            <span>{`${indexedCount}/${album.tracks?.length ?? 0} available`}</span>
           )}
         </div>
 

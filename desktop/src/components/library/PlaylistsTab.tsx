@@ -1,12 +1,10 @@
 import React, { useEffect, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useInfiniteScroll, useMyLikedPlaylists, useMyPlaylists } from '../../lib/hooks';
 import { Loader2 } from '../../lib/icons';
 import { PlaylistCard } from '../music/PlaylistCard';
 import { VirtualGrid } from '../ui/VirtualGrid';
 
 export const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filter: string }) {
-  const { t } = useTranslation();
   const myPlaylistsQuery = useMyPlaylists();
   const likedPlaylistsQuery = useMyLikedPlaylists();
   const createdPlaylists = myPlaylistsQuery.playlists;
@@ -48,9 +46,7 @@ export const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filte
           </div>
         ) : filteredCreated.length > 0 ? (
           <section>
-            <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
-              {t('library.yourPlaylists')}
-            </h3>
+            <h3 className="text-lg font-bold text-white/80 mb-5 px-1">{'Your Playlists'}</h3>
             <VirtualGrid
               items={filteredCreated}
               itemHeight={250}
@@ -70,9 +66,7 @@ export const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filte
           </div>
         ) : filteredLiked.length > 0 ? (
           <section>
-            <h3 className="text-lg font-bold text-white/80 mb-5 px-1">
-              {t('library.likedPlaylists')}
-            </h3>
+            <h3 className="text-lg font-bold text-white/80 mb-5 px-1">{'Liked Playlists'}</h3>
             <VirtualGrid
               items={filteredLiked}
               itemHeight={250}
@@ -91,7 +85,7 @@ export const PlaylistsTab = React.memo(function PlaylistsTab({ filter }: { filte
           filteredCreated.length === 0 &&
           filteredLiked.length === 0 && (
             <div className="py-20 text-center text-white/20">
-              {filter ? t('library.noMatches') : t('library.noPlaylists')}
+              {filter ? 'No matches' : 'No playlists found'}
             </div>
           )}
       </div>

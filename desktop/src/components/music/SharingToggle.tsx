@@ -1,6 +1,5 @@
 import { Globe, Loader2, Lock } from 'lucide-react';
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 
 import { useSetPlaylistSharing, useSetTrackSharing } from '../../lib/hooks';
 
@@ -14,13 +13,12 @@ type Props = {
  *  Икон-кнопка в стиле utility-rail. Оба хука зовём безусловно (rules-of-hooks),
  *  «лишний» с undefined-urn просто не триггерится. */
 export const SharingToggle = React.memo(function SharingToggle({ kind, urn, sharing }: Props) {
-  const { t } = useTranslation();
   const trackMut = useSetTrackSharing(kind === 'track' ? urn : undefined);
   const playlistMut = useSetPlaylistSharing(kind === 'playlist' ? urn : undefined);
   const mut = kind === 'track' ? trackMut : playlistMut;
 
   const isPrivate = sharing === 'private';
-  const label = isPrivate ? t('sharing.makePublic') : t('sharing.makePrivate');
+  const label = isPrivate ? 'Make public' : 'Make private';
 
   return (
     <button

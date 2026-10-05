@@ -1,5 +1,4 @@
 import { memo, type ReactNode } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { fc } from '../../lib/formatters';
 import { ChevronRight } from '../../lib/icons';
@@ -22,7 +21,6 @@ export const CollectionRail = memo(function CollectionRail({
   to,
   children,
 }: CollectionRailProps) {
-  const { t } = useTranslation();
   return (
     <section>
       <div className="flex items-center gap-2.5 mb-3 px-1">
@@ -35,7 +33,7 @@ export const CollectionRail = memo(function CollectionRail({
           to={to}
           className="ml-auto flex items-center gap-0.5 text-[12px] font-semibold text-white/45 hover:text-white/90 transition-colors"
         >
-          {t('library.seeAll')}
+          {'See all'}
           <ChevronRight size={14} />
         </Link>
       </div>

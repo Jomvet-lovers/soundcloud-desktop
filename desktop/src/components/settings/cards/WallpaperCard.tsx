@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
   downloadWallpaper,
@@ -13,7 +12,6 @@ import { useSettingsStore } from '../../../stores/settings';
 import { Card, RangeSlider } from '../primitives';
 
 export function WallpaperCard() {
-  const { t } = useTranslation();
   const backgroundImage = useSettingsStore((s) => s.backgroundImage);
   const setBackgroundImage = useSettingsStore((s) => s.setBackgroundImage);
   const backgroundOpacity = useSettingsStore((s) => s.backgroundOpacity);
@@ -46,13 +44,13 @@ export function WallpaperCard() {
         const name = await saveWallpaperFromBuffer(buffer, file.name);
         setWallpapers((prev) => [...prev, name]);
         setBackgroundImage(name);
-        toast.success(t('settings.wallpaperAdded'));
+        toast.success('Wallpaper added');
       } catch {
-        toast.error(t('common.error'));
+        toast.error('Something went wrong');
       }
       e.target.value = '';
     },
-    [setBackgroundImage, t],
+    [setBackgroundImage],
   );
 
   const handleDownloadUrl = useCallback(async () => {
@@ -65,13 +63,13 @@ export function WallpaperCard() {
       setBackgroundImage(name);
       setUrlInput('');
       setShowUrlInput(false);
-      toast.success(t('settings.wallpaperAdded'));
+      toast.success('Wallpaper added');
     } catch {
-      toast.error(t('settings.bgLoadError'));
+      toast.error('Failed to load image');
     } finally {
       setDownloading(false);
     }
-  }, [urlInput, setBackgroundImage, t]);
+  }, [urlInput, setBackgroundImage]);
 
   const handleRemove = useCallback(
     async (name: string) => {
@@ -83,7 +81,7 @@ export function WallpaperCard() {
   );
 
   return (
-    <Card title={t('settings.backgroundImage')}>
+    <Card title={'Background image'}>
       <div className="space-y-5">
         <div className="flex flex-wrap gap-3">
           <button
@@ -95,7 +93,7 @@ export function WallpaperCard() {
                 : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]'
             }`}
           >
-            <span className="text-[10px] text-white/40 font-semibold">{t('settings.none')}</span>
+            <span className="text-[10px] text-white/40 font-semibold">{'None'}</span>
           </button>
 
           {wallpapers.map((name) => {
@@ -150,7 +148,7 @@ export function WallpaperCard() {
             className="w-20 h-14 rounded-xl border-2 border-dashed border-white/[0.1] hover:border-white/[0.2] transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 hover:bg-white/[0.02]"
           >
             <span className="text-[14px] text-white/30 font-light leading-none">+</span>
-            <span className="text-[9px] text-white/25 font-medium">{t('settings.addFile')}</span>
+            <span className="text-[9px] text-white/25 font-medium">{'File'}</span>
           </button>
           <input
             ref={fileInputRef}
@@ -182,7 +180,7 @@ export function WallpaperCard() {
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleDownloadUrl()}
-              placeholder={t('settings.bgUrlPlaceholder')}
+              placeholder={'Paste image URL...'}
               className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[13px] text-white/80 placeholder:text-white/20 focus:border-white/[0.12] focus:bg-white/[0.06] transition-all duration-200 outline-none"
             />
             <button
@@ -191,11 +189,7 @@ export function WallpaperCard() {
               disabled={downloading || !urlInput.trim()}
               className="px-4 py-2.5 rounded-xl text-[12px] font-semibold bg-white/[0.08] text-white/70 hover:bg-white/[0.12] border border-white/[0.06] transition-all disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
             >
-              {downloading ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                t('settings.download')
-              )}
+              {downloading ? <Loader2 size={14} className="animate-spin" /> : 'Download'}
             </button>
           </div>
         )}
@@ -205,7 +199,7 @@ export function WallpaperCard() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-[13px] text-white/50 font-medium">
-                  {t('settings.bgDim')}
+                  {'Background darkening'}
                 </label>
                 <span className="text-[12px] text-white/30 tabular-nums">
                   {Math.round(backgroundDim * 100)}%
@@ -221,9 +215,7 @@ export function WallpaperCard() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[13px] text-white/50 font-medium">
-                  {t('settings.bgOpacity')}
-                </label>
+                <label className="text-[13px] text-white/50 font-medium">{'Edge darkening'}</label>
                 <span className="text-[12px] text-white/30 tabular-nums">
                   {Math.round(backgroundOpacity * 100)}%
                 </span>
@@ -238,9 +230,7 @@ export function WallpaperCard() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[13px] text-white/50 font-medium">
-                  {t('settings.bgBlur')}
-                </label>
+                <label className="text-[13px] text-white/50 font-medium">{'Background blur'}</label>
                 <span className="text-[12px] text-white/30 tabular-nums">{backgroundBlur}px</span>
               </div>
               <RangeSlider

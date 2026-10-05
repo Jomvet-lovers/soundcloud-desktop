@@ -1,5 +1,4 @@
 import { useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Sparkles } from '../../../lib/icons';
 import { THEME_PRESETS, useSettingsStore } from '../../../stores/settings';
 import { Card } from '../primitives';
@@ -19,8 +18,16 @@ const PRESET_COLORS = [
   '#8b5cf6',
 ];
 
+const THEME_LABEL: Record<string, string> = {
+  soundcloud: 'SoundCloud',
+  dark: 'Dark',
+  neon: 'Neon',
+  forest: 'Forest',
+  crimson: 'Crimson',
+  custom: 'Custom',
+};
+
 export function ThemeCard() {
-  const { t } = useTranslation();
   const accentColor = useSettingsStore((s) => s.accentColor);
   const themePreset = useSettingsStore((s) => s.themePreset);
   const setAccentColor = useSettingsStore((s) => s.setAccentColor);
@@ -30,7 +37,7 @@ export function ThemeCard() {
 
   return (
     <Card
-      title={t('settings.appearance')}
+      title={'Appearance'}
       icon={<Sparkles size={17} />}
       action={
         <button
@@ -38,15 +45,13 @@ export function ThemeCard() {
           onClick={resetTheme}
           className="text-[12px] text-white/30 hover:text-white/60 transition-colors cursor-pointer"
         >
-          {t('settings.resetDefaults')}
+          {'Reset to defaults'}
         </button>
       }
     >
       <div className="space-y-6">
         <div className="space-y-3">
-          <label className="text-[13px] text-white/50 font-medium">
-            {t('settings.themePreset')}
-          </label>
+          <label className="text-[13px] text-white/50 font-medium">{'Theme'}</label>
           <div className="grid grid-cols-3 gap-3">
             {THEME_PRESET_KEYS.map((id) => {
               const def = THEME_PRESETS[id];
@@ -79,7 +84,7 @@ export function ThemeCard() {
                     <span
                       className={`text-[12px] font-medium ${isActive ? 'text-white/90' : 'text-white/50'}`}
                     >
-                      {t(`settings.theme_${id}`)}
+                      {THEME_LABEL[id] ?? id}
                     </span>
                   </div>
                 </button>
@@ -106,7 +111,7 @@ export function ThemeCard() {
                 <span
                   className={`text-[12px] font-medium ${themePreset === 'custom' ? 'text-white/90' : 'text-white/40'}`}
                 >
-                  {t('settings.themeCustom')}
+                  {'Custom'}
                 </span>
               </div>
             </button>
@@ -115,9 +120,7 @@ export function ThemeCard() {
 
         {themePreset === 'custom' && (
           <div className="space-y-3">
-            <label className="text-[13px] text-white/50 font-medium">
-              {t('settings.accentColor')}
-            </label>
+            <label className="text-[13px] text-white/50 font-medium">{'Accent color'}</label>
             <div className="flex items-center gap-2 flex-wrap">
               {PRESET_COLORS.map((color) => (
                 <button

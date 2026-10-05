@@ -1,7 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import { art, dur, fc } from '../../lib/formatters';
 import {
@@ -124,7 +123,6 @@ export const SortableSequenceRow = React.memo(
     onRemove: (urn: string) => void;
     onPlay?: () => void;
   }) {
-    const { t } = useTranslation();
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue, onPlay);
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
       id: track.urn,
@@ -165,7 +163,7 @@ export const SortableSequenceRow = React.memo(
           type="button"
           onClick={() => onRemove(track.urn)}
           className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 shrink-0"
-          title={t('playlist.removeTrack')}
+          title={'Remove from playlist'}
         >
           <Trash2 size={13} />
         </button>

@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgb } from '../../lib/aura';
 import { Globe, Users } from '../../lib/icons';
@@ -12,12 +11,11 @@ interface ArtistRelatedTabProps {
 }
 
 function ArtistRelatedTabImpl({ related, aura }: ArtistRelatedTabProps) {
-  const { t } = useTranslation();
   if (related.length === 0) {
     return (
       <div className="py-24 flex flex-col items-center gap-4">
         <Users size={24} className="text-white/15" />
-        <p className="text-white/30 text-sm">{t('artist.noRelated')}</p>
+        <p className="text-white/30 text-sm">{'No related artists yet'}</p>
       </div>
     );
   }
@@ -35,7 +33,6 @@ function ArtistRelatedTabImpl({ related, aura }: ArtistRelatedTabProps) {
 
 const RelatedCard = memo(
   ({ item, aura, maxWeight }: { item: RelatedArtist; aura: Aura; maxWeight: number }) => {
-    const { t } = useTranslation();
     const navigate = useNavigate();
     const pct = Math.max(0.08, Math.min(1, item.weight / maxWeight));
     return (
@@ -65,7 +62,7 @@ const RelatedCard = memo(
           />
         </div>
         <span className="text-[9px] font-medium text-white/30">
-          {t('artist.affinity')} {(pct * 100).toFixed(0)}%
+          {'Affinity'} {(pct * 100).toFixed(0)}%
         </span>
       </button>
     );

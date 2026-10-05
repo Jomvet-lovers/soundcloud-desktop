@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
@@ -77,7 +76,6 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
   onQueueToggle: () => void;
   queueOpen: boolean;
 }) {
-  const { t } = useTranslation();
   const {
     currentTrack,
     isPlaying,
@@ -110,11 +108,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
   const { time, duration } = useAudioClock();
   const artwork = art(currentTrack?.artwork_url, 't200x200');
   const repeatTitle =
-    repeat === 'off'
-      ? t('player.repeatOff')
-      : repeat === 'one'
-        ? t('player.repeatOne')
-        : t('player.repeatAll');
+    repeat === 'off' ? 'Repeat off' : repeat === 'one' ? 'Repeat one' : 'Repeat all';
 
   return (
     <footer className="flex h-[72px] flex-none items-center gap-4 border-t border-white/[0.08] bg-[#0b0b0e] px-4">
@@ -129,7 +123,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             <LikeButton track={currentTrack} />
           </>
         ) : (
-          <p className="text-[12px] text-white/35">{t('player.notPlaying')}</p>
+          <p className="text-[12px] text-white/35">{'Not playing'}</p>
         )}
       </div>
 
@@ -140,7 +134,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             type="button"
             className={shuffle ? iconBtnOn : iconBtnIdle}
             onClick={toggleShuffle}
-            title={t('player.shuffle')}
+            title={'Shuffle'}
           >
             {shuffleIcon16}
           </button>
@@ -148,7 +142,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             type="button"
             className={iconBtnIdle}
             onClick={handlePrev}
-            title={t('player.prevTrack')}
+            title={'Previous track'}
           >
             {skipBack20}
           </button>
@@ -157,7 +151,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             disabled={!currentTrack}
             onClick={() => (isPlaying ? pause() : resume())}
             className="flex size-9 items-center justify-center rounded-full bg-white text-black transition-transform hover:scale-105 disabled:opacity-30"
-            title={isPlaying ? t('player.pause') : t('player.play')}
+            title={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? pauseBlack20 : playBlack20}
           </button>
@@ -166,7 +160,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             disabled={!currentTrack}
             className={iconBtnIdle}
             onClick={next}
-            title={t('player.nextTrack')}
+            title={'Next track'}
           >
             {skipForward20}
           </button>
@@ -205,7 +199,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
       <div className="flex flex-1 items-center justify-end gap-2">
         <SoundTuningPopover />
         <EqualizerPanel>
-          <button type="button" className={iconBtnIdle} title={t('eq.title')}>
+          <button type="button" className={iconBtnIdle} title={'Equalizer'}>
             {slidersHorizontal16}
           </button>
         </EqualizerPanel>
@@ -213,7 +207,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           type="button"
           className={queueOpen ? iconBtnOn : iconBtnIdle}
           onClick={onQueueToggle}
-          title={t('player.queue')}
+          title={'Queue'}
         >
           {listMusic16}
         </button>
@@ -221,7 +215,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           type="button"
           className={iconBtnIdle}
           onClick={() => setVolume(volume > 0 ? 0 : volumeBeforeMute)}
-          title={t('player.mute')}
+          title={'Mute / Unmute'}
         >
           {volume === 0 ? volumeXIcon16 : volume < 50 ? volume1Icon16 : volume2Icon16}
         </button>

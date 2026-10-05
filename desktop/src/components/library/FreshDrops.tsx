@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import { ago, art } from '../../lib/formatters';
 import {
@@ -25,7 +24,6 @@ function whenLabel(track: Track): string {
 /** The newest drop, given the spotlight: big cover glowing in its own genre,
  *  a NEW badge and how long ago it landed. */
 const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queue: Track[] }) {
-  const { t } = useTranslation();
   const aura = useTrackAura(track.genre);
   const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't500x500');
@@ -74,7 +72,7 @@ const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queu
             className="text-[10px] font-medium px-2 py-0.5 rounded-full"
             style={{ color: aura.accent, background: aura.accentSoft }}
           >
-            {t('library.freshNew')}
+            {'New'}
           </span>
           {when && <span className="text-[11px] text-white/40 tabular-nums">{when}</span>}
         </div>
@@ -143,7 +141,6 @@ const FreshDropRow = memo(function FreshDropRow({
 /** "Fresh from who you follow" — the reason to come back. New uploads from the
  *  artists you actually chose, newest first, the latest one in the spotlight. */
 export const FreshDrops = memo(function FreshDrops({ genre }: { genre?: string | null }) {
-  const { t } = useTranslation();
   const { tracks: allTracks, isLoading, isFetching, hasFollowings, refetch } = useFollowingDrops();
   const tracks = useMemo(
     () => (genre ? allTracks.filter((tr) => tr.genre?.trim() === genre) : allTracks),
@@ -159,13 +156,13 @@ export const FreshDrops = memo(function FreshDrops({ genre }: { genre?: string |
           <Sparkles size={16} />
         </span>
         <h2 className="text-[16px] font-bold tracking-tight text-white/90">
-          {t('library.freshFromFollowing')}
+          {'Fresh from who you follow'}
         </h2>
         <button
           type="button"
           onClick={refetch}
           disabled={isFetching}
-          title={t('soundwave.refresh')}
+          title={'Refresh'}
           className="ml-1 w-7 h-7 rounded-full flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40"
         >
           <RefreshCw size={13} className={isFetching ? 'animate-spin' : ''} />
@@ -182,7 +179,9 @@ export const FreshDrops = memo(function FreshDrops({ genre }: { genre?: string |
             <AudioLines size={24} />
           </span>
           <p className="text-white/40 text-sm max-w-[300px]">
-            {hasFollowings ? t('library.freshQuiet') : t('library.freshEmpty')}
+            {hasFollowings
+              ? 'No recent releases from who you follow — check back later'
+              : 'Follow some artists — their new releases will land here'}
           </p>
         </div>
       ) : (

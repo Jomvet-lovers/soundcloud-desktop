@@ -1,5 +1,4 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { art, dateFormatted, durLong } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
@@ -7,16 +6,18 @@ import { Calendar, Clock, Library, ListMusic } from '../../lib/icons';
 import { Avatar } from '../ui/Avatar';
 import { PlaylistActions } from './PlaylistActions';
 
-function kindLabelKey(kind: string | undefined): { ns: string; defaultValue: string } {
+function kindLabel(kind: string | undefined): string {
   switch (kind) {
     case 'compilation':
-      return { ns: 'playlist.kind.collection', defaultValue: 'Collection' };
+      return 'Collection';
     case 'album':
+      return 'Album';
     case 'ep':
+      return 'EP';
     case 'single':
-      return { ns: `artist.kind.${kind}`, defaultValue: kind };
+      return 'Single';
     default:
-      return { ns: 'playlist.kind.set', defaultValue: 'Set' };
+      return 'Set';
   }
 }
 
@@ -40,9 +41,8 @@ export const PlaylistHero = React.memo(function PlaylistHero({
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
-  const kl = kindLabelKey(playlist.kind);
+  const kl = kindLabel(playlist.kind);
   const cover = art(playlist.artwork_url, 't500x500');
   const curator = playlist.user;
 
@@ -86,16 +86,14 @@ export const PlaylistHero = React.memo(function PlaylistHero({
               <span className="text-[12px] font-semibold text-white/90 group-hover:text-white">
                 {curator.username}
               </span>
-              <span className="text-[10px] font-medium text-white/35">
-                {t('playlist.curatedBy')}
-              </span>
+              <span className="text-[10px] font-medium text-white/35">{'Curated by'}</span>
             </span>
           </button>
         )}
 
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-white/45 md:justify-start">
           <span className="inline-flex items-center gap-1.5">
-            <Library size={11} /> {t(kl.ns, { defaultValue: kl.defaultValue })}
+            <Library size={11} /> {kl}
           </span>
           {playlist.duration > 0 && (
             <span className="inline-flex items-center gap-1.5">
@@ -104,8 +102,7 @@ export const PlaylistHero = React.memo(function PlaylistHero({
           )}
           {playlist.last_modified && (
             <span className="inline-flex items-center gap-1.5">
-              <Calendar size={11} />{' '}
-              {t('playlist.lastEdited', { date: dateFormatted(playlist.last_modified) })}
+              <Calendar size={11} /> {`Updated ${dateFormatted(playlist.last_modified)}`}
             </span>
           )}
           {playlist.label_name && <span>{playlist.label_name}</span>}

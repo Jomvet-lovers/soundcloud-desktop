@@ -19,7 +19,7 @@ export type SettingsCategoryId =
 
 export interface SettingsCategory {
   id: SettingsCategoryId;
-  labelKey: string;
+  label: string;
   icon: ReactNode;
   Body: () => ReactNode;
 }
@@ -28,7 +28,7 @@ export interface SettingsCategory {
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   {
     id: 'general',
-    labelKey: 'settings.catGeneral',
+    label: 'General',
     icon: <Globe size={17} />,
     Body: () => (
       <>
@@ -38,7 +38,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   },
   {
     id: 'appearance',
-    labelKey: 'settings.catAppearance',
+    label: 'Appearance',
     icon: <Eye size={17} />,
     Body: () => (
       <>
@@ -49,7 +49,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   },
   {
     id: 'audio',
-    labelKey: 'settings.catAudio',
+    label: 'Audio',
     icon: <Headphones size={17} />,
     Body: () => (
       <>
@@ -60,7 +60,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   },
   {
     id: 'integrations',
-    labelKey: 'settings.catIntegrations',
+    label: 'Integrations',
     icon: <Link size={17} />,
     Body: () => (
       <>
@@ -70,7 +70,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   },
   {
     id: 'storage',
-    labelKey: 'settings.catStorage',
+    label: 'Storage',
     icon: <Database size={17} />,
     Body: () => (
       <>
@@ -80,7 +80,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   },
   {
     id: 'account',
-    labelKey: 'settings.catAccount',
+    label: 'Account',
     icon: <User size={17} />,
     Body: () => <AccountCard />,
   },

@@ -1,6 +1,5 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { proxiedAssetUrl } from '../lib/asset-url';
 import { APP_VERSION } from '../lib/constants';
 import { AlertCircle, ExternalLink, Sparkles, X } from '../lib/icons';
@@ -158,7 +157,6 @@ export function UpdateChecker({
   release: GithubRelease;
   onDismiss: () => void;
 }) {
-  const { t } = useTranslation();
   const renderedNotes = useMemo(() => renderReleaseBody(release.body), [release.body]);
 
   if (!release) return null;
@@ -173,7 +171,7 @@ export function UpdateChecker({
               <Sparkles size={16} className="text-accent" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold">{t('update.available')}</h2>
+              <h2 className="text-sm font-semibold">{'Update available'}</h2>
               <p className="text-[11px] text-white/30 mt-0.5">
                 {stripLeadingV(APP_VERSION)} → {stripLeadingV(release.tag_name)}
               </p>
@@ -209,14 +207,14 @@ export function UpdateChecker({
             onClick={onDismiss}
             className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
           >
-            {t('update.later')}
+            {'Later'}
           </button>
           <button
             type="button"
             onClick={() => openUrl(release.html_url)}
             className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
           >
-            {t('update.download')}
+            {'Download'}
             <ExternalLink size={13} />
           </button>
         </div>

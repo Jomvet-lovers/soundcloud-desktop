@@ -1,6 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
-import i18n from '../i18n';
 import type { Track } from '../stores/player';
 import { usePlayerStore } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
@@ -415,7 +414,7 @@ async function loadTrack(track: Track) {
     usePlayerStore.getState().setPlaybackTransport(null, null);
     if (gen !== loadGen) return;
     const errorText = getLoadErrorText(e);
-    toast.error(i18n.t('track.loadError'), {
+    toast.error('Failed to load track', {
       description: errorText ? `${track.title}: ${errorText}` : track.title,
     });
     usePlayerStore.getState().pause();

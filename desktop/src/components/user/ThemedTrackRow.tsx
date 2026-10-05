@@ -1,6 +1,5 @@
 import { Lock } from 'lucide-react';
 import React from 'react';
-import { useTranslation } from 'react-i18next';
 import { preloadTrack } from '../../lib/audio';
 import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 import { art, dur, fc } from '../../lib/formatters';
@@ -21,7 +20,6 @@ interface ThemedTrackRowProps {
 }
 
 function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) {
-  const { t } = useTranslation();
   const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't200x200');
   const lightAura = isLight(aura);
@@ -77,8 +75,8 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
         )}
         {track.sharing === 'private' && (
           <div
-            title={t('sharing.private')}
-            aria-label={t('sharing.private')}
+            title={'Private'}
+            aria-label={'Private'}
             className="absolute top-0.5 left-0.5 flex items-center justify-center w-4 h-4 rounded-full bg-black/65 text-amber-300/90"
           >
             <Lock size={9} />

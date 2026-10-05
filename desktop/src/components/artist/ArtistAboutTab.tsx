@@ -1,5 +1,4 @@
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { type Aura, auraRgba } from '../../lib/aura';
 import { Check, Globe, MicVocal } from '../../lib/icons';
@@ -12,29 +11,28 @@ interface ArtistAboutTabProps {
 }
 
 function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   return (
     <div className="grid lg:grid-cols-3 gap-6 py-2">
       {/* Bio */}
       <section className="lg:col-span-2 flex flex-col gap-4">
         <h3 className="text-[10px] font-medium text-white/40 flex items-center gap-2">
-          <MicVocal size={11} /> {t('artist.aboutTitle')}
+          <MicVocal size={11} /> {'About'}
         </h3>
         {artist.bio ? (
           <p className="text-[15px] text-white/75 leading-relaxed whitespace-pre-line selectable">
             {artist.bio}
           </p>
         ) : (
-          <p className="text-[13px] text-white/30 italic">{t('artist.noBio')}</p>
+          <p className="text-[13px] text-white/30 italic">{'No bio yet'}</p>
         )}
         <div className="flex flex-wrap gap-x-5 gap-y-2">
           {artist.country && (
-            <Stat icon={<Globe size={12} />} label={t('artist.country')} value={artist.country} />
+            <Stat icon={<Globe size={12} />} label={'Country'} value={artist.country} />
           )}
           <Stat
             icon={<Check size={12} className="text-emerald-400" />}
-            label={t('artist.confidence')}
+            label={'Confidence'}
             value={`${(artist.confidence * 100).toFixed(0)}%`}
           />
         </div>
@@ -46,7 +44,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
           <div className="flex flex-col gap-3">
             <h3 className="text-[10px] font-medium text-orange-300/80 flex items-center gap-2">
               <SocialIcon kind="soundcloud" size={11} />
-              {t('artist.scAccounts')}
+              {'SoundCloud accounts'}
             </h3>
             <div className="flex flex-col gap-2">
               {artist.sc_accounts.map((acc) => (
@@ -63,11 +61,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-semibold text-white/85 truncate transition-colors group-hover:text-white">
-                      {acc.role === 'main'
-                        ? t('artist.mainAccount')
-                        : acc.role === 'demo'
-                          ? t('artist.demoAccount')
-                          : acc.role}
+                      {acc.role === 'main' ? 'Main' : acc.role === 'demo' ? 'Demo' : acc.role}
                     </p>
                     <p className="text-[10px] text-white/35 tabular-nums truncate">
                       ID {acc.sc_user_id}
@@ -82,7 +76,7 @@ function ArtistAboutTabImpl({ artist, aura }: ArtistAboutTabProps) {
 
         {artist.socials.length > 0 && (
           <div className="flex flex-col gap-3">
-            <h3 className="text-[10px] font-medium text-white/40">{t('artist.links')}</h3>
+            <h3 className="text-[10px] font-medium text-white/40">{'Links'}</h3>
             <div className="flex flex-col gap-1">
               {artist.socials.map((s) => (
                 <a

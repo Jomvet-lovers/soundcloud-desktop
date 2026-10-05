@@ -3,7 +3,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { changeAppLanguage } from './i18n';
 import { initAuthBridge } from './lib/auth-session';
 import { setupCacheMaintenance } from './lib/cache';
 import { setApiBase, setServerPorts } from './lib/constants';
@@ -32,13 +31,6 @@ installFpsCap(60);
 // Replace WebView-native `title` bubbles with one delegated custom tooltip
 // node (lib/tooltip.ts) — zero per-element listeners, no re-renders.
 initTooltips();
-
-// Sync language from persisted settings → i18n after tauriStorage rehydration
-useSettingsStore.persist.onFinishHydration((state) => {
-  if (state.language) {
-    void changeAppLanguage(state.language);
-  }
-});
 
 if (import.meta.env.DEV) {
   const script = document.createElement('script');
@@ -86,9 +78,6 @@ async function fixWebviewScale() {
 async function bootstrap() {
   await fixWebviewScale();
   await useSettingsStore.persist.rehydrate();
-
-  const settings = useSettingsStore.getState();
-  await changeAppLanguage(settings.language);
 
   const [staticPort, proxyPort, apiPort] =
     await invoke<[number, number, number]>('get_server_ports');

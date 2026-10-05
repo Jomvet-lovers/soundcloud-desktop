@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { TrackCard } from '../components/music/TrackCard';
 import { api } from '../lib/api';
@@ -102,7 +101,6 @@ function dedupeItems(items: MixedSelectionItem[]): MixedSelectionItem[] {
 
 /** Search — tabs over SoundCloud, with Discover selections when the query is empty. */
 export function Search() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const q = useSearchQueryStore((s) => s.q);
   const [debounced, setDebounced] = useState(q);
@@ -128,16 +126,16 @@ export function Search() {
   const tabs = useMemo(
     () =>
       [
-        { id: 'tracks' as const, label: t('search.tracks'), count: tracks.tracks.length },
-        { id: 'users' as const, label: t('search.users'), count: users.users.length },
+        { id: 'tracks' as const, label: 'Tracks', count: tracks.tracks.length },
+        { id: 'users' as const, label: 'Users', count: users.users.length },
         {
           id: 'playlists' as const,
-          label: t('search.playlists'),
+          label: 'Playlists',
           count: playlists.playlists.length,
         },
-        { id: 'albums' as const, label: t('search.albums'), count: albums.albums.length },
+        { id: 'albums' as const, label: 'Albums', count: albums.albums.length },
       ] as const,
-    [t, tracks.tracks.length, users.users.length, playlists.playlists.length, albums.albums.length],
+    [tracks.tracks.length, users.users.length, playlists.playlists.length, albums.albums.length],
   );
 
   const startDiscoverItem = async (item: MixedSelectionItem) => {
@@ -214,16 +212,14 @@ export function Search() {
 
   return (
     <div className="px-5 py-6 md:px-8">
-      <h1 className="text-[24px] font-semibold tracking-tight text-white/92">
-        {t('search.caption')}
-      </h1>
+      <h1 className="text-[24px] font-semibold tracking-tight text-white/92">{'Discover'}</h1>
 
       {!query ? (
         <div className="mt-6 flex flex-col gap-8">
           {mixed.isLoading ? (
-            <p className="text-[13px] text-white/35">{t('common.loading')}</p>
+            <p className="text-[13px] text-white/35">{'Loading...'}</p>
           ) : selections.length === 0 ? (
-            <p className="text-[13px] text-white/35">{t('search.firstTimeTitle')}</p>
+            <p className="text-[13px] text-white/35">{'Start exploring'}</p>
           ) : (
             selections.map((sel) => {
               const items = dedupeItems(sel.items?.collection ?? []);
@@ -278,10 +274,10 @@ export function Search() {
             {tab === 'tracks' && (
               <div className="ml-auto flex items-center gap-0.5">
                 {[
-                  { id: 'relevance' as const, label: t('search.sort_relevance') },
-                  { id: 'plays' as const, label: t('search.sort_plays') },
-                  { id: 'newest' as const, label: t('search.sort_newest') },
-                  { id: 'likes' as const, label: t('search.sort_likes') },
+                  { id: 'relevance' as const, label: 'Relevance' },
+                  { id: 'plays' as const, label: 'Plays' },
+                  { id: 'newest' as const, label: 'Newest' },
+                  { id: 'likes' as const, label: 'Likes' },
                 ].map((opt) => {
                   const on = sort === opt.id;
                   return (
@@ -309,7 +305,7 @@ export function Search() {
 
           <div key={tab} className="mt-5 animate-soft-in">
             {empty ? (
-              <p className="text-[13px] text-white/35">{t('search.noResults')}</p>
+              <p className="text-[13px] text-white/35">{'No results found'}</p>
             ) : tab === 'tracks' ? (
               <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
                 {tracks.tracks.map((track) => (

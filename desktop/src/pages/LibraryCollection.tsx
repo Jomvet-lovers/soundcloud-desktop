@@ -1,5 +1,4 @@
 import React, { useDeferredValue, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { Navigate, useParams } from 'react-router-dom';
 import { FollowingTab } from '../components/library/FollowingTab';
 import { HistoryTab } from '../components/library/HistoryTab';
@@ -16,16 +15,15 @@ type Section = 'likes' | 'playlists' | 'following' | 'history';
 const SECTIONS: Section[] = ['likes', 'playlists', 'following', 'history'];
 
 const TITLE_KEY: Record<Section, string> = {
-  likes: 'library.likedTracks',
-  playlists: 'search.playlists',
-  following: 'nav.following',
-  history: 'library.history',
+  likes: 'Liked Tracks',
+  playlists: 'Playlists',
+  following: 'Following',
+  history: 'History',
 };
 
 /** A deep collection page (/library/:section) — the full, filterable, virtualized
  *  view that the hub's rails link into. */
 export const LibraryCollection = React.memo(() => {
-  const { t } = useTranslation();
   const { section } = useParams<{ section: string }>();
   const user = useAuthStore((s) => s.user);
   const { tracks: likedTracks } = useLikedTracks();
@@ -51,7 +49,7 @@ export const LibraryCollection = React.memo(() => {
   return (
     <LibraryFrame sound={sound}>
       <LibrarySubHeader
-        title={t(TITLE_KEY[sec])}
+        title={TITLE_KEY[sec]}
         aura={sound.aura}
         count={count}
         filter={sec === 'history' ? undefined : filter}

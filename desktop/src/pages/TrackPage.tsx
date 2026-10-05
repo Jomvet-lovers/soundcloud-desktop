@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ROOM_KEYFRAMES } from '../components/track/keyframes';
 import { LinerNotes } from '../components/track/LinerNotes';
@@ -41,7 +40,6 @@ function HeroSkeleton() {
 
 export const TrackPage = React.memo(function TrackPage() {
   const { urn } = useParams<{ urn: string }>();
-  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const {
@@ -126,7 +124,7 @@ export const TrackPage = React.memo(function TrackPage() {
       <div className="relative min-h-full w-full flex items-center justify-center">
         <div className="relative z-10 flex flex-col items-center gap-4 text-center px-6">
           <Loader2 size={22} className="text-white/15" />
-          <p className="text-white/40 text-sm">{t('track.loadError')}</p>
+          <p className="text-white/40 text-sm">{'Failed to load track'}</p>
           <button
             type="button"
             onClick={() => navigate(-1)}
@@ -137,7 +135,7 @@ export const TrackPage = React.memo(function TrackPage() {
             }}
           >
             <ChevronLeft size={14} />
-            {t('search.back')}
+            {'Back'}
           </button>
         </div>
       </div>
@@ -159,11 +157,13 @@ export const TrackPage = React.memo(function TrackPage() {
             type="button"
             onClick={() => navigate(-1)}
             className="inline-flex items-center justify-center w-9 h-9 rounded-full text-white/55 hover:text-white hover:bg-white/[0.06] transition-all duration-200 cursor-pointer"
-            aria-label={t('search.back')}
+            aria-label={'Back'}
           >
             <ChevronLeft size={18} />
           </button>
-          {aura.hasGenre && <span className="text-[10px] text-white/20">{t('track.roomFor')}</span>}
+          {aura.hasGenre && (
+            <span className="text-[10px] text-white/20">{'A room tuned to this track'}</span>
+          )}
         </div>
 
         <RoomHero
