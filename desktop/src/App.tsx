@@ -1,5 +1,4 @@
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
@@ -45,9 +44,6 @@ const AlbumPage = lazy(() =>
 );
 const UpdateChecker = lazy(() =>
   import('./components/UpdateChecker').then((module) => ({ default: module.UpdateChecker })),
-);
-const NewsToast = lazy(() =>
-  import('./components/NewsToast').then((module) => ({ default: module.NewsToast })),
 );
 
 const STARTUP_PAGE_ROUTES: Record<StartupPage, string> = {
@@ -220,9 +216,6 @@ export default function App() {
                 <UpdateChecker release={availableRelease} onDismiss={handleUpdateDismiss} />
               </Suspense>
             )}
-            <Suspense fallback={null}>
-              <NewsToast />
-            </Suspense>
             <Routes>
               <Route element={<AppShell />}>
                 <Route index element={<StartPageRedirect />} />
@@ -332,8 +325,6 @@ function RouteLoader({ children }: { children: ReactNode }) {
 }
 
 function AppLoadingScreen({ fullscreen = false }: { fullscreen?: boolean }) {
-  const { t } = useTranslation();
-
   return (
     <div
       className={`flex items-center justify-center px-6 py-8 ${fullscreen ? 'h-screen' : 'min-h-[42vh]'}`}
@@ -345,7 +336,7 @@ function AppLoadingScreen({ fullscreen = false }: { fullscreen?: boolean }) {
         </div>
         <div className="min-w-0">
           <div className="text-[10px] font-semibold text-white/28">SoundCloud</div>
-          <div className="mt-0.5 text-[13px] font-medium text-white/62">{t('common.loading')}</div>
+          <div className="mt-0.5 text-[13px] font-medium text-white/62">{'Loading...'}</div>
         </div>
       </div>
     </div>
