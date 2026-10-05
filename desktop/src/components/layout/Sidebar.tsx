@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { art } from '../../lib/formatters';
 import {
@@ -70,6 +70,7 @@ function NavItem({
   collapsed,
   title,
   alert,
+  active,
 }: {
   to: string;
   icon: IconCmp;
@@ -77,21 +78,23 @@ function NavItem({
   collapsed: boolean;
   title?: string;
   alert?: boolean;
+  active?: boolean;
 }) {
   return (
     <NavLink
       to={to}
       title={title}
-      className={({ isActive }) =>
-        `${ROW} ${
-          isActive
+      className={({ isActive }) => {
+        const on = active ?? isActive;
+        return `${ROW} ${
+          on
             ? ''
             : alert
               ? 'text-white/85 bg-accent/[0.08] ring-1 ring-accent/20 hover:text-white'
               : 'text-white/45 hover:text-white/80 hover:bg-white/[0.05]'
-        }`
-      }
-      style={({ isActive }) => (isActive ? ACTIVE : undefined)}
+        }`;
+      }}
+      style={({ isActive }) => ((active ?? isActive) ? ACTIVE : undefined)}
     >
       <IconBox>
         <Icon size={18} strokeWidth={1.9} />
@@ -114,6 +117,10 @@ export const Sidebar = React.memo(() => {
     })),
   );
   const perf = usePerfMode();
+  const { pathname } = useLocation();
+  // The History deep page lives under /library but has its own Quick Access
+  // row — keep the Library row dim there so only one item reads as active.
+  const libraryActive = pathname.startsWith('/library') && !pathname.startsWith('/library/history');
 
   const btnCls = `${ROW} text-white/45 hover:text-white/80 hover:bg-white/[0.05] cursor-pointer`;
 
@@ -135,6 +142,7 @@ export const Sidebar = React.memo(() => {
             collapsed={collapsed}
             title={collapsed ? item.label : undefined}
             alert={item.to === '/offline' && appMode !== 'online'}
+            active={item.to === '/library' ? libraryActive : undefined}
           />
         ))}
       </nav>
@@ -159,7 +167,7 @@ export const Sidebar = React.memo(() => {
         </div>
 
         <NavItem
-          to="/library?tab=history"
+          to="/library/history"
           icon={Clock}
           label={'History'}
           collapsed={collapsed}
