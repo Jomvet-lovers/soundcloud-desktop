@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use serde_json::{json, Value};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use warp::http::{HeaderMap, Method, StatusCode};
 use warp::reply::{Reply, Response};
 use warp::{path::FullPath, Filter};
@@ -136,6 +136,129 @@ fn normalize_urn(mut item: Value) -> Value {
 
 fn urn_of(v: &Value) -> Option<String> {
     v.get("urn").and_then(Value::as_str).map(str::to_string)
+}
+
+/// SC comments carry the URN under `self.urn`; mirror it to a top-level `urn`
+/// so the frontend can key on either.
+fn normalize_comment(mut item: Value) -> Value {
+    if item.get("urn").is_none() {
+        let urn = item
+            .get("self")
+            .and_then(|s| s.get("urn"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                item.get("id")
+                    .and_then(Value::as_u64)
+                    .map(|id| format!("soundcloud:comments:{id}"))
+            });
+        if let (Some(urn), Some(obj)) = (urn, item.as_object_mut()) {
+            obj.insert("urn".into(), json!(urn));
+        }
+    }
+    item
+}
+
+/// A synced local comment must not be shown twice once SoundCloud returns it.
+fn local_comment_synced_elsewhere(local: &Value, sc_comments: &[Value]) -> bool {
+    if local.get("sync").and_then(Value::as_str) == Some("pending") {
+        return false;
+    }
+    if let Some(id) = local.get("id").and_then(Value::as_u64) {
+        if sc_comments
+            .iter()
+            .any(|c| c.get("id").and_then(Value::as_u64) == Some(id))
+        {
+            return true;
+        }
+    }
+    let body = local.get("body").and_then(Value::as_str).unwrap_or_default();
+    if body.is_empty() {
+        return false;
+    }
+    let ts = local.get("timestamp").and_then(Value::as_u64);
+    sc_comments.iter().any(|c| {
+        c.get("body").and_then(Value::as_str) == Some(body)
+            && c.get("timestamp").and_then(Value::as_u64) == ts
+    })
+}
+
+/// Legacy local comments were saved with `user: null`; give them a renderable
+/// placeholder so the list never crashes.
+fn local_comment_user_placeholder() -> Value {
+    json!({
+        "id": 0,
+        "urn": "local:users:me",
+        "username": "You",
+        "avatar_url": Value::Null,
+        "permalink_url": Value::Null,
+    })
+}
+
+/// Pull the SoundCloud comment id out of a writer response. The writer channel
+/// truncates payloads, so fall back to a regex when the JSON is cut off.
+fn parse_sc_comment_id(payload: &str) -> Option<u64> {
+    if let Ok(v) = serde_json::from_str::<Value>(payload) {
+        if let Some(id) = v.get("id").and_then(Value::as_u64) {
+            return Some(id);
+        }
+    }
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r#""id"\s*:\s*(\d+)"#).unwrap());
+    re.captures(payload)?.get(1)?.as_str().parse().ok()
+}
+
+/// Best-effort SoundCloud write for a locally stored comment. On success the
+/// local entry adopts the real id/urn so later reads dedupe against SC; on
+/// failure it is flagged `failed` and stays visible locally.
+async fn sync_local_comment(
+    state: Arc<DirectState>,
+    token: String,
+    track_id: String,
+    client_id: String,
+    track_urn: String,
+    temp_id: i64,
+    body: Value,
+) {
+    let url = format!("{SC_API}/tracks/{track_id}/comments?client_id={client_id}");
+    let (synced, sc_id) = match super::webview::execute(&state.app, Some(&token), "POST", &url, Some(&body)).await {
+        Ok(r) if (200..300).contains(&r.status) => (true, parse_sc_comment_id(&r.payload)),
+        Ok(r) => {
+            emit_sync_error(&state.app, "POST", &url, r.status, r.captcha.is_some(), None);
+            (false, None)
+        }
+        Err(e) => {
+            emit_sync_error(&state.app, "POST", &url, 0, false, Some(&e));
+            (false, None)
+        }
+    };
+
+    {
+        let mut store = state.store.lock().await;
+        if let Some(c) = store.comments.iter_mut().find(|c| {
+            c.get("id").and_then(Value::as_i64) == Some(temp_id)
+                && c.get("sync").and_then(Value::as_str) == Some("pending")
+        }) {
+            if synced {
+                if let Some(id) = sc_id {
+                    c["id"] = json!(id);
+                    c["urn"] = json!(format!("soundcloud:comments:{id}"));
+                    c["sc_id"] = json!(id);
+                }
+                c["sync"] = json!("synced");
+            } else {
+                c["sync"] = json!("failed");
+            }
+            store.save();
+        }
+    }
+
+    if synced {
+        let _ = state.app.emit(
+            "direct:comments-synced",
+            json!({ "track_urn": track_urn }),
+        );
+    }
 }
 
 /// Normalizes an item (and nested selection items) for the frontend:
@@ -952,51 +1075,108 @@ async fn handle(
             let limit = q_u64(&q, "limit", 20);
             let page_no = q_u64(&q, "page", 0);
             let offset = page_no * limit;
-            let mut items: Vec<Value> = Vec::new();
-            if page_no == 0 {
-                let store = s.store.lock().await;
-                items.extend(
-                    store
-                        .comments
-                        .iter()
-                        .filter(|c| {
-                            c.get("track_urn").and_then(Value::as_str) == Some(urn)
-                        })
-                        .cloned(),
-                );
-            }
-            match s
+            // `threaded=1` is required by api-v2 (without it SoundCloud 400s).
+            let (sc_comments, sc_more) = match s
                 .sc_get(
-                    &format!("/tracks/{id}/comments?limit={limit}&offset={offset}"),
+                    &format!("/tracks/{id}/comments?limit={limit}&offset={offset}&threaded=1"),
                     token.as_deref(),
                 )
                 .await
             {
-                Ok((status, v)) if (200..300).contains(&status) => {
-                    items.extend(sc_items(&v));
-                    ok(page(items, page_no, limit, sc_has_more(&v)))
+                Ok((status, v)) if (200..300).contains(&status) => (
+                    sc_items(&v)
+                        .into_iter()
+                        .map(normalize_comment)
+                        .collect::<Vec<_>>(),
+                    sc_has_more(&v),
+                ),
+                _ => (Vec::new(), false),
+            };
+
+            let mut items: Vec<Value> = Vec::new();
+            if page_no == 0 {
+                let store = s.store.lock().await;
+                for c in store
+                    .comments
+                    .iter()
+                    .filter(|c| c.get("track_urn").and_then(Value::as_str) == Some(urn))
+                {
+                    if local_comment_synced_elsewhere(c, &sc_comments) {
+                        continue;
+                    }
+                    let mut c = c.clone();
+                    if c.get("user").map(Value::is_null).unwrap_or(true) {
+                        c["user"] = local_comment_user_placeholder();
+                    }
+                    items.push(c);
                 }
-                _ => ok(page(items, page_no, limit, false)),
             }
+            items.extend(sc_comments);
+            ok(page(items, page_no, limit, sc_more))
         }
         ("POST", ["tracks", urn, "comments"]) => {
             let b = body_json(&body);
             let comment = b.get("comment").cloned().unwrap_or(b);
-            let now = chrono::Utc::now();
-            let entry = json!({
-                "id": now.timestamp_millis(),
-                "urn": format!("local:comments:{}", now.timestamp_millis()),
-                "track_urn": urn,
-                "body": comment.get("body").cloned().unwrap_or(Value::Null),
-                "timestamp": comment.get("timestamp").cloned().unwrap_or(Value::Null),
-                "created_at": now.to_rfc3339(),
-                "user": Value::Null,
-            });
-            let mut store = s.store.lock().await;
-            store.comments.insert(0, entry.clone());
-            store.save();
-            drop(store);
-            ok(entry)
+            let text = comment
+                .get("body")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if text.is_empty() {
+                err(400, "empty comment")
+            } else {
+                let timestamp = comment
+                    .get("timestamp")
+                    .and_then(Value::as_u64)
+                    .filter(|t| *t > 0);
+                let now = chrono::Utc::now();
+                let temp_id = now.timestamp_millis();
+                let user = match token.as_deref() {
+                    Some(t) => fetch_me(s, t).await.ok().map(|me| {
+                        json!({
+                            "id": me.get("id").cloned().unwrap_or(Value::Null),
+                            "urn": me.get("urn").cloned().unwrap_or(Value::Null),
+                            "username": me.get("username").cloned().unwrap_or(Value::Null),
+                            "avatar_url": me.get("avatar_url").cloned().unwrap_or(Value::Null),
+                            "permalink_url": me.get("permalink_url").cloned().unwrap_or(Value::Null),
+                        })
+                    }),
+                    None => None,
+                };
+                let entry = json!({
+                    "id": temp_id,
+                    "urn": format!("local:comments:{temp_id}"),
+                    "track_urn": urn,
+                    "body": text.clone(),
+                    "timestamp": timestamp,
+                    "created_at": now.to_rfc3339(),
+                    "user": user,
+                    "sync": "pending",
+                });
+                {
+                    let mut store = s.store.lock().await;
+                    store.comments.insert(0, entry.clone());
+                    store.save();
+                }
+
+                // Best-effort SoundCloud write through the hidden writer webview.
+                // The local copy stays visible until (or unless) it lands there.
+                if let Some(t) = token.clone() {
+                    if let Ok(cid) = s.client_id().await {
+                        tokio::spawn(sync_local_comment(
+                            state.clone(),
+                            t,
+                            id_of(urn),
+                            cid,
+                            urn.to_string(),
+                            temp_id,
+                            json!({ "comment": { "body": text, "timestamp": timestamp.unwrap_or(0) } }),
+                        ));
+                    }
+                }
+                ok(entry)
+            }
         }
         ("GET", ["tracks", _urn, "sharing"]) => ok(json!({ "sharing": "public" })),
         ("PUT", ["tracks", _urn, "sharing"]) | ("DELETE", ["tracks", _urn, "sharing"]) => {

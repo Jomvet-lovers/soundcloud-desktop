@@ -564,6 +564,40 @@ listen<string>('audio:default-device-changed', (event) => {
   console.log(`[Audio] Default output changed to '${event.payload}'`);
 });
 
+/* ── Track comments (floating pills) ─────────────────────────── */
+
+export interface TimelineComment {
+  id: number;
+  body: string;
+  timestamp_ms: number;
+  user_avatar_url: string | null;
+}
+
+const commentListeners = new Set<(comment: TimelineComment) => void>();
+
+/** Feed the pending comments to the Rust playback timeline; it re-emits each
+ *  one as `comments:show` when the playhead sweeps past its timestamp. */
+export function setCommentsTimeline(comments: TimelineComment[]) {
+  invoke('audio_set_comments_timeline', { comments }).catch(console.error);
+}
+
+export function clearCommentsTimeline() {
+  invoke('audio_clear_comments_timeline').catch(console.error);
+}
+
+export function subscribeFloatingComments(
+  listener: (comment: TimelineComment) => void,
+): () => void {
+  commentListeners.add(listener);
+  return () => {
+    commentListeners.delete(listener);
+  };
+}
+
+listen<TimelineComment>('comments:show', (event) => {
+  for (const l of commentListeners) l(event.payload);
+});
+
 /* ── Store subscriber ────────────────────────────────────────── */
 
 usePlayerStore.subscribe((state, prev) => {

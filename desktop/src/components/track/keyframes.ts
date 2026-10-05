@@ -36,4 +36,13 @@ export const ROOM_KEYFRAMES = `
 .wv-dot:hover .wv-pill { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .wv-dot[data-bloom='1'] .wv-pill { animation: room-bloom 360ms var(--ease-apple) both; opacity: 1; }
 .wv-dot[data-bloom='1'] .wv-pip { transform: scale(1.9); }
+@keyframes fc-rise {
+  0%   { opacity: 0; transform: translate(-50%, 10px) scale(0.94); }
+  12%  { opacity: 1; }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+@keyframes fc-fade {
+  to { opacity: 0; transform: translate(-50%, -6px) scale(0.98); }
+}
+.fc-pill { animation: fc-rise 380ms var(--ease-apple) both, fc-fade 420ms ease-in 4.9s forwards; }
 `;

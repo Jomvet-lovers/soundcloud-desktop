@@ -5,7 +5,7 @@ import type { Comment } from '../../lib/hooks';
 import type { Track } from '../../stores/player';
 import { LiveWaveform } from '../music/soundwave/waveform';
 import type { TrackAura } from './useTrackAura';
-import { WaveVoices } from './WaveVoices';
+import { FloatingComments, WaveVoices } from './WaveVoices';
 
 /** The floor of the room: the live waveform, recolored to the track's own hue
  *  (scoped --color-accent), with voices plotted on it and a time ruler. */
@@ -68,6 +68,7 @@ export const RoomFloor = React.memo(function RoomFloor({
           isCurrent={isCurrent}
           onSeek={onSeek}
         />
+        <FloatingComments comments={comments} durationMs={durationMs} isCurrent={isCurrent} />
       </div>
       <div className="flex items-center justify-between mt-2.5 px-0.5 text-[11px] tabular-nums text-white/35">
         <span ref={elapsedRef}>0:00</span>

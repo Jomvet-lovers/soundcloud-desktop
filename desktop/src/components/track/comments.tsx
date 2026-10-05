@@ -21,8 +21,11 @@ export const VoiceCard = React.memo(function VoiceCard({
 }) {
   const navigate = useNavigate();
   const ts = comment.timestamp;
-  const avatar = art(comment.user.avatar_url, 'small');
-  const goUser = () => navigate(`/user/${encodeURIComponent(comment.user.urn)}`);
+  const user = comment.user;
+  const avatar = art(user?.avatar_url ?? null, 'small');
+  const goUser = () => {
+    if (user?.urn) navigate(`/user/${encodeURIComponent(user.urn)}`);
+  };
 
   return (
     <div
@@ -40,12 +43,18 @@ export const VoiceCard = React.memo(function VoiceCard({
       )}
       <div className="flex gap-3">
         <button type="button" onClick={goUser} className="shrink-0 cursor-pointer">
-          <img
-            src={avatar ?? ''}
-            alt=""
-            loading="lazy"
-            className="w-9 h-9 rounded-full object-cover ring-1 ring-white/[0.08] hover:ring-white/[0.22] transition-all duration-200"
-          />
+          {avatar ? (
+            <img
+              src={avatar}
+              alt=""
+              loading="lazy"
+              className="w-9 h-9 rounded-full object-cover ring-1 ring-white/[0.08] hover:ring-white/[0.22] transition-all duration-200"
+            />
+          ) : (
+            <span className="flex w-9 h-9 items-center justify-center rounded-full bg-white/[0.07] text-[13px] font-semibold text-white/45 ring-1 ring-white/[0.08]">
+              {(user?.username || '?').slice(0, 1).toUpperCase()}
+            </span>
+          )}
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -53,9 +62,26 @@ export const VoiceCard = React.memo(function VoiceCard({
               onClick={goUser}
               className="text-[12.5px] font-semibold text-white/85 hover:text-white cursor-pointer transition-colors truncate"
             >
-              {comment.user.username}
+              {user?.username ?? 'You'}
             </span>
             <span className="text-[10px] text-white/25 shrink-0">{ago(comment.created_at)}</span>
+            {comment.sync === 'pending' && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] text-white/30 shrink-0"
+                title={'Sending to SoundCloud...'}
+              >
+                <Clock size={9} />
+                {'sending'}
+              </span>
+            )}
+            {comment.sync === 'failed' && (
+              <span
+                className="text-[10px] text-amber-400/85 shrink-0"
+                title={'Could not sync to SoundCloud'}
+              >
+                {'not synced'}
+              </span>
+            )}
             {ts != null && (
               <button
                 type="button"

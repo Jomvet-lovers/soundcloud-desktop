@@ -10,7 +10,8 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { type RefObject, useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import type { SearchSort } from '../stores/searchPrefs';
 import { api } from './api';
@@ -66,9 +67,11 @@ export interface Comment {
     id: number;
     urn: string;
     username: string;
-    avatar_url: string;
+    avatar_url: string | null;
     permalink_url: string;
   };
+  /** Local write state while it is being synced to SoundCloud. */
+  sync?: 'pending' | 'failed' | 'synced';
 }
 
 export interface Playlist {
@@ -425,6 +428,21 @@ export function useTrackComments(trackUrn: string | undefined) {
 
 export function usePostComment(trackUrn: string | undefined) {
   const qc = useQueryClient();
+
+  // The SC write runs in the Rust writer webview in the background; when it
+  // lands, refresh the list so the pending local copy becomes the real one.
+  useEffect(() => {
+    if (!trackUrn) return;
+    const unlisten = listen<{ track_urn: string }>('direct:comments-synced', (event) => {
+      if (event.payload?.track_urn === trackUrn) {
+        qc.refetchQueries({ queryKey: ['track', trackUrn, 'comments'] });
+      }
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [trackUrn, qc]);
+
   return useMutation({
     mutationFn: async ({ body, timestamp }: { body: string; timestamp?: number }) => {
       return api<Comment>(`/tracks/${encodeURIComponent(trackUrn!)}/comments`, {
@@ -1272,6 +1290,7 @@ export function useInfiniteScroll(
   hasNextPage: boolean,
   isFetchingNextPage: boolean,
   fetchNextPage: () => void,
+  rootRef?: RefObject<HTMLElement | null>,
 ) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -1279,7 +1298,11 @@ export function useInfiniteScroll(
     const el = ref.current;
     if (!el || !hasNextPage || isFetchingNextPage) return;
 
-    const root = el.closest('main');
+    // An explicit scroll container (e.g. the sticky comments rail) wins when
+    // it is actually scrollable; otherwise scroll the app's main pane.
+    const custom = rootRef?.current;
+    const root =
+      custom && custom.scrollHeight > custom.clientHeight + 1 ? custom : el.closest('main');
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -1291,7 +1314,7 @@ export function useInfiniteScroll(
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, rootRef]);
 
   return ref;
 }

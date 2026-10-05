@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { CommentForm } from '../components/track/comments';
 import { ROOM_KEYFRAMES } from '../components/track/keyframes';
 import { LinerNotes } from '../components/track/LinerNotes';
 import { RoomHero } from '../components/track/RoomHero';
@@ -60,7 +61,13 @@ export const TrackPage = React.memo(function TrackPage() {
     isFetchingNextPage,
     isLoading: commentsLoading,
   } = useTrackComments(urn);
-  const commentsSentinel = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
+  const commentsScrollRef = useRef<HTMLDivElement>(null);
+  const commentsSentinel = useInfiniteScroll(
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    commentsScrollRef,
+  );
 
   const { data: relatedData, isLoading: relatedLoading } = useRelatedTracks(urn, 10);
   const { data: favoritersData } = useTrackFavoriters(urn, 12);
@@ -177,27 +184,38 @@ export const TrackPage = React.memo(function TrackPage() {
           onSeek={jumpTo}
         />
 
-        <LinerNotes track={track} aura={aura} />
+        <CommentForm
+          trackUrn={track.urn}
+          isCurrent={isThis}
+          accent={aura.accent}
+          accentSoft={aura.accentSoft}
+        />
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
-          <RoomVoices
-            trackUrn={track.urn}
-            commentCount={track.comment_count}
-            comments={comments}
-            loading={commentsLoading}
-            fetchingMore={isFetchingNextPage}
-            sentinelRef={commentsSentinel}
-            isCurrent={isThis}
-            aura={aura}
-            onSeek={jumpTo}
-          />
-          <RoomSleeve
-            track={track}
-            favoriters={favoriters}
-            related={related}
-            relatedLoading={relatedLoading}
-            aura={aura}
-          />
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 items-start">
+          <div className="min-w-0 space-y-6">
+            <LinerNotes track={track} aura={aura} />
+            <RoomSleeve
+              track={track}
+              favoriters={favoriters}
+              related={related}
+              relatedLoading={relatedLoading}
+              aura={aura}
+            />
+          </div>
+          <aside
+            ref={commentsScrollRef}
+            className="min-w-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1"
+          >
+            <RoomVoices
+              commentCount={track.comment_count}
+              comments={comments}
+              loading={commentsLoading}
+              fetchingMore={isFetchingNextPage}
+              sentinelRef={commentsSentinel}
+              aura={aura}
+              onSeek={jumpTo}
+            />
+          </aside>
         </div>
       </div>
     </div>
