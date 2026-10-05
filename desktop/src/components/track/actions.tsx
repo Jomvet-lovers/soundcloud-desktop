@@ -1,8 +1,9 @@
+import * as Popover from '@radix-ui/react-popover';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { downloadTrack } from '../../lib/cache';
+import { type DownloadFormat, downloadTrack } from '../../lib/cache';
 import { fc } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import {
@@ -148,17 +149,27 @@ export const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?
   );
 });
 
+const DOWNLOAD_FORMATS: Array<{ id: DownloadFormat; label: string; desc: string }> = [
+  { id: 'm4a', label: 'M4A', desc: 'AAC' },
+  { id: 'mp3', label: 'MP3', desc: '320 kbps' },
+  { id: 'flac', label: 'FLAC', desc: 'Lossless' },
+  { id: 'wav', label: 'WAV', desc: 'Uncompressed' },
+];
+
 export const DownloadButton = React.memo(({ track }: { track: Track }) => {
   const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
 
-  const download = async () => {
+  const download = async (format: DownloadFormat) => {
     if (loading) return;
+    setOpen(false);
     setLoading(true);
     try {
       const display = getTrackDisplay(track);
       await downloadTrack(track.urn, display.artistLine || track.user.username, display.title, {
         artworkUrl: track.artwork_url,
         durationMs: track.duration,
+        format,
       });
       toast.success('Saved');
     } catch (e: unknown) {
@@ -170,16 +181,40 @@ export const DownloadButton = React.memo(({ track }: { track: Track }) => {
   };
 
   return (
-    <button
-      type="button"
-      onClick={download}
-      disabled={loading}
-      title={'Download'}
-      aria-label={'Download'}
-      className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer disabled:opacity-50"
-    >
-      {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-    </button>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          disabled={loading}
+          title={'Download'}
+          aria-label={'Download'}
+          className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer disabled:opacity-50"
+        >
+          {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          align="center"
+          sideOffset={8}
+          collisionPadding={12}
+          className="z-[200] w-[190px] rounded-xl border border-white/[0.1] bg-[#141417] p-1.5 outline-none"
+        >
+          {DOWNLOAD_FORMATS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => void download(f.id)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/[0.06] cursor-pointer"
+            >
+              <span className="text-[12.5px] font-medium text-white/85">{f.label}</span>
+              <span className="text-[10.5px] text-white/35">{f.desc}</span>
+            </button>
+          ))}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 });
 

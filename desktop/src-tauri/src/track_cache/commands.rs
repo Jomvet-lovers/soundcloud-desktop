@@ -84,6 +84,7 @@ pub async fn track_export(
     request: EnsureCachedRequest,
     dest_path: String,
     cover_url: Option<String>,
+    format: Option<super::transcode::ExportFormat>,
     state: State<'_, TrackCacheState>,
 ) -> Result<String, String> {
     let fallback_urls = request
@@ -105,6 +106,7 @@ pub async fn track_export(
             },
             dest_path,
             cover_url,
+            format.unwrap_or_default(),
         )
         .await
 }

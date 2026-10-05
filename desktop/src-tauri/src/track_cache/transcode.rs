@@ -241,25 +241,59 @@ pub async fn transcode_to_m4a(
     }
 }
 
-/// Write `audio` (an m4a) to `dest`, optionally muxing in `cover` (JPEG/PNG
-/// bytes) as the file's attached picture. Audio is stream-copied — no quality
-/// loss. Atomic: renders to a temp beside `dest`, then renames.
-pub async fn export_with_cover(
+/// Output container for download-to-file exports.
+#[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportFormat {
+    M4a,
+    Mp3,
+    Flac,
+    Wav,
+}
+
+impl Default for ExportFormat {
+    fn default() -> Self {
+        Self::M4a
+    }
+}
+
+impl ExportFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::M4a => "m4a",
+            Self::Mp3 => "mp3",
+            Self::Flac => "flac",
+            Self::Wav => "wav",
+        }
+    }
+
+    /// WAV cannot carry attached cover art.
+    fn supports_cover(self) -> bool {
+        !matches!(self, Self::Wav)
+    }
+}
+
+/// Write `audio` to `dest` in the requested container, optionally muxing in
+/// `cover` (JPEG/PNG bytes) as attached art. m4a stream-copies the AAC source
+/// (no quality loss); the other containers re-encode with their default
+/// encoder. Atomic: renders to a temp beside `dest`, then renames.
+pub async fn export_audio(
     ffmpeg: &Path,
     audio: &Path,
     cover: Option<&[u8]>,
     dest: &Path,
+    format: ExportFormat,
 ) -> Result<(), String> {
     let dest_dir = dest.parent().ok_or("export: dest has no parent dir")?;
     let stem = dest
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("export");
-    let tmp = temp_sibling(dest_dir, stem);
+    let tmp = dest_dir.join(format!("{stem}.{}.part.{}", nonce(), format.extension()));
 
     // The cover is staged next to the temp so ffmpeg can read it as a 2nd input.
     let cover_tmp = match cover {
-        Some(bytes) if !bytes.is_empty() => {
+        Some(bytes) if !bytes.is_empty() && format.supports_cover() => {
             let p = dest_dir.join(format!("{stem}.{}.cover", nonce()));
             if tokio::fs::write(&p, bytes).await.is_ok() {
                 Some(p)
@@ -278,17 +312,36 @@ pub async fn export_with_cover(
             "0:a",
             "-map",
             "1:v",
-            "-c:a",
-            "copy",
             "-c:v",
             "copy",
             "-disposition:v:0",
             "attached_pic",
-            "-movflags",
-            "+faststart",
         ]);
     } else {
-        cmd.args(["-map", "0:a", "-c:a", "copy", "-movflags", "+faststart"]);
+        cmd.args(["-map", "0:a"]);
+    }
+
+    match format {
+        ExportFormat::M4a => {
+            cmd.args(["-c:a", "copy", "-movflags", "+faststart"]);
+        }
+        ExportFormat::Mp3 => {
+            cmd.args(["-c:a", "libmp3lame", "-b:a", "320k", "-id3v2_version", "3"]);
+            if cover_tmp.is_some() {
+                cmd.args([
+                    "-metadata:s:v",
+                    "title=Album cover",
+                    "-metadata:s:v",
+                    "comment=Cover (front)",
+                ]);
+            }
+        }
+        ExportFormat::Flac => {
+            cmd.args(["-c:a", "flac", "-compression_level", "8"]);
+        }
+        ExportFormat::Wav => {
+            cmd.args(["-c:a", "pcm_s16le"]);
+        }
     }
     cmd.arg(&tmp);
 

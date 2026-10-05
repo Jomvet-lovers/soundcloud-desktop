@@ -1457,13 +1457,14 @@ impl TrackCacheState {
     }
 
     /// Download-to-file: prefer the clean m4a cache, transcode raw bytes when
-    /// only those exist, else fetch from streaming — then write `dest_path`
-    /// (m4a) with the cover art embedded when ffmpeg is available.
+    /// only those exist, else fetch from streaming — then write `dest_path` in
+    /// the requested container with the cover art embedded when possible.
     pub async fn export_track(
         &self,
         req: CacheRequest<'_>,
         dest_path: String,
         cover_url: Option<String>,
+        format: transcode::ExportFormat,
     ) -> Result<String, String> {
         let urn = req.urn.to_string();
         let dest = PathBuf::from(&dest_path);
@@ -1481,14 +1482,20 @@ impl TrackCacheState {
                     Some(u) if !u.is_empty() => self.fetch_cover(&u).await,
                     _ => None,
                 };
-                match transcode::export_with_cover(&ffmpeg, &source_path, cover.as_deref(), &dest)
-                    .await
+                match transcode::export_audio(
+                    &ffmpeg,
+                    &source_path,
+                    cover.as_deref(),
+                    &dest,
+                    format,
+                )
+                .await
                 {
                     Ok(()) => return Ok(dest_path),
                     Err(e) if cover.is_some() => {
                         // A bad cover shouldn't sink the download — retry artless.
                         eprintln!("[TrackCache] export with cover failed ({e}), retrying without");
-                        transcode::export_with_cover(&ffmpeg, &source_path, None, &dest).await?;
+                        transcode::export_audio(&ffmpeg, &source_path, None, &dest, format).await?;
                         return Ok(dest_path);
                     }
                     Err(e) => return Err(e),
@@ -1497,7 +1504,15 @@ impl TrackCacheState {
         }
 
         // No clean m4a available (ffmpeg unavailable, or the transcode failed /
-        // timed out). Re-resolve in case a concurrent transcode finished and
+        // timed out). Only m4a can be served by copying raw bytes; the other
+        // containers need the encoder.
+        if format != transcode::ExportFormat::M4a {
+            return Err(
+                "Cannot export this format: audio transcoder is still preparing or unavailable"
+                    .into(),
+            );
+        }
+        // Re-resolve in case a concurrent transcode finished and
         // deleted the raw path we held, then only copy if the source is already a
         // valid m4a — never write mismatched bytes into the user's .m4a file.
         let fallback = self.resolve_path(&urn).unwrap_or(source_path);

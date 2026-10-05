@@ -306,14 +306,18 @@ function coverSourceUrl(artworkUrl: string | null | undefined): string | null {
   return artworkUrl.replace('-large', '-t500x500');
 }
 
+export type DownloadFormat = 'm4a' | 'mp3' | 'flac' | 'wav';
+
 export interface DownloadTrackOptions {
   artworkUrl?: string | null;
   /** Track length in milliseconds (API `duration`). */
   durationMs?: number;
+  /** Output container; defaults to m4a (AAC). */
+  format?: DownloadFormat;
 }
 
-/** Download-to-file: writes a clean m4a (transcoding/fetching as needed) with
- *  the cover art embedded. Rust resolves the clean cache → raw cache → stream. */
+/** Download-to-file: writes the track in the chosen format with the cover art
+ *  embedded. Rust resolves the clean cache → raw cache → stream. */
 export async function downloadTrack(
   urn: string,
   artist: string,
@@ -322,11 +326,12 @@ export async function downloadTrack(
 ): Promise<string> {
   const { save } = await import('@tauri-apps/plugin-dialog');
 
-  const filename = sanitizeFilename(`${artist} - ${title}.m4a`);
+  const format = options.format ?? 'm4a';
+  const filename = sanitizeFilename(`${artist} - ${title}.${format}`);
 
   const dest = await save({
     defaultPath: filename,
-    filters: [{ name: 'Audio', extensions: ['m4a'] }],
+    filters: [{ name: format.toUpperCase(), extensions: [format] }],
   });
   if (!dest) throw new Error('cancelled');
 
@@ -336,5 +341,6 @@ export async function downloadTrack(
     request,
     destPath: dest,
     coverUrl: coverSourceUrl(options.artworkUrl),
+    format,
   });
 }
