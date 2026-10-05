@@ -46,13 +46,6 @@ fn stop_current_player(state: &AudioState) {
     }
 }
 
-fn apply_current_rate(state: &AudioState, player: &rodio::Player) {
-    let rate = *state.playback_rate.lock().unwrap();
-    if (rate - 1.0).abs() > f32::EPSILON {
-        player.set_speed(rate);
-    }
-}
-
 /// Current playback speed as f64, floored away from zero so it's safe to divide by.
 /// rodio's `get_pos()`/`try_seek()` operate in output (wall-clock) time = source/rate;
 /// this lets callers convert to/from the source timeline the rest of the app uses.
@@ -81,7 +74,6 @@ fn commit_loaded_track(
     new_player: rodio::Player,
     normalization_gain: f32,
 ) {
-    apply_current_rate(state, &new_player);
     *state.player.lock().unwrap() = Some(new_player);
     *state.source_bytes.lock().unwrap() = Some(bytes);
     *state.normalization_gain.lock().unwrap() = normalization_gain;
@@ -105,6 +97,7 @@ async fn build_player_from_bytes(
     normalization_cache_key: Option<String>,
     start_paused: bool,
     output_sample_rate: u32,
+    speed: std::sync::Arc<std::sync::atomic::AtomicU32>,
     eq_params: std::sync::Arc<std::sync::RwLock<crate::audio::types::EqParams>>,
     analyser_buffer: std::sync::Arc<crate::audio::analyser::AnalyserBuffer>,
 ) -> Result<(Vec<u8>, rodio::Player, Option<f64>, f32), String> {
@@ -125,6 +118,7 @@ async fn build_player_from_bytes(
             normalization_gain,
             start_paused,
             output_sample_rate,
+            speed,
             eq_params,
             analyser_buffer,
         )?;
@@ -166,13 +160,13 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
         },
         was_paused,
         state.output_rate.load(Ordering::Relaxed),
+        state.playback_rate_fp.clone(),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )?;
     // Apply speed BEFORE seeking so try_seek's argument is interpreted under the speed
     // factor: try_seek(source/rate) lands the decoder at the original source position.
     let output_target = source_position / rate;
-    apply_current_rate(state, &new_player);
     if source_position > 0.0 {
         new_player
             .try_seek(Duration::from_secs_f64(output_target))
@@ -220,6 +214,7 @@ pub async fn load_file(
         normalization_cache_key,
         start_paused,
         state.output_rate.load(Ordering::Relaxed),
+        state.playback_rate_fp.clone(),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )
@@ -322,6 +317,7 @@ pub async fn load_url(
         normalization_cache_key,
         start_paused,
         state.output_rate.load(Ordering::Relaxed),
+        state.playback_rate_fp.clone(),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )
@@ -423,10 +419,10 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
         },
         was_paused,
         state.output_rate.load(Ordering::Relaxed),
+        state.playback_rate_fp.clone(),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )?;
-    apply_current_rate(state, &new_player);
     if position > 0.0 {
         new_player.try_seek(target).ok();
     }
@@ -456,22 +452,26 @@ fn clamp_playback_rate(rate: f64) -> f32 {
 
 pub fn set_playback_rate(rate: f64, state: State<'_, AudioState>) {
     let value = clamp_playback_rate(rate);
-    let player_guard = state.player.lock().unwrap();
-    if let Some(ref player) = *player_guard {
-        // Close the current constant-rate segment into the integrator BEFORE switching
-        // speed, so source-time stays exact across the change (no re-seek, no glitch).
-        let old_rate = current_rate(&state);
-        let out = player.get_pos().as_secs_f64();
-        {
+    {
+        let player_guard = state.player.lock().unwrap();
+        if let Some(ref player) = *player_guard {
+            // Close the current constant-rate segment into the integrator BEFORE switching
+            // speed, so source-time stays exact across the change (no re-seek, no glitch).
+            let old_rate = current_rate(&state);
+            let out = player.get_pos().as_secs_f64();
             let mut anchor = state.pos_anchor.lock().unwrap();
             anchor.0 += (out - anchor.1) * old_rate;
             anchor.1 = out;
         }
-        *state.playback_rate.lock().unwrap() = value;
-        player.set_speed(value);
-    } else {
-        *state.playback_rate.lock().unwrap() = value;
     }
+    *state.playback_rate.lock().unwrap() = value;
+    // The decode chain's SpeedSource reads this per frame, so the change is
+    // audible immediately (rodio's own `set_speed` never reaches the mixer
+    // mid-track — see resample.rs).
+    state.playback_rate_fp.store(
+        (value * crate::audio::resample::SPEED_FP_SCALE as f32) as u32,
+        Ordering::Relaxed,
+    );
 }
 
 pub fn get_position(state: State<'_, AudioState>) -> f64 {
@@ -595,6 +595,10 @@ pub async fn preview_play(
     let mixer = state.mixer.lock().unwrap().clone();
     let eq_params = state.eq_params.clone();
     let output_rate = state.output_rate.load(Ordering::Relaxed);
+    // Preview always plays at 1x — it has its own speed source.
+    let speed = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(
+        crate::audio::resample::SPEED_FP_SCALE,
+    ));
     let target = (volume as f32).clamp(0.0, 2.0);
     // Own throwaway analyser buffer — the preview decoder must NOT write into the
     // main player's spectrum buffer. Normalization is skipped (gain 1.0) to keep
@@ -602,8 +606,18 @@ pub async fn preview_play(
     // audible the instant it loads (a zero-start + tick fade-in left it silent).
     let analyser = crate::audio::analyser::AnalyserBuffer::new();
     let player = task::spawn_blocking(move || {
-        create_player_from_bytes(&bytes, &mixer, target, 1.0, false, output_rate, eq_params, analyser)
-            .map(|(player, _)| player)
+        create_player_from_bytes(
+            &bytes,
+            &mixer,
+            target,
+            1.0,
+            false,
+            output_rate,
+            speed,
+            eq_params,
+            analyser,
+        )
+        .map(|(player, _)| player)
     })
         .await
         .map_err(|e| format!("preview decode task failed: {e}"))??;

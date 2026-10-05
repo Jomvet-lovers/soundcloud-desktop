@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 
 use crate::audio::analyser::{AnalyserBuffer, AnalyserSource};
 use crate::audio::eq::{EqSource, GainSource};
-use crate::audio::resample::ResampleSource;
+use crate::audio::resample::{ResampleSource, SpeedSource};
 use crate::audio::types::{
     ChannelCount, EqParams, SampleRate, NORMALIZATION_ANALYSIS_SAMPLES,
     NORMALIZATION_BLOCK_SAMPLES, NORMALIZATION_MAX_ATTENUATION_DB, NORMALIZATION_MAX_BOOST_DB,
@@ -314,6 +314,7 @@ pub fn create_player_from_bytes(
     normalization_gain: f32,
     start_paused: bool,
     output_sample_rate: u32,
+    speed: std::sync::Arc<std::sync::atomic::AtomicU32>,
     eq_params: Arc<RwLock<EqParams>>,
     analyser_buffer: Arc<AnalyserBuffer>,
 ) -> Result<(Player, Option<f64>), String> {
@@ -328,6 +329,7 @@ pub fn create_player_from_bytes(
         let source =
             OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
+        let source = SpeedSource::new(source, speed.clone());
         let source = ResampleSource::new(source, output_sample_rate);
         player.append(AnalyserSource::new(
             EqSource::new(GainSource::new(source, normalization_gain), eq_params),
@@ -337,6 +339,7 @@ pub fn create_player_from_bytes(
         let source = Decoder::new(Cursor::new(bytes.to_vec()))
             .map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
+        let source = SpeedSource::new(source, speed.clone());
         let source = ResampleSource::new(source, output_sample_rate);
         player.append(AnalyserSource::new(
             EqSource::new(GainSource::new(source, normalization_gain), eq_params),
@@ -346,6 +349,7 @@ pub fn create_player_from_bytes(
         let source =
             OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?;
         duration = source.total_duration().map(|d| d.as_secs_f64());
+        let source = SpeedSource::new(source, speed.clone());
         let source = ResampleSource::new(source, output_sample_rate);
         player.append(AnalyserSource::new(
             EqSource::new(GainSource::new(source, normalization_gain), eq_params),

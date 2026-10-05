@@ -8,6 +8,8 @@
 //! the mixer's own converter then takes its identity path.
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use rodio::source::SeekError;
 use rodio::Source;
@@ -253,6 +255,235 @@ fn build_coeffs(up: u64, down: u64) -> Vec<f32> {
     coeffs
 }
 
+/// Fixed-point scale for the shared playback-rate atomic (`rate * 10000`).
+pub const SPEED_FP_SCALE: u32 = 10_000;
+
+const SPEED_HALF_TAPS: i64 = 12;
+const SPEED_PHASES: usize = 512;
+
+/// Playback-speed (and therefore pitch) control that actually resamples the
+/// stream. rodio's own `Speed` only changes a source's reported sample rate,
+/// and the mixer latches that rate at span boundaries — so mid-track speed
+/// changes never reach the output. This source instead interpolates with a
+/// windowed-sinc phase bank, reads the shared factor every frame (immediate
+/// response) and stays bit-exact at 1x.
+pub struct SpeedSource<S: Source<Item = f32>> {
+    input: S,
+    factor_fp: Arc<AtomicU32>,
+    channels: usize,
+    /// `SPEED_PHASES` × `2 * SPEED_HALF_TAPS` taps for the current cutoff.
+    coeffs: Vec<f32>,
+    coeff_cutoff: f64,
+    history: VecDeque<f32>,
+    next_index: i64,
+    last_index: i64,
+    eof: bool,
+    /// Input frame position of the next output frame.
+    pos: f64,
+    frame_buf: Vec<f32>,
+    frame_pos: usize,
+}
+
+impl<S: Source<Item = f32>> SpeedSource<S> {
+    pub fn new(input: S, factor_fp: Arc<AtomicU32>) -> Self {
+        let channels = input.channels().get() as usize;
+        let cutoff = ROLLOFF;
+        Self {
+            input,
+            factor_fp,
+            channels,
+            coeffs: build_speed_coeffs(cutoff),
+            coeff_cutoff: cutoff,
+            history: VecDeque::new(),
+            next_index: 0,
+            last_index: -1,
+            eof: false,
+            pos: 0.0,
+            frame_buf: vec![0.0; channels],
+            frame_pos: channels,
+        }
+    }
+
+    fn factor(&self) -> f32 {
+        (self.factor_fp.load(Ordering::Relaxed) as f32 / SPEED_FP_SCALE as f32).clamp(0.25, 4.0)
+    }
+
+    fn frames_in_history(&self) -> i64 {
+        self.history.len() as i64 / self.channels.max(1) as i64
+    }
+
+    fn pull_until(&mut self, want_index: i64) {
+        while !self.eof && self.next_index <= want_index {
+            for _ in 0..self.channels {
+                match self.input.next() {
+                    Some(sample) => self.history.push_back(sample),
+                    None => {
+                        self.eof = true;
+                        while self.history.len() % self.channels != 0 {
+                            self.history.pop_back();
+                        }
+                        return;
+                    }
+                }
+            }
+            self.last_index = self.next_index;
+            self.next_index += 1;
+        }
+    }
+
+    fn sample_at(&self, idx: i64, channel: usize) -> f32 {
+        let frames = self.frames_in_history();
+        let offset = idx - (self.next_index - frames);
+        if offset < 0 || offset >= frames {
+            return 0.0;
+        }
+        self.history[offset as usize * self.channels + channel]
+    }
+
+    fn drop_before(&mut self, min_index: i64) {
+        let mut oldest = self.next_index - self.frames_in_history();
+        while oldest < min_index && self.frames_in_history() > 0 {
+            for _ in 0..self.channels {
+                self.history.pop_front();
+            }
+            oldest += 1;
+        }
+    }
+
+    /// Rebuild the interpolation bank when the anti-alias cutoff changes
+    /// (speeding up must band-limit the source to avoid aliasing).
+    fn ensure_coeffs(&mut self, factor: f32) {
+        let cutoff = (ROLLOFF * (1.0 / factor as f64).min(1.0)).clamp(0.3, ROLLOFF);
+        let cutoff = (cutoff * 64.0).round() / 64.0;
+        if (cutoff - self.coeff_cutoff).abs() > 1e-9 {
+            self.coeffs = build_speed_coeffs(cutoff);
+            self.coeff_cutoff = cutoff;
+        }
+    }
+
+    fn compute_frame(&mut self) -> bool {
+        let factor = self.factor();
+        let exact = (factor - 1.0).abs() < 1e-6;
+        let base = self.pos.floor();
+        let taps = (2 * SPEED_HALF_TAPS) as usize;
+        let (phase, first, last_needed) = if exact {
+            (0usize, base as i64, base as i64)
+        } else {
+            self.ensure_coeffs(factor);
+            let frac = self.pos - base;
+            let phase = ((frac * SPEED_PHASES as f64) as usize).min(SPEED_PHASES - 1);
+            let first = base as i64 - (SPEED_HALF_TAPS - 1);
+            (phase, first, base as i64 + SPEED_HALF_TAPS)
+        };
+
+        self.pull_until(last_needed);
+        if self.eof && first > self.last_index {
+            return false;
+        }
+        self.drop_before(first);
+
+        if exact {
+            for channel in 0..self.channels {
+                self.frame_buf[channel] = self.sample_at(base as i64, channel);
+            }
+        } else {
+            let coeff = &self.coeffs[phase * taps..phase * taps + taps];
+            for channel in 0..self.channels {
+                let mut sum = 0.0f32;
+                let mut idx = first;
+                for &k in coeff {
+                    sum += self.sample_at(idx, channel) * k;
+                    idx += 1;
+                }
+                self.frame_buf[channel] = sum;
+            }
+        }
+
+        self.pos += factor as f64;
+        self.frame_pos = 0;
+        true
+    }
+}
+
+impl<S: Source<Item = f32>> Iterator for SpeedSource<S> {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        if self.frame_pos >= self.channels {
+            if !self.compute_frame() {
+                return None;
+            }
+        }
+        let sample = self.frame_buf[self.frame_pos];
+        self.frame_pos += 1;
+        Some(sample)
+    }
+}
+
+impl<S: Source<Item = f32>> Source for SpeedSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> ChannelCount {
+        self.input.channels()
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        self.input.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        self.input
+            .total_duration()
+            .map(|d| d.div_f32(self.factor()))
+    }
+
+    fn try_seek(&mut self, pos: std::time::Duration) -> Result<(), SeekError> {
+        // `pos` arrives in output (wall-clock) time, same contract as rodio's
+        // own `Speed`: the decoder must move `factor` times further.
+        self.input.try_seek(pos.mul_f32(self.factor()))?;
+        self.history.clear();
+        self.next_index = 0;
+        self.last_index = -1;
+        self.eof = false;
+        self.pos = 0.0;
+        self.frame_pos = self.channels;
+        Ok(())
+    }
+}
+
+fn build_speed_coeffs(cutoff: f64) -> Vec<f32> {
+    let taps = (2 * SPEED_HALF_TAPS) as usize;
+    let mut coeffs = vec![0f32; SPEED_PHASES * taps];
+    let half = SPEED_HALF_TAPS as f64;
+
+    for phase in 0..SPEED_PHASES {
+        let frac = phase as f64 / SPEED_PHASES as f64;
+        let mut sum = 0.0f64;
+        for k in 0..taps {
+            let j = k as i64 - (SPEED_HALF_TAPS - 1);
+            let u = frac - j as f64;
+            let h = if u.abs() >= half {
+                0.0
+            } else {
+                let x = std::f64::consts::PI * cutoff * u;
+                let sinc = if x.abs() < 1e-9 { 1.0 } else { x.sin() / x };
+                sinc * blackman_harris(u / half)
+            };
+            coeffs[phase * taps + k] = h as f32;
+            sum += h;
+        }
+        if sum != 0.0 {
+            for k in 0..taps {
+                coeffs[phase * taps + k] = (coeffs[phase * taps + k] as f64 / sum) as f32;
+            }
+        }
+    }
+
+    coeffs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,6 +546,113 @@ mod tests {
         let input = tone(440.0, 48000, 0.05, 0.5);
         let output = run(input.clone(), 48000, 48000);
         assert_eq!(input, output);
+    }
+
+    /// Play `source` through a rodio player + 48k mixer and return the number of
+    /// output frames that carry signal (i.e. the audible duration in frames).
+    fn audible_frames(source: impl rodio::Source<Item = f32> + Send + 'static) -> u64 {
+        use rodio::Player;
+        use std::num::NonZero;
+
+        let (mixer, mut out) = rodio::mixer::mixer(
+            NonZero::new(2).unwrap(),
+            NonZero::new(48000).unwrap(),
+        );
+        let player = Player::connect_new(&mixer);
+        player.append(source);
+
+        let mut frame: u64 = 0;
+        let mut last_signal: u64 = 0;
+        let mut silent_run: u64 = 0;
+        loop {
+            let Some(left) = out.next() else { break };
+            let right = out.next().unwrap_or(0.0);
+            if left.abs() > 1e-4 || right.abs() > 1e-4 {
+                last_signal = frame;
+                silent_run = 0;
+            } else if frame > 0 {
+                silent_run += 1;
+                if silent_run > 4800 {
+                    break;
+                }
+            }
+            frame += 1;
+            if frame > 48000 * 8 {
+                break;
+            }
+        }
+        last_signal
+    }
+
+    fn stereo_tone(freq: f64, rate: u32, secs: f64) -> SamplesBuffer {
+        let data = tone(freq, rate, secs, 0.5);
+        let mut interleaved = Vec::with_capacity(data.len() * 2);
+        for s in data {
+            interleaved.push(s);
+            interleaved.push(s);
+        }
+        SamplesBuffer::new(
+            std::num::NonZero::new(2).unwrap(),
+            std::num::NonZero::new(rate).unwrap(),
+            interleaved,
+        )
+    }
+
+    #[test]
+    fn player_plays_one_second_in_one_second() {
+        let source = ResampleSource::new(stereo_tone(440.0, 44100, 1.0), 48000);
+        let frames = audible_frames(source);
+        assert!(
+            frames.abs_diff(48000) < 2400,
+            "expected ~48000 frames, got {frames}"
+        );
+    }
+
+    fn mono_tone(freq: f64, rate: u32, secs: f64) -> SamplesBuffer {
+        SamplesBuffer::new(
+            std::num::NonZero::new(1).unwrap(),
+            std::num::NonZero::new(rate).unwrap(),
+            tone(freq, rate, secs, 0.5),
+        )
+    }
+
+    #[test]
+    fn speed_source_is_bit_exact_at_1x() {
+        let input = tone(440.0, 44100, 0.1, 0.5);
+        let expected = input.clone();
+        let fp = Arc::new(AtomicU32::new(SPEED_FP_SCALE));
+        let output: Vec<f32> = SpeedSource::new(mono_tone(440.0, 44100, 0.1), fp).collect();
+        assert_eq!(expected, output);
+    }
+
+    #[test]
+    fn speed_source_plays_faster() {
+        let fp = Arc::new(AtomicU32::new(SPEED_FP_SCALE * 2));
+        let output: Vec<f32> =
+            SpeedSource::new(mono_tone(440.0, 44100, 2.0), fp).collect();
+        // 2 s at 2x → ~1 s of frames at the source rate.
+        assert!(
+            output.len().abs_diff(44100) < 1000,
+            "expected ~44100 frames, got {}",
+            output.len()
+        );
+    }
+
+    #[test]
+    fn speed_source_applies_mid_stream() {
+        // The factor is read per output frame, so changes must take effect
+        // immediately (rodio's mixer never re-reads the rate mid-span).
+        let fp = Arc::new(AtomicU32::new(SPEED_FP_SCALE));
+        let mut source = SpeedSource::new(mono_tone(440.0, 44100, 2.0), fp.clone());
+        let mut frames = 0usize;
+        for _ in 0..44100 {
+            assert!(source.next().is_some());
+            frames += 1;
+        }
+        fp.store(SPEED_FP_SCALE * 2, Ordering::Relaxed);
+        frames += source.count();
+        // 1 s at 1x + 1 s at 2x ≈ 66150 frames.
+        assert!(frames.abs_diff(66150) < 2000, "frames {frames}");
     }
 }
 

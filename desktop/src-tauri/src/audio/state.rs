@@ -48,6 +48,9 @@ pub struct AudioState {
     pub normalization_gain: Mutex<f32>,
     pub volume: Mutex<f32>,
     pub playback_rate: Mutex<f32>,
+    /// Shared fixed-point playback rate (`rate * 10000`) read by the decode
+    /// chain's `SpeedSource` on every frame; set alongside `playback_rate`.
+    pub playback_rate_fp: Arc<AtomicU32>,
     /// Source-time position integrator `(source_anchor, output_anchor)` in seconds.
     /// rodio's get_pos() is wall-clock (output) time; source time is integrated as
     /// `source_anchor + (get_pos() - output_anchor) * rate`. The anchor is re-based on
@@ -162,6 +165,7 @@ pub fn init() -> AudioState {
         normalization_gain: Mutex::new(1.0),
         volume: Mutex::new(0.25),
         playback_rate: Mutex::new(1.0),
+        playback_rate_fp: Arc::new(AtomicU32::new(crate::audio::resample::SPEED_FP_SCALE)),
         pos_anchor: Mutex::new((0.0, 0.0)),
         has_track: AtomicBool::new(false),
         ended_notified: AtomicBool::new(false),
