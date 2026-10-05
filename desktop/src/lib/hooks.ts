@@ -879,7 +879,7 @@ export function useSearchUsers(q: string) {
 const SEARCH_DB_LIMIT = 20;
 const SEARCH_DB_MAX_PAGES = 10;
 /** Items per page for the numbered pagination on the Search page. */
-const SEARCH_DB_PAGE_SIZE = 25;
+const SEARCH_DB_PAGE_SIZE = 30;
 
 function searchDbExtra(userUrn?: string, sort?: SearchSort): string {
   return [
