@@ -8,7 +8,7 @@ import {
   subscribeFloatingComments,
   type TimelineComment,
 } from '../../lib/audio';
-import { art, durLong } from '../../lib/formatters';
+import { art } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
 import { useSettingsStore } from '../../stores/settings';
 
@@ -134,16 +134,15 @@ export const WaveVoices = React.memo(function WaveVoices({
               elsRef.current[i] = el;
             }}
             onClick={() => onSeek((d.comment.timestamp ?? 0) / 1000)}
-            title={`Jump to ${durLong(d.comment.timestamp ?? 0)}`}
-            className="wv-dot group/dot absolute bottom-1 pointer-events-auto cursor-pointer"
+            className="wv-dot group/dot absolute top-[75%] -translate-y-1/2 pointer-events-auto cursor-pointer"
             style={{ left: `${d.pct * 100}%` }}
           >
-            <span className="wv-pip-wrap relative block w-[18px] h-[18px] -translate-x-1/2 transition-transform duration-200 group-hover/dot:scale-125">
-              <span className="wv-pip block size-full overflow-hidden rounded-full ring-1 ring-white/25 bg-white/10 transition-transform duration-200">
+            <span className="wv-pip-wrap relative block w-6 h-6 -translate-x-1/2 transition-transform duration-200 group-hover/dot:scale-125">
+              <span className="wv-pip block size-full overflow-hidden rounded-full bg-white/10 transition-transform duration-200">
                 <CommentAvatar
                   url={user?.avatar_url ?? null}
                   username={user?.username ?? null}
-                  className="size-full text-[9px] font-semibold"
+                  className="size-full text-[10px] font-semibold"
                 />
               </span>
               {d.count > 1 && (
@@ -151,33 +150,6 @@ export const WaveVoices = React.memo(function WaveVoices({
                   {d.count}
                 </span>
               )}
-            </span>
-            <span
-              className="wv-pill absolute bottom-[150%] left-0 z-20 flex items-center gap-2 max-w-[240px] w-max px-3 py-2 rounded-2xl"
-              style={{
-                background: 'rgba(22,22,28,0.92)',
-                border: '0.5px solid rgba(255,255,255,0.12)',
-                boxShadow: '0 16px 40px rgba(0,0,0,0.5), inset 0 0.5px 0 rgba(255,255,255,0.1)',
-              }}
-            >
-              <CommentAvatar
-                url={user?.avatar_url ?? null}
-                username={user?.username ?? null}
-                className="w-6 h-6 rounded-full shrink-0"
-              />
-              <span className="min-w-0 text-left">
-                <span className="block text-[11px] text-white/50 leading-snug truncate">
-                  {user?.username ?? 'You'}
-                </span>
-                <span className="block text-[12px] text-white/85 leading-snug truncate">
-                  {d.comment.body}
-                </span>
-                {d.count > 1 && (
-                  <span className="block text-[10px] text-accent/90 tabular-nums">
-                    {`${d.count} ${d.count === 1 ? 'voice left here' : 'voices left here'}`}
-                  </span>
-                )}
-              </span>
             </span>
           </button>
         );
@@ -248,7 +220,7 @@ export function FloatingComments({
       {pills.map((p) => (
         <div
           key={p.key}
-          className="fc-pill absolute bottom-[30px]"
+          className="fc-pill absolute bottom-[54px]"
           style={{ left: `${p.pct * 100}%` }}
         >
           <span

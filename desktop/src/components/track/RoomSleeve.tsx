@@ -2,7 +2,9 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { art, fc } from '../../lib/formatters';
 import { Loader2 } from '../../lib/icons';
+import { useAuthStore } from '../../stores/auth';
 import type { Track } from '../../stores/player';
+import { FollowBtn } from '../user/FollowBtn';
 import { RelatedRow } from './RelatedRow';
 import type { TrackAura } from './useTrackAura';
 
@@ -28,6 +30,7 @@ export const RoomSleeve = React.memo(function RoomSleeve({
 }) {
   const navigate = useNavigate();
   const u = track.user;
+  const myUrn = useAuthStore((s) => s.user?.urn);
 
   const shown = favoriters.slice(0, 8);
   const total = track.favoritings_count ?? track.likes_count ?? favoriters.length;
@@ -38,19 +41,19 @@ export const RoomSleeve = React.memo(function RoomSleeve({
       <button
         type="button"
         onClick={() => navigate(`/user/${encodeURIComponent(u.urn)}`)}
-        className="group/ac w-full flex flex-col items-center text-center gap-3.5 transition-all duration-300 ease-[var(--ease-apple)] hover:-translate-y-0.5 cursor-pointer"
+        className="group/ac w-full flex items-center gap-4 text-left transition-all duration-300 ease-[var(--ease-apple)] hover:-translate-y-0.5 cursor-pointer"
       >
         <img
           src={art(u.avatar_url, 't200x200') ?? ''}
           alt=""
-          className="w-20 h-20 rounded-full object-cover ring-1 ring-white/[0.12] transition-transform duration-500 group-hover/ac:scale-105"
+          className="w-[72px] h-[72px] shrink-0 rounded-full object-cover ring-1 ring-white/[0.12] transition-transform duration-500 group-hover/ac:scale-105"
         />
-        <div>
-          <p className="text-[15px] font-bold text-white/90 group-hover/ac:text-white transition-colors">
+        <div className="min-w-0">
+          <p className="text-[15px] font-bold text-white/90 group-hover/ac:text-white transition-colors truncate">
             {u.username}
           </p>
           {(u.followers_count != null || u.track_count != null) && (
-            <p className="text-[11px] text-white/35 tabular-nums mt-1">
+            <p className="text-[11px] text-white/35 tabular-nums mt-1 truncate">
               {u.followers_count != null && `${fc(u.followers_count)} ${'Followers'}`}
               {u.followers_count != null && u.track_count != null && ' · '}
               {u.track_count != null && `${fc(u.track_count)} ${'Tracks'}`}
@@ -58,6 +61,27 @@ export const RoomSleeve = React.memo(function RoomSleeve({
           )}
         </div>
       </button>
+
+      {myUrn !== u.urn && (
+        <div className="flex -mt-1">
+          <FollowBtn userUrn={u.urn} aura={aura.aura} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 gap-3 pt-1">
+        {[
+          { value: track.playback_count, label: 'plays' },
+          { value: track.favoritings_count ?? track.likes_count, label: 'likes' },
+          { value: track.reposts_count, label: 'reposts' },
+        ].map((s) => (
+          <div key={s.label} className="flex flex-col items-start gap-1">
+            <span className="text-[17px] font-bold text-white/90 tabular-nums">
+              {s.value != null ? fc(s.value) : '—'}
+            </span>
+            <span className="text-[10px] text-white/35">{s.label}</span>
+          </div>
+        ))}
+      </div>
 
       {shown.length > 0 && (
         <div className="flex flex-col">

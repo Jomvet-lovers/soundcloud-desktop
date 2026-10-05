@@ -47,47 +47,31 @@ export const RoomVoices = React.memo(function RoomVoices({
   }, [comments, sort]);
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center gap-3">
-        <span
-          className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-          style={{ background: aura.accentSoft, color: aura.accent }}
-        >
-          <MessageCircle size={14} />
-        </span>
+    <section className="space-y-1">
+      <div className="flex items-center gap-3 pb-1">
         <h2 className="text-[16px] font-bold text-white/85">{'Comments'}</h2>
         {commentCount != null && (
-          <span
-            className="text-[11px] font-semibold tabular-nums px-2.5 h-6 inline-flex items-center rounded-full text-white/45"
-            style={{ background: 'rgba(255,255,255,0.05)' }}
-          >
-            {fc(commentCount)}
-          </span>
+          <span className="text-[12px] tabular-nums text-white/35">{fc(commentCount)}</span>
         )}
-      </div>
-
-      <div className="flex items-center gap-1">
-        {SORTS.map((opt) => {
-          const on = sort === opt.id;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setSort(opt.id)}
-              className={`relative rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors cursor-pointer ${
-                on ? 'text-white/90' : 'text-white/40 hover:text-white/70'
-              }`}
-            >
-              <span
-                aria-hidden
-                className={`pointer-events-none absolute inset-0 rounded-lg bg-white/[0.1] transition-opacity duration-200 ${
-                  on ? 'opacity-100' : 'opacity-0'
-                }`}
-              />
-              <span className="relative">{opt.label}</span>
-            </button>
-          );
-        })}
+        <div className="ml-auto flex items-center gap-2 text-[11px] font-medium">
+          {SORTS.map((opt, i) => {
+            const on = sort === opt.id;
+            return (
+              <React.Fragment key={opt.id}>
+                {i > 0 && <span className="text-white/15">{'·'}</span>}
+                <button
+                  type="button"
+                  onClick={() => setSort(opt.id)}
+                  className={`transition-colors cursor-pointer ${
+                    on ? 'text-white/85' : 'text-white/35 hover:text-white/60'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </div>
       </div>
 
       {loading ? (
@@ -100,16 +84,9 @@ export const RoomVoices = React.memo(function RoomVoices({
           <p className="text-white/30 text-sm">{'No comments yet'}</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div>
           {sorted.map((c) => (
-            <VoiceCard
-              key={c.urn ?? c.id}
-              comment={c}
-              accent={aura.accent}
-              accentSoft={aura.accentSoft}
-              accentGlow={aura.accentGlow}
-              onSeek={onSeek}
-            />
+            <VoiceCard key={c.urn ?? c.id} comment={c} accent={aura.accent} onSeek={onSeek} />
           ))}
           <div ref={sentinelRef} className="h-4 flex items-center justify-center">
             {fetchingMore && <Loader2 size={14} className="text-white/15 animate-spin" />}

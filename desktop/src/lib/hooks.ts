@@ -11,7 +11,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { listen } from '@tauri-apps/api/event';
-import { type RefObject, useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import type { SearchSort } from '../stores/searchPrefs';
 import { api } from './api';
@@ -1290,7 +1290,6 @@ export function useInfiniteScroll(
   hasNextPage: boolean,
   isFetchingNextPage: boolean,
   fetchNextPage: () => void,
-  rootRef?: RefObject<HTMLElement | null>,
 ) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -1298,11 +1297,7 @@ export function useInfiniteScroll(
     const el = ref.current;
     if (!el || !hasNextPage || isFetchingNextPage) return;
 
-    // An explicit scroll container (e.g. the sticky comments rail) wins when
-    // it is actually scrollable; otherwise scroll the app's main pane.
-    const custom = rootRef?.current;
-    const root =
-      custom && custom.scrollHeight > custom.clientHeight + 1 ? custom : el.closest('main');
+    const root = el.closest('main');
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -1314,7 +1309,7 @@ export function useInfiniteScroll(
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, rootRef]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return ref;
 }

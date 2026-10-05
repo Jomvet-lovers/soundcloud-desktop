@@ -3,20 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { getCurrentTime, subscribe } from '../../lib/audio';
 import { ago, art, durLong } from '../../lib/formatters';
 import { type Comment, usePostComment } from '../../lib/hooks';
-import { Clock, Loader2, Play, Send } from '../../lib/icons';
+import { Clock, Loader2, Send } from '../../lib/icons';
+import { useAuthStore } from '../../stores/auth';
 
-/** A single voice in the room. The MOMENT it was left at (a glowing, genre-toned,
- *  clickable timestamp) is the hero of the card — click it to jump there. */
+/** A single voice: who said it, an optional clickable timestamp that seeks,
+ *  when it was left, and the body. Flat rows separated by hairlines. */
 export const VoiceCard = React.memo(function VoiceCard({
   comment,
   accent,
-  accentSoft,
   onSeek,
 }: {
   comment: Comment;
   accent: string;
-  accentSoft: string;
-  accentGlow: string;
   onSeek: (seconds: number) => void;
 }) {
   const navigate = useNavigate();
@@ -28,77 +26,48 @@ export const VoiceCard = React.memo(function VoiceCard({
   };
 
   return (
-    <div
-      className="group relative rounded-2xl p-4 pl-5 transition-all duration-300 ease-[var(--ease-apple)] hover:-translate-y-0.5"
-      style={{
-        background: 'rgba(255,255,255,0.035)',
-        border: '0.5px solid rgba(255,255,255,0.06)',
-      }}
-    >
-      {ts != null && (
-        <span
-          className="absolute left-0 top-4 bottom-4 w-[2.5px] rounded-full"
-          style={{ background: accent }}
-        />
-      )}
-      <div className="flex gap-3">
-        <button type="button" onClick={goUser} className="shrink-0 cursor-pointer">
-          {avatar ? (
-            <img
-              src={avatar}
-              alt=""
-              loading="lazy"
-              className="w-9 h-9 rounded-full object-cover ring-1 ring-white/[0.08] hover:ring-white/[0.22] transition-all duration-200"
-            />
-          ) : (
-            <span className="flex w-9 h-9 items-center justify-center rounded-full bg-white/[0.07] text-[13px] font-semibold text-white/45 ring-1 ring-white/[0.08]">
-              {(user?.username || '?').slice(0, 1).toUpperCase()}
+    <div className="flex gap-3 py-3.5 border-b border-white/[0.06]">
+      <button type="button" onClick={goUser} className="shrink-0 cursor-pointer self-start">
+        {avatar ? (
+          <img src={avatar} alt="" loading="lazy" className="w-9 h-9 rounded-full object-cover" />
+        ) : (
+          <span className="flex w-9 h-9 items-center justify-center rounded-full bg-white/[0.07] text-[13px] font-semibold text-white/45">
+            {(user?.username || '?').slice(0, 1).toUpperCase()}
+          </span>
+        )}
+      </button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap text-[12.5px]">
+          <span
+            onClick={goUser}
+            className="font-semibold text-white/85 hover:text-white cursor-pointer transition-colors truncate"
+          >
+            {user?.username ?? 'You'}
+          </span>
+          {ts != null && (
+            <button
+              type="button"
+              onClick={() => onSeek(ts / 1000)}
+              className="font-semibold tabular-nums cursor-pointer transition-colors hover:text-white"
+              style={{ color: accent }}
+            >
+              {durLong(ts)}
+            </button>
+          )}
+          <span className="text-[10.5px] text-white/25">{ago(comment.created_at)}</span>
+          {comment.sync === 'pending' && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-white/30">
+              <Clock size={9} />
+              {'sending'}
             </span>
           )}
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span
-              onClick={goUser}
-              className="text-[12.5px] font-semibold text-white/85 hover:text-white cursor-pointer transition-colors truncate"
-            >
-              {user?.username ?? 'You'}
-            </span>
-            <span className="text-[10px] text-white/25 shrink-0">{ago(comment.created_at)}</span>
-            {comment.sync === 'pending' && (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] text-white/30 shrink-0"
-                title={'Sending to SoundCloud...'}
-              >
-                <Clock size={9} />
-                {'sending'}
-              </span>
-            )}
-            {comment.sync === 'failed' && (
-              <span
-                className="text-[10px] text-amber-400/85 shrink-0"
-                title={'Could not sync to SoundCloud'}
-              >
-                {'not synced'}
-              </span>
-            )}
-            {ts != null && (
-              <button
-                type="button"
-                onClick={() => onSeek(ts / 1000)}
-                title={`Jump to ${durLong(ts)}`}
-                className="ml-auto inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11px] font-semibold tabular-nums cursor-pointer transition-transform duration-200 hover:scale-105 shrink-0"
-                style={{ background: accentSoft, color: accent }}
-              >
-                <Play size={8} fill="currentColor" />
-                {durLong(ts)}
-              </button>
-            )}
-          </div>
-          <p className="selectable text-[13.5px] text-white/70 mt-1.5 leading-relaxed break-words">
-            {comment.body}
-          </p>
+          {comment.sync === 'failed' && (
+            <span className="text-[10px] text-amber-400/85">{'not synced'}</span>
+          )}
         </div>
+        <p className="selectable text-[13.5px] text-white/70 mt-1 leading-relaxed break-words">
+          {comment.body}
+        </p>
       </div>
     </div>
   );
@@ -110,19 +79,25 @@ export const CommentForm = React.memo(function CommentForm({
   trackUrn,
   isCurrent,
   accent,
-  accentSoft,
+  pendingAt,
+  onCommitted,
 }: {
   trackUrn: string;
   isCurrent: boolean;
   accent: string;
-  accentSoft: string;
+  /** Position picked on the waveform's lower lane (ms); pinned until posted. */
+  pendingAt?: number | null;
+  onCommitted?: () => void;
 }) {
   const [body, setBody] = useState('');
   const mutation = usePostComment(trackUrn);
   const momentRef = useRef<HTMLSpanElement>(null);
+  const myUser = useAuthStore((s) => s.user);
+  const myAvatar = myUser?.avatar_url ? art(myUser.avatar_url, 'small') : null;
+  const pinned = pendingAt != null;
 
   useEffect(() => {
-    if (!isCurrent) return;
+    if (!isCurrent || pinned) return;
     const paint = () => {
       const tt = getCurrentTime();
       if (momentRef.current)
@@ -130,60 +105,78 @@ export const CommentForm = React.memo(function CommentForm({
     };
     paint();
     return subscribe(paint);
-  }, [isCurrent]);
+  }, [isCurrent, pinned]);
 
   const submit = () => {
     const text = body.trim();
     if (!text) return;
     const time = getCurrentTime();
-    mutation.mutate({ body: text, timestamp: time > 0 ? Math.floor(time * 1000) : undefined });
+    const timestamp =
+      pendingAt != null ? pendingAt : time > 0 ? Math.floor(time * 1000) : undefined;
+    mutation.mutate({ body: text, timestamp });
     setBody('');
+    onCommitted?.();
   };
+
+  const [focused, setFocused] = useState(false);
 
   return (
     <div
-      className="rounded-2xl px-4 py-3"
+      className="flex-1 min-w-[240px] flex items-center gap-2.5 h-11 pl-3.5 pr-2 rounded-full"
       style={{
-        background: 'rgba(255,255,255,0.045)',
-        border: '0.5px solid rgba(255,255,255,0.08)',
+        background: 'rgba(255,255,255,0.03)',
+        border: `0.5px solid ${focused ? 'var(--color-accent)' : 'rgba(255,255,255,0.12)'}`,
+        transition: 'border-color 300ms ease',
       }}
     >
-      {isCurrent && (
-        <div
-          className="flex items-center gap-1.5 mb-2 text-[10px] font-semibold"
+      {myAvatar ? (
+        <img src={myAvatar} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
+      ) : (
+        <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-semibold text-white/60 shrink-0">
+          {(myUser?.username || '?').slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      <input
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder={'Write a comment...'}
+        className="selectable flex-1 min-w-0 bg-transparent text-[13px] text-white/80 placeholder:text-white/25 outline-none"
+      />
+      {pinned || isCurrent ? (
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-semibold shrink-0"
           style={{ color: accent }}
         >
           <Clock size={10} />
-          {'at'}{' '}
-          <span ref={momentRef} className="tabular-nums">
-            0:00
-          </span>
-        </div>
-      )}
-      <div className="flex gap-3">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={'Add a comment...'}
-          rows={2}
-          className="selectable flex-1 bg-transparent text-[13px] text-white/80 placeholder:text-white/20 outline-none resize-none leading-relaxed"
-        />
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!body.trim() || mutation.isPending}
-          className="w-9 h-9 rounded-xl flex items-center justify-center self-end transition-all duration-200 cursor-pointer disabled:opacity-30 disabled:cursor-default"
-          style={{ color: accent, background: body.trim() ? accentSoft : 'transparent' }}
-        >
-          {mutation.isPending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-        </button>
-      </div>
+          {pendingAt != null ? (
+            <span className="tabular-nums">{durLong(pendingAt)}</span>
+          ) : (
+            <span ref={momentRef} className="tabular-nums">
+              0:00
+            </span>
+          )}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={submit}
+        disabled={!body.trim() || mutation.isPending}
+        className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors duration-200 cursor-pointer disabled:opacity-30 disabled:cursor-default"
+        style={{
+          color: accent,
+          background: body.trim() ? 'rgba(255,255,255,0.08)' : 'transparent',
+        }}
+      >
+        {mutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+      </button>
     </div>
   );
 });

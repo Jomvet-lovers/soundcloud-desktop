@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { dateFormatted, durLong, fc } from '../../lib/formatters';
+import { dateFormatted, durLong } from '../../lib/formatters';
 import { ChevronDown, ChevronUp, Hash } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import type { TrackAura } from './useTrackAura';
@@ -40,17 +40,8 @@ function Credit({
   );
 }
 
-function Stat({ value, label }: { value?: number | null; label: string }) {
-  return (
-    <span className="whitespace-nowrap">
-      <span className="font-semibold text-white/90">{value != null ? fc(value) : '—'}</span>{' '}
-      <span className="text-white/40">{label}</span>
-    </span>
-  );
-}
-
-/** The record-sleeve back: glanceable stats, the artist's written notes,
- *  credits-as-typography (album, release, language, ISRC…) and tags. */
+/** The record-sleeve back: the artist's written notes, credits-as-typography
+ *  (album, release, language, ISRC…) and tags. */
 export const LinerNotes = React.memo(function LinerNotes({
   track,
 }: {
@@ -88,13 +79,6 @@ export const LinerNotes = React.memo(function LinerNotes({
 
   return (
     <section className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]">
-        <Stat value={track.playback_count} label={'plays'} />
-        <Stat value={track.favoritings_count ?? track.likes_count} label={'likes'} />
-        {track.reposts_count != null && <Stat value={track.reposts_count} label={'reposts'} />}
-        <Stat value={track.comment_count} label={'Comments'} />
-      </div>
-
       {desc && (
         <div>
           <h3 className="text-[10px] font-medium text-white/30 mb-2.5">{'Description'}</h3>

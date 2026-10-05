@@ -1,11 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { art } from '../../lib/formatters';
+import { ago } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
+import { Pause, Play } from '../../lib/icons';
 import {
   getArtistDisplay,
   getArtistLinkItems,
-  getArtistTarget,
   getDisplayTitle,
   getParticipants,
 } from '../../lib/track-display';
@@ -13,9 +13,9 @@ import type { Track } from '../../stores/player';
 import { ArtistNameLinks } from '../music/ArtistNameLinks';
 import { TrackStatusBadges } from '../music/TrackStatusBadges';
 import { ArtistLinks } from './ArtistLinks';
+import { CommentForm } from './comments';
 import { RoomFloor } from './RoomFloor';
 import { TrackActionRail } from './TrackActionRail';
-import { TrackCover } from './TrackCover';
 import type { TrackAura } from './useTrackAura';
 
 const KIND_TONE: Record<string, string> = {
@@ -34,6 +34,12 @@ const KIND_LABEL: Record<string, string> = {
   cover: 'cover',
 };
 
+const Dot = () => <span className="text-white/20">{'·'}</span>;
+
+/** The hero's left column, laid out like SoundCloud's: play control inline
+ *  with the title + meta, the waveform under it with the comment avatars on
+ *  its edge, and the action row (like / comment / utilities) below. The
+ *  artwork lives in the page's right column. */
 export const RoomHero = React.memo(function RoomHero({
   track,
   aura,
@@ -41,8 +47,11 @@ export const RoomHero = React.memo(function RoomHero({
   isThisPlaying,
   isOwner,
   comments,
+  commentAt,
   onPlay,
   onSeek,
+  onCommentPosition,
+  onCommentCommitted,
 }: {
   track: Track;
   aura: TrackAura;
@@ -50,31 +59,20 @@ export const RoomHero = React.memo(function RoomHero({
   isThisPlaying: boolean;
   isOwner: boolean;
   comments: Comment[];
+  commentAt: number | null;
   onPlay: () => void;
   onSeek: (seconds: number) => void;
+  onCommentPosition: (positionMs: number) => void;
+  onCommentCommitted: () => void;
 }) {
   const navigate = useNavigate();
 
-  const cover = art(track.artwork_url, 't500x500');
-  const title = getDisplayTitle(track);
+  const title = getDisplayTitle(track) || 'Untitled';
   const ad = getArtistDisplay(track);
-  // Фиты показываются в feat-ряду (как и все кроме основного) — из
-  // participants берём только remix/prod.
   const participants = getParticipants(track, ['remixer', 'producer']);
   const artistLinks = getArtistLinkItems(track);
-  // Страница трека: в главной строке ТОЛЬКО основной, остальные — feat-ряд.
   const mainLink = artistLinks.slice(0, 1);
   const featLinks = artistLinks.slice(1);
-  // Аватар и его клик — ОДИН человек: артист каталога, когда enrichment его
-  // знает, иначе uploader. Раньше картинка была uploader'а, а клик вёл на
-  // первого слинкованного из строки авторов.
-  const primaryArtist = track.enrichment?.primary_artist;
-  const heroAvatarSrc = primaryArtist?.avatar_url ?? track.user.avatar_url;
-  const heroAvatarTarget = primaryArtist?.avatar_url
-    ? `/artist/${encodeURIComponent(primaryArtist.id)}`
-    : track.user.urn
-      ? `/user/${encodeURIComponent(track.user.urn)}`
-      : getArtistTarget(track);
   const year = track.release_year ?? track.enrichment?.album?.year;
 
   const titleStyle = aura.hasGenre
@@ -89,145 +87,146 @@ export const RoomHero = React.memo(function RoomHero({
 
   return (
     <section className="relative" style={{ isolation: 'isolate' }}>
-      <div className="relative flex flex-col gap-6">
-        <div className="flex flex-col lg:flex-row items-center lg:items-start gap-6 lg:gap-8">
-          <TrackCover
-            title={title}
-            coverUrl={cover ?? undefined}
-            aura={aura.aura}
-            verified={ad.isEnriched && ad.verified}
-            isPlaying={isThisPlaying}
-            onToggle={onPlay}
-          />
+      <div className="flex items-center gap-5">
+        <button
+          type="button"
+          onClick={onPlay}
+          aria-label={isThisPlaying ? 'Pause' : 'Play'}
+          className="w-[68px] h-[68px] shrink-0 rounded-full border border-white/[0.18] hover:border-white/[0.4] flex items-center justify-center text-white/90 hover:text-white transition-colors cursor-pointer"
+        >
+          {isThisPlaying ? (
+            <Pause size={24} fill="currentColor" strokeWidth={0} />
+          ) : (
+            <Play size={24} fill="currentColor" strokeWidth={0} className="ml-1" />
+          )}
+        </button>
 
-          <div className="flex-1 min-w-0 w-full text-center lg:text-left">
-            <div className="flex items-center gap-2 flex-wrap justify-center lg:justify-start mb-3.5">
-              <TrackStatusBadges meta={track._scd_meta} />
-              {track.genre && (
+        <div className="flex-1 min-w-0">
+          <h1
+            className="text-3xl md:text-4xl xl:text-5xl font-black leading-[1.02] tracking-tighter break-words"
+            style={titleStyle}
+          >
+            {title}
+          </h1>
+
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px]">
+            <ArtistNameLinks
+              items={mainLink}
+              linkClassName="font-semibold text-white/85 hover:text-white cursor-pointer transition-colors"
+            />
+            {ad.isEnriched && ad.verified && (
+              <span
+                className="text-[11px] text-emerald-400/80"
+                title={`Verified artist (confidence ${(ad.confidence ?? 0).toFixed(2)})`}
+              >
+                ✓
+              </span>
+            )}
+            {ad.isEnriched && !ad.verified && (
+              <span
+                className="text-[11px] text-amber-400/70"
+                title={`Parsed from title, not externally verified (confidence ${(ad.confidence ?? 0).toFixed(2)})`}
+              >
+                ?
+              </span>
+            )}
+            {ad.uploadKind && (
+              <span
+                className={`px-1.5 py-0.5 rounded-md text-[9px] tracking-wider font-semibold ${
+                  KIND_TONE[ad.uploadKind] ?? 'bg-white/[0.06] text-white/50'
+                }`}
+              >
+                {KIND_LABEL[ad.uploadKind] ?? ad.uploadKind}
+              </span>
+            )}
+            {track.created_at && (
+              <>
+                <Dot />
+                <span className="text-white/40">{ago(track.created_at)}</span>
+              </>
+            )}
+            {track.genre && (
+              <>
+                <Dot />
                 <span
-                  className="text-[10px] font-semibold text-white/55"
+                  className="text-[11px] font-semibold text-white/55"
                   style={{ color: aura.hasGenre ? aura.accent : undefined }}
                 >
                   {track.genre}
                 </span>
-              )}
-              {year && (
-                <span className="text-[10px] font-semibold text-white/40 tabular-nums">{year}</span>
-              )}
-            </div>
+              </>
+            )}
+            {year && (
+              <>
+                <Dot />
+                <span className="text-[11px] font-semibold text-white/40 tabular-nums">{year}</span>
+              </>
+            )}
+            <TrackStatusBadges meta={track._scd_meta} />
+          </div>
 
-            <h1
-              className="text-4xl md:text-6xl xl:text-7xl font-black leading-[0.95] tracking-tighter break-words"
-              style={titleStyle}
-            >
-              {title}
-            </h1>
-
-            <div className="mt-4">
-              <div className="inline-flex items-center gap-2.5 group/artist">
-                {heroAvatarSrc && (
-                  <img
-                    src={art(heroAvatarSrc, 'small') ?? ''}
-                    alt=""
-                    className={`w-7 h-7 rounded-full ring-1 ring-white/[0.1] transition-all duration-200 ${
-                      heroAvatarTarget ? 'cursor-pointer hover:ring-white/[0.22]' : ''
-                    }`}
-                    onClick={heroAvatarTarget ? () => navigate(heroAvatarTarget) : undefined}
-                  />
-                )}
-                <span className="text-[15px] font-medium text-white/75">
+          {(featLinks.length > 0 || participants || ad.uploader) && (
+            <div className="mt-1.5 text-[12px] text-white/40 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              {featLinks.length > 0 && (
+                <span>
+                  {'feat.'}{' '}
                   <ArtistNameLinks
-                    items={mainLink}
-                    linkClassName="cursor-pointer transition-colors hover:text-white"
+                    items={featLinks}
+                    linkClassName="cursor-pointer text-white/55 hover:text-white/85 transition-colors"
                   />
                 </span>
-                {ad.isEnriched && ad.verified && (
+              )}
+              {participants?.remixers && participants.remixers.length > 0 && (
+                <span>
+                  {featLinks.length > 0 && '· '}
+                  <ArtistLinks artists={participants.remixers} /> {'Remix'}
+                </span>
+              )}
+              {participants?.producers && participants.producers.length > 0 && (
+                <span>
+                  {(featLinks.length > 0 || participants.remixers.length > 0) && '· '}
+                  {'prod.'} <ArtistLinks artists={participants.producers} />
+                </span>
+              )}
+              {(featLinks.length > 0 || participants) && ad.uploader && <span>·</span>}
+              {ad.uploader && (
+                <span>
+                  uploaded by{' '}
                   <span
-                    className="text-[11px] text-emerald-400/80"
-                    title={`Verified artist (confidence ${(ad.confidence ?? 0).toFixed(2)})`}
+                    className="text-white/55 hover:text-white/80 cursor-pointer transition-colors"
+                    onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
                   >
-                    ✓
+                    {ad.uploader}
                   </span>
-                )}
-                {ad.isEnriched && !ad.verified && (
-                  <span
-                    className="text-[11px] text-amber-400/70"
-                    title={`Parsed from title, not externally verified (confidence ${(ad.confidence ?? 0).toFixed(2)})`}
-                  >
-                    ?
-                  </span>
-                )}
-                {ad.uploadKind && (
-                  <span
-                    className={`px-1.5 py-0.5 rounded-md text-[9px] tracking-wider font-semibold ${
-                      KIND_TONE[ad.uploadKind] ?? 'bg-white/[0.06] text-white/50'
-                    }`}
-                    title={KIND_LABEL[ad.uploadKind] ?? ad.uploadKind}
-                  >
-                    {KIND_LABEL[ad.uploadKind] ?? ad.uploadKind}
-                  </span>
-                )}
-              </div>
-
-              {(featLinks.length > 0 || participants || ad.uploader) && (
-                <div className="mt-1.5 text-[12px] text-white/40 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 justify-center lg:justify-start">
-                  {featLinks.length > 0 && (
-                    <span>
-                      {'feat.'}{' '}
-                      <ArtistNameLinks
-                        items={featLinks}
-                        linkClassName="cursor-pointer text-white/55 hover:text-white/85 transition-colors"
-                      />
-                    </span>
-                  )}
-                  {participants?.remixers && participants.remixers.length > 0 && (
-                    <span>
-                      {featLinks.length > 0 && '· '}
-                      <ArtistLinks artists={participants.remixers} /> {'Remix'}
-                    </span>
-                  )}
-                  {participants?.producers && participants.producers.length > 0 && (
-                    <span>
-                      {(featLinks.length > 0 || participants.remixers.length > 0) && '· '}
-                      {'prod.'} <ArtistLinks artists={participants.producers} />
-                    </span>
-                  )}
-                  {(featLinks.length > 0 || participants) && ad.uploader && <span>·</span>}
-                  {ad.uploader && (
-                    <span>
-                      uploaded by{' '}
-                      <span
-                        className="text-white/55 hover:text-white/80 cursor-pointer transition-colors"
-                        onClick={() => navigate(`/user/${encodeURIComponent(track.user.urn)}`)}
-                      >
-                        {ad.uploader}
-                      </span>
-                    </span>
-                  )}
-                </div>
+                </span>
               )}
             </div>
-
-            <div className="mt-6 flex justify-center lg:justify-start">
-              <TrackActionRail
-                track={track}
-                isPlaying={isThisPlaying}
-                isOwner={isOwner}
-                onPlay={onPlay}
-              />
-            </div>
-          </div>
+          )}
         </div>
+      </div>
 
-        <div className="pt-6 border-t border-white/[0.07]">
-          <RoomFloor
-            track={track}
+      <div className="mt-6 pt-5 border-t border-white/[0.07]">
+        <RoomFloor
+          track={track}
+          isCurrent={isThis}
+          comments={comments}
+          aura={aura}
+          onSeek={onSeek}
+          commentAt={commentAt}
+          onCommentPosition={onCommentPosition}
+        />
+      </div>
+
+      <div className="mt-5">
+        <TrackActionRail track={track} isOwner={isOwner}>
+          <CommentForm
+            trackUrn={track.urn}
             isCurrent={isThis}
-            comments={comments}
-            aura={aura}
-            onSeek={onSeek}
+            accent={aura.accent}
+            pendingAt={commentAt}
+            onCommitted={onCommentCommitted}
           />
-        </div>
+        </TrackActionRail>
       </div>
     </section>
   );

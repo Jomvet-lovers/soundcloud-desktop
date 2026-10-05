@@ -4,31 +4,25 @@ import { type PerfMode, usePerfMode } from '../../../lib/perf';
 import { useTrackWaveform } from '../../../lib/waveform';
 import type { Track } from '../../../stores/player';
 
-const BAR_COUNT = 160;
+const BAR_COUNT = 380;
 
 /** Rendered bars per mode (drawn twice: muted + accent layer). */
 function barsForMode(mode: PerfMode): number {
-  if (mode === 'light') return 64;
-  if (mode === 'medium') return 120;
+  if (mode === 'light') return 150;
+  if (mode === 'medium') return 260;
   return BAR_COUNT;
 }
 
-/** Downsample SC waveform samples into BAR_COUNT averaged bars (0..1). */
+/** Map SC waveform samples to bar heights (0..1), ONE sample per bar.
+ *  The official wave is a straight decimation of the sample array: picking
+ *  the bucket peak instead flattens alternating samples into a level top,
+ *  which is why the spikes disappeared. */
 function downsample(samples: number[], height: number, count: number): number[] {
-  if (!samples.length) return new Array(count).fill(0.35);
-  const bucketSize = samples.length / count;
+  if (!samples.length) return new Array(count).fill(0.25);
   const out = new Array<number>(count);
   for (let i = 0; i < count; i++) {
-    const start = Math.floor(i * bucketSize);
-    const end = Math.max(start + 1, Math.floor((i + 1) * bucketSize));
-    let sum = 0;
-    let n = 0;
-    for (let j = start; j < end && j < samples.length; j++) {
-      sum += samples[j];
-      n++;
-    }
-    const avg = n > 0 ? sum / n / height : 0.35;
-    out[i] = 0.18 + Math.min(0.82, avg * 0.95);
+    const idx = Math.min(samples.length - 1, Math.floor((i * samples.length) / count));
+    out[i] = Math.min(1, samples[idx] / height);
   }
   return out;
 }
@@ -40,7 +34,7 @@ function fallbackBars(count: number): number[] {
     const x = i / count;
     const base = 0.35 + 0.28 * Math.sin(x * Math.PI * 2);
     const detail = 0.18 * Math.sin(x * Math.PI * 14 + 1.3);
-    arr[i] = Math.max(0.22, Math.min(0.95, base + detail));
+    arr[i] = Math.max(0.06, Math.min(0.88, base + detail));
   }
   return arr;
 }
@@ -50,6 +44,8 @@ interface Props {
   track: Track | null;
   /** Whether `track` is the one currently loaded in the audio engine. */
   isCurrent: boolean;
+  /** Click on the dimmed lower lane: pick where to comment (no seek). */
+  onCommentPosition?: (positionMs: number) => void;
 }
 
 /**
@@ -58,7 +54,7 @@ interface Props {
  * audio tick — no React re-renders while the track plays.
  */
 export const LiveWaveform = React.memo(
-  function LiveWaveform({ track, isCurrent }: Props) {
+  function LiveWaveform({ track, isCurrent, onCommentPosition }: Props) {
     const { data: samples } = useTrackWaveform(track);
     const { mode } = usePerfMode();
     const barCount = barsForMode(mode);
@@ -96,34 +92,60 @@ export const LiveWaveform = React.memo(
       if (d > 0) seek(pct * d);
     };
 
+    /** Lower lane click: pin where to comment — the playhead stays put. */
+    const handleCommentClick = (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!onCommentPosition) return;
+      e.stopPropagation();
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      const d = getDuration() || (track?.duration ?? 0) / 1000;
+      if (d > 0) onCommentPosition(Math.round(pct * d * 1000));
+    };
+
     return (
       <div
         ref={rootRef}
-        className={`sw-bars relative w-full h-[96px] ${isCurrent ? 'cursor-pointer' : 'cursor-default'}`}
+        className={`sw-bars relative w-full h-[104px] ${isCurrent ? 'cursor-pointer' : 'cursor-default'}`}
         onClick={handleBarClick}
       >
-        <div className="sw-layer-muted absolute inset-0 flex items-center gap-[2px]">
+        <div className="sw-layer-muted absolute inset-y-0 left-0 right-10 flex items-center gap-px">
           {bars.map((v, i) => (
             <div key={i} className="sw-bar flex-1" style={{ height: `${v * 100}%` }} />
           ))}
         </div>
-        <div className="sw-layer-accent absolute inset-0 flex items-center gap-[2px]">
+        <div className="sw-layer-accent absolute inset-y-0 left-0 right-10 flex items-center gap-px">
           {bars.map((v, i) => (
             <div key={i} className="sw-bar flex-1" style={{ height: `${v * 100}%` }} />
           ))}
         </div>
+        {/* Lower lane: dims the mirrored half; clicking pins a comment spot
+            there without seeking. */}
+        <div
+          className="absolute left-0 right-0 top-1/2 bottom-0 cursor-crosshair"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={handleCommentClick}
+        />
+        {/* Center separator line, like the official wave (contrastText @ 50%). */}
+        <div
+          className="pointer-events-none absolute left-0 right-10 top-1/2 -translate-y-1/2 h-px"
+          style={{ background: 'rgba(255,255,255,0.45)' }}
+        />
         {isCurrent && (
           <div
             ref={hintRef}
-            className="absolute top-0 bottom-0 w-[2px] pointer-events-none rounded-full"
+            className="absolute top-0 bottom-0 w-px pointer-events-none"
             style={{
               left: '0%',
-              background: 'var(--color-accent)',
+              transform: 'translateX(-50%)',
+              background: 'rgba(255,255,255,0.9)',
             }}
           />
         )}
       </div>
     );
   },
-  (prev, next) => prev.track?.urn === next.track?.urn && prev.isCurrent === next.isCurrent,
+  (prev, next) =>
+    prev.track?.urn === next.track?.urn &&
+    prev.isCurrent === next.isCurrent &&
+    prev.onCommentPosition === next.onCommentPosition,
 );

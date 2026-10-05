@@ -6,20 +6,12 @@ import { api } from '../../lib/api';
 import { type DownloadFormat, downloadTrack } from '../../lib/cache';
 import { fc } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
-import {
-  Check,
-  Download,
-  Heart,
-  LinkIcon,
-  Loader2,
-  pauseCurrent16,
-  playCurrent16,
-} from '../../lib/icons';
+import { Check, Download, Heart, LinkIcon, Loader2 } from '../../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
 import { getTrackDisplay } from '../../lib/track-display';
 import type { Track } from '../../stores/player';
 
-/** Accent like-chip: icon + count, glows accent when active. */
+/** Accent like-chip: icon + count in an outlined pill, accent-tinted when active. */
 const EngagementChip = React.memo(function EngagementChip({
   active,
   icon,
@@ -39,8 +31,10 @@ const EngagementChip = React.memo(function EngagementChip({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-md text-[12.5px] font-medium tabular-nums transition-colors cursor-pointer ${
-        active ? 'text-accent' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
+      className={`inline-flex items-center gap-1.5 h-10 px-3.5 rounded-full border text-[12.5px] font-medium tabular-nums transition-colors cursor-pointer ${
+        active
+          ? 'text-accent border-accent/45'
+          : 'text-white/65 border-white/[0.14] hover:border-white/[0.32] hover:text-white'
       }`}
     >
       {icon}
@@ -138,10 +132,10 @@ export const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?
       onClick={copy}
       title={copied ? 'Copied!' : 'Copy link'}
       aria-label={copied ? 'Copied!' : 'Copy link'}
-      className={`inline-flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 ease-[var(--ease-apple)] cursor-pointer ${
+      className={`inline-flex items-center justify-center w-10 h-10 rounded-full border transition-colors cursor-pointer ${
         copied
-          ? 'text-emerald-400 bg-emerald-500/12'
-          : 'text-white/60 hover:text-white/95 hover:bg-white/[0.07]'
+          ? 'text-emerald-400 border-emerald-400/45'
+          : 'text-white/60 border-white/[0.14] hover:border-white/[0.32] hover:text-white'
       }`}
     >
       {copied ? <Check size={16} /> : <LinkIcon size={16} />}
@@ -188,7 +182,7 @@ export const DownloadButton = React.memo(({ track }: { track: Track }) => {
           disabled={loading}
           title={'Download'}
           aria-label={'Download'}
-          className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer disabled:opacity-50"
+          className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-white/[0.14] text-white/60 hover:text-white hover:border-white/[0.32] transition-colors cursor-pointer disabled:opacity-50"
         >
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
         </button>
@@ -215,27 +209,5 @@ export const DownloadButton = React.memo(({ track }: { track: Track }) => {
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
-  );
-});
-
-/** Big primary play/pause pill — the room's main transport. Uses the user's accent. */
-export const PlayPill = React.memo(function PlayPill({
-  isPlaying,
-  onClick,
-}: {
-  isPlaying: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-2.5 pl-4 pr-6 h-11 rounded-full text-[14px] font-semibold transition-all duration-500 ease-[var(--ease-apple)] cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
-        isPlaying ? 'bg-white text-black' : 'bg-accent text-accent-contrast'
-      }`}
-    >
-      {isPlaying ? pauseCurrent16 : playCurrent16}
-      {isPlaying ? 'Pause' : 'Play'}
-    </button>
   );
 });

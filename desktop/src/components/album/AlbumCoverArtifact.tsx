@@ -9,11 +9,26 @@ interface AlbumCoverArtifactProps {
   aura: Aura;
   /** Retained for API compatibility; the ring no longer rotates. */
   spinning?: boolean;
+  /** Size classes for the square root; defaults to the classic hero sizes. */
+  sizeClassName?: string;
+  /** Draw a hairline outline around the artwork. */
+  outline?: boolean;
 }
 
-function AlbumCoverArtifactImpl({ title, coverUrl, hasStar, aura }: AlbumCoverArtifactProps) {
+function AlbumCoverArtifactImpl({
+  title,
+  coverUrl,
+  hasStar,
+  aura,
+  sizeClassName,
+  outline,
+}: AlbumCoverArtifactProps) {
   return (
-    <div className="relative shrink-0 self-center lg:self-start group w-[180px] h-[180px] md:w-[220px] md:h-[220px]">
+    <div
+      className={`relative shrink-0 self-center lg:self-start group ${
+        sizeClassName ?? 'w-[180px] h-[180px] md:w-[220px] md:h-[220px]'
+      }`}
+    >
       {hasStar && (
         <div
           className="absolute -inset-[5px] rounded-[2.4rem] pointer-events-none overflow-hidden"
@@ -32,9 +47,11 @@ function AlbumCoverArtifactImpl({ title, coverUrl, hasStar, aura }: AlbumCoverAr
         className="relative w-full h-full rounded-xl overflow-hidden"
         style={{
           background: 'rgba(255,255,255,0.03)',
-          boxShadow: hasStar
-            ? 'inset 0 0 0 1px rgba(255,255,255,0.12), inset 0 1px 0 rgba(255,255,255,0.15)'
-            : '0 25px 60px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1)',
+          boxShadow: `${
+            hasStar
+              ? 'inset 0 0 0 1px rgba(255,255,255,0.12), inset 0 1px 0 rgba(255,255,255,0.15)'
+              : '0 25px 60px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1)'
+          }${outline ? ', 0 0 0 1px rgba(255,255,255,0.18)' : ''}`,
         }}
       >
         {coverUrl ? (

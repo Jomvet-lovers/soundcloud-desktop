@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { getCurrentTime, subscribe } from '../../lib/audio';
-import { durLong } from '../../lib/formatters';
+import { art, durLong } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
+import { useAuthStore } from '../../stores/auth';
 import type { Track } from '../../stores/player';
 import { LiveWaveform } from '../music/soundwave/waveform';
 import type { TrackAura } from './useTrackAura';
@@ -15,14 +16,20 @@ export const RoomFloor = React.memo(function RoomFloor({
   comments,
   aura,
   onSeek,
+  commentAt,
+  onCommentPosition,
 }: {
   track: Track;
   isCurrent: boolean;
   comments: Comment[];
   aura: TrackAura;
   onSeek: (seconds: number) => void;
+  /** Pending comment position (ms) picked on the lower lane, if any. */
+  commentAt: number | null;
+  onCommentPosition: (positionMs: number) => void;
 }) {
   const elapsedRef = useRef<HTMLSpanElement>(null);
+  const myUser = useAuthStore((s) => s.user);
 
   useEffect(() => {
     if (!isCurrent) {
@@ -52,7 +59,7 @@ export const RoomFloor = React.memo(function RoomFloor({
       }
     >
       <div className="relative w-full">
-        <LiveWaveform track={track} isCurrent={isCurrent} />
+        <LiveWaveform track={track} isCurrent={isCurrent} onCommentPosition={onCommentPosition} />
         {previewTail > 0 && (
           <div
             className="absolute inset-y-0 right-0 pointer-events-none rounded-r-lg bg-gradient-to-r from-transparent via-black/55 via-40% to-black/70"
@@ -69,11 +76,39 @@ export const RoomFloor = React.memo(function RoomFloor({
           onSeek={onSeek}
         />
         <FloatingComments comments={comments} durationMs={durationMs} isCurrent={isCurrent} />
-      </div>
-      <div className="flex items-center justify-between mt-2.5 px-0.5 text-[11px] tabular-nums text-white/35">
-        <span ref={elapsedRef}>0:00</span>
-        {previewTail > 0 && <span className="text-white/25 text-[9px]">{'Preview only'}</span>}
-        <span>{durLong(track.duration)}</span>
+        {commentAt != null && durationMs > 0 && (
+          <div
+            className="pointer-events-none absolute top-[75%] -translate-x-1/2 -translate-y-1/2"
+            style={{
+              left: `${Math.min(1, Math.max(0, commentAt / durationMs)) * 100}%`,
+            }}
+          >
+            {myUser?.avatar_url ? (
+              <img
+                src={art(myUser.avatar_url, 'small') ?? ''}
+                alt=""
+                className="w-6 h-6 rounded-full object-cover"
+              />
+            ) : (
+              <span className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-[10px] font-semibold text-white/70">
+                {(myUser?.username || '?').slice(0, 1).toUpperCase()}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 flex flex-col items-end text-[11px] tabular-nums text-white/45">
+          <div className="flex flex-1 items-end">
+            <span ref={elapsedRef}>0:00</span>
+          </div>
+          <div className="flex flex-1 items-start">
+            <span>{durLong(track.duration)}</span>
+          </div>
+        </div>
+        {previewTail > 0 && (
+          <span className="pointer-events-none absolute bottom-1 left-1 text-[9px] text-white/25">
+            {'Preview only'}
+          </span>
+        )}
       </div>
     </div>
   );

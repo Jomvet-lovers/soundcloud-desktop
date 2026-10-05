@@ -3,33 +3,30 @@ import { ListPlus } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { SharingToggle } from '../music/SharingToggle';
-import { CopyIconAction, DownloadButton, LikeBtn, PlayPill } from './actions';
+import { CopyIconAction, DownloadButton, LikeBtn } from './actions';
 
-/** Hero transport + engagement + utility rail. Lives OUTSIDE the genre-scoped
- *  wave wrapper, so play/like keep the user's own accent. */
+/** Engagement + utility row under the wave: the like chip, whatever the
+ *  caller slots in the middle (the comment composer), then the icon group. */
 export const TrackActionRail = React.memo(function TrackActionRail({
   track,
-  isPlaying,
   isOwner,
-  onPlay,
+  children,
 }: {
   track: Track;
-  isPlaying: boolean;
   isOwner: boolean;
-  onPlay: () => void;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="flex items-center gap-3 flex-wrap">
-      <PlayPill isPlaying={isPlaying} onClick={onPlay} />
       <LikeBtn trackUrn={track.urn} count={track.favoritings_count ?? track.likes_count} />
-      <span className="w-px h-5 bg-white/[0.08] mx-1" aria-hidden />
+      {children}
       <div className="flex items-center gap-0.5">
         <AddToPlaylistDialog trackUrns={[track.urn]}>
           <button
             type="button"
             title={'Add to playlist'}
             aria-label={'Add to playlist'}
-            className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-white/60 hover:text-white/95 hover:bg-white/[0.07] transition-all duration-200 cursor-pointer"
+            className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-white/[0.14] text-white/60 hover:text-white hover:border-white/[0.32] transition-colors cursor-pointer"
           >
             <ListPlus size={16} />
           </button>

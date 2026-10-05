@@ -1,15 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CommentForm } from '../components/track/comments';
 import { ROOM_KEYFRAMES } from '../components/track/keyframes';
 import { LinerNotes } from '../components/track/LinerNotes';
 import { RoomHero } from '../components/track/RoomHero';
 import { RoomSleeve } from '../components/track/RoomSleeve';
 import { RoomVoices } from '../components/track/RoomVoices';
+import { TrackCover } from '../components/track/TrackCover';
 import { useTrackAura } from '../components/track/useTrackAura';
 import { api } from '../lib/api';
 import { seek } from '../lib/audio';
+import { art } from '../lib/formatters';
 import {
   useInfiniteScroll,
   useRelatedTracks,
@@ -19,6 +20,7 @@ import {
 import { ChevronLeft, Loader2 } from '../lib/icons';
 import { setLikedUrn } from '../lib/likes';
 import { useScdMeta } from '../lib/scdMeta';
+import { getArtistDisplay, getDisplayTitle } from '../lib/track-display';
 import { useAuthStore } from '../stores/auth';
 import { type Track, usePlayerStore } from '../stores/player';
 
@@ -61,13 +63,7 @@ export const TrackPage = React.memo(function TrackPage() {
     isFetchingNextPage,
     isLoading: commentsLoading,
   } = useTrackComments(urn);
-  const commentsScrollRef = useRef<HTMLDivElement>(null);
-  const commentsSentinel = useInfiniteScroll(
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-    commentsScrollRef,
-  );
+  const commentsSentinel = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
 
   const { data: relatedData, isLoading: relatedLoading } = useRelatedTracks(urn, 10);
   const { data: favoritersData } = useTrackFavoriters(urn, 12);
@@ -84,6 +80,19 @@ export const TrackPage = React.memo(function TrackPage() {
 
   const aura = useTrackAura(track?.genre);
   const myUrn = useAuthStore((s) => s.user?.urn);
+
+  // Position (ms) picked on the waveform's lower lane — pins the comment
+  // there without moving the playhead. Keyed by URN so it resets per track.
+  const [commentPin, setCommentPin] = useState<{ urn: string | undefined; ms: number | null }>({
+    urn,
+    ms: null,
+  });
+  const commentAt = commentPin.urn === urn ? commentPin.ms : null;
+  const handleCommentPosition = useCallback(
+    (positionMs: number) => setCommentPin({ urn, ms: positionMs }),
+    [urn],
+  );
+  const handleCommentCommitted = useCallback(() => setCommentPin({ urn, ms: null }), [urn]);
 
   useEffect(() => {
     if (track?.user_favorite && track.urn) setLikedUrn(track.urn, true);
@@ -150,6 +159,9 @@ export const TrackPage = React.memo(function TrackPage() {
   }
 
   const isOwner = !!myUrn && track.user?.urn === myUrn;
+  const displayTitle = getDisplayTitle(track) || 'Untitled';
+  const artistDisplay = getArtistDisplay(track);
+  const cover = art(track.artwork_url, 't500x500');
 
   return (
     <div className="relative min-h-full w-full">
@@ -173,39 +185,46 @@ export const TrackPage = React.memo(function TrackPage() {
           )}
         </div>
 
-        <RoomHero
-          track={track}
-          aura={aura}
-          isThis={isThis}
-          isThisPlaying={isThisPlaying}
-          isOwner={isOwner}
-          comments={comments}
-          onPlay={handlePlay}
-          onSeek={jumpTo}
-        />
-
-        <CommentForm
-          trackUrn={track.urn}
-          isCurrent={isThis}
-          accent={aura.accent}
-          accentSoft={aura.accentSoft}
-        />
-
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 items-start">
-          <div className="min-w-0 space-y-6">
-            <LinerNotes track={track} aura={aura} />
-            <RoomSleeve
-              track={track}
-              favoriters={favoriters}
-              related={related}
-              relatedLoading={relatedLoading}
-              aura={aura}
-            />
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_336px] gap-6 lg:gap-8 items-start">
+          {/* Right column: artwork + artist / stats / fans / related.
+              `contents` on narrow windows so the artwork can lead the page. */}
+          <div className="contents lg:flex lg:flex-col lg:gap-6 lg:col-start-2 lg:row-start-1">
+            <div className="order-1 lg:order-none w-full max-w-[320px] self-center lg:self-auto lg:max-w-none">
+              <TrackCover
+                title={displayTitle}
+                coverUrl={cover ?? undefined}
+                aura={aura.aura}
+                verified={artistDisplay.isEnriched && artistDisplay.verified}
+                sizeClassName="w-[260px] h-[260px] lg:w-[336px] lg:h-[336px]"
+              />
+            </div>
+            <div className="order-3 lg:order-none">
+              <RoomSleeve
+                track={track}
+                favoriters={favoriters}
+                related={related}
+                relatedLoading={relatedLoading}
+                aura={aura}
+              />
+            </div>
           </div>
-          <aside
-            ref={commentsScrollRef}
-            className="min-w-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1"
-          >
+
+          {/* Left column: hero, liner notes, comments. */}
+          <div className="order-2 lg:order-none lg:col-start-1 lg:row-start-1 min-w-0 space-y-6">
+            <RoomHero
+              track={track}
+              aura={aura}
+              isThis={isThis}
+              isThisPlaying={isThisPlaying}
+              isOwner={isOwner}
+              comments={comments}
+              commentAt={commentAt}
+              onPlay={handlePlay}
+              onSeek={jumpTo}
+              onCommentPosition={handleCommentPosition}
+              onCommentCommitted={handleCommentCommitted}
+            />
+            <LinerNotes track={track} aura={aura} />
             <RoomVoices
               commentCount={track.comment_count}
               comments={comments}
@@ -215,7 +234,7 @@ export const TrackPage = React.memo(function TrackPage() {
               aura={aura}
               onSeek={jumpTo}
             />
-          </aside>
+          </div>
         </div>
       </div>
     </div>

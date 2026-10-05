@@ -881,8 +881,7 @@ select:focus-visible {
 }
 
 .sw-bar {
-  min-height: 3px;
-  border-radius: 1.5px;
+  min-height: 2px;
 }
 
 .sw-layer-muted .sw-bar {
@@ -900,7 +899,6 @@ select:focus-visible {
 
 .sw-layer-accent .sw-bar {
   background: var(--color-accent);
-  box-shadow: 0 0 6px var(--color-accent-glow);
 }
 
 .soundwave-title {
