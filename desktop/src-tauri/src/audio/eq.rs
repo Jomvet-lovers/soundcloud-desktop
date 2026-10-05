@@ -22,9 +22,10 @@ impl<S: Source<Item = f32>> Iterator for GainSource<S> {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        self.source
-            .next()
-            .map(|sample| (sample * self.gain).clamp(-1.0, 1.0))
+        // No hard clamp here: clipping before the player's volume stage bakes
+        // distortion into the signal even at low listening levels. Overshoots
+        // stay float and scale down with volume like in any other player.
+        self.source.next().map(|sample| sample * self.gain)
     }
 }
 
@@ -164,7 +165,9 @@ impl<S: Source<Item = f32>> Iterator for EqSource<S> {
             out = Biquad::run(filter, out);
         }
 
-        Some(out.clamp(-1.0, 1.0) as f32)
+        // Left unclamped on purpose: see GainSource — clipping must happen
+        // after the volume stage (or not at all).
+        Some(out as f32)
     }
 }
 
