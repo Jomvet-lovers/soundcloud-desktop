@@ -878,19 +878,32 @@ export function useSearchUsers(q: string) {
 
 const SEARCH_DB_LIMIT = 20;
 const SEARCH_DB_MAX_PAGES = 10;
+/** Items per page for the numbered pagination on the Search page. */
+const SEARCH_DB_PAGE_SIZE = 25;
+
+function searchDbExtra(userUrn?: string, sort?: SearchSort): string {
+  return [
+    userUrn ? `user_urn=${encodeURIComponent(userUrn)}` : '',
+    sort && sort !== 'relevance' ? `sort=${sort}` : '',
+  ]
+    .filter(Boolean)
+    .join('&');
+}
+
+function searchDbUrl(kind: string, page: number, limit: number, q: string, extra: string): string {
+  return pagedUrl(
+    `/search/db/${kind}`,
+    page,
+    limit,
+    `q=${encodeURIComponent(q)}${extra ? `&${extra}` : ''}`,
+  );
+}
 
 export function useSearchDbTracks(q: string, userUrn?: string, sort: SearchSort = 'relevance') {
+  const extra = searchDbExtra(userUrn, sort);
   const query = usePagedQuery<Track>({
     queryKey: ['search', 'db', 'tracks', q, userUrn ?? '', sort],
-    url: (page, limit) =>
-      pagedUrl(
-        '/search/db/tracks',
-        page,
-        limit,
-        `q=${encodeURIComponent(q)}${userUrn ? `&user_urn=${encodeURIComponent(userUrn)}` : ''}${
-          sort !== 'relevance' ? `&sort=${sort}` : ''
-        }`,
-      ),
+    url: (page, limit) => searchDbUrl('tracks', page, limit, q, extra),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
     maxPages: SEARCH_DB_MAX_PAGES,
@@ -901,15 +914,10 @@ export function useSearchDbTracks(q: string, userUrn?: string, sort: SearchSort 
 }
 
 export function useSearchDbPlaylists(q: string, userUrn?: string) {
+  const extra = searchDbExtra(userUrn);
   const query = usePagedQuery<Playlist>({
     queryKey: ['search', 'db', 'playlists', q, userUrn ?? ''],
-    url: (page, limit) =>
-      pagedUrl(
-        '/search/db/playlists',
-        page,
-        limit,
-        `q=${encodeURIComponent(q)}${userUrn ? `&user_urn=${encodeURIComponent(userUrn)}` : ''}`,
-      ),
+    url: (page, limit) => searchDbUrl('playlists', page, limit, q, extra),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
     maxPages: SEARCH_DB_MAX_PAGES,
@@ -922,7 +930,7 @@ export function useSearchDbPlaylists(q: string, userUrn?: string) {
 export function useSearchDbUsers(q: string) {
   const query = usePagedQuery<SCUser>({
     queryKey: ['search', 'db', 'users', q],
-    url: (page, limit) => pagedUrl('/search/db/users', page, limit, `q=${encodeURIComponent(q)}`),
+    url: (page, limit) => searchDbUrl('users', page, limit, q, searchDbExtra()),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
     maxPages: SEARCH_DB_MAX_PAGES,
@@ -935,7 +943,7 @@ export function useSearchDbUsers(q: string) {
 export function useSearchDbArtists(q: string) {
   const query = usePagedQuery<CatalogArtist>({
     queryKey: ['search', 'db', 'artists', q],
-    url: (page, limit) => pagedUrl('/search/db/artists', page, limit, `q=${encodeURIComponent(q)}`),
+    url: (page, limit) => searchDbUrl('artists', page, limit, q, searchDbExtra()),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
     maxPages: SEARCH_DB_MAX_PAGES,
@@ -948,13 +956,58 @@ export function useSearchDbArtists(q: string) {
 export function useSearchDbAlbums(q: string) {
   const query = usePagedQuery<CatalogAlbum>({
     queryKey: ['search', 'db', 'albums', q],
-    url: (page, limit) => pagedUrl('/search/db/albums', page, limit, `q=${encodeURIComponent(q)}`),
+    url: (page, limit) => searchDbUrl('albums', page, limit, q, searchDbExtra()),
     limit: SEARCH_DB_LIMIT,
     staleTime: SEARCH_CACHE_MS,
     maxPages: SEARCH_DB_MAX_PAGES,
     enabled: !!q.trim(),
     dedupe: (a) => a.id,
   });
+  return { albums: query.items, ...query };
+}
+
+/** Single-page variant (numbered pagination) — used by the Search page. */
+function useSearchDbPage<T>(kind: string, q: string, page: number, extra: string) {
+  const query = useQuery<PagedResponse<T>>({
+    queryKey: ['search', 'db', kind, q, extra, page],
+    queryFn: () => api<PagedResponse<T>>(searchDbUrl(kind, page, SEARCH_DB_PAGE_SIZE, q, extra)),
+    staleTime: SEARCH_CACHE_MS,
+    placeholderData: keepPreviousData,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    enabled: !!q.trim(),
+  });
+  return {
+    items: query.data?.collection ?? [],
+    hasMore: query.data?.has_more === true,
+    ...query,
+  };
+}
+
+export function useSearchDbTracksPage(
+  q: string,
+  page: number,
+  userUrn?: string,
+  sort: SearchSort = 'relevance',
+) {
+  const extra = searchDbExtra(userUrn, sort);
+  const query = useSearchDbPage<Track>('tracks', q, page, extra);
+  return { tracks: query.items, ...query };
+}
+
+export function useSearchDbPlaylistsPage(q: string, page: number, userUrn?: string) {
+  const extra = searchDbExtra(userUrn);
+  const query = useSearchDbPage<Playlist>('playlists', q, page, extra);
+  return { playlists: query.items, ...query };
+}
+
+export function useSearchDbUsersPage(q: string, page: number) {
+  const query = useSearchDbPage<SCUser>('users', q, page, searchDbExtra());
+  return { users: query.items, ...query };
+}
+
+export function useSearchDbAlbumsPage(q: string, page: number) {
+  const query = useSearchDbPage<CatalogAlbum>('albums', q, page, searchDbExtra());
   return { albums: query.items, ...query };
 }
 

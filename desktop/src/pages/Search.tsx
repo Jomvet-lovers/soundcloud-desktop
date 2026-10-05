@@ -8,13 +8,12 @@ import {
   type MixedSelectionItem,
   type PagedResponse,
   useDiscoverMixed,
-  useInfiniteScroll,
-  useSearchDbAlbums,
-  useSearchDbPlaylists,
-  useSearchDbTracks,
-  useSearchDbUsers,
+  useSearchDbAlbumsPage,
+  useSearchDbPlaylistsPage,
+  useSearchDbTracksPage,
+  useSearchDbUsersPage,
 } from '../lib/hooks';
-import { ChevronRight, Loader2, Music, Play } from '../lib/icons';
+import { ChevronLeft, ChevronRight, Loader2, Music, Play } from '../lib/icons';
 import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
@@ -100,21 +99,47 @@ function dedupeItems(items: MixedSelectionItem[]): MixedSelectionItem[] {
   return out;
 }
 
-/** Infinite-scroll trigger + spinner under the active result list. Mounted per
- *  tab so the observer always attaches to the sentinel that is on screen. */
-function LoadMoreSentinel({
-  hasNextPage,
-  isFetchingNextPage,
-  fetchNextPage,
+/** Numbered-pagination footer under the active result list. */
+function Pager({
+  page,
+  hasMore,
+  isFetching,
+  onPage,
 }: {
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  fetchNextPage: () => void;
+  page: number;
+  hasMore: boolean;
+  isFetching: boolean;
+  onPage: (page: number) => void;
 }) {
-  const ref = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
+  if (page === 0 && !hasMore) return null;
+  const buttonClass =
+    'flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/85 disabled:pointer-events-none disabled:opacity-30';
   return (
-    <div ref={ref} className="flex h-16 items-center justify-center">
-      {isFetchingNextPage && <Loader2 size={20} className="animate-spin text-white/20" />}
+    <div className="mt-5 flex items-center justify-center gap-2">
+      <button
+        type="button"
+        disabled={page === 0 || isFetching}
+        onClick={() => onPage(page - 1)}
+        className={buttonClass}
+      >
+        <ChevronLeft size={14} />
+        {'Prev'}
+      </button>
+      <span className="min-w-[76px] text-center text-[12px] text-white/45">
+        {`Page ${page + 1}`}
+      </span>
+      <button
+        type="button"
+        disabled={!hasMore || isFetching}
+        onClick={() => onPage(page + 1)}
+        className={buttonClass}
+      >
+        {'Next'}
+        <ChevronRight size={14} />
+      </button>
+      <span className="flex size-4 items-center justify-center">
+        {isFetching && <Loader2 size={14} className="animate-spin text-white/25" />}
+      </span>
     </div>
   );
 }
@@ -137,10 +162,25 @@ export function Search() {
   }, [q]);
 
   const query = debounced.trim();
-  const tracks = useSearchDbTracks(query, undefined, sort);
-  const users = useSearchDbUsers(query);
-  const playlists = useSearchDbPlaylists(query);
-  const albums = useSearchDbAlbums(query);
+
+  // Numbered pagination: the page resets whenever the query / tab / sort
+  // changes, and only the visible tab requests deeper pages (the other tabs
+  // keep their first-page counts).
+  const pagerKey = `${query}\u{1}${tab}\u{1}${sort}`;
+  const [pager, setPager] = useState<{ key: string; page: number }>({ key: '', page: 0 });
+  const page = pager.key === pagerKey ? pager.page : 0;
+  const changePage = (next: number) => {
+    setPager({ key: pagerKey, page: Math.max(0, next) });
+    (document.querySelector('main') as HTMLElement | null)?.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  };
+
+  const tracks = useSearchDbTracksPage(query, tab === 'tracks' ? page : 0, undefined, sort);
+  const users = useSearchDbUsersPage(query, tab === 'users' ? page : 0);
+  const playlists = useSearchDbPlaylistsPage(query, tab === 'playlists' ? page : 0);
+  const albums = useSearchDbAlbumsPage(query, tab === 'albums' ? page : 0);
   const mixed = useDiscoverMixed();
 
   const tabs = useMemo(
@@ -333,10 +373,11 @@ export function Search() {
                     <TrackCard key={track.urn} track={track} queue={tracks.tracks} />
                   ))}
                 </div>
-                <LoadMoreSentinel
-                  hasNextPage={!!tracks.hasNextPage}
-                  isFetchingNextPage={!!tracks.isFetchingNextPage}
-                  fetchNextPage={tracks.fetchNextPage}
+                <Pager
+                  page={page}
+                  hasMore={tracks.hasMore}
+                  isFetching={tracks.isFetching}
+                  onPage={changePage}
                 />
               </>
             ) : tab === 'users' ? (
@@ -353,10 +394,11 @@ export function Search() {
                     </Link>
                   ))}
                 </div>
-                <LoadMoreSentinel
-                  hasNextPage={!!users.hasNextPage}
-                  isFetchingNextPage={!!users.isFetchingNextPage}
-                  fetchNextPage={users.fetchNextPage}
+                <Pager
+                  page={page}
+                  hasMore={users.hasMore}
+                  isFetching={users.isFetching}
+                  onPage={changePage}
                 />
               </>
             ) : tab === 'playlists' ? (
@@ -373,10 +415,11 @@ export function Search() {
                     </Link>
                   ))}
                 </div>
-                <LoadMoreSentinel
-                  hasNextPage={!!playlists.hasNextPage}
-                  isFetchingNextPage={!!playlists.isFetchingNextPage}
-                  fetchNextPage={playlists.fetchNextPage}
+                <Pager
+                  page={page}
+                  hasMore={playlists.hasMore}
+                  isFetching={playlists.isFetching}
+                  onPage={changePage}
                 />
               </>
             ) : (
@@ -393,10 +436,11 @@ export function Search() {
                     </Link>
                   ))}
                 </div>
-                <LoadMoreSentinel
-                  hasNextPage={!!albums.hasNextPage}
-                  isFetchingNextPage={!!albums.isFetchingNextPage}
-                  fetchNextPage={albums.fetchNextPage}
+                <Pager
+                  page={page}
+                  hasMore={albums.hasMore}
+                  isFetching={albums.isFetching}
+                  onPage={changePage}
                 />
               </>
             )}
