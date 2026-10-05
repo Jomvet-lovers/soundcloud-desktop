@@ -127,9 +127,13 @@ pub fn discord_set_activity(
 
     let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
-    let assets = Assets::new()
-        .large_image(large_image)
-        .large_text(title.as_str());
+    // NOTE: `large_text` is deliberately not set — Discord renders it as an
+    // extra line in the activity card (the "album" slot next to details and
+    // state). `large_url` makes the cover image clickable (track page).
+    let mut assets = Assets::new().large_image(large_image);
+    if let Some(url) = track_url {
+        assets = assets.large_url(url);
+    }
 
     // `status_display_type` picks what the member list shows next to the
     // activity type: the artist (Spotify-like), the title, or the app name.

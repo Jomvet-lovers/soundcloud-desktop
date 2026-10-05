@@ -55,10 +55,10 @@ async function setActivity(track: Track) {
     await invoke('discord_set_activity', {
       track: {
         title: getDisplayTitle(track),
-        artist: display.primary || track.user.username,
+        artist: display.primary || track.user?.username || '',
         artwork_url: artworkToLarge(track.artwork_url),
         track_url: stripQuery(track.permalink_url),
-        artist_url: stripQuery(track.user.permalink_url),
+        artist_url: stripQuery(track.user?.permalink_url),
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(getCurrentTime()),
         is_playing: isPlaying,
