@@ -2014,8 +2014,40 @@ async fn handle(
         ("GET", ["recommendations", _rest @ ..]) => ok(empty_page(0, 30)),
 
         // ── history ─────────────────────────────────────────────────
+        // sc.com/you/history is the source of truth when signed in: same
+        // api-v2 endpoint the web app uses, cursor paging via the
+        // `from`/`offset` pair carried in `next_href`. The local store
+        // remains the offline fallback.
         ("GET", ["history"]) => {
-            let limit = q_u64(&q, "limit", 50) as usize;
+            let limit = q_u64(&q, "limit", 50).clamp(1, 100);
+            if let Some(t) = token.as_deref() {
+                let path = match q_str(&q, "cursor") {
+                    Some(c) => format!("/me/play-history/tracks?limit={limit}&{c}"),
+                    None => format!("/me/play-history/tracks?limit={limit}"),
+                };
+                if let Ok((status, v)) = s.sc_get(&path, Some(t)).await {
+                    if (200..300).contains(&status) {
+                        let collection: Vec<Value> =
+                            sc_items(&v).iter().filter_map(history_entry_from_sc).collect();
+                        let next_cursor = v
+                            .get("next_href")
+                            .and_then(Value::as_str)
+                            .and_then(|href| href.split_once('?').map(|(_, query)| query))
+                            .map(|query| {
+                                query
+                                    .split('&')
+                                    .filter(|part| !part.starts_with("client_id="))
+                                    .collect::<Vec<_>>()
+                                    .join("&")
+                            })
+                            .filter(|query| !query.is_empty());
+                        return Ok(ok(
+                            json!({ "collection": collection, "next_cursor": next_cursor }),
+                        ));
+                    }
+                }
+            }
+            let limit = limit as usize;
             let offset = q_u64(&q, "offset", 0) as usize;
             let store = s.store.lock().await;
             let total = store.history.len();
@@ -2026,7 +2058,7 @@ async fn handle(
                 .take(limit)
                 .cloned()
                 .collect();
-            ok(json!({ "collection": slice, "total": total }))
+            ok(json!({ "collection": slice, "total": total, "next_cursor": null }))
         }
         ("POST", ["history"]) => {
             let mut b = body_json(&body);
@@ -2061,9 +2093,23 @@ async fn handle(
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["history"]) => {
-            let mut store = s.store.lock().await;
-            store.history.clear();
-            store.save();
+            {
+                let mut store = s.store.lock().await;
+                store.history.clear();
+                store.save();
+            }
+            // Clear the account history too so the web/phone side agrees.
+            if let Some(t) = token.as_deref() {
+                if let Ok(cid) = s.client_id().await {
+                    spawn_write_silent(
+                        s.app.clone(),
+                        t.to_string(),
+                        "DELETE",
+                        format!("{SC_API}/me/play-history/tracks?client_id={cid}"),
+                        None,
+                    );
+                }
+            }
             ok(json!({ "ok": true }))
         }
 
@@ -2305,4 +2351,34 @@ async fn merge_local_playlist_likes(
         items = extra;
     }
     items
+}
+
+/// Map one entry of SoundCloud's `/me/play-history/tracks` response into the
+/// frontend `HistoryEntry` shape (see `useHistory` / `HistoryTab`).
+fn history_entry_from_sc(row: &Value) -> Option<Value> {
+    let track = row.get("track")?;
+    if !track.is_object() {
+        return None;
+    }
+    let track_id = track
+        .get("id")
+        .and_then(Value::as_u64)
+        .map(|id| id.to_string())
+        .or_else(|| row.get("track_id").and_then(Value::as_u64).map(|id| id.to_string()))?;
+    let played_at = row.get("played_at").and_then(Value::as_i64).unwrap_or(0);
+    let played_iso = chrono::TimeZone::timestamp_millis_opt(&chrono::Utc, played_at)
+        .single()
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default();
+    let user = track.get("user");
+    Some(json!({
+        "id": format!("{track_id}:{played_at}"),
+        "scTrackId": track_id,
+        "title": track.get("title").and_then(Value::as_str).unwrap_or_default(),
+        "artistName": user.and_then(|u| u.get("username")).and_then(Value::as_str).unwrap_or_default(),
+        "artistUrn": user.and_then(|u| u.get("urn")).and_then(Value::as_str),
+        "artworkUrl": track.get("artwork_url"),
+        "duration": track.get("duration").and_then(Value::as_i64).unwrap_or(0),
+        "playedAt": played_iso,
+    }))
 }

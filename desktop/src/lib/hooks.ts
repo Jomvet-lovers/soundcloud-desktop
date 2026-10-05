@@ -281,18 +281,18 @@ export interface HistoryEntry {
 export function useHistory(limit = 50) {
   const query = useInfiniteQuery({
     queryKey: ['history'],
-    queryFn: async ({ pageParam = 0 }) => {
-      return api<{ collection: HistoryEntry[]; total: number }>(
-        `/history?limit=${limit}&offset=${pageParam}`,
+    queryFn: async ({ pageParam }) => {
+      const cursor = pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : '';
+      return api<{ collection: HistoryEntry[]; next_cursor: string | null }>(
+        `/history?limit=${limit}${cursor}`,
       );
     },
-    initialPageParam: 0,
+    initialPageParam: undefined as string | undefined,
     gcTime: INFINITE_GC_MS,
     maxPages: 8,
-    getNextPageParam: (last, _all, lastOffset) => {
-      const nextOffset = (lastOffset as number) + limit;
-      return nextOffset < last.total ? nextOffset : undefined;
-    },
+    // SoundCloud paging hands back the next page's query string (from/offset);
+    // the local offline fallback returns null and stops here.
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
     staleTime: 0,
   });
 
