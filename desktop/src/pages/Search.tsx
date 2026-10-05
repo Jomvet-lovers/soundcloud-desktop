@@ -8,6 +8,7 @@ import {
   type MixedSelectionItem,
   type PagedResponse,
   useDiscoverMixed,
+  useInfiniteScroll,
   useSearchDbAlbums,
   useSearchDbPlaylists,
   useSearchDbTracks,
@@ -97,6 +98,25 @@ function dedupeItems(items: MixedSelectionItem[]): MixedSelectionItem[] {
     out.push(item);
   }
   return out;
+}
+
+/** Infinite-scroll trigger + spinner under the active result list. Mounted per
+ *  tab so the observer always attaches to the sentinel that is on screen. */
+function LoadMoreSentinel({
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+}: {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => void;
+}) {
+  const ref = useInfiniteScroll(hasNextPage, isFetchingNextPage, fetchNextPage);
+  return (
+    <div ref={ref} className="flex h-16 items-center justify-center">
+      {isFetchingNextPage && <Loader2 size={20} className="animate-spin text-white/20" />}
+    </div>
+  );
 }
 
 /** Search — tabs over SoundCloud, with Discover selections when the query is empty. */
@@ -307,50 +327,78 @@ export function Search() {
             {empty ? (
               <p className="text-[13px] text-white/35">{'No results found'}</p>
             ) : tab === 'tracks' ? (
-              <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-                {tracks.tracks.map((track) => (
-                  <TrackCard key={track.urn} track={track} queue={tracks.tracks} />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+                  {tracks.tracks.map((track) => (
+                    <TrackCard key={track.urn} track={track} queue={tracks.tracks} />
+                  ))}
+                </div>
+                <LoadMoreSentinel
+                  hasNextPage={!!tracks.hasNextPage}
+                  isFetchingNextPage={!!tracks.isFetchingNextPage}
+                  fetchNextPage={tracks.fetchNextPage}
+                />
+              </>
             ) : tab === 'users' ? (
-              <div className="flex flex-col gap-1">
-                {users.users.map((user) => (
-                  <Link
-                    key={user.urn}
-                    to={`/user/${encodeURIComponent(user.urn)}`}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
-                  >
-                    <RowArt src={art(user.avatar_url, 't120x120')} rounded="full" />
-                    <span className="text-[13px] text-white/85">{user.username}</span>
-                  </Link>
-                ))}
-              </div>
+              <>
+                <div className="flex flex-col gap-1">
+                  {users.users.map((user) => (
+                    <Link
+                      key={user.urn}
+                      to={`/user/${encodeURIComponent(user.urn)}`}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
+                    >
+                      <RowArt src={art(user.avatar_url, 't120x120')} rounded="full" />
+                      <span className="text-[13px] text-white/85">{user.username}</span>
+                    </Link>
+                  ))}
+                </div>
+                <LoadMoreSentinel
+                  hasNextPage={!!users.hasNextPage}
+                  isFetchingNextPage={!!users.isFetchingNextPage}
+                  fetchNextPage={users.fetchNextPage}
+                />
+              </>
             ) : tab === 'playlists' ? (
-              <div className="flex flex-col gap-1">
-                {playlists.playlists.map((playlist) => (
-                  <Link
-                    key={playlist.urn}
-                    to={`/playlist/${encodeURIComponent(playlist.urn)}`}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
-                  >
-                    <RowArt src={art(playlist.artwork_url, 't120x120')} rounded="lg" />
-                    <span className="text-[13px] text-white/85">{playlist.title}</span>
-                  </Link>
-                ))}
-              </div>
+              <>
+                <div className="flex flex-col gap-1">
+                  {playlists.playlists.map((playlist) => (
+                    <Link
+                      key={playlist.urn}
+                      to={`/playlist/${encodeURIComponent(playlist.urn)}`}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
+                    >
+                      <RowArt src={art(playlist.artwork_url, 't120x120')} rounded="lg" />
+                      <span className="text-[13px] text-white/85">{playlist.title}</span>
+                    </Link>
+                  ))}
+                </div>
+                <LoadMoreSentinel
+                  hasNextPage={!!playlists.hasNextPage}
+                  isFetchingNextPage={!!playlists.isFetchingNextPage}
+                  fetchNextPage={playlists.fetchNextPage}
+                />
+              </>
             ) : (
-              <div className="flex flex-col gap-1">
-                {albums.albums.map((album) => (
-                  <Link
-                    key={album.id}
-                    to={`/album/${encodeURIComponent(album.id)}`}
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
-                  >
-                    <RowArt src={art(album.cover_url ?? null, 't120x120')} rounded="lg" />
-                    <span className="text-[13px] text-white/85">{album.title}</span>
-                  </Link>
-                ))}
-              </div>
+              <>
+                <div className="flex flex-col gap-1">
+                  {albums.albums.map((album) => (
+                    <Link
+                      key={album.id}
+                      to={`/album/${encodeURIComponent(album.id)}`}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
+                    >
+                      <RowArt src={art(album.cover_url ?? null, 't120x120')} rounded="lg" />
+                      <span className="text-[13px] text-white/85">{album.title}</span>
+                    </Link>
+                  ))}
+                </div>
+                <LoadMoreSentinel
+                  hasNextPage={!!albums.hasNextPage}
+                  isFetchingNextPage={!!albums.isFetchingNextPage}
+                  fetchNextPage={albums.fetchNextPage}
+                />
+              </>
             )}
           </div>
         </>
