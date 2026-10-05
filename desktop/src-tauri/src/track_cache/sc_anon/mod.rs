@@ -24,10 +24,12 @@ const SC_API_V2: &str = "https://api-v2.soundcloud.com";
 const SC_USER_AGENT: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
-/// Preset preference: progressive first (one GET, no chunk failures), then
-/// HLS by preset preference.
+/// Preset preference, best quality first. The AAC HLS stream (`aac_160k`) is
+/// both the best anon quality and the only one that remuxes into the m4a cache
+/// without a re-encode — it must beat the progressive MP3, which is 128k and
+/// used to get re-encoded into AAC 256k (audible on drums).
 const PRESET_ORDER: &[&str] = &["mp3_1_0", "aac_160k", "opus_0_0", "abr_sq"];
-/// High-quality preference: AAC first (160k / abr_sq), MP3 as a fallback.
+/// High-quality preference: AAC first (160k), MP3 as a fallback.
 const HQ_PRESET_ORDER: &[&str] = &["aac_160k", "abr_sq", "mp3_1_0", "opus_0_0"];
 
 /// Circuit breaker: trip after this many consecutive network failures so users
@@ -409,8 +411,9 @@ impl AnonClient {
     }
 }
 
-/// Drop previews/snipped/restricted, then rank: progressive first, then HLS,
-/// each ordered by preset preference.
+/// Drop previews/snipped/restricted, then rank by preset quality first — a
+/// 160k AAC HLS stream is both better and remuxable (no re-encode) — and only
+/// inside the same preset prefer progressive (one GET, no chunk failures).
 fn ranked_transcodings(transcodings: &[Transcoding], hq: bool) -> Vec<&Transcoding> {
     let order = if hq { HQ_PRESET_ORDER } else { PRESET_ORDER };
     let candidates: Vec<&Transcoding> = transcodings
@@ -437,24 +440,13 @@ fn ranked_transcodings(transcodings: &[Transcoding], hq: bool) -> Vec<&Transcodi
     let mut ordered: Vec<&Transcoding> = Vec::with_capacity(candidates.len());
 
     for preset in order {
-        if let Some(t) = candidates
-            .iter()
-            .find(|t| is_progressive(t) && t.preset.as_deref() == Some(preset))
-        {
-            ordered.push(t);
-        }
-    }
-    for t in &candidates {
-        if is_progressive(t) && !ordered.iter().any(|o| std::ptr::eq(*o, *t)) {
-            ordered.push(t);
-        }
-    }
-    for preset in order {
-        if let Some(t) = candidates
-            .iter()
-            .find(|t| !is_progressive(t) && t.preset.as_deref() == Some(preset))
-        {
-            ordered.push(t);
+        for progressive in [true, false] {
+            if let Some(t) = candidates
+                .iter()
+                .find(|t| is_progressive(t) == progressive && t.preset.as_deref() == Some(preset))
+            {
+                ordered.push(t);
+            }
         }
     }
     for t in &candidates {
