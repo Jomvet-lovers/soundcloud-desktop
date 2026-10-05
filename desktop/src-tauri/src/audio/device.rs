@@ -48,11 +48,44 @@ pub fn open_device_sink(
         return Err(format!("Device '{}' not found", id));
     }
 
-    let mut sink = DeviceSinkBuilder::from_default_device()
-        .map_err(|e| format!("No audio output: {}", e))?
-        .with_error_callback(error_cb)
-        .open_stream()
-        .map_err(|e| format!("No audio output: {}", e))?;
+    let default_sink = DeviceSinkBuilder::from_default_device()
+        .map_err(|e| format!("No audio output: {}", e))
+        .and_then(|builder| {
+            builder
+                .with_error_callback(error_cb.clone())
+                .open_stream()
+                .map_err(|e| format!("No audio output: {}", e))
+        });
+
+    let mut sink = match default_sink {
+        Ok(sink) => sink,
+        Err(default_error) => {
+            // The default endpoint can be unusable even when it is "OK" in the
+            // device manager (monitor output without speakers, stale Bluetooth
+            // sink, exclusive-mode owner, unsupported mix format, ...). Try the
+            // remaining outputs before failing the whole app on startup.
+            let host = cpal::default_host();
+            let mut fallback = None;
+            if let Ok(devices) = host.output_devices() {
+                for dev in devices {
+                    let Ok(builder) = DeviceSinkBuilder::from_device(dev) else {
+                        continue;
+                    };
+                    if let Ok(opened) = builder
+                        .with_error_callback(error_cb.clone())
+                        .open_stream()
+                    {
+                        fallback = Some(opened);
+                        break;
+                    }
+                }
+            }
+            match fallback {
+                Some(sink) => sink,
+                None => return Err(default_error),
+            }
+        }
+    };
     sink.log_on_drop(false);
     Ok(sink)
 }
