@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -61,6 +61,9 @@ pub struct AudioState {
     pub suppress_stall_until_ms: AtomicU64,
     pub device_error: Arc<AtomicBool>,
     pub device_reconnected: Arc<AtomicBool>,
+    /// Sample rate the output device was opened at; the decode chain resamples
+    /// every source to this rate so rodio's linear-interp mixer path is unused.
+    pub output_rate: Arc<AtomicU32>,
     pub load_gen: AtomicU64,
     pub media_tx: Mutex<Option<std::sync::mpsc::Sender<MediaCmd>>>,
     pub audio_tx: std::sync::mpsc::Sender<AudioThreadCmd>,
@@ -81,18 +84,21 @@ pub fn init() -> AudioState {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<AudioThreadCmd>();
     let device_error_flag = Arc::new(AtomicBool::new(false));
     let reconnected_flag = Arc::new(AtomicBool::new(false));
+    let output_rate = Arc::new(AtomicU32::new(0));
 
     let cmd_tx_for_thread = cmd_tx.clone();
     let reconnected_for_thread = reconnected_flag.clone();
     let error_flag_for_thread = device_error_flag.clone();
+    let output_rate_for_thread = output_rate.clone();
     std::thread::Builder::new()
         .name("audio-output".into())
         .spawn(move || {
             let cmd_tx = cmd_tx_for_thread;
             let reconnected = reconnected_for_thread;
             let error_flag = error_flag_for_thread;
-            let mut device_sink =
-                open_device_sink(None, &cmd_tx, &error_flag).expect("no audio output device");
+            let output_rate = output_rate_for_thread;
+            let mut device_sink = open_device_sink(None, &cmd_tx, &error_flag, &output_rate)
+                .expect("no audio output device");
             let shared_mixer = Arc::new(Mutex::new(device_sink.mixer().clone()));
             mixer_tx.send(shared_mixer.clone()).ok();
 
@@ -101,7 +107,7 @@ pub fn init() -> AudioState {
                     Ok(AudioThreadCmd::SwitchDevice { name, reply }) => {
                         drop(device_sink);
 
-                        match open_device_sink(name.as_deref(), &cmd_tx, &error_flag) {
+                        match open_device_sink(name.as_deref(), &cmd_tx, &error_flag, &output_rate) {
                             Ok(new_sink) => {
                                 let mixer = new_sink.mixer().clone();
                                 *shared_mixer.lock().unwrap() = mixer.clone();
@@ -109,8 +115,9 @@ pub fn init() -> AudioState {
                                 reply.send(Ok(mixer)).ok();
                             }
                             Err(error) => {
-                                device_sink = open_device_sink(None, &cmd_tx, &error_flag)
-                                    .expect("no audio output device");
+                                device_sink =
+                                    open_device_sink(None, &cmd_tx, &error_flag, &output_rate)
+                                        .expect("no audio output device");
                                 *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
                                 reply.send(Err(error)).ok();
                             }
@@ -121,7 +128,7 @@ pub fn init() -> AudioState {
                         std::thread::sleep(Duration::from_millis(500));
 
                         drop(device_sink);
-                        match open_device_sink(None, &cmd_tx, &error_flag) {
+                        match open_device_sink(None, &cmd_tx, &error_flag, &output_rate) {
                             Ok(new_sink) => {
                                 *shared_mixer.lock().unwrap() = new_sink.mixer().clone();
                                 device_sink = new_sink;
@@ -131,8 +138,9 @@ pub fn init() -> AudioState {
                             Err(error) => {
                                 eprintln!("[audio] reconnect failed: {error}, retrying...");
                                 std::thread::sleep(Duration::from_secs(1));
-                                device_sink = open_device_sink(None, &cmd_tx, &error_flag)
-                                    .expect("no audio output device");
+                                device_sink =
+                                    open_device_sink(None, &cmd_tx, &error_flag, &output_rate)
+                                        .expect("no audio output device");
                                 *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
                                 reconnected.store(true, std::sync::atomic::Ordering::Release);
                             }
@@ -161,6 +169,7 @@ pub fn init() -> AudioState {
         suppress_stall_until_ms: AtomicU64::new(0),
         device_error: device_error_flag,
         device_reconnected: reconnected_flag,
+        output_rate,
         load_gen: AtomicU64::new(0),
         media_tx: Mutex::new(None),
         audio_tx: cmd_tx,

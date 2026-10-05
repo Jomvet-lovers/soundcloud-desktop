@@ -5,6 +5,7 @@ mod device;
 mod engine;
 mod eq;
 mod media_controls;
+mod resample;
 mod state;
 mod tick;
 mod timing;

@@ -104,6 +104,7 @@ async fn build_player_from_bytes(
     normalization_cache_dir: Option<PathBuf>,
     normalization_cache_key: Option<String>,
     start_paused: bool,
+    output_sample_rate: u32,
     eq_params: std::sync::Arc<std::sync::RwLock<crate::audio::types::EqParams>>,
     analyser_buffer: std::sync::Arc<crate::audio::analyser::AnalyserBuffer>,
 ) -> Result<(Vec<u8>, rodio::Player, Option<f64>, f32), String> {
@@ -123,6 +124,7 @@ async fn build_player_from_bytes(
             volume,
             normalization_gain,
             start_paused,
+            output_sample_rate,
             eq_params,
             analyser_buffer,
         )?;
@@ -163,6 +165,7 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
             1.0
         },
         was_paused,
+        state.output_rate.load(Ordering::Relaxed),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )?;
@@ -216,6 +219,7 @@ pub async fn load_file(
         normalization_cache_dir,
         normalization_cache_key,
         start_paused,
+        state.output_rate.load(Ordering::Relaxed),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )
@@ -317,6 +321,7 @@ pub async fn load_url(
         normalization_cache_dir,
         normalization_cache_key,
         start_paused,
+        state.output_rate.load(Ordering::Relaxed),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )
@@ -417,6 +422,7 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
             1.0
         },
         was_paused,
+        state.output_rate.load(Ordering::Relaxed),
         state.eq_params.clone(),
         state.analyser_buffer.clone(),
     )?;
@@ -588,6 +594,7 @@ pub async fn preview_play(
 
     let mixer = state.mixer.lock().unwrap().clone();
     let eq_params = state.eq_params.clone();
+    let output_rate = state.output_rate.load(Ordering::Relaxed);
     let target = (volume as f32).clamp(0.0, 2.0);
     // Own throwaway analyser buffer — the preview decoder must NOT write into the
     // main player's spectrum buffer. Normalization is skipped (gain 1.0) to keep
@@ -595,7 +602,7 @@ pub async fn preview_play(
     // audible the instant it loads (a zero-start + tick fade-in left it silent).
     let analyser = crate::audio::analyser::AnalyserBuffer::new();
     let player = task::spawn_blocking(move || {
-        create_player_from_bytes(&bytes, &mixer, target, 1.0, false, eq_params, analyser)
+        create_player_from_bytes(&bytes, &mixer, target, 1.0, false, output_rate, eq_params, analyser)
             .map(|(player, _)| player)
     })
         .await

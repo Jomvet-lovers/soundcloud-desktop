@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,6 +15,7 @@ pub fn open_device_sink(
     device_id: Option<&str>,
     reconnect_tx: &std::sync::mpsc::Sender<AudioThreadCmd>,
     error_flag: &Arc<AtomicBool>,
+    output_rate: &AtomicU32,
 ) -> Result<MixerDeviceSink, String> {
     use cpal::traits::{DeviceTrait, HostTrait};
 
@@ -41,6 +42,8 @@ pub fn open_device_sink(
                         .open_stream()
                         .map_err(|e| format!("Failed to open device '{}': {}", id, e))?;
                     sink.log_on_drop(false);
+                    output_rate.store(sink.config().sample_rate().get(), Ordering::Relaxed);
+                    eprintln!("[audio] opened output: {:?}", sink.config());
                     return Ok(sink);
                 }
             }
@@ -87,6 +90,8 @@ pub fn open_device_sink(
         }
     };
     sink.log_on_drop(false);
+    output_rate.store(sink.config().sample_rate().get(), Ordering::Relaxed);
+    eprintln!("[audio] opened output: {:?}", sink.config());
     Ok(sink)
 }
 
