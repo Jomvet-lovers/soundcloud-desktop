@@ -1,11 +1,38 @@
 use std::sync::{Arc, Mutex};
 
 use discord_rich_presence::{
-    activity::{Activity, ActivityType, Assets, Button, Timestamps},
+    activity::{Activity, ActivityType, Assets, Button, StatusDisplayType, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
 
-use crate::shared::constants::DISCORD_CLIENT_ID;
+use crate::shared::constants::{DISCORD_CLIENT_ID, GITHUB_URL};
+
+/// Discord rejects empty (or invisible-only) details/state values and caps
+/// them at 128 characters. A failed `set_activity` leaves the previous
+/// presence on the profile, so tracks without metadata used to freeze the
+/// widget on the song played before them.
+const FIELD_MAX_CHARS: usize = 128;
+
+fn clean_field(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    let visible = trimmed.chars().any(|c| {
+        !c.is_whitespace()
+            && !matches!(
+                c,
+                '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{3164}' | '\u{FEFF}'
+            )
+    });
+    if visible { Some(trimmed) } else { None }
+}
+
+fn clamp_field(value: &str) -> String {
+    if value.chars().count() <= FIELD_MAX_CHARS {
+        return value.to_string();
+    }
+    let mut out: String = value.chars().take(FIELD_MAX_CHARS - 1).collect();
+    out.push('…');
+    out
+}
 
 pub struct DiscordState {
     pub client: Mutex<Option<DiscordIpcClient>>,
@@ -17,6 +44,7 @@ pub struct DiscordTrackInfo {
     artist: String,
     artwork_url: Option<String>,
     track_url: Option<String>,
+    artist_url: Option<String>,
     duration_secs: Option<i64>,
     elapsed_secs: Option<i64>,
     is_playing: Option<bool>,
@@ -83,36 +111,54 @@ pub fn discord_set_activity(
     let mode = track.mode.unwrap_or(DiscordRpcMode::Track);
     let show_button = track.show_button.unwrap_or(true);
 
+    let title = clamp_field(clean_field(&track.title).unwrap_or("Untitled"));
+    let artist = clamp_field(clean_field(&track.artist).unwrap_or("Unknown Artist"));
+
+    let track_url = track
+        .track_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
+    let artist_url = track
+        .artist_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty());
+
     let large_image = track.artwork_url.as_deref().unwrap_or("soundcloud_logo");
 
     let assets = Assets::new().large_image(large_image);
 
+    // `status_display_type` picks what the member list shows next to the
+    // activity type: the artist (Spotify-like), the title, or the app name.
     let mut activity = Activity::new()
         .activity_type(ActivityType::Listening)
-        .assets(assets);
+        .assets(assets)
+        .status_display_type(match mode {
+            DiscordRpcMode::Track => StatusDisplayType::State,
+            DiscordRpcMode::Artist => StatusDisplayType::Details,
+            DiscordRpcMode::Activity => StatusDisplayType::Name,
+        });
 
-    activity = match mode {
-        DiscordRpcMode::Track => activity.details(&track.title).state(if is_playing {
-            track.artist.as_str()
-        } else {
-            "Paused"
-        }),
+    match mode {
+        DiscordRpcMode::Track => {
+            activity = activity.details(&title);
+            if let Some(url) = track_url {
+                activity = activity.details_url(url);
+            }
+            activity = activity.state(&artist);
+            if let Some(url) = artist_url {
+                activity = activity.state_url(url);
+            }
+        }
         DiscordRpcMode::Artist => {
-            let activity = activity.details(&track.artist);
-            if is_playing {
-                activity
-            } else {
-                activity.state("Paused")
+            activity = activity.details(&artist);
+            if let Some(url) = artist_url {
+                activity = activity.details_url(url);
             }
         }
-        DiscordRpcMode::Activity => {
-            if is_playing {
-                activity
-            } else {
-                activity.details("Paused")
-            }
-        }
-    };
+        DiscordRpcMode::Activity => {}
+    }
 
     if is_playing {
         let mut timestamps = Timestamps::new().start(start);
@@ -122,10 +168,9 @@ pub fn discord_set_activity(
         activity = activity.timestamps(timestamps);
     }
 
-    if show_button
-        && let Some(ref url) = track.track_url {
-            activity = activity.buttons(vec![Button::new("Listen on SoundCloud", url)]);
-        }
+    if show_button {
+        activity = activity.buttons(vec![Button::new("GitHub", GITHUB_URL)]);
+    }
 
     let result = client.set_activity(activity);
 

@@ -32,6 +32,10 @@ function artworkToLarge(url: string | null): string | undefined {
   return url.replace(/-[^-./]+(\.[^.]+)$/, '-t500x500$1');
 }
 
+function stripQuery(url: string | null | undefined): string | undefined {
+  return url ? `${url}`.replace(/\?.*$/, '') : undefined;
+}
+
 async function updatePresence(track: Track) {
   if (!(await ensureConnected())) return;
 
@@ -44,7 +48,8 @@ async function updatePresence(track: Track) {
         title: getDisplayTitle(track),
         artist: display.primary || track.user.username,
         artwork_url: artworkToLarge(track.artwork_url),
-        track_url: track.permalink_url ? `${track.permalink_url}`.replace(/\?.*$/, '') : undefined,
+        track_url: stripQuery(track.permalink_url),
+        artist_url: stripQuery(track.user.permalink_url),
         duration_secs: Math.round(track.duration / 1000),
         elapsed_secs: Math.round(getCurrentTime()),
         is_playing: isPlaying,

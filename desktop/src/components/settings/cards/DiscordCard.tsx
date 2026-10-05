@@ -35,8 +35,8 @@ export function DiscordCard() {
             />
           </div>
           <Row
-            title={'Show SoundCloud button'}
-            desc={'Display the button that opens the track in SoundCloud'}
+            title={'Show GitHub button'}
+            desc={'Display the button that opens the GitHub repository'}
           >
             <Toggle checked={showButton} onChange={() => setShowButton(!showButton)} />
           </Row>
