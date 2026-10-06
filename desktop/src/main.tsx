@@ -51,6 +51,7 @@ function startDeferredRuntime() {
     void import('./lib/scproxy');
     void import('./lib/tray');
     void import('./lib/audio');
+    void import('./lib/queue-autopilot').then((m) => m.setupQueueAutopilot());
     void import('./lib/discord');
     void import('./lib/sync-status');
   });
