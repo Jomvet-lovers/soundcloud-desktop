@@ -1,8 +1,9 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { art, dateFormatted, durLong } from '../../lib/formatters';
+import { dateFormatted, durLong } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
 import { Calendar, Clock, Library, ListMusic, Pause, Play } from '../../lib/icons';
+import { playlistCoverUrl } from '../../lib/playlist-cover';
 import { Avatar } from '../ui/Avatar';
 import { PlaylistActions } from './PlaylistActions';
 
@@ -43,7 +44,9 @@ export const PlaylistHero = React.memo(function PlaylistHero({
 }) {
   const navigate = useNavigate();
   const kl = kindLabel(playlist.kind);
-  const cover = art(playlist.artwork_url, 't500x500');
+  // Playlists without their own artwork borrow the first track's (SC does the
+  // same on the web) — see rawPlaylistCover.
+  const cover = playlistCoverUrl(playlist.artwork_url, playlist.tracks, 't500x500');
   const curator = playlist.user;
 
   return (
