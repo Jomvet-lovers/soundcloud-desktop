@@ -218,16 +218,35 @@ async fn sync_local_comment(
     client_id: String,
     track_urn: String,
     temp_id: i64,
-    body: Value,
+    body_text: String,
+    timestamp_ms: u64,
 ) {
-    let url = format!("{SC_API}/tracks/{track_id}/comments?client_id={client_id}");
-    let (synced, sc_id) = match super::webview::execute(&state.app, Some(&token), "POST", &url, Some(&body)).await {
-        Ok(r) if (200..300).contains(&r.status) => (true, parse_sc_comment_id(&r.payload)),
+    // The web client sends comment writes as QUERY parameters (`body` and
+    // `timestamp`), not a JSON body — a JSON body answers 400 "missing
+    // params". `app_version` is required by the same validation.
+    let url = format!(
+        "{SC_API}/tracks/{track_id}/comments?client_id={client_id}&app_version={}&body={}&timestamp={timestamp_ms}",
+        super::sc::app_version(&state.http).await,
+        urlencoding::encode(&body_text)
+    );
+    let (synced, sc_id) = match super::webview::execute(&state.app, Some(&token), "POST", &url, None).await {
+        Ok(r) if (200..300).contains(&r.status) => {
+            let sc_id = parse_sc_comment_id(&r.payload);
+            eprintln!("[comments] synced {temp_id} -> {sc_id:?}");
+            (true, sc_id)
+        }
         Ok(r) => {
+            eprintln!(
+                "[comments] sync failed {temp_id}: status={} captcha={} body={}",
+                r.status,
+                r.captcha.is_some(),
+                r.payload.chars().take(800).collect::<String>()
+            );
             emit_sync_error(&state.app, "POST", &url, r.status, r.captcha.is_some(), None);
             (false, None)
         }
         Err(e) => {
+            eprintln!("[comments] sync error {temp_id}: {e}");
             emit_sync_error(&state.app, "POST", &url, 0, false, Some(&e));
             (false, None)
         }
@@ -1171,11 +1190,115 @@ async fn handle(
                             cid,
                             urn.to_string(),
                             temp_id,
-                            json!({ "comment": { "body": text, "timestamp": timestamp.unwrap_or(0) } }),
+                            text.clone(),
+                            timestamp.unwrap_or(0),
                         ));
                     }
                 }
                 ok(entry)
+            }
+        }
+        ("POST", ["tracks", urn, "comments", "sync"]) => {
+            // Re-attempt the SoundCloud write for this track's local comments
+            // (pending after a failure or an offline session).
+            let mut queued: Vec<(i64, Value)> = Vec::new();
+            {
+                let mut store = s.store.lock().await;
+                for c in store.comments.iter_mut().filter(|c| {
+                    c.get("track_urn").and_then(Value::as_str) == Some(urn)
+                        && matches!(
+                            c.get("sync").and_then(Value::as_str),
+                            Some("pending") | Some("failed")
+                        )
+                }) {
+                    if let Some(id) = c.get("id").and_then(Value::as_i64) {
+                        c["sync"] = json!("pending");
+                        queued.push((id, c.clone()));
+                    }
+                }
+                if !queued.is_empty() {
+                    store.save();
+                }
+            }
+            if let Some(t) = token.as_deref() {
+                if let Ok(cid) = s.client_id().await {
+                    let track_id = id_of(urn);
+                    for (temp_id, c) in &queued {
+                        tokio::spawn(sync_local_comment(
+                            state.clone(),
+                            t.to_string(),
+                            track_id.clone(),
+                            cid.clone(),
+                            urn.to_string(),
+                            *temp_id,
+                            c.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
+                            c.get("timestamp").and_then(Value::as_u64).unwrap_or(0),
+                        ));
+                    }
+                }
+            }
+            ok(json!({ "retried": queued.len() }))
+        }
+        ("DELETE", ["comments", comment_id]) => {
+            // Delete a comment: best-effort SoundCloud delete (the web client
+            // uses DELETE /comments/:id), then drop the local copy.
+            let id: i64 = comment_id.parse().unwrap_or(0);
+            if id == 0 {
+                err(400, "bad comment id")
+            } else {
+                let (local, local_synced) = {
+                    let store = s.store.lock().await;
+                    match store.comments.iter().find(|c| {
+                        c.get("id").and_then(Value::as_i64) == Some(id)
+                            || c.get("sc_id").and_then(Value::as_i64) == Some(id)
+                    }) {
+                        Some(c) => (
+                            true,
+                            c.get("sync").and_then(Value::as_str) == Some("synced"),
+                        ),
+                        None => (false, false),
+                    }
+                };
+                // Never synced (temp local id) → nothing to do remotely.
+                if !local || local_synced {
+                    match (token.as_deref(), s.client_id().await) {
+                        (Some(t), Ok(cid)) => {
+                            let url = format!(
+                                "{SC_API}/comments/{id}?client_id={cid}&app_version={}",
+                                super::sc::app_version(&s.http).await
+                            );
+                            match super::webview::execute(&s.app, Some(t), "DELETE", &url, None).await
+                            {
+                                Ok(r) if (200..300).contains(&r.status) || r.status == 404 => {}
+                                Ok(r) => {
+                                    emit_sync_error(
+                                        &s.app,
+                                        "DELETE",
+                                        &url,
+                                        r.status,
+                                        r.captcha.is_some(),
+                                        None,
+                                    );
+                                    return Ok(err(502, "SoundCloud delete failed"));
+                                }
+                                Err(e) => {
+                                    emit_sync_error(&s.app, "DELETE", &url, 0, false, Some(&e));
+                                    return Ok(err(502, &e));
+                                }
+                            }
+                        }
+                        _ => return Ok(err(401, "unauthorized")),
+                    }
+                }
+                {
+                    let mut store = s.store.lock().await;
+                    store.comments.retain(|c| {
+                        c.get("id").and_then(Value::as_i64) != Some(id)
+                            && c.get("sc_id").and_then(Value::as_i64) != Some(id)
+                    });
+                    store.save();
+                }
+                ok(json!({ "ok": true }))
             }
         }
         ("GET", ["tracks", _urn, "sharing"]) => ok(json!({ "sharing": "public" })),

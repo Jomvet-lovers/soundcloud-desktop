@@ -144,6 +144,47 @@ pub async fn fetch_client_id(http: &wreq::Client) -> Result<String, String> {
         .ok_or_else(|| "client_id not found in SoundCloud homepage".to_string())
 }
 
+/// Fallback when the homepage can't be parsed (retried on the next run).
+const DEFAULT_APP_VERSION: &str = "1790934937";
+static APP_VERSION_CACHE: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+
+/// Current SoundCloud web `app_version`. Some api-v2 writes (comment posts)
+/// answer 400 "missing params" without it; the value changes per SC deploy,
+/// so it is scraped once per run and cached.
+pub async fn app_version(http: &wreq::Client) -> String {
+    APP_VERSION_CACHE
+        .get_or_init(|| async {
+            match fetch_app_version(http).await {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[direct] app_version fetch failed: {e}");
+                    DEFAULT_APP_VERSION.to_string()
+                }
+            }
+        })
+        .await
+        .clone()
+}
+
+async fn fetch_app_version(http: &wreq::Client) -> Result<String, String> {
+    let resp = http
+        .get(SC_HOME)
+        .header("User-Agent", UA)
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|e| format!("fetch sc home: {e}"))?;
+    let html = resp
+        .text()
+        .await
+        .map_err(|e| format!("read sc home: {e}"))?;
+    static PATTERN: &str = r#""appVersion"\s*:\s*"([^"]+)""#;
+    let re = regex::Regex::new(PATTERN).map_err(|e| e.to_string())?;
+    re.captures(&html)
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+        .ok_or_else(|| "appVersion not found in SoundCloud homepage".to_string())
+}
+
 pub async fn fetch_me(state: &DirectState, token: &str) -> Result<Value, String> {
     let (status, body) = state.sc_get("/me", Some(token)).await?;
     if (200..300).contains(&status) {

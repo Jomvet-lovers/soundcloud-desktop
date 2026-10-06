@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { fc } from '../../lib/formatters';
 import type { Comment } from '../../lib/hooks';
 import { Loader2, MessageCircle } from '../../lib/icons';
+import { useAuthStore } from '../../stores/auth';
 import { VoiceCard } from './comments';
 import type { TrackAura } from './useTrackAura';
 
@@ -15,6 +16,7 @@ const SORTS: Array<{ id: CommentSort; label: string }> = [
 /** Listeners' voices — the sticky rail's comment wall. Every timestamped
  *  comment is a clickable jump-cut into the song; synced with SoundCloud. */
 export const RoomVoices = React.memo(function RoomVoices({
+  trackUrn,
   commentCount,
   comments,
   loading,
@@ -23,6 +25,7 @@ export const RoomVoices = React.memo(function RoomVoices({
   aura,
   onSeek,
 }: {
+  trackUrn: string;
   commentCount?: number;
   comments: Comment[];
   loading: boolean;
@@ -32,6 +35,7 @@ export const RoomVoices = React.memo(function RoomVoices({
   onSeek: (seconds: number) => void;
 }) {
   const [sort, setSort] = useState<CommentSort>('newest');
+  const myUrn = useAuthStore((s) => s.user?.urn);
 
   const sorted = useMemo(() => {
     const list = [...comments];
@@ -86,7 +90,14 @@ export const RoomVoices = React.memo(function RoomVoices({
       ) : (
         <div>
           {sorted.map((c) => (
-            <VoiceCard key={c.urn ?? c.id} comment={c} accent={aura.accent} onSeek={onSeek} />
+            <VoiceCard
+              key={c.urn ?? c.id}
+              comment={c}
+              trackUrn={trackUrn}
+              canDelete={!!myUrn && c.user?.urn === myUrn}
+              accent={aura.accent}
+              onSeek={onSeek}
+            />
           ))}
           <div ref={sentinelRef} className="h-4 flex items-center justify-center">
             {fetchingMore && <Loader2 size={14} className="text-white/15 animate-spin" />}

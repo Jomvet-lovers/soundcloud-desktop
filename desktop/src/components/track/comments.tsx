@@ -1,23 +1,31 @@
+import { useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../../lib/api';
 import { getCurrentTime, subscribe } from '../../lib/audio';
 import { ago, art, durLong } from '../../lib/formatters';
 import { type Comment, usePostComment } from '../../lib/hooks';
-import { Clock, Loader2, Send } from '../../lib/icons';
+import { Clock, Loader2, Send, Trash2 } from '../../lib/icons';
 import { useAuthStore } from '../../stores/auth';
 
 /** A single voice: who said it, an optional clickable timestamp that seeks,
  *  when it was left, and the body. Flat rows separated by hairlines. */
 export const VoiceCard = React.memo(function VoiceCard({
   comment,
+  trackUrn,
+  canDelete,
   accent,
   onSeek,
 }: {
   comment: Comment;
+  trackUrn: string;
+  canDelete: boolean;
   accent: string;
   onSeek: (seconds: number) => void;
 }) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [removing, setRemoving] = useState(false);
   const ts = comment.timestamp;
   const user = comment.user;
   const avatar = art(user?.avatar_url ?? null, 'small');
@@ -25,8 +33,20 @@ export const VoiceCard = React.memo(function VoiceCard({
     if (user?.urn) navigate(`/user/${encodeURIComponent(user.urn)}`);
   };
 
+  const remove = async () => {
+    if (removing) return;
+    setRemoving(true);
+    try {
+      await api(`/comments/${comment.id}`, { method: 'DELETE' });
+      qc.invalidateQueries({ queryKey: ['track', trackUrn, 'comments'] });
+      qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
+    } catch {
+      setRemoving(false);
+    }
+  };
+
   return (
-    <div className="flex gap-3 py-3.5 border-b border-white/[0.06]">
+    <div className="group flex gap-3 py-3.5 border-b border-white/[0.06]">
       <button type="button" onClick={goUser} className="shrink-0 cursor-pointer self-start">
         {avatar ? (
           <img src={avatar} alt="" loading="lazy" className="w-9 h-9 rounded-full object-cover" />
@@ -62,13 +82,34 @@ export const VoiceCard = React.memo(function VoiceCard({
             </span>
           )}
           {comment.sync === 'failed' && (
-            <span className="text-[10px] text-amber-400/85">{'not synced'}</span>
+            <button
+              type="button"
+              onClick={() => {
+                api(`/tracks/${encodeURIComponent(trackUrn)}/comments/sync`, {
+                  method: 'POST',
+                }).catch(() => {});
+              }}
+              className="text-[10px] text-amber-400/85 hover:text-amber-300 transition-colors cursor-pointer"
+            >
+              {'not synced · retry'}
+            </button>
           )}
         </div>
         <p className="selectable text-[13.5px] text-white/70 mt-1 leading-relaxed break-words">
           {comment.body}
         </p>
       </div>
+      {canDelete && (
+        <button
+          type="button"
+          onClick={remove}
+          disabled={removing}
+          aria-label={'Delete comment'}
+          className="shrink-0 self-start mt-0.5 w-7 h-7 rounded-full flex items-center justify-center text-white/25 opacity-0 group-hover:opacity-100 hover:text-red-400/90 hover:bg-white/[0.06] transition-all cursor-pointer disabled:opacity-40"
+        >
+          {removing ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+        </button>
+      )}
     </div>
   );
 });

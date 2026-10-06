@@ -226,6 +226,7 @@ export const TrackPage = React.memo(function TrackPage() {
             />
             <LinerNotes track={track} aura={aura} />
             <RoomVoices
+              trackUrn={track.urn}
               commentCount={track.comment_count}
               comments={comments}
               loading={commentsLoading}
