@@ -28,10 +28,12 @@ interface TrackCardProps {
   queue?: Track[];
   /** Fires after a new track starts — e.g. arm «лайки до конца». Keep stable. */
   onPlay?: () => void;
+  /** Play-count / duration chips over the artwork — search results only. */
+  showStats?: boolean;
 }
 
 export const TrackCard = React.memo(
-  function TrackCard({ track, queue, onPlay }: TrackCardProps) {
+  function TrackCard({ track, queue, onPlay, showStats = false }: TrackCardProps) {
     const navigate = useNavigate();
     const { isThisPlaying, togglePlay: togglePlayRaw } = useTrackPlay(track, queue, onPlay);
     const showPlayingOverlay = useAutoHide(isThisPlaying);
@@ -101,17 +103,19 @@ export const TrackCard = React.memo(
             </div>
           </div>
 
-          {/* Play count + duration, always visible */}
-          <div className="absolute bottom-2 right-2 flex items-center gap-1">
-            {track.playback_count != null && (
-              <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full tabular-nums">
-                {fc(track.playback_count)} {'plays'}
+          {/* Play count + duration — search results only. */}
+          {showStats && (
+            <div className="absolute bottom-2 right-2 flex items-center gap-1">
+              {track.playback_count != null && (
+                <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full tabular-nums">
+                  {fc(track.playback_count)} {'plays'}
+                </div>
+              )}
+              <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full">
+                {dur(track.duration)}
               </div>
-            )}
-            <div className="track-chip text-[10px] font-medium text-white/80 px-2 py-0.5 rounded-full">
-              {dur(track.duration)}
             </div>
-          </div>
+          )}
 
           {/* Bottom left: status badges */}
           <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
@@ -190,6 +194,7 @@ export const TrackCard = React.memo(
   },
   (prev, next) =>
     prev.track.urn === next.track.urn &&
+    prev.showStats === next.showStats &&
     prev.track.user_favorite === next.track.user_favorite &&
     prev.track.title === next.track.title &&
     prev.track.enrichment === next.track.enrichment &&
