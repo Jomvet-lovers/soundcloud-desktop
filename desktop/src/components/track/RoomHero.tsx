@@ -207,7 +207,6 @@ export const RoomHero = React.memo(function RoomHero({
           track={track}
           isCurrent={isThis}
           comments={comments}
-          aura={aura}
           onSeek={onSeek}
           commentAt={commentAt}
           onCommentPosition={onCommentPosition}

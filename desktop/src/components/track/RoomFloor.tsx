@@ -5,16 +5,14 @@ import type { Comment } from '../../lib/hooks';
 import { useAuthStore } from '../../stores/auth';
 import type { Track } from '../../stores/player';
 import { LiveWaveform } from '../music/soundwave/waveform';
-import type { TrackAura } from './useTrackAura';
 import { FloatingComments, WaveVoices } from './WaveVoices';
 
-/** The floor of the room: the live waveform, recolored to the track's own hue
- *  (scoped --color-accent), with voices plotted on it and a time ruler. */
+/** The floor of the room: the live waveform in the app's accent colour, with
+ *  voices plotted on it and a time ruler. */
 export const RoomFloor = React.memo(function RoomFloor({
   track,
   isCurrent,
   comments,
-  aura,
   onSeek,
   commentAt,
   onCommentPosition,
@@ -22,7 +20,6 @@ export const RoomFloor = React.memo(function RoomFloor({
   track: Track;
   isCurrent: boolean;
   comments: Comment[];
-  aura: TrackAura;
   onSeek: (seconds: number) => void;
   /** Pending comment position (ms) picked on the lower lane, if any. */
   commentAt: number | null;
@@ -49,15 +46,7 @@ export const RoomFloor = React.memo(function RoomFloor({
   const previewTail = track.access === 'preview' && playableFrac < 0.995 ? 1 - playableFrac : 0;
 
   return (
-    <div
-      className="relative"
-      style={
-        {
-          '--color-accent': aura.accent,
-          '--color-accent-glow': aura.accentGlow,
-        } as React.CSSProperties
-      }
-    >
+    <div className="relative">
       <div className="relative w-full">
         <LiveWaveform track={track} isCurrent={isCurrent} onCommentPosition={onCommentPosition} />
         {previewTail > 0 && (
