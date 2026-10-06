@@ -27,6 +27,9 @@ const OfflinePage = lazy(() =>
   import('./pages/OfflinePage').then((module) => ({ default: module.OfflinePage })),
 );
 const Search = lazy(() => import('./pages/Search').then((module) => ({ default: module.Search })));
+const TagPage = lazy(() =>
+  import('./pages/TagPage').then((module) => ({ default: module.TagPage })),
+);
 const Settings = lazy(() =>
   import('./pages/Settings').then((module) => ({ default: module.Settings })),
 );
@@ -232,6 +235,14 @@ export default function App() {
                   element={
                     <RouteLoader>
                       <Search />
+                    </RouteLoader>
+                  }
+                />
+                <Route
+                  path="tag/:tag"
+                  element={
+                    <RouteLoader>
+                      <TagPage />
                     </RouteLoader>
                   }
                 />

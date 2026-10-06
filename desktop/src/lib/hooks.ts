@@ -459,6 +459,29 @@ export function usePostComment(trackUrn: string | undefined) {
   });
 }
 
+/* ── Tag tracks ───────────────────────────────────────────────── */
+
+export type TagSort = 'newest' | 'plays' | 'likes';
+
+/** Tracks carrying a SoundCloud tag, numbered-paged + sorted like search. */
+export function useTagTracksPage(tag: string | undefined, page: number, sort: TagSort = 'newest') {
+  const query = useQuery<PagedResponse<Track>>({
+    queryKey: ['tag', tag, 'tracks', sort, page],
+    queryFn: () =>
+      api<PagedResponse<Track>>(
+        `/tags/${encodeURIComponent(tag!)}/tracks?limit=30&page=${page}&sort=${sort}`,
+      ),
+    staleTime: SEARCH_CACHE_MS,
+    placeholderData: keepPreviousData,
+    enabled: !!tag,
+  });
+  return {
+    tracks: query.data?.collection ?? [],
+    hasMore: query.data?.has_more === true,
+    ...query,
+  };
+}
+
 /* ── Related Tracks ───────────────────────────────────────────── */
 
 export function useRelatedTracks(trackUrn: string | undefined, limit = 10) {

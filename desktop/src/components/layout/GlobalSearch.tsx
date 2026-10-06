@@ -72,7 +72,13 @@ export const GlobalSearch = memo(function GlobalSearch() {
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              goSearch();
+              const value = q.trim();
+              // `#tag` opens the tag feed instead of a text search.
+              if (value.startsWith('#') && value.length > 1) {
+                navigate(`/tag/${encodeURIComponent(value.slice(1).trim())}`);
+              } else {
+                goSearch();
+              }
               (e.currentTarget as HTMLInputElement).blur();
             } else if (e.key === 'Escape') {
               (e.currentTarget as HTMLInputElement).blur();

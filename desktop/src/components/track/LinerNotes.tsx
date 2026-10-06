@@ -114,12 +114,14 @@ export const LinerNotes = React.memo(function LinerNotes({
         <div className="flex items-center gap-1.5 flex-wrap pt-1">
           <Hash size={12} className="text-white/20" />
           {tags.map((tag) => (
-            <span
+            <button
               key={tag}
-              className="text-[10px] font-medium text-white/40 hover:text-white/60 transition-colors cursor-default"
+              type="button"
+              onClick={() => navigate(`/tag/${encodeURIComponent(tag)}`)}
+              className="text-[10px] font-medium text-white/40 hover:text-white/70 transition-colors cursor-pointer"
             >
               {tag}
-            </span>
+            </button>
           ))}
         </div>
       )}

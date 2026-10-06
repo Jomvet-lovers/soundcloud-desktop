@@ -1301,6 +1301,84 @@ async fn handle(
                 ok(json!({ "ok": true }))
             }
         }
+        ("GET", ["tags", tag, "tracks"]) => {
+            // Tag feed (the web tag pages' "recent tracks"), widened and sorted
+            // locally so the tag page can offer the same paging/sorting as the
+            // search page. `limit` maxes out at 50 per request, so the window
+            // is built by following the feed cursor.
+            let limit = q_u64(&q, "limit", 30);
+            let page_no = q_u64(&q, "page", 0);
+            let offset = (page_no * limit) as usize;
+            let sort = q_str(&q, "sort").unwrap_or_else(|| "newest".to_string());
+
+            let cache_key = format!("tag\u{1}{tag}\u{1}{sort}");
+            let cached = {
+                let cache = s.search_cache.lock().await;
+                cache.get(&cache_key).cloned()
+            };
+            let all = match cached {
+                Some((at, items)) if at.elapsed() < Duration::from_secs(300) => items,
+                _ => {
+                    let mut items: Vec<Value> = Vec::new();
+                    let mut cursor: Option<String> = None;
+                    for _ in 0..4 {
+                        let mut path =
+                            format!("/recent-tracks/{}?limit=50", urlencoding::encode(tag));
+                        if let Some(c) = cursor.as_deref() {
+                            path.push_str("&offset=");
+                            path.push_str(&urlencoding::encode(c));
+                        }
+                        let (status, v) = match s.sc_get(&path, token.as_deref()).await {
+                            Ok(x) => x,
+                            Err(_) => break,
+                        };
+                        if !(200..300).contains(&status) {
+                            break;
+                        }
+                        items.extend(
+                            sc_items(&v)
+                                .into_iter()
+                                .filter(|it| {
+                                    it.get("kind").and_then(Value::as_str) != Some("playlist")
+                                })
+                                .map(normalize_urn)
+                                .map(normalize_deep),
+                        );
+                        cursor = v.get("next_href").and_then(Value::as_str).and_then(|u| {
+                            url::Url::parse(u).ok().and_then(|parsed| {
+                                parsed
+                                    .query_pairs()
+                                    .find(|(k, _)| k == "offset")
+                                    .map(|(_, val)| val.into_owned())
+                            })
+                        });
+                        if cursor.is_none() || items.len() >= 200 {
+                            break;
+                        }
+                    }
+                    let mut seen = std::collections::HashSet::new();
+                    items.retain(|it| {
+                        let urn = it
+                            .get("urn")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        seen.insert(urn)
+                    });
+                    sort_tracks(&mut items, &sort);
+                    let mut cache = s.search_cache.lock().await;
+                    if cache.len() > 24 {
+                        cache.clear();
+                    }
+                    cache.insert(cache_key, (Instant::now(), items.clone()));
+                    items
+                }
+            };
+            let total = all.len() as u64;
+            let slice: Vec<Value> = all.into_iter().skip(offset).take(limit as usize).collect();
+            let has_more = (offset as u64 + slice.len() as u64) < total;
+            ok(page(slice, page_no, limit, has_more))
+        }
         ("GET", ["tracks", _urn, "sharing"]) => ok(json!({ "sharing": "public" })),
         ("PUT", ["tracks", _urn, "sharing"]) | ("DELETE", ["tracks", _urn, "sharing"]) => {
             ok(json!({ "ok": true }))
