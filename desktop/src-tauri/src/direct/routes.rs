@@ -1515,6 +1515,28 @@ async fn handle(
                     return Ok(err(404, "playlist deleted"));
                 }
             }
+            // System mixes (Trending by genre, Daily Drops, …) live under their
+            // own endpoint — the playlist page opens them like any other set.
+            if urn.starts_with("soundcloud:system-playlists:") {
+                let enc = urlencoding::encode(urn);
+                return match s
+                    .sc_get(&format!("/system-playlists/{enc}"), token.as_deref())
+                    .await
+                {
+                    Ok((status, mut v)) if (200..300).contains(&status) => {
+                        if let Some(slot) = v.get_mut("tracks").and_then(Value::as_array_mut) {
+                            let mut list = std::mem::take(slot);
+                            hydrate_track_stubs(s, token.as_deref(), &mut list).await;
+                            *slot = list;
+                        }
+                        // `normalize_deep` mirrors calculated_artwork_url into
+                        // artwork_url — system playlists only carry the former.
+                        Ok(json_resp(status, &normalize_deep(v)))
+                    }
+                    Ok((status, v)) => Ok(json_resp(status, &v)),
+                    Err(e) => Ok(err(502, &e)),
+                };
+            }
             if let Some(local) = repaired_local_playlist(s, token.as_deref(), urn).await {
                 return Ok(ok(local));
             }
@@ -1536,6 +1558,33 @@ async fn handle(
             let limit = q_u64(&q, "limit", 200);
             let page_no = q_u64(&q, "page", 0);
             let offset = page_no * limit;
+            // System mixes: their tracks ride the system-playlist payload.
+            if urn.starts_with("soundcloud:system-playlists:") {
+                let enc = urlencoding::encode(urn);
+                let v = match s
+                    .sc_get(&format!("/system-playlists/{enc}"), token.as_deref())
+                    .await
+                {
+                    Ok((status, v)) if (200..300).contains(&status) => v,
+                    Ok((status, v)) => return Ok(json_resp(status, &v)),
+                    Err(e) => return Ok(err(502, &e)),
+                };
+                let mut all = v
+                    .get("tracks")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                hydrate_track_stubs(s, token.as_deref(), &mut all).await;
+                let total = all.len() as u64;
+                let slice: Vec<Value> = all
+                    .into_iter()
+                    .skip(offset as usize)
+                    .take(limit as usize)
+                    .map(normalize_urn)
+                    .collect();
+                let has_more = offset + (slice.len() as u64) < total;
+                return Ok(ok(page(slice, page_no, limit, has_more)));
+            }
             let local = repaired_local_playlist(s, token.as_deref(), urn).await;
             if let Some(local) = local {
                 let all: Vec<Value> = local
