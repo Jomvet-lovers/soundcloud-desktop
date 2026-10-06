@@ -187,8 +187,13 @@ const isInputEl = (el: EventTarget | null) =>
 
 /* ── AppShell ──────────────────────────────────────────────── */
 
+/** Queue-drawer exit window (slide-out); keep in sync with .queue-drawer (280ms). */
+const QUEUE_FADE_MS = 340;
+
 export const AppShell = React.memo(() => {
   const [queueOpen, setQueueOpen] = useState(false);
+  /** Drawer stays mounted through its fade-out; see QUEUE_FADE_MS. */
+  const [queueMounted, setQueueMounted] = useState(false);
   const [kbOpen, setKbOpen] = useState(false);
   const volumeHoldRef = useRef<{ key: string | null; repeatCount: number; lastAt: number }>({
     key: null,
@@ -205,6 +210,16 @@ export const AppShell = React.memo(() => {
   queueOpenRef.current = queueOpen;
   const kbOpenRef = useRef(kbOpen);
   kbOpenRef.current = kbOpen;
+
+  // Mount the lazy drawer on open; keep it mounted while it fades out.
+  useEffect(() => {
+    if (queueOpen) {
+      setQueueMounted(true);
+      return;
+    }
+    const t = setTimeout(() => setQueueMounted(false), QUEUE_FADE_MS);
+    return () => clearTimeout(t);
+  }, [queueOpen]);
 
   // Anti-sticky-hover: WebKitGTK doesn't re-hit-test :hover while the content
   // scrolls under a stationary cursor, so cards "freeze" hovered or light up the
@@ -370,7 +385,7 @@ export const AppShell = React.memo(() => {
         </main>
       </div>
       <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} />
-      {queueOpen && (
+      {queueMounted && (
         <Suspense fallback={null}>
           <QueuePanel open={queueOpen} onClose={onQueueClose} />
         </Suspense>

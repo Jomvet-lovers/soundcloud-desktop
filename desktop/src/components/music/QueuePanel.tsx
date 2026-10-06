@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/shallow';
 import { ListMusic, Trash2, X } from '../../lib/icons';
 import { usePlayerStore } from '../../stores/player';
@@ -6,10 +6,26 @@ import { NowPlayingCard } from './queue/NowPlayingCard';
 import { QueueList } from './queue/QueueList';
 
 /* ── Queue drawer ─────────────────────────────────────────────
- * Right-side flat drawer: solid surface, content isolated on top. */
+ * Right-side flat drawer: solid surface, content isolated on top.
+ * Slides in/out from the right (AppShell keeps it mounted through the exit). */
 
 export const QueuePanel = React.memo(
   ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+    // The drawer mounts already-open, so paint one frame in the closed state
+    // and flip `entered` after it — otherwise the slide-in never transitions.
+    const [entered, setEntered] = useState(false);
+    useEffect(() => {
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setEntered(true));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        cancelAnimationFrame(raf2);
+      };
+    }, []);
+    const shown = open && entered;
+
     const { currentTrack, queueLength, queueIndex, isPlaying } = usePlayerStore(
       useShallow((s) => ({
         currentTrack: s.currentTrack,
@@ -25,19 +41,19 @@ export const QueuePanel = React.memo(
       <>
         {/* Backdrop */}
         <div
-          className={`fixed inset-0 bg-black/60 z-40 transition-opacity duration-300 ${
-            open ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          className={`queue-backdrop fixed inset-0 bg-black/60 z-40 ${
+            shown ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
           onClick={onClose}
         />
 
         {/* Panel */}
         <div
-          className="fixed top-0 right-0 bottom-0 w-[360px] z-50 flex flex-col border-l border-white/[0.06]"
+          className="queue-drawer fixed top-0 right-0 bottom-0 w-[360px] z-50 flex flex-col border-l border-white/[0.06]"
           style={{
-            transform: open ? 'translateX(0)' : 'translateX(100%)',
-            visibility: open ? 'visible' : 'hidden',
-            transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1), visibility 300ms',
+            transform: shown ? 'translateX(0)' : 'translateX(100%)',
+            visibility: shown ? 'visible' : 'hidden',
+            pointerEvents: shown ? 'auto' : 'none',
           }}
         >
           {/* Flat surface (solid). */}
@@ -47,14 +63,6 @@ export const QueuePanel = React.memo(
           >
             <div className="absolute inset-0" style={{ background: '#101014' }} />
           </div>
-          {/* accent edge */}
-          <div
-            className="absolute inset-y-0 left-0 w-px pointer-events-none"
-            style={{
-              background: 'var(--color-accent)',
-              opacity: 0.5,
-            }}
-          />
 
           {/* Content */}
           <div className="relative z-10 flex flex-col h-full" style={{ isolation: 'isolate' }}>

@@ -363,6 +363,27 @@ button:active:not(:disabled) {
   }
 }
 
+/* ── Queue drawer (slide-in from the right) ─────────────────────────────
+   The drawer mounts in the closed state and slides in on the next frame
+   (QueuePanel's `entered`); AppShell keeps it mounted for the slide-out.
+   --ease-apple: fast start, soft landing — the swift drawer glide. */
+.queue-drawer {
+  transition:
+    transform 280ms var(--ease-apple),
+    visibility 280ms;
+}
+
+.queue-backdrop {
+  transition: opacity 240ms var(--ease-apple);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .queue-drawer,
+  .queue-backdrop {
+    transition: none;
+  }
+}
+
 /* Sidebar active-row indicator — transform-only slide between rows. */
 .sidebar-indicator {
   view-transition-name: sidebar-pill;
