@@ -6,6 +6,18 @@ import type { Track } from '../../../stores/player';
 
 const BAR_COUNT = 380;
 
+/** The right gutter holds the time readout, so the bars stop short of it —
+ *  clicks and the playhead must map onto the same width the bars occupy. */
+const WAVE_GUTTER_PX = 40;
+
+/** Where `clientX` sits across the bar area (0..1), gutter excluded. */
+function wavePct(el: HTMLElement | null, clientX: number): number {
+  if (!el) return 0;
+  const rect = el.getBoundingClientRect();
+  const width = Math.max(1, rect.width - WAVE_GUTTER_PX);
+  return Math.min(1, Math.max(0, (clientX - rect.left) / width));
+}
+
 /** Rendered bars per mode (drawn twice: muted + accent layer). */
 function barsForMode(mode: PerfMode): number {
   if (mode === 'light') return 150;
@@ -58,6 +70,9 @@ export const LiveWaveform = React.memo(
     const { data: samples } = useTrackWaveform(track);
     const { mode } = usePerfMode();
     const barCount = barsForMode(mode);
+    // The wave spans the track's full duration (the SoundCloud waveform axis),
+    // not the engine's loaded-track duration — which may belong to another track.
+    const waveSpanMs = track?.full_duration ?? track?.duration ?? 0;
 
     const bars = useMemo(() => {
       if (!samples) return fallbackBars(barCount);
@@ -68,6 +83,7 @@ export const LiveWaveform = React.memo(
     const hintRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
+      const span = waveSpanMs / 1000;
       if (!isCurrent) {
         if (rootRef.current) rootRef.current.style.setProperty('--sw-progress', '0%');
         if (hintRef.current) hintRef.current.style.left = '0%';
@@ -75,31 +91,42 @@ export const LiveWaveform = React.memo(
       }
       const paint = () => {
         const t = getCurrentTime();
-        const d = getDuration();
+        // The bars span the track's full duration, so the playhead rides that
+        // too — on a preview it stops where the playable part ends instead of
+        // sweeping the whole wave.
+        const d = span > 0 ? span : getDuration();
         const pct = d > 0 ? Math.min(100, Math.max(0, (t / d) * 100)) : 0;
         if (rootRef.current) rootRef.current.style.setProperty('--sw-progress', `${pct}%`);
         if (hintRef.current) hintRef.current.style.left = `${pct}%`;
       };
       paint();
       return subscribe(paint);
-    }, [isCurrent]);
+    }, [isCurrent, waveSpanMs]);
 
     const handleBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
       if (!isCurrent) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-      const d = getDuration();
-      if (d > 0) seek(pct * d);
+      const pct = wavePct(rootRef.current, e.clientX);
+      const span = waveSpanMs / 1000;
+      const engineD = getDuration();
+      // Wave position → seconds on the wave axis, clamped to what the engine
+      // can actually play (a preview streams only its first stretch).
+      const target =
+        span > 0
+          ? Math.min(pct * span, engineD > 0 ? engineD : Number.POSITIVE_INFINITY)
+          : pct * engineD;
+      if (target > 0) seek(target);
     };
 
-    /** Lower lane click: pin where to comment — the playhead stays put. */
+    /** Lower lane click: pin where to comment — the playhead stays put. The
+     *  position rides the same time axis the comment dots use (the track's full
+     *  duration), never whatever the engine currently has loaded. */
     const handleCommentClick = (e: React.MouseEvent<HTMLDivElement>) => {
       if (!onCommentPosition) return;
       e.stopPropagation();
-      const rect = e.currentTarget.getBoundingClientRect();
-      const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-      const d = getDuration() || (track?.duration ?? 0) / 1000;
-      if (d > 0) onCommentPosition(Math.round(pct * d * 1000));
+      const d = waveSpanMs / 1000;
+      if (d > 0) {
+        onCommentPosition(Math.round(wavePct(rootRef.current, e.clientX) * d * 1000));
+      }
     };
 
     return (
@@ -119,9 +146,9 @@ export const LiveWaveform = React.memo(
           ))}
         </div>
         {/* Lower lane: dims the mirrored half; clicking pins a comment spot
-            there without seeking. */}
+            there without seeking. Stops at the gutter like the bars do. */}
         <div
-          className="absolute left-0 right-0 top-1/2 bottom-0 cursor-crosshair"
+          className="absolute left-0 right-10 top-1/2 bottom-0 cursor-crosshair"
           style={{ background: 'rgba(0,0,0,0.45)' }}
           onClick={handleCommentClick}
         />
@@ -131,15 +158,17 @@ export const LiveWaveform = React.memo(
           style={{ background: 'rgba(255,255,255,0.45)' }}
         />
         {isCurrent && (
-          <div
-            ref={hintRef}
-            className="absolute top-0 bottom-0 w-px pointer-events-none"
-            style={{
-              left: '0%',
-              transform: 'translateX(-50%)',
-              background: 'rgba(255,255,255,0.9)',
-            }}
-          />
+          <div className="pointer-events-none absolute inset-y-0 left-0 right-10">
+            <div
+              ref={hintRef}
+              className="absolute top-0 bottom-0 w-px"
+              style={{
+                left: '0%',
+                transform: 'translateX(-50%)',
+                background: 'rgba(255,255,255,0.9)',
+              }}
+            />
+          </div>
         )}
       </div>
     );

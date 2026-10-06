@@ -9,7 +9,7 @@ import { RoomVoices } from '../components/track/RoomVoices';
 import { TrackCover } from '../components/track/TrackCover';
 import { useTrackAura } from '../components/track/useTrackAura';
 import { api } from '../lib/api';
-import { seek } from '../lib/audio';
+import { seekInTrack } from '../lib/audio';
 import { art } from '../lib/formatters';
 import {
   useInfiniteScroll,
@@ -110,13 +110,13 @@ export const TrackPage = React.memo(function TrackPage() {
   }, [track]);
 
   // Jump into the song from a comment: seek when it's already loaded, else
-  // start it (and its voices begin to rise as the playhead sweeps).
+  // start it — the jump is applied as soon as the load lands.
   const jumpTo = useCallback(
     (seconds: number) => {
       if (!track) return;
       const st = usePlayerStore.getState();
-      if (st.currentTrack?.urn === track.urn) seek(seconds);
-      else st.play(track, [track]);
+      if (st.currentTrack?.urn !== track.urn) st.play(track, [track]);
+      seekInTrack(track.urn, seconds);
     },
     [track],
   );

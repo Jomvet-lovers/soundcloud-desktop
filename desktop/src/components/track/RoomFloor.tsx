@@ -69,31 +69,37 @@ export const RoomFloor = React.memo(function RoomFloor({
             title={'Preview only'}
           />
         )}
-        <WaveVoices
-          comments={comments}
-          durationMs={durationMs}
-          isCurrent={isCurrent}
-          onSeek={onSeek}
-        />
-        <FloatingComments comments={comments} durationMs={durationMs} isCurrent={isCurrent} />
+        {/* Comment layers share the bars' box (right gutter excluded) so a dot
+            or pin sits exactly where its timestamp lies on the wave. */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 right-10 z-10">
+          <WaveVoices
+            comments={comments}
+            durationMs={durationMs}
+            isCurrent={isCurrent}
+            onSeek={onSeek}
+          />
+          <FloatingComments comments={comments} durationMs={durationMs} isCurrent={isCurrent} />
+        </div>
         {commentAt != null && durationMs > 0 && (
-          <div
-            className="pointer-events-none absolute top-[75%] -translate-x-1/2 -translate-y-1/2"
-            style={{
-              left: `${Math.min(1, Math.max(0, commentAt / durationMs)) * 100}%`,
-            }}
-          >
-            {myUser?.avatar_url ? (
-              <img
-                src={art(myUser.avatar_url, 'small') ?? ''}
-                alt=""
-                className="w-6 h-6 rounded-full object-cover"
-              />
-            ) : (
-              <span className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-[10px] font-semibold text-white/70">
-                {(myUser?.username || '?').slice(0, 1).toUpperCase()}
-              </span>
-            )}
+          <div className="pointer-events-none absolute inset-y-0 left-0 right-10">
+            <div
+              className="absolute top-[75%] -translate-x-1/2 -translate-y-1/2"
+              style={{
+                left: `${Math.min(1, Math.max(0, commentAt / durationMs)) * 100}%`,
+              }}
+            >
+              {myUser?.avatar_url ? (
+                <img
+                  src={art(myUser.avatar_url, 'small') ?? ''}
+                  alt=""
+                  className="w-6 h-6 rounded-full object-cover"
+                />
+              ) : (
+                <span className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-[10px] font-semibold text-white/70">
+                  {(myUser?.username || '?').slice(0, 1).toUpperCase()}
+                </span>
+              )}
+            </div>
           </div>
         )}
         <div className="pointer-events-none absolute right-0 top-0 bottom-0 flex flex-col items-end text-[11px] tabular-nums text-white/45">

@@ -28,9 +28,13 @@ export const VoiceCard = React.memo(function VoiceCard({
   const [removing, setRemoving] = useState(false);
   const ts = comment.timestamp;
   const user = comment.user;
+  const myUrn = useAuthStore((s) => s.user?.urn);
   const avatar = art(user?.avatar_url ?? null, 'small');
   const goUser = () => {
-    if (user?.urn) navigate(`/user/${encodeURIComponent(user.urn)}`);
+    // Legacy local comments carry a "local:users:me" placeholder — those are
+    // the signed-in user, so open their real profile instead of a dead page.
+    const urn = user?.urn === 'local:users:me' ? myUrn : user?.urn;
+    if (urn) navigate(`/user/${encodeURIComponent(urn)}`);
   };
 
   const remove = async () => {

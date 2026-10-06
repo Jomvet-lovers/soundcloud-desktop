@@ -44,6 +44,9 @@ let cachedDuration = 0;
 let downloadProgress: number | null = null;
 let loadGen = 0;
 let lastEndedUrn: string | null = null;
+// A seek requested before its track finished loading (jumping from a comment
+// on a track that isn't playing yet) — applied once afterLoad lands.
+let pendingSeek: { urn: string; seconds: number } | null = null;
 const listeners = new Set<() => void>();
 const API_PREVIEW_DURATION_MS = 30_000;
 
@@ -94,6 +97,16 @@ export function seek(seconds: number) {
   cachedTime = seconds;
   notify();
   setTimeout(() => updateMediaPosition(), 150);
+}
+
+/** Jump to `seconds` in `urn`, waiting for the load when the track isn't ready
+ *  yet — a comment click on a track that isn't playing starts it there. */
+export function seekInTrack(urn: string, seconds: number) {
+  if (currentUrn === urn && hasTrack) {
+    seek(seconds);
+    return;
+  }
+  pendingSeek = { urn, seconds };
 }
 
 export function handlePrev() {
@@ -309,6 +322,8 @@ async function loadTrack(track: Track) {
   const isNewTrack = currentUrn !== track.urn;
   stopTrack();
   currentUrn = track.urn;
+  // A pending seek aimed at another track must not fire when that track loads.
+  if (pendingSeek && pendingSeek.urn !== track.urn) pendingSeek = null;
   const urn = track.urn;
 
   // A-B loop is per-track: drop it only when loading a genuinely different track —
@@ -450,6 +465,12 @@ function afterLoad(track: Track, gen: number) {
 
   const isPlaying = usePlayerStore.getState().isPlaying;
   invoke(isPlaying ? 'audio_play' : 'audio_pause').catch(console.error);
+  // A jump requested while the track was still loading lands now.
+  if (pendingSeek && pendingSeek.urn === track.urn) {
+    const { seconds } = pendingSeek;
+    pendingSeek = null;
+    seek(seconds);
+  }
   updatePlaybackState(isPlaying);
   updateMediaPosition();
   preloadQueue();
