@@ -25,6 +25,7 @@ const navItems: { to: string; icon: IconCmp; label: string }[] = [
   { to: '/home', icon: Home, label: 'Home' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/library', icon: Library, label: 'Library' },
+  { to: '/library/history', icon: Clock, label: 'History' },
   { to: '/offline', icon: Download, label: 'Offline' },
 ];
 
@@ -118,8 +119,8 @@ export const Sidebar = React.memo(() => {
   );
   const perf = usePerfMode();
   const { pathname } = useLocation();
-  // The History deep page lives under /library but has its own Quick Access
-  // row — keep the Library row dim there so only one item reads as active.
+  // The History deep page lives under /library but has its own nav row —
+  // keep the Library row dim there so only one item reads as active.
   const libraryActive = pathname.startsWith('/library') && !pathname.startsWith('/library/history');
 
   const btnCls = `${ROW} text-white/45 hover:text-white/80 hover:bg-white/[0.05] cursor-pointer`;
@@ -147,67 +148,61 @@ export const Sidebar = React.memo(() => {
         ))}
       </nav>
 
-      <div className="px-2 pt-4 space-y-0.5">
-        {/* Section header — folds to a hairline divider when collapsed. */}
-        <div className="relative h-5 mx-1 mb-0.5">
-          <span
-            className="absolute inset-x-0 top-1/2 h-px"
-            style={{
-              background: 'rgba(255,255,255,0.07)',
-              opacity: collapsed ? 1 : 0,
-              transition: 'opacity 240ms ease',
-            }}
-          />
-          <span
-            className="absolute inset-0 flex items-center gap-2 px-2 text-[10px] text-white/25 font-semibold whitespace-nowrap"
-            style={{ opacity: collapsed ? 0 : 1, transition: 'opacity 240ms ease' }}
-          >
-            {'Quick Access'}
-          </span>
-        </div>
-
-        <NavItem
-          to="/library/history"
-          icon={Clock}
-          label={'History'}
-          collapsed={collapsed}
-          title={collapsed ? 'History' : undefined}
-        />
-
-        {pinnedPlaylists.map((playlist) => {
-          const artwork = art(playlist.artworkUrl, 'small');
-          return (
-            <NavLink
-              key={playlist.urn}
-              to={`/playlist/${encodeURIComponent(playlist.urn)}`}
-              title={collapsed ? playlist.title : undefined}
-              className={({ isActive }) =>
-                `${ROW} ${
-                  isActive ? '' : 'text-white/45 hover:text-white/80 hover:bg-white/[0.05]'
-                }`
-              }
-              style={({ isActive }) => (isActive ? ACTIVE : undefined)}
+      {pinnedPlaylists.length > 0 && (
+        <div className="px-2 pt-4 space-y-0.5">
+          {/* Section header — folds to a hairline divider when collapsed. */}
+          <div className="relative h-5 mx-1 mb-0.5">
+            <span
+              className="absolute inset-x-0 top-1/2 h-px"
+              style={{
+                background: 'rgba(255,255,255,0.07)',
+                opacity: collapsed ? 1 : 0,
+                transition: 'opacity 240ms ease',
+              }}
+            />
+            <span
+              className="absolute inset-0 flex items-center gap-2 px-2 text-[10px] text-white/25 font-semibold whitespace-nowrap"
+              style={{ opacity: collapsed ? 0 : 1, transition: 'opacity 240ms ease' }}
             >
-              <IconBox>
-                {artwork ? (
-                  <img
-                    src={artwork}
-                    alt=""
-                    className="w-[18px] h-[18px] rounded-[5px] object-cover ring-1 ring-white/[0.1]"
-                    decoding="async"
-                    loading="lazy"
-                  />
-                ) : (
-                  <ListMusic size={17} strokeWidth={1.9} />
-                )}
-              </IconBox>
-              <Label collapsed={collapsed} className="text-[12.5px] font-medium pr-3">
-                {playlist.title}
-              </Label>
-            </NavLink>
-          );
-        })}
-      </div>
+              {'Quick Access'}
+            </span>
+          </div>
+
+          {pinnedPlaylists.map((playlist) => {
+            const artwork = art(playlist.artworkUrl, 'small');
+            return (
+              <NavLink
+                key={playlist.urn}
+                to={`/playlist/${encodeURIComponent(playlist.urn)}`}
+                title={collapsed ? playlist.title : undefined}
+                className={({ isActive }) =>
+                  `${ROW} ${
+                    isActive ? '' : 'text-white/45 hover:text-white/80 hover:bg-white/[0.05]'
+                  }`
+                }
+                style={({ isActive }) => (isActive ? ACTIVE : undefined)}
+              >
+                <IconBox>
+                  {artwork ? (
+                    <img
+                      src={artwork}
+                      alt=""
+                      className="w-[18px] h-[18px] rounded-[5px] object-cover ring-1 ring-white/[0.1]"
+                      decoding="async"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <ListMusic size={17} strokeWidth={1.9} />
+                  )}
+                </IconBox>
+                <Label collapsed={collapsed} className="text-[12.5px] font-medium pr-3">
+                  {playlist.title}
+                </Label>
+              </NavLink>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex-1" />
 
