@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type MouseEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { TrackCard } from '../components/music/TrackCard';
 import { Pager } from '../components/ui/Pager';
 import { api } from '../lib/api';
@@ -14,11 +15,22 @@ import {
   useSearchDbTracksPage,
   useSearchDbUsersPage,
 } from '../lib/hooks';
-import { ChevronRight, Loader2, Music, Play } from '../lib/icons';
+import { LinkIcon, Loader2, Music, playBlack20 } from '../lib/icons';
 import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
 import { useSearchQueryStore } from '../stores/searchQuery';
+
+/** Where a Discover item's title should lead (null → not a page we host). */
+function itemPagePath(item: MixedSelectionItem): string | null {
+  const urn = item.urn ?? '';
+  if (urn.startsWith('soundcloud:tracks:')) return `/track/${encodeURIComponent(urn)}`;
+  if (urn.startsWith('soundcloud:users:')) return `/user/${encodeURIComponent(urn)}`;
+  if (urn.startsWith('soundcloud:playlists:') || urn.startsWith('soundcloud:system-playlists:')) {
+    return `/playlist/${encodeURIComponent(urn)}`;
+  }
+  return null;
+}
 
 /** Discover card for a SoundCloud mixed-selection item (mix or artist station). */
 function DiscoverCard({
@@ -30,48 +42,84 @@ function DiscoverCard({
   busy: boolean;
   onPlay: (item: MixedSelectionItem) => void;
 }) {
+  const navigate = useNavigate();
   const cover = art(item.artwork_url ?? item.calculated_artwork_url ?? null, 't500x500');
+  const pagePath = itemPagePath(item);
+
+  const copyLink = async (e: MouseEvent) => {
+    e.stopPropagation();
+    const url = item.permalink_url;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Copied!');
+    } catch {
+      toast.error('Something went wrong');
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={() => onPlay(item)}
-      disabled={busy}
-      className="group cursor-pointer text-left disabled:opacity-60"
-    >
-      <div className="relative aspect-square overflow-hidden rounded-xl bg-white/[0.04]">
+    <div className="group min-w-0">
+      <div
+        className={`relative aspect-square overflow-hidden rounded-xl bg-white/[0.04] cursor-pointer ${
+          busy ? 'opacity-60 pointer-events-none' : ''
+        }`}
+        onClick={() => !busy && onPlay(item)}
+      >
         {cover ? (
           <img
             src={cover}
             alt=""
             loading="lazy"
-            className="size-full object-cover transition-opacity group-hover:opacity-85"
+            className="size-full object-cover transition-transform duration-500 ease-[var(--ease-apple)] group-hover:scale-[1.04]"
           />
         ) : (
           <div className="flex size-full items-center justify-center">
             <Music size={22} className="text-white/20" />
           </div>
         )}
-        {busy ? (
+        {/* Hover: dim + centred play, same as the HOME track cards. */}
+        {!busy && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-300 group-hover:bg-black/30 group-hover:opacity-100">
+            <div className="flex w-10 h-10 items-center justify-center rounded-full bg-white/90 scale-75 shadow-xl transition-all duration-300 ease-[var(--ease-apple)] group-hover:scale-100">
+              {playBlack20}
+            </div>
+          </div>
+        )}
+        {busy && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50">
             <Loader2 size={20} className="animate-spin text-white/80" />
           </div>
-        ) : item.kind === 'user' ? null : (
-          <span className="absolute bottom-2 right-2 flex size-8 items-center justify-center rounded-full bg-black/65 text-white/85">
-            {item.urn?.startsWith('soundcloud:playlists:') ? (
-              <ChevronRight size={15} />
-            ) : (
-              <Play size={13} fill="currentColor" strokeWidth={0} className="ml-px" />
-            )}
-          </span>
         )}
+        {/* Copy link — top right, on hover (HOME-style). */}
+        <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <button
+            type="button"
+            onClick={copyLink}
+            className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+            title={'Copy link'}
+          >
+            <LinkIcon size={12} />
+          </button>
+        </div>
       </div>
-      <p className="mt-2 truncate text-[13px] font-medium text-white/85">
-        {item.short_title || item.title}
-      </p>
+      {pagePath ? (
+        <button
+          type="button"
+          onClick={() => navigate(pagePath)}
+          className="mt-2 block w-full truncate text-left text-[13px] font-medium text-white/85 hover:text-white transition-colors cursor-pointer"
+        >
+          {item.short_title || item.title}
+        </button>
+      ) : (
+        <p className="mt-2 truncate text-[13px] font-medium text-white/85">
+          {item.short_title || item.title}
+        </p>
+      )}
       <p className="truncate text-[11px] text-white/40">
         {item.short_description || item.description || ''}
       </p>
-    </button>
+    </div>
   );
 }
 

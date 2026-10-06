@@ -1275,6 +1275,7 @@ export interface MixedSelectionItem {
   short_description?: string | null;
   artwork_url?: string | null;
   calculated_artwork_url?: string | null;
+  permalink_url?: string | null;
   playlist_type?: string | null;
   tracking_feature_name?: string | null;
   user?: { urn?: string; id?: number; username?: string } | null;
