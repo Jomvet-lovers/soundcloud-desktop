@@ -29,8 +29,11 @@ let transitionActive = false;
  * `startViewTransition` and `flushSync` commits the new route before the
  * browser takes its snapshots.
  *
- * The page wrapper carries `view-transition-name: page`, so the chrome
- * (sidebar, bars) stays put while the old page crossfades into the new one.
+ * The page's scroll container (main) carries `view-transition-name: page`, so
+ * the chrome (sidebar, bars) stays put while the old page crossfades into the
+ * new one. Naming the scroll container keeps the snapshot viewport-sized — a
+ * capture of the taller content box would ignore main's overflow clip and
+ * bleed over the now-playing bar.
  * Back/forward (`go`) is left alone — those animate natively.
  */
 export function ViewTransitionRouter({ children }: { children: React.ReactNode }) {

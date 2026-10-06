@@ -363,8 +363,8 @@ export const AppShell = React.memo(() => {
       <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
         <Sidebar />
         {/* docked now-playing bar sits below this row */}
-        <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden pb-6">
-          <div key={pathname} className="vt-page">
+        <main ref={mainRef} className="vt-page flex-1 overflow-y-auto overflow-x-hidden pb-6">
+          <div key={pathname}>
             <StableOutlet />
           </div>
         </main>

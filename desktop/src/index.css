@@ -326,9 +326,12 @@ button:active:not(:disabled) {
    perf mode keeps them (reduced-motion still turns them off). */
 
 /* ── Route transitions (View Transitions) ───────────────────────────────
-   The page wrapper is the only named element on a route change, so the chrome
-   (sidebar, bars) stays put while the old page crossfades into the new one —
-   the same mechanism the tab pills use. */
+   The page's scroll container (main) is the only named element on a route
+   change, so the chrome (sidebar, bars) stays put while the old page
+   crossfades into the new one — the same mechanism the tab pills use.
+   Naming the scroll container (not the content inside it) keeps the
+   snapshot viewport-sized: the capture of a taller content box would
+   ignore main's overflow clip and bleed over the now-playing bar. */
 .vt-page {
   view-transition-name: page;
 }
