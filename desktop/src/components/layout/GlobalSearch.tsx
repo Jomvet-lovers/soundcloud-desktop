@@ -1,15 +1,14 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Clock, Search as SearchIcon, X } from '../../lib/icons';
-import { isMac } from '../../lib/platform';
 import { useSearchHistoryStore } from '../../stores/searchHistory';
 import { useSearchQueryStore } from '../../stores/searchQuery';
 import { isSoundCloudUrl } from '../search/utils';
 
 /* The one global search field — lives in the titlebar, present on every page.
  * Writes the shared query store and routes to /search; the Search page reads
- * that store, so there's a single search input app-wide. Flat lens, ⌘K hint,
- * recent-search dropdown. */
+ * that store, so there's a single search input app-wide. Flat field, lens on
+ * the right, recent-search dropdown. */
 export const GlobalSearch = memo(function GlobalSearch() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -44,21 +43,15 @@ export const GlobalSearch = memo(function GlobalSearch() {
   };
 
   return (
-    <div className="relative w-full max-w-[600px]" style={{ isolation: 'isolate' }}>
+    <div className="relative w-full max-w-[550px]" style={{ isolation: 'isolate' }}>
       <div
-        className="relative flex items-center gap-2.5 h-11 pl-4 pr-2 rounded-full overflow-hidden"
+        className="relative flex items-center gap-2.5 h-9 pl-3.5 pr-3.5 rounded-md overflow-hidden"
         style={{
           background: 'rgba(28,28,34,0.9)',
           border: `0.5px solid ${focused ? 'var(--color-accent)' : 'rgba(255,255,255,0.12)'}`,
-          boxShadow: focused ? '0 10px 34px rgba(0,0,0,0.4)' : '0 6px 20px rgba(0,0,0,0.28)',
           transition: 'border-color 300ms ease',
         }}
       >
-        <SearchIcon
-          size={17}
-          className="shrink-0 transition-colors duration-300"
-          style={{ color: focused ? 'var(--color-accent)' : 'rgba(255,255,255,0.45)' }}
-        />
         <input
           id="global-search-input"
           value={q}
@@ -84,7 +77,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
               (e.currentTarget as HTMLInputElement).blur();
             }
           }}
-          placeholder={'What do you want to hear?'}
+          placeholder={'Search'}
           spellCheck={false}
           autoComplete="off"
           className="flex-1 min-w-0 bg-transparent outline-none text-[14px] text-white/90 placeholder:text-white/35 select-text"
@@ -94,7 +87,7 @@ export const GlobalSearch = memo(function GlobalSearch() {
             {'Press Enter to open link'}
           </span>
         )}
-        {q ? (
+        {q && (
           <button
             type="button"
             onClick={() => setQ('')}
@@ -103,13 +96,15 @@ export const GlobalSearch = memo(function GlobalSearch() {
           >
             <X size={15} />
           </button>
-        ) : (
-          !focused && (
-            <kbd className="shrink-0 hidden sm:flex items-center gap-0.5 h-6 px-2 mr-1 rounded-md text-[10px] font-semibold text-white/30 bg-white/[0.05] border border-white/10">
-              {isMac() ? '⌘' : 'Ctrl'} K
-            </kbd>
-          )
         )}
+        <button
+          type="button"
+          onClick={() => document.getElementById('global-search-input')?.focus()}
+          className="shrink-0 flex items-center justify-center text-white/40 hover:text-white/70 transition-colors cursor-pointer"
+          aria-label={'Search'}
+        >
+          <SearchIcon size={17} />
+        </button>
       </div>
 
       {showHistory && (
