@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek } from '../../lib/audio';
 import { getWallpaperUrl } from '../../lib/cache';
@@ -198,6 +198,7 @@ export const AppShell = React.memo(() => {
   const onQueueToggle = useCallback(() => setQueueOpen((v) => !v), []);
   const onQueueClose = useCallback(() => setQueueOpen(false), []);
   const mainRef = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
 
   // Mirror panel state into refs so the global keydown listener binds once.
   const queueOpenRef = useRef(queueOpen);
@@ -363,7 +364,9 @@ export const AppShell = React.memo(() => {
         <Sidebar />
         {/* docked now-playing bar sits below this row */}
         <main ref={mainRef} className="flex-1 overflow-y-auto overflow-x-hidden pb-6">
-          <StableOutlet />
+          <div key={pathname} className="vt-page">
+            <StableOutlet />
+          </div>
         </main>
       </div>
       <NowPlayingBar onQueueToggle={onQueueToggle} queueOpen={queueOpen} />

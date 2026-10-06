@@ -8,6 +8,7 @@ import { ThemeProvider } from './components/ThemeProvider';
 import { ApiError } from './lib/api';
 import { CHECK_UPDATES } from './lib/constants';
 import { checkForAppUpdate, type GithubRelease } from './lib/update-check';
+import { ViewTransitionRouter } from './lib/view-transition-router';
 import { getAppMode, useAppMode, useAppStatusStore } from './stores/app-status';
 import { useAuthStore } from './stores/auth';
 import { type StartupPage, useSettingsStore } from './stores/settings';
@@ -185,128 +186,16 @@ export default function App() {
         }}
       />
       <BrowserRouter>
-        {showOfflineOnlyShell ? (
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route index element={<Navigate to="/offline" replace />} />
-              <Route
-                path="offline"
-                element={
-                  <RouteLoader>
-                    <OfflinePage />
-                  </RouteLoader>
-                }
-              />
-              <Route
-                path="settings"
-                element={
-                  <RouteLoader>
-                    <Settings />
-                  </RouteLoader>
-                }
-              />
-              <Route path="*" element={<Navigate to="/offline" replace />} />
-            </Route>
-          </Routes>
-        ) : !canUseMainShell ? (
-          <Suspense fallback={<AppLoadingScreen fullscreen />}>
-            <Login />
-          </Suspense>
-        ) : (
-          <>
-            {availableRelease && (
-              <Suspense fallback={null}>
-                <UpdateChecker release={availableRelease} onDismiss={handleUpdateDismiss} />
-              </Suspense>
-            )}
+        <ViewTransitionRouter>
+          {showOfflineOnlyShell ? (
             <Routes>
               <Route element={<AppShell />}>
-                <Route index element={<StartPageRedirect />} />
-                <Route
-                  path="home"
-                  element={
-                    <RouteLoader>
-                      <Home />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="search"
-                  element={
-                    <RouteLoader>
-                      <Search />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="tag/:tag"
-                  element={
-                    <RouteLoader>
-                      <TagPage />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="library"
-                  element={
-                    <RouteLoader>
-                      <Library />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="library/:section"
-                  element={
-                    <RouteLoader>
-                      <LibraryCollection />
-                    </RouteLoader>
-                  }
-                />
+                <Route index element={<Navigate to="/offline" replace />} />
                 <Route
                   path="offline"
                   element={
                     <RouteLoader>
                       <OfflinePage />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="track/:urn"
-                  element={
-                    <RouteLoader>
-                      <TrackPage />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="playlist/:urn"
-                  element={
-                    <RouteLoader>
-                      <PlaylistPage />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="user/:urn"
-                  element={
-                    <RouteLoader>
-                      <UserPage />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="artist/:id"
-                  element={
-                    <RouteLoader>
-                      <ArtistPage />
-                    </RouteLoader>
-                  }
-                />
-                <Route
-                  path="album/:id"
-                  element={
-                    <RouteLoader>
-                      <AlbumPage />
                     </RouteLoader>
                   }
                 />
@@ -318,10 +207,124 @@ export default function App() {
                     </RouteLoader>
                   }
                 />
+                <Route path="*" element={<Navigate to="/offline" replace />} />
               </Route>
             </Routes>
-          </>
-        )}
+          ) : !canUseMainShell ? (
+            <Suspense fallback={<AppLoadingScreen fullscreen />}>
+              <Login />
+            </Suspense>
+          ) : (
+            <>
+              {availableRelease && (
+                <Suspense fallback={null}>
+                  <UpdateChecker release={availableRelease} onDismiss={handleUpdateDismiss} />
+                </Suspense>
+              )}
+              <Routes>
+                <Route element={<AppShell />}>
+                  <Route index element={<StartPageRedirect />} />
+                  <Route
+                    path="home"
+                    element={
+                      <RouteLoader>
+                        <Home />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="search"
+                    element={
+                      <RouteLoader>
+                        <Search />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="tag/:tag"
+                    element={
+                      <RouteLoader>
+                        <TagPage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="library"
+                    element={
+                      <RouteLoader>
+                        <Library />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="library/:section"
+                    element={
+                      <RouteLoader>
+                        <LibraryCollection />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="offline"
+                    element={
+                      <RouteLoader>
+                        <OfflinePage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="track/:urn"
+                    element={
+                      <RouteLoader>
+                        <TrackPage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="playlist/:urn"
+                    element={
+                      <RouteLoader>
+                        <PlaylistPage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="user/:urn"
+                    element={
+                      <RouteLoader>
+                        <UserPage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="artist/:id"
+                    element={
+                      <RouteLoader>
+                        <ArtistPage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="album/:id"
+                    element={
+                      <RouteLoader>
+                        <AlbumPage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="settings"
+                    element={
+                      <RouteLoader>
+                        <Settings />
+                      </RouteLoader>
+                    }
+                  />
+                </Route>
+              </Routes>
+            </>
+          )}
+        </ViewTransitionRouter>
       </BrowserRouter>
     </ThemeProvider>
   );
