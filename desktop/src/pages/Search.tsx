@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { TrackCard } from '../components/music/TrackCard';
+import { Pager } from '../components/ui/Pager';
 import { api } from '../lib/api';
 import { art } from '../lib/formatters';
 import {
@@ -13,7 +14,7 @@ import {
   useSearchDbTracksPage,
   useSearchDbUsersPage,
 } from '../lib/hooks';
-import { ChevronLeft, ChevronRight, Loader2, Music, Play } from '../lib/icons';
+import { ChevronRight, Loader2, Music, Play } from '../lib/icons';
 import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
@@ -97,51 +98,6 @@ function dedupeItems(items: MixedSelectionItem[]): MixedSelectionItem[] {
     out.push(item);
   }
   return out;
-}
-
-/** Numbered-pagination footer under the active result list. */
-function Pager({
-  page,
-  hasMore,
-  isFetching,
-  onPage,
-}: {
-  page: number;
-  hasMore: boolean;
-  isFetching: boolean;
-  onPage: (page: number) => void;
-}) {
-  if (page === 0 && !hasMore) return null;
-  const buttonClass =
-    'flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white/85 disabled:pointer-events-none disabled:opacity-30';
-  return (
-    <div className="mt-5 flex items-center justify-center gap-2">
-      <button
-        type="button"
-        disabled={page === 0 || isFetching}
-        onClick={() => onPage(page - 1)}
-        className={buttonClass}
-      >
-        <ChevronLeft size={14} />
-        {'Prev'}
-      </button>
-      <span className="min-w-[76px] text-center text-[12px] text-white/45">
-        {`Page ${page + 1}`}
-      </span>
-      <button
-        type="button"
-        disabled={!hasMore || isFetching}
-        onClick={() => onPage(page + 1)}
-        className={buttonClass}
-      >
-        {'Next'}
-        <ChevronRight size={14} />
-      </button>
-      <span className="flex size-4 items-center justify-center">
-        {isFetching && <Loader2 size={14} className="animate-spin text-white/25" />}
-      </span>
-    </div>
-  );
 }
 
 /** Search — tabs over SoundCloud, with Discover selections when the query is empty. */
