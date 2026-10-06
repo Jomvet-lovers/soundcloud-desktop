@@ -32,13 +32,6 @@ installFpsCap(60);
 // node (lib/tooltip.ts) — zero per-element listeners, no re-renders.
 initTooltips();
 
-if (import.meta.env.DEV) {
-  const script = document.createElement('script');
-  script.src = 'https://unpkg.com/react-scan/dist/auto.global.js';
-  script.crossOrigin = 'anonymous';
-  document.head.appendChild(script);
-}
-
 function scheduleAfterFirstPaint(task: () => void) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
