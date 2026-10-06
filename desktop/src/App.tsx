@@ -211,7 +211,7 @@ export default function App() {
               </Route>
             </Routes>
           ) : !canUseMainShell ? (
-            <Suspense fallback={<AppLoadingScreen fullscreen />}>
+            <Suspense fallback={null}>
               <Login />
             </Suspense>
           ) : (
@@ -332,27 +332,8 @@ export default function App() {
 
 function RouteLoader({ children }: { children: ReactNode }) {
   return (
-    <Suspense fallback={<AppLoadingScreen />}>
+    <Suspense fallback={null}>
       <ErrorBoundary>{children}</ErrorBoundary>
     </Suspense>
-  );
-}
-
-function AppLoadingScreen({ fullscreen = false }: { fullscreen?: boolean }) {
-  return (
-    <div
-      className={`flex items-center justify-center px-6 py-8 ${fullscreen ? 'h-screen' : 'min-h-[42vh]'}`}
-      data-tauri-drag-region={fullscreen ? true : undefined}
-    >
-      <div className="flex items-center gap-3 rounded-[24px] border border-white/8 bg-white/[0.035] px-4 py-3 shadow-[0_18px_44px_rgba(0,0,0,0.24)]">
-        <div className="flex size-10 items-center justify-center rounded-[16px] border border-accent/18 bg-accent/[0.10]">
-          <div className="size-4 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-        </div>
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold text-white/28">SoundCloud</div>
-          <div className="mt-0.5 text-[13px] font-medium text-white/62">{'Loading...'}</div>
-        </div>
-      </div>
-    </div>
   );
 }
