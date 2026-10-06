@@ -17,6 +17,7 @@ import { usePerfMode } from '../../lib/perf';
 import { useAppMode } from '../../stores/app-status';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
+import { playlistMenuHandler } from '../../stores/track-menu';
 import { Avatar } from '../ui/Avatar';
 
 type IconCmp = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -175,6 +176,7 @@ export const Sidebar = React.memo(() => {
                 key={playlist.urn}
                 to={`/playlist/${encodeURIComponent(playlist.urn)}`}
                 title={collapsed ? playlist.title : undefined}
+                onContextMenu={playlistMenuHandler({ urn: playlist.urn })}
                 className={({ isActive }) =>
                   `${ROW} ${
                     isActive ? '' : 'text-white/45 hover:text-white/80 hover:bg-white/[0.05]'

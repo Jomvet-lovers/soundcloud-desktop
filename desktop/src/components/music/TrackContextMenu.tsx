@@ -6,11 +6,16 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { invalidateAllLikesCache } from '../../lib/hooks';
-import { Heart, LinkIcon, ListPlus, Plus, User } from '../../lib/icons';
+import { Heart, LinkIcon, ListMusic, ListPlus, MapPin, Plus, User } from '../../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
-import { type UserMenuTarget, useTrackMenuStore } from '../../stores/track-menu';
+import { useSettingsStore } from '../../stores/settings';
+import {
+  type PlaylistMenuTarget,
+  type UserMenuTarget,
+  useTrackMenuStore,
+} from '../../stores/track-menu';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
 
 /** Rough menu box, used to keep it inside the viewport. */
@@ -187,12 +192,70 @@ function UserMenu({ user }: { user: UserMenuTarget }) {
   );
 }
 
+function PlaylistMenu({ playlist }: { playlist: PlaylistMenuTarget }) {
+  const close = useTrackMenuStore((s) => s.close);
+  const navigate = useNavigate();
+  const unpinPlaylist = useSettingsStore((s) => s.unpinPlaylist);
+
+  const copyLink = async () => {
+    close();
+    let url = playlist.permalink;
+    if (!url) {
+      // Sidebar pins only store the urn/title/art — pull the public URL.
+      try {
+        const fresh = await api<{ permalink_url?: string | null }>(
+          `/playlists/${encodeURIComponent(playlist.urn)}`,
+        );
+        url = fresh.permalink_url ?? null;
+      } catch {
+        // fall through to the error toast
+      }
+    }
+    if (!url) {
+      toast.error('No link available');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Copied!');
+    } catch {
+      toast.error('Something went wrong');
+    }
+  };
+
+  return (
+    <MenuShell>
+      <MenuItem
+        icon={<ListMusic size={15} />}
+        label={'Go to playlist'}
+        onClick={() => {
+          close();
+          navigate(`/playlist/${encodeURIComponent(playlist.urn)}`);
+        }}
+      />
+      <MenuItem icon={<LinkIcon size={15} />} label={'Copy link'} onClick={copyLink} />
+      <div className="my-1 h-px bg-white/[0.06]" />
+      <MenuItem
+        icon={<MapPin size={15} />}
+        label={'Remove from Quick Access'}
+        onClick={() => {
+          close();
+          unpinPlaylist(playlist.urn);
+          toast.success('Removed from sidebar');
+        }}
+      />
+    </MenuShell>
+  );
+}
+
 /** App-wide right-click menu: track actions on rows/cards/now-playing, profile
- *  actions on artist links. Mounted once in the shell. */
+ *  actions on artist links, playlist actions on sidebar pins. Mounted once in
+ *  the shell. */
 export function TrackContextMenuHost() {
   const kind = useTrackMenuStore((s) => s.kind);
   const track = useTrackMenuStore((s) => s.track);
   const user = useTrackMenuStore((s) => s.user);
+  const playlist = useTrackMenuStore((s) => s.playlist);
   // The playlist dialog outlives the menu (the menu closes when it opens).
   const [dialogTrack, setDialogTrack] = useState<Track | null>(null);
 
@@ -204,6 +267,7 @@ export function TrackContextMenuHost() {
         <TrackMenu track={track} onAddToPlaylist={() => setDialogTrack(track)} />
       )}
       {kind === 'user' && user && <UserMenu user={user} />}
+      {kind === 'playlist' && playlist && <PlaylistMenu playlist={playlist} />}
       <AddToPlaylistDialog
         trackUrns={dialogTrack ? [dialogTrack.urn] : []}
         open={!!dialogTrack}
