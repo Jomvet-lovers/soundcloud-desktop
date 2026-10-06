@@ -652,6 +652,31 @@ export function prefetchUserLikedTracksPage(
   });
 }
 
+/**
+ * Walk a profile's liked tracks to the end (cursor-paged, 30 per page).
+ * An empty page ends the walk — SoundCloud keeps reporting a next cursor on
+ * the last page. Deduped and capped so a huge collection can't loop forever.
+ */
+export async function fetchAllUserLikedTracks(userUrn: string): Promise<Track[]> {
+  const out: Track[] = [];
+  const seen = new Set<string>();
+  let cursor: string | null = null;
+  for (let page = 0; page < 20; page++) {
+    const data = await fetchUserLikedTracksPage(userUrn, cursor);
+    const items = data.collection ?? [];
+    if (items.length === 0) break;
+    for (const t of items) {
+      if (!seen.has(t.urn)) {
+        seen.add(t.urn);
+        out.push(t);
+      }
+    }
+    cursor = data.next_cursor ?? null;
+    if (!cursor) break;
+  }
+  return out;
+}
+
 export function useUserFollowings(userUrn: string | undefined) {
   const query = usePagedQuery<SCUser>({
     queryKey: ['user', userUrn, 'followings'],

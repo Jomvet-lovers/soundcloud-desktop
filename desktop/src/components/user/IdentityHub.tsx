@@ -1,7 +1,6 @@
 import type { Aura } from '../../lib/aura';
 import { fc } from '../../lib/formatters';
 import { Calendar, Globe } from '../../lib/icons';
-import { likedTracksCount } from '../../lib/likes';
 import { CopyLinkButton } from '../ui/CopyLinkButton';
 import { AvatarArtifact } from './AvatarArtifact';
 import { FollowBtn } from './FollowBtn';
@@ -101,7 +100,6 @@ export function IdentityHub({ user, hasStar, webProfiles, aura, isOwnProfile }: 
             <Stat value={user.followers_count} label={'Followers'} />
             <Stat value={user.followings_count} label={'Following'} />
             <Stat value={user.track_count} label={'Tracks'} />
-            <Stat value={likedTracksCount(user)} label={'Likes'} />
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5 sm:justify-start">

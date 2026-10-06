@@ -16,7 +16,6 @@ import {
 import { useEditableUserAura, useUserAura } from '../components/user/useUserAura';
 import { useUser, useUserSubscription, useUserWebProfiles } from '../lib/hooks';
 import { Loader2 } from '../lib/icons';
-import { likedTracksCount } from '../lib/likes';
 import { useAuthStore } from '../stores/auth';
 
 /**
@@ -75,12 +74,12 @@ export function UserPage() {
   const tabs = useMemo(() => {
     if (!user) return [] as const;
     return [
-      { id: 'popular' as const, label: 'Popular', count: undefined },
-      { id: 'tracks' as const, label: 'Tracks', count: user.track_count },
-      { id: 'playlists' as const, label: 'Playlists', count: user.playlist_count },
-      { id: 'likes' as const, label: 'Likes', count: likedTracksCount(user) },
-      { id: 'followers' as const, label: 'Followers', count: user.followers_count },
-      { id: 'following' as const, label: 'Following', count: user.followings_count },
+      { id: 'popular' as const, label: 'Popular' },
+      { id: 'tracks' as const, label: 'Tracks' },
+      { id: 'playlists' as const, label: 'Playlists' },
+      { id: 'likes' as const, label: 'Likes' },
+      { id: 'followers' as const, label: 'Followers' },
+      { id: 'following' as const, label: 'Following' },
     ] as const;
   }, [user]);
 
