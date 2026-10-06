@@ -5,6 +5,7 @@ import { headphones11, heart11, ListMusic, ListPlus, Music, playWhite14 } from '
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { trackMenuHandler } from '../../stores/track-menu';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
 import { PlayingBars } from '../music/PlayingBars';
@@ -34,7 +35,10 @@ export const LibraryTrackRow = React.memo(
     const cover = art(track.artwork_url, 't200x200');
 
     return (
-      <div className="group flex items-center gap-4 px-4 py-3 rounded-md transition-colors duration-150 hover:bg-white/[0.04]">
+      <div
+        className="group flex items-center gap-4 px-4 py-3 rounded-md transition-colors duration-150 hover:bg-white/[0.04]"
+        onContextMenu={trackMenuHandler(track)}
+      >
         <div
           className="w-10 h-10 flex items-center justify-center shrink-0 cursor-pointer"
           onClick={togglePlay}

@@ -21,7 +21,10 @@ import {
 
 interface AddToPlaylistDialogProps {
   trackUrns: string[];
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  /** Controlled mode (e.g. opened from the right-click menu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const PlaylistOption = React.memo(function PlaylistOption({
@@ -146,8 +149,15 @@ const CreatePlaylistForm = React.memo(function CreatePlaylistForm({
 export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
   trackUrns,
   children,
+  open: openProp,
+  onOpenChange,
 }: AddToPlaylistDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (v: boolean) => {
+    setInternalOpen(v);
+    onOpenChange?.(v);
+  };
   const [showCreate, setShowCreate] = useState(false);
   const { playlists, isLoading } = useMyPlaylists();
   const addToPlaylist = useAddToPlaylist();
@@ -264,7 +274,7 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
 
   return (
     <Modal open={open} onOpenChange={handleOpenChange}>
-      <ModalTrigger asChild>{children}</ModalTrigger>
+      {children && <ModalTrigger asChild>{children}</ModalTrigger>}
       <ModalContent size="sm" showClose={false} zClass="z-[90]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3">

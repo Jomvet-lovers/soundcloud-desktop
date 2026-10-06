@@ -19,6 +19,7 @@ import {
 } from '../../lib/icons';
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { type Track, usePlayerStore } from '../../stores/player';
+import { trackMenuHandler, userMenuHandler } from '../../stores/track-menu';
 import { EqualizerPanel } from '../music/EqualizerPanel';
 import { LikeButton } from '../music/LikeButton';
 import { SoundTuningPopover } from '../music/SoundTuningPopover';
@@ -50,6 +51,7 @@ function useAudioClock() {
 function TrackMeta({ track }: { track: Track }) {
   const displayTitle = useDisplayTitle(track);
   const artistDisplay = useArtistDisplay(track);
+  const artistUrn = track.user?.urn;
   return (
     <div className="min-w-0">
       <Link
@@ -58,7 +60,20 @@ function TrackMeta({ track }: { track: Track }) {
       >
         {displayTitle}
       </Link>
-      <p className="truncate text-[11px] text-white/45">{artistDisplay.primary}</p>
+      {artistUrn ? (
+        <Link
+          to={`/user/${encodeURIComponent(artistUrn)}`}
+          onContextMenu={userMenuHandler({
+            target: `/user/${encodeURIComponent(artistUrn)}`,
+            permalink: track.user?.permalink_url,
+          })}
+          className="block truncate text-[11px] text-white/45 hover:text-white/70 hover:underline"
+        >
+          {artistDisplay.primary}
+        </Link>
+      ) : (
+        <p className="truncate text-[11px] text-white/45">{artistDisplay.primary}</p>
+      )}
     </div>
   );
 }
@@ -113,12 +128,18 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
   return (
     <footer className="flex h-[72px] flex-none items-center gap-4 border-t border-white/[0.08] bg-[#0b0b0e] px-4">
       {/* Left: track info */}
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div
+        className="flex min-w-0 flex-1 items-center gap-3"
+        onContextMenu={currentTrack ? trackMenuHandler(currentTrack) : undefined}
+      >
         {currentTrack ? (
           <>
-            <div className="size-12 flex-none overflow-hidden rounded-md bg-white/[0.06]">
+            <Link
+              to={`/track/${encodeURIComponent(currentTrack.urn)}`}
+              className="size-12 flex-none overflow-hidden rounded-md bg-white/[0.06] cursor-pointer transition-opacity hover:opacity-80"
+            >
               {artwork ? <img src={artwork} alt="" className="size-full object-cover" /> : null}
-            </div>
+            </Link>
             <TrackMeta track={currentTrack} />
             <LikeButton track={currentTrack} />
           </>

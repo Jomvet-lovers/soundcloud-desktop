@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ArtistLinkItem } from '../../lib/track-display';
+import { userMenuHandler } from '../../stores/track-menu';
 
 /**
  * Строка авторов «A, B, C», где каждое имя — отдельная ссылка на СВОЕГО
@@ -34,6 +35,7 @@ export const ArtistNameLinks = React.memo(function ArtistNameLinks({
                 tabIndex={0}
                 className={linkClassName ?? 'cursor-pointer transition-colors hover:text-white/85'}
                 onClick={go}
+                onContextMenu={target ? userMenuHandler({ target }) : undefined}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') go(e);
                 }}

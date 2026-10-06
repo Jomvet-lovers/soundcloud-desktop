@@ -6,6 +6,7 @@ import { art, dur, fc } from '../../lib/formatters';
 import { headphones11, heart11, ListPlus, Music, playBlack14, playWhite14 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
+import { trackMenuHandler } from '../../stores/track-menu';
 import { AddToPlaylistDialog } from '../music/AddToPlaylistDialog';
 import { LikeButton } from '../music/LikeButton';
 import { PlayingBars } from '../music/PlayingBars';
@@ -28,6 +29,7 @@ function ThemedTrackRowImpl({ track, index, queue, aura }: ThemedTrackRowProps) 
   return (
     <div
       className="group flex items-center gap-4 px-4 py-2.5 rounded-md transition-colors duration-150 select-none"
+      onContextMenu={trackMenuHandler(track)}
       onMouseEnter={(e) => {
         preloadTrack(track.urn);
         e.currentTarget.style.background = 'rgba(255,255,255,0.04)';

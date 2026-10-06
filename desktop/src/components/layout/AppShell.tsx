@@ -9,6 +9,7 @@ import { isMac } from '../../lib/platform';
 import { toggleWindowFullscreen } from '../../lib/window';
 import { usePlayerStore } from '../../stores/player';
 import { useSettingsStore } from '../../stores/settings';
+import { TrackContextMenuHost } from '../music/TrackContextMenu';
 import { NowPlayingBar } from './NowPlayingBar';
 import { Sidebar } from './Sidebar';
 import { Titlebar } from './Titlebar';
@@ -372,6 +373,7 @@ export const AppShell = React.memo(() => {
         </Suspense>
       )}
       <KeybindingsDialog open={kbOpen} onOpenChange={setKbOpen} />
+      <TrackContextMenuHost />
     </div>
   );
 });

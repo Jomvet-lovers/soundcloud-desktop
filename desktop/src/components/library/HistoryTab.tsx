@@ -4,6 +4,7 @@ import { art } from '../../lib/formatters';
 import { useHistory, useInfiniteScroll } from '../../lib/hooks';
 import { Loader2, Music, playWhite14 } from '../../lib/icons';
 import { usePlayerStore } from '../../stores/player';
+import { trackMenuHandler } from '../../stores/track-menu';
 import { VirtualList } from '../ui/VirtualList';
 import { historyEntryToTrack, historyTrackUrn } from './history-utils';
 
@@ -33,7 +34,10 @@ export const HistoryTab = React.memo(function HistoryTab() {
           disabled={entries.length < 60}
           getItemKey={(entry) => entry.id}
           renderItem={(entry) => (
-            <div className="group flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/[0.04] transition-all duration-300">
+            <div
+              className="group flex items-center gap-4 px-4 py-3 rounded-2xl hover:bg-white/[0.04] transition-all duration-300"
+              onContextMenu={trackMenuHandler(historyEntryToTrack(entry))}
+            >
               <button
                 type="button"
                 className="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 ring-1 ring-white/[0.08] shadow-md cursor-pointer"

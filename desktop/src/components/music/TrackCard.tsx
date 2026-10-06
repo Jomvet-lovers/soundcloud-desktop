@@ -16,6 +16,7 @@ import { useAutoHide } from '../../lib/useAutoHide';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { trackMenuHandler } from '../../stores/track-menu';
 import { AddToPlaylistDialog } from './AddToPlaylistDialog';
 import { ArtistNameLinks } from './ArtistNameLinks';
 import { LikeButton } from './LikeButton';
@@ -63,6 +64,7 @@ export const TrackCard = React.memo(
       <div
         className="group relative select-none"
         onMouseEnter={() => preloadTrack(track.urn)}
+        onContextMenu={trackMenuHandler(track)}
         style={{ contain: 'layout paint style' }}
       >
         {/* Artwork */}

@@ -13,6 +13,7 @@ import {
 } from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
+import { trackMenuHandler } from '../../stores/track-menu';
 import { LikeButton } from '../music/LikeButton';
 import { PlayingBars } from '../music/PlayingBars';
 import { sameScdMeta, TrackStatusBadges } from '../music/TrackStatusBadges';
@@ -142,6 +143,7 @@ export const SortableSequenceRow = React.memo(
           opacity: isDragging ? 0 : 1,
         }}
         className={`${ROW_BASE} ${activeCls(isThis)}`}
+        onContextMenu={trackMenuHandler(track)}
       >
         <div
           className="w-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-white/15 hover:text-white/40 transition-colors -ml-1"
@@ -228,7 +230,7 @@ export const SequenceRow = React.memo(
   }) {
     const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue, onPlay);
     return (
-      <div className={`${ROW_BASE} ${activeCls(isThis)}`}>
+      <div className={`${ROW_BASE} ${activeCls(isThis)}`} onContextMenu={trackMenuHandler(track)}>
         <RowBody
           track={track}
           index={index}
