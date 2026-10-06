@@ -2,6 +2,7 @@ import { type MouseEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { TrackCard } from '../components/music/TrackCard';
+import { GenreGrid } from '../components/search/GenreGrid';
 import { Pager } from '../components/ui/Pager';
 import { api } from '../lib/api';
 import { art } from '../lib/formatters';
@@ -20,6 +21,17 @@ import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
 import { useSearchQueryStore } from '../stores/searchQuery';
+
+/** Debounced view of the global search query — the header field writes it. */
+export function useDebouncedSearchQuery(): string {
+  const q = useSearchQueryStore((s) => s.q);
+  const [debounced, setDebounced] = useState(q);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(q), 300);
+    return () => clearTimeout(id);
+  }, [q]);
+  return debounced.trim();
+}
 
 /** Where a Discover item's title should lead (null → not a page we host). */
 function itemPagePath(item: MixedSelectionItem): string | null {
@@ -148,59 +160,13 @@ function dedupeItems(items: MixedSelectionItem[]): MixedSelectionItem[] {
   return out;
 }
 
-/** Search — tabs over SoundCloud, with Discover selections when the query is empty. */
-export function Search() {
+/** Discover selections — the "Made for you" / station rows under the Home shelf. */
+export function DiscoverSections() {
   const navigate = useNavigate();
-  const q = useSearchQueryStore((s) => s.q);
-  const [debounced, setDebounced] = useState(q);
-  const tab = useSearchPrefsStore((s) => s.tab);
-  const setTab = useSearchPrefsStore((s) => s.setTab);
-  const sort = useSearchPrefsStore((s) => s.sort);
-  const setSort = useSearchPrefsStore((s) => s.setSort);
   const [busyUrn, setBusyUrn] = useState<string | null>(null);
   const play = usePlayerStore((s) => s.play);
-
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(q), 300);
-    return () => clearTimeout(id);
-  }, [q]);
-
-  const query = debounced.trim();
-
-  // Numbered pagination: the page resets whenever the query / tab / sort
-  // changes, and only the visible tab requests deeper pages (the other tabs
-  // keep their first-page counts).
-  const pagerKey = `${query}\u{1}${tab}\u{1}${sort}`;
-  const [pager, setPager] = useState<{ key: string; page: number }>({ key: '', page: 0 });
-  const page = pager.key === pagerKey ? pager.page : 0;
-  const changePage = (next: number) => {
-    setPager({ key: pagerKey, page: Math.max(0, next) });
-    (document.querySelector('main') as HTMLElement | null)?.scrollTo({
-      top: 0,
-      behavior: 'smooth',
-    });
-  };
-
-  const tracks = useSearchDbTracksPage(query, tab === 'tracks' ? page : 0, undefined, sort);
-  const users = useSearchDbUsersPage(query, tab === 'users' ? page : 0);
-  const playlists = useSearchDbPlaylistsPage(query, tab === 'playlists' ? page : 0);
-  const albums = useSearchDbAlbumsPage(query, tab === 'albums' ? page : 0);
   const mixed = useDiscoverMixed();
-
-  const tabs = useMemo(
-    () =>
-      [
-        { id: 'tracks' as const, label: 'Tracks', count: tracks.tracks.length },
-        { id: 'users' as const, label: 'Users', count: users.users.length },
-        {
-          id: 'playlists' as const,
-          label: 'Playlists',
-          count: playlists.playlists.length,
-        },
-        { id: 'albums' as const, label: 'Albums', count: albums.albums.length },
-      ] as const,
-    [tracks.tracks.length, users.users.length, playlists.playlists.length, albums.albums.length],
-  );
+  const selections = mixed.data?.collection ?? [];
 
   const startDiscoverItem = async (item: MixedSelectionItem) => {
     if (busyUrn) return;
@@ -265,6 +231,81 @@ export function Search() {
     }
   };
 
+  return (
+    <div className="flex flex-col gap-8">
+      {mixed.isLoading ? (
+        <p className="text-[13px] text-white/35">{'Loading...'}</p>
+      ) : selections.length === 0 ? (
+        <p className="text-[13px] text-white/35">{'Start exploring'}</p>
+      ) : (
+        selections.map((sel) => {
+          const items = dedupeItems(sel.items?.collection ?? []);
+          if (items.length === 0) return null;
+          return (
+            <section key={sel.urn}>
+              <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
+                {sel.title}
+              </h2>
+              <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+                {items.slice(0, 10).map((item, idx) => (
+                  <DiscoverCard
+                    key={item.urn ?? idx}
+                    item={item}
+                    busy={busyUrn === item.urn}
+                    onPlay={startDiscoverItem}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+/** SoundCloud search results — tabs, sorting and numbered pagination. */
+function SearchResults() {
+  const query = useDebouncedSearchQuery();
+  const tab = useSearchPrefsStore((s) => s.tab);
+  const setTab = useSearchPrefsStore((s) => s.setTab);
+  const sort = useSearchPrefsStore((s) => s.sort);
+  const setSort = useSearchPrefsStore((s) => s.setSort);
+
+  // Numbered pagination: the page resets whenever the query / tab / sort
+  // changes, and only the visible tab requests deeper pages (the other tabs
+  // keep their first-page counts).
+  const pagerKey = `${query}\u{1}${tab}\u{1}${sort}`;
+  const [pager, setPager] = useState<{ key: string; page: number }>({ key: '', page: 0 });
+  const page = pager.key === pagerKey ? pager.page : 0;
+  const changePage = (next: number) => {
+    setPager({ key: pagerKey, page: Math.max(0, next) });
+    (document.querySelector('main') as HTMLElement | null)?.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  };
+
+  const tracks = useSearchDbTracksPage(query, tab === 'tracks' ? page : 0, undefined, sort);
+  const users = useSearchDbUsersPage(query, tab === 'users' ? page : 0);
+  const playlists = useSearchDbPlaylistsPage(query, tab === 'playlists' ? page : 0);
+  const albums = useSearchDbAlbumsPage(query, tab === 'albums' ? page : 0);
+
+  const tabs = useMemo(
+    () =>
+      [
+        { id: 'tracks' as const, label: 'Tracks', count: tracks.tracks.length },
+        { id: 'users' as const, label: 'Users', count: users.users.length },
+        {
+          id: 'playlists' as const,
+          label: 'Playlists',
+          count: playlists.playlists.length,
+        },
+        { id: 'albums' as const, label: 'Albums', count: albums.albums.length },
+      ] as const,
+    [tracks.tracks.length, users.users.length, playlists.playlists.length, albums.albums.length],
+  );
+
   const empty =
     query.length > 0 &&
     tracks.tracks.length === 0 &&
@@ -272,183 +313,166 @@ export function Search() {
     playlists.playlists.length === 0 &&
     albums.albums.length === 0;
 
-  const selections = mixed.data?.collection ?? [];
+  if (!query) return null;
 
   return (
-    <div className="px-5 py-6 md:px-8">
-      <h1 className="text-[24px] font-semibold tracking-tight text-white/92">{'Discover'}</h1>
-
-      {!query ? (
-        <div className="mt-6 flex flex-col gap-8">
-          {mixed.isLoading ? (
-            <p className="text-[13px] text-white/35">{'Loading...'}</p>
-          ) : selections.length === 0 ? (
-            <p className="text-[13px] text-white/35">{'Start exploring'}</p>
-          ) : (
-            selections.map((sel) => {
-              const items = dedupeItems(sel.items?.collection ?? []);
-              if (items.length === 0) return null;
-              return (
-                <section key={sel.urn}>
-                  <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
-                    {sel.title}
-                  </h2>
-                  <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-                    {items.slice(0, 10).map((item, idx) => (
-                      <DiscoverCard
-                        key={item.urn ?? idx}
-                        item={item}
-                        busy={busyUrn === item.urn}
-                        onPlay={startDiscoverItem}
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {tabs.map((item) => {
-              const on = tab === item.id;
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {tabs.map((item) => {
+          const on = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => withViewTransition(() => setTab(item.id))}
+              className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                on ? 'text-white/90' : 'text-white/45 hover:text-white/70'
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 rounded-lg bg-white/[0.1] transition-opacity duration-200 ease-out ${
+                  on ? 'vt-tab-pill opacity-100' : 'opacity-0'
+                }`}
+              />
+              <span className="relative">
+                {item.label}
+                {item.count > 0 && <span className="ml-1.5 text-white/35">{item.count}</span>}
+              </span>
+            </button>
+          );
+        })}
+        {tab === 'tracks' && (
+          <div className="ml-auto flex items-center gap-0.5">
+            {[
+              { id: 'relevance' as const, label: 'Relevance' },
+              { id: 'plays' as const, label: 'Plays' },
+              { id: 'newest' as const, label: 'Newest' },
+              { id: 'likes' as const, label: 'Likes' },
+            ].map((opt) => {
+              const on = sort === opt.id;
               return (
                 <button
-                  key={item.id}
+                  key={opt.id}
                   type="button"
-                  onClick={() => withViewTransition(() => setTab(item.id))}
-                  className={`relative rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                    on ? 'text-white/90' : 'text-white/45 hover:text-white/70'
+                  onClick={() => withViewTransition(() => setSort(opt.id))}
+                  className={`relative rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                    on ? 'text-white/90' : 'text-white/40 hover:text-white/70'
                   }`}
                 >
                   <span
                     aria-hidden
                     className={`pointer-events-none absolute inset-0 rounded-lg bg-white/[0.1] transition-opacity duration-200 ease-out ${
-                      on ? 'vt-tab-pill opacity-100' : 'opacity-0'
+                      on ? 'vt-sort-pill opacity-100' : 'opacity-0'
                     }`}
                   />
-                  <span className="relative">
-                    {item.label}
-                    {item.count > 0 && <span className="ml-1.5 text-white/35">{item.count}</span>}
-                  </span>
+                  <span className="relative">{opt.label}</span>
                 </button>
               );
             })}
-            {tab === 'tracks' && (
-              <div className="ml-auto flex items-center gap-0.5">
-                {[
-                  { id: 'relevance' as const, label: 'Relevance' },
-                  { id: 'plays' as const, label: 'Plays' },
-                  { id: 'newest' as const, label: 'Newest' },
-                  { id: 'likes' as const, label: 'Likes' },
-                ].map((opt) => {
-                  const on = sort === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => withViewTransition(() => setSort(opt.id))}
-                      className={`relative rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
-                        on ? 'text-white/90' : 'text-white/40 hover:text-white/70'
-                      }`}
-                    >
-                      <span
-                        aria-hidden
-                        className={`pointer-events-none absolute inset-0 rounded-lg bg-white/[0.1] transition-opacity duration-200 ease-out ${
-                          on ? 'vt-sort-pill opacity-100' : 'opacity-0'
-                        }`}
-                      />
-                      <span className="relative">{opt.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
           </div>
+        )}
+      </div>
 
-          <div key={tab} className="mt-5 animate-soft-in">
-            {empty ? (
-              <p className="text-[13px] text-white/35">{'No results found'}</p>
-            ) : tab === 'tracks' ? (
-              <>
-                <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-                  {tracks.tracks.map((track) => (
-                    <TrackCard key={track.urn} track={track} queue={tracks.tracks} />
-                  ))}
-                </div>
-                <Pager
-                  page={page}
-                  hasMore={tracks.hasMore}
-                  isFetching={tracks.isFetching}
-                  onPage={changePage}
-                />
-              </>
-            ) : tab === 'users' ? (
-              <>
-                <div className="flex flex-col gap-1">
-                  {users.users.map((user) => (
-                    <Link
-                      key={user.urn}
-                      to={`/user/${encodeURIComponent(user.urn)}`}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
-                    >
-                      <RowArt src={art(user.avatar_url, 't120x120')} rounded="full" />
-                      <span className="text-[13px] text-white/85">{user.username}</span>
-                    </Link>
-                  ))}
-                </div>
-                <Pager
-                  page={page}
-                  hasMore={users.hasMore}
-                  isFetching={users.isFetching}
-                  onPage={changePage}
-                />
-              </>
-            ) : tab === 'playlists' ? (
-              <>
-                <div className="flex flex-col gap-1">
-                  {playlists.playlists.map((playlist) => (
-                    <Link
-                      key={playlist.urn}
-                      to={`/playlist/${encodeURIComponent(playlist.urn)}`}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
-                    >
-                      <RowArt src={art(playlist.artwork_url, 't120x120')} rounded="lg" />
-                      <span className="text-[13px] text-white/85">{playlist.title}</span>
-                    </Link>
-                  ))}
-                </div>
-                <Pager
-                  page={page}
-                  hasMore={playlists.hasMore}
-                  isFetching={playlists.isFetching}
-                  onPage={changePage}
-                />
-              </>
-            ) : (
-              <>
-                <div className="flex flex-col gap-1">
-                  {albums.albums.map((album) => (
-                    <Link
-                      key={album.id}
-                      to={`/album/${encodeURIComponent(album.id)}`}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
-                    >
-                      <RowArt src={art(album.cover_url ?? null, 't120x120')} rounded="lg" />
-                      <span className="text-[13px] text-white/85">{album.title}</span>
-                    </Link>
-                  ))}
-                </div>
-                <Pager
-                  page={page}
-                  hasMore={albums.hasMore}
-                  isFetching={albums.isFetching}
-                  onPage={changePage}
-                />
-              </>
-            )}
-          </div>
+      <div key={tab} className="mt-5 animate-soft-in">
+        {empty ? (
+          <p className="text-[13px] text-white/35">{'No results found'}</p>
+        ) : tab === 'tracks' ? (
+          <>
+            <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+              {tracks.tracks.map((track) => (
+                <TrackCard key={track.urn} track={track} queue={tracks.tracks} />
+              ))}
+            </div>
+            <Pager
+              page={page}
+              hasMore={tracks.hasMore}
+              isFetching={tracks.isFetching}
+              onPage={changePage}
+            />
+          </>
+        ) : tab === 'users' ? (
+          <>
+            <div className="flex flex-col gap-1">
+              {users.users.map((user) => (
+                <Link
+                  key={user.urn}
+                  to={`/user/${encodeURIComponent(user.urn)}`}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
+                >
+                  <RowArt src={art(user.avatar_url, 't120x120')} rounded="full" />
+                  <span className="text-[13px] text-white/85">{user.username}</span>
+                </Link>
+              ))}
+            </div>
+            <Pager
+              page={page}
+              hasMore={users.hasMore}
+              isFetching={users.isFetching}
+              onPage={changePage}
+            />
+          </>
+        ) : tab === 'playlists' ? (
+          <>
+            <div className="flex flex-col gap-1">
+              {playlists.playlists.map((playlist) => (
+                <Link
+                  key={playlist.urn}
+                  to={`/playlist/${encodeURIComponent(playlist.urn)}`}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
+                >
+                  <RowArt src={art(playlist.artwork_url, 't120x120')} rounded="lg" />
+                  <span className="text-[13px] text-white/85">{playlist.title}</span>
+                </Link>
+              ))}
+            </div>
+            <Pager
+              page={page}
+              hasMore={playlists.hasMore}
+              isFetching={playlists.isFetching}
+              onPage={changePage}
+            />
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col gap-1">
+              {albums.albums.map((album) => (
+                <Link
+                  key={album.id}
+                  to={`/album/${encodeURIComponent(album.id)}`}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
+                >
+                  <RowArt src={art(album.cover_url ?? null, 't120x120')} rounded="lg" />
+                  <span className="text-[13px] text-white/85">{album.title}</span>
+                </Link>
+              ))}
+            </div>
+            <Pager
+              page={page}
+              hasMore={albums.hasMore}
+              isFetching={albums.isFetching}
+              onPage={changePage}
+            />
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Search — the dedicated results tab. An empty query shows the genre wall. */
+export function Search() {
+  const query = useDebouncedSearchQuery();
+  return (
+    <div className="px-5 py-6 md:px-8">
+      {query ? (
+        <SearchResults />
+      ) : (
+        <>
+          <h2 className="mb-4 text-[16px] font-semibold tracking-tight text-white/90">
+            {'Browse all genres'}
+          </h2>
+          <GenreGrid />
         </>
       )}
     </div>

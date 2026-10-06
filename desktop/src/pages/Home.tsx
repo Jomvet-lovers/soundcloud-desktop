@@ -1,8 +1,10 @@
 import { TrackCard } from '../components/music/TrackCard';
 import { useLikedTracks } from '../lib/hooks';
 import { useAuthStore } from '../stores/auth';
+import { DiscoverSections } from './Search';
 
-/** Home — a plain shelf of recently liked tracks. */
+/** Home — the liked-tracks shelf plus the Discover rows. Search results live on
+ *  their own tab (pages/Search.tsx). */
 export function Home() {
   const user = useAuthStore((s) => s.user);
   const liked = useLikedTracks(60);
@@ -24,6 +26,10 @@ export function Home() {
           ))}
         </div>
       )}
+
+      <div className="mt-10">
+        <DiscoverSections />
+      </div>
     </div>
   );
 }
