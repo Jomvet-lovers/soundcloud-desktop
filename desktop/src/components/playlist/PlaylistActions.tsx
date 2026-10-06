@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
 import { Check, Heart, LinkIcon, MapPin, Shuffle, Trash2 } from '../../lib/icons';
+import { usePulseHeart } from '../../lib/pulse-heart';
 import { SharingToggle } from '../music/SharingToggle';
 
 const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
@@ -20,6 +21,7 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
   });
   const [liked, setLiked] = useState(false);
   const [localCount, setLocalCount] = useState(count ?? 0);
+  const { shownLiked, pulse, heartRef, pillRef } = usePulseHeart(liked);
   const qc = useQueryClient();
   const invalidateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -31,6 +33,7 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
 
   const toggle = async () => {
     const next = !liked;
+    pulse(next);
     setLiked(next);
     setLocalCount((c) => c + (next ? 1 : -1));
     try {
@@ -49,14 +52,20 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
 
   return (
     <button
+      ref={pillRef as React.RefObject<HTMLButtonElement | null>}
       type="button"
       onClick={toggle}
       title={'likes'}
       className={`inline-flex items-center gap-1.5 h-10 px-3 rounded-md text-[12.5px] font-medium tabular-nums transition-colors cursor-pointer ${
-        liked ? 'text-accent' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
+        shownLiked ? 'text-accent' : 'text-white/60 hover:text-white hover:bg-white/[0.06]'
       }`}
     >
-      <Heart size={15} fill={liked ? 'currentColor' : 'none'} />
+      <span
+        ref={heartRef as React.RefObject<HTMLSpanElement | null>}
+        className="flex items-center justify-center"
+      >
+        <Heart size={15} fill={shownLiked ? 'currentColor' : 'none'} />
+      </span>
       <span>{fc(localCount)}</span>
     </button>
   );

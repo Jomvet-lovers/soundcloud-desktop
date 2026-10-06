@@ -8,6 +8,7 @@ import { fc } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import { Check, Download, Heart, LinkIcon, Loader2 } from '../../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
+import { usePulseHeart } from '../../lib/pulse-heart';
 import { getTrackDisplay } from '../../lib/track-display';
 import type { Track } from '../../stores/player';
 
@@ -18,15 +19,20 @@ const EngagementChip = React.memo(function EngagementChip({
   count,
   label,
   onClick,
+  pillRef,
+  heartRef,
 }: {
   active: boolean;
   icon: React.ReactNode;
   count: number;
   label: string;
   onClick: () => void;
+  pillRef?: React.Ref<HTMLButtonElement>;
+  heartRef?: React.Ref<HTMLSpanElement>;
 }) {
   return (
     <button
+      ref={pillRef}
       type="button"
       onClick={onClick}
       title={label}
@@ -37,7 +43,9 @@ const EngagementChip = React.memo(function EngagementChip({
           : 'text-white/65 border-white/[0.14] hover:border-white/[0.32] hover:text-white'
       }`}
     >
-      {icon}
+      <span ref={heartRef} className="flex items-center justify-center">
+        {icon}
+      </span>
       <span>{fc(count)}</span>
     </button>
   );
@@ -45,6 +53,7 @@ const EngagementChip = React.memo(function EngagementChip({
 
 export const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; count?: number }) => {
   const liked = useLiked(trackUrn);
+  const { shownLiked, pulse, heartRef, pillRef } = usePulseHeart(liked);
   const [localCount, setLocalCount] = useState(count ?? 0);
   const qc = useQueryClient();
 
@@ -52,6 +61,7 @@ export const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; coun
 
   const toggle = async () => {
     const next = !liked;
+    pulse(next);
     setLocalCount((c) => c + (next ? 1 : -1));
     const cached = qc.getQueryData<Track>(['track', trackUrn]);
     if (cached) optimisticToggleLike(qc, cached, next);
@@ -71,11 +81,13 @@ export const LikeBtn = React.memo(({ trackUrn, count }: { trackUrn: string; coun
 
   return (
     <EngagementChip
-      active={liked}
-      icon={<Heart size={15} fill={liked ? 'currentColor' : 'none'} />}
+      active={shownLiked}
+      icon={<Heart size={15} fill={shownLiked ? 'currentColor' : 'none'} />}
       count={localCount}
       label={'likes'}
       onClick={toggle}
+      pillRef={pillRef as React.RefObject<HTMLButtonElement | null>}
+      heartRef={heartRef as React.RefObject<HTMLSpanElement | null>}
     />
   );
 });
