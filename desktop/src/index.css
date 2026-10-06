@@ -260,15 +260,13 @@ select:focus-visible {
   animation: fadeInUp 0.5s var(--ease-apple) both;
 }
 
-/* Soft entrance for tab / page switches — quick, small, transform+opacity only. */
+/* Soft fade for tab / page switches and list items — opacity only. */
 @keyframes softIn {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -276,9 +274,107 @@ select:focus-visible {
   animation: softIn 0.22s var(--ease-apple) both;
 }
 
+/* Route swap: the new page fades in over the dark shell. A gentler curve than
+   the item entrances so the transition actually reads as motion. */
+/* Now-playing info swap when the track changes. */
+@keyframes swapIn {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-swap-in {
+  animation: swapIn 0.2s var(--ease-apple) both;
+}
+
+/* Play/pause glyph swap. */
+@keyframes iconPop {
+  from {
+    transform: scale(0.86);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.animate-icon-pop {
+  animation: iconPop 0.15s var(--ease-apple) both;
+}
+
+/* Press feedback: the `scale` property composes with transform-based layout
+   (translated icons etc.), so it is safe app-wide. Instant on purpose — a
+   state, not a decoration. */
+button:active:not(:disabled) {
+  scale: 0.98;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-soft-in {
+  .animate-soft-in,
+  .animate-swap-in,
+  .animate-icon-pop {
     animation: none;
+  }
+}
+
+/* Note: the entrance/transition helpers above are one-shot, composited and
+   short — they are navigational feedback, not idle decoration, so the light
+   perf mode keeps them (reduced-motion still turns them off). */
+
+/* ── Route transitions (View Transitions) ───────────────────────────────
+   The page wrapper is the only named element on a route change, so the chrome
+   (sidebar, bars) stays put while the old page crossfades into the new one —
+   the same mechanism the tab pills use. */
+.vt-page {
+  view-transition-name: page;
+}
+
+::view-transition-old(page) {
+  animation: vt-page-out 160ms ease both;
+}
+
+::view-transition-new(page) {
+  animation: vt-page-in 220ms var(--ease-apple) both;
+}
+
+@keyframes vt-page-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vt-page-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(page),
+  ::view-transition-new(page) {
+    animation: none;
+  }
+}
+
+/* Sidebar active-row indicator — transform-only slide between rows. */
+.sidebar-indicator {
+  view-transition-name: sidebar-pill;
+  transition:
+    transform 250ms var(--ease-apple),
+    opacity 160ms ease;
+}
+
+.sidebar-indicator--instant {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-indicator {
+    transition: none;
   }
 }
 

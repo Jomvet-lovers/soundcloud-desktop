@@ -213,7 +213,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
       <style>{PLAYLIST_KEYFRAMES}</style>
 
       <div
-        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-6 pb-10 space-y-6"
+        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-6 pb-10 space-y-6 animate-soft-in"
         style={{ isolation: 'isolate' }}
       >
         <PlaylistHero

@@ -64,7 +64,7 @@ export const TrackCard = React.memo(
 
     return (
       <div
-        className="group relative select-none"
+        className="group relative select-none animate-soft-in"
         onMouseEnter={() => preloadTrack(track.urn)}
         onContextMenu={trackMenuHandler(track)}
         style={{ contain: 'layout paint style' }}

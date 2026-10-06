@@ -92,9 +92,13 @@ export const RoomHero = React.memo(function RoomHero({
           className="w-[68px] h-[68px] shrink-0 rounded-full border border-white/[0.18] hover:border-white/[0.4] flex items-center justify-center text-white/90 hover:text-white transition-colors cursor-pointer"
         >
           {isThisPlaying ? (
-            <Pause size={24} fill="currentColor" strokeWidth={0} />
+            <span key="pause" className="animate-icon-pop flex items-center justify-center">
+              <Pause size={24} fill="currentColor" strokeWidth={0} />
+            </span>
           ) : (
-            <Play size={24} fill="currentColor" strokeWidth={0} className="ml-1" />
+            <span key="play" className="animate-icon-pop flex items-center justify-center">
+              <Play size={24} fill="currentColor" strokeWidth={0} className="ml-1" />
+            </span>
           )}
         </button>
 

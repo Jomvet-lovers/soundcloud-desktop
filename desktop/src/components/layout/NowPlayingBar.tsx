@@ -129,7 +129,8 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
     <footer className="flex h-[72px] flex-none items-center gap-4 border-t border-white/[0.08] bg-[#0b0b0e] px-4">
       {/* Left: track info */}
       <div
-        className="flex min-w-0 flex-1 items-center gap-3"
+        key={currentTrack?.urn ?? 'none'}
+        className="flex min-w-0 flex-1 items-center gap-3 animate-swap-in"
         onContextMenu={currentTrack ? trackMenuHandler(currentTrack) : undefined}
       >
         {currentTrack ? (
@@ -174,7 +175,12 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
             className="flex size-9 items-center justify-center rounded-full bg-white text-black transition-transform hover:scale-105 disabled:opacity-30"
             title={isPlaying ? 'Pause' : 'Play'}
           >
-            {isPlaying ? pauseBlack20 : playBlack20}
+            <span
+              key={isPlaying ? 'pause' : 'play'}
+              className="animate-icon-pop flex items-center justify-center"
+            >
+              {isPlaying ? pauseBlack20 : playBlack20}
+            </span>
           </button>
           <button
             type="button"

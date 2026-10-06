@@ -45,7 +45,7 @@ export function GenreGrid() {
           key={c.name}
           type="button"
           onClick={() => navigate(`/tag/${encodeURIComponent(c.name)}`)}
-          className="group relative aspect-[16/9] overflow-hidden rounded-xl p-3 text-left cursor-pointer transition-transform duration-300 ease-[var(--ease-apple)] hover:scale-[1.02]"
+          className="group relative aspect-[16/9] overflow-hidden rounded-xl p-3 text-left cursor-pointer transition-transform duration-300 ease-[var(--ease-apple)] hover:scale-[1.02] animate-soft-in"
           style={{ background: genreColor(c.name) }}
         >
           <span className="relative z-10 block max-w-[72%] text-[15px] font-black leading-tight tracking-tight text-black/85">

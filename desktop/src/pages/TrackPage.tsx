@@ -168,7 +168,7 @@ export const TrackPage = React.memo(function TrackPage() {
       <style>{ROOM_KEYFRAMES}</style>
 
       <div
-        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-6"
+        className="relative z-10 max-w-[1320px] mx-auto px-4 md:px-8 pt-5 pb-10 space-y-6 animate-soft-in"
         style={{ isolation: 'isolate' }}
       >
         <div className="flex items-center justify-between">

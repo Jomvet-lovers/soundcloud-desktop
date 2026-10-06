@@ -71,7 +71,7 @@ function DiscoverCard({
   };
 
   return (
-    <div className="group min-w-0">
+    <div className="group min-w-0 animate-soft-in">
       <div
         className={`relative aspect-square overflow-hidden rounded-xl bg-white/[0.04] cursor-pointer ${
           busy ? 'opacity-60 pointer-events-none' : ''
