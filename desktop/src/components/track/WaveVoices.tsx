@@ -43,7 +43,7 @@ function CommentAvatar({
 
 /** Comments live ON the wave: a small avatar at each timestamped comment's
  *  moment. Hover peeks it; click jumps there; and while this track plays, a
- *  bubble blooms upward as the playhead sweeps past it — all DOM-driven, no
+ *  bubble blooms downward as the playhead sweeps past it — all DOM-driven, no
  *  per-frame React. */
 export const WaveVoices = React.memo(function WaveVoices({
   comments,
@@ -151,6 +151,18 @@ export const WaveVoices = React.memo(function WaveVoices({
                 </span>
               )}
             </span>
+            {/* Peek / playback bloom — the comment itself (no avatar, no
+                byline), hanging below the dot. */}
+            <span
+              className="wv-pill absolute left-0 z-20 block w-max max-w-[240px] px-3 py-2 rounded-2xl text-left text-[12px] text-white/85 leading-snug line-clamp-4 break-words"
+              style={{
+                background: 'rgba(22,22,28,0.92)',
+                border: '0.5px solid rgba(255,255,255,0.12)',
+                boxShadow: '0 16px 40px rgba(0,0,0,0.5), inset 0 0.5px 0 rgba(255,255,255,0.1)',
+              }}
+            >
+              {d.comment.body}
+            </span>
           </button>
         );
       })}
@@ -164,8 +176,9 @@ interface FloatingPill {
   pct: number;
 }
 
-/** Pills that rise over the wave as the playhead crosses each comment's moment
- *  (driven by the Rust `comments:show` timeline, toggleable in settings). */
+/** Pills that drop under the wave as the playhead crosses each comment's
+ *  moment (driven by the Rust `comments:show` timeline, toggleable in
+ *  settings). */
 export function FloatingComments({
   comments,
   durationMs,
@@ -220,7 +233,7 @@ export function FloatingComments({
       {pills.map((p) => (
         <div
           key={p.key}
-          className="fc-pill absolute bottom-[54px]"
+          className="fc-pill absolute top-full mt-1.5"
           style={{ left: `${p.pct * 100}%` }}
         >
           <span
