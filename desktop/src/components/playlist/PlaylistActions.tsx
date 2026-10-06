@@ -3,16 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
-import {
-  Check,
-  Heart,
-  LinkIcon,
-  MapPin,
-  pauseCurrent16,
-  playCurrent16,
-  Shuffle,
-  Trash2,
-} from '../../lib/icons';
+import { Check, Heart, LinkIcon, MapPin, Shuffle, Trash2 } from '../../lib/icons';
 import { SharingToggle } from '../music/SharingToggle';
 
 const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
@@ -102,39 +93,25 @@ const CopyIconAction = React.memo(function CopyIconAction({ url }: { url?: strin
   );
 });
 
-/** The crate's full control bar — Play the Set, Shuffle, Pin, Like + utility rail. */
+/** The crate's control bar — Shuffle, Pin, Like + utility rail (the play
+ *  control lives next to the title, like the track page). */
 export const PlaylistActions = React.memo(function PlaylistActions({
   playlist,
   isOwner,
-  isPlaying,
   isPinned,
-  onPlayAll,
   onShuffle,
   onTogglePin,
   onDelete,
 }: {
   playlist: Playlist;
   isOwner: boolean;
-  isPlaying: boolean;
   isPinned: boolean;
-  onPlayAll: () => void;
   onShuffle: () => void;
   onTogglePin: () => void;
   onDelete: () => void;
 }) {
   return (
     <div className="flex items-center gap-3 flex-wrap justify-center lg:justify-start">
-      <button
-        type="button"
-        onClick={onPlayAll}
-        className={`inline-flex items-center gap-2.5 pl-4 pr-6 h-11 rounded-full text-[14px] font-semibold transition-all duration-500 ease-[var(--ease-apple)] cursor-pointer hover:scale-[1.03] active:scale-[0.97] ${
-          isPlaying ? 'bg-white text-black' : 'bg-accent text-accent-contrast'
-        }`}
-      >
-        {isPlaying ? pauseCurrent16 : playCurrent16}
-        {'Play All'}
-      </button>
-
       <button
         type="button"
         onClick={onShuffle}

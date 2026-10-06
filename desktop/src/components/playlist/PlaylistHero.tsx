@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { art, dateFormatted, durLong } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
-import { Calendar, Clock, Library, ListMusic } from '../../lib/icons';
+import { Calendar, Clock, Library, ListMusic, Pause, Play } from '../../lib/icons';
 import { Avatar } from '../ui/Avatar';
 import { PlaylistActions } from './PlaylistActions';
 
@@ -69,9 +69,24 @@ export const PlaylistHero = React.memo(function PlaylistHero({
       </div>
 
       <div className="flex w-full min-w-0 flex-1 flex-col gap-3 text-center md:text-left">
-        <h1 className="max-w-full break-words text-3xl font-black leading-tight tracking-tight text-white md:text-5xl">
-          {playlist.title}
-        </h1>
+        <div className="flex items-center gap-5 justify-center md:justify-start">
+          {/* Play — the same circular control as the track page. */}
+          <button
+            type="button"
+            onClick={onPlayAll}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+            className="w-[68px] h-[68px] shrink-0 rounded-full border border-white/[0.18] hover:border-white/[0.4] flex items-center justify-center text-white/90 hover:text-white transition-colors cursor-pointer"
+          >
+            {isPlaying ? (
+              <Pause size={24} fill="currentColor" strokeWidth={0} />
+            ) : (
+              <Play size={24} fill="currentColor" strokeWidth={0} className="ml-1" />
+            )}
+          </button>
+          <h1 className="max-w-full break-words text-3xl font-black leading-tight tracking-tight text-white md:text-5xl">
+            {playlist.title}
+          </h1>
+        </div>
 
         {curator && (
           <button
@@ -82,11 +97,11 @@ export const PlaylistHero = React.memo(function PlaylistHero({
             <span className="relative h-7 w-7 overflow-hidden rounded-full ring-1 ring-white/15">
               <Avatar src={curator.avatar_url} alt={curator.username} size={28} />
             </span>
-            <span className="flex flex-col items-start leading-tight">
-              <span className="text-[12px] font-semibold text-white/90 group-hover:text-white">
+            <span className="text-[12px] leading-tight text-white/50">
+              {'Curated by '}
+              <span className="font-semibold text-white/90 group-hover:text-white">
                 {curator.username}
               </span>
-              <span className="text-[10px] font-medium text-white/35">{'Curated by'}</span>
             </span>
           </button>
         )}
@@ -112,9 +127,7 @@ export const PlaylistHero = React.memo(function PlaylistHero({
           <PlaylistActions
             playlist={playlist}
             isOwner={isOwner}
-            isPlaying={isPlaying}
             isPinned={isPinned}
-            onPlayAll={onPlayAll}
             onShuffle={onShuffle}
             onTogglePin={onTogglePin}
             onDelete={onDelete}
