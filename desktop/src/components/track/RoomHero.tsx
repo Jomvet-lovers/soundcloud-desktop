@@ -145,12 +145,14 @@ export const RoomHero = React.memo(function RoomHero({
             {track.genre && (
               <>
                 <Dot />
-                <span
-                  className="text-[11px] font-semibold text-white/55"
+                <button
+                  type="button"
+                  onClick={() => navigate(`/tag/${encodeURIComponent(track.genre as string)}`)}
+                  className="text-[11px] font-semibold text-white/55 transition hover:brightness-125 cursor-pointer"
                   style={{ color: aura.hasGenre ? aura.accent : undefined }}
                 >
                   {track.genre}
-                </span>
+                </button>
               </>
             )}
             {year && (
