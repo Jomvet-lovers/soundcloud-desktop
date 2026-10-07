@@ -90,6 +90,19 @@ jobs:
           releaseDraft: false
           prerelease: false
 
+      # Portable build — the raw exe (needs the system WebView2 runtime, which
+      # ships with current Windows 10/11).
+      - name: Attach portable exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          $version = (Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $portable = "soundcloud-desktop_${version}_x64_portable.exe"
+          Copy-Item desktop/src-tauri/target/release/soundcloud-desktop.exe $portable
+          gh release upload $env:TAG $portable --clobber
+
   linux:
     name: Linux (deb / rpm / AppImage)
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux' }}
