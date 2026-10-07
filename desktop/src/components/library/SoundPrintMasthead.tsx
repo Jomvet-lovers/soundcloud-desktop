@@ -23,7 +23,7 @@ function greeting(name: string): string {
 const AvatarOrb = memo(function AvatarOrb({ url }: { url: string | null }) {
   return (
     <div className="relative shrink-0 w-[84px] h-[84px] md:w-[100px] md:h-[100px]">
-      <div className="relative w-full h-full rounded-full overflow-hidden ring-1 ring-white/10">
+      <div className="relative w-full h-full rounded-[1.25rem] overflow-hidden ring-1 ring-white/10">
         {url ? (
           <img src={url} alt="" className="w-full h-full object-cover" decoding="async" />
         ) : (

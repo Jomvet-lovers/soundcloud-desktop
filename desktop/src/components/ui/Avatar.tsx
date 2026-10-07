@@ -5,15 +5,24 @@ interface AvatarProps {
   alt?: string;
   size?: number;
   className?: string;
+  /** Corner style — circle by default; `rounded` gives the app's squircle look. */
+  shape?: 'circle' | 'rounded';
 }
 
-export function Avatar({ src, alt = '', size = 32, className = '' }: AvatarProps) {
+export function Avatar({
+  src,
+  alt = '',
+  size = 32,
+  className = '',
+  shape = 'circle',
+}: AvatarProps) {
   const sizeStyle = { width: size, height: size, minWidth: size };
+  const radius = shape === 'rounded' ? 'rounded-md' : 'rounded-full';
 
   if (!src || src.includes('default_avatar')) {
     return (
       <div
-        className={`rounded-full bg-bg-glass-active flex items-center justify-center text-text-tertiary ${className}`}
+        className={`${radius} bg-bg-glass-active flex items-center justify-center text-text-tertiary ${className}`}
         style={sizeStyle}
       >
         <svg width={size * 0.5} height={size * 0.5} viewBox="0 0 16 16" fill="currentColor">
@@ -30,7 +39,7 @@ export function Avatar({ src, alt = '', size = 32, className = '' }: AvatarProps
       alt={alt}
       loading="lazy"
       decoding="async"
-      className={`rounded-full object-cover ${className}`}
+      className={`${radius} object-cover ${className}`}
       style={sizeStyle}
     />
   );
