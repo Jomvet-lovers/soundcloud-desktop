@@ -11,7 +11,7 @@
 <p align="center">
 <b>[<a href="https://github.com/zxcloli666/SoundCloud-Desktop">Original project</a>]</b><br>
 <b>Unofficial SoundCloud desktop client — backend-free direct mode</b><br>
-No ads · No captcha · No third-party backend
+No ads · No captcha · No third-party backend · Download tracks & listen offline
 </p>
 
 <p align="center">
@@ -73,6 +73,13 @@ and written back to SoundCloud where possible — see [Limitations](#limitations
 - **Playback** — streamed and cached directly from SoundCloud, no relay infrastructure.
 - **Library** — liked tracks, playlists, followings and the following feed
   (read-only import from your SoundCloud account).
+- **Downloads** — save individual tracks to a file as **M4A (AAC)**, **MP3 (320 kbps)**,
+  **FLAC** or **WAV**, with cover art embedded. MP3 / FLAC / WAV are transcoded by a
+  managed ffmpeg binary (system ffmpeg or a one-time auto-download).
+- **Offline library** — bulk-cache your liked tracks ("Download all likes") or single
+  tracks and play them with no network connection. Manage them on the **Local library**
+  page; a configurable audio-cache limit keeps the regular cache in check, while
+  bulk-liked downloads live in a separate folder that bypasses the limit.
 - **Browsing** — tracks, playlists, users, albums, comments (read).
 - **Actions** — persisted in `direct_store.json` (app data dir); most are also written
   back to SoundCloud (see Limitations): like / unlike tracks and playlists, follow /
@@ -91,6 +98,9 @@ and written back to SoundCloud where possible — see [Limitations](#limitations
   Local-only: playlist metadata edits, sharing toggles (playlist & track) and dislikes.
 - If SoundCloud answers with a DataDome challenge, a verification window may open;
   the local state always stands (`direct:sync-error`).
+- Downloads: SoundCloud's source audio is AAC — M4A exports copy it as-is, while
+  MP3 / FLAC / WAV are transcoded from that source (FLAC / WAV cannot restore quality
+  beyond the original AAC).
 
 ## Differences from upstream
 
@@ -136,7 +146,7 @@ MIT License — see [LICENSE](LICENSE).
 
 <p align="center">
 SoundCloud の非公式デスクトップクライアント — 開発元バックエンド不要の <b>direct モード</b><br>
-広告なし · カプチャなし · サードパーティサーバー不要
+広告なし · カプチャなし · サードパーティサーバー不要 · ダウンロード＆オフライン再生
 </p>
 
 <p align="center">
@@ -183,6 +193,13 @@ SoundCloud へも書き込まれます（[制限事項](#制限事項)参照）�
 - **再生** — SoundCloud から直接ストリーミング＋キャッシュ（中継サーバー不要）
 - **ライブラリ** — いいねしたトラック、プレイリスト、フォロー一覧、フォローフィード
   （SoundCloud アカウントからの読み取りインポート）
+- **ダウンロード** — トラックを **M4A (AAC)** / **MP3 (320 kbps)** / **FLAC** / **WAV**
+  のファイルとして保存。カバーアートを埋め込み（MP3 / FLAC / WAV は管理された ffmpeg で
+  変換 — システムの ffmpeg、なければ初回のみ自動ダウンロード）
+- **オフライン再生** — いいねしたトラックをまとめてキャッシュ（「Download all likes」）
+  または 1 曲ずつ保存し、ネットワークなしで再生できます。**ローカルライブラリ**
+  ページで管理でき、オーディオキャッシュ上限でサイズを制御（いいねの一括ダウンロードは
+  上限対象外の専用フォルダに保存）
 - **ページ閲覧** — トラック / プレイリスト / ユーザー / アルバム / コメント（読み取り）
 - **操作**（`direct_store.json` に保存、多くは SoundCloud にも書き込み — 制限事項参照）—
   いいね/解除、フォロー/解除、プレイリスト作成・編集・削除、コメント、再生履歴、低評価
@@ -201,6 +218,8 @@ SoundCloud へも書き込まれます（[制限事項](#制限事項)参照）�
   低評価。
 - DataDome の挑戦（captcha）が返った場合は検証ウィンドウが開くことがあります。
   解決できない場合もローカルの状態は常に維持されます（`direct:sync-error`）。
+- ダウンロード: SoundCloud の配信音源は AAC です。M4A はそのまま保存され、
+  MP3 / FLAC / WAV は AAC 音源からの変換です（FLAC / WAV でも AAC 以上の音質にはなりません）。
 
 ## 上流からの変更（削除された機能）
 
