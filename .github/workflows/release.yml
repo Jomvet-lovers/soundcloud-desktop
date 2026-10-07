@@ -1,9 +1,11 @@
 name: Release
 
-# Windows NSIS installer builds published as GitHub Releases.
-# - workflow_dispatch: build from any ref and create the release for the given tag
-#   (the tag is created at the dispatched commit).
-# - tag push (v*-direct*): build and release the pushed tag.
+# Windows NSIS installer + Linux deb/rpm/AppImage builds published as GitHub
+# Releases.
+# - workflow_dispatch: build from any ref and create the release for the given
+#   tag (the tag is created at the dispatched commit). `platform` can limit the
+#   run to one OS — useful to add assets to an existing release.
+# - tag push (v*-direct*): build both platforms and release the pushed tag.
 #
 # Fork tags use the `v` prefix + `-direct.N` suffix to stay clear of the
 # upstream tags (bare numbers such as `8.4.13`).
@@ -15,6 +17,12 @@ on:
         description: 'Release tag (e.g. v8.4.13-direct.1)'
         required: true
         type: string
+      platform:
+        description: 'Platform to build'
+        required: false
+        type: choice
+        options: [all, windows, linux]
+        default: all
   push:
     tags:
       - 'v*-direct*'
@@ -27,8 +35,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Windows NSIS release
+  windows:
+    name: Windows NSIS
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +85,61 @@ jobs:
 
             非公式 SoundCloud デスクトップクライアント（direct モード）の Windows 用
             インストーラーです。機能・制限事項・サインイン方法は README を参照してください。
+
+            Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+          releaseDraft: false
+          prerelease: false
+
+  linux:
+    name: Linux (deb / rpm / AppImage)
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: release-linux
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: ${{ inputs.tag || github.ref_name }}
+          releaseBody: |
+            Linux packages (deb / rpm / AppImage) for the **unofficial** SoundCloud
+            desktop client (direct mode). See the README for features, limitations
+            and signing in.
+
+            非公式 SoundCloud デスクトップクライアント（direct モード）の Linux 用
+            パッケージです。機能・制限事項・サインイン方法は README を参照してください。
 
             Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
           releaseDraft: false
