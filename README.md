@@ -29,20 +29,23 @@ your actions (likes, follows, playlists, comments, history) are stored locally.
 - **Library** — liked tracks, playlists, followings and the following feed
   (read-only import from your SoundCloud account).
 - **Browsing** — tracks, playlists, users, albums, comments (read).
-- **Local actions**, persisted in `direct_store.json` (app data dir):
-  like / unlike tracks and playlists, follow / unfollow users, create / edit / delete
-  playlists, local comments, playback history, dislikes.
+- **Actions** — persisted in `direct_store.json` (app data dir); most are also written
+  back to SoundCloud (see Limitations): like / unlike tracks and playlists, follow /
+  unfollow users, create / edit / delete playlists, comments, playback history, dislikes.
 - **Flat UI** — no gradients / glow / backdrop blur, compact artwork, Spotify-style
   playing indicator.
 
 ## Limitations
 
-- Write actions apply instantly to the local store (`direct_store.json`) and are then
-  synced to soundcloud.com on a best-effort basis through a hidden writer webview
-  (`src-tauri/src/direct/webview.rs`): likes, follows, playlist edits and play history
-  are attempted; comments, new playlists, sharing toggles and dislikes stay local.
-  SoundCloud guards its write endpoints with DataDome bot protection, so sync can be
-  challenged — the local state always stands.
+- Write actions are applied to the local store (`direct_store.json`) immediately and are
+  **also written to soundcloud.com** through a hidden writer WebView
+  (`src-tauri/src/direct/webview.rs`): the write runs as a `fetch()` on a real
+  soundcloud.com page, so it carries the signed-in web session and passes DataDome.
+  Synced: likes (tracks & playlists), follows, comments (post & delete), playlist
+  creation, playlist track add / reorder / delete and play history.
+  Local-only: playlist metadata edits, sharing toggles (playlist & track) and dislikes.
+- If SoundCloud answers with a DataDome challenge, a verification window may open;
+  the local state always stands (`direct:sync-error`).
 
 ## Differences from upstream
 
@@ -115,20 +118,23 @@ SoundCloud を再生できます。検索・再生は公開 api-v2 に直接ア�
 - **ライブラリ** — いいねしたトラック、プレイリスト、フォロー一覧、フォローフィード
   （SoundCloud アカウントからの読み取りインポート）
 - **ページ閲覧** — トラック / プレイリスト / ユーザー / アルバム / コメント（読み取り）
-- **ローカル操作**（`direct_store.json` に保存）— いいね/解除、フォロー/解除、
-  プレイリスト作成・編集・削除、ローカルコメント、再生履歴、低評価
+- **操作**（`direct_store.json` に保存、多くは SoundCloud にも書き込み — 制限事項参照）—
+  いいね/解除、フォロー/解除、プレイリスト作成・編集・削除、コメント、再生履歴、低評価
 - **フラット UI** — グラデーション・グロー・ぼかしなし、コンパクトなサムネイル、
   Spotify 風の再生インジケーター
 
 ## 制限事項
 
-- 書き込み操作はローカルストア（`direct_store.json`）に即時反映され、その後
-  隠し writer WebView（`src-tauri/src/direct/webview.rs`）経由で soundcloud.com への
-  同期がベストエフォートで試みられます。同期対象: いいね、フォロー、
-  プレイリスト編集、再生履歴。コメント、新規プレイリスト、公開範囲切替、
-  低評価はローカルのみです。SoundCloud の書き込みエンドポイントは DataDome の
-  bot 保護で守られているため、同期が拒否される場合がありますが、
-  ローカルの状態は常に維持されます。
+- 書き込み操作はローカルストア（`direct_store.json`）に即時反映され、**同時に
+  soundcloud.com にも書き込まれます**。実際の soundcloud.com ページ上で `fetch()` を
+  実行する隠し writer WebView（`src-tauri/src/direct/webview.rs`）を使うため、
+  サインイン済み Web セッションの指紋で DataDome を通過できます。
+  同期対象: いいね（トラック / プレイリスト）、フォロー、コメント投稿・削除、
+  プレイリスト作成、プレイリストへの曲追加 / 並べ替え / 削除、再生履歴。
+  ローカルのみ: プレイリストのメタデータ編集、公開範囲切替（プレイリスト / トラック）、
+  低評価。
+- DataDome の挑戦（captcha）が返った場合は検証ウィンドウが開くことがあります。
+  解決できない場合もローカルの状態は常に維持されます（`direct:sync-error`）。
 
 ## 上流からの変更（削除された機能）
 
