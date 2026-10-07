@@ -184,8 +184,8 @@ export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
 
   return (
     <TabWrapper isLoading={q.isLoading && tracks.length === 0} isEmpty={tracks.length === 0}>
-      {/* Play all — the list's own control, flush with the rows' content edge. */}
-      <div className="mb-2 flex items-center px-4">
+      {/* Play all — top-right, mirroring the other collection pages. */}
+      <div className="mb-2 flex items-center justify-end px-4">
         <ProfileLikesPlayButton urn={urn} />
       </div>
       <div key={page} className="animate-soft-in">
