@@ -1,11 +1,13 @@
-# SCD-Direct
+# SCD-Direct — Unofficial SoundCloud Desktop Client
 
-> **Unofficial personal build.** This is a standalone, modified copy of
-> [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) by
-> [@zxcloli666](https://github.com/zxcloli666), used under the MIT License.
-> All original credit belongs to the upstream project.
+> **Unofficial third-party SoundCloud desktop client.** This is a standalone,
+> modified copy of [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)
+> by [@zxcloli666](https://github.com/zxcloli666), used under the MIT License.
+> It is not affiliated with or endorsed by SoundCloud. All original credit belongs
+> to the upstream project.
 
-A backend-free **direct mode** build of SoundCloud Desktop (Tauri v2 + React + Rust).
+A backend-free **direct mode** build of this SoundCloud desktop app (Tauri v2 + React + Rust):
+listen to SoundCloud on your desktop without a browser.
 Instead of relying on the original developer backend (`api.scnative.space`), the app
 talks to SoundCloud itself: search and playback go straight to the public api-v2, and
 your actions (likes, follows, playlists, comments, history) are stored locally.
@@ -82,15 +84,18 @@ MIT License — see [LICENSE](LICENSE).
 
 ---
 
-# SCD-Direct（日本語）
+# SCD-Direct（日本語）— 非公式 SoundCloud デスクトップクライアント
 
-> **非公式の個人ビルドです。** 本リポジトリは
+> **非公式のサードパーティ製 SoundCloud デスクトップクライアントです。**
+> 本リポジトリは
 > [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)
 > （[@zxcloli666](https://github.com/zxcloli666) 氏、MIT ライセンス）を元にした
-> 独立した改造版です。オリジナルのクレジットはすべて上流プロジェクトに帰属します。
+> 独立した改造版です。SoundCloud 公式とは無関係であり、公認も受けていません。
+> オリジナルのクレジットはすべて上流プロジェクトに帰属します。
 
-開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドです
-（Tauri v2 + React + Rust）。検索・再生は公開 api-v2 に直接アクセスし、いいね・
+開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドの
+SoundCloud デスクトップアプリです（Tauri v2 + React + Rust）。ブラウザなしで
+SoundCloud を再生できます。検索・再生は公開 api-v2 に直接アクセスし、いいね・
 フォロー・プレイリストなどの操作はすべてローカルに保存されます。
 
 ## スクリーンショット
