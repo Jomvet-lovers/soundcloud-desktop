@@ -21,7 +21,6 @@ import { PlaylistCard } from '../music/PlaylistCard';
 import { Avatar } from '../ui/Avatar';
 import { VirtualGrid } from '../ui/VirtualGrid';
 import { VirtualList } from '../ui/VirtualList';
-import { ProfileLikesPlayButton } from './ProfileLikesPlayButton';
 import { ThemedTrackRow } from './ThemedTrackRow';
 
 interface TabWrapperProps {
@@ -184,10 +183,6 @@ export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
 
   return (
     <TabWrapper isLoading={q.isLoading && tracks.length === 0} isEmpty={tracks.length === 0}>
-      {/* Play all — top-right, mirroring the other collection pages. */}
-      <div className="mb-2 flex items-center justify-end px-4">
-        <ProfileLikesPlayButton urn={urn} />
-      </div>
       <div key={page} className="animate-soft-in">
         <VirtualList
           items={tracks}
