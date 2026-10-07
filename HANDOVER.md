@@ -76,6 +76,27 @@
 3. 書き込み同期の再挑戦（優先度は低め）
 4. 準備ができたら **リポジトリを公開**に切り替え
 
+## 2026-10-07 のリファクタリング（`chore/refactor-cleanup`、push 保留中）
+
+フォーク元の残骸を削除＋監査。方針: 直下は直接削除、Discord 維持、CI は最小1本化、
+push は指示があるまで行わない（ローカルコミットのみ）。
+
+- **削除（直下）** — `App/`（旧 RN 実験）、`bindings/`（sc-rpc）、`depens/`（5 crates の二重実装）、
+  `utils/call/`（mock P2P）、`utils/decrypt/`（未参照の stub）、`docs/`（上流の露語 agent 文書5件）、
+  `_refs/`（PDF/OpenAPI/ロゴ）、`*.iml`（全12件、`.gitignore` に `*.iml` 追加）
+- **削除（desktop 内）** — npm 未使用 5 件（`fraunces` / `unbounded` / `geist-mono` /
+  `qr-code-styling` / `react-markdown`、`pnpm-lock.yaml` 更新＋node_modules から84件 prune）、
+  `GLASS_UI_GUIDE.md`（flat-UI 方針と矛盾）、`desktop/CLAUDE.md`（1行重複）
+- **削除（CI）** — workflows 7本＋`.github/flatpak` を撤去し、
+  `tsc` + `biome check` + `cargo check/test` の check-only `ci.yml` 1本に集約
+  （対象ブランチを `main` → `direct-mode` に変更）
+- **監査の結果「使用中のため保持」** — `utils/decrypt-client`（mock stub だが
+  `track_cache/direct_download.rs:253` が使用）、Discord 関連（front＋Rust）、
+  `aura` / `host-status` / `premium-cache` 系（配線あり）、`@dnd-kit/*` / `simple-icons`、
+  Rust 依存は全件使用中（`sc-fingerprint` は direct mode の TLS 指紋クライアントで要）
+- **対象外・別タスク** — CEF 用 `[patch.crates-io]`（変更リスクのため残置）、
+  `direct/routes.rs`（123KB の god file、分割は別タスク化）
+
 ## 2026-10-07 の作業メモ（direct-mode）
 
 - **再生404の修正**（`src-tauri/src/track_cache/sc_anon/mod.rs`）— `abr_sq` の恒常404を
