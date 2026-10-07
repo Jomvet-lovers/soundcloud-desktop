@@ -6,6 +6,7 @@ import { ensureTrackCached } from '../lib/cache';
 import { art, dur } from '../lib/formatters';
 import { Download, Loader2, Pause, Play, Shuffle, Trash2 } from '../lib/icons';
 import { useCacheLikes } from '../lib/likes-cache';
+import { useIsPlayingFrom } from '../lib/useTrackPlay';
 import { withViewTransition } from '../lib/view-transition';
 import { useAppStatusStore } from '../stores/app-status';
 import { useAuthStore } from '../stores/auth';
@@ -42,6 +43,24 @@ export function OfflinePage() {
     () => entries.filter((e) => e.inv !== null).map((e) => e.track),
     [entries],
   );
+  const playableUrns = useMemo(() => new Set(playable.map((t) => t.urn)), [playable]);
+  // Same toggle semantics as the track/playlist hero control and the profile
+  // likes button: play from the top, pause when this list plays, resume when
+  // the current track belongs to it.
+  const isPlayingThis = useIsPlayingFrom(playableUrns);
+  const playAll = useCallback(() => {
+    if (!playable.length) return;
+    const { play, pause, resume, currentTrack } = usePlayerStore.getState();
+    if (isPlayingThis) {
+      pause();
+      return;
+    }
+    if (currentTrack && playableUrns.has(currentTrack.urn)) {
+      resume();
+      return;
+    }
+    void play(playable[0], playable);
+  }, [playable, playableUrns, isPlayingThis]);
 
   const handleSignIn = useCallback(() => {
     // Dropping the offline bypass re-renders App into <Login/>; there is no
@@ -148,11 +167,19 @@ export function OfflinePage() {
         <button
           type="button"
           disabled={!playable.length}
-          onClick={() => void usePlayerStore.getState().play(playable[0], playable)}
-          className="ml-2 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40"
-          style={{ background: 'var(--color-accent)' }}
+          onClick={playAll}
+          aria-label={isPlayingThis ? 'Pause' : 'Play'}
+          className="ml-2 w-[48px] h-[48px] shrink-0 rounded-full border border-white/[0.18] hover:border-white/[0.4] flex items-center justify-center text-white/90 hover:text-white transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
         >
-          <Play size={13} /> {'Play all'}
+          {isPlayingThis ? (
+            <span key="pause" className="animate-icon-pop flex items-center justify-center">
+              <Pause size={18} fill="currentColor" strokeWidth={0} />
+            </span>
+          ) : (
+            <span key="play" className="animate-icon-pop flex items-center justify-center">
+              <Play size={18} fill="currentColor" strokeWidth={0} className="ml-0.5" />
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -161,7 +188,7 @@ export function OfflinePage() {
             const shuffled = [...playable].sort(() => Math.random() - 0.5);
             void usePlayerStore.getState().play(shuffled[0], shuffled);
           }}
-          className="flex items-center gap-1.5 rounded-lg border border-white/[0.1] px-3 py-1.5 text-[12px] text-white/70 hover:bg-white/[0.06] disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] text-white/60 hover:text-white/90 hover:bg-white/[0.06] transition-colors disabled:opacity-40"
         >
           <Shuffle size={13} /> {'Shuffle'}
         </button>
@@ -171,7 +198,7 @@ export function OfflinePage() {
             type="button"
             disabled={cacheLikes.caching}
             onClick={() => void cacheLikes.start().catch(() => {})}
-            className="flex items-center gap-1.5 rounded-lg border border-white/[0.1] px-3 py-1.5 text-[12px] text-white/70 hover:bg-white/[0.06] disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] text-white/60 hover:text-white/90 hover:bg-white/[0.06] transition-colors disabled:opacity-40"
           >
             {cacheLikes.caching ? (
               <>
