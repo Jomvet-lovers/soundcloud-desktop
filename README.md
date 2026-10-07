@@ -1,4 +1,42 @@
-# SCD-Direct — Unofficial SoundCloud Desktop Client
+<p align="center">
+<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
+<img src=".github/assets/logo.png" width="180px" alt="SCD-Direct" />
+</a>
+</p>
+
+<h1 align="center"><a href="https://github.com/Jomvet-lovers/SCD-Direct">SCD-Direct</a></h1>
+
+---
+
+<p align="center">
+<b>[<a href="https://github.com/zxcloli666/SoundCloud-Desktop">Original project</a>]</b><br>
+<b>Unofficial SoundCloud desktop client — backend-free direct mode</b><br>
+No ads · No captcha · No third-party backend
+</p>
+
+<p align="center">
+<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
+<img src="https://img.shields.io/github/v/release/Jomvet-lovers/SCD-Direct?style=for-the-badge&logo=github&color=FF5500&label=VERSION" alt="Version"/>
+</a>
+<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases">
+<img src="https://img.shields.io/github/downloads/Jomvet-lovers/SCD-Direct/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
+</a>
+<a href="https://github.com/Jomvet-lovers/SCD-Direct/stargazers">
+<img src="https://img.shields.io/github/stars/Jomvet-lovers/SCD-Direct?style=for-the-badge&logo=github&color=FF5500&label=Stars" alt="Stars"/>
+</a>
+<a href="LICENSE">
+<img src="https://img.shields.io/badge/License-MIT-FF5500?style=for-the-badge" alt="License"/>
+</a>
+</p>
+
+<p align="center">
+<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
+<img src="https://img.shields.io/badge/Download-Latest_Version-FF5500?style=for-the-badge" alt="Download"/>
+</a>
+<a href="#scd-direct日本語">
+<img src="https://img.shields.io/badge/日本語-README-0066FF?style=for-the-badge" alt="Japanese README"/>
+</a>
+</p>
 
 > **Unofficial third-party SoundCloud desktop client.** This is a standalone,
 > modified copy of [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)
@@ -17,7 +55,7 @@ listen to SoundCloud on your desktop without a browser.
 Instead of relying on the original developer backend (`api.scnative.space`), the app
 talks to SoundCloud itself: search and playback go straight to the public api-v2, and
 your actions (likes, follows, playlists, comments, history) are kept in a local store
-and written back to SoundCloud where possible — see Limitations.
+and written back to SoundCloud where possible — see [Limitations](#limitations).
 
 ## Screenshots
 
@@ -94,7 +132,21 @@ MIT License — see [LICENSE](LICENSE).
 
 ---
 
-# SCD-Direct（日本語）— 非公式 SoundCloud デスクトップクライアント
+<h1 align="center">SCD-Direct（日本語）</h1>
+
+<p align="center">
+SoundCloud の非公式デスクトップクライアント — 開発元バックエンド不要の <b>direct モード</b><br>
+広告なし · カプチャなし · サードパーティサーバー不要
+</p>
+
+<p align="center">
+<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
+<img src="https://img.shields.io/badge/ダウンロード-最新版-FF5500?style=for-the-badge" alt="Download"/>
+</a>
+<a href="#scd-direct">
+<img src="https://img.shields.io/badge/English-README-0066FF?style=for-the-badge" alt="English README"/>
+</a>
+</p>
 
 > **非公式のサードパーティ製 SoundCloud デスクトップクライアントです。**
 > 本リポジトリは
@@ -113,7 +165,7 @@ MIT License — see [LICENSE](LICENSE).
 SoundCloud デスクトップアプリです（Tauri v2 + React + Rust）。ブラウザなしで
 SoundCloud を再生できます。検索・再生は公開 api-v2 に直接アクセスし、いいね・
 フォロー・プレイリストなどの操作はローカルに保存したうえで、可能なものは
-SoundCloud へも書き込まれます（制限事項参照）。
+SoundCloud へも書き込まれます（[制限事項](#制限事項)参照）。
 
 ## スクリーンショット
 
