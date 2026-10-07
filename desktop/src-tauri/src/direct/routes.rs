@@ -131,7 +131,30 @@ fn normalize_urn(mut item: Value) -> Value {
             }
         }
     }
+    mirror_uploader_avatar(&mut item);
     item
+}
+
+/// Tracks without jacket art show the uploader's avatar (official web parity:
+/// soundcloud.com falls back to the avatar when `artwork_url` is null).
+/// Track-only: playlists keep their own cover logic on the frontend
+/// (`playlist-cover.ts`), users already carry their own `avatar_url`.
+fn mirror_uploader_avatar(item: &mut Value) {
+    if item.get("kind").and_then(Value::as_str) != Some("track") {
+        return;
+    }
+    let empty = item.get("artwork_url").map(Value::is_null).unwrap_or(true);
+    if !empty {
+        return;
+    }
+    let avatar = item
+        .get("user")
+        .and_then(|u| u.get("avatar_url"))
+        .filter(|v| !v.is_null())
+        .cloned();
+    if let (Some(avatar), Some(obj)) = (avatar, item.as_object_mut()) {
+        obj.insert("artwork_url".into(), avatar);
+    }
 }
 
 fn urn_of(v: &Value) -> Option<String> {
@@ -2772,10 +2795,12 @@ async fn merge_local_playlist_likes(
 /// Map one entry of SoundCloud's `/me/play-history/tracks` response into the
 /// frontend `HistoryEntry` shape (see `useHistory` / `HistoryTab`).
 fn history_entry_from_sc(row: &Value) -> Option<Value> {
-    let track = row.get("track")?;
-    if !track.is_object() {
+    let raw = row.get("track")?;
+    if !raw.is_object() {
         return None;
     }
+    // normalize first: jacket-less tracks inherit the uploader avatar here too.
+    let track = normalize_urn(raw.clone());
     let track_id = track
         .get("id")
         .and_then(Value::as_u64)
@@ -2797,4 +2822,71 @@ fn history_entry_from_sc(row: &Value) -> Option<Value> {
         "duration": track.get("duration").and_then(Value::as_i64).unwrap_or(0),
         "playedAt": played_iso,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{history_entry_from_sc, normalize_urn};
+    use serde_json::json;
+
+    fn track(artwork: serde_json::Value) -> serde_json::Value {
+        json!({
+            "kind": "track",
+            "id": 1,
+            "title": "t",
+            "artwork_url": artwork,
+            "user": {
+                "username": "u",
+                "avatar_url": "https://example.com/avatar-large.jpg",
+            },
+        })
+    }
+
+    /// Jacket-less tracks show the uploader avatar (official web parity).
+    #[test]
+    fn track_without_artwork_falls_back_to_uploader_avatar() {
+        let out = normalize_urn(track(serde_json::Value::Null));
+        assert_eq!(
+            out.get("artwork_url").and_then(|v| v.as_str()),
+            Some("https://example.com/avatar-large.jpg"),
+        );
+    }
+
+    /// Tracks that have their own jacket keep it.
+    #[test]
+    fn track_with_artwork_is_untouched() {
+        let out = normalize_urn(track(json!("https://example.com/cover-large.jpg")));
+        assert_eq!(
+            out.get("artwork_url").and_then(|v| v.as_str()),
+            Some("https://example.com/cover-large.jpg"),
+        );
+    }
+
+    /// Playlists keep their own cover logic (frontend `playlist-cover.ts`):
+    /// no uploader-avatar injection here.
+    #[test]
+    fn playlist_without_artwork_is_untouched() {
+        let out = normalize_urn(json!({
+            "kind": "playlist",
+            "id": 2,
+            "title": "p",
+            "artwork_url": null,
+            "user": { "avatar_url": "https://example.com/avatar-large.jpg" },
+        }));
+        assert!(out.get("artwork_url").map(|v| v.is_null()).unwrap_or(false));
+    }
+
+    /// History entries inherit the fallback too.
+    #[test]
+    fn history_entry_uses_fallback_artwork() {
+        let row = json!({
+            "played_at": 1791331200000i64,
+            "track": track(serde_json::Value::Null),
+        });
+        let entry = history_entry_from_sc(&row).expect("entry");
+        assert_eq!(
+            entry.get("artworkUrl").and_then(|v| v.as_str()),
+            Some("https://example.com/avatar-large.jpg"),
+        );
+    }
 }
