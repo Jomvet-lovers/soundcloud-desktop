@@ -137,6 +137,23 @@ export function OfflinePage() {
               {'Sign in'}
             </button>
           )}
+          <button
+            type="button"
+            disabled={!playable.length}
+            onClick={playAll}
+            aria-label={isPlayingThis ? 'Pause' : 'Play'}
+            className="w-[48px] h-[48px] shrink-0 rounded-full border border-white/[0.18] hover:border-white/[0.4] flex items-center justify-center text-white/90 hover:text-white transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
+          >
+            {isPlayingThis ? (
+              <span key="pause" className="animate-icon-pop flex items-center justify-center">
+                <Pause size={18} fill="currentColor" strokeWidth={0} />
+              </span>
+            ) : (
+              <span key="play" className="animate-icon-pop flex items-center justify-center">
+                <Play size={18} fill="currentColor" strokeWidth={0} className="ml-0.5" />
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -181,23 +198,6 @@ export function OfflinePage() {
           </span>
         </button>
 
-        <button
-          type="button"
-          disabled={!playable.length}
-          onClick={playAll}
-          aria-label={isPlayingThis ? 'Pause' : 'Play'}
-          className="ml-2 w-[48px] h-[48px] shrink-0 rounded-full border border-white/[0.18] hover:border-white/[0.4] flex items-center justify-center text-white/90 hover:text-white transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default"
-        >
-          {isPlayingThis ? (
-            <span key="pause" className="animate-icon-pop flex items-center justify-center">
-              <Pause size={18} fill="currentColor" strokeWidth={0} />
-            </span>
-          ) : (
-            <span key="play" className="animate-icon-pop flex items-center justify-center">
-              <Play size={18} fill="currentColor" strokeWidth={0} className="ml-0.5" />
-            </span>
-          )}
-        </button>
         <button
           type="button"
           disabled={!playable.length}
