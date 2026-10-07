@@ -61,7 +61,7 @@ desktop/
     i18n/locales/ en.json, ru.json, tr.json
   src-tauri/src/
     direct/       mod, routes（HTTP ルート + フロント向けマッピング）, sc（api-v2 クライアント）,
-                  store（direct_store.json）, webview（実験的ライター）
+                  store（direct_store.json）, webview（同期ライター）
     audio/        engine, decode, eq, analyser, device, media_controls, tick, timing …
     network/      proxy（scproxy://）, proxy_server, static_server, image_cache, dpi
     track_cache/  sc_anon（HLS）, direct_download, commands, state
@@ -72,10 +72,12 @@ desktop/
 
 - **読み取り** — 公開 `api-v2`（`client_id` を SoundCloud トップページから抽出）。
   `src-tauri/src/direct/routes.rs` が生データをフロント期待の形へマッピングする。
-- **書き込み** — `direct_store.json` にローカル保存。SoundCloud への同期は DataDome の
-  bot 保護で拒否されるため未実装（`webview.rs` の実験実装は `SYNC_ENABLED = false`）。
-- **認証** — SoundCloud Web の `oauth_token` Cookie をログイン画面に貼り付けて使用。
-  `auth_session.json` に保存され、SoundCloud にのみ送信される。
+- **書き込み** — `direct_store.json` に即時ローカル保存し、隠し writer WebView
+  （`webview.rs`）経由で soundcloud.com へベストエフォート同期。同期対象はいいね /
+  フォロー / プレイリスト編集 / 再生履歴。DataDome に弾かれた場合はローカルが残る。
+- **認証** — ログイン画面の「Sign in with SoundCloud」からアプリ内ウィンドウで
+  soundcloud.com にサインイン。セッションは自動取得され `auth_session.json` に保存、
+  SoundCloud にのみ送信される。
 - **既知の SC API の癖**:
   - システムプレイリストの `tracks` は id のみのスタブ → `/tracks?ids=` でハイドレートし、
     解決できないものは除外

@@ -26,10 +26,12 @@ your actions (likes, follows, playlists, comments, history) are stored locally.
 
 ## Limitations
 
-- Write actions are **not synced** back to soundcloud.com. SoundCloud protects its
-  write endpoints with DataDome bot protection; every non-trusted client is rejected.
-  Everything stays local in `direct_store.json`. The experimental writer lives in
-  `src-tauri/src/direct/webview.rs` behind `SYNC_ENABLED = false`.
+- Write actions apply instantly to the local store (`direct_store.json`) and are then
+  synced to soundcloud.com on a best-effort basis through a hidden writer webview
+  (`src-tauri/src/direct/webview.rs`): likes, follows, playlist edits and play history
+  are attempted; comments, new playlists, sharing toggles and dislikes stay local.
+  SoundCloud guards its write endpoints with DataDome bot protection, so sync can be
+  challenged — the local state always stands.
 
 ## Differences from upstream
 
@@ -47,15 +49,10 @@ Backend-only features were removed together with the decorative layer:
 
 ## Signing in
 
-Direct mode uses the `oauth_token` cookie of your SoundCloud web session:
-
-1. Log in at https://soundcloud.com in your browser.
-2. Open DevTools (F12) → Application → Storage → Cookies → https://soundcloud.com
-3. Copy the value of the `oauth_token` cookie.
-4. Paste it into the login screen and press "Sign in with token".
-
-The token is stored locally in the app data directory (Rust session store) and is
-only sent to SoundCloud.
+Press "Sign in with SoundCloud" on the login screen: an in-app window opens
+soundcloud.com, and once you sign in there, the session is picked up automatically
+and stored locally in the app data directory (Rust session store). It is only ever
+sent to SoundCloud.
 
 ## Build
 
@@ -102,10 +99,13 @@ MIT License — see [LICENSE](LICENSE).
 
 ## 制限事項
 
-- 書き込み操作は **soundcloud.com に同期されません**。SoundCloud は書き込み
-  エンドポイントを DataDome の bot 保護で守っており、非信頼クライアントは拒否されます。
-  すべて `direct_store.json` にローカル保存されます。実験的な同期実装は
-  `src-tauri/src/direct/webview.rs` に `SYNC_ENABLED = false` で残しています。
+- 書き込み操作はローカルストア（`direct_store.json`）に即時反映され、その後
+  隠し writer WebView（`src-tauri/src/direct/webview.rs`）経由で soundcloud.com への
+  同期がベストエフォートで試みられます。同期対象: いいね、フォロー、
+  プレイリスト編集、再生履歴。コメント、新規プレイリスト、公開範囲切替、
+  低評価はローカルのみです。SoundCloud の書き込みエンドポイントは DataDome の
+  bot 保護で守られているため、同期が拒否される場合がありますが、
+  ローカルの状態は常に維持されます。
 
 ## 上流からの変更（削除された機能）
 
@@ -120,15 +120,10 @@ MIT License — see [LICENSE](LICENSE).
 
 ## サインイン
 
-direct モードでは SoundCloud Web セッションの `oauth_token` Cookie を使用します:
-
-1. ブラウザで https://soundcloud.com にログイン
-2. DevTools (F12) → Application → Storage → Cookies → https://soundcloud.com
-3. `oauth_token` の値をコピー
-4. ログイン画面に貼り付けて「Sign in with token」
-
-トークンはアプリのデータディレクトリ（Rust セッションストア）にローカル保存され、
-SoundCloud にのみ送信されます。
+ログイン画面で「Sign in with SoundCloud」を押すと、アプリ内ウィンドウで
+soundcloud.com が開きます。そこでサインインするとセッションが自動的に取得され、
+アプリのデータディレクトリ（Rust セッションストア）にローカル保存されます。
+SoundCloud 以外に送信されることはありません。
 
 ## ビルド
 
