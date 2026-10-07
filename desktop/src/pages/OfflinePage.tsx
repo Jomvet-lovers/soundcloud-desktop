@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import type { OfflineEntry } from '../components/offline/types';
 import { useOfflineLibrary } from '../components/offline/useOfflineLibrary';
-import { ensureTrackCached } from '../lib/cache';
+import { clearCache, clearLikedCache, ensureTrackCached } from '../lib/cache';
 import { art, dur } from '../lib/formatters';
 import { Download, Loader2, Pause, Play, Shuffle, Trash2 } from '../lib/icons';
 import { useCacheLikes } from '../lib/likes-cache';
@@ -27,6 +28,7 @@ export function OfflinePage() {
   const online = lib.appMode === 'online';
   const [section, setSection] = useState<'likes' | 'cached'>('likes');
   const [query, setQuery] = useState('');
+  const [clearingCache, setClearingCache] = useState(false);
 
   const entries = useMemo(() => {
     const base = section === 'likes' ? lib.likesEntries : lib.cachedEntries;
@@ -89,6 +91,21 @@ export function OfflinePage() {
     },
     [lib],
   );
+
+  const clearAllCache = useCallback(async () => {
+    if (clearingCache) return;
+    setClearingCache(true);
+    try {
+      await clearCache();
+      await clearLikedCache();
+      await lib.refreshInventory();
+      toast.success('Cache cleared');
+    } catch {
+      toast.error('Something went wrong');
+    } finally {
+      setClearingCache(false);
+    }
+  }, [clearingCache, lib.refreshInventory]);
 
   const currentUrn = usePlayerStore((s) => s.currentTrack?.urn);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
@@ -212,6 +229,18 @@ export function OfflinePage() {
                 <Download size={13} /> {'Download all likes'}
               </>
             )}
+          </button>
+        )}
+
+        {section === 'cached' && (
+          <button
+            type="button"
+            disabled={clearingCache || lib.cachedEntries.length === 0}
+            onClick={() => void clearAllCache()}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] text-white/60 hover:text-white/90 hover:bg-white/[0.06] transition-colors disabled:opacity-40"
+          >
+            {clearingCache ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+            {'Clear cache'}
           </button>
         )}
 
