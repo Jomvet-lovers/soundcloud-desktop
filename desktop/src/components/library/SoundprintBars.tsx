@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { parseCssColor, type Rgb, rgbaCss, rgbCss } from '../../lib/genre-aura';
+import { parseCssColor, type Rgb, rgbCss } from '../../lib/genre-aura';
 import { AudioLines } from '../../lib/icons';
 import type { GenreShare } from '../search/utils';
 
@@ -45,13 +45,11 @@ export const SoundprintBars = memo(function SoundprintBars({
             >
               <div className="relative flex-1 flex items-end">
                 <div
-                  className="w-full rounded-t-[7px] transition-[filter,box-shadow] duration-300"
+                  className="w-full rounded-t-[7px]"
                   style={{
                     height: `${h}%`,
                     transformOrigin: 'bottom',
                     background: rgbCss(rgb),
-                    boxShadow: `inset 0 1px 0 ${rgbaCss(rgb, 0.85)}`,
-                    filter: isSel ? 'saturate(1.2) brightness(1.08)' : undefined,
                   }}
                 />
               </div>

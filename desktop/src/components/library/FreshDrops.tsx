@@ -14,29 +14,21 @@ import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { LikeButton } from '../music/LikeButton';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
-import { useTrackAura } from '../track/useTrackAura';
 import { useFollowingDrops } from './useFollowingDrops';
 
 function whenLabel(track: Track): string {
   return ago(track.created_at || track.release_date);
 }
 
-/** The newest drop, given the spotlight: big cover glowing in its own genre,
- *  a NEW badge and how long ago it landed. */
+/** The newest drop, given the spotlight: big cover, a NEW badge and how long
+ *  ago it landed — a flat hero row, no card. */
 const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queue: Track[] }) {
-  const aura = useTrackAura(track.genre);
   const { isThis, isThisPlaying, togglePlay } = useTrackPlay(track, queue);
   const cover = art(track.artwork_url, 't500x500');
   const when = whenLabel(track);
 
   return (
-    <div
-      className="relative flex items-center gap-5 p-4 rounded-[1.75rem] overflow-hidden"
-      style={{
-        border: `0.5px solid ${aura.accentSoft}`,
-        background: 'rgba(20,20,24,0.9)',
-      }}
-    >
+    <div className="flex items-center gap-5 py-1">
       <button
         type="button"
         onClick={togglePlay}
@@ -68,10 +60,7 @@ const FreshLead = memo(function FreshLead({ track, queue }: { track: Track; queu
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2.5 mb-2">
-          <span
-            className="text-[10px] font-medium px-2 py-0.5 rounded-full"
-            style={{ color: aura.accent, background: aura.accentSoft }}
-          >
+          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-white/[0.06] text-white/60">
             {'New'}
           </span>
           {when && <span className="text-[11px] text-white/40 tabular-nums">{when}</span>}
@@ -95,7 +84,7 @@ const FreshDropRow = memo(function FreshDropRow({
 
   return (
     <div
-      className={`group flex items-center gap-3.5 px-3 py-2.5 rounded-2xl transition-colors duration-200 ${
+      className={`group flex items-center gap-3.5 px-3 py-2.5 rounded-md transition-colors duration-200 ${
         isThis ? 'bg-white/[0.05]' : 'hover:bg-white/[0.035]'
       }`}
     >
