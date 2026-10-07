@@ -10,7 +10,8 @@ A backend-free **direct mode** build of this SoundCloud desktop app (Tauri v2 + 
 listen to SoundCloud on your desktop without a browser.
 Instead of relying on the original developer backend (`api.scnative.space`), the app
 talks to SoundCloud itself: search and playback go straight to the public api-v2, and
-your actions (likes, follows, playlists, comments, history) are stored locally.
+your actions (likes, follows, playlists, comments, history) are kept in a local store
+and written back to SoundCloud where possible — see Limitations.
 
 ## Screenshots
 
@@ -77,7 +78,7 @@ Node 20+.
 cd desktop
 corepack pnpm install
 corepack pnpm tauri dev     # development (Vite HMR)
-corepack pnpm tauri build   # release + installer
+corepack pnpm tauri build --bundles nsis   # release + NSIS installer
 ```
 
 ## Credits & License
@@ -99,7 +100,8 @@ MIT License — see [LICENSE](LICENSE).
 開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドの
 SoundCloud デスクトップアプリです（Tauri v2 + React + Rust）。ブラウザなしで
 SoundCloud を再生できます。検索・再生は公開 api-v2 に直接アクセスし、いいね・
-フォロー・プレイリストなどの操作はすべてローカルに保存されます。
+フォロー・プレイリストなどの操作はローカルに保存したうえで、可能なものは
+SoundCloud へも書き込まれます（制限事項参照）。
 
 ## スクリーンショット
 
@@ -163,7 +165,7 @@ Node 20+
 cd desktop
 corepack pnpm install
 corepack pnpm tauri dev     # 開発（Vite HMR）
-corepack pnpm tauri build   # リリース＋インストーラー
+corepack pnpm tauri build --bundles nsis   # リリース＋NSISインストーラー
 ```
 
 ## クレジット / ライセンス
