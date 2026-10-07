@@ -60,8 +60,10 @@ desktop/
                   track-display, scproxy, tauri-storage, diagnostics, icons, formatters …
     i18n/locales/ en.json, ru.json, tr.json
   src-tauri/src/
-    direct/       mod, routes（HTTP ルート + フロント向けマッピング）, sc（api-v2 クライアント）,
-                  store（direct_store.json）, webview（同期ライター）
+    direct/       mod, routes/（HTTP ルート: mod=振り分け、me/tracks/playlists/
+                  catalog/discover/local=ドメイン、common/normalize=共通処理）,
+                  sc（api-v2 クライアント）, store（direct_store.json）,
+                  webview（同期ライター）
     audio/        engine, decode, eq, analyser, device, media_controls, tick, timing …
     network/      proxy（scproxy://）, proxy_server, static_server, image_cache, dpi
     track_cache/  sc_anon（HLS）, direct_download, commands, state

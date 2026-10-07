@@ -78,7 +78,13 @@
 3. 書き込み同期の対象拡大（コメント等。優先度は低め）
 4. 準備ができたら **リポジトリを公開**に切り替え
 
-## 2026-10-07 のリファクタリング（`chore/refactor-cleanup`、push 保留中）
+## 2026-10-07 のリファクタリング（`chore/refactor-cleanup`）
+
+- **routes.rs 分割** — 2796行の god file を `direct/routes/` 9モジュールに分割
+  （mod=振り分け＋Ctx、me/tracks/playlists/catalog/discover/local=ドメイン、
+  common/normalize=共通処理）。純粋なコード移動でロジック無変更。
+  検証: `cargo check` エラー0・新規警告0、`cargo test` 30件パス、
+  経路84件・関数35件の保全をスクリプト照合で確認。
 
 - **トークンログイン撤去** — ログイン画面のトークン貼り付け UI（デバッグ用）を削除し、
   アプリ内 WebView ログイン（`open_login_window`）に一本化。Rust の `direct_login`
