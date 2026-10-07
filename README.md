@@ -10,6 +10,15 @@ Instead of relying on the original developer backend (`api.scnative.space`), the
 talks to SoundCloud itself: search and playback go straight to the public api-v2, and
 your actions (likes, follows, playlists, comments, history) are stored locally.
 
+## Screenshots
+
+![Home — greeting, liked tracks and the now-playing bar](screenshots/home.png)
+![Search — genre wall](screenshots/search.png)
+![Library — soundprint and following feed](screenshots/library.png)
+![History — playback history](screenshots/history.png)
+![Settings — startup options](screenshots/settings.png)
+![Audio settings — playback toggles and output devices](screenshots/audio.png)
+
 ## Features
 
 - **Search** — tracks / playlists / users / albums via the public SoundCloud api-v2
@@ -83,6 +92,15 @@ MIT License — see [LICENSE](LICENSE).
 開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドです
 （Tauri v2 + React + Rust）。検索・再生は公開 api-v2 に直接アクセスし、いいね・
 フォロー・プレイリストなどの操作はすべてローカルに保存されます。
+
+## スクリーンショット
+
+![ホーム — 挨拶、いいねしたトラック、再生バー](screenshots/home.png)
+![検索 — ジャンルウォール](screenshots/search.png)
+![ライブラリ — サウンドプリントとフォローフィード](screenshots/library.png)
+![履歴 — 再生履歴](screenshots/history.png)
+![設定 — 起動オプション](screenshots/settings.png)
+![オーディオ設定 — 再生トグルと出力デバイス](screenshots/audio.png)
 
 ## 機能
 
