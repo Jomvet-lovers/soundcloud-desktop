@@ -15,9 +15,7 @@ export function Login() {
   const setSession = useAuthStore((s) => s.setSession);
   const fetchUser = useAuthStore((s) => s.fetchUser);
   const setOfflineBypass = useAppStatusStore((s) => s.setOfflineBypass);
-  const [tokenInput, setTokenInput] = useState('');
-  const [tokenBusy, setTokenBusy] = useState(false);
-  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [windowBusy, setWindowBusy] = useState(false);
   const windowBusyRef = useRef(false);
   const unlistenRef = useRef<(() => void) | null>(null);
@@ -27,26 +25,6 @@ export function Login() {
     navigate('/offline', { replace: true });
   };
 
-  const handleDirectLogin = async () => {
-    const value = tokenInput.trim();
-    if (!value || tokenBusy) return;
-    setTokenBusy(true);
-    setTokenError(null);
-    try {
-      await invoke<string>('direct_login', { token: value });
-      // Apply the session to the frontend mirror synchronously (the
-      // auth:changed event may still be in flight when fetchUser runs).
-      await setSession(value);
-      setOfflineBypass(false);
-      await fetchUser();
-      queryClient.invalidateQueries();
-    } catch (e) {
-      setTokenError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTokenBusy(false);
-    }
-  };
-
   useEffect(() => () => unlistenRef.current?.(), []);
 
   /** Sign in through a real SoundCloud web session in an in-app window. */
@@ -54,7 +32,7 @@ export function Login() {
     if (windowBusyRef.current) return;
     windowBusyRef.current = true;
     setWindowBusy(true);
-    setTokenError(null);
+    setLoginError(null);
     unlistenRef.current?.();
     const unlisten = await listen<{
       status: 'ok' | 'error' | 'cancel';
@@ -73,12 +51,12 @@ export function Login() {
           await fetchUser();
           queryClient.invalidateQueries();
         } catch (err) {
-          setTokenError(err instanceof Error ? err.message : String(err));
+          setLoginError(err instanceof Error ? err.message : String(err));
         }
         return;
       }
       if (e.payload.status === 'error') {
-        setTokenError(e.payload.message ?? 'Sign-in failed');
+        setLoginError(e.payload.message ?? 'Sign-in failed');
       }
     });
     unlistenRef.current = unlisten;
@@ -89,7 +67,7 @@ export function Login() {
       unlistenRef.current = null;
       windowBusyRef.current = false;
       setWindowBusy(false);
-      setTokenError(err instanceof Error ? err.message : String(err));
+      setLoginError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -112,43 +90,17 @@ export function Login() {
           <BrandMark subtitle={'Your music, your way'} />
 
           <div className="mt-8 flex flex-col items-stretch gap-3">
-            {tokenError && (
+            {loginError && (
               <div className="flex flex-col items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] px-5 py-4 text-center">
                 <div className="flex size-10 items-center justify-center rounded-full border border-red-500/25 bg-red-500/10">
                   <AlertCircle size={18} className="text-red-400" strokeWidth={1.8} />
                 </div>
-                <p className="break-words text-[12px] leading-snug text-white/60">{tokenError}</p>
+                <p className="break-words text-[12px] leading-snug text-white/60">{loginError}</p>
               </div>
             )}
 
             <PrimaryButton disabled={windowBusy} onClick={handleBrowserLogin}>
               {windowBusy ? 'Waiting for sign-in…' : 'Sign in with SoundCloud'}
-            </PrimaryButton>
-
-            <div className="my-1 flex items-center gap-3 text-[10px] text-white/25">
-              <div className="h-px flex-1 bg-white/10" />
-              {'or paste a token manually'}
-              <div className="h-px flex-1 bg-white/10" />
-            </div>
-
-            <p className="text-[10.5px] leading-snug text-white/35">
-              {
-                'Direct mode: paste the value of your SoundCloud "oauth_token" cookie to sign in without the backend.'
-              }
-            </p>
-            <input
-              type="password"
-              autoComplete="off"
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleDirectLogin();
-              }}
-              placeholder={'oauth_token'}
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[12px] text-white/80 outline-none transition-colors placeholder:text-white/25 focus:border-white/20"
-            />
-            <PrimaryButton disabled={tokenBusy || !tokenInput.trim()} onClick={handleDirectLogin}>
-              {tokenBusy ? 'Checking token...' : 'Sign in with token'}
             </PrimaryButton>
 
             <div className="my-1 flex items-center gap-3 text-[10px] text-white/25">

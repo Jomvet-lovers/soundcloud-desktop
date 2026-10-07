@@ -2,8 +2,7 @@
 //!
 //! Opens a visible webview at soundcloud.com; once the user signs in, the
 //! `oauth_token` cookie is picked up automatically, validated against `/me`
-//! and persisted through [`SessionStore`] — the same path as the manual
-//! token paste in [`super::direct_login`], without the DevTools detour.
+//! and persisted through [`SessionStore`].
 //!
 //! The window always opens signed out: the persistent WebView profile would
 //! otherwise keep the previous SoundCloud session and prevent switching

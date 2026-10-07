@@ -15,10 +15,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::Value;
-use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::auth::SessionStore;
 use crate::rt::AppHandle;
 use store::LocalStore;
 
@@ -46,24 +44,3 @@ impl DirectState {
     }
 }
 
-/// Validate an `oauth_token` against SoundCloud and persist it as the session.
-#[tauri::command]
-pub async fn direct_login(
-    token: String,
-    app: AppHandle,
-    session: State<'_, Arc<SessionStore>>,
-    direct: State<'_, Arc<DirectState>>,
-) -> Result<String, String> {
-    let token = token.trim().to_string();
-    if token.is_empty() {
-        return Err("empty token".into());
-    }
-    let me = sc::fetch_me(direct.inner(), &token).await?;
-    let username = me
-        .get("username")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    session.set_token(&app, token).await?;
-    Ok(username)
-}
