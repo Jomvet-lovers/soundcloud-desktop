@@ -79,10 +79,9 @@
 3. 書き込み同期の対象拡大（コメント等。優先度は低め）
 4. 準備ができたら **リポジトリを公開**に切り替え
 
-## 2026-10-07 のリファクタリング（`chore/refactor-cleanup`）
+## 2026-10-07 のリファクタリング（PR #1 で `direct-mode` にマージ済み）
 
-フォーク元の残骸を削除＋監査。方針: 直下は直接削除、Discord 維持、CI は最小1本化、
-push は指示があるまで行わない（ローカルコミットのみ）。
+フォーク元の残骸を削除＋監査。方針: 直下は直接削除、Discord 維持、CI は最小1本化。
 
 - **routes.rs 分割** — 2796行の god file を `direct/routes/` 9モジュールに分割
   （mod=振り分け＋Ctx、me/tracks/playlists/catalog/discover/local=ドメイン、
