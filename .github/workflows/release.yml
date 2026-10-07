@@ -1,0 +1,82 @@
+name: Release
+
+# Windows NSIS installer builds published as GitHub Releases.
+# - workflow_dispatch: build from any ref and create the release for the given tag
+#   (the tag is created at the dispatched commit).
+# - tag push (v*-direct*): build and release the pushed tag.
+#
+# Fork tags use the `v` prefix + `-direct.N` suffix to stay clear of the
+# upstream tags (bare numbers such as `8.4.13`).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v8.4.13-direct.1)'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*-direct*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Windows NSIS release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: release-windows
+
+      # BoringSSL (sc-fingerprint) assembles with NASM on Windows; CMake and
+      # LLVM (libclang for bindgen) ship with the runner image.
+      - name: Install build tools
+        run: choco install nasm -y --no-progress
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          args: --bundles nsis
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: ${{ inputs.tag || github.ref_name }}
+          releaseBody: |
+            Windows installer for the **unofficial** SoundCloud desktop client
+            (direct mode). See the README for features, limitations and signing in.
+
+            非公式 SoundCloud デスクトップクライアント（direct モード）の Windows 用
+            インストーラーです。機能・制限事項・サインイン方法は README を参照してください。
+
+            Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+          releaseDraft: false
+          prerelease: false
