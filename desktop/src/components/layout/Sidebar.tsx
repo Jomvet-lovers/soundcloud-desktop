@@ -303,7 +303,13 @@ export const Sidebar = React.memo(() => {
             style={({ isActive }) => (isActive ? ACTIVE : undefined)}
           >
             <span className="w-10 shrink-0 flex items-center justify-center">
-              <Avatar src={user.avatar_url} alt={user.username} size={26} shape="rounded" />
+              <Avatar
+                src={user.avatar_url}
+                alt={user.username}
+                size={18}
+                shape="rounded"
+                className="ring-1 ring-white/[0.1]"
+              />
             </span>
             <Label collapsed={collapsed} className="flex items-center gap-1.5 pr-3">
               <span className="text-[12.5px] text-white/55 truncate font-medium">
