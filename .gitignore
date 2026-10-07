@@ -30,5 +30,9 @@ worker/venv/
 .idea/
 *.iml
 
+# Local-only agent docs (excluded from the public repo)
+/HANDOVER.md
+/desktop/AGENTS.md
+
 # FireBase
 .firebase
