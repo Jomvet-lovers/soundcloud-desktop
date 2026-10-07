@@ -56,6 +56,9 @@ export const WaveVoices = React.memo(function WaveVoices({
   isCurrent: boolean;
   onSeek: (seconds: number) => void;
 }) {
+  // When floating pills are on they already announce each comment at its
+  // moment — blooming the wave pill too would show it twice.
+  const floatingOn = useSettingsStore((s) => s.floatingComments);
   const dots = useMemo<Dot[]>(() => {
     if (!durationMs || durationMs <= 0) return [];
     const slots = new Map<number, Dot>();
@@ -74,10 +77,11 @@ export const WaveVoices = React.memo(function WaveVoices({
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   // Bloom a dot when the live playhead sweeps past it (natural advance only —
-  // a seek jump is skipped so we don't burst-bloom). Pure DOM, no React.
+  // a seek jump is skipped so we don't burst-bloom). Skipped while floating
+  // pills are on (they cover the same moment). Pure DOM, no React.
   useEffect(() => {
     const timers = timersRef.current;
-    if (!isCurrent || dots.length === 0) return;
+    if (!isCurrent || floatingOn || dots.length === 0) return;
     let prev = (() => {
       const d = getDuration();
       return d > 0 ? getCurrentTime() / d : 0;
@@ -117,7 +121,7 @@ export const WaveVoices = React.memo(function WaveVoices({
       for (const id of timers.values()) clearTimeout(id);
       timers.clear();
     };
-  }, [isCurrent, dots]);
+  }, [isCurrent, floatingOn, dots]);
 
   if (dots.length === 0) return null;
 
@@ -152,13 +156,18 @@ export const WaveVoices = React.memo(function WaveVoices({
               )}
             </span>
             {/* Peek / playback bloom — the comment itself (no avatar, no
-                byline), hanging below the dot. */}
+                byline), hanging below the dot. Same look as .scd-tooltip. */}
             <span
-              className="wv-pill absolute left-0 z-20 block w-max max-w-[240px] px-3 py-2 rounded-2xl text-left text-[12px] text-white/85 leading-snug line-clamp-4 break-words"
+              className="wv-pill absolute left-0 z-20 block w-max max-w-[320px] text-left font-medium leading-snug break-words"
               style={{
-                background: 'rgba(22,22,28,0.92)',
-                border: '0.5px solid rgba(255,255,255,0.12)',
-                boxShadow: '0 16px 40px rgba(0,0,0,0.5), inset 0 0.5px 0 rgba(255,255,255,0.1)',
+                background: '#1b1b1f',
+                border: '0.5px solid rgba(255,255,255,0.1)',
+                borderRadius: 7,
+                boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
+                color: 'rgba(255,255,255,0.88)',
+                fontSize: 11.5,
+                padding: '6px 9px',
+                overflowWrap: 'anywhere',
               }}
             >
               {d.comment.body}
@@ -237,21 +246,19 @@ export function FloatingComments({
           style={{ left: `${p.pct * 100}%` }}
         >
           <span
-            className="flex items-center gap-2 max-w-[240px] w-max px-3 py-2 rounded-2xl"
+            className="block w-max max-w-[320px] text-left font-medium leading-snug break-words"
             style={{
-              background: 'rgba(22,22,28,0.94)',
-              border: '0.5px solid rgba(255,255,255,0.12)',
-              boxShadow: '0 16px 40px rgba(0,0,0,0.5), inset 0 0.5px 0 rgba(255,255,255,0.1)',
+              background: '#1b1b1f',
+              border: '0.5px solid rgba(255,255,255,0.1)',
+              borderRadius: 7,
+              boxShadow: '0 6px 18px rgba(0,0,0,0.45)',
+              color: 'rgba(255,255,255,0.88)',
+              fontSize: 11.5,
+              padding: '6px 9px',
+              overflowWrap: 'anywhere',
             }}
           >
-            <CommentAvatar
-              url={p.comment.user_avatar_url}
-              username={null}
-              className="w-6 h-6 rounded-full shrink-0 text-[10px]"
-            />
-            <span className="min-w-0 text-left text-[12px] text-white/85 leading-snug truncate">
-              {p.comment.body}
-            </span>
+            {p.comment.body}
           </span>
         </div>
       ))}
