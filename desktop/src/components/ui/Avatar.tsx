@@ -5,7 +5,8 @@ interface AvatarProps {
   alt?: string;
   size?: number;
   className?: string;
-  /** Corner style — circle by default; `rounded` gives the app's squircle look. */
+  /** Corner style — circle by default; `rounded` matches the sidebar's small
+   *  artwork token (18px tile, 5px radius). */
   shape?: 'circle' | 'rounded';
 }
 
@@ -17,7 +18,7 @@ export function Avatar({
   shape = 'circle',
 }: AvatarProps) {
   const sizeStyle = { width: size, height: size, minWidth: size };
-  const radius = shape === 'rounded' ? 'rounded-md' : 'rounded-full';
+  const radius = shape === 'rounded' ? 'rounded-[5px]' : 'rounded-full';
 
   if (!src || src.includes('default_avatar')) {
     return (
