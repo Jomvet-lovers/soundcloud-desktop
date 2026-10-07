@@ -16,7 +16,7 @@ import {
   useSearchDbTracksPage,
   useSearchDbUsersPage,
 } from '../lib/hooks';
-import { LinkIcon, Loader2, Music, playBlack20 } from '../lib/icons';
+import { ChevronRight, LinkIcon, Loader2, Music, playBlack20 } from '../lib/icons';
 import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
@@ -164,6 +164,7 @@ function dedupeItems(items: MixedSelectionItem[]): MixedSelectionItem[] {
 export function DiscoverSections() {
   const navigate = useNavigate();
   const [busyUrn, setBusyUrn] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const play = usePlayerStore((s) => s.play);
   const mixed = useDiscoverMixed();
   const selections = mixed.data?.collection ?? [];
@@ -241,13 +242,30 @@ export function DiscoverSections() {
         selections.map((sel) => {
           const items = dedupeItems(sel.items?.collection ?? []);
           if (items.length === 0) return null;
+          const isOpen = !!expanded[sel.urn];
+          const shown = isOpen ? items : items.slice(0, 10);
           return (
             <section key={sel.urn}>
-              <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
-                {sel.title}
-              </h2>
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
+                  {sel.title}
+                </h2>
+                {items.length > 10 && (
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((prev) => ({ ...prev, [sel.urn]: !prev[sel.urn] }))}
+                    className="flex items-center gap-0.5 text-[12px] font-semibold text-white/45 hover:text-white/90 transition-colors cursor-pointer"
+                  >
+                    {isOpen ? 'Show less' : 'See all'}
+                    <ChevronRight
+                      size={14}
+                      className={`transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
+                    />
+                  </button>
+                )}
+              </div>
               <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-                {items.slice(0, 10).map((item, idx) => (
+                {shown.map((item, idx) => (
                   <DiscoverCard
                     key={item.urn ?? idx}
                     item={item}
