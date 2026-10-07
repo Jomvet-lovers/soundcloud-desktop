@@ -76,6 +76,19 @@
 3. 書き込み同期の再挑戦（優先度は低め）
 4. 準備ができたら **リポジトリを公開**に切り替え
 
+## 2026-10-07 の作業メモ（direct-mode）
+
+- **再生404の修正**（`src-tauri/src/track_cache/sc_anon/mod.rs`）— `abr_sq` の恒常404を
+  「音声なし」と誤判定していた問題を修正（全候補404のときのみ `Ok(None)`）。
+  `invalidate_and_refresh` が30秒ゲートで古い client_id を返し続けるバグも修正。
+  404では refresh しない。回帰テスト3件追加。
+- **タイトル不一致の修正**（`src/lib/track-display/clean.ts`）— `stripInlineTags` が
+  `(ETIA. Remix)` のようにアーティスト名入りの括弧まで削除していた問題を修正
+  （ノイズのみの括弧は従来通り除去）。
+- **ジャケットなし曲のフォールバック**（`src-tauri/src/direct/routes.rs`）—
+  `normalize_urn` でトラック限定に `artwork_url` が null なら `user.avatar_url` を
+  代入（公式Webと同等）。履歴エントリも同様。テスト4件追加。`cargo test` 全27件通過。
+
 ## 起動・ビルド（Windows）
 
 ```powershell
@@ -96,3 +109,19 @@ cd src-tauri; cargo check
 
 - dev ログの運用例: `... | Tee-Object -FilePath C:\Users\natsumi\scd-spike\dev2.log`
 - DirectAPI / StaticServer / ProxyServer のポートは起動ごとに変わる（ログに表示される）
+
+### ARM64 Windows マシン（kota）でのビルド条件
+
+- 既定ツールチェーン（aarch64）＋ `--target x86_64` のクロスでビルドする。
+  x86_64ツールチェーンでのネイティブビルドは不可（cmake が `CMAKE_SYSTEM_PROCESSOR=ARM64`
+  を返し boring-sys の NASM 分岐に入らないためリンクが壊れる）。
+- 必要な環境変数（cargo 実行前に設定）:
+  `$env:LIBCLANG_PATH='C:\Users\kota\scoop\apps\llvm-arm64\current\bin'`（bindgen は
+  ホスト=ARM64 用、pip の x86_64 版では不可）、
+  `$env:OPUS_LIB_DIR='<registry>/audiopus_sys-0.1.8/msvc\x64'`、
+  `$env:CARGO_BUILD_TARGET='x86_64-pc-windows-msvc'`（`tauri dev` 用）。
+- `~/.cargo/registry/.../audiopus_sys-0.1.8/build.rs` に当機限定の1行パッチ適用済み
+  （aarch64 用 `ARCHITECTURE` 定義。`OPUS_LIB_DIR` 指定時は実行時に未使用）。
+  リポジトリ外の変更なので再 checkout・更新時は再適用が必要。
+- pnpm は v10 を使用（v9 は `pnpm-workspace.yaml` に `packages` が無いと全コマンド失敗）。
+  `npm i -g pnpm@10` で導入済み。
