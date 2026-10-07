@@ -64,6 +64,9 @@ pub struct AudioLoadResult {
 pub struct AudioSink {
     pub name: String,
     pub description: String,
+    /// Hardware/adapter name behind the endpoint (e.g. "AMD High Definition
+    /// Audio Device"), shown as the device's title in settings.
+    pub interface: Option<String>,
     pub is_default: bool,
 }
 

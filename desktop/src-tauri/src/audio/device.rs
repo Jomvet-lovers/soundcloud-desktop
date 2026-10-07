@@ -190,6 +190,10 @@ pub fn set_follow_default_output(state: State<'_, AudioState>, follow: bool) {
     }
 }
 
+pub fn get_follow_default_output(state: State<'_, AudioState>) -> bool {
+    state.follow_default_output.load(Ordering::Relaxed)
+}
+
 pub fn start_default_output_monitor(app: &AppHandle) {
     let handle = app.clone();
     {
@@ -319,10 +323,16 @@ fn audio_list_devices_pactl() -> Vec<AudioSink> {
         .filter_map(|sink| {
             let name = sink.get("name")?.as_str()?.to_string();
             let description = sink.get("description")?.as_str()?.to_string();
+            let interface = sink
+                .get("properties")
+                .and_then(|p| p.get("alsa.card_name"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             Some(AudioSink {
                 is_default: name == default_sink,
                 name,
                 description,
+                interface,
             })
         })
         .collect()
@@ -346,15 +356,18 @@ fn audio_list_devices_cpal() -> Vec<AudioSink> {
     devices
         .filter_map(|dev| {
             let id = dev.id().ok()?.to_string();
-            let description = dev
-                .description()
-                .ok()
-                .map(|desc| desc.name().to_string())
-                .unwrap_or_else(|| id.clone());
+            let (description, interface) = match dev.description() {
+                Ok(desc) => (
+                    desc.name().to_string(),
+                    desc.driver().map(str::to_string),
+                ),
+                Err(_) => (id.clone(), None),
+            };
             Some(AudioSink {
                 is_default: default_id.as_deref() == Some(id.as_str()),
                 name: id,
                 description,
+                interface,
             })
         })
         .collect()

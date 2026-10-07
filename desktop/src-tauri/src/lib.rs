@@ -191,6 +191,7 @@ pub fn run() {
             audio::audio_list_devices,
             audio::audio_switch_device,
             audio::audio_set_follow_default_output,
+            audio::audio_get_follow_default_output,
             audio::audio_set_lyrics_timeline,
             audio::audio_clear_lyrics_timeline,
             audio::audio_set_comments_timeline,

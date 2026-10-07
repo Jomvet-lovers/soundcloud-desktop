@@ -152,6 +152,11 @@ pub fn audio_set_follow_default_output(follow: bool, state: State<'_, AudioState
 }
 
 #[tauri::command]
+pub fn audio_get_follow_default_output(state: State<'_, AudioState>) -> bool {
+    device::get_follow_default_output(state)
+}
+
+#[tauri::command]
 pub async fn save_track_to_path(cache_path: String, dest_path: String) -> Result<String, String> {
     engine::save_track_to_path(cache_path, dest_path).await
 }
