@@ -28,6 +28,7 @@ worker/venv/
 
 # IDE
 .idea/
+*.iml
 
 # FireBase
 .firebase
