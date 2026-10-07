@@ -88,17 +88,83 @@ export function stripTranslitParens(s: string | null | undefined): string {
 
 /**
  * Inline-теги в скобках, относящиеся к роли участника (prod./feat./remix/…)
- * и [Free DL]-шум — срезаем из отображаемого title'а. Роли уже лежат в
- * `enrichment.participants` и показываются отдельным блоком.
+ * и [Free DL]-шум — срезаем из отображаемого title'а.
+ *
+ * Режем ТОЛЬКО когда внутри скобок не осталось имени: "(Remix)", "(Cover)",
+ * "[Free DL]" уходят, а "(ETIA. Remix)" и "(prod. Иван)" остаются — иначе
+ * приложение показывает «S0S» вместо официального «S0S (ETIA. Remix)».
  */
 const TAG_PATTERN =
   /\s*[([][^)\]]*(?:prod\.?|produced\s+by|prod\s+by|feat\.?|featuring|ft\.?|with|remix|rmx|edit|version|cover|instrumental|free\s+(?:dl|download)|out\s+now|original\s+mix|extended\s+mix|radio\s+edit|premiere|exclusive|hd|hq|official(?:\s+(?:audio|video))?|lyrics|lyric\s+video|visualizer)\b[^)\]]*[)\]]/gi;
+
+/** Слова, из которых целиком состоит role-скобка (шум, который режем). */
+const NOISE_WORDS = [
+  'prod',
+  'produced',
+  'prod.',
+  'by',
+  'feat',
+  'feat.',
+  'ft',
+  'ft.',
+  'featuring',
+  'with',
+  'remix',
+  'rmx',
+  'edit',
+  'version',
+  'mix',
+  'cover',
+  'instrumental',
+  'free',
+  'dl',
+  'download',
+  'out',
+  'now',
+  'original',
+  'extended',
+  'radio',
+  'premiere',
+  'exclusive',
+  'hd',
+  'hq',
+  'official',
+  'audio',
+  'video',
+  'lyrics',
+  'lyric',
+  'visualizer',
+  'acoustic',
+  'live',
+  'demo',
+  'bootleg',
+  'flip',
+  'mashup',
+  'rework',
+  'vip',
+];
+
+/**
+ * В скобках осталось хоть что-то, кроме role-шума? Тогда это имя
+ * («ETIA. Remix») и скобки трогать нельзя.
+ */
+function hasNameInside(inner: string): boolean {
+  const words = inner
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s'.]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.some((w) => !NOISE_WORDS.includes(w));
+}
 
 export function stripInlineTags(title: string | null | undefined): string {
   let prev = title ?? '';
   for (let i = 0; i < 4; i++) {
     const next = prev
-      .replace(TAG_PATTERN, '')
+      .replace(TAG_PATTERN, (match) => {
+        const inner = match.replace(/^[\s([]+/, '').replace(/[)\]]+$/, '');
+        return hasNameInside(inner) ? match : '';
+      })
       .replace(/\s{2,}/g, ' ')
       .trim();
     if (next === prev) break;
