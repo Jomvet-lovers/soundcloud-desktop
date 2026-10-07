@@ -5,6 +5,12 @@
 > by [@zxcloli666](https://github.com/zxcloli666), used under the MIT License.
 > It is not affiliated with or endorsed by SoundCloud. All original credit belongs
 > to the upstream project.
+>
+> **Intended for personal use only — provided as-is, at your own risk.** This is not
+> a registered or authorized SoundCloud API client; it talks to SoundCloud the same
+> way the web player does. Using it — including syncing your actions back to
+> SoundCloud — is your own decision and may affect your account. See SoundCloud's
+> [terms of use](https://soundcloud.com/terms-of-use). No warranty, no liability.
 
 A backend-free **direct mode** build of this SoundCloud desktop app (Tauri v2 + React + Rust):
 listen to SoundCloud on your desktop without a browser.
@@ -96,6 +102,12 @@ MIT License — see [LICENSE](LICENSE).
 > （[@zxcloli666](https://github.com/zxcloli666) 氏、MIT ライセンス）を元にした
 > 独立した改造版です。SoundCloud 公式とは無関係であり、公認も受けていません。
 > オリジナルのクレジットはすべて上流プロジェクトに帰属します。
+>
+> **個人利用を目的とした非公式アプリです。現状のまま提供され、自己責任でのご利用となります。**
+> 登録・認可された SoundCloud API クライアントではなく、Web プレイヤーと同様の方法で
+> SoundCloud と通信します。利用（書き込みの同期を含む）はご自身の判断で行ってください —
+> アカウントに影響が及ぶ可能性があります。詳細は SoundCloud の
+> [利用規約](https://soundcloud.com/terms-of-use) を参照してください。無保証・責任を負いません。
 
 開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドの
 SoundCloud デスクトップアプリです（Tauri v2 + React + Rust）。ブラウザなしで
