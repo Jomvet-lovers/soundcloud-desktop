@@ -336,10 +336,12 @@ button:active:not(:disabled) {
   view-transition-name: page;
 }
 
+/* biome-ignore lint/correctness/noUnknownTypeSelector: CSS View Transitions pseudo-element with a named transition argument. */
 ::view-transition-old(page) {
   animation: vt-page-out 160ms ease both;
 }
 
+/* biome-ignore lint/correctness/noUnknownTypeSelector: CSS View Transitions pseudo-element with a named transition argument. */
 ::view-transition-new(page) {
   animation: vt-page-in 220ms var(--ease-apple) both;
 }
@@ -357,8 +359,10 @@ button:active:not(:disabled) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* biome-ignore lint/correctness/noUnknownTypeSelector: CSS View Transitions pseudo-elements with named transition arguments. */
   ::view-transition-old(page),
-  ::view-transition-new(page) {
+  /* biome-ignore lint/correctness/noUnknownTypeSelector: CSS View Transitions pseudo-elements with named transition arguments. */
+    ::view-transition-new(page) {
     animation: none;
   }
 }
