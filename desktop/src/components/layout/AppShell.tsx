@@ -140,10 +140,11 @@ const KeybindingsDialog = React.memo(
  *  `bgOpacity` is the flat readability dim on top; no motion (it's a backdrop). */
 const CustomBackground = React.memo(() => {
   const perf = usePerfMode();
-  const { bgName, bgOpacity, bgBlur } = useSettingsStore(
+  const { bgName, bgOpacity, bgDim, bgBlur } = useSettingsStore(
     useShallow((s) => ({
       bgName: s.backgroundImage,
       bgOpacity: s.backgroundOpacity,
+      bgDim: s.backgroundDim,
       bgBlur: s.backgroundBlur,
     })),
   );
@@ -152,12 +153,14 @@ const CustomBackground = React.memo(() => {
   if (!bgUrl) return null;
 
   const effBlur = perf.blur(bgBlur);
-  const dim = bgOpacity; // edge/vignette + chrome readability framing
+  // "Edge darkening" (readability framing) and "Background darkening"
+  // flattened into one overlay — the upstream vignette layer is gone.
+  const dim = Math.min(0.92, bgOpacity + bgDim);
 
   return (
     <div
       className="absolute inset-0 pointer-events-none overflow-hidden"
-      style={{ contain: 'strict', transform: 'translateZ(0)' }}
+      style={{ contain: 'strict', transform: 'translateZ(0)', zIndex: -1 }}
     >
       <img
         src={bgUrl}
@@ -372,7 +375,10 @@ export const AppShell = React.memo(() => {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen relative overflow-hidden">
+    <div
+      className="flex flex-col h-screen relative overflow-hidden"
+      style={{ isolation: 'isolate' }}
+    >
       <CustomBackground />
       <Titlebar />
       <div className="flex flex-1 min-h-0 relative z-10" style={{ isolation: 'isolate' }}>
