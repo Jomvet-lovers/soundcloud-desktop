@@ -225,7 +225,6 @@ pub fn run() {
             auth::auth_set_premium,
             network::edge::edge_config,
             network::edge::edge_note,
-            direct::direct_login,
             direct::login::open_login_window,
         ])
         .run(tauri::generate_context!())
