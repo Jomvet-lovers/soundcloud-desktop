@@ -7,18 +7,10 @@
 
 ## これは何か
 
-- **`Jomvet-lovers/SCD-Direct`**（private）— [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)
+- **`Jomvet-lovers/SCD-Direct`** — [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)
   （MIT）の非公式改造版。開発元バックエンドに依存しない **direct モード** ビルド。
 - デフォルトブランチは **`direct-mode`**（作業ブランチ）。`main` は上流ベースライン。
 - `origin` = `Jomvet-lovers/SCD-Direct` / `upstream` = `zxcloli666/SoundCloud-Desktop`。
-- 公開の準備ができたら、以下のコマンドで public に戻せる:
-  `gh repo edit Jomvet-lovers/SCD-Direct --visibility public --accept-visibility-change-consequences`
-
-## アカウント / 権限
-
-- GitHub: **`Natsumil`**（`gh` 認証済み。リポジトリ admin / 組織 `Jomvet-lovers` の owner）
-- `huzun1` = **write**（push 可）、`oscar269` = read
-- 組織のデフォルト権限は read のため、Jomvet-lovers の全メンバーが private リポジトリを閲覧できる
 
 ## 現在の状態（完了していること）
 
@@ -74,10 +66,9 @@
 
 ## 次の候補
 
-1. 最新 UI で **NSIS インストーラーをビルド**して配布（必要なときに）
-2. カード / 行レイアウトの残りの微調整（ユーザーの目視フィードバック対応）
-3. 書き込み同期の対象拡大（コメント等。優先度は低め）
-4. 準備ができたら **リポジトリを公開**に切り替え
+1. カード / 行レイアウトの残りの微調整（ユーザーの目視フィードバック対応）
+2. 書き込み同期の対象拡大（コメント等。優先度は低め）
+3. README スクリーンショットの更新（UI 変更を反映する場合）
 
 ## 2026-10-07 のリファクタリング（PR #1 で `direct-mode` にマージ済み）
 
@@ -131,7 +122,7 @@
 
 ```powershell
 # dev（Vite HMR + debug アプリ）
-cd C:\Users\natsumi\SoundCloud-Desktop\desktop
+cd <repo>\desktop
 $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')
 $env:LIBCLANG_PATH='C:\Program Files\LLVM\bin'
 corepack pnpm tauri dev
@@ -145,16 +136,16 @@ npx biome check --write src
 cd src-tauri; cargo check
 ```
 
-- dev ログの運用例: `... | Tee-Object -FilePath C:\Users\natsumi\scd-spike\dev2.log`
+- dev ログの運用例: `... | Tee-Object -FilePath <log-file>.log`
 - DirectAPI / StaticServer / ProxyServer のポートは起動ごとに変わる（ログに表示される）
 
-### ARM64 Windows マシン（kota）でのビルド条件
+### ARM64 Windows マシンでのビルド条件
 
 - 既定ツールチェーン（aarch64）＋ `--target x86_64` のクロスでビルドする。
   x86_64ツールチェーンでのネイティブビルドは不可（cmake が `CMAKE_SYSTEM_PROCESSOR=ARM64`
   を返し boring-sys の NASM 分岐に入らないためリンクが壊れる）。
 - 必要な環境変数（cargo 実行前に設定）:
-  `$env:LIBCLANG_PATH='C:\Users\kota\scoop\apps\llvm-arm64\current\bin'`（bindgen は
+  `$env:LIBCLANG_PATH='<LLVM ARM64>\bin'`（bindgen は
   ホスト=ARM64 用、pip の x86_64 版では不可）、
   `$env:OPUS_LIB_DIR='<registry>/audiopus_sys-0.1.8/msvc\x64'`、
   `$env:CARGO_BUILD_TARGET='x86_64-pc-windows-msvc'`（`tauri dev` 用）。

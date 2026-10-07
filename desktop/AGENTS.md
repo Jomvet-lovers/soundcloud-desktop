@@ -5,7 +5,7 @@
 アプリは SoundCloud 本体と直接通信し、読み取りは公開 API、書き込みはローカル保存＋
 隠し WebView 経由で SoundCloud にも反映します。
 
-- **リポジトリ**: `Jomvet-lovers/SCD-Direct`（private / デフォルトブランチ `direct-mode`）
+- **リポジトリ**: `Jomvet-lovers/SCD-Direct`（デフォルトブランチ `direct-mode`）
 - **上流**: `zxcloli666/SoundCloud-Desktop`（remote `upstream`）
 - **引継ぎ資料**: リポジトリ直下の [`../HANDOVER.md`](../HANDOVER.md)（現在の状態・既知の問題・次の作業）
 
@@ -17,8 +17,6 @@
 | `upstream` | `https://github.com/zxcloli666/SoundCloud-Desktop.git` | 上流の取り込み（`git fetch upstream`） |
 
 - ブランチ: `direct-mode`（作業・デフォルト）/ `main`（上流ベースライン）
-- GitHub CLI は認証済み（アカウント `Natsumil`）。実行ファイルは
-  `C:\Program Files\GitHub CLI\gh.exe`
 - 作業後は必ず `git push`（`origin` へ）
 
 ## 開発ワークフロー
