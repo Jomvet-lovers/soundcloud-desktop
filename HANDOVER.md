@@ -47,10 +47,11 @@
 
 ## 既知の問題・注意点
 
-- **書き込みの SoundCloud 同期はベストエフォート** — いいね / フォロー /
-  プレイリスト編集 / 再生履歴は隠し writer WebView（`webview.rs`）経由で同期を試行
-  （再生履歴は 204 を実測）。DataDome に弾かれた場合はローカルが残る。
-  コメント・新規プレイリスト等の未対応操作の拡大は別途検討。
+- **書き込みは SoundCloud にも反映される** — いいね / フォロー / コメント /
+  プレイリスト作成・曲追加/並べ替え/削除 / 再生履歴は隠し writer WebView
+  （`webview.rs`、実際の soundcloud.com ページ上の `fetch()`）経由で書き込まれる
+  （再生履歴 204・コメント synced を実測）。ローカルのみ: プレイリストの
+  メタデータ編集、公開範囲切替、低評価。DataDome の挑戦時はローカルが残る。
 - **インストール版アプリは古い** — 最新 UI は dev のみ反映。配布するなら NSIS ビルドが必要
   （`corepack pnpm tauri build --bundles nsis`）。ビルド前に起動中の exe をすべて閉じること。
 - **dev は単一インスタンス制限** — 起動前に `soundcloud-desktop.exe`（インストール版含む）を閉じる。
@@ -80,6 +81,9 @@
 
 ## 2026-10-07 のリファクタリング（`chore/refactor-cleanup`）
 
+フォーク元の残骸を削除＋監査。方針: 直下は直接削除、Discord 維持、CI は最小1本化、
+push は指示があるまで行わない（ローカルコミットのみ）。
+
 - **routes.rs 分割** — 2796行の god file を `direct/routes/` 9モジュールに分割
   （mod=振り分け＋Ctx、me/tracks/playlists/catalog/discover/local=ドメイン、
   common/normalize=共通処理）。純粋なコード移動でロジック無変更。
@@ -88,12 +92,12 @@
 
 - **トークンログイン撤去** — ログイン画面のトークン貼り付け UI（デバッグ用）を削除し、
   アプリ内 WebView ログイン（`open_login_window`）に一本化。Rust の `direct_login`
-  コマンドも除去。README（日英）の Signing in / 制限事項、AGENTS.md、HANDOVER の
-  古い記述（`SYNC_ENABLED = false` 等）を実態に合わせて修正: 書き込みはローカル即時反映＋
-  ベストエフォート同期（いいね / フォロー / プレイリスト編集 / 再生履歴）。
-
-フォーク元の残骸を削除＋監査。方針: 直下は直接削除、Discord 維持、CI は最小1本化、
-push は指示があるまで行わない（ローカルコミットのみ）。
+  コマンドも除去。
+- **書き込み同期の記述修正** — README（日英）・AGENTS.md の古い記述（`SYNC_ENABLED = false`
+  等）を実態に合わせて修正。書き込みはローカル即時反映＋隠し writer WebView 経由で
+  SoundCloud にも反映（いいね / フォロー / コメント / プレイリスト作成・曲操作 /
+  再生履歴）。当初「コメント・新規プレイリストはローカルのみ」と記載していたが誤りで、
+  `sync_local_comment` と POST /playlists の同期実装を確認して訂正済み。
 
 - **削除（直下）** — `App/`（旧 RN 実験）、`bindings/`（sc-rpc）、`depens/`（5 crates の二重実装）、
   `utils/call/`（mock P2P）、`utils/decrypt/`（未参照の stub）、`docs/`（上流の露語 agent 文書5件）、

@@ -2,7 +2,8 @@
 
 このリポジトリは [SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop)（MIT）の
 非公式改造版で、開発元バックエンド（`api.scnative.space`）に依存しない **direct モード** ビルドです。
-アプリは SoundCloud 本体と直接通信し、書き込みはローカルに保存します。
+アプリは SoundCloud 本体と直接通信し、読み取りは公開 API、書き込みはローカル保存＋
+隠し WebView 経由で SoundCloud にも反映します。
 
 - **リポジトリ**: `Jomvet-lovers/SCD-Direct`（private / デフォルトブランチ `direct-mode`）
 - **上流**: `zxcloli666/SoundCloud-Desktop`（remote `upstream`）
@@ -73,10 +74,12 @@ desktop/
 ## direct モードの仕組み（重要）
 
 - **読み取り** — 公開 `api-v2`（`client_id` を SoundCloud トップページから抽出）。
-  `src-tauri/src/direct/routes.rs` が生データをフロント期待の形へマッピングする。
+  `src-tauri/src/direct/routes/` が生データをフロント期待の形へマッピングする。
 - **書き込み** — `direct_store.json` に即時ローカル保存し、隠し writer WebView
-  （`webview.rs`）経由で soundcloud.com へベストエフォート同期。同期対象はいいね /
-  フォロー / プレイリスト編集 / 再生履歴。DataDome に弾かれた場合はローカルが残る。
+  （`webview.rs`、実際の soundcloud.com ページ上の `fetch()`）経由で soundcloud.com にも
+  書き込む。同期対象: いいね / フォロー / コメント / プレイリスト作成・曲操作 /
+  再生履歴。ローカルのみ: プレイリストのメタデータ編集、公開範囲切替、低評価。
+  DataDome の挑戦時はローカルが残る。
 - **認証** — ログイン画面の「Sign in with SoundCloud」からアプリ内ウィンドウで
   soundcloud.com にサインイン。セッションは自動取得され `auth_session.json` に保存、
   SoundCloud にのみ送信される。
