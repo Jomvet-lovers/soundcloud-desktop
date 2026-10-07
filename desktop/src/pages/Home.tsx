@@ -1,4 +1,5 @@
 import { TrackCard } from '../components/music/TrackCard';
+import { greeting } from '../lib/greeting';
 import { useLikedTracks } from '../lib/hooks';
 import { useAuthStore } from '../stores/auth';
 import { DiscoverSections } from './Search';
@@ -13,7 +14,7 @@ export function Home() {
   return (
     <div className="px-5 py-6 md:px-8">
       <h1 className="text-[24px] font-semibold tracking-tight text-white/92">
-        {user ? `Good afternoon, ${user.username}` : 'Home'}
+        {user ? greeting(user.username) : 'Home'}
       </h1>
       <p className="mt-1 text-[13px] text-white/45">{'Liked Tracks'}</p>
 

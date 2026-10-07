@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { type Aura, auraRgb, auraRgba, isLight } from '../../lib/aura';
 import { art } from '../../lib/formatters';
+import { greeting } from '../../lib/greeting';
 import { Loader2, Shuffle, User as UserIcon } from '../../lib/icons';
 import type { Track } from '../../stores/player';
 import { ArtworkMosaic } from './ArtworkMosaic';
@@ -11,14 +12,6 @@ import type { Soundprint } from './useSoundprint';
 interface MastheadUser {
   username: string;
   avatar_url: string;
-}
-
-function greeting(name: string): string {
-  const h = new Date().getHours();
-  if (h < 5) return `Late night, ${name}`;
-  if (h < 12) return `Good morning, ${name}`;
-  if (h < 18) return `Good afternoon, ${name}`;
-  return `Good evening, ${name}`;
 }
 
 const AvatarOrb = memo(function AvatarOrb({ url, aura }: { url: string | null; aura: Aura }) {
