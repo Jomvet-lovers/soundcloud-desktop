@@ -3,10 +3,8 @@
 //! Pattern follows `views/home.rs`: `Query` + `ApiClient` + `Images` + `Action`.
 //!
 //! Tabs are simple switches: Popular / Tracks / Playlists / Likes /
-//! Followers / Following. Pagination is simplified: page-based lists use a
-//! "More" button, likes use Prev/Next over the cursor envelope.
-//! Page envelope here is `{ collection, has_more }` (`ListPage`); the shared
-//! `models::Paged` has no `has_more`, so a local struct is used.
+//! Followers / Following. Page-based lists use the shared `Pager`
+//! (infinite scroll), likes use Prev/Next over the cursor envelope.
 
 use std::sync::Arc;
 
@@ -16,6 +14,7 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::backend::models::{Playlist, ScUser, Track};
 use crate::images::Images;
+use crate::pager::{ListPage, Pager};
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
 use crate::widgets;
@@ -109,98 +108,6 @@ struct LikesPage {
     #[serde(default)]
     pub collection: Vec<Track>,
     pub next_cursor: Option<String>,
-}
-
-/// Page envelope for `?limit=&page=` endpoints
-/// (`tracks`, `playlists`, `followers`, `followings`).
-struct ListPage<T> {
-    collection: Vec<T>,
-    has_more: bool,
-}
-
-impl<T> Default for ListPage<T> {
-    fn default() -> Self {
-        Self {
-            collection: Vec::new(),
-            has_more: false,
-        }
-    }
-}
-
-impl<'de, T: serde::de::DeserializeOwned> Deserialize<'de> for ListPage<T> {
-    fn deserialize<D>(d: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let v = serde_json::Value::deserialize(d)?;
-        let collection = v
-            .get("collection")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
-        let collection =
-            serde_json::from_value(collection).map_err(serde::de::Error::custom)?;
-        let has_more = v
-            .get("has_more")
-            .and_then(|h| h.as_bool())
-            .unwrap_or(false);
-        Ok(Self {
-            collection,
-            has_more,
-        })
-    }
-}
-
-/// Append-only pager for page-based endpoints.
-struct Pager<T> {
-    items: Vec<T>,
-    next_page: usize,
-    has_more: bool,
-    started: bool,
-    q: Query<ListPage<T>>,
-}
-
-impl<T> Default for Pager<T> {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            next_page: 0,
-            has_more: false,
-            started: false,
-            q: Query::default(),
-        }
-    }
-}
-
-impl<T: for<'de> Deserialize<'de> + Send + 'static> Pager<T> {
-    fn ensure(&mut self, rt: &tokio::runtime::Handle, api: &ApiClient, base: &str) {
-        if self.started {
-            return;
-        }
-        self.started = true;
-        self.fetch(rt, api, base);
-    }
-
-    fn fetch(&mut self, rt: &tokio::runtime::Handle, api: &ApiClient, base: &str) {
-        let url = format!("{base}?limit=30&page={}", self.next_page);
-        let api = api.clone();
-        self.q.request(rt, async move {
-            let v = api.get_json(&url).await?;
-            serde_json::from_value(v).map_err(|e| e.to_string())
-        });
-    }
-
-    /// Returns true when a repaint is needed (completed or in flight).
-    fn poll(&mut self) -> bool {
-        let changed = self.q.poll();
-        if changed {
-            if let Some(page) = self.q.data.take() {
-                self.next_page += 1;
-                self.has_more = page.has_more;
-                self.items.extend(page.collection);
-            }
-        }
-        changed || self.q.loading
-    }
 }
 
 #[derive(Default)]
@@ -731,11 +638,9 @@ impl UserView {
                 });
             }
         });
-        if pager.has_more && !pager.q.loading {
+        if crate::pager::auto_load(ui, pager.q.loading, pager.has_more) {
             let base = format!("/users/{enc}/{which}");
-            if ui.button("More").clicked() {
-                pager.fetch(rt, api, &base);
-            }
+            pager.fetch(rt, api, &base);
         }
     }
 

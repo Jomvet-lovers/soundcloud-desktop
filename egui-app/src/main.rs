@@ -2,6 +2,7 @@
 #[allow(dead_code)]
 mod backend;
 mod images;
+mod pager;
 mod query;
 mod shell;
 mod state;

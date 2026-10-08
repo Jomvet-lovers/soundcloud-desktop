@@ -2,14 +2,15 @@
 //! 対応: `desktop/src/pages/LibraryCollection.tsx`
 //! (`/library/:section`, section = likes | playlists | following | history)。
 //! フィルタはクライアント側の部分一致 (React の `deferredFilter` 相当、履歴除く)。
-//! 先頭ページのみ (limit 50)、ページネーション・mutation は見送り。
+//! 一覧は無限スクロール (`pager::auto_load`)、履歴のみ先頭 50 件。
 
 use std::sync::Arc;
 
 use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
-use crate::backend::models::{Paged, Playlist, ScUser, Track, tracks_from_value};
+use crate::backend::models::{Playlist, ScUser, Track};
 use crate::images::Images;
+use crate::pager::Pager;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
 use crate::widgets;
@@ -79,36 +80,6 @@ fn history_entry_to_track(entry: &HistoryEntry) -> Track {
     }
 }
 
-fn playlists_from_value(v: serde_json::Value) -> Vec<Playlist> {
-    if let Ok(paged) = serde_json::from_value::<Paged<Playlist>>(v.clone()) {
-        if !paged.collection.is_empty() {
-            return paged.collection;
-        }
-    }
-    v.as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|it| serde_json::from_value(it.clone()).ok())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn users_from_value(v: serde_json::Value) -> Vec<ScUser> {
-    if let Ok(paged) = serde_json::from_value::<Paged<ScUser>>(v.clone()) {
-        if !paged.collection.is_empty() {
-            return paged.collection;
-        }
-    }
-    v.as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|it| serde_json::from_value(it.clone()).ok())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 /// `LibraryCollection.tsx` の `SECTIONS` / `TITLE_KEY` に対応。不明値は likes。
 fn normalize_section(param: Option<&str>) -> &'static str {
     match param {
@@ -137,10 +108,10 @@ fn fmt_duration(ms: i64) -> String {
 pub struct CollectionView {
     loaded_for: String,
     filter: String,
-    likes: Query<Vec<Track>>,
-    my_playlists: Query<Vec<Playlist>>,
-    liked_playlists: Query<Vec<Playlist>>,
-    followings: Query<Vec<ScUser>>,
+    likes: Pager<Track>,
+    my_playlists: Pager<Playlist>,
+    liked_playlists: Pager<Playlist>,
+    followings: Pager<ScUser>,
     history: Query<Vec<HistoryEntry>>,
 }
 
@@ -166,42 +137,25 @@ impl CollectionView {
         };
         let section = normalize_section(param);
 
-        // セクション切替で取得状態を捨てる (`Query` に reset が無いため初期化し直す)。
+        // セクション切替で取得状態を捨てる。
         if self.loaded_for != section {
             self.loaded_for = section.to_string();
-            self.likes = Query::default();
-            self.my_playlists = Query::default();
-            self.liked_playlists = Query::default();
-            self.followings = Query::default();
+            self.likes.reset();
+            self.my_playlists.reset();
+            self.liked_playlists.reset();
+            self.followings.reset();
             self.history = Query::default();
         }
 
         let api_owned = api.clone();
         match section {
             "playlists" => {
-                if !self.my_playlists.requested() {
-                    let api = api_owned.clone();
-                    self.my_playlists.request(rt, async move {
-                        let v = api.get_json("/me/playlists?limit=50&page=0").await?;
-                        Ok(playlists_from_value(v))
-                    });
-                }
-                if !self.liked_playlists.requested() {
-                    let api = api_owned.clone();
-                    self.liked_playlists.request(rt, async move {
-                        let v = api.get_json("/me/likes/playlists?limit=50&page=0").await?;
-                        Ok(playlists_from_value(v))
-                    });
-                }
+                self.my_playlists.ensure_page(rt, api, "/me/playlists", 50);
+                self.liked_playlists
+                    .ensure_page(rt, api, "/me/likes/playlists", 50);
             }
             "following" => {
-                if !self.followings.requested() {
-                    let api = api_owned.clone();
-                    self.followings.request(rt, async move {
-                        let v = api.get_json("/me/followings?limit=50&page=0").await?;
-                        Ok(users_from_value(v))
-                    });
-                }
+                self.followings.ensure_page(rt, api, "/me/followings", 50);
             }
             "history" => {
                 if !self.history.requested() {
@@ -215,13 +169,7 @@ impl CollectionView {
                 }
             }
             _ => {
-                if !self.likes.requested() {
-                    let api = api_owned.clone();
-                    self.likes.request(rt, async move {
-                        let v = api.get_json("/me/likes/tracks?limit=50&page=0").await?;
-                        Ok(tracks_from_value(&v))
-                    });
-                }
+                self.likes.ensure_page(rt, api, "/me/likes/tracks", 50);
             }
         }
 
@@ -230,13 +178,7 @@ impl CollectionView {
         changed |= self.liked_playlists.poll();
         changed |= self.followings.poll();
         changed |= self.history.poll();
-        if changed
-            || self.likes.loading
-            || self.my_playlists.loading
-            || self.liked_playlists.loading
-            || self.followings.loading
-            || self.history.loading
-        {
+        if changed {
             ui.ctx().request_repaint();
         }
 
@@ -248,12 +190,14 @@ impl CollectionView {
         // React 版 (`LibrarySubHeader` + user count 由来) と同様、件数を添える。
         match section {
             "likes" => {
-                let count = self.likes.data.as_ref().map(|t| t.len());
-                widgets::section_header(ui, section_title(section), count);
+                widgets::section_header(ui, section_title(section), Some(self.likes.items.len()));
             }
             "following" => {
-                let count = self.followings.data.as_ref().map(|u| u.len());
-                widgets::section_header(ui, section_title(section), count);
+                widgets::section_header(
+                    ui,
+                    section_title(section),
+                    Some(self.followings.items.len()),
+                );
             }
             _ => {
                 widgets::section_header(ui, section_title(section), None);
@@ -271,18 +215,21 @@ impl CollectionView {
 
         match section {
             "playlists" => {
-                if (self.my_playlists.loading && self.my_playlists.data.is_none())
-                    || (self.liked_playlists.loading && self.liked_playlists.data.is_none())
+                if (self.my_playlists.q.loading && self.my_playlists.items.is_empty())
+                    || (self.liked_playlists.q.loading && self.liked_playlists.items.is_empty())
                 {
                     ui.label("Loading...");
                 } else {
                     let mut empty = true;
-                    if let Some(playlists) = self.my_playlists.data.clone() {
-                        let rows: Vec<Playlist> = playlists
-                            .into_iter()
+                    if !self.my_playlists.items.is_empty() {
+                        let rows: Vec<Playlist> = self
+                            .my_playlists
+                            .items
+                            .iter()
                             .filter(|p| {
                                 needle.is_empty() || p.title.to_lowercase().contains(&needle)
                             })
+                            .cloned()
                             .collect();
                         if !rows.is_empty() {
                             empty = false;
@@ -299,15 +246,25 @@ impl CollectionView {
                                             );
                                         }
                                     }
+                                    if crate::pager::auto_load(
+                                        ui,
+                                        self.my_playlists.q.loading,
+                                        self.my_playlists.has_more,
+                                    ) {
+                                        self.my_playlists.fetch_page(rt, api, "/me/playlists", 50);
+                                    }
                                 });
                         }
                     }
-                    if let Some(playlists) = self.liked_playlists.data.clone() {
-                        let rows: Vec<Playlist> = playlists
-                            .into_iter()
+                    if !self.liked_playlists.items.is_empty() {
+                        let rows: Vec<Playlist> = self
+                            .liked_playlists
+                            .items
+                            .iter()
                             .filter(|p| {
                                 needle.is_empty() || p.title.to_lowercase().contains(&needle)
                             })
+                            .cloned()
                             .collect();
                         if !rows.is_empty() {
                             empty = false;
@@ -324,6 +281,18 @@ impl CollectionView {
                                             );
                                         }
                                     }
+                                    if crate::pager::auto_load(
+                                        ui,
+                                        self.liked_playlists.q.loading,
+                                        self.liked_playlists.has_more,
+                                    ) {
+                                        self.liked_playlists.fetch_page(
+                                            rt,
+                                            api,
+                                            "/me/likes/playlists",
+                                            50,
+                                        );
+                                    }
                                 });
                         }
                     }
@@ -333,19 +302,22 @@ impl CollectionView {
                 }
             }
             "following" => {
-                if self.followings.loading && self.followings.data.is_none() {
+                if self.followings.q.loading && self.followings.items.is_empty() {
                     ui.label("Loading...");
-                } else if let Some(err) = self.followings.error.clone() {
+                } else if let Some(err) = self.followings.q.error.clone() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
                         format!("Following unavailable: {err}"),
                     );
-                } else if let Some(users) = self.followings.data.clone() {
-                    let rows: Vec<ScUser> = users
-                        .into_iter()
+                } else if !self.followings.items.is_empty() {
+                    let rows: Vec<ScUser> = self
+                        .followings
+                        .items
+                        .iter()
                         .filter(|u| {
                             needle.is_empty() || u.username.to_lowercase().contains(&needle)
                         })
+                        .cloned()
                         .collect();
                     if rows.is_empty() {
                         ui.label("You are not following anyone");
@@ -360,6 +332,13 @@ impl CollectionView {
                                             Some(u.urn.clone()),
                                         );
                                     }
+                                }
+                                if crate::pager::auto_load(
+                                    ui,
+                                    self.followings.q.loading,
+                                    self.followings.has_more,
+                                ) {
+                                    self.followings.fetch_page(rt, api, "/me/followings", 50);
                                 }
                             });
                     }
@@ -392,21 +371,24 @@ impl CollectionView {
                 }
             }
             _ => {
-                if self.likes.loading && self.likes.data.is_none() {
+                if self.likes.q.loading && self.likes.items.is_empty() {
                     ui.label("Loading...");
-                } else if let Some(err) = self.likes.error.clone() {
+                } else if let Some(err) = self.likes.q.error.clone() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
                         format!("Likes unavailable: {err}"),
                     );
-                } else if let Some(tracks) = self.likes.data.clone() {
-                    let rows: Vec<Track> = tracks
-                        .into_iter()
+                } else if !self.likes.items.is_empty() {
+                    let rows: Vec<Track> = self
+                        .likes
+                        .items
+                        .iter()
                         .filter(|t| {
                             needle.is_empty()
                                 || t.title.to_lowercase().contains(&needle)
                                 || t.artist_name().to_lowercase().contains(&needle)
                         })
+                        .cloned()
                         .collect();
                     if rows.is_empty() {
                         ui.label("No liked tracks yet");
@@ -418,6 +400,13 @@ impl CollectionView {
                                     if Self::track_row(ui, rt, images, player, track, accent) {
                                         action = CollectionAction::PlayTrack(track.clone());
                                     }
+                                }
+                                if crate::pager::auto_load(
+                                    ui,
+                                    self.likes.q.loading,
+                                    self.likes.has_more,
+                                ) {
+                                    self.likes.fetch_page(rt, api, "/me/likes/tracks", 50);
                                 }
                             });
                     }
