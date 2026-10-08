@@ -158,6 +158,27 @@ impl PlayerState {
         }
     }
 
+    /// キュー内の並替 (D&D)。現在位置の追従も行う。
+    pub fn move_queue_item(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.queue.len() || to >= self.queue.len() {
+            return;
+        }
+        let item = self.queue.remove(from);
+        self.queue.insert(to, item);
+        self.queue_index = match self.queue_index {
+            Some(cur) if cur == from => Some(to),
+            Some(cur) if from < cur && to >= cur => Some(cur - 1),
+            Some(cur) if from > cur && to <= cur => Some(cur + 1),
+            other => other,
+        };
+        if let Some(cur) = self.queue_index {
+            if let Some(t) = self.queue.get(cur) {
+                self.current_title = Some(t.display_title().to_string());
+                self.current_artist = Some(t.artist_name().to_string());
+            }
+        }
+    }
+
     /// 手動送り・自動送り共通の次 index。repeat-one は呼出側で処理する。
     pub fn next_index(&self) -> Option<usize> {
         let current = self.queue_index?;
@@ -308,6 +329,9 @@ pub struct AppState {
     pub show_shortcuts: bool,
     /// フルスクリーン状態 (F11)。
     pub fullscreen: bool,
+    /// A-B ループ (秒)。両方 Some で有効、A のみは B 待ち。
+    pub ab_a: Option<f64>,
+    pub ab_b: Option<f64>,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -376,6 +400,8 @@ impl AppState {
             sidebar_open: true,
             show_shortcuts: false,
             fullscreen: false,
+            ab_a: None,
+            ab_b: None,
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -506,6 +532,10 @@ impl AppState {
             self.player.is_playing = false;
             return;
         };
+        // トラック切替で A-B ループを解除する (Tauri 版 `clearAbLoop` 相当)。
+        self.ab_a = None;
+        self.ab_b = None;
+        crate::backend::audio::engine::set_ab_loop(None, None, &audio);
         let Some(cache) = self.backend.as_ref().map(|b| b.track_cache.clone()) else {
             self.load_error = Some("backend not running".to_string());
             self.player.is_playing = false;
@@ -813,6 +843,26 @@ mod tests {
         s.insert_next(vec![track("a"), track("b")]);
         assert_eq!(s.queue.len(), 2);
         assert_eq!(s.queue_index, None);
+    }
+
+    #[test]
+    fn move_queue_item_follows_current() {
+        let mut s = queued(4);
+        s.queue_index = Some(1);
+        s.move_queue_item(1, 3);
+        assert_eq!(s.queue[3].urn, "urn-1");
+        assert_eq!(s.queue_index, Some(3));
+        assert_eq!(s.current_title.as_deref(), Some("t-urn-1"));
+    }
+
+    #[test]
+    fn move_queue_item_shifts_index_when_crossing() {
+        let mut s = queued(4);
+        s.queue_index = Some(2);
+        s.move_queue_item(0, 3);
+        assert_eq!(s.queue[3].urn, "urn-0");
+        assert_eq!(s.queue_index, Some(1));
+        assert_eq!(s.queue[1].urn, "urn-2");
     }
 
     #[test]

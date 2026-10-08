@@ -84,20 +84,34 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             ui.heading("Queue");
             let mut jump: Option<usize> = None;
             let mut remove: Option<usize> = None;
+            let mut reorder: Option<(usize, usize)> = None;
             let current = state.player.queue_index;
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for (i, t) in state.player.queue.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        let label = format!("{} — {}", t.display_title(), t.artist_name());
-                        if ui.selectable_label(Some(i) == current, label).clicked() {
-                            jump = Some(i);
-                        }
-                        if ui.small_button("x").clicked() {
-                            remove = Some(i);
-                        }
-                    });
+                    let label = format!("{} — {}", t.display_title(), t.artist_name());
+                    let row_id = egui::Id::new(("queue-row", i));
+                    let (_inner, dropped) =
+                        ui.dnd_drop_zone::<usize, _>(egui::Frame::NONE, |ui| {
+                            ui.horizontal(|ui| {
+                                let src = ui.dnd_drag_source(row_id, i, |ui| {
+                                    ui.selectable_label(Some(i) == current, label);
+                                });
+                                if src.response.clicked() {
+                                    jump = Some(i);
+                                }
+                                if ui.small_button("x").clicked() {
+                                    remove = Some(i);
+                                }
+                            });
+                        });
+                    if let Some(from) = dropped {
+                        reorder = Some((*from, i));
+                    }
                 }
             });
+            if let Some((from, to)) = reorder {
+                state.player.move_queue_item(from, to);
+            }
             if let Some(i) = remove {
                 if i < state.player.queue.len() {
                     state.player.queue.remove(i);
@@ -238,6 +252,26 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 .clicked()
             {
                 state.player.cycle_repeat();
+            }
+            let ab_label = match (state.ab_a, state.ab_b) {
+                (Some(_), Some(_)) => "A-B: on",
+                (Some(_), None) => "A-B: A",
+                _ => "A-B",
+            };
+            if ui
+                .selectable_label(state.ab_b.is_some(), ab_label)
+                .clicked()
+            {
+                cycle_ab_loop(state);
+            }
+            match (state.ab_a, state.ab_b) {
+                (Some(a), Some(b)) => {
+                    ui.label(format!("{}–{}", fmt_time(a), fmt_time(b)));
+                }
+                (Some(a), None) => {
+                    ui.label(format!("A {}", fmt_time(a)));
+                }
+                _ => {}
             }
             let queue_label = format!("Queue ({})", state.player.queue.len());
             if ui.button(queue_label).clicked() {
@@ -593,6 +627,7 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("← / →", "Seek back / forward 5s"),
     ("N / P", "Next / Previous track"),
     ("S / R", "Toggle shuffle / repeat"),
+    ("B", "Cycle A-B loop point"),
     ("↑ / ↓", "Volume up / down"),
     ("M", "Mute / Unmute"),
     ("/ or Ctrl+K", "Search"),
@@ -614,6 +649,7 @@ struct ShortcutHits {
     prev: bool,
     shuffle: bool,
     repeat: bool,
+    ab: bool,
     mute: bool,
     queue: bool,
     sidebar: bool,
@@ -645,6 +681,7 @@ fn handle_shortcuts(state: &mut AppState, ctx: &egui::Context) {
         hits.prev = i.consume_key(Modifiers::NONE, Key::P);
         hits.shuffle = i.consume_key(Modifiers::NONE, Key::S);
         hits.repeat = i.consume_key(Modifiers::NONE, Key::R);
+        hits.ab = i.consume_key(Modifiers::NONE, Key::B);
         hits.mute = i.consume_key(Modifiers::NONE, Key::M);
         hits.queue = i.consume_key(Modifiers::NONE, Key::Q);
         hits.sidebar = i.consume_key(Modifiers::NONE, Key::OpenBracket);
@@ -695,6 +732,9 @@ fn handle_shortcuts(state: &mut AppState, ctx: &egui::Context) {
     if hits.repeat {
         state.player.cycle_repeat();
     }
+    if hits.ab {
+        cycle_ab_loop(state);
+    }
     if hits.up || hits.down {
         let delta = if hits.up { 5.0 } else { -5.0 };
         let vol = (state.player.volume + delta).clamp(0.0, 100.0);
@@ -726,4 +766,28 @@ fn handle_shortcuts(state: &mut AppState, ctx: &egui::Context) {
             state.show_shortcuts = false;
         }
     }
+}
+
+/// A-B ループの循環操作: A 設定 → B 設定 → 解除 (Tauri 版 B キー相当)。
+fn cycle_ab_loop(state: &mut AppState) {
+    let Some(audio) = state.audio().cloned() else {
+        return;
+    };
+    let pos = engine::get_position(&audio);
+    if state.ab_a.is_none() {
+        state.ab_a = Some(pos);
+    } else if state.ab_b.is_none() {
+        let a = state.ab_a.unwrap_or(0.0);
+        if pos > a + 0.5 {
+            state.ab_b = Some(pos);
+        } else {
+            // B は A より後ろのみ有効。短すぎる場合はやり直し。
+            state.ab_a = None;
+            state.ab_b = None;
+        }
+    } else {
+        state.ab_a = None;
+        state.ab_b = None;
+    }
+    crate::backend::audio::engine::set_ab_loop(state.ab_a, state.ab_b, &audio);
 }
