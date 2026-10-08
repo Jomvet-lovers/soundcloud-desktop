@@ -53,7 +53,9 @@ impl Images {
         }
         if let Some(tex) = self.textures.get(url) {
             return ui.add(
-                egui::Image::new((tex.id(), egui::Vec2::splat(size))).sense(egui::Sense::click()),
+                egui::Image::new((tex.id(), egui::Vec2::splat(size)))
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .sense(egui::Sense::click()),
             );
         }
         if self.failed.contains(url) {

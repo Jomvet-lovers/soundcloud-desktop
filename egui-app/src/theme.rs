@@ -186,10 +186,15 @@ pub fn install_text_styles(ctx: &egui::Context) {
         (egui::TextStyle::Button, 13.0),
         (egui::TextStyle::Heading, 20.0),
     ] {
-        style.text_styles.insert(
-            text_style,
-            egui::FontId::new(size, egui::FontFamily::Proportional),
-        );
+        // 見出しはセミボールド (Tauri 版の font-bold 相当)。
+        let family = if text_style == egui::TextStyle::Heading {
+            egui::FontFamily::Name(FONT_SANS_SEMIBOLD.into())
+        } else {
+            egui::FontFamily::Proportional
+        };
+        style
+            .text_styles
+            .insert(text_style, egui::FontId::new(size, family));
     }
     style.text_styles.insert(
         egui::TextStyle::Monospace,
