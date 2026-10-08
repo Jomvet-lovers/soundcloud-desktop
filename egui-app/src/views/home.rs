@@ -190,34 +190,44 @@ impl HomeView {
                         toggled.push(sel.urn.clone());
                     }
                 });
-                let shelf_id = format!("discover:{}", sel.urn);
-                egui::ScrollArea::horizontal()
-                    .id_salt(shelf_id)
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            for item in &shown {
-                                let clicked = ui
-                                    .vertical(|ui| {
-                                        let art = item
-                                            .artwork_url
-                                            .as_deref()
-                                            .map(|u| u.replace("-large", "-t300x300"));
-                                        let img = images.show(ui, rt, art.as_deref(), 64.0);
-                                        let lbl = ui.add(
-                                            egui::Label::new(&item.title)
-                                                .truncate()
-                                                .wrap_mode(egui::TextWrapMode::Truncate)
-                                                .sense(egui::Sense::click()),
-                                        );
-                                        img.clicked() || lbl.clicked()
-                                    })
-                                    .inner;
-                                if clicked {
-                                    action = HomeAction::StartDiscover(item.clone());
+                // グリッド (Tauri 版 DiscoverSections: ラップ格子 + 150px カバー)。
+                ui.horizontal_wrapped(|ui| {
+                    for item in &shown {
+                        let clicked = ui
+                            .vertical(|ui| {
+                                ui.set_max_width(150.0);
+                                let art = item
+                                    .artwork_url
+                                    .as_deref()
+                                    .map(|u| u.replace("-large", "-t300x300"));
+                                let img = images.show(ui, rt, art.as_deref(), 150.0);
+                                if img.hovered() {
+                                    widgets::paint_play_glyph(ui.painter(), img.rect, false);
                                 }
-                            }
-                        });
-                    });
+                                let lbl = ui.add(
+                                    egui::Label::new(&item.title)
+                                        .truncate()
+                                        .wrap_mode(egui::TextWrapMode::Truncate)
+                                        .sense(egui::Sense::click()),
+                                );
+                                let desc = item
+                                    .short_description
+                                    .as_deref()
+                                    .or(item.description.as_deref())
+                                    .unwrap_or("");
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(desc).small().weak())
+                                        .truncate()
+                                        .wrap_mode(egui::TextWrapMode::Truncate),
+                                );
+                                img.clicked() || lbl.clicked()
+                            })
+                            .inner;
+                        if clicked {
+                            action = HomeAction::StartDiscover(item.clone());
+                        }
+                    }
+                });
             }
             for urn in toggled {
                 if !self.expanded.remove(&urn) {

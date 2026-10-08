@@ -6,7 +6,7 @@ use crate::backend::models::Track;
 use crate::images::Images;
 
 /// 再生/停止グリフを自作描画する (フォント依存を避けるため)。
-fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playing: bool) {
+pub(crate) fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playing: bool) {
     let center = rect.center();
     let r = rect.width().min(rect.height()) * 0.22;
     painter.circle_filled(center, r, egui::Color32::from_black_alpha(160));
