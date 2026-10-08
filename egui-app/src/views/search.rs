@@ -172,9 +172,19 @@ impl SearchView {
         };
         let mut action = SearchAction::None;
 
+        let focus_now = ui
+            .ctx()
+            .memory_mut(|m| {
+                m.data
+                    .remove_temp::<bool>(egui::Id::new(crate::shell::FOCUS_SEARCH_ID))
+            })
+            .unwrap_or(false);
         ui.horizontal(|ui| {
             ui.label("Search");
             let resp = ui.text_edit_singleline(&mut self.input);
+            if focus_now {
+                resp.request_focus();
+            }
             if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 // Enter 確定: 下の差分検出で再取得される。
             }

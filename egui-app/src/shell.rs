@@ -18,6 +18,7 @@ fn fmt_time(secs: f64) -> String {
 
 pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     crate::theme::ensure_applied(ui.ctx(), &state.settings, &mut state.theme_applied);
+    handle_shortcuts(state, ui.ctx());
     state.drain_events();
     state.drain_backend();
     state.poll_load();
@@ -37,7 +38,8 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     }
 
     let mut account_action: Option<LoginAction> = None;
-    egui::Panel::left("sidebar").resizable(false).show(ui, |ui| {
+    if state.sidebar_open {
+        egui::Panel::left("sidebar").resizable(false).show(ui, |ui| {
         ui.heading("SCD-Direct");
         let signed_in = state.api.as_ref().and_then(|a| a.session_token()).is_some();
         if signed_in {
@@ -71,7 +73,8 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
         if let Some(e) = &state.last_sync_error {
             ui.colored_label(egui::Color32::YELLOW, format!("sync: {e}"));
         }
-    });
+        });
+    }
     if let Some(action) = account_action {
         apply_login_action(state, action);
     }
@@ -517,6 +520,29 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             }
         });
     });
+
+    if state.show_shortcuts {
+        let mut open = true;
+        egui::Window::new("Keyboard Shortcuts")
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .show(ui.ctx(), |ui| {
+                egui::Grid::new("shortcuts")
+                    .num_columns(2)
+                    .spacing([28.0, 6.0])
+                    .show(ui, |ui| {
+                        for (key, label) in SHORTCUTS {
+                            ui.strong(*key);
+                            ui.label(*label);
+                            ui.end_row();
+                        }
+                    });
+            });
+        if !open {
+            state.show_shortcuts = false;
+        }
+    }
 }
 
 /// ログイン系アクションの共通処理 (Login 画面とサイドバーの両方から使う)。
@@ -557,5 +583,147 @@ fn apply_login_action(state: &mut AppState, action: LoginAction) {
             state.route = Route::Login;
         }
         LoginAction::None => {}
+    }
+}
+
+pub(crate) const FOCUS_SEARCH_ID: &str = "scd_focus_search";
+
+const SHORTCUTS: &[(&str, &str)] = &[
+    ("Space", "Play / Pause"),
+    ("← / →", "Seek back / forward 5s"),
+    ("N / P", "Next / Previous track"),
+    ("S / R", "Toggle shuffle / repeat"),
+    ("↑ / ↓", "Volume up / down"),
+    ("M", "Mute / Unmute"),
+    ("/ or Ctrl+K", "Search"),
+    ("Q", "Toggle queue"),
+    ("[", "Toggle sidebar"),
+    ("F11", "Toggle fullscreen"),
+    ("Esc", "Close panel"),
+    ("Ctrl+/", "Show shortcuts"),
+];
+
+#[derive(Default)]
+struct ShortcutHits {
+    space: bool,
+    left: bool,
+    right: bool,
+    up: bool,
+    down: bool,
+    next: bool,
+    prev: bool,
+    shuffle: bool,
+    repeat: bool,
+    mute: bool,
+    queue: bool,
+    sidebar: bool,
+    fullscreen: bool,
+    escape: bool,
+    search: bool,
+    search_ctrl: bool,
+    shorts: bool,
+}
+
+/// キーボードショートカット (Tauri 版 AppShell 相当)。
+fn handle_shortcuts(state: &mut AppState, ctx: &egui::Context) {
+    use egui::{Key, Modifiers};
+
+    let typing = ctx.egui_wants_keyboard_input();
+    let mut hits = ShortcutHits::default();
+    ctx.input_mut(|i| {
+        hits.shorts = i.consume_key(Modifiers::COMMAND, Key::Slash);
+        hits.search_ctrl = i.consume_key(Modifiers::COMMAND, Key::K);
+        if typing {
+            return;
+        }
+        hits.space = i.consume_key(Modifiers::NONE, Key::Space);
+        hits.left = i.consume_key(Modifiers::NONE, Key::ArrowLeft);
+        hits.right = i.consume_key(Modifiers::NONE, Key::ArrowRight);
+        hits.up = i.consume_key(Modifiers::NONE, Key::ArrowUp);
+        hits.down = i.consume_key(Modifiers::NONE, Key::ArrowDown);
+        hits.next = i.consume_key(Modifiers::NONE, Key::N);
+        hits.prev = i.consume_key(Modifiers::NONE, Key::P);
+        hits.shuffle = i.consume_key(Modifiers::NONE, Key::S);
+        hits.repeat = i.consume_key(Modifiers::NONE, Key::R);
+        hits.mute = i.consume_key(Modifiers::NONE, Key::M);
+        hits.queue = i.consume_key(Modifiers::NONE, Key::Q);
+        hits.sidebar = i.consume_key(Modifiers::NONE, Key::OpenBracket);
+        hits.fullscreen = i.consume_key(Modifiers::NONE, Key::F11);
+        hits.escape = i.consume_key(Modifiers::NONE, Key::Escape);
+        hits.search = i.consume_key(Modifiers::NONE, Key::Slash);
+    });
+
+    if hits.shorts {
+        state.show_shortcuts = !state.show_shortcuts;
+    }
+    if hits.search || hits.search_ctrl {
+        state.route = Route::Search;
+        ctx.memory_mut(|m| {
+            m.data.insert_temp(egui::Id::new(FOCUS_SEARCH_ID), true);
+        });
+    }
+    if hits.space {
+        if let Some(audio) = state.audio().cloned() {
+            if state.player.is_playing {
+                engine::pause(&audio);
+                state.player.is_playing = false;
+            } else {
+                engine::play(&audio);
+                state.player.is_playing = true;
+            }
+        }
+    }
+    if hits.left || hits.right {
+        if let (Some(audio), Some(dur)) = (state.audio().cloned(), state.player.duration_secs) {
+            let pos = engine::get_position(&audio);
+            let delta = if hits.right { 5.0 } else { -5.0 };
+            let _ = engine::seek((pos + delta).clamp(0.0, dur.max(0.0)), &audio);
+        }
+    }
+    if hits.next {
+        state.next_track();
+    }
+    if hits.prev {
+        if let Some(audio) = state.audio().cloned() {
+            let pos = engine::get_position(&audio);
+            state.prev_track(pos);
+        }
+    }
+    if hits.shuffle {
+        state.player.toggle_shuffle();
+    }
+    if hits.repeat {
+        state.player.cycle_repeat();
+    }
+    if hits.up || hits.down {
+        let delta = if hits.up { 5.0 } else { -5.0 };
+        let vol = (state.player.volume + delta).clamp(0.0, 100.0);
+        if vol > 0.0 {
+            state.player.volume_before_mute = vol;
+        }
+        state.set_volume(vol);
+        if let Err(e) = crate::backend::prefs::save(&state.settings) {
+            eprintln!("[prefs] save failed: {e}");
+        }
+    }
+    if hits.mute {
+        state.toggle_mute();
+    }
+    if hits.queue {
+        state.queue_open = !state.queue_open;
+    }
+    if hits.sidebar {
+        state.sidebar_open = !state.sidebar_open;
+    }
+    if hits.fullscreen {
+        state.fullscreen = !state.fullscreen;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(state.fullscreen));
+    }
+    if hits.escape {
+        if state.queue_open {
+            state.queue_open = false;
+        } else if state.show_shortcuts {
+            state.show_shortcuts = false;
+        }
     }
 }

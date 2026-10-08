@@ -302,6 +302,12 @@ pub struct AppState {
     pub now_like: Query<LikedFlag>,
     pub api: Option<ApiClient>,
     pub queue_open: bool,
+    /// サイドバー表示 (`[` キーで切替)。
+    pub sidebar_open: bool,
+    /// ショートカット一覧ダイアログ (Ctrl+/)。
+    pub show_shortcuts: bool,
+    /// フルスクリーン状態 (F11)。
+    pub fullscreen: bool,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -367,6 +373,9 @@ impl AppState {
             now_like: Query::default(),
             api,
             queue_open: false,
+            sidebar_open: true,
+            show_shortcuts: false,
+            fullscreen: false,
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
