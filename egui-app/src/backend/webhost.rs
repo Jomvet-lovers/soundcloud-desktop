@@ -400,9 +400,17 @@ pub fn spawn_child(profile_dir: PathBuf) -> Result<(HostProxy, std::process::Chi
             }
         }
     });
-    let port = rx
-        .recv_timeout(std::time::Duration::from_secs(90))
-        .map_err(|_| "wry host timeout".to_string())??;
+    let port = match rx.recv_timeout(std::time::Duration::from_secs(90)) {
+        Ok(Ok(p)) => p,
+        Ok(Err(e)) => {
+            let _ = child.kill();
+            return Err(e);
+        }
+        Err(_) => {
+            let _ = child.kill();
+            return Err("wry host timeout".to_string());
+        }
+    };
     let rt: &'static tokio::runtime::Runtime = Box::leak(Box::new(
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
@@ -410,7 +418,13 @@ pub fn spawn_child(profile_dir: PathBuf) -> Result<(HostProxy, std::process::Chi
             .build()
             .map_err(|e| format!("rt: {e}"))?,
     ));
-    let proxy = rt.block_on(HostProxy::connect(port))?;
+    let proxy = match rt.block_on(HostProxy::connect(port)) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = child.kill();
+            return Err(e);
+        }
+    };
     Ok((proxy, child))
 }
 
@@ -461,11 +475,6 @@ impl HostProxy {
 pub fn run_child_main(profile_dir: PathBuf) -> ! {
     use std::io::Write;
 
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
-    let port = listener.local_addr().expect("addr").port();
-    // 親が接続するまで待つ (起動直後の要求を取りこぼさない)。
-    let (stream, _) = listener.accept().expect("accept");
-
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -502,9 +511,29 @@ pub fn run_child_main(profile_dir: PathBuf) -> ! {
         .expect("writer webview");
     eprintln!("[wry-host] writer webview ok");
 
-    // NOTE: port 通知は window 構築の後 (親は接続後に要求を送れる)。
+    // NOTE: bind/port 通知は window 構築の後。親はこの行を読んでから接続する。
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
     println!("WRY_PORT={port}");
     let _ = std::io::stdout().flush();
+
+    // 親の接続を待つ (タイムアウト付き: 親が死んだ場合の孤児化を防ぐ)。
+    listener.set_nonblocking(true).expect("nonblocking");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let stream = loop {
+        match listener.accept() {
+            Ok((s, _)) => break s,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    eprintln!("[wry-host] parent did not connect; exiting");
+                    std::process::exit(1);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => panic!("accept: {e}"),
+        }
+    };
+    stream.set_nonblocking(false).expect("blocking");
 
     let rt_handle = rt.handle().clone();
     let pump_proxy = loop_proxy.clone();
