@@ -23,6 +23,8 @@ pub enum TrackAction {
     PlayList(Vec<Track>, usize),
     /// 次の再生位置に追加 (Tauri 版 `addToQueueNext`)。
     AddNextUp(Track),
+    /// 「プレイリストに追加」ダイアログを開く。
+    AddToPlaylist(Track),
     Seek(f32),
     Navigate(Route, Option<String>),
 }
@@ -267,6 +269,9 @@ impl TrackView {
                 }
                 if ui.button("+ Next up").clicked() {
                     action = TrackAction::AddNextUp(track.clone());
+                }
+                if ui.button("Add to playlist").clicked() {
+                    action = TrackAction::AddToPlaylist(track.clone());
                 }
                 let liked = self.liked.unwrap_or(false);
                 if crate::widgets::like_button(ui, liked, accent) {

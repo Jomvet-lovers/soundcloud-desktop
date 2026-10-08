@@ -452,6 +452,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     TrackAction::AddNextUp(track) => {
                         state.player.insert_next(vec![track]);
                     }
+                    TrackAction::AddToPlaylist(track) => {
+                        state.open_add_to_playlist(track);
+                    }
                     TrackAction::Seek(frac) => {
                         if let (Some(audio), Some(dur)) =
                             (audio.as_ref(), state.player.duration_secs)
@@ -588,6 +591,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     }
     if state.show_tuning {
         show_tuning_window(state, ui.ctx());
+    }
+    if state.add_to_playlist.is_some() {
+        show_add_to_playlist(state, ui.ctx());
     }
 }
 
@@ -922,5 +928,110 @@ fn show_tuning_window(state: &mut AppState, ctx: &egui::Context) {
     state.show_tuning = open;
     if changed {
         state.apply_rate();
+    }
+}
+
+/// 「プレイリストに追加」ダイアログ (Tauri 版 `AddToPlaylistDialog` 相当)。
+fn show_add_to_playlist(state: &mut AppState, ctx: &egui::Context) {
+    let Some(track) = state.add_to_playlist.clone() else {
+        return;
+    };
+    let api = state.api.clone();
+    if !state.dialog_playlists.requested() {
+        if let Some(api) = api.clone() {
+            let rt = state.runtime().handle().clone();
+            state.dialog_playlists.request(&rt, async move {
+                let v = api.get_json("/me/playlists?limit=50&page=0").await?;
+                serde_json::from_value(v).map_err(|e| e.to_string())
+            });
+        }
+    }
+    state.dialog_playlists.poll();
+
+    let mut open = true;
+    let mut add_to: Option<String> = None;
+    let mut create = false;
+    egui::Window::new("Add to playlist")
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        .show(ctx, |ui| {
+            ui.label(format!("Track: {}", track.display_title()));
+            ui.separator();
+            if state.dialog_playlists.loading && state.dialog_playlists.data.is_none() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Loading playlists...");
+                });
+            }
+            if let Some(err) = state.dialog_playlists.error.clone() {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 150, 150),
+                    format!("Playlists unavailable: {err}"),
+                );
+            }
+            if let Some(page) = state.dialog_playlists.data.as_ref() {
+                if page.collection.is_empty() {
+                    ui.label("No playlists yet");
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        for p in &page.collection {
+                            ui.horizontal(|ui| {
+                                ui.label(&p.title);
+                                if ui.small_button("Add").clicked() {
+                                    add_to = Some(p.urn.clone());
+                                }
+                            });
+                        }
+                    });
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("New playlist:");
+                ui.text_edit_singleline(&mut state.new_playlist_title);
+            });
+            let can_create = !state.new_playlist_title.trim().is_empty();
+            if ui
+                .add_enabled(can_create, egui::Button::new("Create & add"))
+                .clicked()
+            {
+                create = true;
+            }
+        });
+
+    if let Some(urn) = add_to {
+        if let Some(api) = api {
+            let rt = state.runtime().handle().clone();
+            let path = format!("/playlists/{}/tracks", urlencoding::encode(&urn));
+            let body = serde_json::json!({ "add": track.urn });
+            rt.spawn(async move {
+                let _ = api.request_json("POST", &path, Some(&body)).await;
+            });
+        }
+        state.add_to_playlist = None;
+        return;
+    }
+    if create {
+        let title = state.new_playlist_title.trim().to_string();
+        if let Some(api) = api {
+            let rt = state.runtime().handle().clone();
+            let body = serde_json::json!({
+                "playlist": {
+                    "title": title,
+                    "sharing": "private",
+                    "tracks": [ { "urn": track.urn } ],
+                }
+            });
+            rt.spawn(async move {
+                let _ = api.request_json("POST", "/playlists", Some(&body)).await;
+            });
+        }
+        state.add_to_playlist = None;
+        return;
+    }
+    if !open {
+        state.add_to_playlist = None;
     }
 }

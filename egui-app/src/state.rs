@@ -15,8 +15,9 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::backend::boot::{self, BootHandle};
 use crate::backend::events::EventBus;
-use crate::backend::models::{LikedFlag, Track};
+use crate::backend::models::{LikedFlag, Playlist, Track};
 use crate::images::Images;
+use crate::pager::ListPage;
 use crate::query::Query;
 use crate::views::home::HomeView;
 use crate::views::{
@@ -396,6 +397,10 @@ pub struct AppState {
     /// イコライザー窓 / サウンドチューニング窓の表示。
     pub show_eq: bool,
     pub show_tuning: bool,
+    /// 「プレイリストに追加」ダイアログの対象トラック (None で閉)。
+    pub add_to_playlist: Option<Track>,
+    pub dialog_playlists: Query<ListPage<Playlist>>,
+    pub new_playlist_title: String,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -474,6 +479,9 @@ impl AppState {
             ab_b: None,
             show_eq: false,
             show_tuning: false,
+            add_to_playlist: None,
+            dialog_playlists: Query::default(),
+            new_playlist_title: String::new(),
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -620,6 +628,13 @@ impl AppState {
         if let Err(e) = crate::backend::prefs::save(&self.settings) {
             eprintln!("[prefs] save failed: {e}");
         }
+    }
+
+    /// 「プレイリストに追加」ダイアログを開く (状態をリセットして表示)。
+    pub fn open_add_to_playlist(&mut self, track: Track) {
+        self.add_to_playlist = Some(track);
+        self.dialog_playlists = Query::default();
+        self.new_playlist_title.clear();
     }
 
     /// キュー内 index のトラックを再生する。
