@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
-use crate::backend::models::{DiscoverMixed, ScUser, Track};
+use crate::backend::models::{DiscoverItem, DiscoverMixed, ScUser, Track};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, SettingsState};
@@ -19,6 +19,8 @@ pub enum HomeAction {
     PlayList(Vec<Track>, usize),
     /// 右クリックメニューを開く。
     OpenMenu(Track),
+    /// Discover 棚のアイテム (ユーザー/ステーション/システムミックス等)。
+    StartDiscover(DiscoverItem),
 }
 
 #[derive(Default)]
@@ -169,17 +171,23 @@ impl HomeView {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             for item in items {
-                                ui.vertical(|ui| {
-                                    let art = item.artwork_url.as_deref().map(|u| {
-                                        u.replace("-large", "-t300x300")
-                                    });
-                                    images.show(ui, rt, art.as_deref(), 64.0);
-                                    ui.add(
-                                        egui::Label::new(&item.title)
-                                            .truncate()
-                                            .wrap_mode(egui::TextWrapMode::Truncate),
-                                    );
-                                });
+                                let resp = ui
+                                    .vertical(|ui| {
+                                        let art = item.artwork_url.as_deref().map(|u| {
+                                            u.replace("-large", "-t300x300")
+                                        });
+                                        images.show(ui, rt, art.as_deref(), 64.0);
+                                        ui.add(
+                                            egui::Label::new(&item.title)
+                                                .truncate()
+                                                .wrap_mode(egui::TextWrapMode::Truncate),
+                                        );
+                                    })
+                                    .response
+                                    .interact(egui::Sense::click());
+                                if resp.clicked() {
+                                    action = HomeAction::StartDiscover(item.clone());
+                                }
                             }
                         });
                     });

@@ -24,6 +24,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     state.drain_backend();
     state.sync_discord();
     state.poll_continuation();
+    state.poll_discover_play();
     state.poll_load();
     // NowPlaying バーの like 状態を回収 (最新のトラックで上書き)。
     if state.now_like.poll() {
@@ -393,6 +394,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     HomeAction::OpenMenu(track) => {
                         open_menu(state, ui, track);
+                    }
+                    HomeAction::StartDiscover(item) => {
+                        state.start_discover(item);
                     }
                     HomeAction::None => {}
                 },

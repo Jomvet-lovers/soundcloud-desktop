@@ -466,6 +466,8 @@ pub struct AppState {
     discord_last_attempt: Option<std::time::Instant>,
     /// キュー終端の autopilot (関連曲の継続取得)。
     continuation: Query<Vec<Track>>,
+    /// Discover 棚の再生用 (ステーション/システムミックスの解決結果)。
+    discover_play: Query<Vec<Track>>,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -482,6 +484,25 @@ pub struct AppState {
     pub images: Images,
     /// パラメータ付きルート (track/:urn 等) の選択値。`Navigate` で設定される。
     pub nav_param: Option<String>,
+}
+
+/// 簡易 Fisher-Yates (xorshift seed)。アーティストステーション用。
+fn shuffle_tracks<T>(v: &mut [T]) {
+    if v.len() < 2 {
+        return;
+    }
+    let mut seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15)
+        | 1;
+    for i in (1..v.len()).rev() {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let j = (seed as usize) % (i + 1);
+        v.swap(i, j);
+    }
 }
 
 impl AppState {
@@ -557,6 +578,7 @@ impl AppState {
             discord_key: None,
             discord_last_attempt: None,
             continuation: Query::default(),
+            discover_play: Query::default(),
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -1216,6 +1238,105 @@ impl AppState {
                 return;
             }
             self.player.is_playing = false;
+        }
+    }
+
+    /// Discover 棚のアイテムを解決して再生/遷移する
+    /// (Tauri 版 `DiscoverSections.startDiscoverItem` 相当)。
+    pub fn start_discover(&mut self, item: crate::backend::models::DiscoverItem) {
+        let Some(urn) = item.urn.clone() else {
+            return;
+        };
+        // アーティストはプロフィールへ。
+        if item.kind.as_deref() == Some("user") || urn.starts_with("soundcloud:users:") {
+            self.route = Route::User;
+            self.nav_param = Some(urn);
+            return;
+        }
+        let digits_after = |needle: &str| -> Option<String> {
+            let (_, rest) = urn.split_once(needle)?;
+            let id: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            (!id.is_empty()).then_some(id)
+        };
+        let station_user = digits_after("artist-stations:");
+        let station_track = digits_after("track-stations:");
+        let is_station = station_user.is_some()
+            || station_track.is_some()
+            || item.playlist_type.as_deref() == Some("ARTIST_STATION");
+        if is_station {
+            let Some(api) = self.api.clone() else {
+                return;
+            };
+            let rt = self.runtime.handle().clone();
+            self.discover_play = Query::default();
+            self.discover_play.request(&rt, async move {
+                let mut list: Vec<Track> = Vec::new();
+                if let Some(id) = station_user {
+                    if let Ok(v) = api
+                        .get_json(&format!("/users/{id}/tracks?limit=50&offset=0"))
+                        .await
+                    {
+                        list = tracks_from_value(&v);
+                        shuffle_tracks(&mut list);
+                    }
+                } else if let Some(id) = station_track {
+                    if let Ok(v) = api
+                        .get_json(&format!("/tracks/{id}/related?limit=30&offset=0"))
+                        .await
+                    {
+                        list = tracks_from_value(&v);
+                    }
+                }
+                Ok(list)
+            });
+            return;
+        }
+        // SoundCloud のシステムミックス (Your Mix 等) はその場で再生。
+        if urn.starts_with("soundcloud:system-playlists:") {
+            let Some(api) = self.api.clone() else {
+                return;
+            };
+            let rt = self.runtime.handle().clone();
+            self.discover_play = Query::default();
+            self.discover_play.request(&rt, async move {
+                let v = api
+                    .get_json(&format!(
+                        "/system-playlists/{}",
+                        urlencoding::encode(&urn)
+                    ))
+                    .await?;
+                let raw = v
+                    .get("tracks")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let list = if raw.is_array() {
+                    tracks_from_value(&raw)
+                } else {
+                    tracks_from_value(
+                        &raw.get("collection")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
+                    )
+                };
+                Ok(list)
+            });
+            return;
+        }
+        // 通常のプレイリストはページへ。
+        if urn.starts_with("soundcloud:playlists:") {
+            self.route = Route::Playlist;
+            self.nav_param = Some(urn);
+        }
+    }
+
+    /// Discover 再生の解決結果を回収する。
+    pub fn poll_discover_play(&mut self) {
+        if self.discover_play.poll() {
+            if let Some(tracks) = self.discover_play.data.take()
+                && !tracks.is_empty()
+            {
+                self.play_list(tracks, 0);
+            }
         }
     }
 
