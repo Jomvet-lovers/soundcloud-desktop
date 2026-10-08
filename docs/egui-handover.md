@@ -309,3 +309,31 @@ smoke モード (どちらも表示環境用。CI では不可):
   (設計メモ: tray-icon を専用スレッドで動かし、メニューイベントを EventBus 経由で送り、
   `ctx.send_viewport_cmd` で Show/Quit を操作する)。
   任意項目の壁紙・i18n も未着手。
+
+### 8.10 Tray / コンテキスト継続 / 細部パリティ (2026-10-10 未明)
+
+- **Tray**: `tray-icon` を専用スレッドで動かし Win32 メッセージループを実行。
+  メニュー (Show/Hide・Play/Pause・Next・Previous・Quit)、左クリックで表示切替、
+  設定 General に「Close to tray」(閉じる→常駐、Quit は `force_quit` で貫通)。
+  イベントは std mpsc → `poll_tray` が UI スレッドで回収。
+- **SMTC 修正**: souvlaki は HWND 必須 (None で panic)。隠しトップレベル
+  ウィンドウを作り `PeekMessageW` ポンプを同居させた (message-only は E_INVALIDARG)。
+- **コンテキスト継続** (`state.rs`): Tauri `queue-continuation.ts` 相当。
+  いいね (50/ページ)・プレイリスト (200/ページ) を再生時に arm し、キュー終端で
+  次ページを読んで重複除去→追記→継続。shuffle 時は全件遅延取得→50件チャンク。
+  継続ソース枯渇後の順序: コンテキスト継続 → autopilot (関連曲) → 停止。
+  arm 箇所: Library/Collection の Likes 再生 (フィルタ無し時)、ShuffleLikes、
+  プレイリスト Play/Shuffle。
+- **shuffle 意味論**: 元実装同様「現在位置より後ろを並替 + OFF で復元
+  (`original_queue`)」。next/prev は順送りのみ (乱択ではない)。
+  `ShuffleLikes` はランダム開始 + 全件先読み追記 (`likes_full`)。
+- **Discover 棚**: See all / Show less (先頭10件のローカル展開)。
+- **Home**: Liked Tracks に「See all」→ LibraryCollection。
+- **フィルタ時自動全ページ取得**: Library/Collection の Likes タブ。
+- **More crates**: プレイリスト下部にキュレーターの他クレート (最大12)。
+- **Track follow**: アップローダーの Follow/Following (PUT/DELETE `/me/followings/:urn`)。
+- **Search**: 全タブ先読み + タブ名に件数表示。query/tab/sort 変更でページ先頭へ。
+- **検証**: `cargo test` 44件全通。CI green (0e4d3221 まで確認、以降 push 済み)。
+- **未検証**: Tray の実表示・メニュー操作、継続再生の実データ挙動はユーザー確認待ち。
+- **残り**: 見た目の再現 (フラット UI 適用) — 次のフェーズ。Vibe/Lyrics 検索は
+  direct backend が空応答のスタブのため見送り (実装しても空)。
