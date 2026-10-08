@@ -37,6 +37,15 @@ pub struct Track {
     pub likes_count: Option<i64>,
     pub comment_count: Option<i64>,
     pub user: Option<ScUser>,
+    /// API が返す「自分がいいね済みか」(api-v2、認証時のみ)。
+    pub user_favorite: Option<bool>,
+}
+
+/// `GET /likes/{tracks|playlists}/:urn` の応答。
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+pub struct LikedFlag {
+    #[serde(default)]
+    pub liked: bool,
 }
 
 impl Track {
@@ -129,6 +138,7 @@ pub struct Playlist {
     pub description: Option<String>,
     pub tracks: Option<Value>,
     pub user: Option<ScUser>,
+    pub likes_count: Option<i64>,
 }
 
 impl Playlist {

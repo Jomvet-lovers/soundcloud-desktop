@@ -15,8 +15,9 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::backend::boot::{self, BootHandle};
 use crate::backend::events::EventBus;
-use crate::backend::models::Track;
+use crate::backend::models::{LikedFlag, Track};
 use crate::images::Images;
+use crate::query::Query;
 use crate::views::home::HomeView;
 use crate::views::{
     album::AlbumView, artist::ArtistView, collection::CollectionView, library::LibraryView,
@@ -266,6 +267,9 @@ pub struct AppState {
     pub load_error: Option<String>,
     pub file_path_input: String,
     pub last_sync_error: Option<String>,
+    /// 再生中トラックの like 状態 (NowPlaying バー用)。
+    pub now_liked: Option<bool>,
+    pub now_like: Query<LikedFlag>,
     pub api: Option<ApiClient>,
     pub queue_open: bool,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
@@ -326,6 +330,8 @@ impl AppState {
             load_error: None,
             file_path_input: String::new(),
             last_sync_error: None,
+            now_liked: None,
+            now_like: Query::default(),
             api,
             queue_open: false,
             theme_applied: None,
@@ -385,11 +391,12 @@ impl AppState {
     }
 
     /// SoundCloud トラックのストリーム再生を開始する (単曲=1件キュー)。
-    pub fn play_stream(&mut self, track: &Track, url: String) {
+    /// `url` は旧 Tauri 呼び出しとの互換用で未使用 (direct-mode は cache 経由)。
+    pub fn play_stream(&mut self, track: &Track, _url: String) {
         let queue = vec![track.clone()];
         self.player.set_queue(queue, 0);
         self.load_error = None;
-        self.load_stream(track, url);
+        self.load_stream(track);
     }
 
     /// キュー内 index のトラックを再生する。
@@ -398,22 +405,15 @@ impl AppState {
             Some(t) => t,
             None => return,
         };
-        let url = match self
-            .api
-            .as_ref()
-            .map(|a| a.stream_url(&track.urn, false))
-        {
-            Some(u) => u,
-            None => return,
-        };
         let queue = std::mem::take(&mut self.player.queue);
         self.player.set_queue(queue, index);
         self.load_error = None;
-        self.load_stream(&track, url);
+        self.load_stream(&track);
     }
 
     /// メタ反映済みを前提にストリーム読込だけ行う。
-    fn load_stream(&mut self, track: &Track, url: String) {
+    /// Tauri 版 `loadTrack` と同じく cache (`ensure_playable`) → ローカルファイル再生。
+    fn load_stream(&mut self, track: &Track) {
         let title = track.display_title().to_string();
         let artist = track.artist_name().to_string();
         let Some(audio) = self.audio().cloned() else {
@@ -421,16 +421,49 @@ impl AppState {
             self.player.is_playing = false;
             return;
         };
+        let Some(cache) = self.backend.as_ref().map(|b| b.track_cache.clone()) else {
+            self.load_error = Some("backend not running".to_string());
+            self.player.is_playing = false;
+            return;
+        };
         let session = self
             .api
             .as_ref()
             .and_then(|a| a.session_token().map(str::to_string));
+        let urn = track.urn.clone();
+        let expected_ms = (track.duration > 0).then_some(track.duration as u64);
+        // NowPlaying バー用の like 状態を取得し直す (ローカルストア + user_favorite)。
+        self.now_liked = track.user_favorite;
+        self.now_like = Query::default();
+        if let Some(api) = self.api.clone() {
+            let rt = self.runtime.handle().clone();
+            let path = format!("/likes/tracks/{}", urlencoding::encode(&urn));
+            self.now_like.request(&rt, async move {
+                api.get_json(&path)
+                    .await
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+            });
+        }
         let (tx, rx) = oneshot::channel();
         self.runtime.spawn(async move {
-            let result =
-                crate::backend::audio::engine::load_url(url, session, None, None, None, false, &audio)
+            let entry = match cache.get_cache_entry(&urn) {
+                Some(entry) => entry,
+                None => match cache
+                    .ensure_playable(&urn, session.as_deref(), false, expected_ms)
                     .await
-                    .map(|out| out.duration_secs);
+                {
+                    Ok(entry) => entry,
+                    Err(e) => {
+                        let _ = tx.send(Err(e));
+                        return;
+                    }
+                },
+            };
+            let result = crate::backend::audio::engine::load_file(
+                entry.path, None, None, false, &audio,
+            )
+            .await
+            .map(|out| out.duration_secs);
             let _ = tx.send(result);
         });
         self.load = LoadState::Loading {

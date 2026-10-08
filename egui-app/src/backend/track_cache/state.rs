@@ -1111,6 +1111,29 @@ impl TrackCacheState {
         }
     }
 
+    /// 再生用: キャッシュ済みなら即返し、無ければ anon 経路で取得する。
+    /// direct-mode では storage/stream URL リストを使わない
+    /// (Tauri 版 `loadTrack` の `ensureTrackCached` 相当)。
+    pub async fn ensure_playable(
+        &self,
+        urn: &str,
+        session_id: Option<&str>,
+        hq: bool,
+        expected_duration_ms: Option<u64>,
+    ) -> Result<TrackCacheEntry, String> {
+        self.ensure_cached(CacheRequest {
+            urn,
+            urls: &[],
+            download_urls: &[],
+            storage_urls: &[],
+            session_id,
+            hq,
+            liked: false,
+            expected_duration_ms,
+        })
+        .await
+    }
+
     pub async fn ensure_cached(&self, req: CacheRequest<'_>) -> Result<TrackCacheEntry, String> {
         let CacheRequest {
             urn,
