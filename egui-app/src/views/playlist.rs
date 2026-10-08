@@ -250,11 +250,29 @@ impl PlaylistView {
             .or_else(|| tracks.first().and_then(|t| t.artwork("t500x500")));
 
         // Hero (対応: `PlaylistHero`)。
-        ui.horizontal(|ui| {
+        ui.horizontal_top(|ui| {
             images.show(ui, rt, cover.as_deref(), 180.0);
             ui.vertical(|ui| {
-                ui.label("Playlist");
-                ui.heading(&playlist.title);
+                ui.horizontal(|ui| {
+                    if crate::widgets::hero_play_button(
+                        ui,
+                        false,
+                        !tracks.is_empty(),
+                        56.0,
+                    )
+                    .clicked()
+                        && !tracks.is_empty()
+                    {
+                        action = PlaylistAction::PlayList(tracks.clone(), 0);
+                    }
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&playlist.title)
+                                .font(crate::theme::semibold(28.0)),
+                        )
+                        .wrap(),
+                    );
+                });
                 if let Some(user) = playlist.user.as_ref() {
                     if ui
                         .selectable_label(false, format!("Curated by {}", user.username))
@@ -264,18 +282,21 @@ impl PlaylistView {
                     }
                 }
                 let total_ms: i64 = tracks.iter().map(|t| t.duration).sum();
-                ui.label(format!("{} tracks — {}", tracks.len(), fmt_dur(total_ms)));
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Set · {} tracks — {}",
+                        tracks.len(),
+                        fmt_dur(total_ms)
+                    ))
+                    .size(12.0)
+                    .weak(),
+                );
                 if let Some(desc) = playlist.description.as_ref() {
                     if !desc.is_empty() {
                         ui.label(desc);
                     }
                 }
                 ui.horizontal(|ui| {
-                    if crate::widgets::primary_button(ui, "▶ Play all", accent).clicked() {
-                        if !tracks.is_empty() {
-                            action = PlaylistAction::PlayList(tracks.clone(), 0);
-                        }
-                    }
                     let liked = self.liked.unwrap_or(false);
                     if crate::widgets::like_button(ui, liked, accent) {
                         // ローカル即時反映 + writer で best-effort 同期。

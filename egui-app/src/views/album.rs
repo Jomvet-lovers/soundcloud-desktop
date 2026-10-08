@@ -126,11 +126,29 @@ impl AlbumView {
         });
 
         // Hero (対応: `AlbumHero`)。
-        ui.horizontal(|ui| {
+        ui.horizontal_top(|ui| {
             images.show(ui, rt, cover.as_deref(), 180.0);
             ui.vertical(|ui| {
-                ui.label("Album");
-                ui.heading(&album.title);
+                ui.horizontal(|ui| {
+                    if crate::widgets::hero_play_button(
+                        ui,
+                        false,
+                        !tracks.is_empty(),
+                        56.0,
+                    )
+                    .clicked()
+                        && !tracks.is_empty()
+                    {
+                        action = AlbumAction::PlayList(tracks.clone(), 0);
+                    }
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&album.title)
+                                .font(crate::theme::semibold(28.0)),
+                        )
+                        .wrap(),
+                    );
+                });
                 if let Some(user) = album.user.as_ref() {
                     if ui
                         .selectable_label(false, user.username.clone())
@@ -141,20 +159,19 @@ impl AlbumView {
                     }
                 }
                 let total_ms: i64 = tracks.iter().map(|t| t.duration).sum();
-                ui.label(format!(
-                    "{} {} — {}",
-                    tracks.len(),
-                    if tracks.len() == 1 { "track" } else { "tracks" },
-                    fmt_dur(total_ms)
-                ));
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Album · {} {} — {}",
+                        tracks.len(),
+                        if tracks.len() == 1 { "track" } else { "tracks" },
+                        fmt_dur(total_ms)
+                    ))
+                    .size(12.0)
+                    .weak(),
+                );
                 if let Some(desc) = album.description.as_ref() {
                     if !desc.is_empty() {
                         ui.label(desc);
-                    }
-                }
-                if crate::widgets::primary_button(ui, "▶ Play", accent).clicked() {
-                    if !tracks.is_empty() {
-                        action = AlbumAction::PlayList(tracks.clone(), 0);
                     }
                 }
             });

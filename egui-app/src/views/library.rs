@@ -118,36 +118,6 @@ fn greeting(name: &str) -> String {
     }
 }
 
-/// ジャンルの固定色 (search/utils.ts の GENRES) + ハッシュ由来の HSL 色。
-fn genre_color(name: &str) -> egui::Color32 {
-    const FIXED: [(&str, [u8; 3]); 12] = [
-        ("lofi", [0x8b, 0x9d, 0xc3]),
-        ("house", [0xff, 0x7a, 0x59]),
-        ("phonk", [0xc0, 0x26, 0xd3]),
-        ("ambient", [0x5e, 0xea, 0xd4]),
-        ("rnb", [0xf0, 0xab, 0xfc]),
-        ("trap", [0xfb, 0x71, 0x85]),
-        ("jazz", [0xfb, 0xbf, 0x24]),
-        ("techno", [0x60, 0xa5, 0xfa]),
-        ("indie", [0xa3, 0xe6, 0x35]),
-        ("soul", [0xfc, 0xa5, 0xa5]),
-        ("dnb", [0x34, 0xd3, 0x99]),
-        ("hyperpop", [0xe8, 0x79, 0xf9]),
-    ];
-    let lower = name.to_lowercase();
-    if let Some((_, [r, g, b])) = FIXED.iter().find(|(k, _)| *k == lower) {
-        return egui::Color32::from_rgb(*r, *g, *b);
-    }
-    let mut hash: i32 = 0;
-    for ch in name.chars() {
-        hash = hash.wrapping_mul(31).wrapping_add(ch as i32);
-    }
-    let hue = (hash.abs() % 360) as f32 / 360.0;
-    let hsva = egui::ecolor::Hsva::new(hue, 0.70, 0.62, 1.0);
-    let [r, g, b, _] = hsva.to_srgba_unmultiplied();
-    egui::Color32::from_rgb(r, g, b)
-}
-
 /// 上位ジャンル (share 付き)。対応: `topGenres`。
 fn top_genres(tracks: &[Track], n: usize) -> Vec<(String, f32, egui::Color32)> {
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -168,28 +138,10 @@ fn top_genres(tracks: &[Track], n: usize) -> Vec<(String, f32, egui::Color32)> {
             } else {
                 0.0
             };
-            let color = genre_color(&g);
+            let color = widgets::genre_color(&g);
             (g, share, color)
         })
         .collect()
-}
-
-/// created_at からの経過表示 (Tauri: FreshDrops の age)。
-fn age_text(created_at: Option<&str>) -> String {
-    let Some(s) = created_at else {
-        return String::new();
-    };
-    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) else {
-        return String::new();
-    };
-    let days = (chrono::Utc::now() - dt.with_timezone(&chrono::Utc)).num_days();
-    if days < 7 {
-        format!("{}d", days.max(0))
-    } else if days < 30 {
-        format!("{}w", days / 7)
-    } else {
-        format!("{}mo", days / 30)
-    }
 }
 
 /// ジャンルフィルタ (Soundprint バーで選択中のみ適用)。
@@ -455,7 +407,7 @@ impl LibraryView {
                                     egui::FontId::proportional(10.0),
                                     egui::Color32::from_white_alpha(220),
                                 );
-                                let age = age_text(t.created_at.as_deref());
+                                let age = widgets::age_text(t.created_at.as_deref());
                                 if !age.is_empty() {
                                     ui.label(egui::RichText::new(age).size(11.0).weak());
                                 }

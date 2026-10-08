@@ -72,6 +72,17 @@ fn fmt_ms(ms: i64) -> String {
     format!("{}:{:02}", total / 60, total % 60)
 }
 
+/// 統計の 1 列 (値 + ラベル)。Tauri: RoomSleeve の plays/likes/reposts。
+fn stat_column(ui: &mut egui::Ui, value: String, label: &str) {
+    ui.vertical(|ui| {
+        ui.add(egui::Label::new(
+            egui::RichText::new(value).font(crate::theme::semibold(15.0)),
+        ));
+        ui.label(egui::RichText::new(label).size(10.5).weak());
+    });
+    ui.add_space(14.0);
+}
+
 fn count(v: Option<i64>) -> String {
     v.map(|c| c.to_string()).unwrap_or_else(|| "—".to_string())
 }
@@ -279,90 +290,182 @@ impl TrackView {
             }
         }
 
-        // 対応: RoomHero (タイトル/アーティスト/再生ボタン/統計)。
+        // 対応: RoomHero (左: 円形再生 + 大タイトル + メタ + アクション / 右: アートワーク)。
         let is_current = player
             .current_title
             .as_deref()
             .map(|t| t == track.display_title())
             .unwrap_or(false)
             && player.is_playing;
-        ui.horizontal(|ui| {
-            let art = track.artwork("t500x500");
-            images.show(ui, rt, art.as_deref(), 160.0);
-            ui.vertical(|ui| {
-                ui.heading(track.display_title());
-                if let Some(user) = track.user.as_ref() {
+        let total_w = ui.available_width();
+        let art_w = 220.0_f32.min((total_w * 0.3).max(140.0));
+        let left_w = (total_w - art_w - 18.0).max(280.0);
+        ui.horizontal_top(|ui| {
+            let _ = ui.allocate_ui_with_layout(
+                egui::vec2(left_w, 10.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_max_width(left_w);
                     ui.horizontal(|ui| {
-                        ui.label("by");
-                        if ui.button(user.username.as_str()).clicked() {
-                            action =
-                                TrackAction::Navigate(Route::User, Some(user.urn.clone()));
+                        if crate::widgets::hero_play_button(ui, is_current, true, 56.0).clicked()
+                        {
+                            action = TrackAction::PlayTrack(track.clone());
                         }
-                        // Follow (Tauri: RoomSleeve の FollowBtn)。自分の曲は除外。
-                        let is_own =
-                            self.me.data.as_ref().map(|m| m.urn == user.urn).unwrap_or(false);
-                        if !is_own {
-                            if let Some(following) = self.follow.data {
-                                let label = if following { "Following" } else { "Follow" };
-                                if ui.button(label).clicked() {
-                                    let next = !following;
-                                    self.follow.data = Some(next);
-                                    let api = api_owned.clone();
-                                    let path = format!(
-                                        "/me/followings/{}",
-                                        urlencoding::encode(&user.urn)
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(track.display_title())
+                                    .font(crate::theme::semibold(32.0)),
+                            )
+                            .wrap(),
+                        );
+                    });
+                    // メタ行: アーティスト · 経過 · ジャンル (Tauri: RoomHero)。
+                    ui.horizontal_wrapped(|ui| {
+                        if let Some(user) = track.user.as_ref() {
+                            if ui
+                                .add(
+                                    egui::Label::new(
+                                        egui::RichText::new(&user.username).size(13.5),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                )
+                                .clicked()
+                            {
+                                action = TrackAction::Navigate(
+                                    Route::User,
+                                    Some(user.urn.clone()),
+                                );
+                            }
+                        }
+                        let age = crate::widgets::age_text(track.created_at.as_deref());
+                        if !age.is_empty() {
+                            ui.label(egui::RichText::new("·").weak());
+                            ui.label(egui::RichText::new(age).size(12.5).weak());
+                        }
+                        if let Some(genre) = track.genre.as_deref() {
+                            if !genre.is_empty() {
+                                ui.label(egui::RichText::new("·").weak());
+                                if ui
+                                    .add(
+                                        egui::Label::new(
+                                            egui::RichText::new(genre)
+                                                .size(12.5)
+                                                .color(crate::widgets::genre_color(genre)),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    )
+                                    .clicked()
+                                {
+                                    action = TrackAction::Navigate(
+                                        Route::Tag,
+                                        Some(genre.to_string()),
                                     );
-                                    rt.spawn(async move {
-                                        let method = if next { "PUT" } else { "DELETE" };
-                                        let _ = api.request_json(method, &path, None).await;
-                                    });
                                 }
                             }
                         }
                     });
-                }
-                if let Some(genre) = track.genre.as_deref() {
-                    if !genre.is_empty() && ui.button(format!("# {genre}")).clicked() {
-                        action =
-                            TrackAction::Navigate(Route::Tag, Some(genre.to_string()));
-                    }
-                }
-                let play_label = if is_current { "⏸ Playing" } else { "▶ Play" };
-                if crate::widgets::primary_button(ui, play_label, accent).clicked() {
-                    action = TrackAction::PlayTrack(track.clone());
-                }
-                if ui.button("+ Next up").clicked() {
-                    action = TrackAction::AddNextUp(track.clone());
-                }
-                if ui.button("Add to playlist").clicked() {
-                    action = TrackAction::AddToPlaylist(track.clone());
-                }
-                if ui.button("Download...").clicked() {
-                    action = TrackAction::OpenDownload(track.clone());
-                }
-                let liked = self.liked.unwrap_or(false);
-                if crate::widgets::like_button(ui, liked, accent) {
-                    // ローカル即時反映 + writer で best-effort 同期 (cf. LikeButton.tsx)。
-                    let next = !liked;
-                    self.liked = Some(next);
-                    if let Some(c) = self.like_count.as_mut() {
-                        *c = (*c + if next { 1 } else { -1 }).max(0);
-                    }
-                    let api = api_owned.clone();
-                    let path = format!("/likes/tracks/{enc}");
-                    rt.spawn(async move {
-                        let method = if next { "POST" } else { "DELETE" };
-                        let _ = api.request_json(method, &path, None).await;
+                    // アクション行 (Next up / Add / Download / Liked)。
+                    ui.horizontal(|ui| {
+                        if ui.button("+ Next up").clicked() {
+                            action = TrackAction::AddNextUp(track.clone());
+                        }
+                        if ui.button("Add to playlist").clicked() {
+                            action = TrackAction::AddToPlaylist(track.clone());
+                        }
+                        if ui.button("Download...").clicked() {
+                            action = TrackAction::OpenDownload(track.clone());
+                        }
+                        let liked = self.liked.unwrap_or(false);
+                        if crate::widgets::like_button(ui, liked, accent) {
+                            // ローカル即時反映 + writer で best-effort 同期 (cf. LikeButton.tsx)。
+                            let next = !liked;
+                            self.liked = Some(next);
+                            if let Some(c) = self.like_count.as_mut() {
+                                *c = (*c + if next { 1 } else { -1 }).max(0);
+                            }
+                            let api = api_owned.clone();
+                            let path = format!("/likes/tracks/{enc}");
+                            rt.spawn(async move {
+                                let method = if next { "POST" } else { "DELETE" };
+                                let _ = api.request_json(method, &path, None).await;
+                            });
+                        }
                     });
-                }
-                ui.label(format!(
-                    "{} plays · {} likes · {} comments · {}",
-                    count(track.playback_count),
-                    count(self.like_count.or(track.likes_count)),
-                    count(track.comment_count),
-                    fmt_ms(track.duration),
-                ));
-            });
+                    ui.add_space(2.0);
+                },
+            );
+            // 右カラム: アートワーク + アップローダー (Follow) + 統計。
+            let _ = ui.allocate_ui_with_layout(
+                egui::vec2(art_w, 10.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_max_width(art_w);
+                    let art = track.artwork("t500x500");
+                    images.show(ui, rt, art.as_deref(), art_w);
+                    if let Some(user) = track.user.as_ref() {
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            images.show_rounded(
+                                ui,
+                                rt,
+                                user.avatar_url.as_deref(),
+                                40.0,
+                                egui::CornerRadius::same(20),
+                            );
+                            ui.vertical(|ui| {
+                                if ui
+                                    .add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&user.username)
+                                                .font(crate::theme::semibold(13.0)),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    )
+                                    .clicked()
+                                {
+                                    action = TrackAction::Navigate(
+                                        Route::User,
+                                        Some(user.urn.clone()),
+                                    );
+                                }
+                                let is_own = self
+                                    .me
+                                    .data
+                                    .as_ref()
+                                    .map(|m| m.urn == user.urn)
+                                    .unwrap_or(false);
+                                if !is_own {
+                                    if let Some(following) = self.follow.data {
+                                        let label =
+                                            if following { "Following" } else { "Follow" };
+                                        if ui.small_button(label).clicked() {
+                                            let next = !following;
+                                            self.follow.data = Some(next);
+                                            let api = api_owned.clone();
+                                            let path = format!(
+                                                "/me/followings/{}",
+                                                urlencoding::encode(&user.urn)
+                                            );
+                                            rt.spawn(async move {
+                                                let method =
+                                                    if next { "PUT" } else { "DELETE" };
+                                                let _ =
+                                                    api.request_json(method, &path, None).await;
+                                            });
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    }
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        stat_column(ui, count(track.playback_count), "plays");
+                        stat_column(ui, count(self.like_count.or(track.likes_count)), "likes");
+                        stat_column(ui, count(track.comment_count), "comments");
+                    });
+                },
+            );
         });
 
         // 波形シーク (RoomFloor 相当。コメントレーンは未対応)。
