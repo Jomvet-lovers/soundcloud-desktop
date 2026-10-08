@@ -191,3 +191,64 @@ smoke モード (どちらも表示環境用。CI では不可):
 3. 実アカウントでログイン窓テスト → Library/履歴の動作確認。
 4. 緑なら CI push → ubuntu 結果を確認 (§6-2)。
 5. 残件 (§6-3) を優先度順に消化。wry 安定後に Phase 5 (tray/自動更新/配布)。
+
+## 8. x64 PC での続き (2026-10-08 追記)
+
+引継ぎ後、x64 Windows PC で Phase 4 E2E を検証し、以下を修正・追加した
+(コミット `c9f96c0` 〜 `aa2ff0a`)。
+
+### 8.1 環境 (x64 では §2 の大半が不要)
+
+- VS2022 BuildTools (cl 14.44) + Win SDK 26100 + CMake 4.4.3 + 同梱 Ninja +
+  LLVM 23 (libclang) で `cargo test` 38 件全通。**NASM なしで boring-sys2 がビルド可**。
+- `OPUS_LIB_DIR` 不要: audiopus_sys 0.1.8 同梱の `msvc/x64/opus.lib` を自動使用。
+- 設定は `LIBCLANG_PATH=C:\Program Files\LLVM\bin` のみ。
+- コミットの絵文字自動付与はこのPCでは再現せず (hook 等なし、通常 commit で可)。
+
+### 8.2 Phase 4 E2E (検証済み・修正あり)
+
+- `--smoke-writer`: **成功** (`status=200 bytes=800 captcha=false`)。DataDome チャレンジなし。
+- ログイン窓: 実アカウントでサインイン成功 → `auth_session.json` 保存 →
+  ローカル API `/me/cold` 200 (username 取得) を確認。
+- 発見・修正した不具合:
+  1. wry host が起動しない (子が `accept()`・親が `WRY_PORT=` 待ちの相互デッドロック)。
+     port 通知を accept より前に移動し、accept にタイムアウトを追加。
+  2. 親側で子起動失敗時に kill しておらず、孤児プロセスが exe をロックしていた。
+  3. UI スレッドからの `tokio::spawn` (weblogin) がランタイム外で panic。
+     Handle を渡す形に修正 (diagnostics の Linux FD モニタも同様)。
+  4. eframe は入力まで再描画しないため、ログイン完了等が画面に反映されなかった。
+     `EventBus::set_wake` (egui `request_repaint`) を追加し、`auth:changed` で
+     `reset_views` + API セッション同期。
+  5. `--smoke-login` / `--smoke-writer` 単体で smoke に入らなかった (app_main の判定漏れ)。
+- UX 追加: 起動時に未ログインなら Login 画面、サイドバー上部に Sign in / Sign out、
+  ログアウト後は Login 画面へ遷移。
+
+### 8.3 CI (ubuntu) — 検証済み
+
+- egui job の失敗は apt 不足 (`glib-2.0` / `gobject-2.0` が見つからない)。
+  `libasound2-dev` `libwebkit2gtk-4.1-dev` `libgtk-3-dev` `libglib2.0-dev` を
+  追加して green。以降の push はすべて CI green。
+
+### 8.4 残件 (§6-3 の更新)
+
+- like/follow/comment の mutation は Track like/comment 投稿のみだった (8.5 で拡充)。
+- 無限スクロール・D&D 並替・音量永続化・track-display・非Trackカード共通化は未着手。
+- `--smoke-login` は 10 秒固定のまま (手動サインイン検証は GUI から実施)。
+
+### 8.5 追加修正 (同日、E2E 後)
+
+- **再生 404 の修正**: `ApiClient::stream_url` は存在しないローカル `/stream`
+  (DirectAPI は 404 を返す設計) を指しており、再生が失敗していた。
+  Tauri 版 `loadTrack` と同様に `TrackCacheState::ensure_playable`
+  (anon で SC api-v2 から取得) → ローカルファイル再生へ変更。
+- **mutation UI**: Track like / Playlist like / 自分のコメント削除を追加。
+  ボタンはフォント依存の ♥/♡ を避け、`Like` (通常) / `Liked` (アクセント塗り) で表現。
+- **NowPlaying バー**: 再生中タイトル/アーティストの表示と各ページへのリンク、
+  Like トグルを追加 (Track ページへの導線が無かったため)。
+- **CJK 文字化けの修正**: Inter/JetBrains に日本語グリフが無く □ になっていた。
+  Noto Sans JP (`assets/fonts/NotoSansJP-Regular.otf`, OFL) に加え、
+  Noto Sans KR (Hangul) と Noto Sans Math (U+1D400 帯の装飾英字・ℜ 等) を同梱し、
+  Proportional/Monospace/太字系のフォールバックに追加。ユーザーのライク曲タイトルで
+  カバレッジ検証済み (欠け 0)。絵文字は egui 同梱の NotoEmoji でカバー。
+- 検証: `cargo test` 38 件・実機で like PUT/DELETE 200 / 再生 (anon 取得 →
+  transcode → 再生) / NowPlaying リンクを確認。
