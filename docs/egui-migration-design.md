@@ -223,6 +223,22 @@ Tauri 版と異なり Node は不要。以下が追加で必要 (x86_64 では�
 - 検証: `cargo check --all-targets` 通過 (ListPage の Deserialize 境界を
   `DeserializeOwned` で修正)、`cargo test` 30件通過、GUI 25秒安定起動。
 
+### 8.6 テーマ基盤 (ブランチ `egui-migration/theme-foundation`)
+
+- 方針: 機能移行を止めず、見た目は共通基盤→各画面→最終仕上げの二段構え。
+  egui に無い部品 (blur/アニメ等) は対象外、足りない部品は自作する。
+- `src/theme.rs`: プリセット6種の背景 + `settings.accent` 駆動の Visuals。
+  フォントは Inter (400/500/600/700) + JetBrains Mono を `assets/fonts/` に同梱
+  (fontsource は woff のため公式配布から TTF/OTF を取得)。
+  文字サイズは Style 側 (`set_style_of`)、色は Visuals 側で分担。
+- `src/widgets.rs`: TrackCard/TrackRow/SectionHeader + 自作の再生グリフ
+  (フォント依存回避のため painter 描画) + 再生中アクセント表示。
+  全13 view が利用し、`accent` 引数で統一 (Login のみ対象外)。
+- `views/waveform.rs`: `_m.json` 取得→自前バー描画→クリックシーク
+  (`TrackAction::Seek`)。Track ページに統合。
+- `backend/prefs.rs`: 設定の JSON 永続化 (`egui_ui.json`) + Settings の Save。
+- 検証: `cargo test` 38件通過、GUI 20秒安定起動。
+
 ### 8.5 キュー再生 (ブランチ `egui-migration/queue-player`)
 
 - `PlayerState` に queue/queue_index + next/prev/shuffle/repeat-one 計算。

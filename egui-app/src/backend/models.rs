@@ -31,6 +31,7 @@ pub struct Track {
     pub duration: i64,
     pub artwork_url: Option<String>,
     pub permalink_url: Option<String>,
+    pub waveform_url: Option<String>,
     pub genre: Option<String>,
     pub playback_count: Option<i64>,
     pub likes_count: Option<i64>,

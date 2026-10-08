@@ -11,6 +11,7 @@ use crate::backend::models::{Album, Track};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
+use crate::widgets;
 
 pub enum AlbumAction {
     None,
@@ -46,6 +47,7 @@ impl AlbumView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> AlbumAction {
         let _ = audio;
@@ -156,16 +158,13 @@ impl AlbumView {
 
         // Tracklist (対応: `AlbumTrackList` / `AlbumTrackRow`)。
         ui.separator();
-        ui.horizontal(|ui| {
-            ui.heading("Tracks");
-            ui.label(format!("{}", tracks.len()));
-        });
+        widgets::section_header(ui, "Tracks", Some(tracks.len()));
         if tracks.is_empty() {
             ui.label("No tracks indexed yet");
             return action;
         }
-        for (i, track) in tracks.iter().enumerate() {
-            if Self::track_row(ui, rt, images, player, i, track) {
+        for track in tracks.iter() {
+            if Self::track_row(ui, rt, images, player, track, accent) {
                 action = AlbumAction::PlayTrack(track.clone());
             }
         }
@@ -179,41 +178,11 @@ impl AlbumView {
         rt: &tokio::runtime::Handle,
         images: &mut Images,
         player: &PlayerState,
-        index: usize,
         track: &Track,
+        accent: egui::Color32,
     ) -> bool {
-        let is_current = player
-            .current_title
-            .as_deref()
-            .map(|t| t == track.display_title())
-            .unwrap_or(false)
-            && player.is_playing;
-        let mut clicked = false;
-        ui.horizontal(|ui| {
-            ui.label(format!("{:>3}", index + 1));
-            let art = track.artwork("t200x200");
-            if images.show(ui, rt, art.as_deref(), 36.0).clicked() {
-                clicked = true;
-            }
-            ui.vertical(|ui| {
-                ui.set_min_width(160.0);
-                let title = if is_current {
-                    format!("▶ {}", track.display_title())
-                } else {
-                    track.display_title().to_string()
-                };
-                if ui.selectable_label(is_current, title).clicked() {
-                    clicked = true;
-                }
-                ui.label(track.artist_name());
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Play").clicked() {
-                    clicked = true;
-                }
-                ui.monospace(fmt_dur(track.duration));
-            });
-        });
-        clicked
+        let playing = widgets::is_currently_playing(player, track);
+        let dur = fmt_dur(track.duration);
+        widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur)).clicked()
     }
 }

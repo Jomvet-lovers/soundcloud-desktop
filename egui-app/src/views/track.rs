@@ -8,15 +8,18 @@
 use std::sync::Arc;
 
 use crate::backend::api::ApiClient;
+use crate::backend::audio::engine;
 use crate::backend::audio::state::AudioState;
 use crate::backend::models::{Comment, Paged, ScUser, Track, tracks_from_value};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
+use crate::views::waveform;
 
 pub enum TrackAction {
     None,
     PlayTrack(Track),
+    Seek(f32),
     Navigate(Route, Option<String>),
 }
 
@@ -27,6 +30,8 @@ pub struct TrackView {
     comments: Query<Paged<Comment>>,
     favoriters: Query<Paged<ScUser>>,
     post: Query<Comment>,
+    waveform: Query<Vec<f32>>,
+    wave_key: Option<String>,
     last_param: Option<String>,
     comment_draft: String,
     sort_timeline: bool,
@@ -53,6 +58,7 @@ impl TrackView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> TrackAction {
         let _ = audio;
@@ -68,6 +74,8 @@ impl TrackView {
             self.comments = Query::default();
             self.favoriters = Query::default();
             self.post = Query::default();
+            self.waveform = Query::default();
+            self.wave_key = None;
             self.comment_draft.clear();
             self.last_param = param.map(|s| s.to_string());
         }
@@ -144,11 +152,13 @@ impl TrackView {
         changed |= self.comments.poll();
         changed |= self.favoriters.poll();
         changed |= self.post.poll();
+        changed |= self.waveform.poll();
         if changed
             || self.track.loading
             || self.related.loading
             || self.comments.loading
             || self.favoriters.loading
+            || self.waveform.loading
         {
             ui.ctx().request_repaint();
         }
@@ -220,6 +230,30 @@ impl TrackView {
                 ));
             });
         });
+
+        // 波形シーク (RoomFloor 相当。コメントレーンは未対応)。
+        if let Some(wave_url) = track.waveform_url.clone() {
+            if self.wave_key.as_deref() != Some(wave_url.as_str()) {
+                self.waveform = Query::default();
+                self.wave_key = Some(wave_url.clone());
+                self.waveform.request(rt, async move {
+                    waveform::fetch_samples(&wave_url).await
+                });
+            }
+        }
+        let duration = player
+            .duration_secs
+            .unwrap_or_else(|| track.duration_secs());
+        let progress = match (audio, duration) {
+            (Some(a), d) if d > 0.0 => (engine::get_position(a) / d).clamp(0.0, 1.0) as f32,
+            _ => 0.0,
+        };
+        if self.wave_key.is_some() {
+            ui.separator();
+            if let Some(frac) = waveform::show(ui, &self.waveform, progress, 96.0, accent) {
+                action = TrackAction::Seek(frac);
+            }
+        }
 
         // 対応: RoomSleeve の favoriters (アバター帯。クリックでユーザへ)。
         if let Some(paged) = self.favoriters.data.as_ref() {

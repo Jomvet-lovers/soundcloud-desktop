@@ -14,6 +14,7 @@ use crate::backend::models::Track;
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
+use crate::widgets;
 
 pub enum TagAction {
     None,
@@ -80,6 +81,7 @@ impl TagView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> TagAction {
         let _ = (audio, cache);
@@ -94,7 +96,7 @@ impl TagView {
         }
         let mut action = TagAction::None;
 
-        ui.heading(format!("#{tag}"));
+        widgets::section_header(ui, &format!("#{tag}"), None);
 
         ui.horizontal(|ui| {
             for sort in TagSort::ALL {
@@ -141,7 +143,7 @@ impl TagView {
             } else {
                 ui.horizontal_wrapped(|ui| {
                     for track in &page.collection {
-                        if Self::track_card(ui, rt, images, player, track) {
+                        if Self::track_card(ui, rt, images, player, track, accent) {
                             action = TagAction::PlayTrack(track.clone());
                         }
                     }
@@ -167,43 +169,16 @@ impl TagView {
         action
     }
 
-    /// 1カード描画 (`views/home.rs` の `track_card` と同形)。戻り値はクリックされたか。
+    /// 1カード描画。戻り値はクリックされたか。
     fn track_card(
         ui: &mut egui::Ui,
         rt: &tokio::runtime::Handle,
         images: &mut Images,
         player: &PlayerState,
         track: &Track,
+        accent: egui::Color32,
     ) -> bool {
-        let is_current = player
-            .current_title
-            .as_deref()
-            .map(|t| t == track.display_title())
-            .unwrap_or(false)
-            && player.is_playing;
-        let mut clicked = false;
-        ui.vertical(|ui| {
-            ui.set_max_width(140.0);
-            let art = track.artwork("t300x300");
-            if images.show(ui, rt, art.as_deref(), 132.0).clicked() {
-                clicked = true;
-            }
-            let title = if is_current {
-                format!("▶ {}", track.display_title())
-            } else {
-                track.display_title().to_string()
-            };
-            ui.add(
-                egui::Label::new(title)
-                    .truncate()
-                    .wrap_mode(egui::TextWrapMode::Truncate),
-            );
-            ui.add(
-                egui::Label::new(track.artist_name())
-                    .truncate()
-                    .wrap_mode(egui::TextWrapMode::Truncate),
-            );
-        });
-        clicked
+        let playing = widgets::is_currently_playing(player, track);
+        widgets::track_card(ui, rt, images, track, 132.0, playing, accent).clicked()
     }
 }

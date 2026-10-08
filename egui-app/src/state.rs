@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver, UnboundedSender},
     oneshot,
@@ -204,13 +205,13 @@ fn shuffled_next(len: usize, current: usize) -> usize {
 
 /// `desktop/src/stores/settings.ts` 対応 (Phase 0 は subset)。
 /// 既定アクセントは SoundCloud オレンジ `#ff5500`。
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsState {
     pub accent: [u8; 3],
     pub theme_preset: ThemePreset,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum ThemePreset {
     #[default]
     SoundCloud,
@@ -266,7 +267,8 @@ pub struct AppState {
     pub file_path_input: String,
     pub last_sync_error: Option<String>,
     pub api: Option<ApiClient>,
-    pub queue_open: bool,    pub home: HomeView,
+    pub queue_open: bool,
+    pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
     pub library: LibraryView,
@@ -286,8 +288,8 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // 現行はダーク専用のため egui もダーク既定。テーマ切替は Phase 3。
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        crate::theme::install_fonts(&cc.egui_ctx);
+        crate::theme::install_text_styles(&cc.egui_ctx);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -306,7 +308,7 @@ impl AppState {
         Self {
             route: Route::Home,
             player: PlayerState::default(),
-            settings: SettingsState::default(),
+            settings: crate::backend::prefs::load().unwrap_or_default(),
             runtime,
             events_rx,
             events_tx,
@@ -319,6 +321,7 @@ impl AppState {
             last_sync_error: None,
             api,
             queue_open: false,
+            theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
             tag: TagView::default(),

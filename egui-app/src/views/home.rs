@@ -9,7 +9,8 @@ use crate::backend::audio::state::AudioState;
 use crate::backend::models::{DiscoverMixed, ScUser, Track};
 use crate::images::Images;
 use crate::query::Query;
-use crate::state::PlayerState;
+use crate::state::{PlayerState, SettingsState};
+use crate::widgets::{self, is_currently_playing};
 
 pub enum HomeAction {
     None,
@@ -48,6 +49,7 @@ impl HomeView {
         images: &mut Images,
         player: &mut PlayerState,
         audio: Option<&Arc<AudioState>>,
+        settings: &SettingsState,
         ui: &mut egui::Ui,
     ) -> HomeAction {
         let Some(api) = api else {
@@ -101,14 +103,14 @@ impl HomeView {
         ui.heading(greeting(user_name.as_deref()));
 
         ui.separator();
-        ui.horizontal(|ui| {
-            ui.heading("Liked Tracks");
-            if let Some(tracks) = self.likes.data.as_ref() {
-                if !tracks.is_empty() {
-                    ui.label(format!("{} tracks", tracks.len()));
-                }
-            }
-        });
+        let accent = widgets::accent_color(settings);
+        let liked_count = self
+            .likes
+            .data
+            .as_ref()
+            .map(|t| t.len())
+            .filter(|&n| n > 0);
+        widgets::section_header(ui, "Liked Tracks", liked_count);
 
         if self.likes.loading && self.likes.data.is_none() {
             ui.label("Loading...");
@@ -121,12 +123,13 @@ impl HomeView {
             if tracks.is_empty() {
                 ui.label("No liked tracks yet");
             } else {
+                let _ = audio;
                 ui.horizontal_wrapped(|ui| {
                     for track in tracks.iter().take(60) {
-                        if let HomeAction::PlayTrack(_) = action {
-                            // 最初の1件のみ処理済み扱いはしない (複数クリックは最後が勝つ)
-                        }
-                        if Self::track_card(ui, rt, images, player, audio, track) {
+                        let playing = is_currently_playing(player, track);
+                        if widgets::track_card(ui, rt, images, track, 132.0, playing, accent)
+                            .clicked()
+                        {
                             action = HomeAction::PlayTrack(track.clone());
                         }
                     }
@@ -174,47 +177,5 @@ impl HomeView {
         }
 
         action
-    }
-
-    /// 1カード描画。戻り値はクリックされたか。
-    fn track_card(
-        ui: &mut egui::Ui,
-        rt: &tokio::runtime::Handle,
-        images: &mut Images,
-        player: &PlayerState,
-        audio: Option<&Arc<AudioState>>,
-        track: &Track,
-    ) -> bool {
-        let _ = audio;
-        let is_current = player
-            .current_title
-            .as_deref()
-            .map(|t| t == track.display_title())
-            .unwrap_or(false)
-            && player.is_playing;
-        let mut clicked = false;
-        ui.vertical(|ui| {
-            ui.set_max_width(140.0);
-            let art = track.artwork("t300x300");
-            if images.show(ui, rt, art.as_deref(), 132.0).clicked() {
-                clicked = true;
-            }
-            let title = if is_current {
-                format!("▶ {}", track.display_title())
-            } else {
-                track.display_title().to_string()
-            };
-            ui.add(
-                egui::Label::new(title)
-                    .truncate()
-                    .wrap_mode(egui::TextWrapMode::Truncate),
-            );
-            ui.add(
-                egui::Label::new(track.artist_name())
-                    .truncate()
-                    .wrap_mode(egui::TextWrapMode::Truncate),
-            );
-        });
-        clicked
     }
 }

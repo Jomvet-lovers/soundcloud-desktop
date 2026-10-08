@@ -12,6 +12,7 @@ use crate::backend::models::{Paged, Playlist, ScUser, Track, tracks_from_value};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
+use crate::widgets;
 
 pub enum LibraryAction {
     None,
@@ -74,6 +75,7 @@ fn history_entry_to_track(entry: &HistoryEntry) -> Track {
         duration: entry.duration,
         artwork_url: entry.artwork_url.clone(),
         permalink_url: None,
+        waveform_url: None,
         genre: None,
         playback_count: None,
         likes_count: None,
@@ -171,6 +173,7 @@ impl LibraryView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> LibraryAction {
         let _ = audio;
@@ -262,10 +265,8 @@ impl LibraryView {
         match self.tab {
             LibraryTab::Likes => {
                 ui.horizontal(|ui| {
-                    ui.heading("Liked Tracks");
-                    if let Some(tracks) = self.likes.data.as_ref() {
-                        ui.label(format!("{} tracks", tracks.len()));
-                    }
+                    let count = self.likes.data.as_ref().map(|t| t.len());
+                    widgets::section_header(ui, "Liked Tracks", count);
                     if ui.small_button("See all").clicked() {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
@@ -281,10 +282,9 @@ impl LibraryView {
                         format!("Likes unavailable: {err}"),
                     );
                 } else if let Some(tracks) = self.likes.data.clone() {
-                    let rows: Vec<(usize, Track)> = tracks
+                    let rows: Vec<Track> = tracks
                         .into_iter()
-                        .enumerate()
-                        .filter(|(_, t)| {
+                        .filter(|t| {
                             needle.is_empty()
                                 || t.title.to_lowercase().contains(&needle)
                                 || t.artist_name().to_lowercase().contains(&needle)
@@ -296,8 +296,8 @@ impl LibraryView {
                         egui::ScrollArea::vertical()
                             .id_salt("library:likes")
                             .show(ui, |ui| {
-                                for (i, track) in &rows {
-                                    if Self::track_row(ui, rt, images, player, *i, track) {
+                                for track in &rows {
+                                    if Self::track_row(ui, rt, images, player, track, accent) {
                                         action = LibraryAction::PlayTrack(track.clone());
                                     }
                                 }
@@ -307,7 +307,7 @@ impl LibraryView {
             }
             LibraryTab::Playlists => {
                 ui.horizontal(|ui| {
-                    ui.heading("Playlists");
+                    widgets::section_header(ui, "Playlists", None);
                     if ui.small_button("See all").clicked() {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
@@ -328,7 +328,7 @@ impl LibraryView {
                             })
                             .collect();
                         if !rows.is_empty() {
-                            ui.label(format!("Your Playlists ({})", rows.len()));
+                            widgets::section_header(ui, "Your Playlists", Some(rows.len()));
                             egui::ScrollArea::vertical()
                                 .id_salt("library:my-playlists")
                                 .max_height(280.0)
@@ -352,7 +352,7 @@ impl LibraryView {
                             })
                             .collect();
                         if !rows.is_empty() {
-                            ui.label(format!("Liked Playlists ({})", rows.len()));
+                            widgets::section_header(ui, "Liked Playlists", Some(rows.len()));
                             egui::ScrollArea::vertical()
                                 .id_salt("library:liked-playlists")
                                 .max_height(280.0)
@@ -372,10 +372,8 @@ impl LibraryView {
             }
             LibraryTab::Following => {
                 ui.horizontal(|ui| {
-                    ui.heading("Following");
-                    if let Some(users) = self.followings.data.as_ref() {
-                        ui.label(format!("{} artists", users.len()));
-                    }
+                    let count = self.followings.data.as_ref().map(|u| u.len());
+                    widgets::section_header(ui, "Following", count);
                     if ui.small_button("See all").clicked() {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
@@ -417,7 +415,7 @@ impl LibraryView {
             }
             LibraryTab::History => {
                 ui.horizontal(|ui| {
-                    ui.heading("History");
+                    widgets::section_header(ui, "History", None);
                     if ui.small_button("See all").clicked() {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
@@ -461,48 +459,12 @@ impl LibraryView {
         rt: &tokio::runtime::Handle,
         images: &mut Images,
         player: &PlayerState,
-        index: usize,
         track: &Track,
+        accent: egui::Color32,
     ) -> bool {
-        let is_current = player
-            .current_title
-            .as_deref()
-            .map(|t| t == track.display_title())
-            .unwrap_or(false)
-            && player.is_playing;
-        let mut clicked = false;
-        ui.horizontal(|ui| {
-            ui.label(format!("{}.", index + 1));
-            let art = track.artwork("t200x200");
-            if images.show(ui, rt, art.as_deref(), 40.0).clicked() {
-                clicked = true;
-            }
-            ui.vertical(|ui| {
-                ui.set_max_width(320.0);
-                let title = if is_current {
-                    format!("▶ {}", track.display_title())
-                } else {
-                    track.display_title().to_string()
-                };
-                ui.add(
-                    egui::Label::new(title)
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-                ui.add(
-                    egui::Label::new(track.artist_name())
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("▶").clicked() {
-                    clicked = true;
-                }
-                ui.label(fmt_duration(track.duration));
-            });
-        });
-        clicked
+        let playing = widgets::is_currently_playing(player, track);
+        let dur = fmt_duration(track.duration);
+        widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur)).clicked()
     }
 
     /// 1プレイリスト行。戻り値は遷移クリックされたか。
@@ -575,12 +537,10 @@ impl LibraryView {
         player: &PlayerState,
         entry: &HistoryEntry,
     ) -> bool {
-        let is_current = player
-            .current_title
-            .as_deref()
-            .map(|t| t == entry.title)
-            .unwrap_or(false)
-            && player.is_playing;
+        // `HistoryEntry` は `Track` ではないため行描画は手書きのまま。
+        // 判定のみ共通化 (`Track` へ変換してタイトル一致を見る)。
+        let probe = history_entry_to_track(entry);
+        let is_current = widgets::is_currently_playing(player, &probe);
         let mut clicked = false;
         ui.horizontal(|ui| {
             if images

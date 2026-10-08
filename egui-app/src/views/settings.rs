@@ -86,6 +86,7 @@ pub struct SettingsView {
     bg_opacity: f32,
     bg_blur: f32,
     cache_limit_mb: f32,
+    save_status: Option<String>,
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -136,6 +137,19 @@ impl SettingsView {
             SettingsCategory::Storage => self.show_storage(cache, ui),
             SettingsCategory::Account => Self::show_account(api, ui),
         }
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Save").clicked() {
+                match crate::backend::prefs::save(settings) {
+                    Ok(()) => self.save_status = Some("Saved".to_string()),
+                    Err(e) => self.save_status = Some(format!("Save failed: {e}")),
+                }
+            }
+            if let Some(status) = self.save_status.as_deref() {
+                ui.label(status);
+            }
+        });
 
         SettingsAction::None
     }

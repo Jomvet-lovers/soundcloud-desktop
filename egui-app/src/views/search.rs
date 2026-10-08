@@ -14,6 +14,7 @@ use crate::backend::models::{Playlist, ScUser, Track};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
+use crate::widgets;
 
 pub enum SearchAction {
     None,
@@ -159,6 +160,7 @@ impl SearchView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> SearchAction {
         let _ = (audio, param, cache);
@@ -183,7 +185,7 @@ impl SearchView {
 
         if query.is_empty() {
             // ジャンルウォール (React: 空クエリ → `<GenreGrid/>`)。
-            ui.heading("Browse all genres");
+            widgets::section_header(ui, "Browse all genres", None);
             egui::Grid::new("genre_wall")
                 .num_columns(4)
                 .spacing([8.0, 8.0])
@@ -299,7 +301,7 @@ impl SearchView {
                         ui.label("No results found");
                     } else {
                         for track in &page.collection {
-                            if Self::track_row(ui, rt, images, player, track) {
+                            if Self::track_row(ui, rt, images, player, track, accent) {
                                 action = SearchAction::PlayTrack(track.clone());
                             }
                         }
@@ -421,45 +423,17 @@ impl SearchView {
         action
     }
 
-    /// Track 行。戻り値はクリックされたか。
+    /// Track 行。戻り値はクリックされたか (アートのクリック応答)。
     fn track_row(
         ui: &mut egui::Ui,
         rt: &tokio::runtime::Handle,
         images: &mut Images,
         player: &PlayerState,
         track: &Track,
+        accent: egui::Color32,
     ) -> bool {
-        let is_current = player
-            .current_title
-            .as_deref()
-            .map(|t| t == track.display_title())
-            .unwrap_or(false)
-            && player.is_playing;
-        let mut clicked = false;
-        ui.horizontal(|ui| {
-            if images
-                .show(ui, rt, track.artwork("t120x120").as_deref(), 40.0)
-                .clicked()
-            {
-                clicked = true;
-            }
-            ui.vertical(|ui| {
-                let title = if is_current {
-                    format!("▶ {}", track.display_title())
-                } else {
-                    track.display_title().to_string()
-                };
-                if ui.button(title).clicked() {
-                    clicked = true;
-                }
-                ui.add(
-                    egui::Label::new(track.artist_name())
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-            });
-        });
-        clicked
+        let playing = widgets::is_currently_playing(player, track);
+        widgets::track_row(ui, rt, images, track, playing, accent, None).clicked()
     }
 
     /// 番号なし Prev/Next ページャ (React の `<Pager/>` の簡略版)。

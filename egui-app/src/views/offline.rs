@@ -9,6 +9,7 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::images::Images;
 use crate::state::{PlayerState, Route};
+use crate::widgets;
 
 pub enum OfflineAction {
     None,
@@ -75,6 +76,7 @@ impl OfflineView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> OfflineAction {
         let _ = rt;
@@ -82,11 +84,12 @@ impl OfflineView {
         let _ = player;
         let _ = audio;
         let _ = param;
+        let _ = accent;
 
         let mut action = OfflineAction::None;
         let has_session = api.and_then(|a| a.session_token()).is_some();
 
-        ui.heading("Local library");
+        widgets::section_header(ui, "Local library", None);
         ui.horizontal(|ui| {
             ui.label(if has_session { "online" } else { "offline" });
             if !has_session && ui.button("Sign in").clicked() {

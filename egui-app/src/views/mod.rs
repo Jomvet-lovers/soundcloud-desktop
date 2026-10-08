@@ -11,3 +11,4 @@ pub mod settings;
 pub mod tag;
 pub mod track;
 pub mod user;
+pub mod waveform;

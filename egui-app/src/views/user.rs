@@ -18,6 +18,7 @@ use crate::backend::models::{Playlist, ScUser, Track};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
+use crate::widgets;
 
 pub enum UserAction {
     None,
@@ -256,6 +257,7 @@ impl UserView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> UserAction {
         let _ = audio;
@@ -526,11 +528,11 @@ impl UserView {
                     }
                 } else if let Some(tracks) = self.popular.data.as_ref() {
                     let mut n = 0;
-                    for (i, t) in tracks.iter().enumerate() {
+                    for t in tracks.iter() {
                         if !track_matches(t, &needle) {
                             continue;
                         }
-                        if Self::track_row(ui, rt, images, player, t, i) {
+                        if Self::track_row(ui, rt, images, player, t, accent) {
                             action = UserAction::PlayTrack(t.clone());
                         }
                         n += 1;
@@ -542,11 +544,11 @@ impl UserView {
             }
             UserTab::Tracks => {
                 let mut n = 0;
-                for (i, t) in self.tracks.items.iter().enumerate() {
+                for t in self.tracks.items.iter() {
                     if !track_matches(t, &needle) {
                         continue;
                     }
-                    if Self::track_row(ui, rt, images, player, t, i) {
+                    if Self::track_row(ui, rt, images, player, t, accent) {
                         action = UserAction::PlayTrack(t.clone());
                     }
                     n += 1;
@@ -612,9 +614,8 @@ impl UserView {
                 if self.likes.loading && self.likes.data.is_none() {
                     ui.label("Loading...");
                 } else if let Some(page) = self.likes.data.as_ref() {
-                    for (i, t) in page.collection.iter().enumerate() {
-                        let idx = self.likes_page * 30 + i;
-                        if Self::track_row(ui, rt, images, player, t, idx) {
+                    for t in page.collection.iter() {
+                        if Self::track_row(ui, rt, images, player, t, accent) {
                             action = UserAction::PlayTrack(t.clone());
                         }
                     }
@@ -808,50 +809,22 @@ impl UserView {
     }
 
     /// One track row. Returns true when playback was requested.
+    /// (`plays` 数は右端の duration 表示に畳んで温存する。)
     fn track_row(
         ui: &mut egui::Ui,
         rt: &tokio::runtime::Handle,
         images: &mut Images,
         player: &PlayerState,
         track: &Track,
-        index: usize,
+        accent: egui::Color32,
     ) -> bool {
-        let mut play = false;
-        ui.horizontal(|ui| {
-            ui.label(format!("{}.", index + 1));
-            let art = track.artwork("t300x300");
-            if images.show(ui, rt, art.as_deref(), 40.0).clicked() {
-                play = true;
-            }
-            ui.vertical(|ui| {
-                let is_current = player
-                    .current_title
-                    .as_deref()
-                    .map(|t| t == track.display_title())
-                    .unwrap_or(false)
-                    && player.is_playing;
-                let title = if is_current {
-                    format!("▶ {}", track.display_title())
-                } else {
-                    track.display_title().to_string()
-                };
-                ui.add(
-                    egui::Label::new(title)
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-                ui.label(format!(
-                    "{} · {} plays · {}",
-                    track.artist_name(),
-                    track.playback_count.unwrap_or(0),
-                    fmt_dur_ms(track.duration),
-                ));
-            });
-            if ui.button("Play").clicked() {
-                play = true;
-            }
-        });
-        play
+        let playing = widgets::is_currently_playing(player, track);
+        let meta = format!(
+            "{} plays · {}",
+            track.playback_count.unwrap_or(0),
+            fmt_dur_ms(track.duration),
+        );
+        widgets::track_row(ui, rt, images, track, playing, accent, Some(&meta)).clicked()
     }
 
     /// One playlist card. Returns true when navigation was requested.

@@ -15,6 +15,7 @@ use crate::backend::models::Track;
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
+use crate::widgets;
 
 pub enum ArtistAction {
     None,
@@ -214,6 +215,7 @@ impl ArtistView {
         audio: Option<&Arc<AudioState>>,
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> ArtistAction {
         let _ = audio;
@@ -454,6 +456,7 @@ impl ArtistView {
                     self.primary.loading,
                     &mut self.primary_sort,
                     "No tracks",
+                    accent,
                     &mut action,
                 );
             }
@@ -467,6 +470,7 @@ impl ArtistView {
                     self.featured.loading,
                     &mut self.featured_sort,
                     "No appearances",
+                    accent,
                     &mut action,
                 );
             }
@@ -561,7 +565,7 @@ impl ArtistView {
                 }
             }
             ArtistTab::About => {
-                ui.heading("About");
+                widgets::section_header(ui, "About", None);
                 match artist.bio.as_deref() {
                     Some(bio) if !bio.is_empty() => {
                         ui.label(bio);
@@ -580,7 +584,7 @@ impl ArtistView {
                     ));
                 });
                 if !artist.sc_accounts.is_empty() {
-                    ui.heading("SoundCloud accounts");
+                    widgets::section_header(ui, "SoundCloud accounts", None);
                     for acc in &artist.sc_accounts {
                         let role = match acc.role.as_str() {
                             "main" => "Main",
@@ -599,7 +603,7 @@ impl ArtistView {
                     }
                 }
                 if !artist.socials.is_empty() {
-                    ui.heading("Links");
+                    widgets::section_header(ui, "Links", None);
                     for s in &artist.socials {
                         ui.horizontal(|ui| {
                             ui.hyperlink_to(social_label(&s.kind), &s.url);
@@ -633,6 +637,7 @@ impl ArtistView {
         loading: bool,
         sort: &mut TracksSort,
         empty_text: &str,
+        accent: egui::Color32,
         action: &mut ArtistAction,
     ) {
         ui.horizontal(|ui| {
@@ -658,8 +663,8 @@ impl ArtistView {
             if tracks.is_empty() {
                 ui.label(empty_text);
             }
-            for (i, t) in tracks.iter().enumerate() {
-                if Self::track_row(ui, rt, images, player, t, i) {
+            for t in tracks.iter() {
+                if Self::track_row(ui, rt, images, player, t, accent) {
                     *action = ArtistAction::PlayTrack(t.clone());
                 }
             }
@@ -667,49 +672,21 @@ impl ArtistView {
     }
 
     /// One track row. Returns true when playback was requested.
+    /// (`plays` 数は右端の duration 表示に畳んで温存する。)
     fn track_row(
         ui: &mut egui::Ui,
         rt: &tokio::runtime::Handle,
         images: &mut Images,
         player: &PlayerState,
         track: &Track,
-        index: usize,
+        accent: egui::Color32,
     ) -> bool {
-        let mut play = false;
-        ui.horizontal(|ui| {
-            ui.label(format!("{}.", index + 1));
-            let art = track.artwork("t300x300");
-            if images.show(ui, rt, art.as_deref(), 40.0).clicked() {
-                play = true;
-            }
-            ui.vertical(|ui| {
-                let is_current = player
-                    .current_title
-                    .as_deref()
-                    .map(|t| t == track.display_title())
-                    .unwrap_or(false)
-                    && player.is_playing;
-                let title = if is_current {
-                    format!("▶ {}", track.display_title())
-                } else {
-                    track.display_title().to_string()
-                };
-                ui.add(
-                    egui::Label::new(title)
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-                ui.label(format!(
-                    "{} · {} plays · {}",
-                    track.artist_name(),
-                    track.playback_count.unwrap_or(0),
-                    fmt_dur_ms(track.duration),
-                ));
-            });
-            if ui.button("Play").clicked() {
-                play = true;
-            }
-        });
-        play
+        let playing = widgets::is_currently_playing(player, track);
+        let meta = format!(
+            "{} plays · {}",
+            track.playback_count.unwrap_or(0),
+            fmt_dur_ms(track.duration),
+        );
+        widgets::track_row(ui, rt, images, track, playing, accent, Some(&meta)).clicked()
     }
 }
