@@ -51,6 +51,19 @@ pub struct TrackView {
     /// Uploader follow state (Tauri: RoomSleeve の FollowBtn)。
     follow: Query<bool>,
     follow_urn: Option<String>,
+    /// FloatingComments: 再生位置が通過したコメントのピル。
+    pills: Vec<FloatingPill>,
+    /// 前フレームの再生位置 (自然進行の検出用)。
+    last_pos: Option<f64>,
+}
+
+/// フローティングコメントのピル (Tauri: FloatingComments)。
+struct FloatingPill {
+    body: String,
+    /// 波形上の位置 (0..1)。
+    pct: f32,
+    /// 消える時刻 (egui time)。
+    until: f64,
 }
 
 /// ミリ秒 → `m:ss`。対応: `desktop/src/lib/formatters.ts` の `dur`。
@@ -75,6 +88,7 @@ impl TrackView {
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
         accent: egui::Color32,
+        floating_comments: bool,
         ui: &mut egui::Ui,
     ) -> TrackAction {
         let _ = audio;
@@ -99,6 +113,8 @@ impl TrackView {
             self.me = Query::default();
             self.follow = Query::default();
             self.follow_urn = None;
+            self.pills.clear();
+            self.last_pos = None;
             self.last_param = param.map(|s| s.to_string());
         }
         let Some(urn) = param else {
@@ -362,14 +378,111 @@ impl TrackView {
         let duration = player
             .duration_secs
             .unwrap_or_else(|| track.duration_secs());
-        let progress = match (audio, duration) {
-            (Some(a), d) if d > 0.0 => (engine::get_position(a) / d).clamp(0.0, 1.0) as f32,
-            _ => 0.0,
+        let pos_secs = audio.map(|a| engine::get_position(a)).unwrap_or(0.0);
+        let progress = if duration > 0.0 {
+            (pos_secs / duration).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
         };
         if self.wave_key.is_some() {
             ui.separator();
-            if let Some(frac) = waveform::show(ui, &self.waveform, progress, 96.0, accent) {
+            // コメント点 (Tauri: WaveVoices)。
+            let duration_ms = duration * 1000.0;
+            let voices: Vec<waveform::WaveVoice> = self
+                .comments
+                .data
+                .as_ref()
+                .map(|paged| {
+                    paged
+                        .collection
+                        .iter()
+                        .filter(|c| c.timestamp.is_some() && !c.text().is_empty())
+                        .map(|c| waveform::WaveVoice {
+                            timestamp_ms: c.timestamp.unwrap_or(0) as f64,
+                            body: c.text().to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let hit = waveform::show(
+                ui,
+                &self.waveform,
+                progress,
+                96.0,
+                accent,
+                &voices,
+                duration_ms,
+            );
+            if let Some(frac) = hit.seek {
                 action = TrackAction::Seek(frac);
+            }
+            if let Some(ms) = hit.comment_seek_ms {
+                if duration > 0.0 {
+                    action = TrackAction::Seek((ms / 1000.0 / duration) as f32);
+                }
+            }
+            // フローティングコメント (Tauri: FloatingComments)。
+            let now = ui.input(|i| i.time);
+            let is_current = player.is_playing
+                && player
+                    .current_title
+                    .as_deref()
+                    .map(|t| t == track.display_title())
+                    .unwrap_or(false);
+            if !floating_comments || !is_current {
+                self.pills.clear();
+                self.last_pos = None;
+            } else if duration > 0.0 {
+                if let Some(prev) = self.last_pos {
+                    let delta = pos_secs - prev;
+                    // 自然進行のみ (シークの飛びは無視)。
+                    if delta > 0.0 && delta < duration * 0.03 {
+                        for v in &voices {
+                            let ts = v.timestamp_ms / 1000.0;
+                            if ts > prev && ts <= pos_secs {
+                                self.pills.push(FloatingPill {
+                                    body: v.body.clone(),
+                                    pct: (v.timestamp_ms / duration_ms) as f32,
+                                    until: now + 5.4,
+                                });
+                            }
+                        }
+                    }
+                }
+                self.last_pos = Some(pos_secs);
+            }
+            self.pills.retain(|p| p.until > now);
+            if self.pills.len() > 3 {
+                let drop_n = self.pills.len() - 3;
+                self.pills.drain(0..drop_n);
+            }
+            if !self.pills.is_empty() && hit.rect != egui::Rect::NOTHING {
+                let painter = ui.painter();
+                let font = egui::FontId::proportional(11.5);
+                let text_color = egui::Color32::from_white_alpha(225);
+                for p in &self.pills {
+                    let galley = painter.layout(p.body.clone(), font.clone(), text_color, 300.0);
+                    let pad = egui::vec2(9.0, 6.0);
+                    let size = galley.size() + pad * 2.0;
+                    let x = (hit.rect.left() + p.pct * hit.rect.width() - size.x / 2.0).clamp(
+                        hit.rect.left(),
+                        (hit.rect.right() - size.x).max(hit.rect.left()),
+                    );
+                    let rect = egui::Rect::from_min_size(
+                        egui::Pos2::new(x, hit.rect.bottom() + 8.0),
+                        size,
+                    );
+                    painter.rect_filled(rect, 7.0, egui::Color32::from_rgb(27, 27, 31));
+                    painter.rect_stroke(
+                        rect,
+                        7.0,
+                        egui::Stroke::new(0.5, egui::Color32::from_white_alpha(26)),
+                        egui::StrokeKind::Inside,
+                    );
+                    painter.galley(rect.min + pad, galley, text_color);
+                }
+                // ピルの寿命で再描画を維持する。
+                ui.ctx().request_repaint();
             }
         }
 

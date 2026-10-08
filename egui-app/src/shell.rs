@@ -601,7 +601,16 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     CollectionAction::None => {}
                 },
                 Route::Track => match state.track.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
+                    api_ref,
+                    &rt,
+                    images,
+                    player,
+                    audio_ref,
+                    param_ref,
+                    cache,
+                    accent,
+                    state.settings.floating_comments,
+                    ui,
                 ) {
                     TrackAction::PlayTrack(track) => {
                         state.play_list(vec![track], 0);

@@ -1,6 +1,7 @@
 //! Phase 3b: 波形シークバー。SC の `_m.json` を取得し自前描画する。
 //! 対応: `desktop/src/components/music/soundwave/waveform.tsx` +
-//! `desktop/src/lib/waveform.ts`。コメントレーンは未対応。
+//! `desktop/src/lib/waveform.ts`。コメント点 (WaveVoices) は `voices` で描く。
+//! フローティングコメント (FloatingComments) は Track ページ側で描画する。
 
 use crate::query::Query;
 
@@ -48,7 +49,23 @@ pub async fn fetch_samples(raw_url: &str) -> Result<Vec<f32>, String> {
     Ok(out)
 }
 
-/// 波形を描く。戻り値はクリックされたシーク位置 (0..1)。
+/// 波形上のコメント点 (Tauri: WaveVoices のドット)。
+pub struct WaveVoice {
+    pub timestamp_ms: f64,
+    pub body: String,
+}
+
+/// 波形の操作結果。
+pub struct WaveHit {
+    /// 波形の描画矩形 (フローティングコメントの配置に使う)。
+    pub rect: egui::Rect,
+    /// 波形クリックによるシーク位置 (0..1)。
+    pub seek: Option<f32>,
+    /// コメント点クリックによるシーク (ms)。
+    pub comment_seek_ms: Option<f64>,
+}
+
+/// 波形を描く (コメント点つき)。`voices` はタイムスタンプ付きコメント。
 /// `query` の取得・poll は呼出側 (Track ページ) が行う。
 pub fn show(
     ui: &mut egui::Ui,
@@ -56,17 +73,24 @@ pub fn show(
     progress: f32,
     height: f32,
     accent: egui::Color32,
-) -> Option<f32> {
+    voices: &[WaveVoice],
+    duration_ms: f64,
+) -> WaveHit {
+    let mut hit = WaveHit {
+        rect: egui::Rect::NOTHING,
+        seek: None,
+        comment_seek_ms: None,
+    };
     if query.loading {
         ui.spinner();
         ui.ctx().request_repaint();
-        return None;
+        return hit;
     }
     let Some(samples) = query.data.as_ref() else {
-        return None;
+        return hit;
     };
     if samples.is_empty() {
-        return None;
+        return hit;
     }
     let width = ui.available_width().max(60.0);
     let n = ((width / 4.0) as usize).clamp(40, 300);
@@ -95,10 +119,30 @@ pub fn show(
             if played { accent } else { dim },
         );
     }
-    if resp.clicked() {
-        if let Some(pos) = resp.interact_pointer_pos() {
-            return Some(((pos.x - rect.left()) / width).clamp(0.0, 1.0));
+    hit.rect = rect;
+    // コメント点 (各タイムスタンプに小さな点。クリックでそこへシーク)。
+    let mut dots: Vec<(egui::Pos2, f64)> = Vec::new();
+    if duration_ms > 0.0 {
+        for v in voices {
+            if v.body.is_empty() {
+                continue;
+            }
+            let pct = (v.timestamp_ms / duration_ms).clamp(0.0, 1.0) as f32;
+            let c = egui::Pos2::new(rect.left() + pct * width, rect.top() + 6.0);
+            painter.circle_filled(c, 4.0, egui::Color32::from_white_alpha(160));
+            painter.circle_stroke(c, 4.0, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(120)));
+            dots.push((c, v.timestamp_ms));
         }
     }
-    None
+    if resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            // 近傍 (8px) のコメント点を優先し、無ければ通常シーク。
+            if let Some((_, ts)) = dots.iter().find(|(c, _)| (c.x - pos.x).abs() <= 8.0) {
+                hit.comment_seek_ms = Some(*ts);
+            } else {
+                hit.seek = Some(((pos.x - rect.left()) / width).clamp(0.0, 1.0));
+            }
+        }
+    }
+    hit
 }

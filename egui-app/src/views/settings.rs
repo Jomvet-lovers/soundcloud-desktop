@@ -87,7 +87,6 @@ impl StartupPage {
 #[derive(Default)]
 pub struct SettingsView {
     active: SettingsCategory,
-    floating_comments: bool,
     bg_dim: f32,
     bg_opacity: f32,
     bg_blur: f32,
@@ -274,7 +273,12 @@ impl SettingsView {
         ui: &mut egui::Ui,
     ) {
         ui.heading("Playback");
-        ui.checkbox(&mut self.floating_comments, "Floating comments");
+        if ui
+            .checkbox(&mut settings.floating_comments, "Floating comments")
+            .changed()
+        {
+            let _ = crate::backend::prefs::save(settings);
+        }
         ui.label("Show comments as floating pills during playback");
         if ui
             .checkbox(&mut settings.normalize_volume, "Volume normalization")

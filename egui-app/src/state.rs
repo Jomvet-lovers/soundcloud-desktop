@@ -393,6 +393,10 @@ pub struct SettingsState {
     /// キュー終端で関連曲を自動継続する (autopilot)。
     #[serde(default = "default_true")]
     pub autopilot: bool,
+    /// コメントを再生中のフローティングピルで表示する
+    /// (Tauri: settings.floatingComments、既定 ON)。
+    #[serde(default = "default_true")]
+    pub floating_comments: bool,
     /// 閉じるボタンでトレイに格納する。
     #[serde(default)]
     pub close_to_tray: bool,
@@ -479,6 +483,7 @@ impl Default for SettingsState {
             search_history: Vec::new(),
             cache_limit_mb: default_cache_limit(),
             autopilot: true,
+            floating_comments: true,
             close_to_tray: false,
         }
     }
