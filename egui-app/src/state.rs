@@ -89,6 +89,8 @@ pub struct PlayerState {
     pub shuffle: bool,
     pub repeat: RepeatMode,
     pub duration_secs: Option<f64>,
+    pub queue: Vec<Track>,
+    pub queue_index: Option<usize>,
 }
 
 impl Default for PlayerState {
@@ -101,8 +103,103 @@ impl Default for PlayerState {
             shuffle: false,
             repeat: RepeatMode::Off,
             duration_secs: None,
+            queue: Vec::new(),
+            queue_index: None,
         }
     }
+}
+
+impl PlayerState {
+    pub fn current_queued(&self) -> Option<&Track> {
+        self.queue_index.and_then(|i| self.queue.get(i))
+    }
+
+    /// キューを置き換えてメタを反映する。読込自体は呼出側が行う。
+    pub fn set_queue(&mut self, tracks: Vec<Track>, index: usize) {
+        let current = tracks.get(index).cloned();
+        self.queue = tracks;
+        self.queue_index = current.as_ref().map(|_| index);
+        match current {
+            Some(t) => {
+                self.current_title = Some(t.display_title().to_string());
+                self.current_artist = Some(t.artist_name().to_string());
+                self.duration_secs = Some(t.duration_secs());
+                self.is_playing = true;
+            }
+            None => {
+                self.queue_index = None;
+                self.is_playing = false;
+            }
+        }
+    }
+
+    pub fn clear_queue(&mut self) {
+        self.queue.clear();
+        self.queue_index = None;
+    }
+
+    /// 手動送り・自動送り共通の次 index。repeat-one は呼出側で処理する。
+    pub fn next_index(&self) -> Option<usize> {
+        let current = self.queue_index?;
+        let len = self.queue.len();
+        if len == 0 {
+            return None;
+        }
+        if self.shuffle && len > 1 {
+            return Some(shuffled_next(len, current));
+        }
+        if current + 1 < len {
+            Some(current + 1)
+        } else if self.repeat == RepeatMode::All {
+            Some(0)
+        } else {
+            None
+        }
+    }
+
+    pub fn prev_index(&self) -> Option<usize> {
+        let current = self.queue_index?;
+        if self.queue.is_empty() {
+            return None;
+        }
+        if self.shuffle && self.queue.len() > 1 {
+            return Some(shuffled_next(self.queue.len(), current));
+        }
+        if current > 0 {
+            Some(current - 1)
+        } else if self.repeat == RepeatMode::All {
+            Some(self.queue.len() - 1)
+        } else {
+            None
+        }
+    }
+
+    pub fn toggle_shuffle(&mut self) {
+        self.shuffle = !self.shuffle;
+    }
+
+    pub fn cycle_repeat(&mut self) {
+        self.repeat = match self.repeat {
+            RepeatMode::Off => RepeatMode::All,
+            RepeatMode::All => RepeatMode::One,
+            RepeatMode::One => RepeatMode::Off,
+        };
+    }
+}
+
+fn shuffled_next(len: usize, current: usize) -> usize {
+    if len <= 1 {
+        return current;
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as usize)
+        .unwrap_or(0);
+    let mut next = (current + 1 + nanos) % len;
+    if next == current {
+        next = (next + 1) % len;
+    }
+    next
 }
 
 /// `desktop/src/stores/settings.ts` 対応 (Phase 0 は subset)。
@@ -169,7 +266,7 @@ pub struct AppState {
     pub file_path_input: String,
     pub last_sync_error: Option<String>,
     pub api: Option<ApiClient>,
-    pub home: HomeView,
+    pub queue_open: bool,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
     pub library: LibraryView,
@@ -221,6 +318,7 @@ impl AppState {
             file_path_input: String::new(),
             last_sync_error: None,
             api,
+            queue_open: false,
             home: HomeView::default(),
             search: SearchView::default(),
             tag: TagView::default(),
@@ -276,16 +374,38 @@ impl AppState {
         self.load_error = None;
     }
 
-    /// SoundCloud トラックのストリーム再生を開始する。
+    /// SoundCloud トラックのストリーム再生を開始する (単曲=1件キュー)。
     pub fn play_stream(&mut self, track: &Track, url: String) {
+        let queue = vec![track.clone()];
+        self.player.set_queue(queue, 0);
+        self.load_error = None;
+        self.load_stream(track, url);
+    }
+
+    /// キュー内 index のトラックを再生する。
+    pub fn play_queue_index(&mut self, index: usize) {
+        let track = match self.player.queue.get(index).cloned() {
+            Some(t) => t,
+            None => return,
+        };
+        let url = match self
+            .api
+            .as_ref()
+            .map(|a| a.stream_url(&track.urn, false))
+        {
+            Some(u) => u,
+            None => return,
+        };
+        let queue = std::mem::take(&mut self.player.queue);
+        self.player.set_queue(queue, index);
+        self.load_error = None;
+        self.load_stream(&track, url);
+    }
+
+    /// メタ反映済みを前提にストリーム読込だけ行う。
+    fn load_stream(&mut self, track: &Track, url: String) {
         let title = track.display_title().to_string();
         let artist = track.artist_name().to_string();
-        self.player.current_title = Some(title.clone());
-        self.player.current_artist = Some(artist.clone());
-        // メタの duration を仮置きし、読込完了で確定値に更新する。
-        self.player.duration_secs = Some(track.duration_secs());
-        self.player.is_playing = true;
-        self.load_error = None;
         let Some(audio) = self.audio().cloned() else {
             self.load_error = Some("no audio device".to_string());
             self.player.is_playing = false;
@@ -312,8 +432,74 @@ impl AppState {
 
     /// キャッシュ済みファイルの再生 (Offline ページ用)。
     pub fn play_file(&mut self, path: String) {
+        let stem = std::path::Path::new(&path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        self.player.set_queue(
+            vec![Track {
+                urn: format!("file:{path}"),
+                title: stem,
+                ..Default::default()
+            }],
+            0,
+        );
         self.file_path_input = path;
         self.start_file_load();
+    }
+
+    pub fn next_track(&mut self) {
+        match self.player.next_index() {
+            Some(i) => self.play_queue_index(i),
+            None => self.stop_playback(),
+        }
+    }
+
+    /// 対応: React の `handlePrev`。3秒超えは先頭に戻す。
+    pub fn prev_track(&mut self, pos_secs: f64) {
+        if pos_secs > 3.0 {
+            if let Some(audio) = self.audio().cloned() {
+                let _ = crate::backend::audio::engine::seek(0.0, &audio);
+            }
+            return;
+        }
+        if let Some(i) = self.player.prev_index() {
+            self.play_queue_index(i);
+        }
+    }
+
+    pub fn stop_playback(&mut self) {
+        if let Some(audio) = self.audio() {
+            crate::backend::audio::engine::stop(audio);
+        }
+        self.player.is_playing = false;
+    }
+
+    /// 再生履歴を記録する (fire-and-forget)。repeat-one のループは除く。
+    /// 対応: `desktop/src/lib/audio.ts` の `afterLoad`。
+    fn record_history(&self) {
+        if self.player.repeat == RepeatMode::One {
+            return;
+        }
+        let (Some(api), Some(index)) = (self.api.clone(), self.player.queue_index) else {
+            return;
+        };
+        let track = match self.player.queue.get(index).cloned() {
+            Some(t) if !t.urn.starts_with("file:") => t,
+            _ => return,
+        };
+        let rt = self.runtime.handle().clone();
+        rt.spawn(async move {
+            let body = serde_json::json!({
+                "scTrackId": track.urn,
+                "title": track.display_title(),
+                "artistName": track.artist_name(),
+                "artistUrn": track.user.as_ref().map(|u| &u.urn),
+                "artworkUrl": track.artwork_url,
+                "duration": track.duration,
+            });
+            let _ = api.request_json("POST", "/history", Some(&body)).await;
+        });
     }
 
     /// ログイン/ログアウト後の再取得のため全ビューの取得状態を捨てる。
@@ -381,7 +567,17 @@ impl AppState {
             }
         }
         if ended {
-            self.player.is_playing = false;
+            if self.player.repeat == RepeatMode::One {
+                if let Some(audio) = self.audio().cloned() {
+                    let _ = crate::backend::audio::engine::seek(0.0, &audio);
+                    crate::backend::audio::engine::play(&audio);
+                }
+                self.player.is_playing = true;
+            } else if let Some(i) = self.player.next_index() {
+                self.play_queue_index(i);
+            } else {
+                self.player.is_playing = false;
+            }
         }
         if sync_error.is_some() {
             self.last_sync_error = sync_error;
@@ -416,15 +612,122 @@ impl AppState {
                             self.player.current_artist = None;
                         }
                     }
-                    self.player.duration_secs = duration;
+                    if duration.is_some() {
+                        self.player.duration_secs = duration;
+                    }
                     self.player.is_playing = true;
                     self.load_error = None;
+                    self.record_history();
                 }
                 Err(e) => {
                     self.load_error = Some(e);
                     self.player.is_playing = false;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track(urn: &str) -> Track {
+        Track {
+            urn: urn.to_string(),
+            title: format!("t-{urn}"),
+            duration: 180_000,
+            ..Default::default()
+        }
+    }
+
+    fn queued(n: usize) -> PlayerState {
+        let mut s = PlayerState::default();
+        let tracks: Vec<Track> = (0..n).map(|i| track(&format!("urn-{i}"))).collect();
+        s.set_queue(tracks, 0);
+        s
+    }
+
+    #[test]
+    fn set_queue_reflects_meta_and_index() {
+        let mut s = PlayerState::default();
+        s.set_queue(vec![track("a"), track("b"), track("c")], 1);
+        assert_eq!(s.queue.len(), 3);
+        assert_eq!(s.queue_index, Some(1));
+        assert_eq!(s.current_title.as_deref(), Some("t-b"));
+        assert_eq!(s.current_artist.as_deref(), Some("Unknown artist"));
+        assert_eq!(s.duration_secs, Some(180.0));
+        assert!(s.is_playing);
+    }
+
+    #[test]
+    fn next_linear_and_terminal_none_when_off() {
+        let mut s = queued(3);
+        assert_eq!(s.repeat, RepeatMode::Off);
+        assert_eq!(s.queue_index, Some(0));
+        assert_eq!(s.next_index(), Some(1));
+        s.queue_index = Some(1);
+        assert_eq!(s.next_index(), Some(2));
+        s.queue_index = Some(2);
+        assert_eq!(s.next_index(), None);
+    }
+
+    #[test]
+    fn next_wraps_when_all() {
+        let mut s = queued(3);
+        s.repeat = RepeatMode::All;
+        s.queue_index = Some(2);
+        assert_eq!(s.next_index(), Some(0));
+    }
+
+    #[test]
+    fn prev_steps_back_and_head_none_when_off() {
+        let mut s = queued(3);
+        s.queue_index = Some(2);
+        assert_eq!(s.prev_index(), Some(1));
+        s.queue_index = Some(1);
+        assert_eq!(s.prev_index(), Some(0));
+        s.queue_index = Some(0);
+        assert_eq!(s.prev_index(), None);
+    }
+
+    #[test]
+    fn prev_wraps_to_last_when_all() {
+        let mut s = queued(3);
+        s.repeat = RepeatMode::All;
+        s.queue_index = Some(0);
+        assert_eq!(s.prev_index(), Some(2));
+    }
+
+    #[test]
+    fn cycle_repeat_follows_off_all_one_off() {
+        let mut s = PlayerState::default();
+        assert_eq!(s.repeat, RepeatMode::Off);
+        s.cycle_repeat();
+        assert_eq!(s.repeat, RepeatMode::All);
+        s.cycle_repeat();
+        assert_eq!(s.repeat, RepeatMode::One);
+        s.cycle_repeat();
+        assert_eq!(s.repeat, RepeatMode::Off);
+    }
+
+    #[test]
+    fn toggle_shuffle_flips() {
+        let mut s = PlayerState::default();
+        assert!(!s.shuffle);
+        s.toggle_shuffle();
+        assert!(s.shuffle);
+        s.toggle_shuffle();
+        assert!(!s.shuffle);
+    }
+
+    #[test]
+    fn shuffle_next_stays_in_range() {
+        let mut s = queued(5);
+        s.shuffle = true;
+        for _ in 0..50 {
+            let next = s.next_index().expect("shuffled next");
+            assert!(next < 5);
         }
     }
 }

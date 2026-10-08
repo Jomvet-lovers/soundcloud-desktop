@@ -2,7 +2,7 @@
 //! 対応: `desktop/src/components/layout/{AppShell,Sidebar,NowPlayingBar}.tsx`。
 //! トランスポート (再生/停止/シーク/音量) とファイル読込を backend に直結する。
 
-use super::state::{AppState, LoadState, Route};
+use super::state::{AppState, LoadState, RepeatMode, Route};
 use crate::backend::audio::engine;
 use crate::views::{
     album::AlbumAction, artist::ArtistAction, collection::CollectionAction, home::HomeAction,
@@ -56,6 +56,55 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
         }
     });
 
+    if state.queue_open {
+        egui::Panel::right("queue").show(ui, |ui| {
+            ui.heading("Queue");
+            let mut jump: Option<usize> = None;
+            let mut remove: Option<usize> = None;
+            let current = state.player.queue_index;
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for (i, t) in state.player.queue.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        let label = format!("{} — {}", t.display_title(), t.artist_name());
+                        if ui.selectable_label(Some(i) == current, label).clicked() {
+                            jump = Some(i);
+                        }
+                        if ui.small_button("x").clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                }
+            });
+            if let Some(i) = remove {
+                if i < state.player.queue.len() {
+                    state.player.queue.remove(i);
+                }
+                match state.player.queue_index {
+                    Some(_) if state.player.queue.is_empty() => {
+                        state.player.queue_index = None;
+                    }
+                    Some(c) if c == i => {
+                        state.player.queue_index =
+                            Some(i.min(state.player.queue.len().saturating_sub(1)));
+                    }
+                    Some(c) if c > i => {
+                        state.player.queue_index = Some(c - 1);
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(i) = jump {
+                state.play_queue_index(i);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Clear").clicked() {
+                    state.player.clear_queue();
+                }
+                ui.label(format!("{} tracks", state.player.queue.len()));
+            });
+        });
+    }
+
     egui::Panel::bottom("now_playing").show(ui, |ui| {
         ui.horizontal(|ui| {
             let audio = state.audio().cloned();
@@ -82,6 +131,40 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     engine::stop(audio);
                     state.player.is_playing = false;
                 }
+            }
+            let pos0 = audio.as_ref().map(|a| engine::get_position(a)).unwrap_or(0.0);
+            if ui
+                .add_enabled(has_audio, egui::Button::new("Prev"))
+                .clicked()
+            {
+                state.prev_track(pos0);
+            }
+            if ui
+                .add_enabled(has_audio, egui::Button::new("Next"))
+                .clicked()
+            {
+                state.next_track();
+            }
+            if ui
+                .selectable_label(state.player.shuffle, "Shuffle")
+                .clicked()
+            {
+                state.player.toggle_shuffle();
+            }
+            let repeat_label = match state.player.repeat {
+                RepeatMode::Off => "Repeat: Off",
+                RepeatMode::All => "Repeat: All",
+                RepeatMode::One => "Repeat: One",
+            };
+            if ui
+                .selectable_label(state.player.repeat != RepeatMode::Off, repeat_label)
+                .clicked()
+            {
+                state.player.cycle_repeat();
+            }
+            let queue_label = format!("Queue ({})", state.player.queue.len());
+            if ui.button(queue_label).clicked() {
+                state.queue_open = !state.queue_open;
             }
 
             let (pos, dur) = match &audio {
