@@ -149,8 +149,8 @@ fn format_fd_snapshot(snapshot: &FdSnapshot) -> String {
 }
 
 #[cfg(target_os = "linux")]
-pub fn start_linux_fd_monitor() {
-    tokio::spawn(async move {
+pub fn start_linux_fd_monitor(rt: &tokio::runtime::Handle) {
+    rt.spawn(async move {
         let mut high_water = 0usize;
         let mut last_warn_bucket = 0u64;
         let mut last_critical_bucket = 0u64;
@@ -228,4 +228,4 @@ pub fn start_linux_fd_monitor() {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn start_linux_fd_monitor() {}
+pub fn start_linux_fd_monitor(_rt: &tokio::runtime::Handle) {}

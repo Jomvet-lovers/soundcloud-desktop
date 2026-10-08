@@ -153,6 +153,7 @@ fn smoke() -> eframe::Result {
             return Ok(());
         }
         backend::weblogin::open_login_window(
+            runtime.handle(),
             handle.direct.clone(),
             handle.session.clone(),
             backend::events::EventBus::null(),

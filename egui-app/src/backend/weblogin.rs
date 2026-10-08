@@ -26,7 +26,14 @@ const MAX_COOKIE_ERRORS: u32 = 30;
 static WATCHING: AtomicBool = AtomicBool::new(false);
 
 /// Open (or focus) the login window and watch for its cookie.
-pub fn open_login_window(direct: Arc<DirectState>, session: Arc<SessionStore>, bus: EventBus) {
+/// `rt` must be the app runtime: this is called from the egui UI thread,
+/// which has no ambient Tokio context.
+pub fn open_login_window(
+    rt: &tokio::runtime::Handle,
+    direct: Arc<DirectState>,
+    session: Arc<SessionStore>,
+    bus: EventBus,
+) {
     let Some(host) = webhost::host() else {
         bus.emit(
             EVENT,
@@ -36,13 +43,13 @@ pub fn open_login_window(direct: Arc<DirectState>, session: Arc<SessionStore>, b
     };
     if WATCHING.swap(true, Ordering::SeqCst) {
         let h = host.clone();
-        tokio::spawn(async move {
+        rt.spawn(async move {
             h.login_show().await;
             h.login_focus().await;
         });
         return;
     }
-    tokio::spawn(async move {
+    rt.spawn(async move {
         watch(host, direct, session, bus).await;
         WATCHING.store(false, Ordering::SeqCst);
     });

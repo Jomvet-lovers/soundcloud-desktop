@@ -108,7 +108,7 @@ pub fn boot(rt: &tokio::runtime::Runtime, bus: EventBus) -> Result<BootHandle, S
         };
 
     diagnostics::mark_session_started();
-    diagnostics::start_linux_fd_monitor();
+    diagnostics::start_linux_fd_monitor(rt.handle());
 
     Ok(BootHandle {
         bus,

@@ -427,6 +427,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     LoginAction::OpenLogin => {
                         if let Some(b) = &state.backend {
                             crate::backend::weblogin::open_login_window(
+                                &rt,
                                 b.direct.clone(),
                                 b.session.clone(),
                                 b.bus.clone(),
