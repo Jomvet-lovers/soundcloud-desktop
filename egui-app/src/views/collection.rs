@@ -20,6 +20,8 @@ pub enum CollectionAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (リスト全体がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// いいね一覧の再生 (最後まで継続ソース付き)。
+    PlayLikes(Vec<Track>, usize),
     /// 右クリックメニューを開く。
     OpenMenu(Track),
     Navigate(Route, Option<String>),
@@ -364,10 +366,8 @@ impl CollectionView {
                         egui::ScrollArea::vertical()
                             .id_salt("collection:history")
                             .show(ui, |ui| {
-                                let tracks: Vec<Track> = entries
-                                    .iter()
-                                    .map(history_entry_to_track)
-                                    .collect();
+                                let tracks: Vec<Track> =
+                                    entries.iter().map(history_entry_to_track).collect();
                                 for (i, entry) in entries.iter().enumerate() {
                                     match Self::history_row(ui, rt, images, player, entry) {
                                         widgets::RowHit::Clicked => {
@@ -414,7 +414,12 @@ impl CollectionView {
                                 for (i, track) in rows.iter().enumerate() {
                                     match Self::track_row(ui, rt, images, player, track, accent) {
                                         widgets::RowHit::Clicked => {
-                                            action = CollectionAction::PlayList(rows.clone(), i);
+                                            // フィルタ無しのみ「いいね最後まで」継続。
+                                            action = if needle.is_empty() {
+                                                CollectionAction::PlayLikes(rows.clone(), i)
+                                            } else {
+                                                CollectionAction::PlayList(rows.clone(), i)
+                                            };
                                         }
                                         widgets::RowHit::Menu => {
                                             action = CollectionAction::OpenMenu(track.clone());
@@ -430,6 +435,10 @@ impl CollectionView {
                                     self.likes.fetch_page(rt, api, "/me/likes/tracks", 50);
                                 }
                             });
+                        // フィルタ中は残りページを自動取得 (Tauri: LikesTab)。
+                        if !needle.is_empty() && self.likes.has_more && !self.likes.q.loading {
+                            self.likes.fetch_page(rt, api, "/me/likes/tracks", 50);
+                        }
                     }
                 }
             }
@@ -448,7 +457,15 @@ impl CollectionView {
     ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
         let dur = fmt_duration(track.duration);
-        widgets::hit_of(&widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur)))
+        widgets::hit_of(&widgets::track_row(
+            ui,
+            rt,
+            images,
+            track,
+            playing,
+            accent,
+            Some(&dur),
+        ))
     }
 
     fn playlist_row(
@@ -491,7 +508,10 @@ impl CollectionView {
     ) -> bool {
         let mut clicked = false;
         ui.horizontal(|ui| {
-            if images.show(ui, rt, user.avatar_url.as_deref(), 40.0).clicked() {
+            if images
+                .show(ui, rt, user.avatar_url.as_deref(), 40.0)
+                .clicked()
+            {
                 clicked = true;
             }
             ui.vertical(|ui| {
@@ -524,42 +544,43 @@ impl CollectionView {
         let is_current = widgets::is_currently_playing(player, &probe);
         let mut clicked = false;
         let mut art_secondary = false;
-        let row = ui.horizontal(|ui| {
-            let img = images.show(ui, rt, entry.artwork_url.as_deref(), 40.0);
-            if img.clicked() {
-                clicked = true;
-            }
-            art_secondary = img.secondary_clicked();
-            ui.vertical(|ui| {
-                ui.set_max_width(320.0);
-                let title = if is_current {
-                    format!("▶ {}", entry.title)
-                } else {
-                    entry.title.clone()
-                };
-                ui.add(
-                    egui::Label::new(title)
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-                ui.add(
-                    egui::Label::new(&entry.artist_name)
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("▶").clicked() {
+        let row = ui
+            .horizontal(|ui| {
+                let img = images.show(ui, rt, entry.artwork_url.as_deref(), 40.0);
+                if img.clicked() {
                     clicked = true;
                 }
-                if let Some(played) = entry.played_at.as_deref() {
-                    let short: String = played.chars().take(16).collect();
-                    ui.label(short);
-                }
-            });
-        })
-        .response
-        .interact(egui::Sense::click());
+                art_secondary = img.secondary_clicked();
+                ui.vertical(|ui| {
+                    ui.set_max_width(320.0);
+                    let title = if is_current {
+                        format!("▶ {}", entry.title)
+                    } else {
+                        entry.title.clone()
+                    };
+                    ui.add(
+                        egui::Label::new(title)
+                            .truncate()
+                            .wrap_mode(egui::TextWrapMode::Truncate),
+                    );
+                    ui.add(
+                        egui::Label::new(&entry.artist_name)
+                            .truncate()
+                            .wrap_mode(egui::TextWrapMode::Truncate),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("▶").clicked() {
+                        clicked = true;
+                    }
+                    if let Some(played) = entry.played_at.as_deref() {
+                        let short: String = played.chars().take(16).collect();
+                        ui.label(short);
+                    }
+                });
+            })
+            .response
+            .interact(egui::Sense::click());
         let _ = &entry.id;
         if clicked {
             widgets::RowHit::Clicked

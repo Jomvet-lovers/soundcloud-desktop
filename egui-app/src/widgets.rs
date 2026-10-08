@@ -14,12 +14,18 @@ fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playing: bool) {
         let w = r * 0.45;
         let h = r * 0.8;
         painter.rect_filled(
-            egui::Rect::from_center_size(center + egui::Vec2::new(-w * 0.7, 0.0), egui::Vec2::new(w * 0.55, h)),
+            egui::Rect::from_center_size(
+                center + egui::Vec2::new(-w * 0.7, 0.0),
+                egui::Vec2::new(w * 0.55, h),
+            ),
             1.0,
             egui::Color32::WHITE,
         );
         painter.rect_filled(
-            egui::Rect::from_center_size(center + egui::Vec2::new(w * 0.7, 0.0), egui::Vec2::new(w * 0.55, h)),
+            egui::Rect::from_center_size(
+                center + egui::Vec2::new(w * 0.7, 0.0),
+                egui::Vec2::new(w * 0.55, h),
+            ),
             1.0,
             egui::Color32::WHITE,
         );
@@ -120,6 +126,24 @@ pub fn section_header(ui: &mut egui::Ui, title: &str, count: Option<usize>) {
         if let Some(n) = count {
             ui.label(format!("{n}"));
         }
+    });
+}
+
+/// セクション見出し + 右端の追加操作 (「See all」等)。
+pub fn section_row(
+    ui: &mut egui::Ui,
+    title: &str,
+    count: Option<usize>,
+    extra: impl FnOnce(&mut egui::Ui),
+) {
+    ui.horizontal(|ui| {
+        ui.heading(title);
+        if let Some(n) = count {
+            ui.label(format!("{n}"));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            extra(ui);
+        });
     });
 }
 

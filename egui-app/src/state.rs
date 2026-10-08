@@ -97,6 +97,8 @@ pub struct PlayerState {
     pub duration_secs: Option<f64>,
     pub queue: Vec<Track>,
     pub queue_index: Option<usize>,
+    /// shuffle ON 時の元の並び (OFF で復元)。Tauri 版 `originalQueue` 相当。
+    pub original_queue: Option<Vec<Track>>,
 }
 
 impl Default for PlayerState {
@@ -112,6 +114,7 @@ impl Default for PlayerState {
             duration_secs: None,
             queue: Vec::new(),
             queue_index: None,
+            original_queue: None,
         }
     }
 }
@@ -121,8 +124,36 @@ impl PlayerState {
         self.queue_index.and_then(|i| self.queue.get(i))
     }
 
-    /// キューを置き換えてメタを反映する。読込自体は呼出側が行う。
+    /// コンテキスト再生のキュー設定 (Tauri 版 `play(track, queue)` 相当)。
+    /// shuffle 中は選択トラックを先頭に、残りをシャッフルする。
     pub fn set_queue(&mut self, tracks: Vec<Track>, index: usize) {
+        if tracks.is_empty() {
+            self.queue.clear();
+            self.queue_index = None;
+            self.is_playing = false;
+            return;
+        }
+        let index = index.min(tracks.len() - 1);
+        if self.shuffle && tracks.len() > 1 {
+            let chosen = tracks[index].clone();
+            self.original_queue = Some(tracks.clone());
+            let mut rest: Vec<Track> = tracks
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| *i != index)
+                .map(|(_, t)| t)
+                .collect();
+            shuffle_tracks(&mut rest);
+            rest.insert(0, chosen);
+            self.apply_queue(rest, 0);
+        } else {
+            self.original_queue = None;
+            self.apply_queue(tracks, index);
+        }
+    }
+
+    /// キューをそのまま差し替えて index を選択する (shuffle 変換なし)。
+    fn apply_queue(&mut self, tracks: Vec<Track>, index: usize) {
         let current = tracks.get(index).cloned();
         self.queue = tracks;
         self.queue_index = current.as_ref().map(|_| index);
@@ -140,9 +171,23 @@ impl PlayerState {
         }
     }
 
+    /// キュー内 index を選択してメタを更新する (キューは変更なし)。
+    /// Tauri 版 `playFromQueue` 相当。
+    pub fn select_index(&mut self, index: usize) {
+        let Some(t) = self.queue.get(index).cloned() else {
+            return;
+        };
+        self.queue_index = Some(index);
+        self.current_title = Some(t.display_title().to_string());
+        self.current_artist = Some(t.artist_name().to_string());
+        self.duration_secs = Some(t.duration_secs());
+        self.is_playing = true;
+    }
+
     pub fn clear_queue(&mut self) {
         self.queue.clear();
         self.queue_index = None;
+        self.original_queue = None;
     }
 
     /// 現在の次の位置 (再生中が無ければ末尾) に差し込む
@@ -154,9 +199,35 @@ impl PlayerState {
         match self.queue_index {
             Some(i) => {
                 let at = (i + 1).min(self.queue.len());
-                self.queue.splice(at..at, tracks);
+                for (offset, t) in tracks.iter().enumerate() {
+                    self.queue.insert(at + offset, t.clone());
+                }
             }
-            None => self.queue.extend(tracks),
+            None => self.queue.extend(tracks.iter().cloned()),
+        }
+        if let Some(oq) = self.original_queue.as_mut() {
+            oq.extend(tracks);
+        }
+    }
+
+    /// キュー末尾へ追加 (Tauri 版 `addToQueue` 相当)。
+    /// shuffle 中は現在位置より後ろのランダムな位置へ差し込む。
+    pub fn append_queue(&mut self, tracks: Vec<Track>) {
+        if tracks.is_empty() {
+            return;
+        }
+        if self.shuffle && self.queue_index.is_some() && !self.queue.is_empty() {
+            let cur = self.queue_index.unwrap();
+            for t in tracks.iter() {
+                let span = self.queue.len() - cur;
+                let pos = cur + 1 + rand_below(span);
+                self.queue.insert(pos.min(self.queue.len()), t.clone());
+            }
+        } else {
+            self.queue.extend(tracks.iter().cloned());
+        }
+        if let Some(oq) = self.original_queue.as_mut() {
+            oq.extend(tracks);
         }
     }
 
@@ -182,14 +253,12 @@ impl PlayerState {
     }
 
     /// 手動送り・自動送り共通の次 index。repeat-one は呼出側で処理する。
+    /// shuffle は並び自体を並替える方式なので、ここは常に順送り。
     pub fn next_index(&self) -> Option<usize> {
         let current = self.queue_index?;
         let len = self.queue.len();
         if len == 0 {
             return None;
-        }
-        if self.shuffle && len > 1 {
-            return Some(shuffled_next(len, current));
         }
         if current + 1 < len {
             Some(current + 1)
@@ -205,9 +274,6 @@ impl PlayerState {
         if self.queue.is_empty() {
             return None;
         }
-        if self.shuffle && self.queue.len() > 1 {
-            return Some(shuffled_next(self.queue.len(), current));
-        }
         if current > 0 {
             Some(current - 1)
         } else if self.repeat == RepeatMode::All {
@@ -217,8 +283,32 @@ impl PlayerState {
         }
     }
 
+    /// シャッフル切替 (Tauri 版 `toggleShuffle` 相当)。
+    /// ON: 現在位置より後ろをシャッフルして元の並びを退避。
+    /// OFF: 元の並びを復元して現在トラックの位置へ戻す。
     pub fn toggle_shuffle(&mut self) {
-        self.shuffle = !self.shuffle;
+        if !self.shuffle {
+            let after = match self.queue_index {
+                Some(i) => (i + 1).min(self.queue.len()),
+                None => 0,
+            };
+            self.original_queue = Some(self.queue.clone());
+            let mut tail: Vec<Track> = self.queue.split_off(after);
+            shuffle_tracks(&mut tail);
+            self.queue.extend(tail);
+            self.shuffle = true;
+        } else {
+            if let Some(original) = self.original_queue.take() {
+                let urn = self.current_queued().map(|t| t.urn.clone());
+                self.queue = original;
+                if let Some(urn) = urn {
+                    if let Some(i) = self.queue.iter().position(|t| t.urn == urn) {
+                        self.queue_index = Some(i);
+                    }
+                }
+            }
+            self.shuffle = false;
+        }
     }
 
     pub fn cycle_repeat(&mut self) {
@@ -230,19 +320,20 @@ impl PlayerState {
     }
 }
 
-fn shuffled_next(len: usize, current: usize) -> usize {
-    if len <= 1 {
-        return current;
+/// xorshift の簡易乱数 (0..n)。
+fn rand_below(n: usize) -> usize {
+    if n <= 1 {
+        return 0;
     }
-    let nanos = std::time::SystemTime::now()
+    let mut seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as usize)
-        .unwrap_or(0);
-    let mut next = (current + 1 + nanos) % len;
-    if next == current {
-        next = (next + 1) % len;
-    }
-    next
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9E37_79B9_7F4A_7C15)
+        | 1;
+    seed ^= seed << 13;
+    seed ^= seed >> 7;
+    seed ^= seed << 17;
+    (seed as usize) % n
 }
 
 /// `desktop/src/stores/settings.ts` 対応 (Phase 0 は subset)。
@@ -472,13 +563,24 @@ pub struct AppState {
     continuation: Query<Vec<Track>>,
     /// Discover 棚の再生用 (ステーション/システムミックスの解決結果)。
     discover_play: Query<Vec<Track>>,
+    /// 再生コンテキストの継続ソース (Tauri: `queue-continuation.ts`)。
+    continuation_source: Option<ContinuationSource>,
+    /// 継続ソースのページ取得 (async)。
+    source_fetch: Query<SourcePage>,
+    /// shuffle いいね: 全件の先行取得 (Tauri: `useShuffleLikes`)。
+    likes_full: Query<Vec<Track>>,
+    /// 全件先行取得を開始した時点のキュー世代。
+    likes_full_generation: u64,
+    /// `play_list` ごとに増えるキュー世代 (古い取得結果の破棄用)。
+    queue_generation: u64,
     /// トレイからの操作 (UI スレッドで回収)。
     tray_rx: Option<std::sync::mpsc::Receiver<crate::tray::TrayCmd>>,
     /// トレイに格納中かどうか。
     pub window_hidden: bool,
     /// トレイの「終了」など明示的な終了要求 (close_to_tray を無視する)。
     pub force_quit: bool,
-    pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
+    pub theme_applied: Option<(ThemePreset, [u8; 3])>,
+    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
     pub library: LibraryView,
@@ -512,6 +614,48 @@ fn shuffle_tracks<T>(v: &mut [T]) {
         seed ^= seed << 17;
         let j = (seed as usize) % (i + 1);
         v.swap(i, j);
+    }
+}
+
+/// 継続ソースの種類 (Tauri: `queue-continuation.ts` の kind)。
+#[derive(Debug, Clone, PartialEq)]
+enum ContinuationKind {
+    Likes,
+    Playlist(String),
+}
+
+/// キュー終端でページを追加供給するコンテキストソース。
+enum ContinuationSource {
+    /// ページ式 (いいね 50 / プレイリスト 200)。
+    Paged {
+        kind: ContinuationKind,
+        next_page: usize,
+        fetching: bool,
+    },
+    /// shuffle: 全件を遅延取得し 50 件ずつ供給。
+    Shuffled {
+        kind: ContinuationKind,
+        buffer: Vec<Track>,
+        pos: usize,
+        fetched: bool,
+        fetching: bool,
+    },
+}
+
+const LIKES_PAGE_SIZE: usize = 50;
+const PLAYLIST_PAGE_SIZE: usize = 200;
+
+/// `{ collection, has_more }` の継続ページ。
+struct SourcePage {
+    tracks: Vec<Track>,
+    has_more: bool,
+}
+
+/// `{ collection, has_more }` を `SourcePage` へ変換する。
+fn source_page_from_value(v: &serde_json::Value) -> SourcePage {
+    SourcePage {
+        tracks: tracks_from_value(v),
+        has_more: v.get("has_more").and_then(|b| b.as_bool()).unwrap_or(false),
     }
 }
 
@@ -554,7 +698,11 @@ impl AppState {
             _ => Route::Home,
         };
         let state = Self {
-            route: if signed_in { startup_route } else { Route::Login },
+            route: if signed_in {
+                startup_route
+            } else {
+                Route::Login
+            },
             player,
             settings,
             runtime,
@@ -592,6 +740,11 @@ impl AppState {
             discord_last_attempt: None,
             continuation: Query::default(),
             discover_play: Query::default(),
+            continuation_source: None,
+            source_fetch: Query::default(),
+            likes_full: Query::default(),
+            likes_full_generation: 0,
+            queue_generation: 0,
             tray_rx: Some(tray_rx),
             window_hidden: false,
             force_quit: false,
@@ -644,7 +797,9 @@ impl AppState {
         if state.settings.cache_limit_mb > 0
             && let Some(backend) = &state.backend
         {
-            backend.track_cache.enforce_limit(state.settings.cache_limit_mb);
+            backend
+                .track_cache
+                .enforce_limit(state.settings.cache_limit_mb);
         }
         state
     }
@@ -672,10 +827,9 @@ impl AppState {
         };
         let (tx, rx) = oneshot::channel();
         self.runtime.spawn(async move {
-            let result =
-                crate::backend::audio::engine::load_file(path, None, None, false, &audio)
-                    .await
-                    .map(|out| out.duration_secs);
+            let result = crate::backend::audio::engine::load_file(path, None, None, false, &audio)
+                .await
+                .map(|out| out.duration_secs);
             let _ = tx.send(result);
         });
         self.load = LoadState::Loading {
@@ -698,6 +852,10 @@ impl AppState {
         if tracks.is_empty() {
             return;
         }
+        // 新しい play は前のコンテキスト継続を無効化する。
+        self.continuation_source = None;
+        self.source_fetch = Query::default();
+        self.queue_generation = self.queue_generation.wrapping_add(1);
         let index = index.min(tracks.len() - 1);
         let track = tracks[index].clone();
         self.player.set_queue(tracks, index);
@@ -750,10 +908,7 @@ impl AppState {
     /// 再生速度/ピッチをエンジンへ反映し保存する。
     pub fn apply_rate(&mut self) {
         if let Some(audio) = self.audio() {
-            crate::backend::audio::engine::set_playback_rate(
-                self.settings.effective_rate(),
-                audio,
-            );
+            crate::backend::audio::engine::set_playback_rate(self.settings.effective_rate(), audio);
         }
         if let Err(e) = crate::backend::prefs::save(&self.settings) {
             eprintln!("[prefs] save failed: {e}");
@@ -925,8 +1080,7 @@ impl AppState {
             Some(t) => t,
             None => return,
         };
-        let queue = std::mem::take(&mut self.player.queue);
-        self.player.set_queue(queue, index);
+        self.player.select_index(index);
         self.load_error = None;
         self.load_stream(&track);
     }
@@ -992,11 +1146,10 @@ impl AppState {
                     }
                 },
             };
-            let result = crate::backend::audio::engine::load_file(
-                entry.path, None, None, false, &audio,
-            )
-            .await
-            .map(|out| out.duration_secs);
+            let result =
+                crate::backend::audio::engine::load_file(entry.path, None, None, false, &audio)
+                    .await
+                    .map(|out| out.duration_secs);
             let _ = tx.send(result);
         });
         self.load = LoadState::Loading {
@@ -1027,7 +1180,7 @@ impl AppState {
     pub fn next_track(&mut self) {
         match self.player.next_index() {
             Some(i) => self.play_queue_index(i),
-            None => self.stop_playback(),
+            None => self.continue_or_stop(),
         }
     }
 
@@ -1173,11 +1326,9 @@ impl AppState {
                 self.player.is_playing = true;
             } else if let Some(i) = self.player.next_index() {
                 self.play_queue_index(i);
-            } else if self.settings.autopilot {
-                // キュー終端 → 関連曲で継続 (autopilot)。
-                self.request_continuation();
             } else {
-                self.player.is_playing = false;
+                // キュー終端 → コンテキスト継続 → autopilot → 停止。
+                self.continue_or_stop();
             }
         }
         // OS のメディア操作 (SMTC / MPRIS)。
@@ -1250,11 +1401,342 @@ impl AppState {
             if let Some(tracks) = self.continuation.data.take()
                 && !tracks.is_empty()
             {
-                self.play_list(tracks, 0);
+                // キューは維持したまま末尾へ足して次を再生する。
+                self.append_and_play(tracks);
                 return;
             }
             self.player.is_playing = false;
         }
+    }
+
+    /// いいね再生の継続を arm する (Tauri: `armLikesContinuation`)。
+    pub fn arm_likes_continuation(&mut self) {
+        self.continuation_source = Some(if self.player.shuffle {
+            ContinuationSource::Shuffled {
+                kind: ContinuationKind::Likes,
+                buffer: Vec::new(),
+                pos: 0,
+                fetched: false,
+                fetching: false,
+            }
+        } else {
+            ContinuationSource::Paged {
+                kind: ContinuationKind::Likes,
+                next_page: self.player.queue.len() / LIKES_PAGE_SIZE,
+                fetching: false,
+            }
+        });
+    }
+
+    /// プレイリスト再生の継続を arm する
+    /// (Tauri: `armPlaylistContinuation`)。
+    pub fn arm_playlist_continuation(&mut self, urn: String) {
+        self.continuation_source = Some(if self.player.shuffle {
+            ContinuationSource::Shuffled {
+                kind: ContinuationKind::Playlist(urn),
+                buffer: Vec::new(),
+                pos: 0,
+                fetched: false,
+                fetching: false,
+            }
+        } else {
+            ContinuationSource::Paged {
+                kind: ContinuationKind::Playlist(urn),
+                next_page: self.player.queue.len() / PLAYLIST_PAGE_SIZE,
+                fetching: false,
+            }
+        });
+    }
+
+    /// いいね一括シャッフル (Tauri: `useShuffleLikes`)。
+    /// 読み込み済みからランダム開始 → 継続を arm → 全件を先読みして追記。
+    pub fn shuffle_likes(&mut self, tracks: Vec<Track>) {
+        if tracks.is_empty() {
+            return;
+        }
+        self.player.shuffle = true;
+        let idx = rand_below(tracks.len());
+        self.play_list(tracks, idx);
+        self.arm_likes_continuation();
+        self.start_likes_full_fetch();
+    }
+
+    /// プレイリストのシャッフル再生 (Tauri: `PlaylistPage.handleShuffle`)。
+    pub fn shuffle_play_playlist(&mut self, tracks: Vec<Track>) {
+        if tracks.is_empty() {
+            return;
+        }
+        self.player.shuffle = true;
+        let idx = rand_below(tracks.len());
+        self.play_list(tracks, idx);
+        if let Some(urn) = self.playlist.urn().map(str::to_string) {
+            self.arm_playlist_continuation(urn);
+        }
+    }
+
+    /// キュー終端 (repeat off): コンテキスト継続 → autopilot → 停止。
+    fn continue_or_stop(&mut self) {
+        if self.pump_source() {
+            return;
+        }
+        self.fallback_after_source();
+    }
+
+    /// 継続ソース枯渇後: autopilot (関連曲) or 停止。
+    fn fallback_after_source(&mut self) {
+        if self.settings.autopilot {
+            self.request_continuation();
+        } else {
+            self.player.is_playing = false;
+        }
+    }
+
+    /// 継続ソースを1段進める。`true` = 継続処理中 or 再生開始済み。
+    fn pump_source(&mut self) -> bool {
+        let mut page_path: Option<String> = None;
+        let mut fetch_all: Option<ContinuationKind> = None;
+        let mut chunk: Option<Vec<Track>> = None;
+        {
+            match self.continuation_source.as_mut() {
+                None => return false,
+                Some(ContinuationSource::Paged {
+                    kind,
+                    next_page,
+                    fetching,
+                }) => {
+                    if *fetching {
+                        return true;
+                    }
+                    let path = match kind {
+                        ContinuationKind::Likes => {
+                            format!("/me/likes/tracks?limit={LIKES_PAGE_SIZE}&page={next_page}")
+                        }
+                        ContinuationKind::Playlist(urn) => format!(
+                            "/playlists/{}/tracks?limit={PLAYLIST_PAGE_SIZE}&page={next_page}",
+                            urlencoding::encode(urn)
+                        ),
+                    };
+                    *next_page += 1;
+                    *fetching = true;
+                    page_path = Some(path);
+                }
+                Some(ContinuationSource::Shuffled {
+                    kind,
+                    buffer,
+                    pos,
+                    fetched,
+                    fetching,
+                }) => {
+                    if *fetched {
+                        let end = (*pos + LIKES_PAGE_SIZE).min(buffer.len());
+                        let part: Vec<Track> = buffer[*pos..end].to_vec();
+                        *pos = end;
+                        if !part.is_empty() {
+                            chunk = Some(part);
+                        }
+                    } else if !*fetching {
+                        *fetching = true;
+                        fetch_all = Some(kind.clone());
+                    } else {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let Some(part) = chunk {
+            self.append_and_play(part);
+            return true;
+        }
+        if let Some(kind) = fetch_all {
+            self.start_shuffled_source_fetch(kind);
+            return true;
+        }
+        if let Some(path) = page_path {
+            self.start_source_fetch(path);
+            return true;
+        }
+        // ソース枯渇 → autopilot / 停止。
+        self.continuation_source = None;
+        self.fallback_after_source();
+        true
+    }
+
+    /// 継続分をキューへ足して次を再生する (Tauri: addToQueue + next)。
+    fn append_and_play(&mut self, fresh: Vec<Track>) {
+        let Some(queue_index) = self.player.queue_index else {
+            self.player.append_queue(fresh);
+            if !self.player.queue.is_empty() {
+                self.play_queue_index(0);
+            }
+            return;
+        };
+        self.player.append_queue(fresh);
+        let next = queue_index + 1;
+        if next < self.player.queue.len() {
+            self.play_queue_index(next);
+        }
+    }
+
+    /// 継続ページ (paged ソース) を取得する。
+    fn start_source_fetch(&mut self, path: String) {
+        let Some(api) = self.api.clone() else {
+            self.continuation_source = None;
+            self.fallback_after_source();
+            return;
+        };
+        let rt = self.runtime.handle().clone();
+        self.source_fetch = Query::default();
+        self.source_fetch.request(&rt, async move {
+            let v = api.get_json(&path).await?;
+            Ok(source_page_from_value(&v))
+        });
+    }
+
+    /// shuffle ソース用: 全件を 200 件ずつ取得する (遅延)。
+    fn start_shuffled_source_fetch(&mut self, kind: ContinuationKind) {
+        let Some(api) = self.api.clone() else {
+            self.continuation_source = None;
+            self.fallback_after_source();
+            return;
+        };
+        let rt = self.runtime.handle().clone();
+        self.source_fetch = Query::default();
+        self.source_fetch.request(&rt, async move {
+            let mut all: Vec<Track> = Vec::new();
+            let mut page = 0usize;
+            loop {
+                let path = match &kind {
+                    ContinuationKind::Likes => {
+                        format!("/me/likes/tracks?limit=200&page={page}")
+                    }
+                    ContinuationKind::Playlist(urn) => format!(
+                        "/playlists/{}/tracks?limit=200&page={page}",
+                        urlencoding::encode(urn)
+                    ),
+                };
+                let v = api.get_json(&path).await?;
+                let has_more = v.get("has_more").and_then(|b| b.as_bool()).unwrap_or(false);
+                all.extend(tracks_from_value(&v));
+                page += 1;
+                if !has_more || page >= 100 {
+                    break;
+                }
+            }
+            Ok(SourcePage {
+                tracks: all,
+                has_more: false,
+            })
+        });
+    }
+
+    /// 継続ソースの取得結果を回収する。
+    pub fn poll_source_fetch(&mut self) {
+        if !self.source_fetch.poll() {
+            return;
+        }
+        let fetched = self.source_fetch.data.take();
+        // fetching フラグを解除。
+        match self.continuation_source.as_mut() {
+            Some(ContinuationSource::Paged { fetching, .. })
+            | Some(ContinuationSource::Shuffled { fetching, .. }) => *fetching = false,
+            None => return,
+        }
+        let Some(page) = fetched else {
+            // 取得失敗 → ソース破棄 (Tauri と同じ: 停止系へ)。
+            self.continuation_source = None;
+            self.fallback_after_source();
+            return;
+        };
+        let queued: std::collections::HashSet<String> =
+            self.player.queue.iter().map(|t| t.urn.clone()).collect();
+        let shuffled = matches!(
+            self.continuation_source,
+            Some(ContinuationSource::Shuffled { .. })
+        );
+        if shuffled {
+            let mut buffer: Vec<Track> = page
+                .tracks
+                .into_iter()
+                .filter(|t| !queued.contains(&t.urn))
+                .collect();
+            shuffle_tracks(&mut buffer);
+            if let Some(ContinuationSource::Shuffled {
+                buffer: slot,
+                fetched: done,
+                pos,
+                ..
+            }) = self.continuation_source.as_mut()
+            {
+                *slot = buffer;
+                *done = true;
+                *pos = 0;
+            }
+            self.pump_source();
+            return;
+        }
+        let fresh: Vec<Track> = page
+            .tracks
+            .into_iter()
+            .filter(|t| !queued.contains(&t.urn))
+            .collect();
+        if !fresh.is_empty() {
+            if !page.has_more {
+                self.continuation_source = None;
+            }
+            self.append_and_play(fresh);
+        } else if page.has_more {
+            // 全ページ重複 → 次ページへ。
+            self.pump_source();
+        } else {
+            self.continuation_source = None;
+            self.fallback_after_source();
+        }
+    }
+
+    /// shuffle いいね: 全件を先読みして残りをキューへ足す
+    /// (Tauri: `useShuffleLikes` の `fetchAllLikedTracks`)。
+    pub fn start_likes_full_fetch(&mut self) {
+        let Some(api) = self.api.clone() else {
+            return;
+        };
+        let rt = self.runtime.handle().clone();
+        self.likes_full_generation = self.queue_generation;
+        self.likes_full = Query::default();
+        self.likes_full.request(&rt, async move {
+            let mut all: Vec<Track> = Vec::new();
+            let mut page = 0usize;
+            loop {
+                let path = format!("/me/likes/tracks?limit=200&page={page}");
+                let v = api.get_json(&path).await?;
+                let has_more = v.get("has_more").and_then(|b| b.as_bool()).unwrap_or(false);
+                all.extend(tracks_from_value(&v));
+                page += 1;
+                if !has_more || page >= 100 {
+                    break;
+                }
+            }
+            Ok(all)
+        });
+    }
+
+    /// 全件先読みの結果をキューへ追記する (新しい play 後は破棄)。
+    pub fn poll_likes_full_fetch(&mut self) {
+        if !self.likes_full.poll() {
+            return;
+        }
+        let Some(all) = self.likes_full.data.take() else {
+            return;
+        };
+        if self.likes_full_generation != self.queue_generation {
+            return;
+        }
+        let queued: std::collections::HashSet<String> =
+            self.player.queue.iter().map(|t| t.urn.clone()).collect();
+        let rest: Vec<Track> = all
+            .into_iter()
+            .filter(|t| !queued.contains(&t.urn))
+            .collect();
+        self.player.append_queue(rest);
     }
 
     /// Discover 棚のアイテムを解決して再生/遷移する
@@ -1322,15 +1804,9 @@ impl AppState {
             self.discover_play = Query::default();
             self.discover_play.request(&rt, async move {
                 let v = api
-                    .get_json(&format!(
-                        "/system-playlists/{}",
-                        urlencoding::encode(&urn)
-                    ))
+                    .get_json(&format!("/system-playlists/{}", urlencoding::encode(&urn)))
                     .await?;
-                let raw = v
-                    .get("tracks")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
+                let raw = v.get("tracks").cloned().unwrap_or(serde_json::Value::Null);
                 let list = if raw.is_array() {
                     tracks_from_value(&raw)
                 } else {
@@ -1582,12 +2058,43 @@ mod tests {
     }
 
     #[test]
-    fn shuffle_next_stays_in_range() {
-        let mut s = queued(5);
+    fn toggle_shuffle_shuffles_tail_and_restores() {
+        let mut s = PlayerState::default();
+        let tracks: Vec<Track> = ["a", "b", "c", "d", "e"].iter().map(|u| track(u)).collect();
+        s.set_queue(tracks, 0);
+        s.toggle_shuffle();
+        assert!(s.shuffle);
+        // 現在位置までは保持、全要素は失われない。
+        assert_eq!(s.queue[0].urn, "a");
+        let mut urns: Vec<String> = s.queue.iter().map(|t| t.urn.clone()).collect();
+        urns.sort();
+        assert_eq!(urns, ["a", "b", "c", "d", "e"]);
+        // OFF で元の並びに戻る。
+        s.toggle_shuffle();
+        assert!(!s.shuffle);
+        let urns: Vec<String> = s.queue.iter().map(|t| t.urn.clone()).collect();
+        assert_eq!(urns, ["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn set_queue_with_shuffle_puts_chosen_first() {
+        let mut s = PlayerState::default();
         s.shuffle = true;
-        for _ in 0..50 {
-            let next = s.next_index().expect("shuffled next");
-            assert!(next < 5);
-        }
+        let tracks: Vec<Track> = ["a", "b", "c", "d"].iter().map(|u| track(u)).collect();
+        s.set_queue(tracks, 2);
+        assert_eq!(s.queue[0].urn, "c");
+        assert_eq!(s.queue_index, Some(0));
+        assert_eq!(s.queue.len(), 4);
+        assert!(s.original_queue.is_some());
+    }
+
+    #[test]
+    fn next_is_sequential_under_shuffle() {
+        let mut s = queued(3);
+        s.shuffle = true;
+        s.queue_index = Some(1);
+        assert_eq!(s.next_index(), Some(2));
+        s.queue_index = Some(2);
+        assert_eq!(s.next_index(), None);
     }
 }

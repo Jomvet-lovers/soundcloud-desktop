@@ -54,6 +54,11 @@ fn fmt_dur(ms: i64) -> String {
 }
 
 impl PlaylistView {
+    /// 現在表示中のプレイリスト URN (継続ソースの arm 用)。
+    pub fn urn(&self) -> Option<&str> {
+        self.last_urn.as_deref()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
@@ -210,13 +215,14 @@ impl PlaylistView {
             );
         }
         let sharing = self.sharing.clone().unwrap_or_else(|| "private".into());
-        let pinned = settings.pinned_playlists.iter().any(|p| p.urn == playlist.urn);
+        let pinned = settings
+            .pinned_playlists
+            .iter()
+            .any(|p| p.urn == playlist.urn);
         // React (`rawPlaylistCover`) 同様、カバー欠損時は先頭トラックから借用。
-        let cover = playlist.artwork("t500x500").or_else(|| {
-            tracks
-                .first()
-                .and_then(|t| t.artwork("t500x500"))
-        });
+        let cover = playlist
+            .artwork("t500x500")
+            .or_else(|| tracks.first().and_then(|t| t.artwork("t500x500")));
 
         // Hero (対応: `PlaylistHero`)。
         ui.horizontal(|ui| {
@@ -229,8 +235,7 @@ impl PlaylistView {
                         .selectable_label(false, format!("Curated by {}", user.username))
                         .clicked()
                     {
-                        action =
-                            PlaylistAction::Navigate(Route::User, Some(user.urn.clone()));
+                        action = PlaylistAction::Navigate(Route::User, Some(user.urn.clone()));
                     }
                 }
                 let total_ms: i64 = tracks.iter().map(|t| t.duration).sum();
@@ -272,10 +277,8 @@ impl PlaylistView {
                         action = PlaylistAction::ShufflePlay(tracks.clone());
                     }
                     if ui.button(if pinned { "Unpin" } else { "Pin" }).clicked() {
-                        action = PlaylistAction::TogglePin(
-                            playlist.urn.clone(),
-                            playlist.title.clone(),
-                        );
+                        action =
+                            PlaylistAction::TogglePin(playlist.urn.clone(), playlist.title.clone());
                     }
                 });
                 if is_owner {
@@ -288,10 +291,7 @@ impl PlaylistView {
                         {
                             new_sharing = Some("private");
                         }
-                        if ui
-                            .selectable_label(sharing == "public", "Public")
-                            .clicked()
-                        {
+                        if ui.selectable_label(sharing == "public", "Public").clicked() {
                             new_sharing = Some("public");
                         }
                         if let Some(sh) = new_sharing {
@@ -302,8 +302,7 @@ impl PlaylistView {
                                     format!("/playlists/{}/sharing", urlencoding::encode(urn));
                                 let body = serde_json::json!({ "sharing": sh });
                                 rt.spawn(async move {
-                                    let _ =
-                                        api.request_json("PUT", &path, Some(&body)).await;
+                                    let _ = api.request_json("PUT", &path, Some(&body)).await;
                                 });
                             }
                         }
@@ -341,19 +340,18 @@ impl PlaylistView {
         for (i, track) in tracks.iter().enumerate() {
             if is_owner {
                 let row_id = egui::Id::new(("pl-row", urn, i));
-                let (zone, dropped) =
-                    ui.dnd_drop_zone::<usize, _>(egui::Frame::NONE, |ui| {
-                        ui.horizontal(|ui| {
-                            let removed = ui.small_button("x").clicked();
-                            let hit = ui
-                                .dnd_drag_source(row_id, i, |ui| {
-                                    Self::track_row(ui, rt, images, player, track, accent)
-                                })
-                                .inner;
-                            (hit, removed)
-                        })
-                        .inner
-                    });
+                let (zone, dropped) = ui.dnd_drop_zone::<usize, _>(egui::Frame::NONE, |ui| {
+                    ui.horizontal(|ui| {
+                        let removed = ui.small_button("x").clicked();
+                        let hit = ui
+                            .dnd_drag_source(row_id, i, |ui| {
+                                Self::track_row(ui, rt, images, player, track, accent)
+                            })
+                            .inner;
+                        (hit, removed)
+                    })
+                    .inner
+                });
                 let (hit, removed) = zone.inner;
                 match hit {
                     widgets::RowHit::Clicked => {

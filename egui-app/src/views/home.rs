@@ -9,7 +9,7 @@ use crate::backend::audio::state::AudioState;
 use crate::backend::models::{DiscoverItem, DiscoverMixed, ScUser, Track};
 use crate::images::Images;
 use crate::query::Query;
-use crate::state::{PlayerState, SettingsState};
+use crate::state::{PlayerState, Route, SettingsState};
 use crate::widgets::{self, is_currently_playing};
 
 pub enum HomeAction {
@@ -21,6 +21,8 @@ pub enum HomeAction {
     OpenMenu(Track),
     /// Discover 棚のアイテム (ユーザー/ステーション/システムミックス等)。
     StartDiscover(DiscoverItem),
+    /// 他ページへの遷移 (Liked Tracks の See all 等)。
+    Navigate(Route, Option<String>),
 }
 
 #[derive(Default)]
@@ -28,10 +30,16 @@ pub struct HomeView {
     me: Query<ScUser>,
     likes: Query<Vec<Track>>,
     discover: Query<DiscoverMixed>,
+    /// 「See all」で展開中の Discover 棚 (urn)。
+    expanded: std::collections::HashSet<String>,
 }
 
 fn greeting(name: Option<&str>) -> String {
-    let hour = chrono::Local::now().format("%H").to_string().parse::<u32>().unwrap_or(12);
+    let hour = chrono::Local::now()
+        .format("%H")
+        .to_string()
+        .parse::<u32>()
+        .unwrap_or(12);
     let Some(name) = name else {
         return "Home".to_string();
     };
@@ -76,7 +84,9 @@ impl HomeView {
             self.likes.request(rt, async move {
                 let v = api.get_json("/me/likes/tracks?limit=60&page=0").await?;
                 let tracks: Vec<Track> = serde_json::from_value(
-                    v.get("collection").cloned().unwrap_or(serde_json::Value::Null),
+                    v.get("collection")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
                 )
                 .map_err(|e| e.to_string())?;
                 Ok(tracks)
@@ -110,13 +120,12 @@ impl HomeView {
 
         ui.separator();
         let accent = widgets::accent_color(settings);
-        let liked_count = self
-            .likes
-            .data
-            .as_ref()
-            .map(|t| t.len())
-            .filter(|&n| n > 0);
-        widgets::section_header(ui, "Liked Tracks", liked_count);
+        let liked_count = self.likes.data.as_ref().map(|t| t.len()).filter(|&n| n > 0);
+        widgets::section_row(ui, "Liked Tracks", liked_count, |ui| {
+            if ui.small_button("See all").clicked() {
+                action = HomeAction::Navigate(Route::LibraryCollection, Some("likes".to_string()));
+            }
+        });
 
         if self.likes.loading && self.likes.data.is_none() {
             ui.label("Loading...");
@@ -153,29 +162,46 @@ impl HomeView {
         if self.discover.loading && self.discover.data.is_none() {
             ui.label("Loading...");
         } else if let Some(mixed) = self.discover.data.as_ref() {
+            // 「See all / Show less」トグル (Tauri 版 DiscoverSections は
+            // 取得済みアイテムのローカル展開のみ)。
+            let mut toggled: Vec<String> = Vec::new();
             for sel in &mixed.collection {
-                let items: Vec<_> = sel
+                let all: Vec<DiscoverItem> = sel
                     .items
                     .as_ref()
-                    .map(|p| p.collection.as_slice())
-                    .unwrap_or(&[])
-                    .iter()
-                    .take(10)
-                    .collect();
-                if items.is_empty() {
+                    .map(|p| p.collection.clone())
+                    .unwrap_or_default();
+                if all.is_empty() {
                     continue;
                 }
-                ui.heading(&sel.title);
+                let is_open = self.expanded.contains(&sel.urn);
+                let shown: Vec<DiscoverItem> = if is_open {
+                    all.clone()
+                } else {
+                    all.iter().take(10).cloned().collect()
+                };
+                ui.horizontal(|ui| {
+                    ui.heading(&sel.title);
+                    if all.len() > 10
+                        && ui
+                            .small_button(if is_open { "Show less" } else { "See all" })
+                            .clicked()
+                    {
+                        toggled.push(sel.urn.clone());
+                    }
+                });
+                let shelf_id = format!("discover:{}", sel.urn);
                 egui::ScrollArea::horizontal()
-                    .id_salt(format!("discover:{}", sel.urn))
+                    .id_salt(shelf_id)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            for item in items {
+                            for item in &shown {
                                 let clicked = ui
                                     .vertical(|ui| {
-                                        let art = item.artwork_url.as_deref().map(|u| {
-                                            u.replace("-large", "-t300x300")
-                                        });
+                                        let art = item
+                                            .artwork_url
+                                            .as_deref()
+                                            .map(|u| u.replace("-large", "-t300x300"));
                                         let img = images.show(ui, rt, art.as_deref(), 64.0);
                                         let lbl = ui.add(
                                             egui::Label::new(&item.title)
@@ -192,6 +218,11 @@ impl HomeView {
                             }
                         });
                     });
+            }
+            for urn in toggled {
+                if !self.expanded.remove(&urn) {
+                    self.expanded.insert(urn);
+                }
             }
         }
 

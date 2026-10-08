@@ -25,6 +25,8 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     state.drain_backend();
     state.sync_discord();
     state.poll_continuation();
+    state.poll_source_fetch();
+    state.poll_likes_full_fetch();
     state.poll_discover_play();
     state.poll_load();
     // NowPlaying バーの like 状態を回収 (最新のトラックで上書き)。
@@ -44,51 +46,53 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
 
     let mut account_action: Option<LoginAction> = None;
     if state.sidebar_open {
-        egui::Panel::left("sidebar").resizable(false).show(ui, |ui| {
-        ui.heading("SCD-Direct");
-        let signed_in = state.api.as_ref().and_then(|a| a.session_token()).is_some();
-        if signed_in {
-            if ui.button("Sign out").clicked() {
-                account_action = Some(LoginAction::Logout);
-            }
-        } else if ui.button("Sign in").clicked() {
-            account_action = Some(LoginAction::OpenLogin);
-        }
-        ui.separator();
-        for route in Route::ALL {
-            ui.selectable_value(&mut state.route, *route, route.title());
-        }
-        if !state.settings.pinned_playlists.is_empty() {
-            ui.separator();
-            ui.label("Quick access");
-            for pin in &state.settings.pinned_playlists {
-                if ui.selectable_label(false, &pin.title).clicked() {
-                    state.route = Route::Playlist;
-                    state.nav_param = Some(pin.urn.clone());
+        egui::Panel::left("sidebar")
+            .resizable(false)
+            .show(ui, |ui| {
+                ui.heading("SCD-Direct");
+                let signed_in = state.api.as_ref().and_then(|a| a.session_token()).is_some();
+                if signed_in {
+                    if ui.button("Sign out").clicked() {
+                        account_action = Some(LoginAction::Logout);
+                    }
+                } else if ui.button("Sign in").clicked() {
+                    account_action = Some(LoginAction::OpenLogin);
                 }
-            }
-        }
-        ui.separator();
-        if let Some(backend) = &state.backend {
-            let s = &backend.servers;
-            ui.label(format!(
-                "api :{}  static :{}  proxy :{}",
-                s.api_port, s.static_port, s.proxy_port
-            ));
-            if backend.audio.is_none() {
-                ui.label("audio: unavailable");
-            }
-        }
-        if let Some(e) = &state.boot_error {
-            ui.colored_label(egui::Color32::RED, format!("boot: {e}"));
-        }
-        if let Some(e) = &state.backend.as_ref().and_then(|b| b.audio_error.clone()) {
-            ui.colored_label(egui::Color32::RED, format!("audio: {e}"));
-        }
-        if let Some(e) = &state.last_sync_error {
-            ui.colored_label(egui::Color32::YELLOW, format!("sync: {e}"));
-        }
-        });
+                ui.separator();
+                for route in Route::ALL {
+                    ui.selectable_value(&mut state.route, *route, route.title());
+                }
+                if !state.settings.pinned_playlists.is_empty() {
+                    ui.separator();
+                    ui.label("Quick access");
+                    for pin in &state.settings.pinned_playlists {
+                        if ui.selectable_label(false, &pin.title).clicked() {
+                            state.route = Route::Playlist;
+                            state.nav_param = Some(pin.urn.clone());
+                        }
+                    }
+                }
+                ui.separator();
+                if let Some(backend) = &state.backend {
+                    let s = &backend.servers;
+                    ui.label(format!(
+                        "api :{}  static :{}  proxy :{}",
+                        s.api_port, s.static_port, s.proxy_port
+                    ));
+                    if backend.audio.is_none() {
+                        ui.label("audio: unavailable");
+                    }
+                }
+                if let Some(e) = &state.boot_error {
+                    ui.colored_label(egui::Color32::RED, format!("boot: {e}"));
+                }
+                if let Some(e) = &state.backend.as_ref().and_then(|b| b.audio_error.clone()) {
+                    ui.colored_label(egui::Color32::RED, format!("audio: {e}"));
+                }
+                if let Some(e) = &state.last_sync_error {
+                    ui.colored_label(egui::Color32::YELLOW, format!("sync: {e}"));
+                }
+            });
     }
     if let Some(action) = account_action {
         apply_login_action(state, action);
@@ -105,20 +109,19 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 for (i, t) in state.player.queue.iter().enumerate() {
                     let label = format!("{} — {}", t.display_title(), t.artist_name());
                     let row_id = egui::Id::new(("queue-row", i));
-                    let (_inner, dropped) =
-                        ui.dnd_drop_zone::<usize, _>(egui::Frame::NONE, |ui| {
-                            ui.horizontal(|ui| {
-                                let src = ui.dnd_drag_source(row_id, i, |ui| {
-                                    ui.selectable_label(Some(i) == current, label);
-                                });
-                                if src.response.clicked() {
-                                    jump = Some(i);
-                                }
-                                if ui.small_button("x").clicked() {
-                                    remove = Some(i);
-                                }
+                    let (_inner, dropped) = ui.dnd_drop_zone::<usize, _>(egui::Frame::NONE, |ui| {
+                        ui.horizontal(|ui| {
+                            let src = ui.dnd_drag_source(row_id, i, |ui| {
+                                ui.selectable_label(Some(i) == current, label);
                             });
+                            if src.response.clicked() {
+                                jump = Some(i);
+                            }
+                            if ui.small_button("x").clicked() {
+                                remove = Some(i);
+                            }
                         });
+                    });
                     if let Some(from) = dropped {
                         reorder = Some((*from, i));
                     }
@@ -195,10 +198,8 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                             state.now_liked = Some(next);
                             if let Some(api) = state.api.clone() {
                                 let rt = state.runtime().handle().clone();
-                                let path = format!(
-                                    "/likes/tracks/{}",
-                                    urlencoding::encode(&track.urn)
-                                );
+                                let path =
+                                    format!("/likes/tracks/{}", urlencoding::encode(&track.urn));
                                 rt.spawn(async move {
                                     let method = if next { "POST" } else { "DELETE" };
                                     let _ = api.request_json(method, &path, None).await;
@@ -238,7 +239,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     state.player.is_playing = false;
                 }
             }
-            let pos0 = audio.as_ref().map(|a| engine::get_position(a)).unwrap_or(0.0);
+            let pos0 = audio
+                .as_ref()
+                .map(|a| engine::get_position(a))
+                .unwrap_or(0.0);
             if ui
                 .add_enabled(has_audio, egui::Button::new("Prev"))
                 .clicked()
@@ -330,10 +334,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 state.set_volume(vol);
             }
             let muted = state.player.volume <= 0.0;
-            if ui
-                .button(if muted { "Unmute" } else { "Mute" })
-                .clicked()
-            {
+            if ui.button(if muted { "Unmute" } else { "Mute" }).clicked() {
                 state.toggle_mute();
             }
             // ドラッグ終了 (またはクリック等の単発変更) で永続化する。
@@ -399,6 +400,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     HomeAction::StartDiscover(item) => {
                         state.start_discover(item);
                     }
+                    HomeAction::Navigate(route, param) => {
+                        state.route = route;
+                        state.nav_param = param;
+                    }
                     HomeAction::None => {}
                 },
                 Route::Search => match state.search.show(
@@ -455,12 +460,15 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     LibraryAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
                     }
+                    LibraryAction::PlayLikes(tracks, i) => {
+                        state.play_list(tracks, i);
+                        state.arm_likes_continuation();
+                    }
                     LibraryAction::OpenMenu(track) => {
                         open_menu(state, ui, track);
                     }
                     LibraryAction::ShuffleLikes(tracks) => {
-                        state.player.shuffle = true;
-                        state.play_list(tracks, 0);
+                        state.shuffle_likes(tracks);
                     }
                     LibraryAction::Navigate(route, param) => {
                         state.route = route;
@@ -476,6 +484,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     CollectionAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
+                    }
+                    CollectionAction::PlayLikes(tracks, i) => {
+                        state.play_list(tracks, i);
+                        state.arm_likes_continuation();
                     }
                     CollectionAction::OpenMenu(track) => {
                         open_menu(state, ui, track);
@@ -512,10 +524,8 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                             (audio.as_ref(), state.player.duration_secs)
                         {
                             if dur > 0.0 {
-                                let _ = engine::seek(
-                                    (f64::from(frac) * dur).clamp(0.0, dur),
-                                    audio,
-                                );
+                                let _ =
+                                    engine::seek((f64::from(frac) * dur).clamp(0.0, dur), audio);
                             }
                         }
                     }
@@ -542,10 +552,12 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     PlaylistAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
+                        if let Some(urn) = state.playlist.urn().map(str::to_string) {
+                            state.arm_playlist_continuation(urn);
+                        }
                     }
                     PlaylistAction::ShufflePlay(tracks) => {
-                        state.player.shuffle = true;
-                        state.play_list(tracks, 0);
+                        state.shuffle_play_playlist(tracks);
                     }
                     PlaylistAction::TogglePin(urn, title) => {
                         state.toggle_pin_playlist(urn, title);
@@ -898,24 +910,50 @@ fn cycle_ab_loop(state: &mut AppState) {
     crate::backend::audio::engine::set_ab_loop(state.ab_a, state.ab_b, &audio);
 }
 
-const EQ_LABELS: [&str; 10] = ["32", "64", "125", "250", "500", "1K", "2K", "4K", "8K", "16K"];
+const EQ_LABELS: [&str; 10] = [
+    "32", "64", "125", "250", "500", "1K", "2K", "4K", "8K", "16K",
+];
 
 /// Tauri 版 `equalizer.ts` のプリセット。
 const EQ_PRESETS: &[(&str, [f64; 10])] = &[
     ("Flat", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-    ("Bass Boost", [6.0, 5.0, 4.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    (
+        "Bass Boost",
+        [6.0, 5.0, 4.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    ),
     (
         "Bass Destroyer",
         [12.0, 12.0, 10.0, 7.0, 3.0, 0.0, -2.0, -4.0, -4.0, -5.0],
     ),
-    ("Treble Boost", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 4.0, 5.0, 6.0]),
-    ("Vocal", [-2.0, -1.0, 0.0, 2.0, 4.0, 4.0, 3.0, 1.0, 0.0, -1.0]),
+    (
+        "Treble Boost",
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 4.0, 5.0, 6.0],
+    ),
+    (
+        "Vocal",
+        [-2.0, -1.0, 0.0, 2.0, 4.0, 4.0, 3.0, 1.0, 0.0, -1.0],
+    ),
     ("Rock", [4.0, 3.0, 1.0, 0.0, -1.0, 0.0, 2.0, 3.0, 4.0, 4.0]),
-    ("Electronic", [5.0, 4.0, 2.0, 0.0, -1.0, 0.0, 1.0, 3.0, 4.0, 5.0]),
-    ("Classical", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -2.0, -3.0, -3.0, -4.0]),
-    ("Loudness", [5.0, 4.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 3.0, 4.0]),
-    ("V-Shape", [5.0, 3.0, 1.0, -1.0, -3.0, -3.0, -1.0, 1.0, 3.0, 5.0]),
-    ("Night", [-3.0, -2.0, 0.0, 2.0, 3.0, 3.0, 2.0, 0.0, -2.0, -4.0]),
+    (
+        "Electronic",
+        [5.0, 4.0, 2.0, 0.0, -1.0, 0.0, 1.0, 3.0, 4.0, 5.0],
+    ),
+    (
+        "Classical",
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -2.0, -3.0, -3.0, -4.0],
+    ),
+    (
+        "Loudness",
+        [5.0, 4.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 3.0, 4.0],
+    ),
+    (
+        "V-Shape",
+        [5.0, 3.0, 1.0, -1.0, -3.0, -3.0, -1.0, 1.0, 3.0, 5.0],
+    ),
+    (
+        "Night",
+        [-3.0, -2.0, 0.0, 2.0, 3.0, 3.0, 2.0, 0.0, -2.0, -4.0],
+    ),
 ];
 
 /// イコライザー窓 (Tauri 版 `EqualizerPanel` 相当)。
@@ -1220,9 +1258,7 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
     match act {
         Act::SetLike(next) => {
             state.toggle_track_like(&track.urn, next);
-            if state.player.current_queued().map(|t| t.urn.as_str())
-                == Some(track.urn.as_str())
-            {
+            if state.player.current_queued().map(|t| t.urn.as_str()) == Some(track.urn.as_str()) {
                 state.now_liked = Some(next);
             }
         }
@@ -1324,13 +1360,7 @@ fn show_download_window(state: &mut AppState, ctx: &egui::Context) {
         };
         let safe = |s: &str| {
             s.chars()
-                .map(|c| {
-                    if r#"\/:*?"<>|"#.contains(c) {
-                        '_'
-                    } else {
-                        c
-                    }
-                })
+                .map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c })
                 .collect::<String>()
         };
         let default_name = format!(
