@@ -264,13 +264,18 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             }
 
             let mut vol = state.player.volume;
-            if ui
-                .add(egui::Slider::new(&mut vol, 0.0..=100.0).text("Volume"))
-                .changed()
-            {
+            let resp = ui.add(egui::Slider::new(&mut vol, 0.0..=100.0).text("Volume"));
+            if resp.changed() {
                 state.player.volume = vol;
+                state.settings.volume = vol;
                 if let Some(a) = &audio {
                     engine::set_volume(vol as f64, a);
+                }
+            }
+            // ドラッグ終了 (またはクリック等の単発変更) で永続化する。
+            if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
+                if let Err(e) = crate::backend::prefs::save(&state.settings) {
+                    eprintln!("[prefs] save failed: {e}");
                 }
             }
         });

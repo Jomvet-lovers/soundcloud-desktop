@@ -206,10 +206,20 @@ fn shuffled_next(len: usize, current: usize) -> usize {
 
 /// `desktop/src/stores/settings.ts` 対応 (Phase 0 は subset)。
 /// 既定アクセントは SoundCloud オレンジ `#ff5500`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SettingsState {
     pub accent: [u8; 3],
     pub theme_preset: ThemePreset,
+    /// NowPlaying バーの音量 (0..=100)。後方互換のため default 付き。
+    #[serde(default = "default_volume")]
+    pub volume: f32,
+    /// 高品質ストリーミング (Settings > Playback)。
+    #[serde(default)]
+    pub hq_streaming: bool,
+}
+
+fn default_volume() -> f32 {
+    80.0
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -228,6 +238,8 @@ impl Default for SettingsState {
         Self {
             accent: [0xff, 0x55, 0x00],
             theme_preset: ThemePreset::SoundCloud,
+            volume: default_volume(),
+            hq_streaming: false,
         }
     }
 }
@@ -316,10 +328,13 @@ impl AppState {
         });
         // 起動時に未ログインならログイン画面を出す。
         let signed_in = api.as_ref().and_then(|a| a.session_token()).is_some();
-        Self {
+        let settings = crate::backend::prefs::load().unwrap_or_default();
+        let mut player = PlayerState::default();
+        player.volume = settings.volume;
+        let state = Self {
             route: if signed_in { Route::Home } else { Route::Login },
-            player: PlayerState::default(),
-            settings: crate::backend::prefs::load().unwrap_or_default(),
+            player,
+            settings,
             runtime,
             events_rx,
             events_tx,
@@ -350,7 +365,12 @@ impl AppState {
             login: LoginView::default(),
             images: Images::new(std::sync::Arc::new(wreq::Client::new())),
             nav_param: None,
+        };
+        // 永続化された音量を起動時から反映する。
+        if let Some(audio) = state.audio() {
+            crate::backend::audio::engine::set_volume(state.player.volume as f64, audio);
         }
+        state
     }
 
     pub fn runtime(&self) -> &tokio::runtime::Runtime {
@@ -431,6 +451,7 @@ impl AppState {
             .as_ref()
             .and_then(|a| a.session_token().map(str::to_string));
         let urn = track.urn.clone();
+        let hq = self.settings.hq_streaming;
         let expected_ms = (track.duration > 0).then_some(track.duration as u64);
         // NowPlaying バー用の like 状態を取得し直す (ローカルストア + user_favorite)。
         self.now_liked = track.user_favorite;
@@ -449,7 +470,7 @@ impl AppState {
             let entry = match cache.get_cache_entry(&urn) {
                 Some(entry) => entry,
                 None => match cache
-                    .ensure_playable(&urn, session.as_deref(), false, expected_ms)
+                    .ensure_playable(&urn, session.as_deref(), hq, expected_ms)
                     .await
                 {
                     Ok(entry) => entry,

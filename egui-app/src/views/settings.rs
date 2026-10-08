@@ -81,7 +81,6 @@ pub struct SettingsView {
     startup_page: StartupPage,
     floating_comments: bool,
     normalize_volume: bool,
-    hq_streaming: bool,
     bg_dim: f32,
     bg_opacity: f32,
     bg_blur: f32,
@@ -133,7 +132,7 @@ impl SettingsView {
         match self.active {
             SettingsCategory::General => self.show_general(ui),
             SettingsCategory::Appearance => self.show_appearance(settings, ui),
-            SettingsCategory::Audio => self.show_audio(ui),
+            SettingsCategory::Audio => self.show_audio(settings, ui),
             SettingsCategory::Storage => self.show_storage(cache, ui),
             SettingsCategory::Account => Self::show_account(api, ui),
         }
@@ -207,14 +206,15 @@ impl SettingsView {
         ui.add(egui::Slider::new(&mut self.bg_blur, 0.0..=40.0).text("Blur"));
     }
 
-    /// `PlaybackCard` 対応 (in-memory。`AudioDeviceCard` の出力先切替は Phase 4)。
-    fn show_audio(&mut self, ui: &mut egui::Ui) {
+    /// `PlaybackCard` 対応 (`hq_streaming` は永続化、他は in-memory。
+    /// `AudioDeviceCard` の出力先切替は Phase 4)。
+    fn show_audio(&mut self, settings: &mut SettingsState, ui: &mut egui::Ui) {
         ui.heading("Playback");
         ui.checkbox(&mut self.floating_comments, "Floating comments");
         ui.label("Show comments as floating pills during playback");
         ui.checkbox(&mut self.normalize_volume, "Volume normalization");
         ui.label("Balances quiet and loud tracks to a more even level");
-        ui.checkbox(&mut self.hq_streaming, "High quality streaming");
+        ui.checkbox(&mut settings.hq_streaming, "High quality streaming");
         ui.label("Prefer the highest available quality during playback");
     }
 
