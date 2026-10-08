@@ -70,6 +70,111 @@ pub fn playing_bars(ui: &mut egui::Ui, playing: bool, accent: egui::Color32) {
     }
 }
 
+/// トランスポート用アイコン (フォント非依存で自作描画)。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum TransportIcon {
+    Play,
+    Pause,
+    Prev,
+    Next,
+}
+
+/// 円形のトランスポートボタン。
+pub fn transport_button(
+    ui: &mut egui::Ui,
+    icon: TransportIcon,
+    enabled: bool,
+    size: f32,
+) -> egui::Response {
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(size), sense);
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let painter = ui.painter();
+    if enabled && resp.hovered() {
+        painter.circle_filled(
+            rect.center(),
+            size * 0.5,
+            egui::Color32::from_white_alpha(18),
+        );
+    }
+    let color = if enabled {
+        egui::Color32::from_white_alpha(225)
+    } else {
+        egui::Color32::from_white_alpha(70)
+    };
+    let c = rect.center();
+    let s = size * 0.5;
+    match icon {
+        TransportIcon::Play => {
+            let p1 = c + egui::Vec2::new(-s * 0.28, -s * 0.42);
+            let p2 = c + egui::Vec2::new(-s * 0.28, s * 0.42);
+            let p3 = c + egui::Vec2::new(s * 0.45, 0.0);
+            painter.add(egui::Shape::convex_polygon(
+                vec![p1, p2, p3],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        TransportIcon::Pause => {
+            let w = s * 0.22;
+            let h = s * 0.8;
+            for dx in [-s * 0.18, s * 0.18] {
+                painter.rect_filled(
+                    egui::Rect::from_center_size(
+                        c + egui::Vec2::new(dx, 0.0),
+                        egui::Vec2::new(w, h),
+                    ),
+                    1.0,
+                    color,
+                );
+            }
+        }
+        TransportIcon::Prev => {
+            painter.rect_filled(
+                egui::Rect::from_center_size(
+                    c + egui::Vec2::new(-s * 0.38, 0.0),
+                    egui::Vec2::new(s * 0.16, s * 0.7),
+                ),
+                1.0,
+                color,
+            );
+            let p1 = c + egui::Vec2::new(s * 0.38, -s * 0.35);
+            let p2 = c + egui::Vec2::new(s * 0.38, s * 0.35);
+            let p3 = c + egui::Vec2::new(-s * 0.12, 0.0);
+            painter.add(egui::Shape::convex_polygon(
+                vec![p1, p2, p3],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        TransportIcon::Next => {
+            painter.rect_filled(
+                egui::Rect::from_center_size(
+                    c + egui::Vec2::new(s * 0.38, 0.0),
+                    egui::Vec2::new(s * 0.16, s * 0.7),
+                ),
+                1.0,
+                color,
+            );
+            let p1 = c + egui::Vec2::new(-s * 0.38, -s * 0.35);
+            let p2 = c + egui::Vec2::new(-s * 0.38, s * 0.35);
+            let p3 = c + egui::Vec2::new(s * 0.12, 0.0);
+            painter.add(egui::Shape::convex_polygon(
+                vec![p1, p2, p3],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+    }
+    resp
+}
+
 /// グリッド用カード (Home の棚・Search 結果)。戻り値はクリック応答。
 pub fn track_card(
     ui: &mut egui::Ui,

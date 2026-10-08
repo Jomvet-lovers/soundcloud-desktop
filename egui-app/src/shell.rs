@@ -254,11 +254,26 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let audio = state.audio().cloned();
             ui.spacing_mut().slider_width = 180.0;
-            let label = if playing { "Pause" } else { "Play" };
-            if ui
-                .add_enabled(has_audio, egui::Button::new(label))
-                .clicked()
+            let pos0 = audio
+                .as_ref()
+                .map(|a| engine::get_position(a))
+                .unwrap_or(0.0);
+            if crate::widgets::transport_button(
+                ui,
+                crate::widgets::TransportIcon::Prev,
+                has_audio,
+                30.0,
+            )
+            .clicked()
             {
+                state.prev_track(pos0);
+            }
+            let icon = if playing {
+                crate::widgets::TransportIcon::Pause
+            } else {
+                crate::widgets::TransportIcon::Play
+            };
+            if crate::widgets::transport_button(ui, icon, has_audio, 36.0).clicked() {
                 if let Some(audio) = &audio {
                     if playing {
                         engine::pause(audio);
@@ -269,6 +284,16 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                 }
             }
+            if crate::widgets::transport_button(
+                ui,
+                crate::widgets::TransportIcon::Next,
+                has_audio,
+                30.0,
+            )
+            .clicked()
+            {
+                state.next_track();
+            }
             if ui
                 .add_enabled(has_audio, egui::Button::new("Stop"))
                 .clicked()
@@ -277,22 +302,6 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     engine::stop(audio);
                     state.player.is_playing = false;
                 }
-            }
-            let pos0 = audio
-                .as_ref()
-                .map(|a| engine::get_position(a))
-                .unwrap_or(0.0);
-            if ui
-                .add_enabled(has_audio, egui::Button::new("Prev"))
-                .clicked()
-            {
-                state.prev_track(pos0);
-            }
-            if ui
-                .add_enabled(has_audio, egui::Button::new("Next"))
-                .clicked()
-            {
-                state.next_track();
             }
             if ui
                 .selectable_label(state.player.shuffle, "Shuffle")
