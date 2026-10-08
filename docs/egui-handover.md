@@ -351,3 +351,30 @@ smoke モード (どちらも表示環境用。CI では不可):
     フローティングコメントレーン (波形上のコメント表示)。
 - **残り**: 見た目の再現 (フラット UI 適用) — 次のフェーズ。Vibe/Lyrics 検索は
   direct backend が空応答のスタブのため見送り (実装しても空)。
+
+### 8.11 見た目の再現 第2弾 + スクリーンショット検証 (2026-10-10)
+
+- **実機スクリーンショットで検証しながら修正** (エージェントでも見た目を確認できる):
+  - 起動 → `Get-Process scd-egui` の MainWindowHandle → `GetWindowRect` +
+    `CopyFromScreen` で PNG 保存 → 画像を読んで確認。
+  - クリックは `SetCursorPos` + `mouse_event` (window-relative 座標)。
+    補助スクリプト: `%TEMP%\opencode\cap.ps1` (-ClickX/-ClickY/-Out)。
+  - 注意: タイトルでの `FindWindow` は不安定。`MainWindowTitle -like "*SCD-Direct*"`
+    で hwnd を取る。wry-host の孤児プロセスが残ることがある (kill 推奨)。
+- **修正した不具合** (09f95e41):
+  - 遅れて届いた画像がプレースホルダのまま残る: egui は入力まで描画しないため、
+    `Images::show` が pending 中 `request_repaint` し、完了時に取得タスクが
+    `ctx.request_repaint()` するようにした。
+  - 行/キューのアートが `-t100x100` (SC は 404) → `-t200x200` に修正。
+  - `track_row` はタイトル/アーティストもクリック可能 (Response::union) にして
+    行全体で再生/右クリックメニュー。
+  - NowPlaying のタイトル/アーティストは 1 行トランケート (折返しでバーが伸びていた)。
+  - ジャンルが空のとき「#」ボタンを出さない。
+- **第2弾 UI**: NowPlaying 3 分割 (左メタ/中央トランスポート+シーク/右操作)、
+  白丸 Play/Pause、スピナー付きローディング、空状態の中央寄せ表示、
+  Discover と Liked のグリッド折返し (egui の horizontal_wrapped が効かないため
+  行チャンク方式)、キュー幅 320px、波形コメント点 + フローティングコメント。
+- **確認済みページ** (スクショ): Home / Library (Likes・Playlists) / Search
+  (件数タブ・ソート) / Settings / Track (波形・関連・Follow) / Playlist
+  (Play all・Like・Sharing) / EQ ウィンドウ / Queue パネル。
+- **CI**: 09f95e41 まで green。`cargo test` 44 件。
