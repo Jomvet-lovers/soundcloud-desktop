@@ -144,7 +144,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         ui.horizontal(|ui| {
                             let src = ui.dnd_drag_source(row_id, i, |ui| {
                                 ui.horizontal(|ui| {
-                                    let art = t.artwork("t100x100");
+                                    let art = t.artwork("t200x200");
                                     state.images.show(ui, &rt, art.as_deref(), 28.0);
                                     let label = egui::RichText::new(format!(
                                         "{} — {}",
@@ -240,25 +240,41 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         state.images.show(ui, &rt, art.as_deref(), 48.0);
                         ui.vertical(|ui| {
                             ui.set_max_width((left_w - 120.0).max(120.0));
-                            if is_sc {
-                                if ui.link(track.display_title()).clicked() {
-                                    state.route = Route::Track;
-                                    state.nav_param = Some(track.urn.clone());
-                                }
-                            } else {
-                                ui.label(track.display_title());
+                            let link_color = ui.visuals().hyperlink_color;
+                            let title = egui::RichText::new(track.display_title());
+                            let title = if is_sc { title.color(link_color) } else { title };
+                            if ui
+                                .add(
+                                    egui::Label::new(title)
+                                        .truncate()
+                                        .wrap_mode(egui::TextWrapMode::Truncate)
+                                        .sense(egui::Sense::click()),
+                                )
+                                .clicked()
+                                && is_sc
+                            {
+                                state.route = Route::Track;
+                                state.nav_param = Some(track.urn.clone());
                             }
                             if let Some(user) = track.user.as_ref() {
-                                if is_sc {
-                                    if ui
-                                        .link(egui::RichText::new(&user.username).small().weak())
-                                        .clicked()
-                                    {
-                                        state.route = Route::User;
-                                        state.nav_param = Some(user.urn.clone());
-                                    }
+                                let artist = egui::RichText::new(&user.username).small().weak();
+                                let artist = if is_sc {
+                                    artist.color(link_color)
                                 } else {
-                                    ui.label(egui::RichText::new(&user.username).small().weak());
+                                    artist
+                                };
+                                if ui
+                                    .add(
+                                        egui::Label::new(artist)
+                                            .truncate()
+                                            .wrap_mode(egui::TextWrapMode::Truncate)
+                                            .sense(egui::Sense::click()),
+                                    )
+                                    .clicked()
+                                    && is_sc
+                                {
+                                    state.route = Route::User;
+                                    state.nav_param = Some(user.urn.clone());
                                 }
                             }
                         });

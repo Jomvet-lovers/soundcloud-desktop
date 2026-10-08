@@ -279,8 +279,8 @@ pub fn track_row(
     accent: egui::Color32,
     duration_text: Option<&str>,
 ) -> egui::Response {
-    let art = track.artwork("t100x100");
-    let mut art_resp: Option<egui::Response> = None;
+    let art = track.artwork("t200x200");
+    let mut row_resp: Option<egui::Response> = None;
     ui.horizontal(|ui| {
         // 再生中は行頭にイコライザー (Spotify 風、背景ハイライトは使わない)。
         if playing {
@@ -292,27 +292,34 @@ pub fn track_row(
         if r.hovered() || playing {
             paint_play_glyph(ui.painter(), r.rect, playing);
         }
-        art_resp = Some(r);
+        let title = if playing {
+            egui::RichText::new(track.display_title()).color(accent)
+        } else {
+            egui::RichText::new(track.display_title())
+        };
+        // 行全体 (アート + タイトル + アーティスト) をクリック可能にする。
+        let mut merged = r;
         ui.vertical(|ui| {
-            let title = if playing {
-                egui::RichText::new(track.display_title()).color(accent)
-            } else {
-                egui::RichText::new(track.display_title())
-            };
-            ui.add(
+            let t = ui.add(
                 egui::Label::new(title)
                     .truncate()
-                    .wrap_mode(egui::TextWrapMode::Truncate),
+                    .wrap_mode(egui::TextWrapMode::Truncate)
+                    .sense(egui::Sense::click()),
             );
-            ui.label(egui::RichText::new(track.artist_name()).weak());
+            let a = ui.add(
+                egui::Label::new(egui::RichText::new(track.artist_name()).weak())
+                    .sense(egui::Sense::click()),
+            );
+            merged = merged.union(t).union(a);
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(d) = duration_text {
                 ui.label(d);
             }
         });
+        row_resp = Some(merged);
     });
-    art_resp.expect("artwork response")
+    row_resp.expect("artwork response")
 }
 
 /// セクション見出し (タイトル + 件数)。

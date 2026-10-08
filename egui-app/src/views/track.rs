@@ -322,7 +322,7 @@ impl TrackView {
                     });
                 }
                 if let Some(genre) = track.genre.as_deref() {
-                    if ui.button(format!("# {genre}")).clicked() {
+                    if !genre.is_empty() && ui.button(format!("# {genre}")).clicked() {
                         action =
                             TrackAction::Navigate(Route::Tag, Some(genre.to_string()));
                     }

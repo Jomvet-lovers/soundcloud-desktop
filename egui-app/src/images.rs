@@ -65,12 +65,17 @@ impl Images {
             let (tx, rx) = oneshot::channel();
             let client = self.client.clone();
             let url_owned = url.to_string();
+            let ctx = ui.ctx().clone();
             rt.spawn(async move {
                 let result = fetch_image(&client, &url_owned).await;
                 let _ = tx.send(result);
+                // 完了を UI に知らせる (egui は入力まで描画しないため)。
+                ctx.request_repaint();
             });
             self.pending.insert(url.to_string(), rx);
         }
+        // 取得完了までフレームを回して `try_recv` を poll する。
+        ui.ctx().request_repaint();
         Self::placeholder(ui, size)
     }
 
