@@ -41,6 +41,35 @@ fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playing: bool) {
     }
 }
 
+/// Spotify 風イコライザー (3本バー)。`playing` の間は時刻でアニメーションする。
+pub fn playing_bars(ui: &mut egui::Ui, playing: bool, accent: egui::Color32) {
+    let size = egui::Vec2::new(13.0, 12.0);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let t = ui.input(|i| i.time) as f32;
+    let painter = ui.painter();
+    let bar_w = 3.0;
+    let gap = 2.0;
+    for i in 0..3 {
+        let phase = i as f32 * 0.9;
+        let frac = if playing {
+            let s = (t * 4.2 + phase).sin() * 0.5 + 0.5;
+            0.35 + 0.65 * s
+        } else {
+            0.45
+        };
+        let h = size.y * frac;
+        let x = rect.left() + i as f32 * (bar_w + gap);
+        let r = egui::Rect::from_min_size(
+            egui::Pos2::new(x, rect.bottom() - h),
+            egui::Vec2::new(bar_w, h),
+        );
+        painter.rect_filled(r, 1.0, accent);
+    }
+}
+
 /// グリッド用カード (Home の棚・Search 結果)。戻り値はクリック応答。
 pub fn track_card(
     ui: &mut egui::Ui,
@@ -69,7 +98,7 @@ pub fn track_card(
                 .wrap_mode(egui::TextWrapMode::Truncate),
         );
         ui.add(
-            egui::Label::new(track.artist_name())
+            egui::Label::new(egui::RichText::new(track.artist_name()).weak())
                 .truncate()
                 .wrap_mode(egui::TextWrapMode::Truncate),
         );
@@ -92,6 +121,12 @@ pub fn track_row(
     let art = track.artwork("t100x100");
     let mut art_resp: Option<egui::Response> = None;
     ui.horizontal(|ui| {
+        // 再生中は行頭にイコライザー (Spotify 風、背景ハイライトは使わない)。
+        if playing {
+            playing_bars(ui, true, accent);
+        } else {
+            ui.add_space(13.0);
+        }
         let r = images.show(ui, rt, art.as_deref(), 40.0);
         if r.hovered() || playing {
             paint_play_glyph(ui.painter(), r.rect, playing);
@@ -108,7 +143,7 @@ pub fn track_row(
                     .truncate()
                     .wrap_mode(egui::TextWrapMode::Truncate),
             );
-            ui.label(track.artist_name());
+            ui.label(egui::RichText::new(track.artist_name()).weak());
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(d) = duration_text {

@@ -48,8 +48,12 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     if state.sidebar_open {
         egui::Panel::left("sidebar")
             .resizable(false)
+            .exact_size(210.0)
             .show(ui, |ui| {
-                ui.heading("SCD-Direct");
+                ui.add(egui::Label::new(
+                    egui::RichText::new("SCD-Direct").font(crate::theme::semibold(18.0)),
+                ));
+                ui.add_space(4.0);
                 let signed_in = state.api.as_ref().and_then(|a| a.session_token()).is_some();
                 if signed_in {
                     if ui.button("Sign out").clicked() {
@@ -60,13 +64,29 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 }
                 ui.separator();
                 for route in Route::ALL {
-                    ui.selectable_value(&mut state.route, *route, route.title());
+                    let selected = state.route == *route;
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 26.0],
+                            egui::Button::selectable(selected, route.title()),
+                        )
+                        .clicked()
+                    {
+                        state.route = *route;
+                    }
                 }
                 if !state.settings.pinned_playlists.is_empty() {
                     ui.separator();
-                    ui.label("Quick access");
+                    ui.label(egui::RichText::new("Quick access").small().weak());
                     for pin in &state.settings.pinned_playlists {
-                        if ui.selectable_label(false, &pin.title).clicked() {
+                        let label = egui::RichText::new(&pin.title).small();
+                        if ui
+                            .add_sized(
+                                [ui.available_width(), 22.0],
+                                egui::Button::selectable(false, label),
+                            )
+                            .clicked()
+                        {
                             state.route = Route::Playlist;
                             state.nav_param = Some(pin.urn.clone());
                         }
@@ -75,13 +95,23 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 ui.separator();
                 if let Some(backend) = &state.backend {
                     let s = &backend.servers;
-                    ui.label(format!(
-                        "api :{}  static :{}  proxy :{}",
-                        s.api_port, s.static_port, s.proxy_port
-                    ));
-                    if backend.audio.is_none() {
-                        ui.label("audio: unavailable");
-                    }
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new("Diagnostics").small().weak(),
+                    )
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "api :{}  static :{}  proxy :{}",
+                                s.api_port, s.static_port, s.proxy_port
+                            ))
+                            .small()
+                            .weak(),
+                        );
+                        if backend.audio.is_none() {
+                            ui.label(egui::RichText::new("audio: unavailable").small());
+                        }
+                    });
                 }
                 if let Some(e) = &state.boot_error {
                     ui.colored_label(egui::Color32::RED, format!("boot: {e}"));
@@ -162,35 +192,43 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
 
     egui::Panel::bottom("now_playing").show(ui, |ui| {
         let accent = crate::widgets::accent_color(&state.settings);
-        // 再生中トラック (Tauri 版 NowPlayingBar: タイトル/アーティストは各ページへのリンク)。
+        // 再生中トラック (Tauri 版 NowPlayingBar: アートワーク + タイトル/アーティスト)。
+        let current = state
+            .player
+            .queue_index
+            .and_then(|i| state.player.queue.get(i))
+            .cloned();
         ui.horizontal(|ui| {
-            let current = state
-                .player
-                .queue_index
-                .and_then(|i| state.player.queue.get(i))
-                .cloned();
             match current {
                 Some(track) => {
                     let is_sc = track.urn.starts_with("soundcloud:");
-                    if is_sc {
-                        if ui.link(track.display_title()).clicked() {
-                            state.route = Route::Track;
-                            state.nav_param = Some(track.urn.clone());
-                        }
-                    } else {
-                        ui.label(track.display_title());
-                    }
-                    if let Some(user) = track.user.as_ref() {
-                        ui.label("—");
+                    let rt = state.runtime().handle().clone();
+                    let art = track.artwork("t200x200");
+                    state.images.show(ui, &rt, art.as_deref(), 44.0);
+                    ui.vertical(|ui| {
+                        ui.set_max_width(260.0);
                         if is_sc {
-                            if ui.link(&user.username).clicked() {
-                                state.route = Route::User;
-                                state.nav_param = Some(user.urn.clone());
+                            if ui.link(track.display_title()).clicked() {
+                                state.route = Route::Track;
+                                state.nav_param = Some(track.urn.clone());
                             }
                         } else {
-                            ui.label(&user.username);
+                            ui.label(track.display_title());
                         }
-                    }
+                        if let Some(user) = track.user.as_ref() {
+                            if is_sc {
+                                if ui
+                                    .link(egui::RichText::new(&user.username).small())
+                                    .clicked()
+                                {
+                                    state.route = Route::User;
+                                    state.nav_param = Some(user.urn.clone());
+                                }
+                            } else {
+                                ui.label(egui::RichText::new(&user.username).small());
+                            }
+                        }
+                    });
                     if is_sc {
                         let liked = state.now_liked.unwrap_or(false);
                         if crate::widgets::like_button(ui, liked, accent) {
@@ -215,6 +253,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
         });
         ui.horizontal(|ui| {
             let audio = state.audio().cloned();
+            ui.spacing_mut().slider_width = 180.0;
             let label = if playing { "Pause" } else { "Play" };
             if ui
                 .add_enabled(has_audio, egui::Button::new(label))
@@ -311,7 +350,11 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 Some(d) if d > 0.0 => {
                     let mut p = pos.min(d);
                     if ui
-                        .add(egui::Slider::new(&mut p, 0.0..=d).text("Position"))
+                        .add(
+                            egui::Slider::new(&mut p, 0.0..=d)
+                                .show_value(false)
+                                .trailing_fill(true),
+                        )
                         .changed()
                     {
                         if let Some(a) = &audio {
@@ -326,7 +369,12 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             }
 
             let mut vol = state.player.volume;
-            let resp = ui.add(egui::Slider::new(&mut vol, 0.0..=100.0).text("Volume"));
+            ui.label("Vol");
+            let resp = ui.add(
+                egui::Slider::new(&mut vol, 0.0..=100.0)
+                    .show_value(false)
+                    .trailing_fill(true),
+            );
             if resp.changed() {
                 if vol > 0.0 {
                     state.player.volume_before_mute = vol;

@@ -141,13 +141,37 @@ pub fn visuals(settings: &SettingsState) -> egui::Visuals {
         70,
     );
     v.selection.stroke = egui::Stroke::new(1.0, accent);
+    v.hyperlink_color = accent;
+    v.slider_trailing_fill = true;
+    // フラット方針: 影 (グロー) は使わない。
+    v.window_shadow = egui::epaint::Shadow::NONE;
+    v.popup_shadow = egui::epaint::Shadow::NONE;
+    // 角丸はボタン/入力/カードのみ (モーダルは少し大きめ)。
+    let r = egui::CornerRadius::same(6);
+    for w in [
+        &mut v.widgets.noninteractive,
+        &mut v.widgets.inactive,
+        &mut v.widgets.hovered,
+        &mut v.widgets.active,
+        &mut v.widgets.open,
+    ] {
+        w.corner_radius = r;
+    }
+    v.window_corner_radius = egui::CornerRadius::same(10);
+    v.menu_corner_radius = egui::CornerRadius::same(8);
     v.widgets.noninteractive.weak_bg_fill = shade([255, 255, 255], 10);
     v.widgets.inactive.weak_bg_fill = shade([255, 255, 255], 16);
     v.widgets.hovered.weak_bg_fill = shade([255, 255, 255], 28);
+    v.widgets.inactive.bg_fill = shade([255, 255, 255], 12);
+    v.widgets.hovered.bg_fill = shade([255, 255, 255], 22);
     v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
     v.widgets.active.weak_bg_fill = shade(
         [settings.accent[0], settings.accent[1], settings.accent[2]],
         60,
+    );
+    v.widgets.active.bg_fill = shade(
+        [settings.accent[0], settings.accent[1], settings.accent[2]],
+        80,
     );
     v.widgets.active.fg_stroke = egui::Stroke::new(1.0, accent);
     v
@@ -171,6 +195,14 @@ pub fn install_text_styles(ctx: &egui::Context) {
         egui::TextStyle::Monospace,
         egui::FontId::new(12.0, egui::FontFamily::Monospace),
     );
+    // 高密度レイアウト: 行間と操作サイズを詰める (Tauri 版の 36-40px 行に寄せる)。
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+    style.spacing.interact_size.y = 24.0;
+    style.spacing.scroll.bar_width = 8.0;
+    style.spacing.scroll.floating = false;
+    style.spacing.scroll.bar_inner_margin = 4.0;
+    style.spacing.scroll.bar_outer_margin = 2.0;
     ctx.set_style_of(egui::Theme::Dark, style);
 }
 
