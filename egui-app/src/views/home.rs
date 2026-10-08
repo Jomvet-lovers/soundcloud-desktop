@@ -139,22 +139,32 @@ impl HomeView {
                 widgets::empty_note(ui, "No liked tracks yet");
             } else {
                 let _ = audio;
-                ui.horizontal_wrapped(|ui| {
-                    for (i, track) in tracks.iter().take(60).enumerate() {
-                        let playing = is_currently_playing(player, track);
-                        match widgets::hit_of(&widgets::track_card(
-                            ui, rt, images, track, 132.0, playing, accent,
-                        )) {
-                            widgets::RowHit::Clicked => {
-                                action = HomeAction::PlayList(tracks.clone(), i);
+                // グリッド (Tauri 版 Home.tsx: grid-cols-3..7)。egui の
+                // horizontal_wrapped が折り返さないため行チャンクで並べる。
+                let items: Vec<(usize, &Track)> =
+                    tracks.iter().take(60).enumerate().collect();
+                let card_w = 132.0;
+                let per_row =
+                    (((ui.available_width() + 10.0) / (card_w + 10.0)).floor() as usize)
+                        .clamp(1, 8);
+                for chunk in items.chunks(per_row) {
+                    ui.horizontal(|ui| {
+                        for &(i, track) in chunk {
+                            let playing = is_currently_playing(player, track);
+                            match widgets::hit_of(&widgets::track_card(
+                                ui, rt, images, track, card_w, playing, accent,
+                            )) {
+                                widgets::RowHit::Clicked => {
+                                    action = HomeAction::PlayList(tracks.clone(), i);
+                                }
+                                widgets::RowHit::Menu => {
+                                    action = HomeAction::OpenMenu(track.clone());
+                                }
+                                widgets::RowHit::None => {}
                             }
-                            widgets::RowHit::Menu => {
-                                action = HomeAction::OpenMenu(track.clone());
-                            }
-                            widgets::RowHit::None => {}
                         }
-                    }
-                });
+                    });
+                }
             }
         }
 
@@ -191,43 +201,50 @@ impl HomeView {
                     }
                 });
                 // グリッド (Tauri 版 DiscoverSections: ラップ格子 + 150px カバー)。
-                ui.horizontal_wrapped(|ui| {
-                    for item in &shown {
-                        let clicked = ui
-                            .vertical(|ui| {
-                                ui.set_max_width(150.0);
-                                let art = item
-                                    .artwork_url
-                                    .as_deref()
-                                    .map(|u| u.replace("-large", "-t300x300"));
-                                let img = images.show(ui, rt, art.as_deref(), 150.0);
-                                if img.hovered() {
-                                    widgets::paint_play_glyph(ui.painter(), img.rect, false);
-                                }
-                                let lbl = ui.add(
-                                    egui::Label::new(&item.title)
-                                        .truncate()
-                                        .wrap_mode(egui::TextWrapMode::Truncate)
-                                        .sense(egui::Sense::click()),
-                                );
-                                let desc = item
-                                    .short_description
-                                    .as_deref()
-                                    .or(item.description.as_deref())
-                                    .unwrap_or("");
-                                ui.add(
-                                    egui::Label::new(egui::RichText::new(desc).small().weak())
+                let per_row =
+                    (((ui.available_width() + 10.0) / (150.0 + 10.0)).floor() as usize)
+                        .clamp(1, 8);
+                for chunk in shown.chunks(per_row) {
+                    ui.horizontal(|ui| {
+                        for item in chunk {
+                            let clicked = ui
+                                .vertical(|ui| {
+                                    ui.set_max_width(150.0);
+                                    let art = item
+                                        .artwork_url
+                                        .as_deref()
+                                        .map(|u| u.replace("-large", "-t300x300"));
+                                    let img = images.show(ui, rt, art.as_deref(), 150.0);
+                                    if img.hovered() {
+                                        widgets::paint_play_glyph(ui.painter(), img.rect, false);
+                                    }
+                                    let lbl = ui.add(
+                                        egui::Label::new(&item.title)
+                                            .truncate()
+                                            .wrap_mode(egui::TextWrapMode::Truncate)
+                                            .sense(egui::Sense::click()),
+                                    );
+                                    let desc = item
+                                        .short_description
+                                        .as_deref()
+                                        .or(item.description.as_deref())
+                                        .unwrap_or("");
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(desc).small().weak(),
+                                        )
                                         .truncate()
                                         .wrap_mode(egui::TextWrapMode::Truncate),
-                                );
-                                img.clicked() || lbl.clicked()
-                            })
-                            .inner;
-                        if clicked {
-                            action = HomeAction::StartDiscover(item.clone());
+                                    );
+                                    img.clicked() || lbl.clicked()
+                                })
+                                .inner;
+                            if clicked {
+                                action = HomeAction::StartDiscover(item.clone());
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
             for urn in toggled {
                 if !self.expanded.remove(&urn) {
