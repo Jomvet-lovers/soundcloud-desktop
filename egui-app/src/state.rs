@@ -296,7 +296,12 @@ impl AppState {
             .expect("tokio runtime");
         let (events_tx, events_rx) = mpsc::unbounded_channel();
         let (backend_tx, backend_rx) = mpsc::unbounded_channel();
-        let (backend, boot_error) = match boot::boot(&runtime, EventBus::new(backend_tx)) {
+        let mut bus = EventBus::new(backend_tx);
+        bus.set_wake({
+            let ctx = cc.egui_ctx.clone();
+            move || ctx.request_repaint()
+        });
+        let (backend, boot_error) = match boot::boot(&runtime, bus) {
             Ok(handle) => (Some(handle), None),
             Err(e) => (None, Some(e)),
         };
@@ -557,6 +562,7 @@ impl AppState {
     pub fn drain_backend(&mut self) {
         let mut ended = false;
         let mut sync_error = None;
+        let mut auth_changed = false;
         if let Some(rx) = self.backend_rx.as_mut() {
             while let Ok((event, payload)) = rx.try_recv() {
                 match event.as_str() {
@@ -565,9 +571,16 @@ impl AppState {
                         let s = payload.to_string();
                         sync_error = Some(s.chars().take(200).collect());
                     }
+                    "auth:changed" => auth_changed = true,
                     _ => {}
                 }
             }
+        }
+        if auth_changed {
+            // ログイン/ログアウト後は ApiClient を追随させ、取得済みの
+            // ビュー状態 (トークン無しでエラーになった分) を捨てて再取得する。
+            self.sync_api_session();
+            self.reset_views();
         }
         if ended {
             if self.player.repeat == RepeatMode::One {
