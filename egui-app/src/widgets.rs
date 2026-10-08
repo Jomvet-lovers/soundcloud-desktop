@@ -325,6 +325,28 @@ pub fn section_header(ui: &mut egui::Ui, title: &str, count: Option<usize>) {
     });
 }
 
+/// 読み込み中表示 (スピナー + 控えめラベル)。
+pub fn loading_text(ui: &mut egui::Ui, text: &str) {
+    ui.horizontal(|ui| {
+        ui.spinner();
+        ui.label(egui::RichText::new(text).weak());
+    });
+}
+
+/// 読み込み中表示 ("Loading...")。
+pub fn loading(ui: &mut egui::Ui) {
+    loading_text(ui, "Loading...");
+}
+
+/// 空状態 (控えめな中央寄せテキスト)。
+pub fn empty_note(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(24.0);
+    ui.vertical_centered(|ui| {
+        ui.label(egui::RichText::new(text).weak());
+    });
+    ui.add_space(24.0);
+}
+
 /// セクション見出し + 右端の追加操作 (「See all」等)。
 pub fn section_row(
     ui: &mut egui::Ui,

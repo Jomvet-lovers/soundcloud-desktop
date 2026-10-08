@@ -321,7 +321,7 @@ impl SettingsView {
         if !settings.follow_default_output {
             let devices = crate::backend::audio::list_devices();
             if devices.is_empty() {
-                ui.label("No output devices found");
+                crate::widgets::empty_note(ui, "No output devices found");
             }
             egui::ScrollArea::vertical()
                 .id_salt("audio-devices")

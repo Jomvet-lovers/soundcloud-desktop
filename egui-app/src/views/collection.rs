@@ -225,7 +225,7 @@ impl CollectionView {
                 if (self.my_playlists.q.loading && self.my_playlists.items.is_empty())
                     || (self.liked_playlists.q.loading && self.liked_playlists.items.is_empty())
                 {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else {
                     let mut empty = true;
                     if !self.my_playlists.items.is_empty() {
@@ -304,13 +304,13 @@ impl CollectionView {
                         }
                     }
                     if empty {
-                        ui.label("No playlists found");
+                        widgets::empty_note(ui, "No playlists found");
                     }
                 }
             }
             "following" => {
                 if self.followings.q.loading && self.followings.items.is_empty() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.followings.q.error.clone() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -327,7 +327,7 @@ impl CollectionView {
                         .cloned()
                         .collect();
                     if rows.is_empty() {
-                        ui.label("You are not following anyone");
+                        widgets::empty_note(ui, "You are not following anyone");
                     } else {
                         egui::ScrollArea::vertical()
                             .id_salt("collection:following")
@@ -353,7 +353,7 @@ impl CollectionView {
             }
             "history" => {
                 if self.history.loading && self.history.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.history.error.clone() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -361,7 +361,7 @@ impl CollectionView {
                     );
                 } else if let Some(entries) = self.history.data.clone() {
                     if entries.is_empty() {
-                        ui.label("No listening history");
+                        widgets::empty_note(ui, "No listening history");
                     } else {
                         egui::ScrollArea::vertical()
                             .id_salt("collection:history")
@@ -387,7 +387,7 @@ impl CollectionView {
             }
             _ => {
                 if self.likes.q.loading && self.likes.items.is_empty() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.likes.q.error.clone() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -406,7 +406,7 @@ impl CollectionView {
                         .cloned()
                         .collect();
                     if rows.is_empty() {
-                        ui.label("No liked tracks yet");
+                        widgets::empty_note(ui, "No liked tracks yet");
                     } else {
                         egui::ScrollArea::vertical()
                             .id_salt("collection:likes")

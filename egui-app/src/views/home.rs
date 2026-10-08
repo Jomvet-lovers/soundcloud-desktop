@@ -128,7 +128,7 @@ impl HomeView {
         });
 
         if self.likes.loading && self.likes.data.is_none() {
-            ui.label("Loading...");
+            widgets::loading(ui);
         } else if let Some(err) = self.likes.error.as_ref() {
             ui.colored_label(
                 egui::Color32::from_rgb(255, 150, 150),
@@ -136,7 +136,7 @@ impl HomeView {
             );
         } else if let Some(tracks) = self.likes.data.as_ref() {
             if tracks.is_empty() {
-                ui.label("No liked tracks yet");
+                widgets::empty_note(ui, "No liked tracks yet");
             } else {
                 let _ = audio;
                 ui.horizontal_wrapped(|ui| {
@@ -160,7 +160,7 @@ impl HomeView {
 
         ui.separator();
         if self.discover.loading && self.discover.data.is_none() {
-            ui.label("Loading...");
+            widgets::loading(ui);
         } else if let Some(mixed) = self.discover.data.as_ref() {
             // 「See all / Show less」トグル (Tauri 版 DiscoverSections は
             // 取得済みアイテムのローカル展開のみ)。

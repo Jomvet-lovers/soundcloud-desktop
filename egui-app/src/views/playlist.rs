@@ -163,7 +163,7 @@ impl PlaylistView {
         let mut action = PlaylistAction::None;
 
         if self.detail.loading && self.detail.data.is_none() {
-            ui.label("Loading...");
+            widgets::loading(ui);
             return action;
         }
         if let Some(err) = self.detail.error.as_ref() {
@@ -174,7 +174,7 @@ impl PlaylistView {
             return action;
         }
         let Some(playlist) = self.detail.data.as_ref() else {
-            ui.label("Loading...");
+            widgets::loading(ui);
             return action;
         };
         if self.like_count.is_none() {
@@ -354,9 +354,9 @@ impl PlaylistView {
                     format!("tracks unavailable: {err}"),
                 );
             } else if self.tracks.loading {
-                ui.label("Loading tracks...");
+                widgets::loading_text(ui, "Loading tracks...");
             } else {
-                ui.label("This crate is empty — start digging");
+                widgets::empty_note(ui, "This crate is empty — start digging");
             }
             return action;
         }

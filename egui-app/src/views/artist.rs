@@ -321,7 +321,7 @@ impl ArtistView {
         if self.detail.loading && self.detail.data.is_none() {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Loading artist...");
+                widgets::loading_text(ui, "Loading artist...");
             });
             return action;
         }
@@ -480,7 +480,7 @@ impl ArtistView {
             }
             ArtistTab::Albums => {
                 if self.albums.loading && self.albums.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.albums.error.clone() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -494,7 +494,7 @@ impl ArtistView {
                             .cmp(&a.release_year.unwrap_or(0))
                     });
                     if albums.is_empty() {
-                        ui.label("No albums yet");
+                        widgets::empty_note(ui, "No albums yet");
                     } else {
                         ui.horizontal_wrapped(|ui| {
                             for al in &albums {
@@ -531,7 +531,7 @@ impl ArtistView {
             }
             ArtistTab::Related => {
                 if related.is_empty() {
-                    ui.label("No related artists yet");
+                    widgets::empty_note(ui, "No related artists yet");
                 } else {
                     let max = related
                         .iter()
@@ -575,7 +575,7 @@ impl ArtistView {
                         ui.label(bio);
                     }
                     _ => {
-                        ui.label("No bio yet");
+                        widgets::empty_note(ui, "No bio yet");
                     }
                 }
                 ui.horizontal(|ui| {
@@ -657,7 +657,7 @@ impl ArtistView {
             }
         });
         if loading && query.data.is_none() {
-            ui.label("Loading...");
+            widgets::loading(ui);
         } else if let Some(err) = query.error.clone() {
             ui.colored_label(
                 egui::Color32::from_rgb(255, 150, 150),

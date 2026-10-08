@@ -95,7 +95,7 @@ impl TagView {
         };
         let tag = param.unwrap_or("").trim();
         if tag.is_empty() {
-            ui.label("No tag selected");
+            widgets::empty_note(ui, "No tag selected");
             return TagAction::None;
         }
         let mut action = TagAction::None;
@@ -135,7 +135,7 @@ impl TagView {
         }
 
         if self.tracks.loading && self.tracks.data.is_none() {
-            ui.label("Loading...");
+            widgets::loading(ui);
         } else if let Some(err) = self.tracks.error.as_ref() {
             ui.colored_label(
                 egui::Color32::from_rgb(255, 150, 150),
@@ -143,7 +143,7 @@ impl TagView {
             );
         } else if let Some(page) = self.tracks.data.as_ref() {
             if page.collection.is_empty() {
-                ui.label("No tracks found");
+                widgets::empty_note(ui, "No tracks found");
             } else {
                 ui.horizontal_wrapped(|ui| {
                     for (i, track) in page.collection.iter().enumerate() {

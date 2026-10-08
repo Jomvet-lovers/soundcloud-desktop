@@ -230,7 +230,7 @@ impl TrackView {
             return action;
         }
         let Some(track) = self.track.data.clone() else {
-            ui.label("Loading...");
+            crate::widgets::loading(ui);
             return action;
         };
         // Like 状態の初期化: ローカルストア優先、無ければ API の user_favorite。
@@ -397,12 +397,12 @@ impl TrackView {
         ui.separator();
         ui.heading("Related");
         if self.related.loading && self.related.data.is_none() {
-            ui.label("Loading...");
+            crate::widgets::loading(ui);
         } else if let Some(err) = self.related.error.as_ref() {
             ui.label(format!("Related unavailable: {err}"));
         } else if let Some(paged) = self.related.data.as_ref() {
             if paged.collection.is_empty() {
-                ui.label("No related tracks");
+                crate::widgets::empty_note(ui, "No related tracks");
             } else {
                 for (i, rel) in paged.collection.iter().enumerate() {
                     let row = ui
@@ -490,7 +490,7 @@ impl TrackView {
             }
         });
         if self.comments.loading && self.comments.data.is_none() {
-            ui.label("Loading...");
+            crate::widgets::loading(ui);
         } else if let Some(err) = self.comments.error.as_ref() {
             ui.label(format!("Comments unavailable: {err}"));
         } else {
@@ -504,7 +504,7 @@ impl TrackView {
                 list.sort_by_key(|c| c.timestamp.unwrap_or(i64::MAX));
             }
             if list.is_empty() {
-                ui.label("No comments yet");
+                crate::widgets::empty_note(ui, "No comments yet");
             } else {
                 let me_urn = self.me.data.as_ref().map(|u| u.urn.clone());
                 let mut delete_id: Option<i64> = None;

@@ -102,7 +102,7 @@ impl AlbumView {
         let mut action = AlbumAction::None;
 
         if self.album.loading && self.album.data.is_none() {
-            ui.label("Loading...");
+            widgets::loading(ui);
             return action;
         }
         if let Some(err) = self.album.error.as_ref() {
@@ -113,7 +113,7 @@ impl AlbumView {
             return action;
         }
         let Some(album) = self.album.data.as_ref() else {
-            ui.label("Loading...");
+            widgets::loading(ui);
             return action;
         };
 
@@ -164,7 +164,7 @@ impl AlbumView {
         ui.separator();
         widgets::section_header(ui, "Tracks", Some(tracks.len()));
         if tracks.is_empty() {
-            ui.label("No tracks indexed yet");
+            widgets::empty_note(ui, "No tracks indexed yet");
             return action;
         }
         for (i, track) in tracks.iter().enumerate() {

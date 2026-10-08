@@ -388,7 +388,7 @@ impl SearchView {
         match self.tab {
             SearchTab::Tracks => {
                 if self.tracks.loading && self.tracks.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.tracks.error.as_ref() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -396,7 +396,7 @@ impl SearchView {
                     );
                 } else if let Some(page) = self.tracks.data.as_ref() {
                     if page.collection.is_empty() {
-                        ui.label("No results found");
+                        widgets::empty_note(ui, "No results found");
                     } else {
                         for (i, track) in page.collection.iter().enumerate() {
                             match Self::track_row(ui, rt, images, player, track, accent) {
@@ -415,7 +415,7 @@ impl SearchView {
             }
             SearchTab::Users => {
                 if self.users.loading && self.users.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.users.error.as_ref() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -423,7 +423,7 @@ impl SearchView {
                     );
                 } else if let Some(page) = self.users.data.as_ref() {
                     if page.collection.is_empty() {
-                        ui.label("No results found");
+                        widgets::empty_note(ui, "No results found");
                     } else {
                         for user in &page.collection {
                             ui.horizontal(|ui| {
@@ -451,7 +451,7 @@ impl SearchView {
             }
             SearchTab::Playlists => {
                 if self.playlists.loading && self.playlists.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.playlists.error.as_ref() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -459,7 +459,7 @@ impl SearchView {
                     );
                 } else if let Some(page) = self.playlists.data.as_ref() {
                     if page.collection.is_empty() {
-                        ui.label("No results found");
+                        widgets::empty_note(ui, "No results found");
                     } else {
                         for playlist in &page.collection {
                             ui.horizontal(|ui| {
@@ -488,7 +488,7 @@ impl SearchView {
             }
             SearchTab::Albums => {
                 if self.albums.loading && self.albums.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.albums.error.as_ref() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -496,7 +496,7 @@ impl SearchView {
                     );
                 } else if let Some(page) = self.albums.data.as_ref() {
                     if page.collection.is_empty() {
-                        ui.label("No results found");
+                        widgets::empty_note(ui, "No results found");
                     } else {
                         for album in &page.collection {
                             ui.horizontal(|ui| {

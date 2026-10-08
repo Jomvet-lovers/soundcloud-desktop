@@ -271,7 +271,7 @@ impl UserView {
         if self.profile.loading && self.profile.data.is_none() {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Loading user...");
+                widgets::loading_text(ui, "Loading user...");
             });
             return action;
         }
@@ -428,7 +428,7 @@ impl UserView {
         match cur_tab {
             UserTab::Popular => {
                 if self.popular.loading && self.popular.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(err) = self.popular.error.clone() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 150, 150),
@@ -455,7 +455,7 @@ impl UserView {
                         }
                     }
                     if rows.is_empty() {
-                        ui.label("Nothing here yet");
+                        widgets::empty_note(ui, "Nothing here yet");
                     }
                 }
             }
@@ -481,12 +481,12 @@ impl UserView {
                 if self.tracks.q.loading {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Loading...");
+                        widgets::loading(ui);
                     });
                 } else if rows.is_empty() && !self.tracks.items.is_empty() {
-                    ui.label("No matches in this user's content");
+                    widgets::empty_note(ui, "No matches in this user's content");
                 } else if rows.is_empty() {
-                    ui.label("Nothing here yet");
+                    widgets::empty_note(ui, "Nothing here yet");
                 }
                 if let Some(err) = self.tracks.q.error.clone() {
                     ui.colored_label(
@@ -503,7 +503,7 @@ impl UserView {
             }
             UserTab::Playlists => {
                 if self.playlists.q.loading && self.playlists.items.is_empty() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if self.playlists.items.is_empty() {
                     if let Some(err) = self.playlists.q.error.clone() {
                         ui.colored_label(
@@ -511,7 +511,7 @@ impl UserView {
                             format!("Playlists unavailable: {err}"),
                         );
                     } else {
-                        ui.label("Nothing here yet");
+                        widgets::empty_note(ui, "Nothing here yet");
                     }
                 } else {
                     ui.horizontal_wrapped(|ui| {
@@ -539,7 +539,7 @@ impl UserView {
             }
             UserTab::Likes => {
                 if self.likes.loading && self.likes.data.is_none() {
-                    ui.label("Loading...");
+                    widgets::loading(ui);
                 } else if let Some(page) = self.likes.data.as_ref() {
                     for (i, t) in page.collection.iter().enumerate() {
                         match Self::track_row(ui, rt, images, player, t, accent) {
@@ -555,7 +555,7 @@ impl UserView {
                     let empty = page.collection.is_empty();
                     let next_cursor = page.next_cursor.clone();
                     if empty {
-                        ui.label("Nothing here yet");
+                        widgets::empty_note(ui, "Nothing here yet");
                     }
                     ui.horizontal(|ui| {
                         if self.likes_page > 0 && ui.button("← Prev").clicked() {
@@ -631,7 +631,7 @@ impl UserView {
         action: &mut UserAction,
     ) {
         if pager.q.loading && pager.items.is_empty() {
-            ui.label("Loading...");
+            widgets::loading(ui);
             return;
         }
         if pager.items.is_empty() {

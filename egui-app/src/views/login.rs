@@ -80,7 +80,7 @@ impl LoginView {
                     ui.label(format!("Hello, {}", me.username));
                 }
             } else if self.me.loading {
-                ui.label("Loading profile...");
+                crate::widgets::loading_text(ui, "Loading profile...");
             } else if let Some(err) = self.me.error.as_ref() {
                 let label = if err.contains("401") {
                     "Session expired — sign in again".to_string()

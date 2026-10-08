@@ -265,7 +265,7 @@ impl OfflineView {
             }
         });
         if shown == 0 {
-            ui.label("Nothing matches your search");
+            widgets::empty_note(ui, "Nothing matches your search");
         }
 
         if let Some(urn) = remove {
