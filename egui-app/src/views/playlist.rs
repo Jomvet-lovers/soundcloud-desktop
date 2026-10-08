@@ -9,6 +9,7 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::backend::models::{LikedFlag, Playlist, ScUser, Track, tracks_from_value};
 use crate::images::Images;
+use crate::pager::ListPage;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
 use crate::widgets;
@@ -40,6 +41,9 @@ pub struct PlaylistView {
     edit_tracks: Option<Vec<Track>>,
     /// 公開範囲 (owner のみ変更可)。
     sharing: Option<String>,
+    /// More crates (キュレーターの他プレイリスト。Tauri: `MoreCrates`)。
+    more: Query<Vec<Playlist>>,
+    more_for: Option<String>,
 }
 
 /// ミリ秒 → `m:ss` / `h:mm:ss`。対応: `desktop/src/lib/formatters.ts` の `dur()`。
@@ -93,6 +97,8 @@ impl PlaylistView {
             self.me = Query::default();
             self.edit_tracks = None;
             self.sharing = None;
+            self.more = Query::default();
+            self.more_for = None;
             self.last_urn = Some(urn.to_string());
         }
         let api_owned = api.clone();
@@ -149,6 +155,7 @@ impl PlaylistView {
         changed |= self.tracks.poll();
         changed |= self.likes_status.poll();
         changed |= self.me.poll();
+        changed |= self.more.poll();
         if changed || self.detail.loading || self.tracks.loading {
             ui.ctx().request_repaint();
         }
@@ -178,6 +185,24 @@ impl PlaylistView {
                 self.liked = Some(st.liked);
             } else if self.likes_status.error.is_some() {
                 self.liked = Some(false);
+            }
+        }
+        // More crates: キュレーターの他プレイリスト (Tauri: `MoreCrates`)。
+        if let Some(curator) = playlist.user.as_ref() {
+            if self.more_for.as_deref() != Some(curator.urn.as_str()) {
+                self.more_for = Some(curator.urn.clone());
+                self.more = Query::default();
+                let api = api_owned.clone();
+                let path = format!(
+                    "/users/{}/playlists?limit=30&page=0",
+                    urlencoding::encode(&curator.urn)
+                );
+                self.more.request(rt, async move {
+                    let v = api.get_json(&path).await?;
+                    let page: ListPage<Playlist> =
+                        serde_json::from_value(v).map_err(|e| e.to_string())?;
+                    Ok(page.collection)
+                });
             }
         }
 
@@ -403,6 +428,54 @@ impl PlaylistView {
             rt.spawn(async move {
                 let _ = api.request_json("POST", &path, Some(&body)).await;
             });
+        }
+
+        // More crates by {curator} (Tauri: `MoreCrates`)。
+        if let Some(curator) = playlist.user.as_ref() {
+            if let Some(list) = self.more.data.as_ref() {
+                let others: Vec<Playlist> = list
+                    .iter()
+                    .filter(|p| p.urn != playlist.urn)
+                    .take(12)
+                    .cloned()
+                    .collect();
+                if !others.is_empty() {
+                    ui.separator();
+                    widgets::section_header(
+                        ui,
+                        &format!("More crates by {}", curator.username),
+                        None,
+                    );
+                    egui::ScrollArea::horizontal()
+                        .id_salt("playlist:more")
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                for p in &others {
+                                    let clicked = ui
+                                        .vertical(|ui| {
+                                            let art = p.artwork("t200x200");
+                                            let img =
+                                                images.show(ui, rt, art.as_deref(), 96.0);
+                                            let lbl = ui.add(
+                                                egui::Label::new(&p.title)
+                                                    .truncate()
+                                                    .wrap_mode(egui::TextWrapMode::Truncate)
+                                                    .sense(egui::Sense::click()),
+                                            );
+                                            img.clicked() || lbl.clicked()
+                                        })
+                                        .inner;
+                                    if clicked {
+                                        action = PlaylistAction::Navigate(
+                                            Route::Playlist,
+                                            Some(p.urn.clone()),
+                                        );
+                                    }
+                                }
+                            });
+                        });
+                }
+            }
         }
 
         action
