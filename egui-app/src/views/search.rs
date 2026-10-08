@@ -260,7 +260,7 @@ impl SearchView {
             return action;
         }
 
-        // タブ切替。
+        // タブ切替 + ソート (同一行。ソートは右寄せ。React と同じ)。
         ui.horizontal(|ui| {
             for tab in SearchTab::ALL {
                 let selected = self.tab == tab;
@@ -279,22 +279,20 @@ impl SearchView {
                     self.page = 0;
                 }
             }
-        });
-
-        // Tracks タブのみソート切替 (React と同じ)。
-        if self.tab == SearchTab::Tracks {
-            ui.horizontal(|ui| {
-                for sort in TrackSort::ALL {
-                    if ui
-                        .selectable_label(self.sort == sort, sort.label())
-                        .clicked()
-                    {
-                        self.sort = sort;
-                        self.page = 0;
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if self.tab == SearchTab::Tracks {
+                    for sort in TrackSort::ALL.iter().rev() {
+                        if ui
+                            .selectable_label(self.sort == *sort, sort.label())
+                            .clicked()
+                        {
+                            self.sort = *sort;
+                            self.page = 0;
+                        }
                     }
                 }
             });
-        }
+        });
 
         // query/tab/sort が変わったらページを先頭へ (React の pagerKey と同じ)。
         let base_key = format!(
@@ -408,16 +406,36 @@ impl SearchView {
                     if page.collection.is_empty() {
                         widgets::empty_note(ui, "No results found");
                     } else {
-                        for (i, track) in page.collection.iter().enumerate() {
-                            match Self::track_row(ui, rt, images, player, track, accent) {
-                                widgets::RowHit::Clicked => {
-                                    action = SearchAction::PlayList(page.collection.clone(), i);
+                        // カードグリッド (Tauri: grid-cols-3..8 + showStats)。
+                        let items: Vec<(usize, &Track)> =
+                            page.collection.iter().enumerate().collect();
+                        let card_w = 146.0;
+                        let per_row = (((ui.available_width() + 10.0) / (card_w + 10.0))
+                            .floor() as usize)
+                            .clamp(1, 8);
+                        for chunk in items.chunks(per_row) {
+                            ui.horizontal(|ui| {
+                                for &(i, track) in chunk {
+                                    let playing =
+                                        widgets::is_currently_playing(player, track);
+                                    let resp = widgets::track_card_stats(
+                                        ui, rt, images, track, card_w, playing, accent,
+                                    );
+                                    match widgets::hit_of(&resp) {
+                                        widgets::RowHit::Clicked => {
+                                            action = SearchAction::PlayList(
+                                                page.collection.clone(),
+                                                i,
+                                            );
+                                        }
+                                        widgets::RowHit::Menu => {
+                                            action =
+                                                SearchAction::OpenMenu(track.clone());
+                                        }
+                                        widgets::RowHit::None => {}
+                                    }
                                 }
-                                widgets::RowHit::Menu => {
-                                    action = SearchAction::OpenMenu(track.clone());
-                                }
-                                widgets::RowHit::None => {}
-                            }
+                            });
                         }
                     }
                     Self::pager(ui, self.page, page.has_more, &mut self.page);

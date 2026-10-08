@@ -702,6 +702,84 @@ pub fn age_text(created_at: Option<&str>) -> String {
     }
 }
 
+/// 数値の省略表示 (833.4K / 1.2M)。対応: formatters.ts の `fc`。
+pub fn fmt_count(n: i64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
+/// ミリ秒 → `m:ss` (カードの統計ピル用)。
+fn fmt_ms_short(ms: i64) -> String {
+    let s = (ms.max(0) / 1000) as u64;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// 検索結果用カード (Tauri: TrackCard showStats)。アート左下に plays + 時間。
+pub fn track_card_stats(
+    ui: &mut egui::Ui,
+    rt: &tokio::runtime::Handle,
+    images: &mut Images,
+    track: &Track,
+    size: f32,
+    playing: bool,
+    accent: egui::Color32,
+) -> egui::Response {
+    ui.vertical(|ui| {
+        ui.set_max_width(size + 8.0);
+        let art = track.artwork("t300x300");
+        let resp = images.show(ui, rt, art.as_deref(), size);
+        if resp.hovered() || playing {
+            paint_play_glyph(ui.painter(), resp.rect, playing);
+        }
+        // 左下: "833.4K plays  3:32" のピル。
+        let plays = track.playback_count.map(fmt_count).unwrap_or_default();
+        let dur = fmt_ms_short(track.duration);
+        let label = if plays.is_empty() {
+            dur
+        } else {
+            format!("{plays} plays  {dur}")
+        };
+        let font = egui::FontId::proportional(10.0);
+        let galley =
+            ui.painter()
+                .layout(label, font, egui::Color32::from_white_alpha(215), size);
+        let pad = egui::vec2(5.0, 2.0);
+        let pill = egui::Rect::from_min_size(
+            egui::Pos2::new(
+                resp.rect.left() + 4.0,
+                resp.rect.bottom() - galley.size().y - pad.y * 2.0 - 4.0,
+            ),
+            galley.size() + pad * 2.0,
+        );
+        ui.painter()
+            .rect_filled(pill, 4.0, egui::Color32::from_black_alpha(150));
+        ui.painter()
+            .galley(pill.min + pad, galley, egui::Color32::from_white_alpha(215));
+        let title = if playing {
+            egui::RichText::new(track.display_title()).color(accent)
+        } else {
+            egui::RichText::new(track.display_title())
+        };
+        ui.add(
+            egui::Label::new(title)
+                .truncate()
+                .wrap_mode(egui::TextWrapMode::Truncate),
+        );
+        ui.add(
+            egui::Label::new(egui::RichText::new(track.artist_name()).weak())
+                .truncate()
+                .wrap_mode(egui::TextWrapMode::Truncate),
+        );
+        resp
+    })
+    .inner
+}
+
 /// セクション見出し (タイトル + 件数)。
 pub fn section_header(ui: &mut egui::Ui, title: &str, count: Option<usize>) {
     ui.horizontal(|ui| {
