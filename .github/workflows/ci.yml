@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [direct-mode]
+    branches: [direct-mode, egui-migration/**]
   pull_request:
-    branches: [direct-mode]
+    branches: [direct-mode, egui-migration/**]
 
 permissions:
   contents: read
@@ -67,4 +67,31 @@ jobs:
 
       - name: Cargo tests
         working-directory: desktop/src-tauri
+        run: cargo test
+
+  egui:
+    name: egui-app (cargo check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev pkg-config cmake perl libclang-dev libopus-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: egui-app -> target
+
+      - name: Cargo check (egui-app)
+        working-directory: egui-app
+        run: cargo check --all-targets
+
+      - name: Cargo tests (egui-app)
+        working-directory: egui-app
         run: cargo test
