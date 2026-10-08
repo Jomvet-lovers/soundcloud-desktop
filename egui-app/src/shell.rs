@@ -217,208 +217,234 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             .queue_index
             .and_then(|i| state.player.queue.get(i))
             .cloned();
+        // ── 3 分割バー (Tauri 版 NowPlayingBar: 左メタ / 中央 / 右操作) ──
+        let audio = state.audio().cloned();
+        let (pos, dur) = match &audio {
+            Some(a) => (engine::get_position(a), state.player.duration_secs),
+            None => (0.0, None),
+        };
+        let total_w = ui.available_width();
+        let right_w = (total_w * 0.26).clamp(240.0, 340.0);
+        let center_w = (total_w * 0.42).clamp(280.0, 640.0);
+        let left_w = (total_w - center_w - right_w).max(220.0);
         ui.horizontal(|ui| {
-            match current {
-                Some(track) => {
-                    let is_sc = track.urn.starts_with("soundcloud:");
-                    let rt = state.runtime().handle().clone();
-                    let art = track.artwork("t200x200");
-                    state.images.show(ui, &rt, art.as_deref(), 44.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width(260.0);
-                        if is_sc {
-                            if ui.link(track.display_title()).clicked() {
-                                state.route = Route::Track;
-                                state.nav_param = Some(track.urn.clone());
-                            }
-                        } else {
-                            ui.label(track.display_title());
-                        }
-                        if let Some(user) = track.user.as_ref() {
+            // 左: アートワーク + メタ + like。
+            let _ = ui.allocate_ui_with_layout(
+                egui::vec2(left_w, 56.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| match &current {
+                    Some(track) => {
+                        let is_sc = track.urn.starts_with("soundcloud:");
+                        let rt = state.runtime().handle().clone();
+                        let art = track.artwork("t200x200");
+                        state.images.show(ui, &rt, art.as_deref(), 48.0);
+                        ui.vertical(|ui| {
+                            ui.set_max_width((left_w - 120.0).max(120.0));
                             if is_sc {
-                                if ui
-                                    .link(egui::RichText::new(&user.username).small())
-                                    .clicked()
-                                {
-                                    state.route = Route::User;
-                                    state.nav_param = Some(user.urn.clone());
+                                if ui.link(track.display_title()).clicked() {
+                                    state.route = Route::Track;
+                                    state.nav_param = Some(track.urn.clone());
                                 }
                             } else {
-                                ui.label(egui::RichText::new(&user.username).small());
+                                ui.label(track.display_title());
+                            }
+                            if let Some(user) = track.user.as_ref() {
+                                if is_sc {
+                                    if ui
+                                        .link(egui::RichText::new(&user.username).small().weak())
+                                        .clicked()
+                                    {
+                                        state.route = Route::User;
+                                        state.nav_param = Some(user.urn.clone());
+                                    }
+                                } else {
+                                    ui.label(egui::RichText::new(&user.username).small().weak());
+                                }
+                            }
+                        });
+                        if is_sc {
+                            let liked = state.now_liked.unwrap_or(false);
+                            if crate::widgets::like_button(ui, liked, accent) {
+                                let next = !liked;
+                                state.now_liked = Some(next);
+                                if let Some(api) = state.api.clone() {
+                                    let rt = state.runtime().handle().clone();
+                                    let path = format!(
+                                        "/likes/tracks/{}",
+                                        urlencoding::encode(&track.urn)
+                                    );
+                                    rt.spawn(async move {
+                                        let method = if next { "POST" } else { "DELETE" };
+                                        let _ = api.request_json(method, &path, None).await;
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        ui.label(egui::RichText::new("Not playing").weak());
+                    }
+                },
+            );
+            // 中央: トランスポート + 進行。
+            let _ = ui.allocate_ui_with_layout(
+                egui::vec2(center_w, 56.0),
+                egui::Layout::top_down(egui::Align::Center),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(state.player.shuffle, "Shuffle").clicked() {
+                            state.player.toggle_shuffle();
+                        }
+                        if crate::widgets::transport_button(
+                            ui,
+                            crate::widgets::TransportIcon::Prev,
+                            has_audio,
+                            28.0,
+                        )
+                        .clicked()
+                        {
+                            state.prev_track(pos);
+                        }
+                        let icon = if playing {
+                            crate::widgets::TransportIcon::Pause
+                        } else {
+                            crate::widgets::TransportIcon::Play
+                        };
+                        if crate::widgets::transport_primary_button(ui, icon, has_audio, 36.0)
+                            .clicked()
+                        {
+                            if let Some(audio) = &audio {
+                                if playing {
+                                    engine::pause(audio);
+                                    state.player.is_playing = false;
+                                } else {
+                                    engine::play(audio);
+                                    state.player.is_playing = true;
+                                }
+                            }
+                        }
+                        if crate::widgets::transport_button(
+                            ui,
+                            crate::widgets::TransportIcon::Next,
+                            has_audio,
+                            28.0,
+                        )
+                        .clicked()
+                        {
+                            state.next_track();
+                        }
+                        let repeat_label = match state.player.repeat {
+                            RepeatMode::Off => "Repeat",
+                            RepeatMode::All => "Repeat: All",
+                            RepeatMode::One => "Repeat: 1",
+                        };
+                        if ui
+                            .selectable_label(state.player.repeat != RepeatMode::Off, repeat_label)
+                            .clicked()
+                        {
+                            state.player.cycle_repeat();
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(fmt_time(pos)).monospace().small().weak());
+                        ui.spacing_mut().slider_width = (center_w - 110.0).max(120.0);
+                        match dur {
+                            Some(d) if d > 0.0 => {
+                                let mut p = pos.min(d);
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut p, 0.0..=d)
+                                            .show_value(false)
+                                            .trailing_fill(true),
+                                    )
+                                    .changed()
+                                {
+                                    if let Some(a) = &audio {
+                                        let _ = engine::seek(p, a);
+                                    }
+                                }
+                                ui.label(
+                                    egui::RichText::new(fmt_time(d)).monospace().small().weak(),
+                                );
+                            }
+                            _ => {
+                                let mut p = 0.0_f64;
+                                ui.add_enabled(
+                                    false,
+                                    egui::Slider::new(&mut p, 0.0..=1.0).show_value(false),
+                                );
                             }
                         }
                     });
-                    if is_sc {
-                        let liked = state.now_liked.unwrap_or(false);
-                        if crate::widgets::like_button(ui, liked, accent) {
-                            let next = !liked;
-                            state.now_liked = Some(next);
-                            if let Some(api) = state.api.clone() {
-                                let rt = state.runtime().handle().clone();
-                                let path =
-                                    format!("/likes/tracks/{}", urlencoding::encode(&track.urn));
-                                rt.spawn(async move {
-                                    let method = if next { "POST" } else { "DELETE" };
-                                    let _ = api.request_json(method, &path, None).await;
-                                });
-                            }
-                        }
-                    }
-                }
-                None => {
-                    ui.label("Nothing playing");
-                }
-            }
-        });
-        ui.horizontal(|ui| {
-            let audio = state.audio().cloned();
-            ui.spacing_mut().slider_width = 180.0;
-            let pos0 = audio
-                .as_ref()
-                .map(|a| engine::get_position(a))
-                .unwrap_or(0.0);
-            if crate::widgets::transport_button(
-                ui,
-                crate::widgets::TransportIcon::Prev,
-                has_audio,
-                30.0,
-            )
-            .clicked()
-            {
-                state.prev_track(pos0);
-            }
-            let icon = if playing {
-                crate::widgets::TransportIcon::Pause
-            } else {
-                crate::widgets::TransportIcon::Play
-            };
-            if crate::widgets::transport_button(ui, icon, has_audio, 36.0).clicked() {
-                if let Some(audio) = &audio {
-                    if playing {
-                        engine::pause(audio);
-                        state.player.is_playing = false;
-                    } else {
-                        engine::play(audio);
-                        state.player.is_playing = true;
-                    }
-                }
-            }
-            if crate::widgets::transport_button(
-                ui,
-                crate::widgets::TransportIcon::Next,
-                has_audio,
-                30.0,
-            )
-            .clicked()
-            {
-                state.next_track();
-            }
-            if ui
-                .add_enabled(has_audio, egui::Button::new("Stop"))
-                .clicked()
-            {
-                if let Some(audio) = &audio {
-                    engine::stop(audio);
-                    state.player.is_playing = false;
-                }
-            }
-            if ui
-                .selectable_label(state.player.shuffle, "Shuffle")
-                .clicked()
-            {
-                state.player.toggle_shuffle();
-            }
-            let repeat_label = match state.player.repeat {
-                RepeatMode::Off => "Repeat: Off",
-                RepeatMode::All => "Repeat: All",
-                RepeatMode::One => "Repeat: One",
-            };
-            if ui
-                .selectable_label(state.player.repeat != RepeatMode::Off, repeat_label)
-                .clicked()
-            {
-                state.player.cycle_repeat();
-            }
-            let ab_label = match (state.ab_a, state.ab_b) {
-                (Some(_), Some(_)) => "A-B: on",
-                (Some(_), None) => "A-B: A",
-                _ => "A-B",
-            };
-            if ui
-                .selectable_label(state.ab_b.is_some(), ab_label)
-                .clicked()
-            {
-                cycle_ab_loop(state);
-            }
-            match (state.ab_a, state.ab_b) {
-                (Some(a), Some(b)) => {
-                    ui.label(format!("{}–{}", fmt_time(a), fmt_time(b)));
-                }
-                (Some(a), None) => {
-                    ui.label(format!("A {}", fmt_time(a)));
-                }
-                _ => {}
-            }
-            let queue_label = format!("Queue ({})", state.player.queue.len());
-            if ui.button(queue_label).clicked() {
-                state.queue_open = !state.queue_open;
-            }
-            if ui.selectable_label(state.show_eq, "EQ").clicked() {
-                state.show_eq = !state.show_eq;
-            }
-            if ui.selectable_label(state.show_tuning, "Tune").clicked() {
-                state.show_tuning = !state.show_tuning;
-            }
-
-            let (pos, dur) = match &audio {
-                Some(a) => (engine::get_position(a), state.player.duration_secs),
-                None => (0.0, None),
-            };
-            match dur {
-                Some(d) if d > 0.0 => {
-                    let mut p = pos.min(d);
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut p, 0.0..=d)
+                },
+            );
+            // 右: 音量・ミュート・キュー・EQ・Tune・A-B・停止。
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut vol = state.player.volume;
+                let _ = ui.allocate_ui_with_layout(
+                    egui::vec2(120.0, 24.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.spacing_mut().slider_width = 112.0;
+                        let resp = ui.add(
+                            egui::Slider::new(&mut vol, 0.0..=100.0)
                                 .show_value(false)
                                 .trailing_fill(true),
-                        )
-                        .changed()
-                    {
-                        if let Some(a) = &audio {
-                            let _ = engine::seek(p, a);
+                        );
+                        if resp.changed() {
+                            if vol > 0.0 {
+                                state.player.volume_before_mute = vol;
+                            }
+                            state.set_volume(vol);
                         }
+                        if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
+                            if let Err(e) = crate::backend::prefs::save(&state.settings) {
+                                eprintln!("[prefs] save failed: {e}");
+                            }
+                        }
+                    },
+                );
+                let muted = state.player.volume <= 0.0;
+                if ui
+                    .small_button(if muted { "Unmute" } else { "Mute" })
+                    .clicked()
+                {
+                    state.toggle_mute();
+                }
+                let queue_label = format!("Queue ({})", state.player.queue.len());
+                if ui
+                    .selectable_label(state.queue_open, queue_label)
+                    .clicked()
+                {
+                    state.queue_open = !state.queue_open;
+                }
+                if ui.selectable_label(state.show_eq, "EQ").clicked() {
+                    state.show_eq = !state.show_eq;
+                }
+                if ui.selectable_label(state.show_tuning, "Tune").clicked() {
+                    state.show_tuning = !state.show_tuning;
+                }
+                let ab_label = match (state.ab_a, state.ab_b) {
+                    (Some(_), Some(_)) => "A-B: on",
+                    (Some(_), None) => "A-B: A",
+                    _ => "A-B",
+                };
+                if ui
+                    .selectable_label(state.ab_b.is_some(), ab_label)
+                    .clicked()
+                {
+                    cycle_ab_loop(state);
+                }
+                if ui
+                    .add_enabled(has_audio, egui::Button::new("Stop"))
+                    .clicked()
+                {
+                    if let Some(audio) = &audio {
+                        engine::stop(audio);
+                        state.player.is_playing = false;
                     }
-                    ui.label(format!("{} / {}", fmt_time(p), fmt_time(d)));
                 }
-                _ => {
-                    ui.label(fmt_time(pos));
-                }
-            }
-
-            let mut vol = state.player.volume;
-            ui.label("Vol");
-            let resp = ui.add(
-                egui::Slider::new(&mut vol, 0.0..=100.0)
-                    .show_value(false)
-                    .trailing_fill(true),
-            );
-            if resp.changed() {
-                if vol > 0.0 {
-                    state.player.volume_before_mute = vol;
-                }
-                state.set_volume(vol);
-            }
-            let muted = state.player.volume <= 0.0;
-            if ui.button(if muted { "Unmute" } else { "Mute" }).clicked() {
-                state.toggle_mute();
-            }
-            // ドラッグ終了 (またはクリック等の単発変更) で永続化する。
-            if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
-                if let Err(e) = crate::backend::prefs::save(&state.settings) {
-                    eprintln!("[prefs] save failed: {e}");
-                }
-            }
+            });
         });
         ui.horizontal(|ui| {
             ui.label("File:");

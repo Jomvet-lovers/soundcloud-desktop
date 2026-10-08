@@ -120,8 +120,53 @@ pub fn transport_button(
     } else {
         egui::Color32::from_white_alpha(70)
     };
+    paint_transport_glyph(painter, rect, icon, color, size * 0.5);
+    resp
+}
+
+/// 白丸 + 黒グリフの主要トランスポート (Play/Pause。Tauri 版の白丸ボタン)。
+pub fn transport_primary_button(
+    ui: &mut egui::Ui,
+    icon: TransportIcon,
+    enabled: bool,
+    size: f32,
+) -> egui::Response {
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(size), sense);
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let painter = ui.painter();
+    let bg = if !enabled {
+        egui::Color32::from_white_alpha(60)
+    } else if resp.hovered() {
+        egui::Color32::from_white_alpha(235)
+    } else {
+        egui::Color32::WHITE
+    };
+    painter.circle_filled(rect.center(), size * 0.5, bg);
+    let color = if enabled {
+        egui::Color32::from_black_alpha(230)
+    } else {
+        egui::Color32::from_black_alpha(120)
+    };
+    paint_transport_glyph(painter, rect, icon, color, size * 0.5);
+    resp
+}
+
+/// トランスポートのグリフ本体 (再生/一時停止/前へ/次へ)。
+fn paint_transport_glyph(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    icon: TransportIcon,
+    color: egui::Color32,
+    s: f32,
+) {
     let c = rect.center();
-    let s = size * 0.5;
     match icon {
         TransportIcon::Play => {
             let p1 = c + egui::Vec2::new(-s * 0.28, -s * 0.42);
@@ -184,7 +229,6 @@ pub fn transport_button(
             ));
         }
     }
-    resp
 }
 
 /// グリッド用カード (Home の棚・Search 結果)。戻り値はクリック応答。
