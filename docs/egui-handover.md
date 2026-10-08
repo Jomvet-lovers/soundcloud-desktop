@@ -1,0 +1,193 @@
+# egui移行 引継ぎ資料
+
+別PCで作業を継続するための資料。2026-10-08 時点。
+対象ブランチ: `egui-migration/wry-auth` (push 済み)。
+
+## 0. TL;DR
+
+- Tauri+React+Rust → Rust単体 (eframe/egui) への移行作業中。機能優先、見た目は後追い。
+- backend 約11.5k行の移植・全13画面・キュー再生・テーマ基盤まで完了・検証済み。
+- Phase 4 (wry ログイン/writer) は実装まで完了したが **E2E 未検証**。ここから再開する。
+- ARM64 Windows 特有の環境問題を多数踏んだ。新PC (特に x64) では大半が不要な見込み。
+  環境構築手順は §2、再現コマンドは §5。
+
+## 1. ブランチ・コミット対応表
+
+全て `egui-migration/wry-auth` に積み上げ (push 済み):
+
+| # | message | 内容 |
+|---|---|---|
+| 1 | docs: add egui migration design document | 設計書 (docs/egui-migration-design.md, §8 に実施記録) |
+| 2 | feat(egui): scaffold eframe app shell with CI check | egui-app 雛形 + CI |
+| 3 | feat(egui): port backend logic from Tauri shell | backend 移植 + vendor |
+| 4 | feat(egui): add query and image helpers with Home view | 基盤 + Home |
+| 5 | feat(egui): port remaining pages with central wiring | 残り12画面 |
+| 6 | feat(egui): add queue playback with auto-advance | キュー再生 |
+| 7 | feat(egui): add theme foundation with shared widgets and fonts | テーマ基盤 |
+| 8 | feat(egui): add wry child-process host for login and writer | Phase 4 (E2E 未検証) |
+
+空のマーカー用ブランチが残っている (`docs/...`, `app-shell`, `backend-core`,
+`player-shell`, `pages-foundation`, `pages-views`, `theme-foundation`)。
+実体は全て wry-auth 上。整理してよい。
+
+## 2. 新PC環境構築チェックリスト
+
+前提: Windows + Rust stable (MSVC)。以下は ARM64 実績。x64 では 2-4 が不要な可能性が高い
+(boring-sys ネイティブビルドが通れば prebuilt 不要)。それでも 1, 5, 6 は必要。
+
+### 2.1 必須ツール
+
+- [ ] VS Community 18.x (C++ ビルドツール + Windows SDK)。
+  注意: BuildTools 18.9.2 には ARM64 の cl.exe が無い。Community 側を使う。
+  vcvars は `C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat`
+- [ ] CMake, Ninja (`scoop install cmake ninja` または同等)
+- [ ] NASM (boring x64 アセンブリ用。ARM64 NO_ASM では不要だが入れておく)
+- [ ] LLVM: ARM64 なら `scoop install llvm-arm64` (bindgen 用 libclang。
+  x64 版は ARM64 プロセスにロード不可)。x64 なら `scoop install llvm`
+- [ ] Node/pnpm は egui 作業には不要 (Tauri 版の保守時のみ)
+
+### 2.2 環境変数 (永続化推奨: `setx`。`<repo>` は要置換)
+
+```
+CMAKE_GENERATOR=Ninja
+CMAKE_TOOLCHAIN_FILE=<machine>\boring-noasm.cmake   (内容は §2.4)
+BORING_BSSL_PATH=<machine>\deps\boringssl-arm64      (自前ビルド、§2.5)
+OPUS_LIB_DIR=<repo>\egui-app\vendor\opus-arm64\lib   (リポジトリ同梱済み)
+LIBCLANG_PATH=<llvm-arm64>\bin                        (例: C:\Users\<you>\scoop\apps\llvm-arm64\current\bin)
+```
+
+注意: OPUS_LIB_DIR のみリポジトリ内を指す (opus.lib 同梱済みのため再ビルド不要)。
+他はマシンローカル。
+
+### 2.3 boring-noasm.cmake (内容。そのまま保存)
+
+```cmake
+set(OPENSSL_NO_ASM YES CACHE BOOL "" FORCE)
+```
+
+背景: boring-sys2 は host==target の native ビルドで `OPENSSL_NO_ASM` を定義しない。
+boring-sys は `CMAKE_TOOLCHAIN_FILE` 環境変数を cmake に転送するため、
+ここで NO_ASM を注入する (ARM64 で apple-aarch64 向け perlasm を掴む問題の回避)。
+
+### 2.4 wreq vendor (リポジトリ同梱済み。作業不要)
+
+wreq 5.x / wreq-util 2.x は全バージョン yank 済みのため解決不可。
+`egui-app/vendor/{wreq-5.3.0,wreq-util-2.2.6}` に registry キャッシュから展開し、
+`[patch.crates-io]` で差し替えている (src-tauri の lock と同一版)。
+CI (ubuntu) でも解決に必須のためコミット済み。触らない。
+
+### 2.5 BoringSSL prebuilt の再現手順 (ARM64 のみ。x64 は素通りの可能性)
+
+boring-sys の dev-profile ビルドは /MDd (Debug CRT) のため Rust (/MD 常時) と
+リンクできない。Release ビルド品を prebuilt 配置する。
+
+```powershell
+# 1. cargo check を1回回し、boring-sys にパッチ適用済みソースを生成させる
+#    (egui-app\target\debug\build\boring-sys2-*\out\boringssl)
+# 2. out\boringssl を C:\build\boringssl-src 等へコピー
+# 3. 手動ビルド (vcvarsarm64 環境、Ninja):
+cmake -S C:\build\boringssl-src -B C:\build\boringssl-build -G Ninja `
+  -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+  -DOPENSSL_NO_ASM=YES -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_C_FLAGS=-MD -DCMAKE_CXX_FLAGS=-MD
+cmake --build C:\build\boringssl-build --target ssl crypto --config Release
+# 4. 下記レイアウトで配置 (Debug/Release 両方に同一品でよい):
+#    <deps>\include\openssl\*.h        (パッチ適用済みヘッダ)
+#    <deps>\build\crypto\Debug\crypto.lib
+#    <deps>\build\crypto\Release\crypto.lib
+#    <deps>\build\ssl\Debug\ssl.lib
+#    <deps>\build\ssl\Release\ssl.lib
+# 5. BORING_BSSL_PATH=<deps> を設定
+```
+
+## 3. リポジトリ内外の成果物 inventory
+
+リポジトリ内 (git 管理):
+- `egui-app/` 本体 (`src/main|state|shell|theme|widgets|query|images.rs`)
+- `egui-app/src/backend/` 移植層 (`audio/track_cache/direct/network/auth/discord/app` +
+  `api|models|events|paths|writer|weblogin|webhost|boot|prefs|shared`)
+- `egui-app/src/views/` 13画面 + `waveform.rs`
+- `egui-app/vendor/{wreq-5.3.0,wreq-util-2.2.6,opus-arm64}` (tests/examples 削減済み)
+- `egui-app/assets/fonts/` (Inter OTF x4 + JetBrains Mono TTF x4)
+- `egui-app/Cargo.{toml,lock}`, `.github/workflows/ci.yml` (egui job 追加済み)
+- `docs/egui-migration-design.md` (§8 に実施記録)、本ファイル
+
+リポジトリ外 (新PCで再現が必要。旧PCパス):
+- `C:\Users\kota\build\boring-noasm.cmake` (§2.3 の3行)
+- `C:\Users\kota\build\deps\boringssl-arm64\` (§2.5)
+- `C:\Users\kota\build\{boringssl-src,boringssl-build,opus-1.5.2,opus-build,opus-*.tar.gz,tctest.c}`
+- scoop パッケージ群 (ninja/llvm/llvm-arm64/nasm/cmake)
+- 環境変数 (§2.2)。`%APPDATA%\soundcloud-desktop\` の実行時データ
+  (auth_session.json / direct_store.json / cache / ffmpeg。実機テスト資産)
+
+## 4. アーキテクチャ要点
+
+- UI 状態: `AppState` (egui-app/src/state.rs)。zustand/react-query の代替。
+- backend 呼出: Tauri IPC 廃止。60 commands は直接関数呼び出しに潰した。
+  対応表は Phase 1 移植報告 (設計書 §8 参照…口頭引継ぎ: 各 subagent 報告は会話ログのみ。
+  重要度は低いため再調査可)。
+- `EventBus` (backend/events.rs) が `AppHandle`+`emit` を代替。
+- writer (backend/writer.rs): 書込はローカル即時反映 + wry writer でベストエフォート同期。
+  wry host 不在時は `direct:sync-error` 通知の縮退動作。
+- wry host は**子プロセス** (`--wry-host <profile>`) の main スレッドで tao loop。
+  親 (eframe) とは TCP JSON-RPC (backend/webhost.rs)。同一プロセス二重 loop は
+  当環境で不可 (tao/winit 共に main スレッド外の window 作成不可)。
+  子は親の死を検知して exit(0)。親終了時は child.kill()。
+- ログイン (`--smoke-login` / Login 画面のボタン): 可視 window → cookie 監視 →
+  `/me` 検証 → SessionStore 保存。手動トークン貼付も可 (LoginAction::SetToken)。
+- テーマ: theme.rs + widgets.rs。accent 引数で全 view 統一 (Login のみ対象外)。
+
+## 5. 検証コマンド (毎回 env 付きで実行)
+
+PowerShell、リポジトリルートで。vcvars は Community 側を使うこと
+(BuildTools には ARM64 の cl.exe が無い)。
+
+```powershell
+$env:CMAKE_GENERATOR='Ninja'
+$env:CMAKE_TOOLCHAIN_FILE='<machine>\boring-noasm.cmake'
+$env:BORING_BSSL_PATH='<machine>\deps\boringssl-arm64'
+$env:OPUS_LIB_DIR="<repo>\egui-app\vendor\opus-arm64\lib"
+$env:LIBCLANG_PATH='<llvm-arm64>\bin'
+cmd /c '"<VS>\VC\Auxiliary\Build\vcvarsall.bat" arm64 >nul && cargo test --manifest-path egui-app/Cargo.toml'
+```
+
+smoke モード (どちらも表示環境用。CI では不可):
+
+| コマンド | 内容 |
+|---|---|
+| `--smoke` | boot+サーバ+Discover+`/me/cold` |
+| `--smoke <wav>` | 上記+読込・再生・位置進行確認 |
+| `--smoke-login` | ログイン窓を10秒維持 (要wry子プロセス) |
+| `--smoke-writer` | writer で soundcloud.com へ GET (要wry子プロセス) |
+| (無引数) | GUI 起動 |
+| `--smoke-tao` | tao window 作成可否の環境プローブ |
+
+期待値: `cargo test` 38件全通 (backend 移植分 30 + queue 8)。
+
+## 6. 未完了・既知の問題 (優先度順)
+
+1. **Phase 4 E2E 未検証 (最優先)**: `--smoke-writer` の実行結果確認、
+   ログイン窓の実アカウントでの手動テスト (サインイン→token 保存→Library 表示)。
+   DataDome の振る舞いは未知数。
+2. **CI (ubuntu) 未検証**: egui job (cmake/libclang-dev/libopus-dev 追加済み) が
+   グリーンか不明。x64 では boring ネイティブビルドが素通る想定。要 push して確認。
+3. キュー以外の残件: 無限スクロール (先頭ページのみ)、D&D 並替、mutation の一部
+   (like/follow/comment 投稿は Track のみ実装)、設定の音量永続化 (PlayerState 側、
+   SettingsState に無い)、track-display 高度分解、非Track カードの共通化
+   (AlbumHit/ConnUser 等のローカル DTO 重複あり: search.rs / user.rs 参照)。
+4. `regex` は既定 features に戻してある (src-tauri の no-default は
+   unification で偶然 unicode 有効化されていた。単独では `\s` が実行時失敗)。
+5. コミット時の注意: この環境の `git commit` は絵文字を自動付与する。
+   回避には plumbing (`write-tree` + `commit-tree` + `update-ref` ガード付き) を使う。
+   また Write ツール経由の非ASCIIコメントが稀に壊れる。**新規ファイルのコメントは
+   原則 ASCII** (既存の日本語コメントは触らない)。
+6. 各 bash 実行は fresh process のため `$env:` は毎回設定し直す
+   (setx は通常ターミナルには効くが、エージェント実行環境には継承されない)。
+
+## 7. 再開手順 (提案)
+
+1. §2 の環境構築 → §5 の `cargo test` が通ることを確認。
+2. `--smoke-writer` 実行 → writer 経路の成否を確認 (§6-1)。
+3. 実アカウントでログイン窓テスト → Library/履歴の動作確認。
+4. 緑なら CI push → ubuntu 結果を確認 (§6-2)。
+5. 残件 (§6-3) を優先度順に消化。wry 安定後に Phase 5 (tray/自動更新/配布)。
