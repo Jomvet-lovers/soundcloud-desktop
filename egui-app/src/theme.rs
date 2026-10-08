@@ -9,6 +9,12 @@ pub const FONT_SANS_MEDIUM: &str = "Inter-Medium";
 pub const FONT_SANS_SEMIBOLD: &str = "Inter-SemiBold";
 pub const FONT_SANS_BOLD: &str = "Inter-Bold";
 pub const FONT_MONO: &str = "JetBrainsMono-Regular";
+/// CJK (日本語等) フォールバック。Inter/JetBrains に無いグリフを補う。
+pub const FONT_JP: &str = "NotoSansJP";
+/// 韓国語 (Hangul) フォールバック。
+pub const FONT_KR: &str = "NotoSansKR";
+/// 数学用英数字 (U+1D400 帯)・記号のフォールバック。
+pub const FONT_MATH: &str = "NotoSansMath";
 
 /// 起動時に1回だけ呼ぶ。Inter (400/500/600/700) + JetBrains Mono (400)。
 /// `include_bytes!` はリテラルパスのみ受けるため直書きする。
@@ -46,6 +52,24 @@ pub fn install_fonts(ctx: &egui::Context) {
             include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf").to_vec(),
         )),
     );
+    fonts.font_data.insert(
+        FONT_JP.to_string(),
+        Arc::new(egui::FontData::from_owned(
+            include_bytes!("../assets/fonts/NotoSansJP-Regular.otf").to_vec(),
+        )),
+    );
+    fonts.font_data.insert(
+        FONT_KR.to_string(),
+        Arc::new(egui::FontData::from_owned(
+            include_bytes!("../assets/fonts/NotoSansKR-Regular.otf").to_vec(),
+        )),
+    );
+    fonts.font_data.insert(
+        FONT_MATH.to_string(),
+        Arc::new(egui::FontData::from_owned(
+            include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf").to_vec(),
+        )),
+    );
     fonts
         .families
         .entry(egui::FontFamily::Proportional)
@@ -56,11 +80,29 @@ pub fn install_fonts(ctx: &egui::Context) {
         .entry(egui::FontFamily::Monospace)
         .or_default()
         .insert(0, FONT_MONO.to_string());
+    // CJK/数学フォールバック (Proportional/Monospace の末尾に追加)。
+    for extra in [FONT_JP, FONT_KR, FONT_MATH] {
+        fonts
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default()
+            .push(extra.to_string());
+    }
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .push(FONT_JP.to_string());
     // 太字系は名前付きファミリとして登録し、見出し側で明示指定する。
     for name in [FONT_SANS_MEDIUM, FONT_SANS_SEMIBOLD, FONT_SANS_BOLD] {
         fonts.families.insert(
             egui::FontFamily::Name(name.into()),
-            vec![name.to_string()],
+            vec![
+                name.to_string(),
+                FONT_JP.to_string(),
+                FONT_KR.to_string(),
+                FONT_MATH.to_string(),
+            ],
         );
     }
     ctx.set_fonts(fonts);
