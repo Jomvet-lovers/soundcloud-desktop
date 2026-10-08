@@ -129,7 +129,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     }
 
     if state.queue_open {
-        egui::Panel::right("queue").show(ui, |ui| {
+        egui::Panel::right("queue").exact_size(320.0).show(ui, |ui| {
             ui.heading("Queue");
             let accent = crate::widgets::accent_color(&state.settings);
             let rt = state.runtime().handle().clone();
