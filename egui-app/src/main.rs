@@ -121,8 +121,11 @@ fn app_main(args: Vec<String>) -> eframe::Result {
     }
     let options = eframe::NativeOptions {
         // 現行 `tauri.conf.json` の 1200x800 に合わせる。
-        // カスタムタイトルバーは捨て、OS 既定装飾に戻す (設計書 §3)。
-        viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 800.0]),
+        // カスタムタイトルバー (Tauri Titlebar.tsx 相当) のため OS 装飾は外す。
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1200.0, 800.0])
+            .with_min_inner_size([900.0, 600.0])
+            .with_decorations(false),
         ..Default::default()
     };
     eframe::run_native(

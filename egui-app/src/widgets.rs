@@ -91,6 +91,209 @@ pub enum TransportIcon {
     Next,
 }
 
+/// サイドバー/タイトルバー用の簡易アイコン (フォント非依存の自作描画)。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum UiIcon {
+    Home,
+    Search,
+    Library,
+    History,
+    Offline,
+    Settings,
+    Collapse,
+    ChevronLeft,
+    ChevronRight,
+    Minimize,
+    Maximize,
+    Close,
+    Cloud,
+}
+
+/// アイコンを描いて応答を返す (クリックは呼出側で付ける)。
+pub fn ui_icon(
+    ui: &mut egui::Ui,
+    icon: UiIcon,
+    size: f32,
+    color: egui::Color32,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::hover());
+    paint_ui_icon(ui.painter(), rect, icon, color);
+    resp
+}
+
+/// アイコン本体 (直線/円/多角形の組み合わせ)。
+pub fn paint_ui_icon(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    icon: UiIcon,
+    color: egui::Color32,
+) {
+    let c = rect.center();
+    let s = rect.width().min(rect.height());
+    let stroke = egui::Stroke::new(1.4, color);
+    match icon {
+        UiIcon::Home => {
+            let w = s * 0.34;
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-w, 0.0),
+                    c + egui::Vec2::new(0.0, -w * 1.05),
+                    c + egui::Vec2::new(w, 0.0),
+                ],
+                stroke,
+            ));
+            painter.rect_stroke(
+                egui::Rect::from_min_max(
+                    egui::Pos2::new(c.x - w * 0.72, c.y),
+                    egui::Pos2::new(c.x + w * 0.72, c.y + w * 1.05),
+                ),
+                1.5,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        UiIcon::Search => {
+            painter.circle_stroke(
+                c + egui::Vec2::new(-s * 0.06, -s * 0.06),
+                s * 0.24,
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(s * 0.12, s * 0.12),
+                    c + egui::Vec2::new(s * 0.30, s * 0.30),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::Library => {
+            for (i, h) in [0.5f32, 0.34, 0.44].iter().enumerate() {
+                let x = c.x - s * 0.24 + i as f32 * s * 0.24;
+                painter.line_segment(
+                    [
+                        egui::Pos2::new(x, c.y - s * h * 0.5),
+                        egui::Pos2::new(x, c.y + s * h * 0.5),
+                    ],
+                    egui::Stroke::new(1.6, color),
+                );
+            }
+        }
+        UiIcon::History => {
+            painter.circle_stroke(c, s * 0.28, stroke);
+            painter.line_segment([c, c + egui::Vec2::new(0.0, -s * 0.16)], stroke);
+            painter.line_segment([c, c + egui::Vec2::new(s * 0.13, 0.0)], stroke);
+        }
+        UiIcon::Offline => {
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(0.0, -s * 0.30),
+                    c + egui::Vec2::new(0.0, s * 0.10),
+                ],
+                stroke,
+            );
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-s * 0.15, -s * 0.06),
+                    c + egui::Vec2::new(0.0, s * 0.10),
+                    c + egui::Vec2::new(s * 0.15, -s * 0.06),
+                ],
+                stroke,
+            ));
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.24, s * 0.28),
+                    c + egui::Vec2::new(s * 0.24, s * 0.28),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::Settings => {
+            painter.circle_stroke(c, s * 0.16, stroke);
+            for k in 0..6 {
+                let a = std::f32::consts::TAU * k as f32 / 6.0;
+                let dir = egui::Vec2::new(a.cos(), a.sin());
+                painter.line_segment(
+                    [c + dir * s * 0.26, c + dir * s * 0.36],
+                    egui::Stroke::new(1.2, color),
+                );
+            }
+        }
+        UiIcon::Collapse => {
+            painter.rect_stroke(
+                egui::Rect::from_center_size(c, egui::Vec2::new(s * 0.62, s * 0.5)),
+                2.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.16, -s * 0.25),
+                    c + egui::Vec2::new(-s * 0.16, s * 0.25),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::ChevronLeft | UiIcon::ChevronRight => {
+            let dir = if icon == UiIcon::ChevronLeft { -1.0 } else { 1.0 };
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-s * 0.14 * dir, -s * 0.20),
+                    c + egui::Vec2::new(s * 0.12 * dir, 0.0),
+                    c + egui::Vec2::new(-s * 0.14 * dir, s * 0.20),
+                ],
+                egui::Stroke::new(1.6, color),
+            ));
+        }
+        UiIcon::Minimize => {
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.22, 0.0),
+                    c + egui::Vec2::new(s * 0.22, 0.0),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::Maximize => {
+            painter.rect_stroke(
+                egui::Rect::from_center_size(c, egui::Vec2::splat(s * 0.42)),
+                1.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        UiIcon::Close => {
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.20, -s * 0.20),
+                    c + egui::Vec2::new(s * 0.20, s * 0.20),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(s * 0.20, -s * 0.20),
+                    c + egui::Vec2::new(-s * 0.20, s * 0.20),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::Cloud => {
+            // SoundCloud 風の雲 (円 3 つ + ベース)。
+            painter.circle_filled(c + egui::Vec2::new(-s * 0.14, -s * 0.02), s * 0.17, color);
+            painter.circle_filled(c + egui::Vec2::new(s * 0.08, -s * 0.10), s * 0.20, color);
+            painter.circle_filled(c + egui::Vec2::new(s * 0.22, s * 0.02), s * 0.14, color);
+            painter.rect_filled(
+                egui::Rect::from_min_max(
+                    egui::Pos2::new(c.x - s * 0.30, c.y - s * 0.02),
+                    egui::Pos2::new(c.x + s * 0.28, c.y + s * 0.18),
+                ),
+                s * 0.08,
+                color,
+            );
+        }
+    }
+}
+
 /// 円形のトランスポートボタン。
 pub fn transport_button(
     ui: &mut egui::Ui,

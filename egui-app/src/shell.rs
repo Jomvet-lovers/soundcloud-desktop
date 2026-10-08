@@ -17,6 +17,191 @@ fn fmt_time(secs: f64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// 端リサイズ (OS 装飾なしのため自前で。6px のヒットゾーン)。
+fn resize_edges(ctx: &egui::Context) {
+    let screen = ctx.content_rect();
+    let t = 6.0;
+    egui::Area::new(egui::Id::new("scd_resize_edges"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let zones: [(egui::Rect, egui::ResizeDirection, egui::CursorIcon); 8] = [
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.left(), screen.top()),
+                        egui::pos2(screen.left() + t, screen.top() + t),
+                    ),
+                    egui::ResizeDirection::NorthWest,
+                    egui::CursorIcon::ResizeNwSe,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.center().x - t, screen.top()),
+                        egui::pos2(screen.center().x + t, screen.top() + t),
+                    ),
+                    egui::ResizeDirection::North,
+                    egui::CursorIcon::ResizeVertical,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.right() - t, screen.top()),
+                        egui::pos2(screen.right(), screen.top() + t),
+                    ),
+                    egui::ResizeDirection::NorthEast,
+                    egui::CursorIcon::ResizeNeSw,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.left(), screen.center().y - t),
+                        egui::pos2(screen.left() + t, screen.center().y + t),
+                    ),
+                    egui::ResizeDirection::West,
+                    egui::CursorIcon::ResizeHorizontal,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.right() - t, screen.center().y - t),
+                        egui::pos2(screen.right(), screen.center().y + t),
+                    ),
+                    egui::ResizeDirection::East,
+                    egui::CursorIcon::ResizeHorizontal,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.left(), screen.bottom() - t),
+                        egui::pos2(screen.left() + t, screen.bottom()),
+                    ),
+                    egui::ResizeDirection::SouthWest,
+                    egui::CursorIcon::ResizeNeSw,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.center().x - t, screen.bottom() - t),
+                        egui::pos2(screen.center().x + t, screen.bottom()),
+                    ),
+                    egui::ResizeDirection::South,
+                    egui::CursorIcon::ResizeVertical,
+                ),
+                (
+                    egui::Rect::from_min_max(
+                        egui::pos2(screen.right() - t, screen.bottom() - t),
+                        egui::pos2(screen.right(), screen.bottom()),
+                    ),
+                    egui::ResizeDirection::SouthEast,
+                    egui::CursorIcon::ResizeNwSe,
+                ),
+            ];
+            for (i, (rect, dir, cursor)) in zones.into_iter().enumerate() {
+                let resp = ui.interact(
+                    rect,
+                    egui::Id::new(("scd_resize_zone", i)),
+                    egui::Sense::drag(),
+                );
+                if resp.hovered() || resp.dragged() {
+                    ui.ctx().set_cursor_icon(cursor);
+                }
+                if resp.drag_started() {
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
+                }
+            }
+        });
+}
+
+/// タイトルバーの戻る/進む/ホーム等の小さなアイコンボタン。
+fn nav_icon_button(
+    ui: &mut egui::Ui,
+    icon: crate::widgets::UiIcon,
+    enabled: bool,
+) -> egui::Response {
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(30.0, 26.0), sense);
+    if resp.hovered() && enabled {
+        ui.painter()
+            .rect_filled(rect, 5.0, egui::Color32::from_white_alpha(14));
+    }
+    let color = if enabled {
+        egui::Color32::from_white_alpha(210)
+    } else {
+        egui::Color32::from_white_alpha(60)
+    };
+    crate::widgets::paint_ui_icon(ui.painter(), rect, icon, color);
+    resp
+}
+
+/// タイトルバーのウィンドウ操作ボタン (最小化/最大化/閉じる)。
+fn window_button(
+    ui: &mut egui::Ui,
+    icon: crate::widgets::UiIcon,
+    active: bool,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(44.0, 28.0), egui::Sense::click());
+    let is_close = icon == crate::widgets::UiIcon::Close;
+    if resp.hovered() {
+        let bg = if is_close {
+            egui::Color32::from_rgb(196, 43, 28)
+        } else {
+            egui::Color32::from_white_alpha(18)
+        };
+        ui.painter().rect_filled(rect, 4.0, bg);
+    }
+    let color = if active {
+        ui.visuals().hyperlink_color
+    } else if resp.hovered() && is_close {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::from_white_alpha(190)
+    };
+    crate::widgets::paint_ui_icon(ui.painter(), rect, icon, color);
+    resp
+}
+
+/// サイドバーのナビ項目 (アイコン + ラベル。選択は淡いグレー)。
+fn sidebar_item(
+    ui: &mut egui::Ui,
+    icon: crate::widgets::UiIcon,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(
+        egui::Vec2::new(ui.available_width(), 30.0),
+        egui::Sense::click(),
+    );
+    if selected {
+        ui.painter()
+            .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(20));
+    } else if resp.hovered() {
+        ui.painter()
+            .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(10));
+    }
+    let icon_color = if selected {
+        egui::Color32::from_white_alpha(235)
+    } else {
+        egui::Color32::from_white_alpha(150)
+    };
+    let icon_rect = egui::Rect::from_center_size(
+        egui::Pos2::new(rect.left() + 15.0, rect.center().y),
+        egui::Vec2::splat(16.0),
+    );
+    crate::widgets::paint_ui_icon(ui.painter(), icon_rect, icon, icon_color);
+    ui.painter().text(
+        egui::Pos2::new(rect.left() + 32.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(13.5),
+        if selected {
+            egui::Color32::from_white_alpha(240)
+        } else {
+            egui::Color32::from_white_alpha(190)
+        },
+    );
+    resp
+}
+
 pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     crate::theme::ensure_applied(ui.ctx(), &state.settings, &mut state.theme_applied);
     handle_shortcuts(state, ui.ctx());
@@ -44,75 +229,281 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
         ui.ctx().request_repaint();
     }
 
+    // サイドバー用の自分のプロフィール (署名済みのみ)。
+    if state.api.as_ref().and_then(|a| a.session_token()).is_some()
+        && !state.sidebar_me.requested()
+    {
+        if let Some(api) = state.api.clone() {
+            let rt = state.runtime().handle().clone();
+            state.sidebar_me.request(&rt, async move {
+                api.get_json("/me/cold")
+                    .await
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+            });
+        }
+    }
+    state.sidebar_me.poll();
+
+    // ── タイトルバー (Tauri: Titlebar.tsx 相当、OS 装飾なし) ──
+    let accent = crate::widgets::accent_color(&state.settings);
+    egui::Panel::top("titlebar")
+        .exact_size(42.0)
+        .frame(
+            egui::Frame::NONE
+                .fill(ui.visuals().panel_fill)
+                .inner_margin(egui::Margin::symmetric(10, 6)),
+        )
+        .show(ui, |ui| {
+            let bar_rect = ui.max_rect();
+            let drag = ui.interact(
+                bar_rect,
+                egui::Id::new("titlebar_drag"),
+                egui::Sense::click_and_drag(),
+            );
+            if drag.drag_started() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+            if drag.double_clicked() {
+                state.maximized = !state.maximized;
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::Maximized(state.maximized));
+            }
+            ui.horizontal_centered(|ui| {
+                // サイドバーが閉じているときは開くボタンを出す。
+                if !state.sidebar_open
+                    && nav_icon_button(ui, crate::widgets::UiIcon::Collapse, true).clicked()
+                {
+                    state.sidebar_open = true;
+                }
+                let (logo_rect, _) =
+                    ui.allocate_exact_size(egui::Vec2::splat(24.0), egui::Sense::hover());
+                ui.painter().rect_filled(logo_rect, 6.0, accent);
+                crate::widgets::paint_ui_icon(
+                    ui.painter(),
+                    logo_rect,
+                    crate::widgets::UiIcon::Cloud,
+                    egui::Color32::WHITE,
+                );
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("SoundCloud").font(crate::theme::semibold(15.0)));
+                ui.add_space(12.0);
+                if nav_icon_button(ui, crate::widgets::UiIcon::ChevronLeft, state.can_nav_back())
+                    .clicked()
+                {
+                    state.nav_back();
+                }
+                if nav_icon_button(
+                    ui,
+                    crate::widgets::UiIcon::ChevronRight,
+                    state.can_nav_forward(),
+                )
+                .clicked()
+                {
+                    state.nav_forward();
+                }
+                if nav_icon_button(ui, crate::widgets::UiIcon::Home, true).clicked() {
+                    state.navigate(Route::Home, None);
+                }
+                // 中央: グローバル検索 (Enter で Search ページへ)。
+                let avail = ui.available_width();
+                let search_w = 420.0_f32.min((avail - 170.0).max(160.0));
+                ui.add_space(((avail - search_w) / 2.0 - 60.0).max(0.0));
+                let resp = ui.add_sized(
+                    [search_w, 26.0],
+                    egui::TextEdit::singleline(&mut state.global_search)
+                        .hint_text("Search")
+                        .desired_width(search_w),
+                );
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let q = state.global_search.trim().to_string();
+                    if !q.is_empty() {
+                        state.navigate(Route::Search, Some(q));
+                        state.global_search.clear();
+                    }
+                }
+                // 右端: ウィンドウ操作。
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if window_button(ui, crate::widgets::UiIcon::Close, false).clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    if window_button(ui, crate::widgets::UiIcon::Maximize, state.maximized)
+                        .clicked()
+                    {
+                        state.maximized = !state.maximized;
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::Maximized(state.maximized));
+                    }
+                    if window_button(ui, crate::widgets::UiIcon::Minimize, false).clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+                });
+            });
+        });
+
     let mut account_action: Option<LoginAction> = None;
     if state.sidebar_open {
         egui::Panel::left("sidebar")
             .resizable(false)
-            .exact_size(210.0)
+            .exact_size(200.0)
+            .frame(
+                egui::Frame::NONE
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(egui::Margin::symmetric(8, 8)),
+            )
             .show(ui, |ui| {
-                ui.add(egui::Label::new(
-                    egui::RichText::new("SCD-Direct").font(crate::theme::semibold(18.0)),
-                ));
-                ui.add_space(4.0);
-                let signed_in = state.api.as_ref().and_then(|a| a.session_token()).is_some();
-                if signed_in {
-                    if ui.button("Sign out").clicked() {
-                        account_action = Some(LoginAction::Logout);
-                    }
-                } else if ui.button("Sign in").clicked() {
-                    account_action = Some(LoginAction::OpenLogin);
+                // ナビゲーション (Tauri: Sidebar.tsx 相当。アイコン付き)。
+                if sidebar_item(ui, crate::widgets::UiIcon::Home, "Home", state.route == Route::Home)
+                    .clicked()
+                {
+                    state.navigate(Route::Home, None);
                 }
-                ui.separator();
-                for route in Route::ALL {
-                    let selected = state.route == *route;
-                    if ui
-                        .add_sized(
-                            [ui.available_width(), 26.0],
-                            egui::Button::selectable(selected, route.title()),
-                        )
-                        .clicked()
-                    {
-                        state.route = *route;
-                    }
+                if sidebar_item(
+                    ui,
+                    crate::widgets::UiIcon::Search,
+                    "Search",
+                    state.route == Route::Search,
+                )
+                .clicked()
+                {
+                    state.navigate(Route::Search, None);
+                }
+                if sidebar_item(
+                    ui,
+                    crate::widgets::UiIcon::Library,
+                    "Library",
+                    state.route == Route::Library,
+                )
+                .clicked()
+                {
+                    state.navigate(Route::Library, None);
+                }
+                if sidebar_item(
+                    ui,
+                    crate::widgets::UiIcon::History,
+                    "History",
+                    state.route == Route::LibraryCollection
+                        && state.nav_param.as_deref() == Some("history"),
+                )
+                .clicked()
+                {
+                    state.navigate(Route::LibraryCollection, Some("history".to_string()));
+                }
+                if sidebar_item(
+                    ui,
+                    crate::widgets::UiIcon::Offline,
+                    "Offline",
+                    state.route == Route::Offline,
+                )
+                .clicked()
+                {
+                    state.navigate(Route::Offline, None);
                 }
                 if !state.settings.pinned_playlists.is_empty() {
-                    ui.separator();
-                    ui.label(egui::RichText::new("Quick access").small().weak());
-                    for pin in &state.settings.pinned_playlists {
-                        let label = egui::RichText::new(&pin.title).small();
+                    ui.add_space(10.0);
+                    ui.label(
+                        egui::RichText::new("Quick access").size(10.0).weak(),
+                    );
+                    ui.add_space(2.0);
+                    let pins: Vec<(String, String)> = state
+                        .settings
+                        .pinned_playlists
+                        .iter()
+                        .map(|p| (p.urn.clone(), p.title.clone()))
+                        .collect();
+                    for (urn, title) in pins {
+                        let label = egui::RichText::new(title).size(12.5);
                         if ui
                             .add_sized(
-                                [ui.available_width(), 22.0],
+                                [ui.available_width(), 24.0],
                                 egui::Button::selectable(false, label),
                             )
                             .clicked()
                         {
-                            state.route = Route::Playlist;
-                            state.nav_param = Some(pin.urn.clone());
+                            state.navigate(Route::Playlist, Some(urn));
                         }
                     }
                 }
-                ui.separator();
-                if let Some(backend) = &state.backend {
-                    let s = &backend.servers;
-                    egui::CollapsingHeader::new(
-                        egui::RichText::new("Diagnostics").small().weak(),
-                    )
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "api :{}  static :{}  proxy :{}",
-                                s.api_port, s.static_port, s.proxy_port
-                            ))
-                            .small()
-                            .weak(),
-                        );
-                        if backend.audio.is_none() {
-                            ui.label(egui::RichText::new("audio: unavailable").small());
+                // 下部: Collapse / Settings / ユーザ / 診断。
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    let signed_in = state.api.as_ref().and_then(|a| a.session_token()).is_some();
+                    if signed_in {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("Sign out").size(11.5).weak(),
+                                )
+                                .frame(false),
+                            )
+                            .clicked()
+                        {
+                            account_action = Some(LoginAction::Logout);
                         }
-                    });
-                }
+                    } else if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("Sign in").size(11.5).weak(),
+                            )
+                            .frame(false),
+                        )
+                        .clicked()
+                    {
+                        account_action = Some(LoginAction::OpenLogin);
+                    }
+                    if let Some(me) = state.sidebar_me.data.clone() {
+                        ui.horizontal(|ui| {
+                            let rt = state.runtime().handle().clone();
+                            state
+                                .images
+                                .show(ui, &rt, me.avatar_url.as_deref(), 24.0);
+                            if ui
+                                .add(
+                                    egui::Label::new(
+                                        egui::RichText::new(&me.username).size(12.5),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                )
+                                .clicked()
+                            {
+                                state.navigate(Route::User, Some(me.urn.clone()));
+                            }
+                        });
+                    }
+                    if sidebar_item(
+                        ui,
+                        crate::widgets::UiIcon::Settings,
+                        "Settings",
+                        state.route == Route::Settings,
+                    )
+                    .clicked()
+                    {
+                        state.navigate(Route::Settings, None);
+                    }
+                    if sidebar_item(ui, crate::widgets::UiIcon::Collapse, "Collapse", false)
+                        .clicked()
+                    {
+                        state.sidebar_open = false;
+                    }
+                    if let Some(backend) = &state.backend {
+                        let s = &backend.servers;
+                        egui::CollapsingHeader::new(
+                            egui::RichText::new("Diagnostics").size(10.0).weak(),
+                        )
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "api :{}  static :{}  proxy :{}",
+                                    s.api_port, s.static_port, s.proxy_port
+                                ))
+                                .small()
+                                .weak(),
+                            );
+                            if backend.audio.is_none() {
+                                ui.label(egui::RichText::new("audio: unavailable").small());
+                            }
+                        });
+                    }
+                });
                 if let Some(e) = &state.boot_error {
                     ui.colored_label(egui::Color32::RED, format!("boot: {e}"));
                 }
@@ -232,7 +623,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             let _ = ui.allocate_ui_with_layout(
                 egui::vec2(left_w, 56.0),
                 egui::Layout::left_to_right(egui::Align::Center),
-                |ui| match &current {
+                |ui| {
+                    ui.set_min_width(left_w - 12.0);
+                    match &current {
                     Some(track) => {
                         let is_sc = track.urn.starts_with("soundcloud:");
                         let rt = state.runtime().handle().clone();
@@ -253,8 +646,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                                 .clicked()
                                 && is_sc
                             {
-                                state.route = Route::Track;
-                                state.nav_param = Some(track.urn.clone());
+                                state.navigate(Route::Track, Some(track.urn.clone()));
                             }
                             if let Some(user) = track.user.as_ref() {
                                 let artist = egui::RichText::new(&user.username).small().weak();
@@ -273,8 +665,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                                     .clicked()
                                     && is_sc
                                 {
-                                    state.route = Route::User;
-                                    state.nav_param = Some(user.urn.clone());
+                                    state.navigate(Route::User, Some(user.urn.clone()));
                                 }
                             }
                         });
@@ -300,6 +691,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     None => {
                         ui.label(egui::RichText::new("Not playing").weak());
                     }
+                    }
                 },
             );
             // 中央: トランスポート + 進行。
@@ -307,6 +699,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 egui::vec2(center_w, 56.0),
                 egui::Layout::top_down(egui::Align::Center),
                 |ui| {
+                    ui.set_min_width(center_w - 12.0);
                     ui.horizontal(|ui| {
                         if ui.selectable_label(state.player.shuffle, "Shuffle").clicked() {
                             state.player.toggle_shuffle();
@@ -519,8 +912,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         state.start_discover(item);
                     }
                     HomeAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     HomeAction::None => {}
                 },
@@ -546,8 +938,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         open_menu(state, ui, track);
                     }
                     SearchAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     SearchAction::None => {}
                 },
@@ -564,8 +955,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         open_menu(state, ui, track);
                     }
                     TagAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     TagAction::None => {}
                 },
@@ -589,8 +979,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         state.shuffle_likes(tracks);
                     }
                     LibraryAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     LibraryAction::None => {}
                 },
@@ -611,8 +1000,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         open_menu(state, ui, track);
                     }
                     CollectionAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     CollectionAction::None => {}
                 },
@@ -657,8 +1045,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         }
                     }
                     TrackAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     TrackAction::None => {}
                 },
@@ -693,8 +1080,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         open_menu(state, ui, track);
                     }
                     PlaylistAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     PlaylistAction::None => {}
                 },
@@ -711,8 +1097,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         open_menu(state, ui, track);
                     }
                     AlbumAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     AlbumAction::None => {}
                 },
@@ -729,8 +1114,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         open_menu(state, ui, track);
                     }
                     UserAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     UserAction::None => {}
                 },
@@ -747,8 +1131,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         open_menu(state, ui, track);
                     }
                     ArtistAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     ArtistAction::None => {}
                 },
@@ -768,8 +1151,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         state.play_file(path);
                     }
                     OfflineAction::Navigate(route, param) => {
-                        state.route = route;
-                        state.nav_param = param;
+                        state.navigate(route, param);
                     }
                     OfflineAction::None => {}
                 },
@@ -820,6 +1202,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     if state.download_track.is_some() {
         show_download_window(state, ui.ctx());
     }
+    // 端リサイズ (最大化中は無効)。
+    if !state.maximized {
+        resize_edges(ui.ctx());
+    }
 }
 
 /// ログイン系アクションの共通処理 (Login 画面とサイドバーの両方から使う)。
@@ -857,7 +1243,7 @@ fn apply_login_action(state: &mut AppState, action: LoginAction) {
             }
             state.reset_views();
             // ログアウト後はログイン画面に戻す。
-            state.route = Route::Login;
+            state.navigate(Route::Login, None);
         }
         LoginAction::None => {}
     }
@@ -937,7 +1323,7 @@ fn handle_shortcuts(state: &mut AppState, ctx: &egui::Context) {
         state.show_shortcuts = !state.show_shortcuts;
     }
     if hits.search || hits.search_ctrl {
-        state.route = Route::Search;
+        state.navigate(Route::Search, None);
         ctx.memory_mut(|m| {
             m.data.insert_temp(egui::Id::new(FOCUS_SEARCH_ID), true);
         });
@@ -1418,13 +1804,11 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
             }
         }
         Act::GoTrack => {
-            state.route = Route::Track;
-            state.nav_param = Some(track.urn.clone());
+            state.navigate(Route::Track, Some(track.urn.clone()));
         }
         Act::GoArtist => {
             if let Some(user) = track.user.as_ref() {
-                state.route = Route::User;
-                state.nav_param = Some(user.urn.clone());
+                state.navigate(Route::User, Some(user.urn.clone()));
             }
         }
     }

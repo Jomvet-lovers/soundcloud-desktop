@@ -140,6 +140,8 @@ const PAGE_LIMIT: u32 = 30;
 pub struct SearchView {
     input: String,
     last_key: String,
+    /// グローバル検索から渡された最後のクエリ。
+    last_param: Option<String>,
     /// query/tab/sort (ページを除く) の前回値。変化でページを先頭へ戻す。
     last_base_key: String,
     /// 非アクティブタブ先読み (件数表示) のキー (query + sort)。
@@ -185,7 +187,15 @@ impl SearchView {
         settings: &mut crate::state::SettingsState,
         ui: &mut egui::Ui,
     ) -> SearchAction {
-        let _ = (audio, param, cache);
+        let _ = (audio, cache);
+        // グローバル検索 (タイトルバー) から param で渡されたクエリを反映する。
+        if let Some(q) = param {
+            if self.last_param.as_deref() != Some(q) {
+                self.input = q.to_string();
+                self.last_param = Some(q.to_string());
+                self.page = 0;
+            }
+        }
         let Some(api) = api else {
             ui.label("backend not running");
             return SearchAction::None;

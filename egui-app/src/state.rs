@@ -15,7 +15,7 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::backend::boot::{self, BootHandle};
 use crate::backend::events::EventBus;
-use crate::backend::models::{DislikedFlag, LikedFlag, Playlist, Track, tracks_from_value};
+use crate::backend::models::{DislikedFlag, LikedFlag, Playlist, ScUser, Track, tracks_from_value};
 use crate::backend::track_cache::ExportFormat;
 use crate::images::Images;
 use crate::pager::ListPage;
@@ -530,6 +530,15 @@ pub struct AppState {
     pub load: LoadState,
     pub load_error: Option<String>,
     pub file_path_input: String,
+    /// グローバル検索 (タイトルバー) の入力。
+    pub global_search: String,
+    /// サイドバー下部の自分のプロフィール (署名済みのみ)。
+    pub sidebar_me: Query<ScUser>,
+    /// ナビゲーション履歴と現在位置 (タイトルバーの戻る/進む)。
+    nav_history: Vec<(Route, Option<String>)>,
+    nav_index: usize,
+    /// タイトルバー用の最大化状態。
+    pub maximized: bool,
     pub last_sync_error: Option<String>,
     /// 再生中トラックの like 状態 (NowPlaying バー用)。
     pub now_liked: Option<bool>,
@@ -702,7 +711,7 @@ impl AppState {
             "settings" => Route::Settings,
             _ => Route::Home,
         };
-        let state = Self {
+        let mut state = Self {
             route: if signed_in {
                 startup_route
             } else {
@@ -719,6 +728,11 @@ impl AppState {
             load: LoadState::Idle,
             load_error: None,
             file_path_input: String::new(),
+            global_search: String::new(),
+            sidebar_me: Query::default(),
+            nav_history: Vec::new(),
+            nav_index: 0,
+            maximized: false,
             last_sync_error: None,
             now_liked: None,
             now_like: Query::default(),
@@ -770,6 +784,8 @@ impl AppState {
             images: Images::new(std::sync::Arc::new(wreq::Client::new())),
             nav_param: None,
         };
+        // 初期ルートを履歴の先頭にする (戻る/進む用)。
+        state.nav_history.push((state.route, state.nav_param.clone()));
         // 永続化されたオーディオ設定を起動時から反映する。
         if let Some(audio) = state.audio() {
             crate::backend::audio::engine::set_volume(state.player.volume as f64, audio);
@@ -1234,6 +1250,46 @@ impl AppState {
             });
             let _ = api.request_json("POST", "/history", Some(&body)).await;
         });
+    }
+
+    /// ルート遷移 (タイトルバーの履歴つき)。
+    pub fn navigate(&mut self, route: Route, param: Option<String>) {
+        if self.route == route && self.nav_param == param {
+            return;
+        }
+        self.route = route;
+        self.nav_param = param.clone();
+        self.nav_history.truncate(self.nav_index + 1);
+        self.nav_history.push((route, param));
+        self.nav_index = self.nav_history.len() - 1;
+    }
+
+    pub fn can_nav_back(&self) -> bool {
+        self.nav_index > 0
+    }
+
+    pub fn can_nav_forward(&self) -> bool {
+        self.nav_index + 1 < self.nav_history.len()
+    }
+
+    pub fn nav_back(&mut self) {
+        if self.nav_index > 0 {
+            self.nav_index -= 1;
+            if let Some((route, param)) = self.nav_history.get(self.nav_index).cloned() {
+                self.route = route;
+                self.nav_param = param;
+            }
+        }
+    }
+
+    pub fn nav_forward(&mut self) {
+        if self.nav_index + 1 < self.nav_history.len() {
+            self.nav_index += 1;
+            if let Some((route, param)) = self.nav_history.get(self.nav_index).cloned() {
+                self.route = route;
+                self.nav_param = param;
+            }
+        }
     }
 
     /// ログイン/ログアウト後の再取得のため全ビューの取得状態を捨てる。
@@ -1752,14 +1808,12 @@ impl AppState {
         };
         // アーティストはプロフィールへ。
         if item.kind.as_deref() == Some("user") || urn.starts_with("soundcloud:users:") {
-            self.route = Route::User;
-            self.nav_param = Some(urn);
+            self.navigate(Route::User, Some(urn));
             return;
         }
         // ジャンル項目は Tag ページへ (「Trending by genre」等)。
         if let Some(genre) = urn.strip_prefix("soundcloud:genres:") {
-            self.route = Route::Tag;
-            self.nav_param = Some(genre.to_string());
+            self.navigate(Route::Tag, Some(genre.to_string()));
             return;
         }
         let digits_after = |needle: &str| -> Option<String> {
@@ -1827,8 +1881,7 @@ impl AppState {
         }
         // 通常のプレイリストはページへ。
         if urn.starts_with("soundcloud:playlists:") {
-            self.route = Route::Playlist;
-            self.nav_param = Some(urn);
+            self.navigate(Route::Playlist, Some(urn));
         }
     }
 

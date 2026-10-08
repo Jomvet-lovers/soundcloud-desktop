@@ -116,7 +116,10 @@ impl HomeView {
             .as_ref()
             .map(|u| u.username.clone())
             .filter(|n| !n.is_empty());
-        ui.heading(greeting(user_name.as_deref()));
+        ui.add(egui::Label::new(
+            egui::RichText::new(greeting(user_name.as_deref()))
+                .font(crate::theme::semibold(24.0)),
+        ));
 
         ui.separator();
         let accent = widgets::accent_color(settings);
@@ -146,7 +149,7 @@ impl HomeView {
                 let card_w = 132.0;
                 let per_row =
                     (((ui.available_width() + 10.0) / (card_w + 10.0)).floor() as usize)
-                        .clamp(1, 8);
+                        .clamp(1, 7);
                 for chunk in items.chunks(per_row) {
                     ui.horizontal(|ui| {
                         for &(i, track) in chunk {
