@@ -1,8 +1,8 @@
 //! Phase 3: Search — 検索ボックス + 種別タブ + 結果 + ジャンルウォール。
 //! 対応: `desktop/src/pages/Search.tsx` (+ `GenreGrid`, `DiscoverSections` は対象外)。
 //! 空クエリではジャンルウォール (タグ送り) を表示する。
-//! アクティブなタブのみ取得する (React は全タブ先読み+件数表示だが簡略化)。
-//! Vibe/Lyrics 検索・いいね mutation・Discover ミックス再生は見送り。
+//! 全タブの 0 ページ目を先読みし、タブ名に件数 (現ページ件数) を表示する。
+//! Vibe/Lyrics 検索 (direct backend では空応答)・Discover ミックス再生は見送り。
 
 use std::sync::Arc;
 
@@ -140,6 +140,10 @@ const PAGE_LIMIT: u32 = 30;
 pub struct SearchView {
     input: String,
     last_key: String,
+    /// query/tab/sort (ページを除く) の前回値。変化でページを先頭へ戻す。
+    last_base_key: String,
+    /// 非アクティブタブ先読み (件数表示) のキー (query + sort)。
+    prefetch_key: String,
     tab: SearchTab,
     sort: TrackSort,
     page: u32,
@@ -147,6 +151,11 @@ pub struct SearchView {
     users: Query<Page<ScUser>>,
     playlists: Query<Page<Playlist>>,
     albums: Query<Page<AlbumHit>>,
+}
+
+/// タブ名の件数表示用 (現ページの件数。React の `tabs` memo と同じ)。
+fn page_len<T>(q: &Query<Page<T>>) -> Option<usize> {
+    q.data.as_ref().map(|p| p.collection.len())
 }
 
 fn search_url(kind: &str, q: &str, page: u32, sort: Option<&str>) -> String {
@@ -245,7 +254,17 @@ impl SearchView {
         ui.horizontal(|ui| {
             for tab in SearchTab::ALL {
                 let selected = self.tab == tab;
-                if ui.selectable_label(selected, tab.label()).clicked() {
+                let count = match tab {
+                    SearchTab::Tracks => page_len(&self.tracks),
+                    SearchTab::Users => page_len(&self.users),
+                    SearchTab::Playlists => page_len(&self.playlists),
+                    SearchTab::Albums => page_len(&self.albums),
+                };
+                let label = match count {
+                    Some(n) => format!("{} ({n})", tab.label()),
+                    None => tab.label().to_string(),
+                };
+                if ui.selectable_label(selected, label).clicked() {
                     self.tab = tab;
                     self.page = 0;
                 }
@@ -267,12 +286,53 @@ impl SearchView {
             });
         }
 
-        let key = format!(
-            "{query}\u{1}{}\u{1}{:?}\u{1}{}",
+        // query/tab/sort が変わったらページを先頭へ (React の pagerKey と同じ)。
+        let base_key = format!(
+            "{query}\u{1}{}\u{1}{:?}",
             self.tab.label(),
-            self.sort as u8,
-            self.page
+            self.sort as u8
         );
+        if base_key != self.last_base_key {
+            self.last_base_key = base_key.clone();
+            self.page = 0;
+        }
+        // 非アクティブタブの 0 ページ目を先読み (件数表示用。React と同じ)。
+        if base_key != self.prefetch_key {
+            self.prefetch_key = base_key.clone();
+            if self.tab != SearchTab::Tracks {
+                let api = api.clone();
+                let url = search_url("tracks", &query, 0, self.sort.param());
+                self.tracks.request(rt, async move {
+                    let v = api.get_json(&url).await?;
+                    serde_json::from_value(v).map_err(|e| e.to_string())
+                });
+            }
+            if self.tab != SearchTab::Users {
+                let api = api.clone();
+                let url = search_url("users", &query, 0, None);
+                self.users.request(rt, async move {
+                    let v = api.get_json(&url).await?;
+                    serde_json::from_value(v).map_err(|e| e.to_string())
+                });
+            }
+            if self.tab != SearchTab::Playlists {
+                let api = api.clone();
+                let url = search_url("playlists", &query, 0, None);
+                self.playlists.request(rt, async move {
+                    let v = api.get_json(&url).await?;
+                    serde_json::from_value(v).map_err(|e| e.to_string())
+                });
+            }
+            if self.tab != SearchTab::Albums {
+                let api = api.clone();
+                let url = search_url("albums", &query, 0, None);
+                self.albums.request(rt, async move {
+                    let v = api.get_json(&url).await?;
+                    serde_json::from_value(v).map_err(|e| e.to_string())
+                });
+            }
+        }
+        let key = format!("{base_key}\u{1}{}", self.page);
         if key != self.last_key {
             self.last_key = key;
             if self.page == 0 {
