@@ -1,0 +1,106 @@
+[package]
+name = "wreq-util"
+description = "Common utilities for wreq"
+repository = "https://github.com/0x676e67/wreq-util"
+documentation = "https://docs.rs/wreq-util"
+keywords = ["http", "client", "emulation", "ja3", "ja4"]
+authors = ["0x676e67 <gngppz@gmail.com>"]
+version = "2.2.6"
+readme = "README.md"
+license = "GPL-3.0"
+edition = "2024"
+rust-version = "1.85"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[features]
+default = ["emulation", "gzip", "brotli", "deflate", "zstd"]
+
+full = ["emulation", "emulation-rand", "gzip", "brotli", "deflate", "zstd"]
+
+# Emulation devices
+emulation = ["dep:typed-builder"]
+
+# Emulation devices with serde
+emulation-serde = ["dep:serde"]
+
+# Emulation devices with random data
+emulation-rand = ["emulation", "dep:strum_macros", "dep:strum"]
+
+# Compression algorithms
+gzip = ["wreq/gzip"]
+brotli = ["wreq/brotli"]
+deflate = ["wreq/deflate"]
+zstd = ["wreq/zstd"]
+
+[dependencies]
+wreq = { version = ">=3.0.5,<6", default-features = false }
+serde = { version = "1.0", features = ["derive"], optional = true }
+typed-builder = { version = "0.21.0", optional = true }
+strum = { version = "0.27.1", optional = true }
+strum_macros = { version = "0.27.1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1.1.0", default-features = false, features = [
+    "http1",
+    "http2",
+    "client",
+    "server",
+] }
+hyper-util = { version = "0.1.10", features = [
+    "http1",
+    "http2",
+    "client",
+    "client-legacy",
+    "server-auto",
+    "tokio",
+] }
+http = "1"
+futures-util = { version = "0.3.0" }
+tower = { version = "0.5.2", default-features = false, features = ["limit"] }
+pin-project-lite = "0.2.0"
+tracing = "0.1"
+tracing-subscriber = "0.3.19"
+
+[lib]
+doctest = false
+
+[[test]]
+name = "client"
+path = "tests/client.rs"
+
+[[test]]
+name = "emulation_chrome"
+path = "tests/emulation_chrome.rs"
+
+[[test]]
+name = "emulation_okhttp"
+path = "tests/emulation_okhttp.rs"
+
+[[test]]
+name = "emulation_firefox"
+path = "tests/emulation_firefox.rs"
+
+[[test]]
+name = "emulation_safari"
+path = "tests/emulation_safari.rs"
+
+
+[[example]]
+name = "emulation"
+path = "examples/emulation.rs"
+required-features = ["emulation", "gzip", "brotli", "deflate", "zstd", "wreq/full"]
+
+[[example]]
+name = "emulation_rand"
+path = "examples/emulation_rand.rs"
+required-features = ["emulation", "gzip", "brotli", "deflate", "zstd", "wreq/full", "emulation-rand"]
+
+[[example]]
+name = "emulation_option"
+path = "examples/emulation_option.rs"
+required-features = ["emulation", "gzip", "brotli", "deflate", "zstd", "wreq/full"]

@@ -1,0 +1,355 @@
+[package]
+name = "wreq"
+version = "5.3.0"
+description = "A blazing-fast Rust HTTP Client with TLS fingerprint"
+keywords = ["http", "client", "websocket", "ja3", "ja4"]
+categories = ["web-programming::http-client"]
+repository = "https://github.com/0x676e67/wreq"
+documentation = "https://docs.rs/wreq"
+authors = ["0x676e67 <gngppz@gmail.com>"]
+readme = "README.md"
+license = "Apache-2.0"
+edition = "2024"
+rust-version = "1.85"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[features]
+default = ["webpki-roots", "charset", "macos-system-configuration"]
+
+full = [
+    "json",
+    "stream",
+    "cookies",
+    "socks",
+    "gzip",
+    "brotli",
+    "zstd",
+    "deflate",
+]
+
+websocket = ["dep:tokio-tungstenite"]
+
+charset = ["dep:encoding_rs"]
+
+cookies = ["cookies-abstract", "dep:cookie_store"]
+
+cookies-abstract = ["dep:cookie_crate"]
+
+cookies-preserve-order = ["cookie_store/preserve_order"]
+
+cookies-multiple = []
+
+gzip = ["dep:async-compression", "async-compression?/gzip", "dep:tokio-util"]
+
+brotli = [
+    "dep:async-compression",
+    "async-compression?/brotli",
+    "dep:tokio-util",
+]
+
+zstd = ["dep:async-compression", "async-compression?/zstd", "dep:tokio-util"]
+
+deflate = ["dep:async-compression", "async-compression?/zlib", "dep:tokio-util"]
+
+json = ["dep:serde_json"]
+
+multipart = ["dep:mime_guess"]
+
+hickory-dns = ["dep:hickory-resolver"]
+
+stream = ["tokio/fs", "dep:tokio-util"]
+
+socks = ["dep:tokio-socks"]
+
+native-roots = ["dep:rustls-native-certs"]
+
+webpki-roots = ["dep:webpki-root-certs"]
+
+# Use the system's proxy configuration.
+macos-system-configuration = ["dep:system-configuration"]
+
+# Use the Apple platform's network device binding.
+apple-network-device-binding = ["dep:libc"]
+
+# Optional enable http2 tracing
+http2-tracing = ["hyper2/http2-tracing"]
+
+# Optional disable internal proxy cache
+internal_proxy_sys_no_cache = []
+
+[dependencies]
+base64 = "0.22"
+http = "1"
+url = "2.5"
+bytes = "1.10.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_urlencoded = "0.7.1"
+tower = { version = "0.5.2", default-features = false, features = [
+    "timeout",
+    "util",
+] }
+tower-service = "0.3"
+futures-util = { version = "0.3.0", default-features = false }
+sync_wrapper = { version = "1.0", features = ["futures"] }
+antidote = "1"
+typed-builder = "0.21.0"
+
+# Optional deps...
+
+## json
+serde_json = { version = "1.0", optional = true }
+## multipart
+mime_guess = { version = "2.0", default-features = false, optional = true }
+
+## common
+encoding_rs = { version = "0.8", optional = true }
+http-body = "1"
+http-body-util = "0.1"
+hyper2 = { version = "1.5.5", features = ["http1", "http2", "client"] }
+socket2 = { version = "0.5.8", features = ["all"] }
+lru = { version = "0.13", default-features = false }
+log = "0.4.27"
+mime = "0.3.17"
+percent-encoding = "2.3"
+tokio = { version = "1", default-features = false, features = [
+    "net",
+    "time",
+    "rt",
+] }
+pin-project-lite = "0.2.0"
+ipnet = "2.11.0"
+arc-swap = "1.7.0"
+
+## boring-tls
+boring2 = { version = "4.15.11", features = [
+    "pq-experimental",
+    "cert-compression",
+] }
+tokio-boring2 = { version = "4.15.11", features = ["pq-experimental"] }
+linked_hash_set = "0.1"
+
+# Optional deps...
+
+# tls root certs
+rustls-native-certs = { version = "0.8.0", optional = true }
+webpki-root-certs = { version = "0.26.0", optional = true }
+
+## cookies
+cookie_crate = { version = "0.18", package = "cookie", optional = true }
+cookie_store = { version = "0.21", optional = true }
+
+## compression
+async-compression = { version = "0.4.21", default-features = false, features = [
+    "tokio",
+], optional = true }
+tokio-util = { version = "0.7.0", default-features = false, features = [
+    "codec",
+    "io",
+], optional = true }
+
+## socks
+tokio-socks = { version = "0.5.2", optional = true }
+
+## websocket
+tokio-tungstenite = { version = "0.26.2", default-features = false, features = [
+    "handshake",
+], optional = true }
+
+## hickory-dns
+hickory-resolver = { version = "0.25.1", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.5.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = { version = "0.6.0", optional = true }
+
+[target.'cfg(any(target_os = "ios", target_os = "visionos", target_os = "macos", target_os = "tvos", target_os = "watchos"))'.dependencies]
+libc = { version = "0.2", optional = true }
+
+[dev-dependencies]
+hyper = { version = "1.1.0", default-features = false, features = [
+    "http1",
+    "http2",
+    "client",
+    "server",
+] }
+hyper-util = { version = "0.1.10", features = [
+    "http1",
+    "http2",
+    "client",
+    "client-legacy",
+    "server-auto",
+    "tokio",
+] }
+serde = { version = "1.0", features = ["derive"] }
+libflate = "2.0.0"
+zstd = "0.13"
+brotli = "7.0.0"
+doc-comment = "0.3"
+tokio = { version = "1.0", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+] }
+futures = { version = "0.3.0", default-features = false, features = ["std"] }
+tower = { version = "0.5.2", default-features = false, features = ["limit"] }
+libc = "0.2"
+
+env_logger = "0.11.6"
+tracing = "0.1"
+tracing-subscriber = "0.3.19"
+
+[lib]
+doctest = false
+
+[[test]]
+name = "cookie"
+path = "tests/cookie.rs"
+required-features = ["cookies", "cookies-multiple", "cookies-preserve-order"]
+
+[[test]]
+name = "gzip"
+path = "tests/gzip.rs"
+required-features = ["gzip", "stream"]
+
+[[test]]
+name = "brotli"
+path = "tests/brotli.rs"
+required-features = ["brotli", "stream"]
+
+[[test]]
+name = "zstd"
+path = "tests/zstd.rs"
+required-features = ["zstd", "stream"]
+
+[[test]]
+name = "deflate"
+path = "tests/deflate.rs"
+required-features = ["deflate", "stream"]
+
+[[test]]
+name = "multipart"
+path = "tests/multipart.rs"
+required-features = ["multipart", "stream"]
+
+[[test]]
+name = "client_update"
+path = "tests/client_update.rs"
+required-features = ["full"]
+
+[[example]]
+name = "json_dynamic"
+path = "examples/json_dynamic.rs"
+required-features = ["json"]
+
+[[example]]
+name = "json_typed"
+path = "examples/json_typed.rs"
+required-features = ["json"]
+
+[[example]]
+name = "tor_socks"
+path = "examples/tor_socks.rs"
+required-features = ["socks"]
+
+[[example]]
+name = "form"
+path = "examples/form.rs"
+
+[[example]]
+name = "hickory_dns"
+path = "examples/hickory_dns.rs"
+required-features = ["hickory-dns"]
+
+[[example]]
+name = "headers_order"
+path = "examples/headers_order.rs"
+required-features = ["cookies"]
+
+[[example]]
+name = "emulation_provider"
+path = "examples/emulation_provider.rs"
+required-features = ["full"]
+
+[[example]]
+name = "set_headers"
+path = "examples/set_headers.rs"
+
+[[example]]
+name = "set_cookies"
+path = "examples/set_cookies.rs"
+required-features = ["cookies"]
+
+[[example]]
+name = "set_cookie_provider"
+path = "examples/set_cookie_provider.rs"
+required-features = ["cookies"]
+
+[[example]]
+name = "set_proxies"
+path = "examples/set_proxies.rs"
+required-features = ["socks", "brotli"]
+
+[[example]]
+name = "set_local_address"
+path = "examples/set_local_address.rs"
+required-features = ["brotli"]
+
+[[example]]
+name = "set_interface"
+path = "examples/set_interface.rs"
+required-features = ["brotli", "apple-network-device-binding"]
+
+[[example]]
+name = "set_cert_store"
+path = "examples/set_cert_store.rs"
+required-features = ["native-roots", "webpki-roots"]
+
+[[example]]
+name = "client_chain"
+path = "examples/client_chain.rs"
+required-features = ["apple-network-device-binding"]
+
+[[example]]
+name = "request_with_redirect"
+path = "examples/request_with_redirect.rs"
+required-features = ["full"]
+
+[[example]]
+name = "request_with_version"
+path = "examples/request_with_version.rs"
+required-features = ["full"]
+
+[[example]]
+name = "request_with_proxy"
+path = "examples/request_with_proxy.rs"
+required-features = ["full"]
+
+[[example]]
+name = "connect_via_lower_priority_tokio_runtime"
+path = "examples/connect_via_lower_priority_tokio_runtime.rs"
+required-features = ["full"]
+
+[[example]]
+name = "request_with_local_address"
+path = "examples/request_with_local_address.rs"
+required-features = ["full"]
+
+[[example]]
+name = "request_with_interface"
+path = "examples/request_with_interface.rs"
+required-features = ["full", "apple-network-device-binding"]
+
+[[example]]
+name = "http1_websocket"
+path = "examples/http1_websocket.rs"
+required-features = ["websocket", "futures-util/std"]
+
+[[example]]
+name = "http2_websocket"
+path = "examples/http2_websocket.rs"
+required-features = ["websocket", "http2-tracing", "futures-util/std"]
