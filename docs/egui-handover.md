@@ -252,3 +252,10 @@ smoke モード (どちらも表示環境用。CI では不可):
   カバレッジ検証済み (欠け 0)。絵文字は egui 同梱の NotoEmoji でカバー。
 - 検証: `cargo test` 38 件・実機で like PUT/DELETE 200 / 再生 (anon 取得 →
   transcode → 再生) / NowPlaying リンクを確認。
+- **設定の永続化**: 音量 (0..=100) と HQ ストリーミングを `SettingsState`
+  (`egui_ui.json`) に保存。音量は起動時にエンジンへ反映、スライダーのドラッグ終了で
+  保存。HQ は `ensure_playable` に渡すようにした。
+- **無限スクロール**: 共通 `Pager`/`auto_load` (`egui-app/src/pager.rs`) を新設し、
+  Library と LibraryCollection、User ページの各タブを「末尾到達で自動追加読込」に
+  変更 (従来の「More」/ページ送りボタンは廃止)。Search/Tag は従来の Prev/Next、
+  Home の棚は先頭ページのみ (未対応)。
