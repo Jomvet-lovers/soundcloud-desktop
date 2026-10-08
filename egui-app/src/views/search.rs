@@ -274,7 +274,7 @@ impl SearchView {
                     Some(n) => format!("{} ({n})", tab.label()),
                     None => tab.label().to_string(),
                 };
-                if ui.selectable_label(selected, label).clicked() {
+                if widgets::tab_button(ui, &label, selected).clicked() {
                     self.tab = tab;
                     self.page = 0;
                 }
@@ -282,9 +282,7 @@ impl SearchView {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.tab == SearchTab::Tracks {
                     for sort in TrackSort::ALL.iter().rev() {
-                        if ui
-                            .selectable_label(self.sort == *sort, sort.label())
-                            .clicked()
+                        if widgets::tab_button(ui, sort.label(), self.sort == *sort).clicked()
                         {
                             self.sort = *sort;
                             self.page = 0;

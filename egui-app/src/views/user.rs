@@ -296,7 +296,10 @@ impl UserView {
             images.show(ui, rt, art, 96.0);
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.heading(&user.username);
+                    ui.add(egui::Label::new(
+                        egui::RichText::new(&user.username)
+                            .font(crate::theme::semibold(30.0)),
+                    ));
                     if user.verified.unwrap_or(false) {
                         ui.label("✔ Verified");
                     }
@@ -371,8 +374,11 @@ impl UserView {
                             }
                         }
                     }
-                    if let Some(link) = user.permalink_url.as_deref() {
-                        ui.hyperlink_to("SoundCloud ↗", link);
+                    if let Some(link) = user.permalink_url.clone() {
+                        if ui.button("Copy link").clicked() {
+                            ui.ctx().copy_text(link.clone());
+                        }
+                        ui.hyperlink_to("SoundCloud ↗", &link);
                     }
                 });
             });
@@ -412,14 +418,19 @@ impl UserView {
                     Some(c) => format!("{label} · {c}"),
                     None => label.to_string(),
                 };
-                ui.selectable_value(&mut self.tab, *tab, text);
+                if widgets::tab_button(ui, &text, self.tab == *tab).clicked() {
+                    self.tab = *tab;
+                }
             }
         });
         // Inline search over the loaded tracks/playlists (client-side;
         // the React page searches the local DB per scope).
         ui.horizontal(|ui| {
-            ui.label("Filter:");
-            ui.text_edit_singleline(&mut self.search);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.search)
+                    .hint_text("Search in their Tracks...")
+                    .desired_width(280.0),
+            );
         });
 
         let needle = self.search.trim().to_lowercase();

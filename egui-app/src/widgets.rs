@@ -702,6 +702,17 @@ pub fn age_text(created_at: Option<&str>) -> String {
     }
 }
 
+/// タブ用のニュートラルなピル (選択 = white/10。Tauri のタブ)。
+pub fn tab_button(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+    let text = egui::RichText::new(label).size(12.5);
+    let text = if selected {
+        text.color(egui::Color32::from_white_alpha(230))
+    } else {
+        text.weak()
+    };
+    ui.add(egui::Button::new(text).frame(selected))
+}
+
 /// 数値の省略表示 (833.4K / 1.2M)。対応: formatters.ts の `fc`。
 pub fn fmt_count(n: i64) -> String {
     if n >= 1_000_000 {
