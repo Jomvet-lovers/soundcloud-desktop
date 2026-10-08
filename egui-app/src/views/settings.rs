@@ -180,6 +180,13 @@ impl SettingsView {
             }
         });
         ui.separator();
+        if ui
+            .checkbox(&mut settings.close_to_tray, "Close to tray (keep running)")
+            .changed()
+        {
+            let _ = crate::backend::prefs::save(settings);
+        }
+        ui.separator();
         ui.heading("Updates");
         if ui.button("Check for updates").clicked() {
             self.update_check = crate::query::Query::default();

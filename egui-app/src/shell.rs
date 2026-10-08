@@ -20,6 +20,7 @@ fn fmt_time(secs: f64) -> String {
 pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     crate::theme::ensure_applied(ui.ctx(), &state.settings, &mut state.theme_applied);
     handle_shortcuts(state, ui.ctx());
+    state.poll_tray(ui.ctx());
     state.drain_events();
     state.drain_backend();
     state.sync_discord();

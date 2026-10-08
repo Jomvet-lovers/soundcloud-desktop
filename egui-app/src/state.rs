@@ -302,6 +302,9 @@ pub struct SettingsState {
     /// キュー終端で関連曲を自動継続する (autopilot)。
     #[serde(default = "default_true")]
     pub autopilot: bool,
+    /// 閉じるボタンでトレイに格納する。
+    #[serde(default)]
+    pub close_to_tray: bool,
 }
 
 fn default_cache_limit() -> u64 {
@@ -385,6 +388,7 @@ impl Default for SettingsState {
             search_history: Vec::new(),
             cache_limit_mb: default_cache_limit(),
             autopilot: true,
+            close_to_tray: false,
         }
     }
 }
@@ -468,6 +472,12 @@ pub struct AppState {
     continuation: Query<Vec<Track>>,
     /// Discover 棚の再生用 (ステーション/システムミックスの解決結果)。
     discover_play: Query<Vec<Track>>,
+    /// トレイからの操作 (UI スレッドで回収)。
+    tray_rx: Option<std::sync::mpsc::Receiver<crate::tray::TrayCmd>>,
+    /// トレイに格納中かどうか。
+    pub window_hidden: bool,
+    /// トレイの「終了」など明示的な終了要求 (close_to_tray を無視する)。
+    pub force_quit: bool,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -534,6 +544,9 @@ impl AppState {
         let settings = crate::backend::prefs::load().unwrap_or_default();
         let mut player = PlayerState::default();
         player.volume = settings.volume;
+        // システムトレイ (常駐アイコン)。
+        let (tray_tx, tray_rx) = std::sync::mpsc::channel();
+        crate::tray::spawn(cc.egui_ctx.clone(), tray_tx);
         let startup_route = match settings.startup_page.as_str() {
             "search" => Route::Search,
             "library" => Route::Library,
@@ -579,6 +592,9 @@ impl AppState {
             discord_last_attempt: None,
             continuation: Query::default(),
             discover_play: Query::default(),
+            tray_rx: Some(tray_rx),
+            window_hidden: false,
+            force_quit: false,
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -1342,6 +1358,50 @@ impl AppState {
                 && !tracks.is_empty()
             {
                 self.play_list(tracks, 0);
+            }
+        }
+    }
+
+    /// トレイからの操作を回収する (UI スレッド)。
+    pub fn poll_tray(&mut self, ctx: &egui::Context) {
+        let cmds: Vec<crate::tray::TrayCmd> = self
+            .tray_rx
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
+        for cmd in cmds {
+            match cmd {
+                crate::tray::TrayCmd::ToggleWindow => {
+                    self.window_hidden = !self.window_hidden;
+                    if self.window_hidden {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                    } else {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                }
+                crate::tray::TrayCmd::PlayPause => {
+                    if let Some(audio) = self.audio().cloned() {
+                        if self.player.is_playing {
+                            crate::backend::audio::engine::pause(&audio);
+                            self.player.is_playing = false;
+                        } else {
+                            crate::backend::audio::engine::play(&audio);
+                            self.player.is_playing = true;
+                        }
+                    }
+                }
+                crate::tray::TrayCmd::Next => self.next_track(),
+                crate::tray::TrayCmd::Prev => {
+                    if let Some(audio) = self.audio().cloned() {
+                        let pos = crate::backend::audio::engine::get_position(&audio);
+                        self.prev_track(pos);
+                    }
+                }
+                crate::tray::TrayCmd::Quit => {
+                    self.force_quit = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             }
         }
     }

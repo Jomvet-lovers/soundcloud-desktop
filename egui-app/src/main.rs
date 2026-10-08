@@ -7,6 +7,7 @@ mod query;
 mod shell;
 mod state;
 mod theme;
+mod tray;
 mod views;
 mod widgets;
 
@@ -16,6 +17,16 @@ use state::AppState;
 impl eframe::App for AppState {
     // eframe 0.36: `update(&Context)` は廃止され `ui(&mut Ui)` が唯一の描画点。
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        // 閉じるボタン → トレイに格納 (設定で有効時)。トレイの「終了」は除外。
+        if self.settings.close_to_tray
+            && !self.force_quit
+            && ctx.input(|i| i.viewport().close_requested())
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.window_hidden = true;
+        }
         shell::show_shell(self, ui);
     }
 }
