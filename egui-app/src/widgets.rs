@@ -138,6 +138,26 @@ pub fn is_currently_playing(player: &crate::state::PlayerState, track: &Track) -
             .unwrap_or(false)
 }
 
+/// 行/カードの操作結果 (通常クリック / 右クリックメニュー)。
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum RowHit {
+    #[default]
+    None,
+    Clicked,
+    Menu,
+}
+
+/// `Response` から RowHit を判定する共通ヘルパー。
+pub fn hit_of(resp: &egui::Response) -> RowHit {
+    if resp.clicked() {
+        RowHit::Clicked
+    } else if resp.secondary_clicked() {
+        RowHit::Menu
+    } else {
+        RowHit::None
+    }
+}
+
 /// Like トグルボタン。フォント依存の ♥/♡ を使わず、塗り + 色で状態を示す。
 /// 戻り値はクリックされたか (状態更新は呼出側)。
 pub fn like_button(ui: &mut egui::Ui, liked: bool, accent: egui::Color32) -> bool {

@@ -19,6 +19,10 @@ pub enum LibraryAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (リスト全体がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// いいね一括シャッフル再生。
+    ShuffleLikes(Vec<Track>),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
     Navigate(Route, Option<String>),
 }
 
@@ -216,6 +220,9 @@ impl LibraryView {
                             Some("likes".to_string()),
                         );
                     }
+                    if ui.small_button("Shuffle").clicked() && !self.likes.items.is_empty() {
+                        action = LibraryAction::ShuffleLikes(self.likes.items.clone());
+                    }
                 });
                 if self.likes.q.loading && self.likes.items.is_empty() {
                     ui.label("Loading...");
@@ -243,8 +250,14 @@ impl LibraryView {
                             .id_salt("library:likes")
                             .show(ui, |ui| {
                                 for (i, track) in rows.iter().enumerate() {
-                                    if Self::track_row(ui, rt, images, player, track, accent) {
-                                        action = LibraryAction::PlayList(rows.clone(), i);
+                                    match Self::track_row(ui, rt, images, player, track, accent) {
+                                        widgets::RowHit::Clicked => {
+                                            action = LibraryAction::PlayList(rows.clone(), i);
+                                        }
+                                        widgets::RowHit::Menu => {
+                                            action = LibraryAction::OpenMenu(track.clone());
+                                        }
+                                        widgets::RowHit::None => {}
                                     }
                                 }
                                 if crate::pager::auto_load(
@@ -429,8 +442,16 @@ impl LibraryView {
                                     .map(history_entry_to_track)
                                     .collect();
                                 for (i, entry) in entries.iter().enumerate() {
-                                    if Self::history_row(ui, rt, images, player, entry) {
-                                        action = LibraryAction::PlayList(tracks.clone(), i);
+                                    match Self::history_row(ui, rt, images, player, entry) {
+                                        widgets::RowHit::Clicked => {
+                                            action = LibraryAction::PlayList(tracks.clone(), i);
+                                        }
+                                        widgets::RowHit::Menu => {
+                                            action = LibraryAction::OpenMenu(
+                                                history_entry_to_track(entry),
+                                            );
+                                        }
+                                        widgets::RowHit::None => {}
                                     }
                                 }
                             });
@@ -450,10 +471,10 @@ impl LibraryView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> bool {
+    ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
         let dur = fmt_duration(track.duration);
-        widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur)).clicked()
+        widgets::hit_of(&widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur)))
     }
 
     /// 1プレイリスト行。戻り値は遷移クリックされたか。
@@ -525,13 +546,13 @@ impl LibraryView {
         images: &mut Images,
         player: &PlayerState,
         entry: &HistoryEntry,
-    ) -> bool {
+    ) -> widgets::RowHit {
         // `HistoryEntry` は `Track` ではないため行描画は手書きのまま。
         // 判定のみ共通化 (`Track` へ変換してタイトル一致を見る)。
         let probe = history_entry_to_track(entry);
         let is_current = widgets::is_currently_playing(player, &probe);
         let mut clicked = false;
-        ui.horizontal(|ui| {
+        let row = ui.horizontal(|ui| {
             if images
                 .show(ui, rt, entry.artwork_url.as_deref(), 40.0)
                 .clicked()
@@ -565,8 +586,16 @@ impl LibraryView {
                     ui.label(short);
                 }
             });
-        });
+        })
+        .response
+        .interact(egui::Sense::click());
         let _ = &entry.id;
-        clicked
+        if clicked {
+            widgets::RowHit::Clicked
+        } else if row.secondary_clicked() {
+            widgets::RowHit::Menu
+        } else {
+            widgets::RowHit::None
+        }
     }
 }

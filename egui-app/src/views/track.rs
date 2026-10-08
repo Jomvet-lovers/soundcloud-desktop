@@ -25,6 +25,8 @@ pub enum TrackAction {
     AddNextUp(Track),
     /// 「プレイリストに追加」ダイアログを開く。
     AddToPlaylist(Track),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
     Seek(f32),
     Navigate(Route, Option<String>),
 }
@@ -354,31 +356,38 @@ impl TrackView {
                 ui.label("No related tracks");
             } else {
                 for (i, rel) in paged.collection.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        let art = rel.artwork("t200x200");
-                        if images.show(ui, rt, art.as_deref(), 48.0).clicked() {
-                            action =
-                                TrackAction::Navigate(Route::Track, Some(rel.urn.clone()));
-                        }
-                        ui.vertical(|ui| {
-                            if ui.button(rel.display_title()).clicked() {
-                                action = TrackAction::Navigate(
-                                    Route::Track,
-                                    Some(rel.urn.clone()),
-                                );
+                    let row = ui
+                        .horizontal(|ui| {
+                            let art = rel.artwork("t200x200");
+                            if images.show(ui, rt, art.as_deref(), 48.0).clicked() {
+                                action =
+                                    TrackAction::Navigate(Route::Track, Some(rel.urn.clone()));
                             }
-                            ui.label(rel.artist_name());
-                        });
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                if ui.button("▶").clicked() {
-                                    action = TrackAction::PlayList(paged.collection.clone(), i);
+                            ui.vertical(|ui| {
+                                if ui.button(rel.display_title()).clicked() {
+                                    action = TrackAction::Navigate(
+                                        Route::Track,
+                                        Some(rel.urn.clone()),
+                                    );
                                 }
-                                ui.label(fmt_ms(rel.duration));
-                            },
-                        );
-                    });
+                                ui.label(rel.artist_name());
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("▶").clicked() {
+                                        action =
+                                            TrackAction::PlayList(paged.collection.clone(), i);
+                                    }
+                                    ui.label(fmt_ms(rel.duration));
+                                },
+                            );
+                        })
+                        .response
+                        .interact(egui::Sense::click());
+                    if row.secondary_clicked() {
+                        action = TrackAction::OpenMenu(rel.clone());
+                    }
                 }
             }
         }

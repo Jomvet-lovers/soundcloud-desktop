@@ -21,6 +21,8 @@ pub enum TagAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (表示中ページ全体がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
     Navigate(Route, Option<String>),
 }
 
@@ -145,8 +147,14 @@ impl TagView {
             } else {
                 ui.horizontal_wrapped(|ui| {
                     for (i, track) in page.collection.iter().enumerate() {
-                        if Self::track_card(ui, rt, images, player, track, accent) {
-                            action = TagAction::PlayList(page.collection.clone(), i);
+                        match Self::track_card(ui, rt, images, player, track, accent) {
+                            widgets::RowHit::Clicked => {
+                                action = TagAction::PlayList(page.collection.clone(), i);
+                            }
+                            widgets::RowHit::Menu => {
+                                action = TagAction::OpenMenu(track.clone());
+                            }
+                            widgets::RowHit::None => {}
                         }
                     }
                 });
@@ -179,8 +187,10 @@ impl TagView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> bool {
+    ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
-        widgets::track_card(ui, rt, images, track, 132.0, playing, accent).clicked()
+        widgets::hit_of(&widgets::track_card(
+            ui, rt, images, track, 132.0, playing, accent,
+        ))
     }
 }

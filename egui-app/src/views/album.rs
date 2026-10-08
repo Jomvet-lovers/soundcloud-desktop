@@ -18,6 +18,8 @@ pub enum AlbumAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (アルバム全曲がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
     Navigate(Route, Option<String>),
 }
 
@@ -166,8 +168,14 @@ impl AlbumView {
             return action;
         }
         for (i, track) in tracks.iter().enumerate() {
-            if Self::track_row(ui, rt, images, player, track, accent) {
-                action = AlbumAction::PlayList(tracks.clone(), i);
+            match Self::track_row(ui, rt, images, player, track, accent) {
+                widgets::RowHit::Clicked => {
+                    action = AlbumAction::PlayList(tracks.clone(), i);
+                }
+                widgets::RowHit::Menu => {
+                    action = AlbumAction::OpenMenu(track.clone());
+                }
+                widgets::RowHit::None => {}
             }
         }
 
@@ -182,9 +190,17 @@ impl AlbumView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> bool {
+    ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
         let dur = fmt_dur(track.duration);
-        widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur)).clicked()
+        widgets::hit_of(&widgets::track_row(
+            ui,
+            rt,
+            images,
+            track,
+            playing,
+            accent,
+            Some(&dur),
+        ))
     }
 }

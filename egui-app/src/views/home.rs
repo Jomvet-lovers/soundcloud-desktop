@@ -17,6 +17,8 @@ pub enum HomeAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (リスト全体がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
 }
 
 #[derive(Default)]
@@ -129,10 +131,16 @@ impl HomeView {
                 ui.horizontal_wrapped(|ui| {
                     for (i, track) in tracks.iter().take(60).enumerate() {
                         let playing = is_currently_playing(player, track);
-                        if widgets::track_card(ui, rt, images, track, 132.0, playing, accent)
-                            .clicked()
-                        {
-                            action = HomeAction::PlayList(tracks.clone(), i);
+                        match widgets::hit_of(&widgets::track_card(
+                            ui, rt, images, track, 132.0, playing, accent,
+                        )) {
+                            widgets::RowHit::Clicked => {
+                                action = HomeAction::PlayList(tracks.clone(), i);
+                            }
+                            widgets::RowHit::Menu => {
+                                action = HomeAction::OpenMenu(track.clone());
+                            }
+                            widgets::RowHit::None => {}
                         }
                     }
                 });

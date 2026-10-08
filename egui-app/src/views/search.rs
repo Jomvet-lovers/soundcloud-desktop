@@ -21,6 +21,8 @@ pub enum SearchAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (検索結果ページ全体がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
     Navigate(Route, Option<String>),
 }
 
@@ -313,8 +315,14 @@ impl SearchView {
                         ui.label("No results found");
                     } else {
                         for (i, track) in page.collection.iter().enumerate() {
-                            if Self::track_row(ui, rt, images, player, track, accent) {
-                                action = SearchAction::PlayList(page.collection.clone(), i);
+                            match Self::track_row(ui, rt, images, player, track, accent) {
+                                widgets::RowHit::Clicked => {
+                                    action = SearchAction::PlayList(page.collection.clone(), i);
+                                }
+                                widgets::RowHit::Menu => {
+                                    action = SearchAction::OpenMenu(track.clone());
+                                }
+                                widgets::RowHit::None => {}
                             }
                         }
                     }
@@ -443,9 +451,9 @@ impl SearchView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> bool {
+    ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
-        widgets::track_row(ui, rt, images, track, playing, accent, None).clicked()
+        widgets::hit_of(&widgets::track_row(ui, rt, images, track, playing, accent, None))
     }
 
     /// 番号なし Prev/Next ページャ (React の `<Pager/>` の簡略版)。

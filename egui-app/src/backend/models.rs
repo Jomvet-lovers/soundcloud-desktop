@@ -48,6 +48,13 @@ pub struct LikedFlag {
     pub liked: bool,
 }
 
+/// `GET /dislikes/status/:urn` の応答。
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+pub struct DislikedFlag {
+    #[serde(default)]
+    pub disliked: bool,
+}
+
 impl Track {
     pub fn display_title(&self) -> &str {
         if self.title.is_empty() {
@@ -139,6 +146,7 @@ pub struct Playlist {
     pub tracks: Option<Value>,
     pub user: Option<ScUser>,
     pub likes_count: Option<i64>,
+    pub sharing: Option<String>,
 }
 
 impl Playlist {

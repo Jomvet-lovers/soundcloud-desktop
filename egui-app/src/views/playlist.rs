@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
-use crate::backend::models::{LikedFlag, Playlist, Track, tracks_from_value};
+use crate::backend::models::{LikedFlag, Playlist, ScUser, Track, tracks_from_value};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
@@ -18,6 +18,12 @@ pub enum PlaylistAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (プレイリスト全曲がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// シャッフル有効で先頭から再生。
+    ShufflePlay(Vec<Track>),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
+    /// サイドバーへの pin トグル。
+    TogglePin(String, String),
     Navigate(Route, Option<String>),
 }
 
@@ -29,6 +35,11 @@ pub struct PlaylistView {
     liked: Option<bool>,
     like_count: Option<i64>,
     likes_status: Query<LikedFlag>,
+    me: Query<ScUser>,
+    /// 編集 (削除/並替) 後のローカル上書き。
+    edit_tracks: Option<Vec<Track>>,
+    /// 公開範囲 (owner のみ変更可)。
+    sharing: Option<String>,
 }
 
 /// ミリ秒 → `m:ss` / `h:mm:ss`。対応: `desktop/src/lib/formatters.ts` の `dur()`。
@@ -54,6 +65,7 @@ impl PlaylistView {
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
         accent: egui::Color32,
+        settings: &crate::state::SettingsState,
         ui: &mut egui::Ui,
     ) -> PlaylistAction {
         let _ = audio;
@@ -73,6 +85,9 @@ impl PlaylistView {
             self.liked = None;
             self.like_count = None;
             self.likes_status = Query::default();
+            self.me = Query::default();
+            self.edit_tracks = None;
+            self.sharing = None;
             self.last_urn = Some(urn.to_string());
         }
         let api_owned = api.clone();
@@ -115,10 +130,20 @@ impl PlaylistView {
                     .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
             });
         }
+        // 自分のユーザ (owner 判定)。
+        if !self.me.requested() {
+            let api = api_owned.clone();
+            self.me.request(rt, async move {
+                api.get_json("/me/cold")
+                    .await
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+            });
+        }
 
         let mut changed = self.detail.poll();
         changed |= self.tracks.poll();
         changed |= self.likes_status.poll();
+        changed |= self.me.poll();
         if changed || self.detail.loading || self.tracks.loading {
             ui.ctx().request_repaint();
         }
@@ -153,11 +178,39 @@ impl PlaylistView {
 
         // 対応: `serverTracks` memo。`/tracks` が空なら詳細同梱の `tracks` に退避。
         let remote = self.tracks.data.as_ref().cloned().unwrap_or_default();
-        let tracks: Vec<Track> = if remote.is_empty() {
+        let mut tracks: Vec<Track> = if remote.is_empty() {
             playlist.track_list()
         } else {
             remote
         };
+        // 編集 (削除/並替) のローカル上書きを優先。
+        if let Some(edit) = self.edit_tracks.as_ref() {
+            tracks = edit.clone();
+        }
+        // owner 判定 (ローカル作成のプレイリストは常に編集可)。
+        let is_owner = playlist.urn.starts_with("local:")
+            || self
+                .me
+                .data
+                .as_ref()
+                .map(|m| {
+                    playlist
+                        .user
+                        .as_ref()
+                        .map(|u| u.urn == m.urn)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+        if self.sharing.is_none() {
+            self.sharing = Some(
+                playlist
+                    .sharing
+                    .clone()
+                    .unwrap_or_else(|| "private".to_string()),
+            );
+        }
+        let sharing = self.sharing.clone().unwrap_or_else(|| "private".into());
+        let pinned = settings.pinned_playlists.iter().any(|p| p.urn == playlist.urn);
         // React (`rawPlaylistCover`) 同様、カバー欠損時は先頭トラックから借用。
         let cover = playlist.artwork("t500x500").or_else(|| {
             tracks
@@ -215,7 +268,55 @@ impl PlaylistView {
                             c.to_string()
                         });
                     }
+                    if ui.button("Shuffle").clicked() && !tracks.is_empty() {
+                        action = PlaylistAction::ShufflePlay(tracks.clone());
+                    }
+                    if ui.button(if pinned { "Unpin" } else { "Pin" }).clicked() {
+                        action = PlaylistAction::TogglePin(
+                            playlist.urn.clone(),
+                            playlist.title.clone(),
+                        );
+                    }
                 });
+                if is_owner {
+                    ui.horizontal(|ui| {
+                        ui.label("Sharing:");
+                        let mut new_sharing: Option<&'static str> = None;
+                        if ui
+                            .selectable_label(sharing == "private", "Private")
+                            .clicked()
+                        {
+                            new_sharing = Some("private");
+                        }
+                        if ui
+                            .selectable_label(sharing == "public", "Public")
+                            .clicked()
+                        {
+                            new_sharing = Some("public");
+                        }
+                        if let Some(sh) = new_sharing {
+                            if sh != sharing {
+                                self.sharing = Some(sh.to_string());
+                                let api = api_owned.clone();
+                                let path =
+                                    format!("/playlists/{}/sharing", urlencoding::encode(urn));
+                                let body = serde_json::json!({ "sharing": sh });
+                                rt.spawn(async move {
+                                    let _ =
+                                        api.request_json("PUT", &path, Some(&body)).await;
+                                });
+                            }
+                        }
+                        if ui.button("Delete playlist").clicked() {
+                            let api = api_owned.clone();
+                            let path = format!("/playlists/{}", urlencoding::encode(urn));
+                            rt.spawn(async move {
+                                let _ = api.request_json("DELETE", &path, None).await;
+                            });
+                            action = PlaylistAction::Navigate(Route::Library, None);
+                        }
+                    });
+                }
             });
         });
 
@@ -235,10 +336,75 @@ impl PlaylistView {
             }
             return action;
         }
+        let mut remove_at: Option<usize> = None;
+        let mut move_pair: Option<(usize, usize)> = None;
         for (i, track) in tracks.iter().enumerate() {
-            if Self::track_row(ui, rt, images, player, track, accent) {
-                action = PlaylistAction::PlayList(tracks.clone(), i);
+            if is_owner {
+                let row_id = egui::Id::new(("pl-row", urn, i));
+                let (zone, dropped) =
+                    ui.dnd_drop_zone::<usize, _>(egui::Frame::NONE, |ui| {
+                        ui.horizontal(|ui| {
+                            let removed = ui.small_button("x").clicked();
+                            let hit = ui
+                                .dnd_drag_source(row_id, i, |ui| {
+                                    Self::track_row(ui, rt, images, player, track, accent)
+                                })
+                                .inner;
+                            (hit, removed)
+                        })
+                        .inner
+                    });
+                let (hit, removed) = zone.inner;
+                match hit {
+                    widgets::RowHit::Clicked => {
+                        action = PlaylistAction::PlayList(tracks.clone(), i);
+                    }
+                    widgets::RowHit::Menu => {
+                        action = PlaylistAction::OpenMenu(track.clone());
+                    }
+                    widgets::RowHit::None => {}
+                }
+                if removed {
+                    remove_at = Some(i);
+                }
+                if let Some(from) = dropped {
+                    move_pair = Some((*from, i));
+                }
+            } else {
+                match Self::track_row(ui, rt, images, player, track, accent) {
+                    widgets::RowHit::Clicked => {
+                        action = PlaylistAction::PlayList(tracks.clone(), i);
+                    }
+                    widgets::RowHit::Menu => {
+                        action = PlaylistAction::OpenMenu(track.clone());
+                    }
+                    widgets::RowHit::None => {}
+                }
             }
+        }
+        let mut edit_changed = false;
+        if let Some(i) = remove_at {
+            if i < tracks.len() {
+                tracks.remove(i);
+                edit_changed = true;
+            }
+        }
+        if let Some((from, to)) = move_pair {
+            if from != to && from < tracks.len() && to < tracks.len() {
+                let t = tracks.remove(from);
+                tracks.insert(to, t);
+                edit_changed = true;
+            }
+        }
+        if edit_changed {
+            self.edit_tracks = Some(tracks.clone());
+            let urns: Vec<String> = tracks.iter().map(|t| t.urn.clone()).collect();
+            let api = api_owned.clone();
+            let path = format!("/playlists/{}/tracks", urlencoding::encode(urn));
+            let body = serde_json::json!({ "order": urns });
+            rt.spawn(async move {
+                let _ = api.request_json("POST", &path, Some(&body)).await;
+            });
         }
 
         action
@@ -252,9 +418,17 @@ impl PlaylistView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> bool {
+    ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
         let dur = fmt_dur(track.duration);
-        widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur)).clicked()
+        widgets::hit_of(&widgets::track_row(
+            ui,
+            rt,
+            images,
+            track,
+            playing,
+            accent,
+            Some(&dur),
+        ))
     }
 }

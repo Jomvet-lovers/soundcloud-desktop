@@ -15,7 +15,7 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::backend::boot::{self, BootHandle};
 use crate::backend::events::EventBus;
-use crate::backend::models::{LikedFlag, Playlist, Track};
+use crate::backend::models::{DislikedFlag, LikedFlag, Playlist, Track};
 use crate::images::Images;
 use crate::pager::ListPage;
 use crate::query::Query;
@@ -277,6 +277,16 @@ pub struct SettingsState {
     /// 起動時に開くページ ("home" | "search" | "library" | "settings")。
     #[serde(default = "default_startup")]
     pub startup_page: String,
+    /// サイドバーのクイックアクセス (pin したプレイリスト)。
+    #[serde(default)]
+    pub pinned_playlists: Vec<PinnedPlaylist>,
+}
+
+/// サイドバー pin 用の最小情報。
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PinnedPlaylist {
+    pub urn: String,
+    pub title: String,
 }
 
 fn default_startup() -> String {
@@ -341,6 +351,7 @@ impl Default for SettingsState {
             pitch_semitones: 0.0,
             pitch_auto: true,
             startup_page: default_startup(),
+            pinned_playlists: Vec::new(),
         }
     }
 }
@@ -352,6 +363,13 @@ pub enum BackendEvent {
     AudioEnded,
     CacheProgress { done: u64, total: u64 },
     SyncError(String),
+}
+
+/// トラックの右クリックメニュー状態。
+#[derive(Clone)]
+pub struct TrackMenuState {
+    pub track: Track,
+    pub pos: egui::Pos2,
 }
 
 /// ファイル読込の非同期状態。デコード中も UI を固めない。
@@ -401,6 +419,10 @@ pub struct AppState {
     pub add_to_playlist: Option<Track>,
     pub dialog_playlists: Query<ListPage<Playlist>>,
     pub new_playlist_title: String,
+    /// トラックの右クリックメニュー。
+    pub track_menu: Option<TrackMenuState>,
+    pub menu_like: Query<LikedFlag>,
+    pub menu_dislike: Query<DislikedFlag>,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -482,6 +504,9 @@ impl AppState {
             add_to_playlist: None,
             dialog_playlists: Query::default(),
             new_playlist_title: String::new(),
+            track_menu: None,
+            menu_like: Query::default(),
+            menu_dislike: Query::default(),
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -635,6 +660,79 @@ impl AppState {
         self.add_to_playlist = Some(track);
         self.dialog_playlists = Query::default();
         self.new_playlist_title.clear();
+    }
+
+    /// サイドバーの pin をトグルする (settings へ保存)。
+    pub fn toggle_pin_playlist(&mut self, urn: String, title: String) {
+        if let Some(pos) = self
+            .settings
+            .pinned_playlists
+            .iter()
+            .position(|p| p.urn == urn)
+        {
+            self.settings.pinned_playlists.remove(pos);
+        } else {
+            self.settings
+                .pinned_playlists
+                .push(PinnedPlaylist { urn, title });
+        }
+        if let Err(e) = crate::backend::prefs::save(&self.settings) {
+            eprintln!("[prefs] save failed: {e}");
+        }
+    }
+
+    /// トラックの右クリックメニューを開く (like/dislike 状態も取得)。
+    pub fn open_track_menu(&mut self, track: Track, pos: egui::Pos2) {
+        if let Some(api) = self.api.clone() {
+            let rt = self.runtime.handle().clone();
+            let enc = urlencoding::encode(&track.urn).into_owned();
+            self.menu_like = Query::default();
+            {
+                let api = api.clone();
+                let path = format!("/likes/tracks/{enc}");
+                self.menu_like.request(&rt, async move {
+                    api.get_json(&path)
+                        .await
+                        .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+                });
+            }
+            self.menu_dislike = Query::default();
+            {
+                let path = format!("/dislikes/status/{enc}");
+                self.menu_dislike.request(&rt, async move {
+                    api.get_json(&path)
+                        .await
+                        .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+                });
+            }
+        }
+        self.track_menu = Some(TrackMenuState { track, pos });
+    }
+
+    /// メニューから like をトグルする (ローカル即時 + writer 同期)。
+    pub fn toggle_track_like(&mut self, urn: &str, next: bool) {
+        if let Some(api) = self.api.clone() {
+            let rt = self.runtime.handle().clone();
+            let path = format!("/likes/tracks/{}", urlencoding::encode(urn));
+            rt.spawn(async move {
+                let method = if next { "POST" } else { "DELETE" };
+                let _ = api.request_json(method, &path, None).await;
+            });
+        }
+        self.menu_like.data = Some(LikedFlag { liked: next });
+    }
+
+    /// メニューから dislike をトグルする (ローカルのみ)。
+    pub fn toggle_track_dislike(&mut self, urn: &str, next: bool) {
+        if let Some(api) = self.api.clone() {
+            let rt = self.runtime.handle().clone();
+            let path = format!("/dislikes/{}", urlencoding::encode(urn));
+            rt.spawn(async move {
+                let method = if next { "POST" } else { "DELETE" };
+                let _ = api.request_json(method, &path, None).await;
+            });
+        }
+        self.menu_dislike.data = Some(DislikedFlag { disliked: next });
     }
 
     /// キュー内 index のトラックを再生する。

@@ -24,6 +24,8 @@ pub enum UserAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (表示中の一覧がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
     Navigate(Route, Option<String>),
 }
 
@@ -442,8 +444,14 @@ impl UserView {
                         .cloned()
                         .collect();
                     for (i, t) in rows.iter().enumerate() {
-                        if Self::track_row(ui, rt, images, player, t, accent) {
-                            action = UserAction::PlayList(rows.clone(), i);
+                        match Self::track_row(ui, rt, images, player, t, accent) {
+                            widgets::RowHit::Clicked => {
+                                action = UserAction::PlayList(rows.clone(), i);
+                            }
+                            widgets::RowHit::Menu => {
+                                action = UserAction::OpenMenu(t.clone());
+                            }
+                            widgets::RowHit::None => {}
                         }
                     }
                     if rows.is_empty() {
@@ -460,8 +468,14 @@ impl UserView {
                     .cloned()
                     .collect();
                 for (i, t) in rows.iter().enumerate() {
-                    if Self::track_row(ui, rt, images, player, t, accent) {
-                        action = UserAction::PlayList(rows.clone(), i);
+                    match Self::track_row(ui, rt, images, player, t, accent) {
+                        widgets::RowHit::Clicked => {
+                            action = UserAction::PlayList(rows.clone(), i);
+                        }
+                        widgets::RowHit::Menu => {
+                            action = UserAction::OpenMenu(t.clone());
+                        }
+                        widgets::RowHit::None => {}
                     }
                 }
                 if self.tracks.q.loading {
@@ -528,8 +542,14 @@ impl UserView {
                     ui.label("Loading...");
                 } else if let Some(page) = self.likes.data.as_ref() {
                     for (i, t) in page.collection.iter().enumerate() {
-                        if Self::track_row(ui, rt, images, player, t, accent) {
-                            action = UserAction::PlayList(page.collection.clone(), i);
+                        match Self::track_row(ui, rt, images, player, t, accent) {
+                            widgets::RowHit::Clicked => {
+                                action = UserAction::PlayList(page.collection.clone(), i);
+                            }
+                            widgets::RowHit::Menu => {
+                                action = UserAction::OpenMenu(t.clone());
+                            }
+                            widgets::RowHit::None => {}
                         }
                     }
                     let empty = page.collection.is_empty();
@@ -728,14 +748,22 @@ impl UserView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> bool {
+    ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
         let meta = format!(
             "{} plays · {}",
             track.playback_count.unwrap_or(0),
             fmt_dur_ms(track.duration),
         );
-        widgets::track_row(ui, rt, images, track, playing, accent, Some(&meta)).clicked()
+        widgets::hit_of(&widgets::track_row(
+            ui,
+            rt,
+            images,
+            track,
+            playing,
+            accent,
+            Some(&meta),
+        ))
     }
 
     /// One playlist card. Returns true when navigation was requested.

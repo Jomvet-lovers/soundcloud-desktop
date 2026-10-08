@@ -22,6 +22,8 @@ pub enum ArtistAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (表示中の一覧がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// 右クリックメニューを開く。
+    OpenMenu(Track),
     Navigate(Route, Option<String>),
 }
 
@@ -666,8 +668,14 @@ impl ArtistView {
                 ui.label(empty_text);
             }
             for (i, t) in tracks.iter().enumerate() {
-                if Self::track_row(ui, rt, images, player, t, accent) {
-                    *action = ArtistAction::PlayList(tracks.clone(), i);
+                match Self::track_row(ui, rt, images, player, t, accent) {
+                    widgets::RowHit::Clicked => {
+                        *action = ArtistAction::PlayList(tracks.clone(), i);
+                    }
+                    widgets::RowHit::Menu => {
+                        *action = ArtistAction::OpenMenu(t.clone());
+                    }
+                    widgets::RowHit::None => {}
                 }
             }
         }
@@ -682,13 +690,21 @@ impl ArtistView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> bool {
+    ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
         let meta = format!(
             "{} plays · {}",
             track.playback_count.unwrap_or(0),
             fmt_dur_ms(track.duration),
         );
-        widgets::track_row(ui, rt, images, track, playing, accent, Some(&meta)).clicked()
+        widgets::hit_of(&widgets::track_row(
+            ui,
+            rt,
+            images,
+            track,
+            playing,
+            accent,
+            Some(&meta),
+        ))
     }
 }

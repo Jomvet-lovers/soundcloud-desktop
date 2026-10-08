@@ -53,6 +53,16 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
         for route in Route::ALL {
             ui.selectable_value(&mut state.route, *route, route.title());
         }
+        if !state.settings.pinned_playlists.is_empty() {
+            ui.separator();
+            ui.label("Quick access");
+            for pin in &state.settings.pinned_playlists {
+                if ui.selectable_label(false, &pin.title).clicked() {
+                    state.route = Route::Playlist;
+                    state.nav_param = Some(pin.urn.clone());
+                }
+            }
+        }
         ui.separator();
         if let Some(backend) = &state.backend {
             let s = &backend.servers;
@@ -378,6 +388,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     HomeAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
                     }
+                    HomeAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
+                    }
                     HomeAction::None => {}
                 },
                 Route::Search => match state.search.show(
@@ -388,6 +401,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     SearchAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
+                    }
+                    SearchAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
                     }
                     SearchAction::Navigate(route, param) => {
                         state.route = route;
@@ -404,6 +420,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     TagAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
                     }
+                    TagAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
+                    }
                     TagAction::Navigate(route, param) => {
                         state.route = route;
                         state.nav_param = param;
@@ -419,6 +438,13 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     LibraryAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
                     }
+                    LibraryAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
+                    }
+                    LibraryAction::ShuffleLikes(tracks) => {
+                        state.player.shuffle = true;
+                        state.play_list(tracks, 0);
+                    }
                     LibraryAction::Navigate(route, param) => {
                         state.route = route;
                         state.nav_param = param;
@@ -433,6 +459,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     CollectionAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
+                    }
+                    CollectionAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
                     }
                     CollectionAction::Navigate(route, param) => {
                         state.route = route;
@@ -455,6 +484,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     TrackAction::AddToPlaylist(track) => {
                         state.open_add_to_playlist(track);
                     }
+                    TrackAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
+                    }
                     TrackAction::Seek(frac) => {
                         if let (Some(audio), Some(dur)) =
                             (audio.as_ref(), state.player.duration_secs)
@@ -474,13 +506,32 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     TrackAction::None => {}
                 },
                 Route::Playlist => match state.playlist.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
+                    api_ref,
+                    &rt,
+                    images,
+                    player,
+                    audio_ref,
+                    param_ref,
+                    cache,
+                    accent,
+                    &state.settings,
+                    ui,
                 ) {
                     PlaylistAction::PlayTrack(track) => {
                         state.play_list(vec![track], 0);
                     }
                     PlaylistAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
+                    }
+                    PlaylistAction::ShufflePlay(tracks) => {
+                        state.player.shuffle = true;
+                        state.play_list(tracks, 0);
+                    }
+                    PlaylistAction::TogglePin(urn, title) => {
+                        state.toggle_pin_playlist(urn, title);
+                    }
+                    PlaylistAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
                     }
                     PlaylistAction::Navigate(route, param) => {
                         state.route = route;
@@ -497,6 +548,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     AlbumAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
                     }
+                    AlbumAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
+                    }
                     AlbumAction::Navigate(route, param) => {
                         state.route = route;
                         state.nav_param = param;
@@ -512,6 +566,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     UserAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
                     }
+                    UserAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
+                    }
                     UserAction::Navigate(route, param) => {
                         state.route = route;
                         state.nav_param = param;
@@ -526,6 +583,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     ArtistAction::PlayList(tracks, i) => {
                         state.play_list(tracks, i);
+                    }
+                    ArtistAction::OpenMenu(track) => {
+                        open_menu(state, ui, track);
                     }
                     ArtistAction::Navigate(route, param) => {
                         state.route = route;
@@ -594,6 +654,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     }
     if state.add_to_playlist.is_some() {
         show_add_to_playlist(state, ui.ctx());
+    }
+    if state.track_menu.is_some() {
+        show_track_menu(state, ui.ctx());
     }
 }
 
@@ -778,7 +841,9 @@ fn handle_shortcuts(state: &mut AppState, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(state.fullscreen));
     }
     if hits.escape {
-        if state.queue_open {
+        if state.track_menu.is_some() {
+            state.track_menu = None;
+        } else if state.queue_open {
             state.queue_open = false;
         } else if state.show_shortcuts {
             state.show_shortcuts = false;
@@ -1034,4 +1099,141 @@ fn show_add_to_playlist(state: &mut AppState, ctx: &egui::Context) {
     if !open {
         state.add_to_playlist = None;
     }
+}
+
+/// 右クリック位置にトラックメニューを開く。
+fn open_menu(state: &mut AppState, ui: &egui::Ui, track: crate::backend::models::Track) {
+    let pos = ui
+        .ctx()
+        .pointer_interact_pos()
+        .unwrap_or_else(|| egui::pos2(240.0, 240.0));
+    state.open_track_menu(track, pos);
+}
+
+/// トラックの右クリックメニュー (Tauri 版 `TrackContextMenu` 相当)。
+fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
+    let Some(menu) = state.track_menu.clone() else {
+        return;
+    };
+    state.menu_like.poll();
+    state.menu_dislike.poll();
+
+    let track = menu.track.clone();
+    let liked = state.menu_like.data.map(|f| f.liked).unwrap_or(false);
+    let disliked = state.menu_dislike.data.map(|f| f.disliked).unwrap_or(false);
+
+    enum Act {
+        SetLike(bool),
+        SetDislike(bool),
+        PlayNext,
+        AddToPlaylist,
+        CopyLink,
+        GoTrack,
+        GoArtist,
+    }
+    let mut act: Option<Act> = None;
+
+    let area = egui::Area::new(egui::Id::new("scd-track-menu"))
+        .fixed_pos(menu.pos)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_min_width(210.0);
+                let like_label = if liked {
+                    "Remove from library"
+                } else {
+                    "Add to library"
+                };
+                if ui.button(like_label).clicked() {
+                    act = Some(Act::SetLike(!liked));
+                }
+                let dis_label = if disliked {
+                    "Remove dislike"
+                } else {
+                    "Not interested"
+                };
+                if ui.button(dis_label).clicked() {
+                    act = Some(Act::SetDislike(!disliked));
+                }
+                if ui.button("Play next").clicked() {
+                    act = Some(Act::PlayNext);
+                }
+                if ui.button("Add to playlist").clicked() {
+                    act = Some(Act::AddToPlaylist);
+                }
+                ui.separator();
+                if ui.button("Copy link").clicked() {
+                    act = Some(Act::CopyLink);
+                }
+                if ui.button("Go to track").clicked() {
+                    act = Some(Act::GoTrack);
+                }
+                if track.user.is_some() && ui.button("Go to artist").clicked() {
+                    act = Some(Act::GoArtist);
+                }
+            });
+        })
+        .response;
+
+    // メニュー外クリックで閉じる (Esc は handle_shortcuts 側)。
+    if ctx.input(|i| i.pointer.any_click()) {
+        let inside = ctx
+            .input(|i| i.pointer.interact_pos())
+            .map(|p| area.rect.contains(p))
+            .unwrap_or(false);
+        if !inside {
+            state.track_menu = None;
+            return;
+        }
+    }
+
+    let Some(act) = act else {
+        return;
+    };
+    match act {
+        Act::SetLike(next) => {
+            state.toggle_track_like(&track.urn, next);
+            if state.player.current_queued().map(|t| t.urn.as_str())
+                == Some(track.urn.as_str())
+            {
+                state.now_liked = Some(next);
+            }
+        }
+        Act::SetDislike(next) => {
+            state.toggle_track_dislike(&track.urn, next);
+        }
+        Act::PlayNext => {
+            state.player.insert_next(vec![track.clone()]);
+        }
+        Act::AddToPlaylist => {
+            state.open_add_to_playlist(track.clone());
+        }
+        Act::CopyLink => {
+            if let Some(url) = track.permalink_url.clone() {
+                ctx.copy_text(url);
+            } else if let Some(api) = state.api.clone() {
+                let rt = state.runtime().handle().clone();
+                let ctx2 = ctx.clone();
+                let path = format!("/tracks/{}", urlencoding::encode(&track.urn));
+                rt.spawn(async move {
+                    if let Ok(v) = api.get_json(&path).await {
+                        if let Some(u) = v.get("permalink_url").and_then(|x| x.as_str()) {
+                            ctx2.copy_text(u.to_string());
+                        }
+                    }
+                });
+            }
+        }
+        Act::GoTrack => {
+            state.route = Route::Track;
+            state.nav_param = Some(track.urn.clone());
+        }
+        Act::GoArtist => {
+            if let Some(user) = track.user.as_ref() {
+                state.route = Route::User;
+                state.nav_param = Some(user.urn.clone());
+            }
+        }
+    }
+    state.track_menu = None;
 }

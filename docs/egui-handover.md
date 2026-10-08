@@ -259,3 +259,18 @@ smoke モード (どちらも表示環境用。CI では不可):
   Library と LibraryCollection、User ページの各タブを「末尾到達で自動追加読込」に
   変更 (従来の「More」/ページ送りボタンは廃止)。Search/Tag は従来の Prev/Next、
   Home の棚は先頭ページのみ (未対応)。
+
+### 8.6 Phase 1〜2: 再生・操作系の拡充 (2026-10-09)
+
+- 再生: リスト文脈キュー (`play_list`)、+ Next up (`insert_next`)、Mute、
+  キーボードショートカット 19 種 + 一覧 (Ctrl+/)、キューの D&D 並替、
+  A-B ループ (B キー/バーボタン)、EQ (11 プリセット + 10 バンド)、
+  速度/ピッチ (auto/manual)、ノーマライズの**ライブ**トグル、起動ページ永続化。
+- 操作系: トラック右クリックメニュー (Add/Remove from library・Not interested・
+  Play next・Add to playlist・Copy link・Go to track/artist)、
+  「プレイリストに追加/新規作成」ダイアログ、
+  プレイリスト編集 (曲の削除・D&D 並替を `POST /playlists/:urn/tracks {order}` に同期、
+  削除、公開範囲切替、pin → サイドバー Quick access、Shuffle 再生)、
+  Library のいいね一括シャッフル。
+- 音質メモ: 再生音源は Tauri 版と同じ anon 160k AAC (Tauri のキャッシュで実証)。
+  EQ/ノーマライズ/速度は即時反映。
