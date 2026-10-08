@@ -2,8 +2,7 @@
 //! 対応: `desktop/src/pages/TrackPage.tsx` (+ `components/track/` の
 //! RoomHero / comments / actions / RelatedRow / RoomSleeve の subset)。
 //! `param` (= track urn) をキーに取得し、param 変化で再取得する。
-//! 見送り: 波形のコメントレーン・オーラ・ライナーノーツ・download/follow
-//! mutation・無限スクロール (先頭ページのみ)。
+//! 見送り: 波形のコメントレーン・オーラ・ライナーノーツ・無限スクロール (先頭ページのみ)。
 
 use std::sync::Arc;
 
@@ -49,6 +48,9 @@ pub struct TrackView {
     like_count: Option<i64>,
     likes_status: Query<LikedFlag>,
     me: Query<ScUser>,
+    /// Uploader follow state (Tauri: RoomSleeve の FollowBtn)。
+    follow: Query<bool>,
+    follow_urn: Option<String>,
 }
 
 /// ミリ秒 → `m:ss`。対応: `desktop/src/lib/formatters.ts` の `dur`。
@@ -95,6 +97,8 @@ impl TrackView {
             self.like_count = None;
             self.likes_status = Query::default();
             self.me = Query::default();
+            self.follow = Query::default();
+            self.follow_urn = None;
             self.last_param = param.map(|s| s.to_string());
         }
         let Some(urn) = param else {
@@ -192,6 +196,7 @@ impl TrackView {
         changed |= self.waveform.poll();
         changed |= self.likes_status.poll();
         changed |= self.me.poll();
+        changed |= self.follow.poll();
         if changed
             || self.track.loading
             || self.related.loading
@@ -239,6 +244,24 @@ impl TrackView {
                 self.liked = Some(track.user_favorite.unwrap_or(false));
             }
         }
+        // Follow 状態 (Tauri: RoomSleeve の FollowBtn、自分の曲は除外)。
+        if let (Some(user), Some(me)) = (track.user.as_ref(), self.me.data.as_ref()) {
+            if me.urn != user.urn && self.follow_urn.as_deref() != Some(user.urn.as_str()) {
+                self.follow_urn = Some(user.urn.clone());
+                self.follow = Query::default();
+                let api = api_owned.clone();
+                let path = format!(
+                    "/users/{}/followings/{}",
+                    urlencoding::encode(&me.urn),
+                    urlencoding::encode(&user.urn)
+                );
+                self.follow.request(rt, async move {
+                    api.get_json(&path)
+                        .await
+                        .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+                });
+            }
+        }
 
         // 対応: RoomHero (タイトル/アーティスト/再生ボタン/統計)。
         let is_current = player
@@ -258,6 +281,27 @@ impl TrackView {
                         if ui.button(user.username.as_str()).clicked() {
                             action =
                                 TrackAction::Navigate(Route::User, Some(user.urn.clone()));
+                        }
+                        // Follow (Tauri: RoomSleeve の FollowBtn)。自分の曲は除外。
+                        let is_own =
+                            self.me.data.as_ref().map(|m| m.urn == user.urn).unwrap_or(false);
+                        if !is_own {
+                            if let Some(following) = self.follow.data {
+                                let label = if following { "Following" } else { "Follow" };
+                                if ui.button(label).clicked() {
+                                    let next = !following;
+                                    self.follow.data = Some(next);
+                                    let api = api_owned.clone();
+                                    let path = format!(
+                                        "/me/followings/{}",
+                                        urlencoding::encode(&user.urn)
+                                    );
+                                    rt.spawn(async move {
+                                        let method = if next { "PUT" } else { "DELETE" };
+                                        let _ = api.request_json(method, &path, None).await;
+                                    });
+                                }
+                            }
                         }
                     });
                 }
