@@ -88,6 +88,8 @@ pub struct PlayerState {
     pub current_artist: Option<String>,
     pub is_playing: bool,
     pub volume: f32,
+    /// ミュート解除用の退避音量 (ミュートボタン / M キー)。
+    pub volume_before_mute: f32,
     pub shuffle: bool,
     pub repeat: RepeatMode,
     pub duration_secs: Option<f64>,
@@ -102,6 +104,7 @@ impl Default for PlayerState {
             current_artist: None,
             is_playing: false,
             volume: 80.0,
+            volume_before_mute: 80.0,
             shuffle: false,
             repeat: RepeatMode::Off,
             duration_secs: None,
@@ -138,6 +141,21 @@ impl PlayerState {
     pub fn clear_queue(&mut self) {
         self.queue.clear();
         self.queue_index = None;
+    }
+
+    /// 現在の次の位置 (再生中が無ければ末尾) に差し込む
+    /// (Tauri 版 `addToQueueNext` 相当)。
+    pub fn insert_next(&mut self, tracks: Vec<Track>) {
+        if tracks.is_empty() {
+            return;
+        }
+        match self.queue_index {
+            Some(i) => {
+                let at = (i + 1).min(self.queue.len());
+                self.queue.splice(at..at, tracks);
+            }
+            None => self.queue.extend(tracks),
+        }
     }
 
     /// 手動送り・自動送り共通の次 index。repeat-one は呼出側で処理する。
@@ -410,13 +428,51 @@ impl AppState {
         self.load_error = None;
     }
 
-    /// SoundCloud トラックのストリーム再生を開始する (単曲=1件キュー)。
+    /// SoundCloud トラックのストリーム再生を開始する (単曲)。
     /// `url` は旧 Tauri 呼び出しとの互換用で未使用 (direct-mode は cache 経由)。
     pub fn play_stream(&mut self, track: &Track, _url: String) {
-        let queue = vec![track.clone()];
-        self.player.set_queue(queue, 0);
+        self.play_list(vec![track.clone()], 0);
+    }
+
+    /// リスト文脈での再生: リスト全体をキューにして `index` から再生する
+    /// (Tauri 版 `useTrackPlay(track, queue)` 相当)。
+    pub fn play_list(&mut self, tracks: Vec<Track>, index: usize) {
+        if tracks.is_empty() {
+            return;
+        }
+        let index = index.min(tracks.len() - 1);
+        let track = tracks[index].clone();
+        self.player.set_queue(tracks, index);
         self.load_error = None;
-        self.load_stream(track);
+        self.load_stream(&track);
+    }
+
+    /// 音量を設定してエンジンへ反映する (0..=100、ミュートは 0)。
+    pub fn set_volume(&mut self, vol: f32) {
+        let vol = vol.clamp(0.0, 100.0);
+        self.player.volume = vol;
+        self.settings.volume = vol;
+        if let Some(audio) = self.audio() {
+            crate::backend::audio::engine::set_volume(vol as f64, audio);
+        }
+    }
+
+    /// ミュート切替 (退避音量から復元)。設定へも保存する。
+    pub fn toggle_mute(&mut self) {
+        if self.player.volume > 0.0 {
+            self.player.volume_before_mute = self.player.volume;
+            self.set_volume(0.0);
+        } else {
+            let v = if self.player.volume_before_mute > 0.0 {
+                self.player.volume_before_mute
+            } else {
+                80.0
+            };
+            self.set_volume(v);
+        }
+        if let Err(e) = crate::backend::prefs::save(&self.settings) {
+            eprintln!("[prefs] save failed: {e}");
+        }
     }
 
     /// キュー内 index のトラックを再生する。
@@ -730,6 +786,24 @@ mod tests {
         assert_eq!(s.current_artist.as_deref(), Some("Unknown artist"));
         assert_eq!(s.duration_secs, Some(180.0));
         assert!(s.is_playing);
+    }
+
+    #[test]
+    fn insert_next_places_after_current() {
+        let mut s = queued(3);
+        s.queue_index = Some(1);
+        s.insert_next(vec![track("extra")]);
+        assert_eq!(s.queue.len(), 4);
+        assert_eq!(s.queue[2].urn, "extra");
+        assert_eq!(s.queue_index, Some(1));
+    }
+
+    #[test]
+    fn insert_next_appends_when_idle() {
+        let mut s = PlayerState::default();
+        s.insert_next(vec![track("a"), track("b")]);
+        assert_eq!(s.queue.len(), 2);
+        assert_eq!(s.queue_index, None);
     }
 
     #[test]

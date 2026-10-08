@@ -19,6 +19,10 @@ use crate::views::waveform;
 pub enum TrackAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (関連トラック一覧がキューになる)。
+    PlayList(Vec<Track>, usize),
+    /// 次の再生位置に追加 (Tauri 版 `addToQueueNext`)。
+    AddNextUp(Track),
     Seek(f32),
     Navigate(Route, Option<String>),
 }
@@ -261,6 +265,9 @@ impl TrackView {
                 if ui.button(play_label).clicked() {
                     action = TrackAction::PlayTrack(track.clone());
                 }
+                if ui.button("+ Next up").clicked() {
+                    action = TrackAction::AddNextUp(track.clone());
+                }
                 let liked = self.liked.unwrap_or(false);
                 if crate::widgets::like_button(ui, liked, accent) {
                     // ローカル即時反映 + writer で best-effort 同期 (cf. LikeButton.tsx)。
@@ -341,7 +348,7 @@ impl TrackView {
             if paged.collection.is_empty() {
                 ui.label("No related tracks");
             } else {
-                for rel in &paged.collection {
+                for (i, rel) in paged.collection.iter().enumerate() {
                     ui.horizontal(|ui| {
                         let art = rel.artwork("t200x200");
                         if images.show(ui, rt, art.as_deref(), 48.0).clicked() {
@@ -361,7 +368,7 @@ impl TrackView {
                             egui::Layout::right_to_left(egui::Align::Center),
                             |ui| {
                                 if ui.button("▶").clicked() {
-                                    action = TrackAction::PlayTrack(rel.clone());
+                                    action = TrackAction::PlayList(paged.collection.clone(), i);
                                 }
                                 ui.label(fmt_ms(rel.duration));
                             },

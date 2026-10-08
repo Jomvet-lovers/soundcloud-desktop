@@ -18,6 +18,8 @@ use crate::widgets;
 pub enum CollectionAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (リスト全体がキューになる)。
+    PlayList(Vec<Track>, usize),
     Navigate(Route, Option<String>),
 }
 
@@ -359,11 +361,13 @@ impl CollectionView {
                         egui::ScrollArea::vertical()
                             .id_salt("collection:history")
                             .show(ui, |ui| {
-                                for entry in &entries {
+                                let tracks: Vec<Track> = entries
+                                    .iter()
+                                    .map(history_entry_to_track)
+                                    .collect();
+                                for (i, entry) in entries.iter().enumerate() {
                                     if Self::history_row(ui, rt, images, player, entry) {
-                                        action = CollectionAction::PlayTrack(
-                                            history_entry_to_track(entry),
-                                        );
+                                        action = CollectionAction::PlayList(tracks.clone(), i);
                                     }
                                 }
                             });
@@ -396,9 +400,9 @@ impl CollectionView {
                         egui::ScrollArea::vertical()
                             .id_salt("collection:likes")
                             .show(ui, |ui| {
-                                for track in &rows {
+                                for (i, track) in rows.iter().enumerate() {
                                     if Self::track_row(ui, rt, images, player, track, accent) {
-                                        action = CollectionAction::PlayTrack(track.clone());
+                                        action = CollectionAction::PlayList(rows.clone(), i);
                                     }
                                 }
                                 if crate::pager::auto_load(

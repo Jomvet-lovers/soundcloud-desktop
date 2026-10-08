@@ -22,6 +22,8 @@ use crate::widgets;
 pub enum UserAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (表示中の一覧がキューになる)。
+    PlayList(Vec<Track>, usize),
     Navigate(Route, Option<String>),
 }
 
@@ -434,40 +436,42 @@ impl UserView {
                         self.request_popular(rt, api, &enc);
                     }
                 } else if let Some(tracks) = self.popular.data.as_ref() {
-                    let mut n = 0;
-                    for t in tracks.iter() {
-                        if !track_matches(t, &needle) {
-                            continue;
-                        }
+                    let rows: Vec<Track> = tracks
+                        .iter()
+                        .filter(|t| track_matches(t, &needle))
+                        .cloned()
+                        .collect();
+                    for (i, t) in rows.iter().enumerate() {
                         if Self::track_row(ui, rt, images, player, t, accent) {
-                            action = UserAction::PlayTrack(t.clone());
+                            action = UserAction::PlayList(rows.clone(), i);
                         }
-                        n += 1;
                     }
-                    if n == 0 {
+                    if rows.is_empty() {
                         ui.label("Nothing here yet");
                     }
                 }
             }
             UserTab::Tracks => {
-                let mut n = 0;
-                for t in self.tracks.items.iter() {
-                    if !track_matches(t, &needle) {
-                        continue;
-                    }
+                let rows: Vec<Track> = self
+                    .tracks
+                    .items
+                    .iter()
+                    .filter(|t| track_matches(t, &needle))
+                    .cloned()
+                    .collect();
+                for (i, t) in rows.iter().enumerate() {
                     if Self::track_row(ui, rt, images, player, t, accent) {
-                        action = UserAction::PlayTrack(t.clone());
+                        action = UserAction::PlayList(rows.clone(), i);
                     }
-                    n += 1;
                 }
                 if self.tracks.q.loading {
                     ui.horizontal(|ui| {
                         ui.spinner();
                         ui.label("Loading...");
                     });
-                } else if n == 0 && !self.tracks.items.is_empty() {
+                } else if rows.is_empty() && !self.tracks.items.is_empty() {
                     ui.label("No matches in this user's content");
-                } else if n == 0 {
+                } else if rows.is_empty() {
                     ui.label("Nothing here yet");
                 }
                 if let Some(err) = self.tracks.q.error.clone() {
@@ -509,11 +513,13 @@ impl UserView {
                             }
                         }
                     });
-                    if self.playlists.has_more && !self.playlists.q.loading {
+                    if crate::pager::auto_load(
+                        ui,
+                        self.playlists.q.loading,
+                        self.playlists.has_more,
+                    ) {
                         let base = format!("/users/{enc}/playlists");
-                        if ui.button("More").clicked() {
-                            self.playlists.fetch(rt, api, &base);
-                        }
+                        self.playlists.fetch(rt, api, &base);
                     }
                 }
             }
@@ -521,9 +527,9 @@ impl UserView {
                 if self.likes.loading && self.likes.data.is_none() {
                     ui.label("Loading...");
                 } else if let Some(page) = self.likes.data.as_ref() {
-                    for t in page.collection.iter() {
+                    for (i, t) in page.collection.iter().enumerate() {
                         if Self::track_row(ui, rt, images, player, t, accent) {
-                            action = UserAction::PlayTrack(t.clone());
+                            action = UserAction::PlayList(page.collection.clone(), i);
                         }
                     }
                     let empty = page.collection.is_empty();

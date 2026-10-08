@@ -15,6 +15,8 @@ use crate::widgets::{self, is_currently_playing};
 pub enum HomeAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (リスト全体がキューになる)。
+    PlayList(Vec<Track>, usize),
 }
 
 #[derive(Default)]
@@ -125,12 +127,12 @@ impl HomeView {
             } else {
                 let _ = audio;
                 ui.horizontal_wrapped(|ui| {
-                    for track in tracks.iter().take(60) {
+                    for (i, track) in tracks.iter().take(60).enumerate() {
                         let playing = is_currently_playing(player, track);
                         if widgets::track_card(ui, rt, images, track, 132.0, playing, accent)
                             .clicked()
                         {
-                            action = HomeAction::PlayTrack(track.clone());
+                            action = HomeAction::PlayList(tracks.clone(), i);
                         }
                     }
                 });

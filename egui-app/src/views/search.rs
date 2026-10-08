@@ -19,6 +19,8 @@ use crate::widgets;
 pub enum SearchAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (検索結果ページ全体がキューになる)。
+    PlayList(Vec<Track>, usize),
     Navigate(Route, Option<String>),
 }
 
@@ -300,9 +302,9 @@ impl SearchView {
                     if page.collection.is_empty() {
                         ui.label("No results found");
                     } else {
-                        for track in &page.collection {
+                        for (i, track) in page.collection.iter().enumerate() {
                             if Self::track_row(ui, rt, images, player, track, accent) {
-                                action = SearchAction::PlayTrack(track.clone());
+                                action = SearchAction::PlayList(page.collection.clone(), i);
                             }
                         }
                     }

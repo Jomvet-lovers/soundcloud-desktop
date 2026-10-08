@@ -19,6 +19,8 @@ use crate::widgets;
 pub enum TagAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (表示中ページ全体がキューになる)。
+    PlayList(Vec<Track>, usize),
     Navigate(Route, Option<String>),
 }
 
@@ -142,9 +144,9 @@ impl TagView {
                 ui.label("No tracks found");
             } else {
                 ui.horizontal_wrapped(|ui| {
-                    for track in &page.collection {
+                    for (i, track) in page.collection.iter().enumerate() {
                         if Self::track_card(ui, rt, images, player, track, accent) {
-                            action = TagAction::PlayTrack(track.clone());
+                            action = TagAction::PlayList(page.collection.clone(), i);
                         }
                     }
                 });

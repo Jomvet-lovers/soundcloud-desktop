@@ -16,6 +16,8 @@ use crate::widgets;
 pub enum PlaylistAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (プレイリスト全曲がキューになる)。
+    PlayList(Vec<Track>, usize),
     Navigate(Route, Option<String>),
 }
 
@@ -187,8 +189,8 @@ impl PlaylistView {
                 }
                 ui.horizontal(|ui| {
                     if ui.button("▶ Play all").clicked() {
-                        if let Some(first) = tracks.first() {
-                            action = PlaylistAction::PlayTrack(first.clone());
+                        if !tracks.is_empty() {
+                            action = PlaylistAction::PlayList(tracks.clone(), 0);
                         }
                     }
                     let liked = self.liked.unwrap_or(false);
@@ -233,9 +235,9 @@ impl PlaylistView {
             }
             return action;
         }
-        for track in tracks.iter() {
+        for (i, track) in tracks.iter().enumerate() {
             if Self::track_row(ui, rt, images, player, track, accent) {
-                action = PlaylistAction::PlayTrack(track.clone());
+                action = PlaylistAction::PlayList(tracks.clone(), i);
             }
         }
 

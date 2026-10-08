@@ -266,11 +266,17 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             let mut vol = state.player.volume;
             let resp = ui.add(egui::Slider::new(&mut vol, 0.0..=100.0).text("Volume"));
             if resp.changed() {
-                state.player.volume = vol;
-                state.settings.volume = vol;
-                if let Some(a) = &audio {
-                    engine::set_volume(vol as f64, a);
+                if vol > 0.0 {
+                    state.player.volume_before_mute = vol;
                 }
+                state.set_volume(vol);
+            }
+            let muted = state.player.volume <= 0.0;
+            if ui
+                .button(if muted { "Unmute" } else { "Mute" })
+                .clicked()
+            {
+                state.toggle_mute();
             }
             // ドラッグ終了 (またはクリック等の単発変更) で永続化する。
             if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
@@ -324,10 +330,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     ui,
                 ) {
                     HomeAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    HomeAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     HomeAction::None => {}
                 },
@@ -335,10 +341,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     SearchAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    SearchAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     SearchAction::Navigate(route, param) => {
                         state.route = route;
@@ -350,10 +356,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     TagAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    TagAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     TagAction::Navigate(route, param) => {
                         state.route = route;
@@ -365,10 +371,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     LibraryAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    LibraryAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     LibraryAction::Navigate(route, param) => {
                         state.route = route;
@@ -380,10 +386,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     CollectionAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    CollectionAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     CollectionAction::Navigate(route, param) => {
                         state.route = route;
@@ -395,10 +401,13 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     TrackAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    TrackAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
+                    }
+                    TrackAction::AddNextUp(track) => {
+                        state.player.insert_next(vec![track]);
                     }
                     TrackAction::Seek(frac) => {
                         if let (Some(audio), Some(dur)) =
@@ -422,10 +431,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     PlaylistAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    PlaylistAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     PlaylistAction::Navigate(route, param) => {
                         state.route = route;
@@ -437,10 +446,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     AlbumAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    AlbumAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     AlbumAction::Navigate(route, param) => {
                         state.route = route;
@@ -452,10 +461,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     UserAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    UserAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     UserAction::Navigate(route, param) => {
                         state.route = route;
@@ -467,10 +476,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     ArtistAction::PlayTrack(track) => {
-                        if let Some(api) = &api {
-                            let url = api.stream_url(&track.urn, false);
-                            state.play_stream(&track, url);
-                        }
+                        state.play_list(vec![track], 0);
+                    }
+                    ArtistAction::PlayList(tracks, i) => {
+                        state.play_list(tracks, i);
                     }
                     ArtistAction::Navigate(route, param) => {
                         state.route = route;

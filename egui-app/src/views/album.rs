@@ -16,6 +16,8 @@ use crate::widgets;
 pub enum AlbumAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (アルバム全曲がキューになる)。
+    PlayList(Vec<Track>, usize),
     Navigate(Route, Option<String>),
 }
 
@@ -149,8 +151,8 @@ impl AlbumView {
                     }
                 }
                 if ui.button("▶ Play").clicked() {
-                    if let Some(first) = tracks.first() {
-                        action = AlbumAction::PlayTrack(first.clone());
+                    if !tracks.is_empty() {
+                        action = AlbumAction::PlayList(tracks.clone(), 0);
                     }
                 }
             });
@@ -163,9 +165,9 @@ impl AlbumView {
             ui.label("No tracks indexed yet");
             return action;
         }
-        for track in tracks.iter() {
+        for (i, track) in tracks.iter().enumerate() {
             if Self::track_row(ui, rt, images, player, track, accent) {
-                action = AlbumAction::PlayTrack(track.clone());
+                action = AlbumAction::PlayList(tracks.clone(), i);
             }
         }
 

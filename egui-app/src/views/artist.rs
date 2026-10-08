@@ -20,6 +20,8 @@ use crate::widgets;
 pub enum ArtistAction {
     None,
     PlayTrack(Track),
+    /// リスト文脈の再生 (表示中の一覧がキューになる)。
+    PlayList(Vec<Track>, usize),
     Navigate(Route, Option<String>),
 }
 
@@ -663,9 +665,9 @@ impl ArtistView {
             if tracks.is_empty() {
                 ui.label(empty_text);
             }
-            for t in tracks.iter() {
+            for (i, t) in tracks.iter().enumerate() {
                 if Self::track_row(ui, rt, images, player, t, accent) {
-                    *action = ArtistAction::PlayTrack(t.clone());
+                    *action = ArtistAction::PlayList(tracks.clone(), i);
                 }
             }
         }
