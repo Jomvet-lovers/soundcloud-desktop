@@ -17,6 +17,7 @@ fn fmt_time(secs: f64) -> String {
 }
 
 pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
+    crate::theme::ensure_applied(ui.ctx(), &state.settings, &mut state.theme_applied);
     state.drain_events();
     state.drain_backend();
     state.poll_load();
@@ -228,6 +229,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             let api_ref = api.as_ref();
             let param = state.nav_param.clone();
             let param_ref = param.as_deref();
+            let accent = crate::widgets::accent_color(&state.settings);
             // `backend` と各ビューは disjoint field のため同時借用できる。
             let cache = state.backend.as_ref().map(|b| &b.track_cache);
             let images = &mut state.images;
@@ -240,6 +242,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     images,
                     player,
                     audio_ref,
+                    &state.settings,
                     ui,
                 ) {
                     HomeAction::PlayTrack(track) => {
@@ -251,7 +254,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     HomeAction::None => {}
                 },
                 Route::Search => match state.search.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     SearchAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -266,7 +269,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     SearchAction::None => {}
                 },
                 Route::Tag => match state.tag.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     TagAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -281,7 +284,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     TagAction::None => {}
                 },
                 Route::Library => match state.library.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     LibraryAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -296,7 +299,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     LibraryAction::None => {}
                 },
                 Route::LibraryCollection => match state.collection.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     CollectionAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -311,12 +314,24 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     CollectionAction::None => {}
                 },
                 Route::Track => match state.track.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     TrackAction::PlayTrack(track) => {
                         if let Some(api) = &api {
                             let url = api.stream_url(&track.urn, false);
                             state.play_stream(&track, url);
+                        }
+                    }
+                    TrackAction::Seek(frac) => {
+                        if let (Some(audio), Some(dur)) =
+                            (audio.as_ref(), state.player.duration_secs)
+                        {
+                            if dur > 0.0 {
+                                let _ = engine::seek(
+                                    (f64::from(frac) * dur).clamp(0.0, dur),
+                                    audio,
+                                );
+                            }
                         }
                     }
                     TrackAction::Navigate(route, param) => {
@@ -326,7 +341,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     TrackAction::None => {}
                 },
                 Route::Playlist => match state.playlist.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     PlaylistAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -341,7 +356,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     PlaylistAction::None => {}
                 },
                 Route::Album => match state.album.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     AlbumAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -356,7 +371,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     AlbumAction::None => {}
                 },
                 Route::User => match state.user.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     UserAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -371,7 +386,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     UserAction::None => {}
                 },
                 Route::Artist => match state.artist.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     ArtistAction::PlayTrack(track) => {
                         if let Some(api) = &api {
@@ -395,7 +410,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                 }
                 Route::Offline => match state.offline.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
                 ) {
                     OfflineAction::PlayFile(path) => {
                         state.play_file(path);
@@ -409,6 +424,15 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 Route::Login => match state.login.show(
                     api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
                 ) {
+                    LoginAction::OpenLogin => {
+                        if let Some(b) = &state.backend {
+                            crate::backend::weblogin::open_login_window(
+                                b.direct.clone(),
+                                b.session.clone(),
+                                b.bus.clone(),
+                            );
+                        }
+                    }
                     LoginAction::SetToken(token) => {
                         if let Some(b) = &state.backend {
                             let session = b.session.clone();

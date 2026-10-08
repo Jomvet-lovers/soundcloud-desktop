@@ -5,7 +5,9 @@ mod images;
 mod query;
 mod shell;
 mod state;
+mod theme;
 mod views;
+mod widgets;
 
 use eframe::egui;
 use state::AppState;
@@ -17,8 +19,54 @@ impl eframe::App for AppState {
     }
 }
 
+/// スレッド/プロセス構成 (Phase 4):
+/// - GUI は常にメインプロセスのメインスレッド (eframe)。
+/// - wry host (login window + hidden writer) は子プロセス
+///   (`--wry-host <profile>`) のメインスレッド。IPC は TCP JSON-RPC。
+///   同一プロセス内の二重 GUI loop は当環境で不可のため。
+/// Web が不要な smoke (`--smoke`, `--smoke-tao`, `--smoke <file>`) は
+/// 子なしでそのまま実行する (CI 安全)。
 fn main() -> eframe::Result {
-    if std::env::args().any(|a| a == "--smoke") {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(|s| s.as_str()) == Some("--wry-host") {
+        let dir = args
+            .get(2)
+            .map(|s| s.as_str())
+            .unwrap_or("webprofile");
+        backend::webhost::run_child_main(std::path::PathBuf::from(dir));
+    }
+    if args.iter().any(|a| a == "--smoke-tao") {
+        let event_loop = tao::event_loop::EventLoopBuilder::<()>::with_user_event().build();
+        let _window = tao::window::WindowBuilder::new()
+            .with_visible(false)
+            .build(&event_loop)
+            .map_err(|e| format!("tao window: {e}"))
+            .unwrap();
+        eprintln!("smoke tao: window ok on main thread");
+        return Ok(());
+    }
+    let wants_web = !args.iter().any(|a| a == "--smoke")
+        || args.iter().any(|a| a == "--smoke-login" || a == "--smoke-writer");
+    let mut child: Option<std::process::Child> = None;
+    if wants_web {
+        match backend::webhost::spawn_child(backend::paths::app_cache_dir().join("webprofile")) {
+            Ok((proxy, c)) => {
+                backend::webhost::set_host(proxy);
+                child = Some(c);
+            }
+            Err(e) => eprintln!("[boot] wry host unavailable: {e}"),
+        }
+    }
+    let result = app_main(args);
+    if let Some(mut c) = child {
+        let _ = c.kill();
+    }
+    result
+}
+
+/// GUI は戻らず、smoke はコードで終了する。
+fn app_main(args: Vec<String>) -> eframe::Result {
+    if args.iter().any(|a| a == "--smoke") {
         return smoke();
     }
     let options = eframe::NativeOptions {
@@ -95,8 +143,56 @@ fn smoke() -> eframe::Result {
         Err(e) => println!("smoke me: no session ({e})"),
     }
 
+    // 手動の Web 経路検証 (表示環境でのみ実行する)。
+    if args_has("--smoke-login") {
+        if backend::webhost::host().is_none() {
+            println!("smoke login: SKIP (wry host unavailable)");
+            return Ok(());
+        }
+        backend::weblogin::open_login_window(
+            handle.direct.clone(),
+            handle.session.clone(),
+            backend::events::EventBus::null(),
+        );
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        println!("smoke login: window stayed up 10s");
+        return Ok(());
+    }
+    if args_has("--smoke-writer") {
+        if backend::webhost::host().is_none() {
+            println!("smoke writer: SKIP (wry host unavailable)");
+            return Ok(());
+        }
+        let bus = backend::events::EventBus::null();
+        match runtime.block_on(backend::writer::execute(
+            &bus,
+            None,
+            "GET",
+            "https://soundcloud.com/",
+            None,
+        )) {
+            Ok(o) => println!(
+                "smoke writer: status={} bytes={} captcha={}",
+                o.status,
+                o.payload.len(),
+                o.captcha.is_some()
+            ),
+            Err(e) => {
+                eprintln!("smoke writer failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
+
     let file = std::env::args().nth(2);
-    if let Some(path) = file {        let Some(audio) = handle.audio else {
+    if let Some(path) = file {
+        if path.starts_with("--") {
+            return Ok(());
+        }
+        let Some(audio) = handle.audio else {
             eprintln!("smoke play failed: no audio device");
             std::process::exit(1);
         };
@@ -129,4 +225,8 @@ fn smoke() -> eframe::Result {
         }
     }
     Ok(())
+}
+
+fn args_has(flag: &str) -> bool {
+    std::env::args().any(|a| a == flag)
 }

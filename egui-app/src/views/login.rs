@@ -14,6 +14,7 @@ use crate::state::PlayerState;
 
 pub enum LoginAction {
     None,
+    OpenLogin,
     SetToken(String),
     Logout,
 }
@@ -91,9 +92,11 @@ impl LoginView {
             }
         } else {
             ui.label("Not signed in");
+            if ui.button("Sign in with SoundCloud").clicked() {
+                action = LoginAction::OpenLogin;
+            }
             ui.label(
-                "SoundCloud browser sign-in is Phase 4 (wry login window). \
-                 For now, paste a session token manually.",
+                "A browser window opens soundcloud.com. Manual token paste also works.",
             );
             ui.horizontal(|ui| {
                 ui.label("Session token");

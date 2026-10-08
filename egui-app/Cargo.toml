@@ -47,6 +47,10 @@ tracing = "0.1"
 if-addrs = "0.15"
 libc = "0.2"
 uuid = { version = "1", features = ["v4"] }
+# Phase 4: login window + hidden writer (hybrid egui + wry child process).
+wry = "0.57"
+tao = "0.37"
+cookie = "0.18"
 
 [patch.crates-io]
 wreq = { path = "vendor/wreq-5.3.0" }
