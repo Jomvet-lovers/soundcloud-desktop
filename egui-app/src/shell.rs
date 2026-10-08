@@ -4,6 +4,7 @@
 
 use super::state::{AppState, LoadState, RepeatMode, Route};
 use crate::backend::audio::engine;
+use crate::backend::track_cache::ExportFormat;
 use crate::views::{
     album::AlbumAction, artist::ArtistAction, collection::CollectionAction, home::HomeAction,
     library::LibraryAction, login::LoginAction, offline::OfflineAction, playlist::PlaylistAction,
@@ -484,6 +485,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     TrackAction::AddToPlaylist(track) => {
                         state.open_add_to_playlist(track);
                     }
+                    TrackAction::OpenDownload(track) => {
+                        state.open_download(track);
+                    }
                     TrackAction::OpenMenu(track) => {
                         open_menu(state, ui, track);
                     }
@@ -657,6 +661,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     }
     if state.track_menu.is_some() {
         show_track_menu(state, ui.ctx());
+    }
+    if state.download_track.is_some() {
+        show_download_window(state, ui.ctx());
     }
 }
 
@@ -1127,6 +1134,7 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
         SetDislike(bool),
         PlayNext,
         AddToPlaylist,
+        Download,
         CopyLink,
         GoTrack,
         GoArtist,
@@ -1160,6 +1168,9 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
                 }
                 if ui.button("Add to playlist").clicked() {
                     act = Some(Act::AddToPlaylist);
+                }
+                if ui.button("Download...").clicked() {
+                    act = Some(Act::Download);
                 }
                 ui.separator();
                 if ui.button("Copy link").clicked() {
@@ -1208,6 +1219,9 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
         Act::AddToPlaylist => {
             state.open_add_to_playlist(track.clone());
         }
+        Act::Download => {
+            state.open_download(track.clone());
+        }
         Act::CopyLink => {
             if let Some(url) = track.permalink_url.clone() {
                 ctx.copy_text(url);
@@ -1236,4 +1250,115 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
         }
     }
     state.track_menu = None;
+}
+
+/// 単曲ダウンロード (保存先はネイティブダイアログ、形式は 4 種)。
+fn show_download_window(state: &mut AppState, ctx: &egui::Context) {
+    let Some(track) = state.download_track.clone() else {
+        return;
+    };
+    state.download_status.poll();
+
+    let mut open = true;
+    let mut choose = false;
+    egui::Window::new("Download")
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        .show(ctx, |ui| {
+            ui.label(format!("Track: {}", track.display_title()));
+            ui.horizontal(|ui| {
+                ui.label("Format:");
+                for (fmt, label) in [
+                    (ExportFormat::M4a, "M4A (AAC)"),
+                    (ExportFormat::Mp3, "MP3 320"),
+                    (ExportFormat::Flac, "FLAC"),
+                    (ExportFormat::Wav, "WAV"),
+                ] {
+                    if ui
+                        .selectable_label(state.download_format == fmt, label)
+                        .clicked()
+                    {
+                        state.download_format = fmt;
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Save as...").clicked() {
+                    choose = true;
+                }
+                if state.download_status.loading {
+                    ui.spinner();
+                    ui.label("Exporting...");
+                } else if let Some(status) = state.download_status.data.as_ref() {
+                    ui.label(status.as_str());
+                } else if let Some(err) = state.download_status.error.as_ref() {
+                    ui.colored_label(egui::Color32::from_rgb(255, 150, 150), err.as_str());
+                }
+            });
+        });
+
+    if choose {
+        let fmt = state.download_format;
+        let ext = match fmt {
+            ExportFormat::M4a => "m4a",
+            ExportFormat::Mp3 => "mp3",
+            ExportFormat::Flac => "flac",
+            ExportFormat::Wav => "wav",
+        };
+        let safe = |s: &str| {
+            s.chars()
+                .map(|c| {
+                    if r#"\/:*?"<>|"#.contains(c) {
+                        '_'
+                    } else {
+                        c
+                    }
+                })
+                .collect::<String>()
+        };
+        let default_name = format!(
+            "{} - {}.{ext}",
+            safe(track.artist_name()),
+            safe(track.display_title())
+        );
+        let picked = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter(ext.to_uppercase(), &[ext])
+            .save_file();
+        if let Some(path) = picked {
+            let dest = path.to_string_lossy().into_owned();
+            if let Some(cache) = state.backend.as_ref().map(|b| b.track_cache.clone()) {
+                let session = state
+                    .api
+                    .as_ref()
+                    .and_then(|a| a.session_token().map(str::to_string));
+                let hq = state.settings.hq_streaming;
+                let cover = track.artwork("t500x500");
+                let urn = track.urn.clone();
+                let expected = (track.duration > 0).then_some(track.duration as u64);
+                let rt = state.runtime().handle().clone();
+                state.download_status = crate::query::Query::default();
+                state.download_status.request(&rt, async move {
+                    let req = crate::backend::track_cache::CacheRequest {
+                        urn: &urn,
+                        urls: &[],
+                        download_urls: &[],
+                        storage_urls: &[],
+                        session_id: session.as_deref(),
+                        hq,
+                        liked: false,
+                        expected_duration_ms: expected,
+                    };
+                    cache
+                        .export_track(req, dest, cover, fmt)
+                        .await
+                        .map(|p| format!("Saved: {p}"))
+                });
+            }
+        }
+    }
+    if !open {
+        state.download_track = None;
+    }
 }

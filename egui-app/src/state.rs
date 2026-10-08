@@ -16,6 +16,7 @@ use crate::backend::audio::state::AudioState;
 use crate::backend::boot::{self, BootHandle};
 use crate::backend::events::EventBus;
 use crate::backend::models::{DislikedFlag, LikedFlag, Playlist, Track};
+use crate::backend::track_cache::ExportFormat;
 use crate::images::Images;
 use crate::pager::ListPage;
 use crate::query::Query;
@@ -423,6 +424,10 @@ pub struct AppState {
     pub track_menu: Option<TrackMenuState>,
     pub menu_like: Query<LikedFlag>,
     pub menu_dislike: Query<DislikedFlag>,
+    /// ダウンロードダイアログ (対象トラック・形式・状態)。
+    pub download_track: Option<Track>,
+    pub download_format: ExportFormat,
+    pub download_status: Query<String>,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -507,6 +512,9 @@ impl AppState {
             track_menu: None,
             menu_like: Query::default(),
             menu_dislike: Query::default(),
+            download_track: None,
+            download_format: ExportFormat::default(),
+            download_status: Query::default(),
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -679,6 +687,12 @@ impl AppState {
         if let Err(e) = crate::backend::prefs::save(&self.settings) {
             eprintln!("[prefs] save failed: {e}");
         }
+    }
+
+    /// ダウンロードダイアログを開く (状態をリセットして表示)。
+    pub fn open_download(&mut self, track: Track) {
+        self.download_status = Query::default();
+        self.download_track = Some(track);
     }
 
     /// トラックの右クリックメニューを開く (like/dislike 状態も取得)。

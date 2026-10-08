@@ -33,6 +33,8 @@ pub struct OfflineView {
     rows: Vec<CachedRow>,
     loaded: bool,
     status: Option<String>,
+    /// 「Download all likes」の状態 (メッセージ)。
+    bulk: crate::query::Query<String>,
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -79,7 +81,6 @@ impl OfflineView {
         accent: egui::Color32,
         ui: &mut egui::Ui,
     ) -> OfflineAction {
-        let _ = rt;
         let _ = images;
         let _ = player;
         let _ = audio;
@@ -88,6 +89,7 @@ impl OfflineView {
 
         let mut action = OfflineAction::None;
         let has_session = api.and_then(|a| a.session_token()).is_some();
+        let api_cloned = api.cloned();
 
         widgets::section_header(ui, "Local library", None);
         ui.horizontal(|ui| {
@@ -108,6 +110,13 @@ impl OfflineView {
         if !self.loaded {
             self.refresh(cache);
         }
+        // 一括 DL の完了回収 (完了したら在庫を再読込)。
+        if self.bulk.poll() {
+            if let Some(msg) = self.bulk.data.clone() {
+                self.status = Some(msg);
+            }
+            self.refresh(cache);
+        }
 
         let total_bytes: u64 = self.rows.iter().map(|r| r.bytes).sum();
         ui.label(format!(
@@ -118,6 +127,85 @@ impl OfflineView {
         if let Some(status) = self.status.as_ref() {
             ui.label(status);
         }
+
+        ui.horizontal(|ui| {
+            let running = cache.cache_likes_running();
+            if ui
+                .add_enabled(
+                    has_session && !running,
+                    egui::Button::new("Download all likes"),
+                )
+                .clicked()
+            {
+                self.bulk = crate::query::Query::default();
+                let api = api_cloned.clone();
+                let cache = cache.clone();
+                let session = api
+                    .as_ref()
+                    .and_then(|a| a.session_token().map(str::to_string));
+                self.bulk.request(rt, async move {
+                    let Some(api) = api else {
+                        return Err("not signed in".to_string());
+                    };
+                    // いいね全件をページングで収集。
+                    let mut entries = Vec::new();
+                    for page in 0..20 {
+                        let v = api
+                            .get_json(&format!(
+                                "/me/likes/tracks?limit=200&page={page}"
+                            ))
+                            .await?;
+                        let items = v
+                            .get("collection")
+                            .and_then(|c| c.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        let n = items.len();
+                        for it in items {
+                            let track = it.get("track").cloned().unwrap_or(it);
+                            let Some(urn) =
+                                track.get("urn").and_then(|u| u.as_str())
+                            else {
+                                continue;
+                            };
+                            entries.push(
+                                crate::backend::track_cache::LikeCacheEntry {
+                                    urn: urn.to_string(),
+                                    urls: Vec::new(),
+                                    download_urls: Vec::new(),
+                                    storage_urls: Vec::new(),
+                                    session_id: session.clone(),
+                                    hq: true,
+                                    duration_ms: track
+                                        .get("duration")
+                                        .and_then(|d| d.as_u64()),
+                                },
+                            );
+                        }
+                        if n < 200 {
+                            break;
+                        }
+                    }
+                    let count = entries.len();
+                    if count == 0 {
+                        return Err("no liked tracks".to_string());
+                    }
+                    cache.cache_likes(entries).await?;
+                    Ok(format!("Enqueued {count} liked tracks (background)"))
+                });
+            }
+            if cache.cache_likes_running() && ui.button("Cancel").clicked() {
+                cache.cancel_cache_likes();
+            }
+            if self.bulk.loading {
+                ui.spinner();
+                ui.label("Enqueueing...");
+            } else if let Some(s) = self.bulk.data.as_ref() {
+                ui.label(s.as_str());
+            } else if let Some(e) = self.bulk.error.as_ref() {
+                ui.colored_label(egui::Color32::from_rgb(255, 150, 150), e.as_str());
+            }
+        });
 
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.liked_only, "Liked only");

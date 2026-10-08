@@ -25,6 +25,8 @@ pub enum TrackAction {
     AddNextUp(Track),
     /// 「プレイリストに追加」ダイアログを開く。
     AddToPlaylist(Track),
+    /// ダウンロードダイアログを開く。
+    OpenDownload(Track),
     /// 右クリックメニューを開く。
     OpenMenu(Track),
     Seek(f32),
@@ -274,6 +276,9 @@ impl TrackView {
                 }
                 if ui.button("Add to playlist").clicked() {
                     action = TrackAction::AddToPlaylist(track.clone());
+                }
+                if ui.button("Download...").clicked() {
+                    action = TrackAction::OpenDownload(track.clone());
                 }
                 let liked = self.liked.unwrap_or(false);
                 if crate::widgets::like_button(ui, liked, accent) {
