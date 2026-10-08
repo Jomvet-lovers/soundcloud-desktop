@@ -66,7 +66,10 @@ fn main() -> eframe::Result {
 
 /// GUI は戻らず、smoke はコードで終了する。
 fn app_main(args: Vec<String>) -> eframe::Result {
-    if args.iter().any(|a| a == "--smoke") {
+    if args
+        .iter()
+        .any(|a| a == "--smoke" || a == "--smoke-login" || a == "--smoke-writer")
+    {
         return smoke();
     }
     let options = eframe::NativeOptions {
