@@ -137,3 +137,15 @@ pub fn is_currently_playing(player: &crate::state::PlayerState, track: &Track) -
             .map(|t| t == track.display_title())
             .unwrap_or(false)
 }
+
+/// Like トグルボタン。フォント依存の ♥/♡ を使わず、塗り + 色で状態を示す。
+/// 戻り値はクリックされたか (状態更新は呼出側)。
+pub fn like_button(ui: &mut egui::Ui, liked: bool, accent: egui::Color32) -> bool {
+    let button = if liked {
+        egui::Button::new(egui::RichText::new("Liked").color(egui::Color32::WHITE))
+            .fill(accent.gamma_multiply(0.45))
+    } else {
+        egui::Button::new("Like")
+    };
+    ui.add(button).clicked()
+}

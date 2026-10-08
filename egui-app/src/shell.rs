@@ -21,6 +21,13 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     state.drain_events();
     state.drain_backend();
     state.poll_load();
+    // NowPlaying バーの like 状態を回収 (最新のトラックで上書き)。
+    if state.now_like.poll() {
+        if let Some(st) = state.now_like.data {
+            let fav = state.now_liked.unwrap_or(false);
+            state.now_liked = Some(st.liked || fav);
+        }
+    }
 
     let has_audio = state.audio().is_some();
     let playing = state.player.is_playing;
@@ -119,6 +126,60 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     }
 
     egui::Panel::bottom("now_playing").show(ui, |ui| {
+        let accent = crate::widgets::accent_color(&state.settings);
+        // 再生中トラック (Tauri 版 NowPlayingBar: タイトル/アーティストは各ページへのリンク)。
+        ui.horizontal(|ui| {
+            let current = state
+                .player
+                .queue_index
+                .and_then(|i| state.player.queue.get(i))
+                .cloned();
+            match current {
+                Some(track) => {
+                    let is_sc = track.urn.starts_with("soundcloud:");
+                    if is_sc {
+                        if ui.link(track.display_title()).clicked() {
+                            state.route = Route::Track;
+                            state.nav_param = Some(track.urn.clone());
+                        }
+                    } else {
+                        ui.label(track.display_title());
+                    }
+                    if let Some(user) = track.user.as_ref() {
+                        ui.label("—");
+                        if is_sc {
+                            if ui.link(&user.username).clicked() {
+                                state.route = Route::User;
+                                state.nav_param = Some(user.urn.clone());
+                            }
+                        } else {
+                            ui.label(&user.username);
+                        }
+                    }
+                    if is_sc {
+                        let liked = state.now_liked.unwrap_or(false);
+                        if crate::widgets::like_button(ui, liked, accent) {
+                            let next = !liked;
+                            state.now_liked = Some(next);
+                            if let Some(api) = state.api.clone() {
+                                let rt = state.runtime().handle().clone();
+                                let path = format!(
+                                    "/likes/tracks/{}",
+                                    urlencoding::encode(&track.urn)
+                                );
+                                rt.spawn(async move {
+                                    let method = if next { "POST" } else { "DELETE" };
+                                    let _ = api.request_json(method, &path, None).await;
+                                });
+                            }
+                        }
+                    }
+                }
+                None => {
+                    ui.label("Nothing playing");
+                }
+            }
+        });
         ui.horizontal(|ui| {
             let audio = state.audio().cloned();
             let label = if playing { "Pause" } else { "Play" };

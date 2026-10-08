@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
-use crate::backend::models::{tracks_from_value, Playlist, Track};
+use crate::backend::models::{LikedFlag, Playlist, Track, tracks_from_value};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
@@ -24,6 +24,9 @@ pub struct PlaylistView {
     detail: Query<Playlist>,
     tracks: Query<Vec<Track>>,
     last_urn: Option<String>,
+    liked: Option<bool>,
+    like_count: Option<i64>,
+    likes_status: Query<LikedFlag>,
 }
 
 /// ミリ秒 → `m:ss` / `h:mm:ss`。対応: `desktop/src/lib/formatters.ts` の `dur()`。
@@ -65,6 +68,9 @@ impl PlaylistView {
         if self.last_urn.as_deref() != Some(urn) {
             self.detail = Query::default();
             self.tracks = Query::default();
+            self.liked = None;
+            self.like_count = None;
+            self.likes_status = Query::default();
             self.last_urn = Some(urn.to_string());
         }
         let api_owned = api.clone();
@@ -97,9 +103,20 @@ impl PlaylistView {
                 Ok(all)
             });
         }
+        // Like 状態 (ローカルストア。cf. `PlaylistActions.tsx` の PlaylistLikeBtn)。
+        if !self.likes_status.requested() {
+            let api = api_owned.clone();
+            let path = format!("/likes/playlists/{}", urlencoding::encode(urn));
+            self.likes_status.request(rt, async move {
+                api.get_json(&path)
+                    .await
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+            });
+        }
 
         let mut changed = self.detail.poll();
         changed |= self.tracks.poll();
+        changed |= self.likes_status.poll();
         if changed || self.detail.loading || self.tracks.loading {
             ui.ctx().request_repaint();
         }
@@ -121,6 +138,16 @@ impl PlaylistView {
             ui.label("Loading...");
             return action;
         };
+        if self.like_count.is_none() {
+            self.like_count = playlist.likes_count;
+        }
+        if self.liked.is_none() {
+            if let Some(st) = self.likes_status.data {
+                self.liked = Some(st.liked);
+            } else if self.likes_status.error.is_some() {
+                self.liked = Some(false);
+            }
+        }
 
         // 対応: `serverTracks` memo。`/tracks` が空なら詳細同梱の `tracks` に退避。
         let remote = self.tracks.data.as_ref().cloned().unwrap_or_default();
@@ -158,11 +185,35 @@ impl PlaylistView {
                         ui.label(desc);
                     }
                 }
-                if ui.button("▶ Play all").clicked() {
-                    if let Some(first) = tracks.first() {
-                        action = PlaylistAction::PlayTrack(first.clone());
+                ui.horizontal(|ui| {
+                    if ui.button("▶ Play all").clicked() {
+                        if let Some(first) = tracks.first() {
+                            action = PlaylistAction::PlayTrack(first.clone());
+                        }
                     }
-                }
+                    let liked = self.liked.unwrap_or(false);
+                    if crate::widgets::like_button(ui, liked, accent) {
+                        // ローカル即時反映 + writer で best-effort 同期。
+                        let next = !liked;
+                        self.liked = Some(next);
+                        if let Some(c) = self.like_count.as_mut() {
+                            *c = (*c + if next { 1 } else { -1 }).max(0);
+                        }
+                        let api = api_owned.clone();
+                        let path = format!("/likes/playlists/{}", urlencoding::encode(urn));
+                        rt.spawn(async move {
+                            let method = if next { "POST" } else { "DELETE" };
+                            let _ = api.request_json(method, &path, None).await;
+                        });
+                    }
+                    if let Some(c) = self.like_count {
+                        ui.label(if c >= 1000 {
+                            format!("{:.1}k", c as f64 / 1000.0)
+                        } else {
+                            c.to_string()
+                        });
+                    }
+                });
             });
         });
 

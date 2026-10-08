@@ -2,15 +2,15 @@
 //! 対応: `desktop/src/pages/TrackPage.tsx` (+ `components/track/` の
 //! RoomHero / comments / actions / RelatedRow / RoomSleeve の subset)。
 //! `param` (= track urn) をキーに取得し、param 変化で再取得する。
-//! 見送り: 波形 (RoomFloor)・オーラ・ライナーノーツ・like/download/follow
-//! mutation・コメント削除・無限スクロール (先頭ページのみ)。
+//! 見送り: 波形のコメントレーン・オーラ・ライナーノーツ・download/follow
+//! mutation・無限スクロール (先頭ページのみ)。
 
 use std::sync::Arc;
 
 use crate::backend::api::ApiClient;
 use crate::backend::audio::engine;
 use crate::backend::audio::state::AudioState;
-use crate::backend::models::{Comment, Paged, ScUser, Track, tracks_from_value};
+use crate::backend::models::{Comment, LikedFlag, Paged, ScUser, Track, tracks_from_value};
 use crate::images::Images;
 use crate::query::Query;
 use crate::state::{PlayerState, Route};
@@ -35,6 +35,10 @@ pub struct TrackView {
     last_param: Option<String>,
     comment_draft: String,
     sort_timeline: bool,
+    liked: Option<bool>,
+    like_count: Option<i64>,
+    likes_status: Query<LikedFlag>,
+    me: Query<ScUser>,
 }
 
 /// ミリ秒 → `m:ss`。対応: `desktop/src/lib/formatters.ts` の `dur`。
@@ -77,6 +81,10 @@ impl TrackView {
             self.waveform = Query::default();
             self.wave_key = None;
             self.comment_draft.clear();
+            self.liked = None;
+            self.like_count = None;
+            self.likes_status = Query::default();
+            self.me = Query::default();
             self.last_param = param.map(|s| s.to_string());
         }
         let Some(urn) = param else {
@@ -146,6 +154,25 @@ impl TrackView {
                     .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
             });
         }
+        // Like 状態 (ローカルストア。cf. `LikeButton.tsx` の `useLiked`)。
+        if !self.likes_status.requested() {
+            let api = api_owned.clone();
+            let path = format!("/likes/tracks/{enc}");
+            self.likes_status.request(rt, async move {
+                api.get_json(&path)
+                    .await
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+            });
+        }
+        // 自分のユーザ (コメント所有判定に使う)。
+        if !self.me.requested() {
+            let api = api_owned.clone();
+            self.me.request(rt, async move {
+                api.get_json("/me/cold")
+                    .await
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+            });
+        }
 
         let mut changed = self.track.poll();
         changed |= self.related.poll();
@@ -153,6 +180,8 @@ impl TrackView {
         changed |= self.favoriters.poll();
         changed |= self.post.poll();
         changed |= self.waveform.poll();
+        changed |= self.likes_status.poll();
+        changed |= self.me.poll();
         if changed
             || self.track.loading
             || self.related.loading
@@ -189,6 +218,17 @@ impl TrackView {
             ui.label("Loading...");
             return action;
         };
+        // Like 状態の初期化: ローカルストア優先、無ければ API の user_favorite。
+        if self.like_count.is_none() {
+            self.like_count = track.likes_count;
+        }
+        if self.liked.is_none() {
+            if let Some(st) = self.likes_status.data {
+                self.liked = Some(st.liked || track.user_favorite.unwrap_or(false));
+            } else if self.likes_status.error.is_some() {
+                self.liked = Some(track.user_favorite.unwrap_or(false));
+            }
+        }
 
         // 対応: RoomHero (タイトル/アーティスト/再生ボタン/統計)。
         let is_current = player
@@ -221,10 +261,25 @@ impl TrackView {
                 if ui.button(play_label).clicked() {
                     action = TrackAction::PlayTrack(track.clone());
                 }
+                let liked = self.liked.unwrap_or(false);
+                if crate::widgets::like_button(ui, liked, accent) {
+                    // ローカル即時反映 + writer で best-effort 同期 (cf. LikeButton.tsx)。
+                    let next = !liked;
+                    self.liked = Some(next);
+                    if let Some(c) = self.like_count.as_mut() {
+                        *c = (*c + if next { 1 } else { -1 }).max(0);
+                    }
+                    let api = api_owned.clone();
+                    let path = format!("/likes/tracks/{enc}");
+                    rt.spawn(async move {
+                        let method = if next { "POST" } else { "DELETE" };
+                        let _ = api.request_json(method, &path, None).await;
+                    });
+                }
                 ui.label(format!(
                     "{} plays · {} likes · {} comments · {}",
                     count(track.playback_count),
-                    count(track.likes_count),
+                    count(self.like_count.or(track.likes_count)),
                     count(track.comment_count),
                     fmt_ms(track.duration),
                 ));
@@ -381,7 +436,13 @@ impl TrackView {
             if list.is_empty() {
                 ui.label("No comments yet");
             } else {
+                let me_urn = self.me.data.as_ref().map(|u| u.urn.clone());
+                let mut delete_id: Option<i64> = None;
                 for c in &list {
+                    let is_mine = matches!(
+                        (&me_urn, c.user.as_ref()),
+                        (Some(m), Some(u)) if m == &u.urn
+                    );
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
@@ -395,8 +456,27 @@ impl TrackView {
                             });
                             ui.label(c.text());
                         });
+                        if is_mine {
+                            if let Some(id) = c.id {
+                                if ui.small_button("Delete").clicked() {
+                                    delete_id = Some(id);
+                                }
+                            }
+                        }
                     });
                     ui.separator();
+                }
+                // 一覧から即座に消し、writer で best-effort 同期
+                // (cf. `comments.tsx` の `remove` → DELETE /comments/:id)。
+                if let Some(id) = delete_id {
+                    if let Some(paged) = self.comments.data.as_mut() {
+                        paged.collection.retain(|c| c.id != Some(id));
+                    }
+                    let api = api_owned.clone();
+                    let path = format!("/comments/{id}");
+                    rt.spawn(async move {
+                        let _ = api.request_json("DELETE", &path, None).await;
+                    });
                 }
             }
         }
