@@ -537,7 +537,17 @@ impl SearchView {
         accent: egui::Color32,
     ) -> widgets::RowHit {
         let playing = widgets::is_currently_playing(player, track);
-        widgets::hit_of(&widgets::track_row(ui, rt, images, track, playing, accent, None))
+        let s = (track.duration.max(0) / 1000) as u64;
+        let dur = format!("{}:{:02}", s / 60, s % 60);
+        widgets::hit_of(&widgets::track_row(
+            ui,
+            rt,
+            images,
+            track,
+            playing,
+            accent,
+            Some(&dur),
+        ))
     }
 
     /// 番号なし Prev/Next ページャ (React の `<Pager/>` の簡略版)。
