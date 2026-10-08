@@ -378,3 +378,31 @@ smoke モード (どちらも表示環境用。CI では不可):
   (件数タブ・ソート) / Settings / Track (波形・関連・Follow) / Playlist
   (Play all・Like・Sharing) / EQ ウィンドウ / Queue パネル。
 - **CI**: 09f95e41 まで green。`cargo test` 44 件。
+
+### 8.12 Tauri版と見比べた UI 再現 (2026-10-10 続き)
+
+ユーザーがサブモニターで Tauri 版 (`soundcloud-desktop`) を起動したままにしてくれたので、
+**両アプリのスクリーンショットを並べて差分を潰した**。
+
+- 撮影: `cap.ps1 -ProcName soundcloud-desktop -Title "*SoundCloud*"` で Tauri 版も
+  キャプチャ可能 (ウィンドウは `(2244,169)` 付近のセカンドモニター)。
+- **一致させた項目**:
+  - カスタムタイトルバー (ロゴ雲 + SoundCloud + 戻る/進む/ホーム + 中央グローバル検索 +
+    最小化/最大化/閉じる)。ドラッグ移動・ダブルクリック最大化・端6pxリサイズ
+    (`ViewportCommand::BeginResize`) を自前実装。OS 装飾なし。
+  - サイドバー: アイコン付きナビ (Home/Search/Library/History/Offline)、淡グレー選択、
+    Quick access、下部に Collapse/Settings/ユーザ/サインアウト。
+  - Library ハブ: 84px アバター + 挨拶 + 円形シャッフル、Soundprint バー (ジャンル色・
+    share 高・%表示・クリックで絞り込み)、Fresh drops 大型行 (New バッジ + 経過)、
+    Continue / Your Playlists / Liked Playlists / Artists / Liked Tracks のレール。
+  - ヒーロー: Track は左=円形再生+32px タイトル+メタ行+アクション行、右=220px アート+
+    アップローダーカード (丸アバター/Follow)+plays・likes・comments 列。
+    Playlist/Album も円形再生 + 28px タイトル。
+  - Search: Tracks を統計ピル付きカードグリッド (3-8列) に。タブとソートを同一行
+    (ソート右寄せ)。タブはニュートラルなピル (`widgets::tab_button`)。
+  - User: 30px ユーザ名、Copy link、タブはニュートラルピル、
+    「Search in their Tracks...」ヒント。
+- **既知の残差** (優先度低): shuffle/repeat がテキスト (Tauri はアイコン)、検索カードの
+  NEW 等バッジ、コメントのソートピル、AlbumCover の影/アーティファクト演出
+  (フラット方針で省略)、タイトルバー検索内の虫眼鏡アイコン、ウィンドウ影なし。
+- **CI**: 2233711d まで全て green。
