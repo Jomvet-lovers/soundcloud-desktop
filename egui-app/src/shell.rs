@@ -22,6 +22,8 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     handle_shortcuts(state, ui.ctx());
     state.drain_events();
     state.drain_backend();
+    state.sync_discord();
+    state.poll_continuation();
     state.poll_load();
     // NowPlaying バーの like 状態を回収 (最新のトラックで上書き)。
     if state.now_like.poll() {
@@ -395,7 +397,16 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     HomeAction::None => {}
                 },
                 Route::Search => match state.search.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
+                    api_ref,
+                    &rt,
+                    images,
+                    player,
+                    audio_ref,
+                    param_ref,
+                    cache,
+                    accent,
+                    &mut state.settings,
+                    ui,
                 ) {
                     SearchAction::PlayTrack(track) => {
                         state.play_list(vec![track], 0);

@@ -5394,6 +5394,7 @@ dependencies = [
  "urlencoding",
  "uuid 1.27.0",
  "warp",
+ "windows-sys 0.59.0",
  "wreq",
  "wry",
 ]

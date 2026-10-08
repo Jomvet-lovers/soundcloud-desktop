@@ -333,6 +333,7 @@ pub fn play(state: &AudioState) {
         && let Some(ref player) = *player {
             player.play();
         }
+    set_playback_state(true, state);
 }
 
 pub fn pause(state: &AudioState) {
@@ -340,6 +341,7 @@ pub fn pause(state: &AudioState) {
         && let Some(ref player) = *player {
             player.pause();
         }
+    set_playback_state(false, state);
 }
 
 pub fn stop(state: &AudioState) {
@@ -352,6 +354,7 @@ pub fn stop(state: &AudioState) {
     if let Ok(mut bytes) = state.source_bytes.try_lock() {
         *bytes = None;
     }
+    set_playback_state(false, state);
 }
 
 pub fn seek(position: f64, state: &AudioState) -> Result<(), String> {

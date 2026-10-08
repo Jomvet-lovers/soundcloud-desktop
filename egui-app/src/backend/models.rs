@@ -39,6 +39,8 @@ pub struct Track {
     pub user: Option<ScUser>,
     /// API が返す「自分がいいね済みか」(api-v2、認証時のみ)。
     pub user_favorite: Option<bool>,
+    /// アップロード日時 (ISO8601。Fresh drops の並び替え用)。
+    pub created_at: Option<String>,
 }
 
 /// `GET /likes/{tracks|playlists}/:urn` の応答。

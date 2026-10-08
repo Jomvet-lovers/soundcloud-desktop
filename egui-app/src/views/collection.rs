@@ -81,6 +81,7 @@ fn history_entry_to_track(entry: &HistoryEntry) -> Track {
             permalink_url: None,
         }),
         user_favorite: None,
+        created_at: None,
     }
 }
 

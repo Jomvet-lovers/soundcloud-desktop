@@ -91,8 +91,9 @@ pub struct SettingsView {
     bg_dim: f32,
     bg_opacity: f32,
     bg_blur: f32,
-    cache_limit_mb: f32,
     save_status: Option<String>,
+    /// 更新チェック結果 (tag, url)。
+    update_check: crate::query::Query<(String, String)>,
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -119,7 +120,6 @@ impl SettingsView {
         settings: &mut SettingsState,
         ui: &mut egui::Ui,
     ) -> SettingsAction {
-        let _ = rt;
         let _ = images;
         let _ = player;
         let _ = param;
@@ -136,11 +136,11 @@ impl SettingsView {
         ui.separator();
 
         match self.active {
-            SettingsCategory::General => self.show_general(settings, ui),
+            SettingsCategory::General => self.show_general(settings, rt, ui),
             SettingsCategory::Appearance => self.show_appearance(settings, ui),
             SettingsCategory::Audio => self.show_audio(settings, audio, ui),
-            SettingsCategory::Storage => self.show_storage(cache, ui),
-            SettingsCategory::Account => Self::show_account(api, ui),
+            SettingsCategory::Storage => self.show_storage(cache, settings, ui),
+            SettingsCategory::Account => Self::show_account(api, settings, ui),
         }
 
         ui.separator();
@@ -160,7 +160,12 @@ impl SettingsView {
     }
 
     /// `StartupCard` 対応 (起動ページ。設定に永続化して実際に適用)。
-    fn show_general(&mut self, settings: &mut SettingsState, ui: &mut egui::Ui) {
+    fn show_general(
+        &mut self,
+        settings: &mut SettingsState,
+        rt: &tokio::runtime::Handle,
+        ui: &mut egui::Ui,
+    ) {
         ui.heading("Startup");
         ui.label("Choose which page opens when the app launches (signed-in only)");
         ui.horizontal_wrapped(|ui| {
@@ -174,6 +179,47 @@ impl SettingsView {
                 }
             }
         });
+        ui.separator();
+        ui.heading("Updates");
+        if ui.button("Check for updates").clicked() {
+            self.update_check = crate::query::Query::default();
+            self.update_check.request(rt, async move {
+                let client = wreq::Client::new();
+                let resp = client
+                    .get("https://api.github.com/repos/Jomvet-lovers/SCD-Direct/releases/latest")
+                    .header("User-Agent", "scd-egui")
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+                let tag = v
+                    .get("tag_name")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let url = v
+                    .get("html_url")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("https://github.com/Jomvet-lovers/SCD-Direct/releases")
+                    .to_string();
+                Ok((tag, url))
+            });
+        }
+        let _ = self.update_check.poll();
+        if self.update_check.loading {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Checking...");
+            });
+        } else if let Some((tag, url)) = self.update_check.data.clone() {
+            ui.horizontal(|ui| {
+                ui.label("Latest GitHub release:");
+                ui.hyperlink_to(tag, url);
+            });
+        } else if let Some(err) = self.update_check.error.as_ref() {
+            ui.colored_label(egui::Color32::from_rgb(255, 150, 150), err.as_str());
+        }
+        ui.label(format!("Current version: {}", env!("CARGO_PKG_VERSION")));
     }
 
     /// `ThemeCard` + `WallpaperCard` 対応 (簡易再現。壁紙ファイル管理は Phase 4)。
@@ -238,6 +284,68 @@ impl SettingsView {
         ui.label("Balances quiet and loud tracks to a more even level");
         ui.checkbox(&mut settings.hq_streaming, "High quality streaming");
         ui.label("Prefer the highest available quality during playback");
+        if ui
+            .checkbox(
+                &mut settings.autopilot,
+                "Autopilot (continue with related tracks)",
+            )
+            .changed()
+        {
+            let _ = crate::backend::prefs::save(settings);
+        }
+        ui.label("When the queue ends, keep playing related tracks");
+        ui.separator();
+        ui.heading("Output device");
+        let follow = settings.follow_default_output;
+        let mut follow_new = follow;
+        ui.checkbox(&mut follow_new, "Follow system default");
+        if follow_new != follow {
+            settings.follow_default_output = follow_new;
+            if let Some(a) = audio {
+                crate::backend::audio::set_follow_default_output(a, follow_new);
+                if follow_new {
+                    let _ = crate::backend::audio::switch_device(a, None);
+                } else if let Some(name) = settings.output_device.clone() {
+                    let _ = crate::backend::audio::switch_device(a, Some(name));
+                }
+            }
+            let _ = crate::backend::prefs::save(settings);
+        }
+        if !settings.follow_default_output {
+            let devices = crate::backend::audio::list_devices();
+            if devices.is_empty() {
+                ui.label("No output devices found");
+            }
+            egui::ScrollArea::vertical()
+                .id_salt("audio-devices")
+                .max_height(160.0)
+                .show(ui, |ui| {
+                    for d in devices {
+                        let label = d
+                            .interface
+                            .clone()
+                            .unwrap_or_else(|| d.description.clone());
+                        let label = if d.is_default {
+                            format!("{label} (default)")
+                        } else {
+                            label
+                        };
+                        let selected =
+                            settings.output_device.as_deref() == Some(d.name.as_str());
+                        if ui.selectable_label(selected, label).clicked() {
+                            settings.output_device = Some(d.name.clone());
+                            if let Some(a) = audio {
+                                if let Err(e) =
+                                    crate::backend::audio::switch_device(a, Some(d.name.clone()))
+                                {
+                                    eprintln!("[audio] device switch failed: {e}");
+                                }
+                            }
+                            let _ = crate::backend::prefs::save(settings);
+                        }
+                    }
+                });
+        }
         ui.separator();
         ui.label("Equalizer and speed / pitch live in the now-playing bar (EQ / Tune).");
     }
@@ -246,6 +354,7 @@ impl SettingsView {
     fn show_storage(
         &mut self,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
+        settings: &mut SettingsState,
         ui: &mut egui::Ui,
     ) {
         ui.heading("Cache");
@@ -276,15 +385,16 @@ impl SettingsView {
         });
         ui.separator();
         ui.label("Audio cache limit (0 = unlimited, enforced on apply)");
-        ui.add(egui::Slider::new(&mut self.cache_limit_mb, 0.0..=8192.0).text("Limit MB"));
+        ui.add(egui::Slider::new(&mut settings.cache_limit_mb, 0..=8192).text("Limit MB"));
         if ui.button("Apply limit").clicked() {
-            cache.enforce_limit(self.cache_limit_mb as u64);
+            cache.enforce_limit(settings.cache_limit_mb);
+            let _ = crate::backend::prefs::save(settings);
         }
-        ui.label("Likes bulk-download is Phase 4.");
+        ui.label("Bulk-download your liked tracks from the Offline page.");
     }
 
     /// `AccountCard` 対応 (Sign Out 本体は Login ページ側。shell が処理する)。
-    fn show_account(api: Option<&ApiClient>, ui: &mut egui::Ui) {
+    fn show_account(api: Option<&ApiClient>, settings: &mut SettingsState, ui: &mut egui::Ui) {
         ui.heading("Account");
         let signed_in = api.and_then(|a| a.session_token()).is_some();
         ui.label(if signed_in {
@@ -292,5 +402,21 @@ impl SettingsView {
         } else {
             "Not signed in"
         });
+        ui.separator();
+        ui.heading("Discord");
+        if ui
+            .checkbox(&mut settings.discord_rpc, "Discord Rich Presence")
+            .changed()
+        {
+            let _ = crate::backend::prefs::save(settings);
+        }
+        if settings.discord_rpc
+            && ui
+                .checkbox(&mut settings.discord_show_button, "Show GitHub button")
+                .changed()
+        {
+            let _ = crate::backend::prefs::save(settings);
+        }
+        ui.label("Shows the track you are listening to on your Discord profile.");
     }
 }

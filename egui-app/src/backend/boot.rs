@@ -97,9 +97,8 @@ pub fn boot(rt: &tokio::runtime::Runtime, bus: EventBus) -> Result<BootHandle, S
             Ok(state) => {
                 let state = Arc::new(state);
                 audio::start_tick_emitter(bus.clone(), state.clone());
-                // Phase 4 で復元: souvlaki は Windows で HWND 必須のため、
-                // eframe/winit ハンドルが取れるまで起動しない。
-                // audio::start_media_controls(bus.clone(), state.clone());
+                // メディアコントロール (SMTC / MPRIS)。
+                audio::start_media_controls(bus.clone(), state.clone());
                 audio::start_default_output_monitor(bus.clone(), state.clone());
                 audio::start_fft_thread(bus.clone(), state.analyser_buffer.clone());
                 (Some(state), None)

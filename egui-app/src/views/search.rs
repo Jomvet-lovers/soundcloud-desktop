@@ -26,6 +26,14 @@ pub enum SearchAction {
     Navigate(Route, Option<String>),
 }
 
+/// 検索履歴を更新する (最大 10 件、新しい順、永続化)。
+fn record_search(settings: &mut crate::state::SettingsState, query: &str) {
+    settings.search_history.retain(|q| q != query);
+    settings.search_history.insert(0, query.to_string());
+    settings.search_history.truncate(10);
+    let _ = crate::backend::prefs::save(settings);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum SearchTab {
     #[default]
@@ -165,6 +173,7 @@ impl SearchView {
         param: Option<&str>,
         cache: Option<&crate::backend::track_cache::TrackCacheState>,
         accent: egui::Color32,
+        settings: &mut crate::state::SettingsState,
         ui: &mut egui::Ui,
     ) -> SearchAction {
         let _ = (audio, param, cache);
@@ -198,6 +207,18 @@ impl SearchView {
         let query = self.input.trim().to_string();
 
         if query.is_empty() {
+            if !settings.search_history.is_empty() {
+                widgets::section_header(ui, "Recent searches", None);
+                ui.horizontal_wrapped(|ui| {
+                    let items: Vec<String> = settings.search_history.clone();
+                    for q in items {
+                        if ui.selectable_label(false, &q).clicked() {
+                            self.input = q;
+                        }
+                    }
+                });
+                ui.separator();
+            }
             // ジャンルウォール (React: 空クエリ → `<GenreGrid/>`)。
             widgets::section_header(ui, "Browse all genres", None);
             egui::Grid::new("genre_wall")
@@ -254,6 +275,9 @@ impl SearchView {
         );
         if key != self.last_key {
             self.last_key = key;
+            if self.page == 0 {
+                record_search(settings, &query);
+            }
             let api_owned = api.clone();
             match self.tab {
                 SearchTab::Tracks => {

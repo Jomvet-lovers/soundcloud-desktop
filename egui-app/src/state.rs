@@ -15,7 +15,7 @@ use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
 use crate::backend::boot::{self, BootHandle};
 use crate::backend::events::EventBus;
-use crate::backend::models::{DislikedFlag, LikedFlag, Playlist, Track};
+use crate::backend::models::{DislikedFlag, LikedFlag, Playlist, Track, tracks_from_value};
 use crate::backend::track_cache::ExportFormat;
 use crate::images::Images;
 use crate::pager::ListPage;
@@ -281,6 +281,31 @@ pub struct SettingsState {
     /// サイドバーのクイックアクセス (pin したプレイリスト)。
     #[serde(default)]
     pub pinned_playlists: Vec<PinnedPlaylist>,
+    /// 出力デバイス名 (follow_default_output = false のとき有効)。
+    #[serde(default)]
+    pub output_device: Option<String>,
+    /// OS の既定出力に追従するか。
+    #[serde(default = "default_true")]
+    pub follow_default_output: bool,
+    /// Discord Rich Presence を有効にするか。
+    #[serde(default)]
+    pub discord_rpc: bool,
+    /// Discord の「GitHub」ボタンを表示するか。
+    #[serde(default = "default_true")]
+    pub discord_show_button: bool,
+    /// 最近の検索 (最大 10 件、新しい順)。
+    #[serde(default)]
+    pub search_history: Vec<String>,
+    /// オーディオキャッシュ上限 (MB、0 = 無制限)。
+    #[serde(default = "default_cache_limit")]
+    pub cache_limit_mb: u64,
+    /// キュー終端で関連曲を自動継続する (autopilot)。
+    #[serde(default = "default_true")]
+    pub autopilot: bool,
+}
+
+fn default_cache_limit() -> u64 {
+    1024
 }
 
 /// サイドバー pin 用の最小情報。
@@ -353,6 +378,13 @@ impl Default for SettingsState {
             pitch_auto: true,
             startup_page: default_startup(),
             pinned_playlists: Vec::new(),
+            output_device: None,
+            follow_default_output: true,
+            discord_rpc: false,
+            discord_show_button: true,
+            search_history: Vec::new(),
+            cache_limit_mb: default_cache_limit(),
+            autopilot: true,
         }
     }
 }
@@ -428,6 +460,12 @@ pub struct AppState {
     pub download_track: Option<Track>,
     pub download_format: ExportFormat,
     pub download_status: Query<String>,
+    /// Discord RPC 接続状態と最終送信キー (変化時のみ更新)。
+    pub discord_active: bool,
+    discord_key: Option<(String, bool)>,
+    discord_last_attempt: Option<std::time::Instant>,
+    /// キュー終端の autopilot (関連曲の継続取得)。
+    continuation: Query<Vec<Track>>,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -515,6 +553,10 @@ impl AppState {
             download_track: None,
             download_format: ExportFormat::default(),
             download_status: Query::default(),
+            discord_active: false,
+            discord_key: None,
+            discord_last_attempt: None,
+            continuation: Query::default(),
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -548,6 +590,23 @@ impl AppState {
                 state.settings.effective_rate(),
                 audio,
             );
+            // 出力デバイス (追従 or 固定)。
+            if state.settings.follow_default_output {
+                crate::backend::audio::set_follow_default_output(audio, true);
+            } else {
+                crate::backend::audio::set_follow_default_output(audio, false);
+                if let Some(name) = state.settings.output_device.clone() {
+                    if let Err(e) = crate::backend::audio::switch_device(audio, Some(name)) {
+                        eprintln!("[audio] device switch failed: {e}");
+                    }
+                }
+            }
+        }
+        // キャッシュ上限 (0 = 無制限) を起動時に適用。
+        if state.settings.cache_limit_mb > 0
+            && let Some(backend) = &state.backend
+        {
+            backend.track_cache.enforce_limit(state.settings.cache_limit_mb);
         }
         state
     }
@@ -695,6 +754,79 @@ impl AppState {
         self.download_track = Some(track);
     }
 
+    /// Discord RPC を設定に追従させる (毎フレーム呼ぶ)。
+    pub fn sync_discord(&mut self) {
+        let want = self.settings.discord_rpc;
+        let Some(backend) = self.backend.as_ref() else {
+            return;
+        };
+        if want && !self.discord_active {
+            if self
+                .discord_last_attempt
+                .map(|t| t.elapsed().as_secs() >= 10)
+                .unwrap_or(true)
+            {
+                self.discord_last_attempt = Some(std::time::Instant::now());
+                if crate::backend::discord::discord_connect(&backend.discord).is_ok() {
+                    self.discord_active = true;
+                    self.discord_key = None;
+                }
+            }
+        } else if !want && self.discord_active {
+            let _ = crate::backend::discord::discord_clear_activity(&backend.discord);
+            crate::backend::discord::discord_disconnect(&backend.discord);
+            self.discord_active = false;
+            self.discord_key = None;
+        }
+        if !self.discord_active {
+            return;
+        }
+        // トラック / 再生状態が変わった時だけ送信する。
+        let urn = self
+            .player
+            .current_queued()
+            .map(|t| t.urn.clone())
+            .unwrap_or_default();
+        let key = (urn, self.player.is_playing);
+        if self.discord_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.discord_key = Some(key);
+        self.push_discord_activity();
+    }
+
+    /// 現在の再生状態を Discord Rich Presence に送る。
+    pub fn push_discord_activity(&self) {
+        if !self.discord_active {
+            return;
+        }
+        let Some(backend) = self.backend.as_ref() else {
+            return;
+        };
+        let Some(track) = self.player.current_queued().cloned() else {
+            let _ = crate::backend::discord::discord_clear_activity(&backend.discord);
+            return;
+        };
+        let elapsed = self
+            .audio()
+            .map(|a| crate::backend::audio::engine::get_position(a) as i64);
+        let info = crate::backend::discord::DiscordTrackInfo {
+            title: track.display_title().to_string(),
+            artist: track.artist_name().to_string(),
+            artwork_url: track.artwork("t500x500"),
+            track_url: track.permalink_url.clone(),
+            artist_url: track.user.as_ref().and_then(|u| u.permalink_url.clone()),
+            duration_secs: (track.duration > 0).then_some(track.duration / 1000),
+            elapsed_secs: elapsed,
+            is_playing: Some(self.player.is_playing),
+            mode: Some(crate::backend::discord::DiscordRpcMode::Track),
+            show_button: Some(self.settings.discord_show_button),
+        };
+        if let Err(e) = crate::backend::discord::discord_set_activity(&backend.discord, info) {
+            eprintln!("[Discord] set_activity failed: {e}");
+        }
+    }
+
     /// トラックの右クリックメニューを開く (like/dislike 状態も取得)。
     pub fn open_track_menu(&mut self, track: Track, pos: egui::Pos2) {
         if let Some(api) = self.api.clone() {
@@ -775,6 +907,14 @@ impl AppState {
         self.ab_a = None;
         self.ab_b = None;
         crate::backend::audio::engine::set_ab_loop(None, None, &audio);
+        // SMTC / MPRIS へメタデータを通知する。
+        crate::backend::audio::engine::set_metadata(
+            title.clone(),
+            artist.clone(),
+            track.artwork("t500x500"),
+            track.duration_secs(),
+            &audio,
+        );
         let Some(cache) = self.backend.as_ref().map(|b| b.track_cache.clone()) else {
             self.load_error = Some("backend not running".to_string());
             self.player.is_playing = false;
@@ -953,6 +1093,13 @@ impl AppState {
         let mut ended = false;
         let mut sync_error = None;
         let mut auth_changed = false;
+        let mut media_play = false;
+        let mut media_pause = false;
+        let mut media_toggle = false;
+        let mut media_next = false;
+        let mut media_prev = false;
+        let mut media_seek_abs: Option<f64> = None;
+        let mut media_seek_rel: Option<f64> = None;
         if let Some(rx) = self.backend_rx.as_mut() {
             while let Ok((event, payload)) = rx.try_recv() {
                 match event.as_str() {
@@ -962,6 +1109,13 @@ impl AppState {
                         sync_error = Some(s.chars().take(200).collect());
                     }
                     "auth:changed" => auth_changed = true,
+                    "media:play" => media_play = true,
+                    "media:pause" => media_pause = true,
+                    "media:toggle" => media_toggle = true,
+                    "media:next" => media_next = true,
+                    "media:prev" => media_prev = true,
+                    "media:seek" => media_seek_abs = payload.as_f64(),
+                    "media:seek-relative" => media_seek_rel = payload.as_f64(),
                     _ => {}
                 }
             }
@@ -981,12 +1135,87 @@ impl AppState {
                 self.player.is_playing = true;
             } else if let Some(i) = self.player.next_index() {
                 self.play_queue_index(i);
+            } else if self.settings.autopilot {
+                // キュー終端 → 関連曲で継続 (autopilot)。
+                self.request_continuation();
             } else {
                 self.player.is_playing = false;
             }
         }
+        // OS のメディア操作 (SMTC / MPRIS)。
+        if media_play || media_pause || media_toggle {
+            if let Some(audio) = self.audio().cloned() {
+                let should_play = if media_toggle {
+                    !self.player.is_playing
+                } else {
+                    media_play
+                };
+                if should_play {
+                    crate::backend::audio::engine::play(&audio);
+                    self.player.is_playing = true;
+                } else {
+                    crate::backend::audio::engine::pause(&audio);
+                    self.player.is_playing = false;
+                }
+            }
+        }
+        if media_next {
+            self.next_track();
+        }
+        if media_prev {
+            if let Some(audio) = self.audio().cloned() {
+                let pos = crate::backend::audio::engine::get_position(&audio);
+                self.prev_track(pos);
+            }
+        }
+        if let Some(target) = media_seek_abs {
+            if let Some(audio) = self.audio().cloned() {
+                let dur = self.player.duration_secs.unwrap_or(target).max(0.0);
+                let _ = crate::backend::audio::engine::seek(target.clamp(0.0, dur), &audio);
+            }
+        }
+        if let Some(delta) = media_seek_rel {
+            if let (Some(audio), Some(dur)) = (self.audio().cloned(), self.player.duration_secs) {
+                let pos = crate::backend::audio::engine::get_position(&audio);
+                let _ = crate::backend::audio::engine::seek((pos + delta).clamp(0.0, dur), &audio);
+            }
+        }
         if sync_error.is_some() {
             self.last_sync_error = sync_error;
+        }
+    }
+
+    /// キュー終端で関連曲を取得する (autopilot)。
+    fn request_continuation(&mut self) {
+        let Some(track) = self.player.current_queued().cloned() else {
+            self.player.is_playing = false;
+            return;
+        };
+        let Some(api) = self.api.clone() else {
+            self.player.is_playing = false;
+            return;
+        };
+        let rt = self.runtime.handle().clone();
+        let path = format!(
+            "/tracks/{}/related?limit=10&page=0",
+            urlencoding::encode(&track.urn)
+        );
+        self.continuation = Query::default();
+        self.continuation.request(&rt, async move {
+            api.get_json(&path).await.map(|v| tracks_from_value(&v))
+        });
+    }
+
+    /// autopilot の取得結果を回収して再生を継続する。
+    pub fn poll_continuation(&mut self) {
+        if self.continuation.poll() {
+            if let Some(tracks) = self.continuation.data.take()
+                && !tracks.is_empty()
+            {
+                self.play_list(tracks, 0);
+                return;
+            }
+            self.player.is_playing = false;
         }
     }
 

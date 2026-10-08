@@ -283,8 +283,29 @@ smoke モード (どちらも表示環境用。CI では不可):
 - **いいね一括 DL**: Offline ページ「Download all likes」→ いいね全件をページングで収集し
   `cache_likes` に投入 (バックグラウンド、Cancel 可)。
 
-### 8.8 Phase 4 以降の残タスク (2026-10-09 時点)
+### 8.8 Phase 4: 連携・設定の拡充 (2026-10-09)
 
-- 出力デバイス選択 / メディアコントロール (SMTC) / Discord RPC / 認証リカバリ /
-  フォローフィード (Fresh drops) / 検索の残り (最近の検索・URL解決) / シングルインスタンス。
-- Phase 5: キューオートパイロット / Tray / 自動更新 / (任意: 壁紙・i18n)。
+- **出力デバイス**: Settings → Playback にデバイス一覧 + 「Follow system default」。
+  選択は `egui_ui.json` に保存し起動時に適用 (`switch_device` / `set_follow_default_output`)。
+- **メディアコントロール**: souvlaki (SMTC/MPRIS) を起動。OS の再生/一時停止/次へ/前へ/
+  シークを `media:*` イベントで受けて処理。メタデータは `engine::set_metadata` で送信。
+- **Discord Rich Presence**: Settings → Account で有効化。再生トラック/状態の変化時のみ
+  `set_activity` を送る (10 秒スロットルで再接続)。
+- **Fresh drops**: Library に、フォロー中 (最大 24 人 × 6 曲) の新着を created_at 降順で
+  24 件表示 (Tauri 版 `useFollowingDrops` 相当)。
+- **検索履歴**: 直近 10 件を `egui_ui.json` に保存し、空クエリ時に表示・クリックで再利用。
+- **認証**: 期限切れ (401) を Login 画面で「Session expired」として表示。
+- **シングルインスタンス**: 名前付き mutex で GUI の二重起動を防止
+  (smoke / wry 子プロセスは除外)。
+- **キャッシュ上限**: 設定値を永続化し、起動時に `enforce_limit` を適用。
+
+### 8.9 Phase 5: オートパイロット / 更新チェック (2026-10-09)
+
+- **Autopilot**: キュー終端で関連曲 (`/tracks/:urn/related`) を取得して自動継続
+  (設定 → Playback で ON/OFF、既定 ON)。
+- **更新チェック**: Settings → General に「Check for updates」
+  (GitHub Releases の最新タグを表示 + リンク。インストールは手動)。
+- **残り**: Tray (常駐 + メニュー)。eframe のイベントループと統合が必要なため未実装
+  (設計メモ: tray-icon を専用スレッドで動かし、メニューイベントを EventBus 経由で送り、
+  `ctx.send_viewport_cmd` で Show/Quit を操作する)。
+  任意項目の壁紙・i18n も未着手。

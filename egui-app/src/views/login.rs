@@ -82,10 +82,12 @@ impl LoginView {
             } else if self.me.loading {
                 ui.label("Loading profile...");
             } else if let Some(err) = self.me.error.as_ref() {
-                ui.colored_label(
-                    egui::Color32::from_rgb(255, 150, 150),
-                    format!("Profile unavailable: {err}"),
-                );
+                let label = if err.contains("401") {
+                    "Session expired — sign in again".to_string()
+                } else {
+                    format!("Profile unavailable: {err}")
+                };
+                ui.colored_label(egui::Color32::from_rgb(255, 150, 150), label);
             }
             if ui.button("Sign out").clicked() {
                 action = LoginAction::Logout;

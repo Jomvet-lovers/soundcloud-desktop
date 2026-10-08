@@ -53,16 +53,16 @@ pub struct DiscordState {
 
 #[derive(serde::Deserialize)]
 pub struct DiscordTrackInfo {
-    title: String,
-    artist: String,
-    artwork_url: Option<String>,
-    track_url: Option<String>,
-    artist_url: Option<String>,
-    duration_secs: Option<i64>,
-    elapsed_secs: Option<i64>,
-    is_playing: Option<bool>,
-    mode: Option<DiscordRpcMode>,
-    show_button: Option<bool>,
+    pub title: String,
+    pub artist: String,
+    pub artwork_url: Option<String>,
+    pub track_url: Option<String>,
+    pub artist_url: Option<String>,
+    pub duration_secs: Option<i64>,
+    pub elapsed_secs: Option<i64>,
+    pub is_playing: Option<bool>,
+    pub mode: Option<DiscordRpcMode>,
+    pub show_button: Option<bool>,
 }
 
 #[derive(Clone, Copy, serde::Deserialize)]

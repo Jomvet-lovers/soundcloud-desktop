@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::backend::api::ApiClient;
 use crate::backend::audio::state::AudioState;
-use crate::backend::models::{Playlist, ScUser, Track};
+use crate::backend::models::{Playlist, ScUser, Track, tracks_from_value};
 use crate::images::Images;
 use crate::pager::Pager;
 use crate::query::Query;
@@ -94,6 +94,7 @@ fn history_entry_to_track(entry: &HistoryEntry) -> Track {
             permalink_url: None,
         }),
         user_favorite: None,
+        created_at: None,
     }
 }
 
@@ -137,6 +138,8 @@ pub struct LibraryView {
     liked_playlists: Pager<Playlist>,
     followings: Pager<ScUser>,
     history: Query<Vec<HistoryEntry>>,
+    /// Fresh drops (フォロー中ユーザの新着を合成)。
+    fresh: Query<Vec<Track>>,
 }
 
 impl LibraryView {
@@ -175,12 +178,45 @@ impl LibraryView {
                 Ok(page.collection)
             });
         }
+        // Fresh drops: フォロー中 (最大24人) の最近のアップロードを合成し
+        // created_at 降順で 24 件 (Tauri 版 `useFollowingDrops` 相当)。
+        if !self.fresh.requested() && !self.followings.items.is_empty() {
+            let api = api_owned.clone();
+            let targets: Vec<String> = self
+                .followings
+                .items
+                .iter()
+                .take(24)
+                .map(|u| u.urn.clone())
+                .collect();
+            self.fresh.request(rt, async move {
+                let mut seen = std::collections::HashSet::new();
+                let mut merged: Vec<Track> = Vec::new();
+                for urn in targets {
+                    let path = format!(
+                        "/users/{}/tracks?limit=6&page=0",
+                        urlencoding::encode(&urn)
+                    );
+                    if let Ok(v) = api.get_json(&path).await {
+                        for t in tracks_from_value(&v) {
+                            if seen.insert(t.urn.clone()) {
+                                merged.push(t);
+                            }
+                        }
+                    }
+                }
+                merged.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                merged.truncate(24);
+                Ok(merged)
+            });
+        }
 
         let mut changed = self.likes.poll();
         changed |= self.my_playlists.poll();
         changed |= self.liked_playlists.poll();
         changed |= self.followings.poll();
         changed |= self.history.poll();
+        changed |= self.fresh.poll();
         if changed {
             ui.ctx().request_repaint();
         }
@@ -190,6 +226,30 @@ impl LibraryView {
         ui.heading("Library");
         if !self.likes.items.is_empty() {
             ui.label(soundprint_line(&self.likes.items));
+        }
+
+        // Fresh drops (フォロー中ユーザの新着)。Tauri 版 `FreshDrops` 相当。
+        if let Some(fresh) = self.fresh.data.as_ref() {
+            if !fresh.is_empty() {
+                widgets::section_header(ui, "Fresh drops", Some(fresh.len()));
+                egui::ScrollArea::vertical()
+                    .id_salt("library:fresh")
+                    .max_height(260.0)
+                    .show(ui, |ui| {
+                        for (i, track) in fresh.iter().enumerate() {
+                            match Self::track_row(ui, rt, images, player, track, accent) {
+                                widgets::RowHit::Clicked => {
+                                    action = LibraryAction::PlayList(fresh.clone(), i);
+                                }
+                                widgets::RowHit::Menu => {
+                                    action = LibraryAction::OpenMenu(track.clone());
+                                }
+                                widgets::RowHit::None => {}
+                            }
+                        }
+                    });
+                ui.separator();
+            }
         }
 
         ui.separator();

@@ -29,6 +29,14 @@ impl eframe::App for AppState {
 /// 子なしでそのまま実行する (CI 安全)。
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
+    let is_wry_child = args.get(1).map(|s| s.as_str()) == Some("--wry-host");
+    let is_smoke = args.iter().any(|a| {
+        a == "--smoke" || a == "--smoke-login" || a == "--smoke-writer" || a == "--smoke-tao"
+    });
+    if !is_wry_child && !is_smoke && !single_instance_guard() {
+        eprintln!("SCD-Direct is already running");
+        return Ok(());
+    }
     if args.get(1).map(|s| s.as_str()) == Some("--wry-host") {
         let dir = args
             .get(2)
@@ -63,6 +71,33 @@ fn main() -> eframe::Result {
         let _ = c.kill();
     }
     result
+}
+
+/// 二重起動防止 (Windows の名前付き mutex)。GUI モードでのみ使用する。
+#[cfg(windows)]
+fn single_instance_guard() -> bool {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+    use windows_sys::Win32::System::Threading::CreateMutexW;
+
+    static HANDLE: OnceLock<usize> = OnceLock::new();
+    let name: Vec<u16> = "Local\\scd-egui-single-instance\0".encode_utf16().collect();
+    unsafe {
+        let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
+        let already = GetLastError() == ERROR_ALREADY_EXISTS;
+        if !handle.is_null() {
+            let _ = HANDLE.set(handle as usize);
+        }
+        if already {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(not(windows))]
+fn single_instance_guard() -> bool {
+    true
 }
 
 /// GUI は戻らず、smoke はコードで終了する。
