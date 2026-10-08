@@ -45,8 +45,6 @@ hex = "0.4"
 chrono = { version = "0.4", features = ["clock"] }
 # ダウンロードの保存先ダイアログ (ネイティブ)。
 rfd = "0.15"
-# システムトレイ (常駐アイコン + メニュー)。
-tray-icon = "0.21"
 tracing = "0.1"
 if-addrs = "0.15"
 libc = "0.2"
@@ -61,4 +59,7 @@ wreq = { path = "vendor/wreq-5.3.0" }
 wreq-util = { path = "vendor/wreq-util-2.2.6" }
 
 [target.'cfg(windows)'.dependencies]
+# システムトレイ (常駐アイコン + メニュー)。Linux では libappindicator が必要に
+# なるため Windows 限定にする (tray.rs も Windows 実装のみ)。
+tray-icon = "0.21"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
