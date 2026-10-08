@@ -29,8 +29,17 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
         ui.ctx().request_repaint();
     }
 
+    let mut account_action: Option<LoginAction> = None;
     egui::Panel::left("sidebar").resizable(false).show(ui, |ui| {
         ui.heading("SCD-Direct");
+        let signed_in = state.api.as_ref().and_then(|a| a.session_token()).is_some();
+        if signed_in {
+            if ui.button("Sign out").clicked() {
+                account_action = Some(LoginAction::Logout);
+            }
+        } else if ui.button("Sign in").clicked() {
+            account_action = Some(LoginAction::OpenLogin);
+        }
         ui.separator();
         for route in Route::ALL {
             ui.selectable_value(&mut state.route, *route, route.title());
@@ -56,6 +65,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             ui.colored_label(egui::Color32::YELLOW, format!("sync: {e}"));
         }
     });
+    if let Some(action) = account_action {
+        apply_login_action(state, action);
+    }
 
     if state.queue_open {
         egui::Panel::right("queue").show(ui, |ui| {
@@ -421,44 +433,54 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     OfflineAction::None => {}
                 },
-                Route::Login => match state.login.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
-                ) {
-                    LoginAction::OpenLogin => {
-                        if let Some(b) = &state.backend {
-                            crate::backend::weblogin::open_login_window(
-                                &rt,
-                                b.direct.clone(),
-                                b.session.clone(),
-                                b.bus.clone(),
-                            );
-                        }
-                    }
-                    LoginAction::SetToken(token) => {
-                        if let Some(b) = &state.backend {
-                            let session = b.session.clone();
-                            let bus = b.bus.clone();
-                            rt.spawn(async move {
-                                let _ = session.set_token(&bus, token).await;
-                            });
-                        }
-                        state.reset_views();
-                    }
-                    LoginAction::Logout => {
-                        if let (Some(b), Some(api)) = (&state.backend, &api) {
-                            let session = b.session.clone();
-                            let bus = b.bus.clone();
-                            let base = api.base().to_string();
-                            rt.spawn(async move {
-                                let _ =
-                                    crate::backend::auth::auth_logout(base, &bus, &session).await;
-                            });
-                        }
-                        state.reset_views();
-                    }
-                    LoginAction::None => {}
-                },
+                Route::Login => {
+                    let action = state.login.show(
+                        api_ref, &rt, images, player, audio_ref, param_ref, cache, ui,
+                    );
+                    apply_login_action(state, action);
+                }
             }
         });
     });
+}
+
+/// ログイン系アクションの共通処理 (Login 画面とサイドバーの両方から使う)。
+fn apply_login_action(state: &mut AppState, action: LoginAction) {
+    let rt = state.runtime().handle().clone();
+    match action {
+        LoginAction::OpenLogin => {
+            if let Some(b) = &state.backend {
+                crate::backend::weblogin::open_login_window(
+                    &rt,
+                    b.direct.clone(),
+                    b.session.clone(),
+                    b.bus.clone(),
+                );
+            }
+        }
+        LoginAction::SetToken(token) => {
+            if let Some(b) = &state.backend {
+                let session = b.session.clone();
+                let bus = b.bus.clone();
+                rt.spawn(async move {
+                    let _ = session.set_token(&bus, token).await;
+                });
+            }
+            state.reset_views();
+        }
+        LoginAction::Logout => {
+            if let (Some(b), Some(api)) = (&state.backend, &state.api) {
+                let session = b.session.clone();
+                let bus = b.bus.clone();
+                let base = api.base().to_string();
+                rt.spawn(async move {
+                    let _ = crate::backend::auth::auth_logout(base, &bus, &session).await;
+                });
+            }
+            state.reset_views();
+            // ログアウト後はログイン画面に戻す。
+            state.route = Route::Login;
+        }
+        LoginAction::None => {}
+    }
 }

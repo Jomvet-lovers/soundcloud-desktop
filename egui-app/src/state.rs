@@ -310,8 +310,10 @@ impl AppState {
             api.set_session(b.session.token());
             api
         });
+        // 起動時に未ログインならログイン画面を出す。
+        let signed_in = api.as_ref().and_then(|a| a.session_token()).is_some();
         Self {
-            route: Route::Home,
+            route: if signed_in { Route::Home } else { Route::Login },
             player: PlayerState::default(),
             settings: crate::backend::prefs::load().unwrap_or_default(),
             runtime,
