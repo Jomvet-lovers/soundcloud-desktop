@@ -171,21 +171,22 @@ impl HomeView {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             for item in items {
-                                let resp = ui
+                                let clicked = ui
                                     .vertical(|ui| {
                                         let art = item.artwork_url.as_deref().map(|u| {
                                             u.replace("-large", "-t300x300")
                                         });
-                                        images.show(ui, rt, art.as_deref(), 64.0);
-                                        ui.add(
+                                        let img = images.show(ui, rt, art.as_deref(), 64.0);
+                                        let lbl = ui.add(
                                             egui::Label::new(&item.title)
                                                 .truncate()
-                                                .wrap_mode(egui::TextWrapMode::Truncate),
+                                                .wrap_mode(egui::TextWrapMode::Truncate)
+                                                .sense(egui::Sense::click()),
                                         );
+                                        img.clicked() || lbl.clicked()
                                     })
-                                    .response
-                                    .interact(egui::Sense::click());
-                                if resp.clicked() {
+                                    .inner;
+                                if clicked {
                                     action = HomeAction::StartDiscover(item.clone());
                                 }
                             }

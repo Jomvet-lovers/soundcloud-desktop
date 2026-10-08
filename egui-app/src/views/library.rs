@@ -612,13 +612,13 @@ impl LibraryView {
         let probe = history_entry_to_track(entry);
         let is_current = widgets::is_currently_playing(player, &probe);
         let mut clicked = false;
+        let mut art_secondary = false;
         let row = ui.horizontal(|ui| {
-            if images
-                .show(ui, rt, entry.artwork_url.as_deref(), 40.0)
-                .clicked()
-            {
+            let img = images.show(ui, rt, entry.artwork_url.as_deref(), 40.0);
+            if img.clicked() {
                 clicked = true;
             }
+            art_secondary = img.secondary_clicked();
             ui.vertical(|ui| {
                 ui.set_max_width(320.0);
                 let title = if is_current {
@@ -652,7 +652,7 @@ impl LibraryView {
         let _ = &entry.id;
         if clicked {
             widgets::RowHit::Clicked
-        } else if row.secondary_clicked() {
+        } else if row.secondary_clicked() || art_secondary {
             widgets::RowHit::Menu
         } else {
             widgets::RowHit::None

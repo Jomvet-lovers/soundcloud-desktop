@@ -1253,6 +1253,12 @@ impl AppState {
             self.nav_param = Some(urn);
             return;
         }
+        // ジャンル項目は Tag ページへ (「Trending by genre」等)。
+        if let Some(genre) = urn.strip_prefix("soundcloud:genres:") {
+            self.route = Route::Tag;
+            self.nav_param = Some(genre.to_string());
+            return;
+        }
         let digits_after = |needle: &str| -> Option<String> {
             let (_, rest) = urn.split_once(needle)?;
             let id: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
