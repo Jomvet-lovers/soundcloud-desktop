@@ -271,7 +271,7 @@ impl PlaylistView {
                     }
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("▶ Play all").clicked() {
+                    if crate::widgets::primary_button(ui, "▶ Play all", accent).clicked() {
                         if !tracks.is_empty() {
                             action = PlaylistAction::PlayList(tracks.clone(), 0);
                         }

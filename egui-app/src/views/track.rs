@@ -312,7 +312,7 @@ impl TrackView {
                     }
                 }
                 let play_label = if is_current { "⏸ Playing" } else { "▶ Play" };
-                if ui.button(play_label).clicked() {
+                if crate::widgets::primary_button(ui, play_label, accent).clicked() {
                     action = TrackAction::PlayTrack(track.clone());
                 }
                 if ui.button("+ Next up").clicked() {

@@ -70,6 +70,18 @@ pub fn playing_bars(ui: &mut egui::Ui, playing: bool, accent: egui::Color32) {
     }
 }
 
+/// アクセント塗りの主要ボタン (Play 等)。
+pub fn primary_button(ui: &mut egui::Ui, text: &str, accent: egui::Color32) -> egui::Response {
+    let lum =
+        accent.r() as u32 * 299 + accent.g() as u32 * 587 + accent.b() as u32 * 114;
+    let text_color = if lum > 150_000 {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
+    };
+    ui.add(egui::Button::new(egui::RichText::new(text).color(text_color)).fill(accent))
+}
+
 /// トランスポート用アイコン (フォント非依存で自作描画)。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TransportIcon {

@@ -152,7 +152,7 @@ impl AlbumView {
                         ui.label(desc);
                     }
                 }
-                if ui.button("▶ Play").clicked() {
+                if crate::widgets::primary_button(ui, "▶ Play", accent).clicked() {
                     if !tracks.is_empty() {
                         action = AlbumAction::PlayList(tracks.clone(), 0);
                     }
