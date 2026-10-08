@@ -245,7 +245,7 @@ fn shuffled_next(len: usize, current: usize) -> usize {
 
 /// `desktop/src/stores/settings.ts` 対応 (Phase 0 は subset)。
 /// 既定アクセントは SoundCloud オレンジ `#ff5500`。
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingsState {
     pub accent: [u8; 3],
     pub theme_preset: ThemePreset,
@@ -255,10 +255,64 @@ pub struct SettingsState {
     /// 高品質ストリーミング (Settings > Playback)。
     #[serde(default)]
     pub hq_streaming: bool,
+    /// 音量ノーマライズ。
+    #[serde(default)]
+    pub normalize_volume: bool,
+    /// イコライザー有効。
+    #[serde(default)]
+    pub eq_enabled: bool,
+    /// イコライザー 10 バンドのゲイン (-12..=12)。
+    #[serde(default)]
+    pub eq_gains: Vec<f64>,
+    /// 再生速度 (0.5–2.0)。
+    #[serde(default = "default_rate")]
+    pub playback_rate: f32,
+    /// 手動ピッチ (セミトーン、-12..=12)。
+    #[serde(default)]
+    pub pitch_semitones: f32,
+    /// ピッチ自動 (速度に追従) かどうか。
+    #[serde(default = "default_true")]
+    pub pitch_auto: bool,
+    /// 起動時に開くページ ("home" | "search" | "library" | "settings")。
+    #[serde(default = "default_startup")]
+    pub startup_page: String,
+}
+
+fn default_startup() -> String {
+    "home".to_string()
 }
 
 fn default_volume() -> f32 {
     80.0
+}
+
+fn default_rate() -> f32 {
+    1.0
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl SettingsState {
+    /// EQ ゲイン (10 バンドに満たない/超過した場合は既定値)。
+    pub fn eq_gains_or_default(&self) -> Vec<f64> {
+        if self.eq_gains.len() == 10 {
+            self.eq_gains.clone()
+        } else {
+            vec![0.0; 10]
+        }
+    }
+
+    /// 実効再生レート (Tauri 版 `getEffectivePlaybackRate` 相当)。
+    pub fn effective_rate(&self) -> f64 {
+        let rate = self.playback_rate.clamp(0.25, 4.0) as f64;
+        if !self.pitch_auto && self.pitch_semitones.abs() > 0.001 {
+            rate * 2f64.powf(self.pitch_semitones as f64 / 12.0)
+        } else {
+            rate
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
@@ -279,6 +333,13 @@ impl Default for SettingsState {
             theme_preset: ThemePreset::SoundCloud,
             volume: default_volume(),
             hq_streaming: false,
+            normalize_volume: false,
+            eq_enabled: false,
+            eq_gains: Vec::new(),
+            playback_rate: default_rate(),
+            pitch_semitones: 0.0,
+            pitch_auto: true,
+            startup_page: default_startup(),
         }
     }
 }
@@ -332,6 +393,9 @@ pub struct AppState {
     /// A-B ループ (秒)。両方 Some で有効、A のみは B 待ち。
     pub ab_a: Option<f64>,
     pub ab_b: Option<f64>,
+    /// イコライザー窓 / サウンドチューニング窓の表示。
+    pub show_eq: bool,
+    pub show_tuning: bool,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,    pub home: HomeView,
     pub search: SearchView,
     pub tag: TagView,
@@ -379,8 +443,14 @@ impl AppState {
         let settings = crate::backend::prefs::load().unwrap_or_default();
         let mut player = PlayerState::default();
         player.volume = settings.volume;
+        let startup_route = match settings.startup_page.as_str() {
+            "search" => Route::Search,
+            "library" => Route::Library,
+            "settings" => Route::Settings,
+            _ => Route::Home,
+        };
         let state = Self {
-            route: if signed_in { Route::Home } else { Route::Login },
+            route: if signed_in { startup_route } else { Route::Login },
             player,
             settings,
             runtime,
@@ -402,6 +472,8 @@ impl AppState {
             fullscreen: false,
             ab_a: None,
             ab_b: None,
+            show_eq: false,
+            show_tuning: false,
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),
@@ -419,9 +491,22 @@ impl AppState {
             images: Images::new(std::sync::Arc::new(wreq::Client::new())),
             nav_param: None,
         };
-        // 永続化された音量を起動時から反映する。
+        // 永続化されたオーディオ設定を起動時から反映する。
         if let Some(audio) = state.audio() {
             crate::backend::audio::engine::set_volume(state.player.volume as f64, audio);
+            crate::backend::audio::engine::set_normalization(
+                state.settings.normalize_volume,
+                audio,
+            );
+            crate::backend::audio::engine::set_eq(
+                state.settings.eq_enabled,
+                state.settings.eq_gains_or_default(),
+                audio,
+            );
+            crate::backend::audio::engine::set_playback_rate(
+                state.settings.effective_rate(),
+                audio,
+            );
         }
         state
     }
@@ -504,6 +589,33 @@ impl AppState {
                 80.0
             };
             self.set_volume(v);
+        }
+        if let Err(e) = crate::backend::prefs::save(&self.settings) {
+            eprintln!("[prefs] save failed: {e}");
+        }
+    }
+
+    /// EQ 設定をエンジンへ反映し保存する。
+    pub fn apply_eq(&mut self) {
+        if let Some(audio) = self.audio() {
+            crate::backend::audio::engine::set_eq(
+                self.settings.eq_enabled,
+                self.settings.eq_gains_or_default(),
+                audio,
+            );
+        }
+        if let Err(e) = crate::backend::prefs::save(&self.settings) {
+            eprintln!("[prefs] save failed: {e}");
+        }
+    }
+
+    /// 再生速度/ピッチをエンジンへ反映し保存する。
+    pub fn apply_rate(&mut self) {
+        if let Some(audio) = self.audio() {
+            crate::backend::audio::engine::set_playback_rate(
+                self.settings.effective_rate(),
+                audio,
+            );
         }
         if let Err(e) = crate::backend::prefs::save(&self.settings) {
             eprintln!("[prefs] save failed: {e}");

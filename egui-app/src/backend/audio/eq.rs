@@ -10,11 +10,29 @@ use crate::backend::audio::types::{ChannelCount, EqParams, SampleRate, EQ_BANDS,
 pub struct GainSource<S: Source<Item = f32>> {
     source: S,
     gain: f32,
+    enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    applied: f32,
+    refresh: u32,
 }
 
 impl<S: Source<Item = f32>> GainSource<S> {
-    pub fn new(source: S, gain: f32) -> Self {
-        Self { source, gain }
+    pub fn new(
+        source: S,
+        gain: f32,
+        enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        let applied = if enabled.load(std::sync::atomic::Ordering::Relaxed) {
+            gain
+        } else {
+            1.0
+        };
+        Self {
+            source,
+            gain,
+            enabled,
+            applied,
+            refresh: 0,
+        }
     }
 }
 
@@ -22,10 +40,19 @@ impl<S: Source<Item = f32>> Iterator for GainSource<S> {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
+        // 256 サンプル毎に有効/無効を読み直す (ノーマライズのライブトグル用)。
+        if self.refresh == 0 {
+            self.applied = if self.enabled.load(std::sync::atomic::Ordering::Relaxed) {
+                self.gain
+            } else {
+                1.0
+            };
+        }
+        self.refresh = (self.refresh + 1) & 0xFF;
         // No hard clamp here: clipping before the player's volume stage bakes
         // distortion into the signal even at low listening levels. Overshoots
         // stay float and scale down with volume like in any other player.
-        self.source.next().map(|sample| sample * self.gain)
+        self.source.next().map(|sample| sample * self.applied)
     }
 }
 

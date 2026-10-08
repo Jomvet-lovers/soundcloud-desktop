@@ -312,6 +312,7 @@ pub fn create_player_from_bytes(
     mixer: &Mixer,
     volume: f32,
     normalization_gain: f32,
+    normalization_enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     start_paused: bool,
     output_sample_rate: u32,
     speed: std::sync::Arc<std::sync::atomic::AtomicU32>,
@@ -332,7 +333,10 @@ pub fn create_player_from_bytes(
         let source = SpeedSource::new(source, speed.clone());
         let source = ResampleSource::new(source, output_sample_rate);
         player.append(AnalyserSource::new(
-            EqSource::new(GainSource::new(source, normalization_gain), eq_params),
+            EqSource::new(
+                GainSource::new(source, normalization_gain, normalization_enabled.clone()),
+                eq_params,
+            ),
             analyser_buffer,
         ));
     } else if let Ok(source) = {
@@ -351,7 +355,10 @@ pub fn create_player_from_bytes(
         let source = SpeedSource::new(source, speed.clone());
         let source = ResampleSource::new(source, output_sample_rate);
         player.append(AnalyserSource::new(
-            EqSource::new(GainSource::new(source, normalization_gain), eq_params),
+            EqSource::new(
+                GainSource::new(source, normalization_gain, normalization_enabled.clone()),
+                eq_params,
+            ),
             analyser_buffer,
         ));
     } else {
@@ -361,7 +368,10 @@ pub fn create_player_from_bytes(
         let source = SpeedSource::new(source, speed.clone());
         let source = ResampleSource::new(source, output_sample_rate);
         player.append(AnalyserSource::new(
-            EqSource::new(GainSource::new(source, normalization_gain), eq_params),
+            EqSource::new(
+                GainSource::new(source, normalization_gain, normalization_enabled.clone()),
+                eq_params,
+            ),
             analyser_buffer,
         ));
     }

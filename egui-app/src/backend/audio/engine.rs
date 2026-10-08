@@ -91,7 +91,7 @@ async fn build_player_from_bytes(
     bytes: Vec<u8>,
     mixer: rodio::mixer::Mixer,
     volume: f32,
-    normalization_enabled: bool,
+    normalization_enabled: std::sync::Arc<std::sync::atomic::AtomicBool>,
     normalization_cache_dir: Option<PathBuf>,
     normalization_cache_key: Option<String>,
     start_paused: bool,
@@ -101,20 +101,18 @@ async fn build_player_from_bytes(
     analyser_buffer: std::sync::Arc<crate::backend::audio::analyser::AnalyserBuffer>,
 ) -> Result<(Vec<u8>, rodio::Player, Option<f64>, f32), String> {
     task::spawn_blocking(move || {
-        let normalization_gain = if normalization_enabled {
-            resolve_normalization_gain(
-                &bytes,
-                normalization_cache_dir.as_deref(),
-                normalization_cache_key.as_deref(),
-            )?
-        } else {
-            1.0
-        };
+        // 有効/無効に関わらずゲインを算出しておく (ノーマライズの即時トグル用)。
+        let normalization_gain = resolve_normalization_gain(
+            &bytes,
+            normalization_cache_dir.as_deref(),
+            normalization_cache_key.as_deref(),
+        )?;
         let (player, duration_secs) = create_player_from_bytes(
             &bytes,
             &mixer,
             volume,
             normalization_gain,
+            normalization_enabled,
             start_paused,
             output_sample_rate,
             speed,
@@ -146,17 +144,13 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
     let normalization_gain = *state.normalization_gain.lock().unwrap();
     let (new_player, _) = create_player_from_bytes(
         &bytes,
         &mixer,
         vol,
-        if normalization_enabled {
-            normalization_gain
-        } else {
-            1.0
-        },
+        normalization_gain,
+        state.normalization_enabled.clone(),
         was_paused,
         state.output_rate.load(Ordering::Relaxed),
         state.playback_rate_fp.clone(),
@@ -203,12 +197,11 @@ pub async fn load_file(
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
     let (bytes, new_player, duration_secs, normalization_gain) = build_player_from_bytes(
         bytes,
         mixer,
         vol,
-        normalization_enabled,
+        state.normalization_enabled.clone(),
         normalization_cache_dir,
         normalization_cache_key,
         start_paused,
@@ -306,12 +299,11 @@ pub async fn load_url(
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
     let (bytes, new_player, duration_secs, normalization_gain) = build_player_from_bytes(
         bytes,
         mixer,
         vol,
-        normalization_enabled,
+        state.normalization_enabled.clone(),
         normalization_cache_dir,
         normalization_cache_key,
         start_paused,
@@ -405,17 +397,13 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
-    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
     let normalization_gain = *state.normalization_gain.lock().unwrap();
     let (new_player, _) = create_player_from_bytes(
         &bytes,
         &mixer,
         vol,
-        if normalization_enabled {
-            normalization_gain
-        } else {
-            1.0
-        },
+        normalization_gain,
+        state.normalization_enabled.clone(),
         was_paused,
         state.output_rate.load(Ordering::Relaxed),
         state.playback_rate_fp.clone(),
@@ -604,12 +592,14 @@ pub async fn preview_play(
     // hover latency low. Build directly at the target volume so the sample is
     // audible the instant it loads (a zero-start + tick fade-in left it silent).
     let analyser = crate::backend::audio::analyser::AnalyserBuffer::new();
+    let normalization_enabled = state.normalization_enabled.clone();
     let player = task::spawn_blocking(move || {
         create_player_from_bytes(
             &bytes,
             &mixer,
             target,
             1.0,
+            normalization_enabled,
             false,
             output_rate,
             speed,

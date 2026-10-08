@@ -73,14 +73,21 @@ impl StartupPage {
             StartupPage::Settings => "Settings",
         }
     }
+
+    fn key(self) -> &'static str {
+        match self {
+            StartupPage::Home => "home",
+            StartupPage::Search => "search",
+            StartupPage::Library => "library",
+            StartupPage::Settings => "settings",
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct SettingsView {
     active: SettingsCategory,
-    startup_page: StartupPage,
     floating_comments: bool,
-    normalize_volume: bool,
     bg_dim: f32,
     bg_opacity: f32,
     bg_blur: f32,
@@ -115,7 +122,6 @@ impl SettingsView {
         let _ = rt;
         let _ = images;
         let _ = player;
-        let _ = audio;
         let _ = param;
 
         ui.heading("Settings");
@@ -130,9 +136,9 @@ impl SettingsView {
         ui.separator();
 
         match self.active {
-            SettingsCategory::General => self.show_general(ui),
+            SettingsCategory::General => self.show_general(settings, ui),
             SettingsCategory::Appearance => self.show_appearance(settings, ui),
-            SettingsCategory::Audio => self.show_audio(settings, ui),
+            SettingsCategory::Audio => self.show_audio(settings, audio, ui),
             SettingsCategory::Storage => self.show_storage(cache, ui),
             SettingsCategory::Account => Self::show_account(api, ui),
         }
@@ -153,17 +159,18 @@ impl SettingsView {
         SettingsAction::None
     }
 
-    /// `StartupCard` 対応 (起動時ページ選択。in-memory)。
-    fn show_general(&mut self, ui: &mut egui::Ui) {
+    /// `StartupCard` 対応 (起動ページ。設定に永続化して実際に適用)。
+    fn show_general(&mut self, settings: &mut SettingsState, ui: &mut egui::Ui) {
         ui.heading("Startup");
-        ui.label("Choose which page opens when the app launches (in-memory only)");
+        ui.label("Choose which page opens when the app launches (signed-in only)");
         ui.horizontal_wrapped(|ui| {
             for page in StartupPage::ALL {
                 if ui
-                    .selectable_label(self.startup_page == *page, page.title())
+                    .selectable_label(settings.startup_page == page.key(), page.title())
                     .clicked()
                 {
-                    self.startup_page = *page;
+                    settings.startup_page = page.key().to_string();
+                    let _ = crate::backend::prefs::save(settings);
                 }
             }
         });
@@ -206,16 +213,33 @@ impl SettingsView {
         ui.add(egui::Slider::new(&mut self.bg_blur, 0.0..=40.0).text("Blur"));
     }
 
-    /// `PlaybackCard` 対応 (`hq_streaming` は永続化、他は in-memory。
-    /// `AudioDeviceCard` の出力先切替は Phase 4)。
-    fn show_audio(&mut self, settings: &mut SettingsState, ui: &mut egui::Ui) {
+    /// `PlaybackCard` 対応 (EQ/速度/ピッチは NowPlaying バーの EQ / Tune 窓)。
+    fn show_audio(
+        &mut self,
+        settings: &mut SettingsState,
+        audio: Option<&Arc<AudioState>>,
+        ui: &mut egui::Ui,
+    ) {
         ui.heading("Playback");
         ui.checkbox(&mut self.floating_comments, "Floating comments");
         ui.label("Show comments as floating pills during playback");
-        ui.checkbox(&mut self.normalize_volume, "Volume normalization");
+        if ui
+            .checkbox(&mut settings.normalize_volume, "Volume normalization")
+            .changed()
+        {
+            if let Some(a) = audio {
+                crate::backend::audio::engine::set_normalization(
+                    settings.normalize_volume,
+                    a,
+                );
+            }
+            let _ = crate::backend::prefs::save(settings);
+        }
         ui.label("Balances quiet and loud tracks to a more even level");
         ui.checkbox(&mut settings.hq_streaming, "High quality streaming");
         ui.label("Prefer the highest available quality during playback");
+        ui.separator();
+        ui.label("Equalizer and speed / pitch live in the now-playing bar (EQ / Tune).");
     }
 
     /// `CacheCard` 対応 (サイズ表示 + クリア + 上限制御)。

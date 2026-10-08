@@ -277,6 +277,12 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             if ui.button(queue_label).clicked() {
                 state.queue_open = !state.queue_open;
             }
+            if ui.selectable_label(state.show_eq, "EQ").clicked() {
+                state.show_eq = !state.show_eq;
+            }
+            if ui.selectable_label(state.show_tuning, "Tune").clicked() {
+                state.show_tuning = !state.show_tuning;
+            }
 
             let (pos, dur) = match &audio {
                 Some(a) => (engine::get_position(a), state.player.duration_secs),
@@ -577,6 +583,12 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             state.show_shortcuts = false;
         }
     }
+    if state.show_eq {
+        show_eq_window(state, ui.ctx());
+    }
+    if state.show_tuning {
+        show_tuning_window(state, ui.ctx());
+    }
 }
 
 /// ログイン系アクションの共通処理 (Login 画面とサイドバーの両方から使う)。
@@ -790,4 +802,125 @@ fn cycle_ab_loop(state: &mut AppState) {
         state.ab_b = None;
     }
     crate::backend::audio::engine::set_ab_loop(state.ab_a, state.ab_b, &audio);
+}
+
+const EQ_LABELS: [&str; 10] = ["32", "64", "125", "250", "500", "1K", "2K", "4K", "8K", "16K"];
+
+/// Tauri 版 `equalizer.ts` のプリセット。
+const EQ_PRESETS: &[(&str, [f64; 10])] = &[
+    ("Flat", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    ("Bass Boost", [6.0, 5.0, 4.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+    (
+        "Bass Destroyer",
+        [12.0, 12.0, 10.0, 7.0, 3.0, 0.0, -2.0, -4.0, -4.0, -5.0],
+    ),
+    ("Treble Boost", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 4.0, 5.0, 6.0]),
+    ("Vocal", [-2.0, -1.0, 0.0, 2.0, 4.0, 4.0, 3.0, 1.0, 0.0, -1.0]),
+    ("Rock", [4.0, 3.0, 1.0, 0.0, -1.0, 0.0, 2.0, 3.0, 4.0, 4.0]),
+    ("Electronic", [5.0, 4.0, 2.0, 0.0, -1.0, 0.0, 1.0, 3.0, 4.0, 5.0]),
+    ("Classical", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -2.0, -3.0, -3.0, -4.0]),
+    ("Loudness", [5.0, 4.0, 1.0, 0.0, -1.0, 0.0, -1.0, 0.0, 3.0, 4.0]),
+    ("V-Shape", [5.0, 3.0, 1.0, -1.0, -3.0, -3.0, -1.0, 1.0, 3.0, 5.0]),
+    ("Night", [-3.0, -2.0, 0.0, 2.0, 3.0, 3.0, 2.0, 0.0, -2.0, -4.0]),
+];
+
+/// イコライザー窓 (Tauri 版 `EqualizerPanel` 相当)。
+fn show_eq_window(state: &mut AppState, ctx: &egui::Context) {
+    let mut open = true;
+    let mut changed = false;
+    egui::Window::new("Equalizer")
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        .show(ctx, |ui| {
+            changed |= ui
+                .checkbox(&mut state.settings.eq_enabled, "Enable")
+                .changed();
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_label("Preset")
+                    .selected_text("Custom")
+                    .show_ui(ui, |ui| {
+                        for (name, gains) in EQ_PRESETS {
+                            if ui.selectable_label(false, *name).clicked() {
+                                state.settings.eq_gains = gains.to_vec();
+                                changed = true;
+                            }
+                        }
+                    });
+                if ui.button("Flat").clicked() {
+                    state.settings.eq_gains = vec![0.0; 10];
+                    changed = true;
+                }
+            });
+            let mut gains = state.settings.eq_gains_or_default();
+            let mut sliders_changed = false;
+            ui.horizontal(|ui| {
+                for (i, g) in gains.iter_mut().enumerate() {
+                    ui.vertical(|ui| {
+                        sliders_changed |= ui
+                            .add(egui::Slider::new(g, -12.0..=12.0).vertical())
+                            .changed();
+                        ui.small(EQ_LABELS[i]);
+                    });
+                }
+            });
+            if sliders_changed {
+                state.settings.eq_gains = gains;
+                changed = true;
+            }
+        });
+    state.show_eq = open;
+    if changed {
+        state.apply_eq();
+    }
+}
+
+/// サウンドチューニング窓 (Tauri 版 `SoundTuningPopover` 相当)。
+fn show_tuning_window(state: &mut AppState, ctx: &egui::Context) {
+    let mut open = true;
+    let mut changed = false;
+    egui::Window::new("Sound tuning")
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Speed");
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut state.settings.playback_rate, 0.5..=2.0)
+                            .fixed_decimals(2)
+                            .suffix("x"),
+                    )
+                    .changed();
+            });
+            let mut manual = !state.settings.pitch_auto;
+            if ui.checkbox(&mut manual, "Manual pitch control").changed() {
+                state.settings.pitch_auto = !manual;
+                changed = true;
+            }
+            ui.add_enabled_ui(manual, |ui| {
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut state.settings.pitch_semitones, -12.0..=12.0)
+                            .step_by(0.5)
+                            .suffix(" st"),
+                    )
+                    .changed();
+            });
+            if ui.button("Reset").clicked() {
+                state.settings.playback_rate = 1.0;
+                state.settings.pitch_semitones = 0.0;
+                state.settings.pitch_auto = true;
+                changed = true;
+            }
+            ui.label(format!(
+                "Effective rate: {:.3}x",
+                state.settings.effective_rate()
+            ));
+        });
+    state.show_tuning = open;
+    if changed {
+        state.apply_rate();
+    }
 }
