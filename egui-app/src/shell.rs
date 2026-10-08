@@ -131,18 +131,37 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     if state.queue_open {
         egui::Panel::right("queue").show(ui, |ui| {
             ui.heading("Queue");
+            let accent = crate::widgets::accent_color(&state.settings);
+            let rt = state.runtime().handle().clone();
             let mut jump: Option<usize> = None;
             let mut remove: Option<usize> = None;
             let mut reorder: Option<(usize, usize)> = None;
             let current = state.player.queue_index;
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for (i, t) in state.player.queue.iter().enumerate() {
-                    let label = format!("{} — {}", t.display_title(), t.artist_name());
                     let row_id = egui::Id::new(("queue-row", i));
                     let (_inner, dropped) = ui.dnd_drop_zone::<usize, _>(egui::Frame::NONE, |ui| {
                         ui.horizontal(|ui| {
                             let src = ui.dnd_drag_source(row_id, i, |ui| {
-                                ui.selectable_label(Some(i) == current, label);
+                                ui.horizontal(|ui| {
+                                    let art = t.artwork("t100x100");
+                                    state.images.show(ui, &rt, art.as_deref(), 28.0);
+                                    let label = egui::RichText::new(format!(
+                                        "{} — {}",
+                                        t.display_title(),
+                                        t.artist_name()
+                                    ));
+                                    let label = if Some(i) == current {
+                                        label.color(accent)
+                                    } else {
+                                        label
+                                    };
+                                    ui.add(
+                                        egui::Label::new(label)
+                                            .truncate()
+                                            .wrap_mode(egui::TextWrapMode::Truncate),
+                                    );
+                                });
                             });
                             if src.response.clicked() {
                                 jump = Some(i);
