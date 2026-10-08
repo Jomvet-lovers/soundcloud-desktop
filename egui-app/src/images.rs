@@ -31,6 +31,18 @@ impl Images {
         url: Option<&str>,
         size: f32,
     ) -> egui::Response {
+        self.show_rounded(ui, rt, url, size, egui::CornerRadius::same(4))
+    }
+
+    /// 角丸を指定して描く (アバターは円形 = 半径 size/2 を渡す)。
+    pub fn show_rounded(
+        &mut self,
+        ui: &mut egui::Ui,
+        rt: &tokio::runtime::Handle,
+        url: Option<&str>,
+        size: f32,
+        corner: egui::CornerRadius,
+    ) -> egui::Response {
         let Some(url) = url else {
             return Self::placeholder(ui, size);
         };
@@ -54,7 +66,7 @@ impl Images {
         if let Some(tex) = self.textures.get(url) {
             return ui.add(
                 egui::Image::new((tex.id(), egui::Vec2::splat(size)))
-                    .corner_radius(egui::CornerRadius::same(4))
+                    .corner_radius(corner)
                     .sense(egui::Sense::click()),
             );
         }

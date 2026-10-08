@@ -1,7 +1,6 @@
-//! Phase 3: Library ハブ — タブ切替 + 各タブの一覧 (無限スクロール)。
-//! 対応: `desktop/src/pages/Library.tsx` (+ `LibraryCollection.tsx` の 4 タブ)。
-//! SoundPrint / FreshDrops (`useFollowingDrops`) / ContinueRow の装飾は簡略表示
-//! (いいね件数 + 上位ジャンル行) に留める。再生は単曲直結 (キューは Phase 3b)。
+//! Phase 3: Library ハブ — SoundPrint マストヘッド + Fresh drops + コレクションのレール。
+//! 対応: `desktop/src/pages/Library.tsx`。各セクションの全件ページは
+//! LibraryCollection (collection.rs) が担う。
 
 use std::sync::Arc;
 
@@ -26,15 +25,6 @@ pub enum LibraryAction {
     /// 右クリックメニューを開く。
     OpenMenu(Track),
     Navigate(Route, Option<String>),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-enum LibraryTab {
-    #[default]
-    Likes,
-    Playlists,
-    Following,
-    History,
 }
 
 /// `desktop/src/lib/hooks.ts` の `HistoryEntry` に対応。
@@ -100,41 +90,118 @@ fn history_entry_to_track(entry: &HistoryEntry) -> Track {
     }
 }
 
-/// SoundPrint の簡略表示: 件数 + 上位ジャンル (装飾集計は `useSoundprint` 由来)。
-fn soundprint_line(tracks: &[Track]) -> String {
-    if tracks.is_empty() {
-        return "No liked tracks yet".to_string();
-    }
-    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for t in tracks {
-        if let Some(g) = t.genre.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
-            *counts.entry(g).or_insert(0) += 1;
-        }
-    }
-    let mut top: Vec<(&str, usize)> = counts.into_iter().collect();
-    top.sort_by(|a, b| b.1.cmp(&a.1));
-    top.truncate(3);
-    if top.is_empty() {
-        format!("{} liked tracks", tracks.len())
+fn fmt_duration(ms: i64) -> String {
+    let s = (ms / 1000).max(0);
+    let (h, m, sec) = (s / 3600, (s % 3600) / 60, s % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{sec:02}")
     } else {
-        let genres = top
-            .iter()
-            .map(|(g, n)| format!("{g} x{n}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("{} liked tracks — {genres}", tracks.len())
+        format!("{m}:{sec:02}")
     }
 }
 
-fn fmt_duration(ms: i64) -> String {
-    let s = (ms / 1000).max(0);
-    format!("{}:{:02}", s / 60, s % 60)
+/// 対応: `SoundPrintMasthead.tsx` の greeting。
+fn greeting(name: &str) -> String {
+    let hour = chrono::Local::now()
+        .format("%H")
+        .to_string()
+        .parse::<u32>()
+        .unwrap_or(12);
+    if hour < 5 {
+        format!("Late night, {name}")
+    } else if hour < 12 {
+        format!("Good morning, {name}")
+    } else if hour < 18 {
+        format!("Good afternoon, {name}")
+    } else {
+        format!("Good evening, {name}")
+    }
+}
+
+/// ジャンルの固定色 (search/utils.ts の GENRES) + ハッシュ由来の HSL 色。
+fn genre_color(name: &str) -> egui::Color32 {
+    const FIXED: [(&str, [u8; 3]); 12] = [
+        ("lofi", [0x8b, 0x9d, 0xc3]),
+        ("house", [0xff, 0x7a, 0x59]),
+        ("phonk", [0xc0, 0x26, 0xd3]),
+        ("ambient", [0x5e, 0xea, 0xd4]),
+        ("rnb", [0xf0, 0xab, 0xfc]),
+        ("trap", [0xfb, 0x71, 0x85]),
+        ("jazz", [0xfb, 0xbf, 0x24]),
+        ("techno", [0x60, 0xa5, 0xfa]),
+        ("indie", [0xa3, 0xe6, 0x35]),
+        ("soul", [0xfc, 0xa5, 0xa5]),
+        ("dnb", [0x34, 0xd3, 0x99]),
+        ("hyperpop", [0xe8, 0x79, 0xf9]),
+    ];
+    let lower = name.to_lowercase();
+    if let Some((_, [r, g, b])) = FIXED.iter().find(|(k, _)| *k == lower) {
+        return egui::Color32::from_rgb(*r, *g, *b);
+    }
+    let mut hash: i32 = 0;
+    for ch in name.chars() {
+        hash = hash.wrapping_mul(31).wrapping_add(ch as i32);
+    }
+    let hue = (hash.abs() % 360) as f32 / 360.0;
+    let hsva = egui::ecolor::Hsva::new(hue, 0.70, 0.62, 1.0);
+    let [r, g, b, _] = hsva.to_srgba_unmultiplied();
+    egui::Color32::from_rgb(r, g, b)
+}
+
+/// 上位ジャンル (share 付き)。対応: `topGenres`。
+fn top_genres(tracks: &[Track], n: usize) -> Vec<(String, f32, egui::Color32)> {
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut with_genre = 0usize;
+    for t in tracks {
+        if let Some(g) = t.genre.as_deref().map(str::trim).filter(|g| !g.is_empty()) {
+            *counts.entry(g.to_string()).or_insert(0) += 1;
+            with_genre += 1;
+        }
+    }
+    let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v.truncate(n);
+    v.into_iter()
+        .map(|(g, c)| {
+            let share = if with_genre > 0 {
+                c as f32 / with_genre as f32
+            } else {
+                0.0
+            };
+            let color = genre_color(&g);
+            (g, share, color)
+        })
+        .collect()
+}
+
+/// created_at からの経過表示 (Tauri: FreshDrops の age)。
+fn age_text(created_at: Option<&str>) -> String {
+    let Some(s) = created_at else {
+        return String::new();
+    };
+    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) else {
+        return String::new();
+    };
+    let days = (chrono::Utc::now() - dt.with_timezone(&chrono::Utc)).num_days();
+    if days < 7 {
+        format!("{}d", days.max(0))
+    } else if days < 30 {
+        format!("{}w", days / 7)
+    } else {
+        format!("{}mo", days / 30)
+    }
+}
+
+/// ジャンルフィルタ (Soundprint バーで選択中のみ適用)。
+fn genre_match(filter: &Option<String>, genre: Option<&str>) -> bool {
+    match filter {
+        None => true,
+        Some(f) => genre.map(|g| g.trim() == f.as_str()).unwrap_or(false),
+    }
 }
 
 #[derive(Default)]
 pub struct LibraryView {
-    tab: LibraryTab,
-    filter: String,
     likes: Pager<Track>,
     my_playlists: Pager<Playlist>,
     liked_playlists: Pager<Playlist>,
@@ -142,6 +209,10 @@ pub struct LibraryView {
     history: Query<Vec<HistoryEntry>>,
     /// Fresh drops (フォロー中ユーザの新着を合成)。
     fresh: Query<Vec<Track>>,
+    /// マストヘッドのアバター用 (自分のプロフィール)。
+    me: Query<ScUser>,
+    /// Soundprint バーで選んだジャンル (レールのフィルタ)。
+    genre: Option<String>,
 }
 
 impl LibraryView {
@@ -171,11 +242,20 @@ impl LibraryView {
         self.liked_playlists
             .ensure_page(rt, api, "/me/likes/playlists", 50);
         self.followings.ensure_page(rt, api, "/me/followings", 50);
+        if !self.me.requested() {
+            let api = api_owned.clone();
+            self.me.request(rt, async move {
+                api.get_json("/me/cold")
+                    .await
+                    .and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
+            });
+        }
         if !self.history.requested() {
             let api = api_owned.clone();
             self.history.request(rt, async move {
                 let v = api.get_json("/history?limit=50").await?;
-                let page: HistoryPage = serde_json::from_value(v).map_err(|e| e.to_string())?;
+                let page: HistoryPage =
+                    serde_json::from_value(v).map_err(|e| e.to_string())?;
                 Ok(page.collection)
             });
         }
@@ -194,8 +274,10 @@ impl LibraryView {
                 let mut seen = std::collections::HashSet::new();
                 let mut merged: Vec<Track> = Vec::new();
                 for urn in targets {
-                    let path =
-                        format!("/users/{}/tracks?limit=6&page=0", urlencoding::encode(&urn));
+                    let path = format!(
+                        "/users/{}/tracks?limit=6&page=0",
+                        urlencoding::encode(&urn)
+                    );
                     if let Ok(v) = api.get_json(&path).await {
                         for t in tracks_from_value(&v) {
                             if seen.insert(t.urn.clone()) {
@@ -216,133 +298,259 @@ impl LibraryView {
         changed |= self.followings.poll();
         changed |= self.history.poll();
         changed |= self.fresh.poll();
+        changed |= self.me.poll();
         if changed {
             ui.ctx().request_repaint();
         }
 
         let mut action = LibraryAction::None;
 
-        ui.heading("Library");
-        if !self.likes.items.is_empty() {
-            ui.label(soundprint_line(&self.likes.items));
+        // ── SoundPrint マストヘッド (アバター + 挨拶 + 円形シャッフル) ──
+        ui.horizontal(|ui| {
+            let avatar = self.me.data.as_ref().and_then(|u| u.avatar_url.clone());
+            images.show(ui, rt, avatar.as_deref(), 84.0);
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Library").size(11.0).weak());
+                let name = self
+                    .me
+                    .data
+                    .as_ref()
+                    .map(|u| u.username.clone())
+                    .unwrap_or_default();
+                let title = if name.is_empty() {
+                    "Library".to_string()
+                } else {
+                    greeting(&name)
+                };
+                ui.add(egui::Label::new(
+                    egui::RichText::new(title).font(crate::theme::semibold(28.0)),
+                ));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::hero_play_button(
+                    ui,
+                    false,
+                    !self.likes.items.is_empty(),
+                    56.0,
+                )
+                .clicked()
+                {
+                    action = LibraryAction::ShuffleLikes(self.likes.items.clone());
+                }
+            });
+        });
+
+        // ── Soundprint バー (上位ジャンル。クリックでレールを絞り込み) ──
+        let spectrum = top_genres(&self.likes.items, 7);
+        if !spectrum.is_empty() {
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                widgets::ui_icon(ui, widgets::UiIcon::Library, 13.0, spectrum[0].2);
+                ui.label(egui::RichText::new("Your soundprint").size(10.0).weak());
+            });
+            ui.add_space(4.0);
+            let mut clicked: Option<String> = None;
+            let total_w = ui.available_width();
+            let n = spectrum.len();
+            let gap = 8.0;
+            let bar_w = ((total_w - gap * (n.saturating_sub(1)) as f32) / n as f32).max(24.0);
+            let h_total = 88.0;
+            let max_share = spectrum[0].1.max(1e-6);
+            let selected_any = self.genre.is_some();
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                for (g, share, color) in &spectrum {
+                    let (rect, resp) = ui.allocate_exact_size(
+                        egui::vec2(bar_w, h_total + 34.0),
+                        egui::Sense::click(),
+                    );
+                    let selected = self.genre.as_deref() == Some(g.as_str());
+                    let color = if selected_any && !selected {
+                        color.gamma_multiply(0.45)
+                    } else {
+                        *color
+                    };
+                    let ratio = share / max_share;
+                    let bh = h_total * (32.0 + ratio * 68.0) / 100.0;
+                    let bar = egui::Rect::from_min_max(
+                        egui::pos2(rect.left(), rect.top() + h_total - bh),
+                        egui::pos2(rect.right(), rect.top() + h_total),
+                    );
+                    ui.painter().rect_filled(
+                        bar,
+                        egui::CornerRadius {
+                            nw: 7,
+                            ne: 7,
+                            sw: 0,
+                            se: 0,
+                        },
+                        color,
+                    );
+                    ui.painter().text(
+                        egui::pos2(rect.center().x, rect.top() + h_total + 6.0),
+                        egui::Align2::CENTER_TOP,
+                        g,
+                        egui::FontId::proportional(10.5),
+                        if selected {
+                            egui::Color32::WHITE
+                        } else {
+                            egui::Color32::from_white_alpha(150)
+                        },
+                    );
+                    ui.painter().text(
+                        egui::pos2(rect.center().x, rect.top() + h_total + 20.0),
+                        egui::Align2::CENTER_TOP,
+                        format!("{}%", (share * 100.0).round() as i64),
+                        egui::FontId::proportional(9.0),
+                        egui::Color32::from_white_alpha(80),
+                    );
+                    if resp.clicked() {
+                        clicked = Some(g.clone());
+                    }
+                }
+            });
+            if let Some(g) = clicked {
+                self.genre = if self.genre.as_deref() == Some(g.as_str()) {
+                    None
+                } else {
+                    Some(g)
+                };
+            }
         }
 
-        // Fresh drops (フォロー中ユーザの新着)。Tauri 版 `FreshDrops` 相当。
-        if let Some(fresh) = self.fresh.data.as_ref() {
+        // ── Fresh drops (大きめの行 + New バッジ + 経過) ──
+        if let Some(fresh) = self.fresh.data.clone() {
             if !fresh.is_empty() {
-                widgets::section_header(ui, "Fresh drops", Some(fresh.len()));
-                egui::ScrollArea::vertical()
-                    .id_salt("library:fresh")
-                    .max_height(260.0)
-                    .show(ui, |ui| {
-                        for (i, track) in fresh.iter().enumerate() {
-                            match Self::track_row(ui, rt, images, player, track, accent) {
+                ui.add_space(16.0);
+                let mut refresh = false;
+                widgets::section_row(ui, "Fresh from who you follow", Some(fresh.len()), |ui| {
+                    if ui.small_button("Refresh").clicked() {
+                        refresh = true;
+                    }
+                });
+                if refresh {
+                    self.fresh = Query::default();
+                }
+                ui.add_space(4.0);
+                let list: Vec<Track> = fresh.iter().take(6).cloned().collect();
+                for (i, t) in list.iter().enumerate() {
+                    let row = ui.horizontal(|ui| {
+                        let art = t.artwork("t300x300");
+                        images.show(ui, rt, art.as_deref(), 88.0);
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                let (badge, _) = ui.allocate_exact_size(
+                                    egui::vec2(38.0, 18.0),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter().rect_filled(
+                                    badge,
+                                    9.0,
+                                    egui::Color32::from_rgb(40, 40, 46),
+                                );
+                                ui.painter().text(
+                                    badge.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    "New",
+                                    egui::FontId::proportional(10.0),
+                                    egui::Color32::from_white_alpha(220),
+                                );
+                                let age = age_text(t.created_at.as_deref());
+                                if !age.is_empty() {
+                                    ui.label(egui::RichText::new(age).size(11.0).weak());
+                                }
+                            });
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(t.display_title())
+                                        .font(crate::theme::semibold(15.0)),
+                                )
+                                .truncate()
+                                .wrap_mode(egui::TextWrapMode::Truncate),
+                            );
+                            ui.label(egui::RichText::new(t.artist_name()).size(12.0).weak());
+                        });
+                    });
+                    let resp = ui.interact(
+                        row.response.rect,
+                        egui::Id::new(("lib-fresh-row", i)),
+                        egui::Sense::click(),
+                    );
+                    if resp.clicked() {
+                        action = LibraryAction::PlayList(list.clone(), i);
+                    } else if resp.secondary_clicked() {
+                        action = LibraryAction::OpenMenu(t.clone());
+                    }
+                    ui.add_space(6.0);
+                }
+            }
+        }
+
+        // ── Continue (履歴のレール) ──
+        let continue_tracks: Vec<Track> = self
+            .history
+            .data
+            .as_ref()
+            .map(|entries| entries.iter().map(history_entry_to_track).collect())
+            .unwrap_or_default();
+        let continue_preview: Vec<Track> = continue_tracks.iter().take(10).cloned().collect();
+        if !continue_preview.is_empty() {
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                widgets::ui_icon(
+                    ui,
+                    widgets::UiIcon::History,
+                    15.0,
+                    egui::Color32::from_white_alpha(160),
+                );
+                ui.label(
+                    egui::RichText::new("Continue").font(crate::theme::semibold(15.0)),
+                );
+            });
+            egui::ScrollArea::horizontal()
+                .id_salt("lib:continue")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for (i, t) in continue_preview.iter().enumerate() {
+                            let playing = widgets::is_currently_playing(player, t);
+                            let resp =
+                                widgets::track_card(ui, rt, images, t, 96.0, playing, accent);
+                            match widgets::hit_of(&resp) {
                                 widgets::RowHit::Clicked => {
-                                    action = LibraryAction::PlayList(fresh.clone(), i);
+                                    action =
+                                        LibraryAction::PlayList(continue_preview.clone(), i);
                                 }
                                 widgets::RowHit::Menu => {
-                                    action = LibraryAction::OpenMenu(track.clone());
+                                    action = LibraryAction::OpenMenu(t.clone());
                                 }
                                 widgets::RowHit::None => {}
                             }
                         }
                     });
-                ui.separator();
-            }
-        }
-
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.tab, LibraryTab::Likes, "Likes");
-            ui.selectable_value(&mut self.tab, LibraryTab::Playlists, "Playlists");
-            ui.selectable_value(&mut self.tab, LibraryTab::Following, "Following");
-            ui.selectable_value(&mut self.tab, LibraryTab::History, "History");
-        });
-        // React 版 (`LibraryCollection.tsx`) と同様、履歴タブにフィルタは無い。
-        if self.tab != LibraryTab::History {
-            ui.horizontal(|ui| {
-                ui.label("Filter:");
-                ui.text_edit_singleline(&mut self.filter);
-            });
-        }
-        ui.separator();
-
-        let needle = self.filter.trim().to_lowercase();
-
-        match self.tab {
-            LibraryTab::Likes => {
-                ui.horizontal(|ui| {
-                    widgets::section_header(ui, "Liked Tracks", Some(self.likes.items.len()));
-                    if ui.small_button("See all").clicked() {
-                        action = LibraryAction::Navigate(
-                            Route::LibraryCollection,
-                            Some("likes".to_string()),
-                        );
-                    }
-                    if ui.small_button("Shuffle").clicked() && !self.likes.items.is_empty() {
-                        action = LibraryAction::ShuffleLikes(self.likes.items.clone());
-                    }
                 });
-                if self.likes.q.loading && self.likes.items.is_empty() {
-                    widgets::loading(ui);
-                } else if let Some(err) = self.likes.q.error.clone() {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(255, 150, 150),
-                        format!("Likes unavailable: {err}"),
-                    );
-                } else if !self.likes.items.is_empty() {
-                    let rows: Vec<Track> = self
-                        .likes
-                        .items
-                        .iter()
-                        .filter(|t| {
-                            needle.is_empty()
-                                || t.title.to_lowercase().contains(&needle)
-                                || t.artist_name().to_lowercase().contains(&needle)
-                        })
-                        .cloned()
-                        .collect();
-                    if rows.is_empty() {
-                        widgets::empty_note(ui, "No liked tracks yet");
-                    } else {
-                        egui::ScrollArea::vertical()
-                            .id_salt("library:likes")
-                            .show(ui, |ui| {
-                                for (i, track) in rows.iter().enumerate() {
-                                    match Self::track_row(ui, rt, images, player, track, accent) {
-                                        widgets::RowHit::Clicked => {
-                                            // フィルタ無しのみ「いいね最後まで」継続。
-                                            action = if needle.is_empty() {
-                                                LibraryAction::PlayLikes(rows.clone(), i)
-                                            } else {
-                                                LibraryAction::PlayList(rows.clone(), i)
-                                            };
-                                        }
-                                        widgets::RowHit::Menu => {
-                                            action = LibraryAction::OpenMenu(track.clone());
-                                        }
-                                        widgets::RowHit::None => {}
-                                    }
-                                }
-                                if crate::pager::auto_load(
-                                    ui,
-                                    self.likes.q.loading,
-                                    self.likes.has_more,
-                                ) {
-                                    self.likes.fetch_page(rt, api, "/me/likes/tracks", 50);
-                                }
-                            });
-                        // フィルタ中は一致漏れを防ぐため残りページを自動取得する
-                        // (Tauri: LikesTab の Auto-fetch remaining pages)。
-                        if !needle.is_empty() && self.likes.has_more && !self.likes.q.loading {
-                            self.likes.fetch_page(rt, api, "/me/likes/tracks", 50);
-                        }
-                    }
-                }
-            }
-            LibraryTab::Playlists => {
-                ui.horizontal(|ui| {
-                    widgets::section_header(ui, "Playlists", None);
+        }
+
+        // ── Your Playlists ──
+        let pl_preview: Vec<Playlist> =
+            self.my_playlists.items.iter().take(12).cloned().collect();
+        if !pl_preview.is_empty() {
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                widgets::ui_icon(
+                    ui,
+                    widgets::UiIcon::Library,
+                    15.0,
+                    egui::Color32::from_white_alpha(160),
+                );
+                ui.label(
+                    egui::RichText::new("Your Playlists").font(crate::theme::semibold(15.0)),
+                );
+                ui.label(
+                    egui::RichText::new(self.my_playlists.items.len().to_string())
+                        .size(11.0)
+                        .weak(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("See all").clicked() {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
@@ -350,89 +558,83 @@ impl LibraryView {
                         );
                     }
                 });
-                if (self.my_playlists.q.loading && self.my_playlists.items.is_empty())
-                    || (self.liked_playlists.q.loading && self.liked_playlists.items.is_empty())
-                {
-                    widgets::loading(ui);
-                } else {
-                    if !self.my_playlists.items.is_empty() {
-                        let rows: Vec<Playlist> = self
-                            .my_playlists
-                            .items
-                            .iter()
-                            .filter(|p| {
-                                needle.is_empty() || p.title.to_lowercase().contains(&needle)
-                            })
-                            .cloned()
-                            .collect();
-                        if !rows.is_empty() {
-                            widgets::section_header(ui, "Your Playlists", Some(rows.len()));
-                            egui::ScrollArea::vertical()
-                                .id_salt("library:my-playlists")
-                                .max_height(280.0)
-                                .show(ui, |ui| {
-                                    for p in &rows {
-                                        if Self::playlist_row(ui, rt, images, p) {
-                                            action = LibraryAction::Navigate(
-                                                Route::Playlist,
-                                                Some(p.urn.clone()),
-                                            );
-                                        }
-                                    }
-                                    if crate::pager::auto_load(
-                                        ui,
-                                        self.my_playlists.q.loading,
-                                        self.my_playlists.has_more,
-                                    ) {
-                                        self.my_playlists.fetch_page(rt, api, "/me/playlists", 50);
-                                    }
-                                });
+            });
+            egui::ScrollArea::horizontal()
+                .id_salt("lib:my-playlists")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for p in &pl_preview {
+                            if playlist_card(ui, rt, images, p, 120.0).clicked() {
+                                action = LibraryAction::Navigate(
+                                    Route::Playlist,
+                                    Some(p.urn.clone()),
+                                );
+                            }
                         }
+                    });
+                });
+        }
+
+        // ── Liked Playlists ──
+        let liked_pl_preview: Vec<Playlist> =
+            self.liked_playlists.items.iter().take(12).cloned().collect();
+        if !liked_pl_preview.is_empty() {
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                widgets::ui_icon(
+                    ui,
+                    widgets::UiIcon::Bookmark,
+                    15.0,
+                    egui::Color32::from_white_alpha(160),
+                );
+                ui.label(
+                    egui::RichText::new("Liked Playlists")
+                        .font(crate::theme::semibold(15.0)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("See all").clicked() {
+                        action = LibraryAction::Navigate(
+                            Route::LibraryCollection,
+                            Some("playlists".to_string()),
+                        );
                     }
-                    if !self.liked_playlists.items.is_empty() {
-                        let rows: Vec<Playlist> = self
-                            .liked_playlists
-                            .items
-                            .iter()
-                            .filter(|p| {
-                                needle.is_empty() || p.title.to_lowercase().contains(&needle)
-                            })
-                            .cloned()
-                            .collect();
-                        if !rows.is_empty() {
-                            widgets::section_header(ui, "Liked Playlists", Some(rows.len()));
-                            egui::ScrollArea::vertical()
-                                .id_salt("library:liked-playlists")
-                                .max_height(280.0)
-                                .show(ui, |ui| {
-                                    for p in &rows {
-                                        if Self::playlist_row(ui, rt, images, p) {
-                                            action = LibraryAction::Navigate(
-                                                Route::Playlist,
-                                                Some(p.urn.clone()),
-                                            );
-                                        }
-                                    }
-                                    if crate::pager::auto_load(
-                                        ui,
-                                        self.liked_playlists.q.loading,
-                                        self.liked_playlists.has_more,
-                                    ) {
-                                        self.liked_playlists.fetch_page(
-                                            rt,
-                                            api,
-                                            "/me/likes/playlists",
-                                            50,
-                                        );
-                                    }
-                                });
+                });
+            });
+            egui::ScrollArea::horizontal()
+                .id_salt("lib:liked-playlists")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for p in &liked_pl_preview {
+                            if playlist_card(ui, rt, images, p, 120.0).clicked() {
+                                action = LibraryAction::Navigate(
+                                    Route::Playlist,
+                                    Some(p.urn.clone()),
+                                );
+                            }
                         }
-                    }
-                }
-            }
-            LibraryTab::Following => {
-                ui.horizontal(|ui| {
-                    widgets::section_header(ui, "Following", Some(self.followings.items.len()));
+                    });
+                });
+        }
+
+        // ── Artists (フォロー中) ──
+        let artist_preview: Vec<ScUser> =
+            self.followings.items.iter().take(14).cloned().collect();
+        if !artist_preview.is_empty() {
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                widgets::ui_icon(
+                    ui,
+                    widgets::UiIcon::Users,
+                    15.0,
+                    egui::Color32::from_white_alpha(160),
+                );
+                ui.label(egui::RichText::new("Artists").font(crate::theme::semibold(15.0)));
+                ui.label(
+                    egui::RichText::new(self.followings.items.len().to_string())
+                        .size(11.0)
+                        .weak(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("See all").clicked() {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
@@ -440,241 +642,154 @@ impl LibraryView {
                         );
                     }
                 });
-                if self.followings.q.loading && self.followings.items.is_empty() {
-                    widgets::loading(ui);
-                } else if let Some(err) = self.followings.q.error.clone() {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(255, 150, 150),
-                        format!("Following unavailable: {err}"),
-                    );
-                } else if !self.followings.items.is_empty() {
-                    let rows: Vec<ScUser> = self
-                        .followings
-                        .items
-                        .iter()
-                        .filter(|u| {
-                            needle.is_empty() || u.username.to_lowercase().contains(&needle)
-                        })
-                        .cloned()
-                        .collect();
-                    if rows.is_empty() {
-                        widgets::empty_note(ui, "You are not following anyone");
-                    } else {
-                        egui::ScrollArea::vertical()
-                            .id_salt("library:following")
-                            .show(ui, |ui| {
-                                for u in &rows {
-                                    if Self::user_row(ui, rt, images, u) {
-                                        action = LibraryAction::Navigate(
-                                            Route::User,
-                                            Some(u.urn.clone()),
-                                        );
-                                    }
-                                }
-                                if crate::pager::auto_load(
-                                    ui,
-                                    self.followings.q.loading,
-                                    self.followings.has_more,
-                                ) {
-                                    self.followings.fetch_page(rt, api, "/me/followings", 50);
-                                }
-                            });
-                    }
-                }
-            }
-            LibraryTab::History => {
-                ui.horizontal(|ui| {
-                    widgets::section_header(ui, "History", None);
+            });
+            egui::ScrollArea::horizontal()
+                .id_salt("lib:artists")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for u in &artist_preview {
+                            if artist_card(ui, rt, images, u).clicked() {
+                                action =
+                                    LibraryAction::Navigate(Route::User, Some(u.urn.clone()));
+                            }
+                        }
+                    });
+                });
+        }
+
+        // ── Liked Tracks (ジャンルフィルタ適用) ──
+        let likes_preview: Vec<Track> = self
+            .likes
+            .items
+            .iter()
+            .filter(|t| genre_match(&self.genre, t.genre.as_deref()))
+            .take(12)
+            .cloned()
+            .collect();
+        if !likes_preview.is_empty() {
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                widgets::ui_icon(
+                    ui,
+                    widgets::UiIcon::Heart,
+                    15.0,
+                    egui::Color32::from_white_alpha(160),
+                );
+                ui.label(
+                    egui::RichText::new("Liked Tracks").font(crate::theme::semibold(15.0)),
+                );
+                ui.label(
+                    egui::RichText::new(self.likes.items.len().to_string())
+                        .size(11.0)
+                        .weak(),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("See all").clicked() {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
-                            Some("history".to_string()),
+                            Some("likes".to_string()),
                         );
                     }
                 });
-                if self.history.loading && self.history.data.is_none() {
-                    widgets::loading(ui);
-                } else if let Some(err) = self.history.error.clone() {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(255, 150, 150),
-                        format!("History unavailable: {err}"),
-                    );
-                } else if let Some(entries) = self.history.data.clone() {
-                    if entries.is_empty() {
-                        widgets::empty_note(ui, "No listening history");
-                    } else {
-                        egui::ScrollArea::vertical()
-                            .id_salt("library:history")
-                            .show(ui, |ui| {
-                                let tracks: Vec<Track> =
-                                    entries.iter().map(history_entry_to_track).collect();
-                                for (i, entry) in entries.iter().enumerate() {
-                                    match Self::history_row(ui, rt, images, player, entry) {
-                                        widgets::RowHit::Clicked => {
-                                            action = LibraryAction::PlayList(tracks.clone(), i);
-                                        }
-                                        widgets::RowHit::Menu => {
-                                            action = LibraryAction::OpenMenu(
-                                                history_entry_to_track(entry),
-                                            );
-                                        }
-                                        widgets::RowHit::None => {}
-                                    }
+            });
+            egui::ScrollArea::horizontal()
+                .id_salt("lib:likes")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for (i, t) in likes_preview.iter().enumerate() {
+                            let playing = widgets::is_currently_playing(player, t);
+                            let resp =
+                                widgets::track_card(ui, rt, images, t, 112.0, playing, accent);
+                            match widgets::hit_of(&resp) {
+                                widgets::RowHit::Clicked => {
+                                    action = LibraryAction::PlayLikes(likes_preview.clone(), i);
                                 }
-                            });
-                    }
-                }
-            }
+                                widgets::RowHit::Menu => {
+                                    action = LibraryAction::OpenMenu(t.clone());
+                                }
+                                widgets::RowHit::None => {}
+                            }
+                        }
+                    });
+                });
+        }
+
+        // フォロワー数などの簡易フッタ (サウンドプリントの補足)。
+        if self.likes.items.is_empty() && !self.likes.q.loading {
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} liked tracks — {}",
+                    self.likes.items.len(),
+                    fmt_duration(
+                        self.likes.items.iter().map(|t| t.duration).sum::<i64>()
+                    )
+                ))
+                .size(11.0)
+                .weak(),
+            );
         }
 
         action
     }
+}
 
-    /// 1トラック行。戻り値は再生クリックされたか (対応: `LibraryTrackRow.tsx` 簡略)。
-    fn track_row(
-        ui: &mut egui::Ui,
-        rt: &tokio::runtime::Handle,
-        images: &mut Images,
-        player: &PlayerState,
-        track: &Track,
-        accent: egui::Color32,
-    ) -> widgets::RowHit {
-        let playing = widgets::is_currently_playing(player, track);
-        let dur = fmt_duration(track.duration);
-        widgets::hit_of(&widgets::track_row(
+/// プレイリストカード (レール用)。戻り値はクリック応答。
+fn playlist_card(
+    ui: &mut egui::Ui,
+    rt: &tokio::runtime::Handle,
+    images: &mut Images,
+    p: &Playlist,
+    size: f32,
+) -> egui::Response {
+    ui.vertical(|ui| {
+        ui.set_max_width(size + 8.0);
+        let art = p.artwork("t300x300");
+        let resp = images.show(ui, rt, art.as_deref(), size);
+        let title = ui.add(
+            egui::Label::new(&p.title)
+                .truncate()
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .sense(egui::Sense::click()),
+        );
+        let mut merged = resp.union(title);
+        if let Some(u) = p.user.as_ref() {
+            let user = ui.add(
+                egui::Label::new(egui::RichText::new(&u.username).size(11.0).weak())
+                    .truncate()
+                    .wrap_mode(egui::TextWrapMode::Truncate)
+                    .sense(egui::Sense::click()),
+            );
+            merged = merged.union(user);
+        }
+        merged
+    })
+    .inner
+}
+
+/// アーティストのミニカード (円形アバター + 名前)。
+fn artist_card(
+    ui: &mut egui::Ui,
+    rt: &tokio::runtime::Handle,
+    images: &mut Images,
+    u: &ScUser,
+) -> egui::Response {
+    ui.vertical_centered(|ui| {
+        ui.set_max_width(88.0);
+        let resp = images.show_rounded(
             ui,
             rt,
-            images,
-            track,
-            playing,
-            accent,
-            Some(&dur),
-        ))
-    }
-
-    /// 1プレイリスト行。戻り値は遷移クリックされたか。
-    fn playlist_row(
-        ui: &mut egui::Ui,
-        rt: &tokio::runtime::Handle,
-        images: &mut Images,
-        playlist: &Playlist,
-    ) -> bool {
-        let mut clicked = false;
-        ui.horizontal(|ui| {
-            let art = playlist.artwork("t200x200");
-            if images.show(ui, rt, art.as_deref(), 48.0).clicked() {
-                clicked = true;
-            }
-            ui.vertical(|ui| {
-                ui.set_max_width(320.0);
-                ui.add(
-                    egui::Label::new(&playlist.title)
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-                if let Some(user) = playlist.user.as_ref() {
-                    ui.label(&user.username);
-                }
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Open").clicked() {
-                    clicked = true;
-                }
-            });
-        });
-        clicked
-    }
-
-    /// 1ユーザ行。戻り値は遷移クリックされたか (対応: `UserCard.tsx` 簡略)。
-    fn user_row(
-        ui: &mut egui::Ui,
-        rt: &tokio::runtime::Handle,
-        images: &mut Images,
-        user: &ScUser,
-    ) -> bool {
-        let mut clicked = false;
-        ui.horizontal(|ui| {
-            if images
-                .show(ui, rt, user.avatar_url.as_deref(), 40.0)
-                .clicked()
-            {
-                clicked = true;
-            }
-            ui.vertical(|ui| {
-                ui.set_max_width(320.0);
-                ui.add(
-                    egui::Label::new(&user.username)
-                        .truncate()
-                        .wrap_mode(egui::TextWrapMode::Truncate),
-                );
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Open").clicked() {
-                    clicked = true;
-                }
-            });
-        });
-        clicked
-    }
-
-    /// 1履歴行。戻り値は再生クリックされたか (対応: `HistoryTab.tsx` 簡略)。
-    fn history_row(
-        ui: &mut egui::Ui,
-        rt: &tokio::runtime::Handle,
-        images: &mut Images,
-        player: &PlayerState,
-        entry: &HistoryEntry,
-    ) -> widgets::RowHit {
-        // `HistoryEntry` は `Track` ではないため行描画は手書きのまま。
-        // 判定のみ共通化 (`Track` へ変換してタイトル一致を見る)。
-        let probe = history_entry_to_track(entry);
-        let is_current = widgets::is_currently_playing(player, &probe);
-        let mut clicked = false;
-        let mut art_secondary = false;
-        let row = ui
-            .horizontal(|ui| {
-                let img = images.show(ui, rt, entry.artwork_url.as_deref(), 40.0);
-                if img.clicked() {
-                    clicked = true;
-                }
-                art_secondary = img.secondary_clicked();
-                ui.vertical(|ui| {
-                    ui.set_max_width(320.0);
-                    let title = if is_current {
-                        format!("▶ {}", entry.title)
-                    } else {
-                        entry.title.clone()
-                    };
-                    ui.add(
-                        egui::Label::new(title)
-                            .truncate()
-                            .wrap_mode(egui::TextWrapMode::Truncate),
-                    );
-                    ui.add(
-                        egui::Label::new(&entry.artist_name)
-                            .truncate()
-                            .wrap_mode(egui::TextWrapMode::Truncate),
-                    );
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("▶").clicked() {
-                        clicked = true;
-                    }
-                    if let Some(played) = entry.played_at.as_deref() {
-                        let short: String = played.chars().take(16).collect();
-                        ui.label(short);
-                    }
-                });
-            })
-            .response
-            .interact(egui::Sense::click());
-        let _ = &entry.id;
-        if clicked {
-            widgets::RowHit::Clicked
-        } else if row.secondary_clicked() || art_secondary {
-            widgets::RowHit::Menu
-        } else {
-            widgets::RowHit::None
-        }
-    }
+            u.avatar_url.as_deref(),
+            64.0,
+            egui::CornerRadius::same(32),
+        );
+        let label = ui.add(
+            egui::Label::new(&u.username)
+                .truncate()
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .sense(egui::Sense::click()),
+        );
+        resp.union(label)
+    })
+    .inner
 }

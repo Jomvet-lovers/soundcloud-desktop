@@ -82,6 +82,50 @@ pub fn primary_button(ui: &mut egui::Ui, text: &str, accent: egui::Color32) -> e
     ui.add(egui::Button::new(egui::RichText::new(text).color(text_color)).fill(accent))
 }
 
+/// ヒーロー用の円形再生ボタン (Tauri: RoomHero/PlaylistHero の 68px 円)。
+/// 枠線 + 白グリフのアウトライン円。
+pub fn hero_play_button(
+    ui: &mut egui::Ui,
+    playing: bool,
+    enabled: bool,
+    size: f32,
+) -> egui::Response {
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(size), sense);
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let painter = ui.painter();
+    let stroke_color = if !enabled {
+        egui::Color32::from_white_alpha(40)
+    } else if resp.hovered() {
+        egui::Color32::from_white_alpha(110)
+    } else {
+        egui::Color32::from_white_alpha(46)
+    };
+    painter.circle_stroke(
+        rect.center(),
+        size * 0.5 - 1.0,
+        egui::Stroke::new(1.0, stroke_color),
+    );
+    let color = if enabled {
+        egui::Color32::from_white_alpha(230)
+    } else {
+        egui::Color32::from_white_alpha(60)
+    };
+    let icon = if playing {
+        TransportIcon::Pause
+    } else {
+        TransportIcon::Play
+    };
+    paint_transport_glyph(painter, rect, icon, color, size * 0.42);
+    resp
+}
+
 /// トランスポート用アイコン (フォント非依存で自作描画)。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum TransportIcon {
@@ -107,6 +151,10 @@ pub enum UiIcon {
     Maximize,
     Close,
     Cloud,
+    Heart,
+    Bookmark,
+    Users,
+    Refresh,
 }
 
 /// アイコンを描いて応答を返す (クリックは呼出側で付ける)。
@@ -290,6 +338,85 @@ pub fn paint_ui_icon(
                 s * 0.08,
                 color,
             );
+        }
+        UiIcon::Heart => {
+            let r = s * 0.16;
+            painter.circle_filled(c + egui::Vec2::new(-r * 0.85, -r * 0.55), r, color);
+            painter.circle_filled(c + egui::Vec2::new(r * 0.85, -r * 0.55), r, color);
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(-r * 1.80, -r * 0.10),
+                    c + egui::Vec2::new(r * 1.80, -r * 0.10),
+                    c + egui::Vec2::new(0.0, r * 1.55),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        UiIcon::Bookmark => {
+            let w = s * 0.24;
+            let h = s * 0.34;
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(-w, -h),
+                    c + egui::Vec2::new(w, -h),
+                    c + egui::Vec2::new(w, h),
+                    c + egui::Vec2::new(0.0, h * 0.45),
+                    c + egui::Vec2::new(-w, h),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        UiIcon::Users => {
+            let r = s * 0.14;
+            painter.circle_filled(c + egui::Vec2::new(-r * 0.7, -r * 0.9), r, color);
+            painter.circle_filled(c + egui::Vec2::new(r * 1.1, -r * 0.6), r * 0.8, color);
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(-r * 2.0, r * 1.5),
+                    c + egui::Vec2::new(-r * 2.0, r * 0.5),
+                    c + egui::Vec2::new(0.0, r * 0.2),
+                    c + egui::Vec2::new(r * 0.6, r * 0.6),
+                    c + egui::Vec2::new(r * 0.6, r * 1.5),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(r * 0.8, r * 1.5),
+                    c + egui::Vec2::new(r * 0.8, r * 0.8),
+                    c + egui::Vec2::new(r * 2.0, r * 0.5),
+                    c + egui::Vec2::new(r * 2.4, r * 1.5),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        UiIcon::Refresh => {
+            // 円弧 + 矢印 (簡易)。
+            let r = s * 0.26;
+            let mut pts = Vec::new();
+            for k in 0..24 {
+                let a = -std::f32::consts::FRAC_PI_2
+                    + std::f32::consts::TAU * k as f32 / 24.0 * 0.8;
+                pts.push(c + egui::Vec2::new(a.cos() * r, a.sin() * r));
+            }
+            painter.add(egui::Shape::line(pts, egui::Stroke::new(1.4, color)));
+            let tip = c + egui::Vec2::new(
+                (-std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * 0.8).cos() * r,
+                (-std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * 0.8).sin() * r,
+            );
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    tip + egui::Vec2::new(-s * 0.10, -s * 0.02),
+                    tip + egui::Vec2::new(s * 0.04, -s * 0.10),
+                    tip + egui::Vec2::new(s * 0.02, s * 0.06),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
         }
     }
 }
