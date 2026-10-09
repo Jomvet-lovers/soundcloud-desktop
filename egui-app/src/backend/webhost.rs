@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
@@ -39,10 +39,28 @@ pub fn clear_host() {
 }
 
 pub const LOGIN_HOME: &str = "https://soundcloud.com/signin";
-pub const WRITER_HOME: &str = "https://soundcloud.com/";
+pub const WRITER_HOME: &str = "https://soundcloud.com/404";
 const COOKIE_URL: &str = "https://soundcloud.com/";
 
 type Reply<T> = oneshot::Sender<T>;
+
+/// WebView2 の環境引数。環境は最初に作られた webview の指定で固定される。
+/// 非表示の writer とログイン窓しか使わないため、既定の軽量化フラグのみ渡す。
+const BROWSER_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+
+/// Windows (WebView2) のみ browser args を適用する。他 OS では素通し。
+fn with_browser_args(builder: wry::WebViewBuilder<'_>) -> wry::WebViewBuilder<'_> {
+    #[cfg(windows)]
+    {
+        use wry::WebViewBuilderExtWindows;
+        builder.with_additional_browser_args(BROWSER_ARGS)
+    }
+    #[cfg(not(windows))]
+    {
+        builder
+    }
+}
 
 #[derive(Clone, Copy)]
 enum Target {
@@ -486,29 +504,20 @@ pub fn run_child_main(profile_dir: PathBuf) -> ! {
 
     let mut context = wry::WebContext::new(Some(profile_dir));
     eprintln!("[wry-host] webcontext ok");
-    let build_window = |title: &str, w: f64, h: f64| {
-        tao::window::WindowBuilder::new()
-            .with_title(title)
-            .with_inner_size(tao::dpi::LogicalSize::new(w, h))
-            .with_visible(false)
-            .build(&event_loop)
-            .map_err(|e| format!("window: {e}"))
-    };
-    let login_window = build_window("SoundCloud", 1000.0, 800.0).expect("login window");
-    eprintln!("[wry-host] login window ok");
-    let writer_window = build_window("SoundCloud session", 520.0, 680.0).expect("writer window");
+    // writer は常設 (書き込み同期に必要)。ログイン窓は必要になるまで作らない
+    // (サインイン済みの通常利用では signin の SPA を読み込まない)。
+    let writer_window = tao::window::WindowBuilder::new()
+        .with_title("SoundCloud session")
+        .with_inner_size(tao::dpi::LogicalSize::new(520.0, 680.0))
+        .with_visible(false)
+        .build(&event_loop)
+        .expect("writer window");
     eprintln!("[wry-host] writer window ok");
-    let login_id = login_window.id();
-    let writer_id = writer_window.id();
-    let login_wv = wry::WebViewBuilder::new_with_web_context(&mut context)
-        .with_url(LOGIN_HOME)
-        .build(&login_window)
-        .expect("login webview");
-    eprintln!("[wry-host] login webview ok");
-    let writer_wv = wry::WebViewBuilder::new_with_web_context(&mut context)
-        .with_url(WRITER_HOME)
-        .build(&writer_window)
-        .expect("writer webview");
+    let writer_wv = with_browser_args(
+        wry::WebViewBuilder::new_with_web_context(&mut context).with_url(WRITER_HOME),
+    )
+    .build(&writer_window)
+    .expect("writer webview");
     eprintln!("[wry-host] writer webview ok");
 
     // NOTE: bind/port 通知は window 構築の後。親はこの行を読んでから接続する。
@@ -539,115 +548,237 @@ pub fn run_child_main(profile_dir: PathBuf) -> ! {
     let pump_proxy = loop_proxy.clone();
     std::thread::spawn(move || pump_tcp(stream, pump_proxy, rt_handle));
 
-    let mut login_visible = false;
-    let mut writer_visible = false;
+    let mut state = ChildState {
+        context,
+        login: None,
+        writer_window,
+        writer_wv,
+        login_visible: false,
+        writer_visible: false,
+    };
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, event_loop, control_flow| {
         use tao::event::{Event, WindowEvent};
         *control_flow = tao::event_loop::ControlFlow::Wait;
-        let pick = |t: Target| {
-            if matches!(t, Target::Login) {
-                (&login_window, &login_wv)
-            } else {
-                (&writer_window, &writer_wv)
-            }
-        };
         match event {
-            Event::UserEvent(cmd) => match cmd {
-                HostCmd::Eval { target, js, reply } => {
-                    let (_, wv) = pick(target);
-                    let _ = reply.send(wv.evaluate_script(&js).map_err(|e| e.to_string()));
+            Event::UserEvent(cmd) => handle_cmd(&mut state, event_loop, cmd),
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                window_id,
+                ..
+            } => {
+                if state.login.as_ref().map(|(w, _)| w.id()) == Some(window_id) {
+                    if let Some((w, _)) = &state.login {
+                        w.set_visible(false);
+                    }
+                    state.login_visible = false;
+                } else if state.writer_window.id() == window_id {
+                    state.writer_window.set_visible(false);
+                    state.writer_visible = false;
                 }
-                HostCmd::Cookies { target, reply } => {
-                    let (_, wv) = pick(target);
-                    let out = wv
-                        .cookies_for_url(COOKIE_URL)
-                        .map(|cs| {
-                            cs.into_iter()
-                                .map(|c| (c.name().to_string(), c.value().to_string()))
-                                .collect()
-                        })
-                        .map_err(|e| e.to_string());
-                    let _ = reply.send(out);
+            }
+            _ => {}
+        }
+    });
+}
+
+/// 子プロセスの webview 状態 (login は遅延生成)。
+struct ChildState {
+    context: wry::WebContext,
+    login: Option<(tao::window::Window, wry::WebView)>,
+    writer_window: tao::window::Window,
+    writer_wv: wry::WebView,
+    login_visible: bool,
+    writer_visible: bool,
+}
+
+fn cmd_targets_login(cmd: &HostCmd) -> bool {
+    let t = match cmd {
+        HostCmd::Eval { target, .. }
+        | HostCmd::Cookies { target, .. }
+        | HostCmd::SetCookie { target, .. }
+        | HostCmd::ClearBrowsing { target, .. }
+        | HostCmd::Navigate { target, .. }
+        | HostCmd::CurrentUrl { target, .. }
+        | HostCmd::Show { target }
+        | HostCmd::Hide { target }
+        | HostCmd::Focus { target }
+        | HostCmd::SetOnTop { target, .. }
+        | HostCmd::IsVisible { target, .. } => target,
+    };
+    matches!(t, Target::Login)
+}
+
+/// 遅延生成: ログイン窓 + webview を作る。
+fn ensure_login(
+    event_loop: &tao::event_loop::EventLoopWindowTarget<HostCmd>,
+    context: &mut wry::WebContext,
+    login: &mut Option<(tao::window::Window, wry::WebView)>,
+) -> Result<(), String> {
+    if login.is_some() {
+        return Ok(());
+    }
+    let window = tao::window::WindowBuilder::new()
+        .with_title("SoundCloud")
+        .with_inner_size(tao::dpi::LogicalSize::new(1000.0, 800.0))
+        .with_visible(false)
+        .build(event_loop)
+        .map_err(|e| format!("login window: {e}"))?;
+    let wv = with_browser_args(
+        wry::WebViewBuilder::new_with_web_context(context).with_url(LOGIN_HOME),
+    )
+    .build(&window)
+    .map_err(|e| format!("login webview: {e}"))?;
+    *login = Some((window, wv));
+    eprintln!("[wry-host] login window created (lazy)");
+    Ok(())
+}
+
+/// コマンドを処理する。ログイン webview が必要なら先に作る。
+fn handle_cmd(
+    state: &mut ChildState,
+    event_loop: &tao::event_loop::EventLoopWindowTarget<HostCmd>,
+    cmd: HostCmd,
+) {
+    if state.login.is_none() && cmd_targets_login(&cmd) {
+        match cmd {
+            // 照会系は生成せずに既定値を返す。
+            HostCmd::IsVisible { reply, .. } => {
+                let _ = reply.send(Ok(false));
+                return;
+            }
+            HostCmd::Hide { .. } => {
+                state.login_visible = false;
+                return;
+            }
+            cmd => {
+                if let Err(e) = ensure_login(event_loop, &mut state.context, &mut state.login) {
+                    eprintln!("[wry-host] {e}");
                 }
-                HostCmd::SetCookie {
-                    target,
-                    name,
-                    value,
-                    reply,
-                } => {
-                    let (_, wv) = pick(target);
+                handle_cmd_ready(state, cmd);
+            }
+        }
+        return;
+    }
+    handle_cmd_ready(state, cmd);
+}
+
+/// 対象の webview (ログイン未生成なら None)。
+fn wv_of<'a>(state: &'a ChildState, target: Target) -> Option<&'a wry::WebView> {
+    match target {
+        Target::Login => state.login.as_ref().map(|(_, wv)| wv),
+        Target::Writer => Some(&state.writer_wv),
+    }
+}
+
+/// 対象のウィンドウ (ログイン未生成なら None)。
+fn win_of<'a>(state: &'a ChildState, target: Target) -> Option<&'a tao::window::Window> {
+    match target {
+        Target::Login => state.login.as_ref().map(|(w, _)| w),
+        Target::Writer => Some(&state.writer_window),
+    }
+}
+
+fn handle_cmd_ready(state: &mut ChildState, cmd: HostCmd) {
+    match cmd {
+        HostCmd::Eval { target, js, reply } => {
+            let out = match wv_of(state, target) {
+                Some(w) => w.evaluate_script(&js).map_err(|e| e.to_string()),
+                None => Err("login webview not open".into()),
+            };
+            let _ = reply.send(out);
+        }
+        HostCmd::Cookies { target, reply } => {
+            let out = match wv_of(state, target) {
+                Some(w) => w
+                    .cookies_for_url(COOKIE_URL)
+                    .map(|cs| {
+                        cs.into_iter()
+                            .map(|c| (c.name().to_string(), c.value().to_string()))
+                            .collect()
+                    })
+                    .map_err(|e| e.to_string()),
+                None => Err("login webview not open".into()),
+            };
+            let _ = reply.send(out);
+        }
+        HostCmd::SetCookie {
+            target,
+            name,
+            value,
+            reply,
+        } => {
+            let out = match wv_of(state, target) {
+                Some(w) => {
                     let cookie = cookie::Cookie::build((name, value))
                         .domain(".soundcloud.com")
                         .path("/")
                         .secure(true)
                         .http_only(true)
                         .build();
-                    let _ = reply.send(wv.set_cookie(&cookie).map_err(|e| e.to_string()));
+                    w.set_cookie(&cookie).map_err(|e| e.to_string())
                 }
-                HostCmd::ClearBrowsing { target, reply } => {
-                    let (_, wv) = pick(target);
-                    let _ = reply.send(wv.clear_all_browsing_data().map_err(|e| e.to_string()));
-                }
-                HostCmd::Navigate { target, url, reply } => {
-                    let (_, wv) = pick(target);
-                    let _ = reply.send(wv.load_url(&url).map_err(|e| e.to_string()));
-                }
-                HostCmd::CurrentUrl { target, reply } => {
-                    let (_, wv) = pick(target);
-                    let _ = reply.send(wv.url().map_err(|e| e.to_string()));
-                }
-                HostCmd::Show { target } => {
-                    let (w, _) = pick(target);
-                    w.set_visible(true);
-                    if matches!(target, Target::Login) {
-                        login_visible = true;
-                    } else {
-                        writer_visible = true;
-                    }
-                }
-                HostCmd::Hide { target } => {
-                    let (w, _) = pick(target);
-                    w.set_visible(false);
-                    if matches!(target, Target::Login) {
-                        login_visible = false;
-                    } else {
-                        writer_visible = false;
-                    }
-                }
-                HostCmd::Focus { target } => {
-                    let (w, _) = pick(target);
-                    w.set_focus();
-                }
-                HostCmd::SetOnTop { target, top } => {
-                    let (w, _) = pick(target);
-                    w.set_always_on_top(top);
-                }
-                HostCmd::IsVisible { target, reply } => {
-                    let v = if matches!(target, Target::Login) {
-                        login_visible
-                    } else {
-                        writer_visible
-                    };
-                    let _ = reply.send(Ok(v));
-                }
-            },
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                window_id,
-                ..
-            } => {
-                if window_id == login_id {
-                    login_window.set_visible(false);
-                    login_visible = false;
-                } else if window_id == writer_id {
-                    writer_window.set_visible(false);
-                    writer_visible = false;
-                }
-            }
-            _ => {}
+                None => Err("login webview not open".into()),
+            };
+            let _ = reply.send(out);
         }
-    });
+        HostCmd::ClearBrowsing { target, reply } => {
+            let out = match wv_of(state, target) {
+                Some(w) => w.clear_all_browsing_data().map_err(|e| e.to_string()),
+                None => Err("login webview not open".into()),
+            };
+            let _ = reply.send(out);
+        }
+        HostCmd::Navigate { target, url, reply } => {
+            let out = match wv_of(state, target) {
+                Some(w) => w.load_url(&url).map_err(|e| e.to_string()),
+                None => Err("login webview not open".into()),
+            };
+            let _ = reply.send(out);
+        }
+        HostCmd::CurrentUrl { target, reply } => {
+            let out = match wv_of(state, target) {
+                Some(w) => w.url().map_err(|e| e.to_string()),
+                None => Err("login webview not open".into()),
+            };
+            let _ = reply.send(out);
+        }
+        HostCmd::Show { target } => {
+            if let Some(w) = win_of(state, target) {
+                w.set_visible(true);
+            }
+            match target {
+                Target::Login => state.login_visible = true,
+                Target::Writer => state.writer_visible = true,
+            }
+        }
+        HostCmd::Hide { target } => {
+            if let Some(w) = win_of(state, target) {
+                w.set_visible(false);
+            }
+            match target {
+                Target::Login => state.login_visible = false,
+                Target::Writer => state.writer_visible = false,
+            }
+        }
+        HostCmd::Focus { target } => {
+            if let Some(w) = win_of(state, target) {
+                w.set_focus();
+            }
+        }
+        HostCmd::SetOnTop { target, top } => {
+            if let Some(w) = win_of(state, target) {
+                w.set_always_on_top(top);
+            }
+        }
+        HostCmd::IsVisible { target, reply } => {
+            let v = match target {
+                Target::Login => state.login_visible,
+                Target::Writer => state.writer_visible,
+            };
+            let _ = reply.send(Ok(v));
+        }
+    }
 }
 
 /// TCP 要求を tao loop へ中継し、応答を返す (子プロセス側)。
