@@ -518,3 +518,42 @@ smoke モード (どちらも表示環境用。CI では不可):
 - **残差 (監査 002 候補)**: 検索カード右上の操作群の位置 (Tauri は like が左上で
   右上は playlist/queue/share)、トースト通知、view-transition、TrackCard の ring。
   online/offline 表示はセッション有無を代理指標 (connectivity ストアが無い)。
+
+### 8.17 スライダー全廃 + 右クリック拡張 (2026-10-10 未明)
+
+ユーザー指摘「再生バー・音量バー・イコライザーにピル型 / 右クリック機能がない /
+全体の互換性をチェック」への対応 (コミット `7b4b0c39`)。詳細:
+`anti-slop/audit-002-2026-10-10.md`。
+
+- **egui 標準 Slider を全廃** (使用箇所 0)。Tauri 実機のピクセル計測に基づく
+  自作 3 種へ置換:
+  - `widgets::range_slider` = `input[type=range]` 相当 (4px トラック +
+    白 50% 枠 + 白 20% コア + アクセント充填 + 15px 円サム)。
+    バーのシーク / 音量 (96px) / チューニングの Speed・Pitch に適用。
+  - `widgets::eq_band_slider` = Tauri BandSlider (3px レール + 緑/青 充填 +
+    16px サム、0.5dB 刻み)。
+  - `widgets::plain_range_slider` = 設定の RangeSlider (白 10% トラック +
+    16px 白サム)。Settings の壁紙 3 種 + キャッシュ上限に適用。
+- **イコライザーを `egui::Modal` + Tauri `EqualizerPanel` 準拠に再構築**:
+  中央モーダル (black 70% 背景 / 角丸 28 / #141417 / 幅 520)、ヘッダー
+  (audio-lines タイル + 電源 / リセット / 閉じる)、dB ラベル + 10 バンド、
+  プリセットチップ (選択 = 白背景 + 黒文字、一致なしは Custom)、OFF 時 30% 減光。
+  実機スクショで一致を確認。
+- **右クリックを Tauri の全箇所に拡張**: 再生バー左 (トラック) / バーの
+  アーティスト (ユーザー) / サイドバー pin (プレイリスト: Go to playlist /
+  Copy link / Remove from Quick Access) / カード・行・トラックヒーローの
+  アーティスト名 (ユーザーメニュー)。ウィジェット→shell は
+  `widgets::MenuRequest` キューで受け渡し。
+  メニュー外観は Tauri `TrackContextMenu` に一致 (236px / 角丸 12 / #141417 /
+  項目 40px・アイコン 15px)。トラックメニュー先頭 4 項目は Tauri と同一
+  (like / Add to Next up / Add to playlist / Share)。Tauri に無い既存項目は
+  区切りの下に残置 (削除可否は要確認)。
+- **バー修正**: EQ/Tune アイコン入れ替え (Sliders / AudioLines)、新規アイコン
+  6 種、File 行撤去、上端 hairline、アート角丸 6、Like を hover 表示の
+  32px ハートに。
+- **実機検証**: バー (スライダー・アイコン・再生中の充填)、チューニング窓、
+  EQ モーダル、トラック右クリックメニューをスクショ確認。プレイリスト/
+  ユーザーメニュー・Settings スライダーはユーザー確認へ。
+- **ビルドメモ**: sccache が rustc を落とす (ICE / STATUS_ACCESS_VIOLATION)
+  ため `$env:RUSTC_WRAPPER=""` で迂回。`SetWindowPos` は wgpu Surface パニック
+  (height 65535) を起こすので使わない (手動ドラッグリサイズは正常)。
