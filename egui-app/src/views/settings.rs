@@ -45,6 +45,17 @@ impl SettingsCategory {
             SettingsCategory::Account => "Account",
         }
     }
+
+    fn icon(self) -> crate::widgets::UiIcon {
+        use crate::widgets::UiIcon;
+        match self {
+            SettingsCategory::General => UiIcon::Settings,
+            SettingsCategory::Appearance => UiIcon::Cloud,
+            SettingsCategory::Audio => UiIcon::Library,
+            SettingsCategory::Storage => UiIcon::Offline,
+            SettingsCategory::Account => UiIcon::Users,
+        }
+    }
 }
 
 /// `StartupCard` の PAGES 対応 (in-memory)。
@@ -123,36 +134,59 @@ impl SettingsView {
         let _ = player;
         let _ = param;
 
-        ui.heading("Settings");
-        ui.separator();
-        ui.horizontal(|ui| {
-            for cat in SettingsCategory::ALL {
-                if ui.selectable_label(self.active == *cat, cat.title()).clicked() {
-                    self.active = *cat;
+        // 左: カテゴリナビ (アイコン付き) / 右: 内容 (Tauri: Settings.tsx)。
+        let nav_w = 210.0;
+        ui.horizontal_top(|ui| {
+            let _ = ui.allocate_ui_with_layout(
+                egui::vec2(nav_w, 10.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_max_width(nav_w);
+                    for cat in SettingsCategory::ALL {
+                        if crate::widgets::nav_item(
+                            ui,
+                            cat.icon(),
+                            cat.title(),
+                            self.active == *cat,
+                        )
+                        .clicked()
+                        {
+                            self.active = *cat;
+                        }
+                    }
+                },
+            );
+            ui.add_space(18.0);
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Settings").size(11.0).weak());
+                ui.add(egui::Label::new(
+                    egui::RichText::new(self.active.title())
+                        .font(crate::theme::semibold(28.0)),
+                ));
+                ui.add_space(4.0);
+                match self.active {
+                    SettingsCategory::General => self.show_general(settings, rt, ui),
+                    SettingsCategory::Appearance => self.show_appearance(settings, ui),
+                    SettingsCategory::Audio => self.show_audio(settings, audio, ui),
+                    SettingsCategory::Storage => self.show_storage(cache, settings, ui),
+                    SettingsCategory::Account => Self::show_account(api, settings, ui),
                 }
-            }
-        });
-        ui.separator();
-
-        match self.active {
-            SettingsCategory::General => self.show_general(settings, rt, ui),
-            SettingsCategory::Appearance => self.show_appearance(settings, ui),
-            SettingsCategory::Audio => self.show_audio(settings, audio, ui),
-            SettingsCategory::Storage => self.show_storage(cache, settings, ui),
-            SettingsCategory::Account => Self::show_account(api, settings, ui),
-        }
-
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button("Save").clicked() {
-                match crate::backend::prefs::save(settings) {
-                    Ok(()) => self.save_status = Some("Saved".to_string()),
-                    Err(e) => self.save_status = Some(format!("Save failed: {e}")),
-                }
-            }
-            if let Some(status) = self.save_status.as_deref() {
-                ui.label(status);
-            }
+                ui.add_space(10.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        match crate::backend::prefs::save(settings) {
+                            Ok(()) => self.save_status = Some("Saved".to_string()),
+                            Err(e) => {
+                                self.save_status = Some(format!("Save failed: {e}"))
+                            }
+                        }
+                    }
+                    if let Some(status) = self.save_status.as_deref() {
+                        ui.label(status);
+                    }
+                });
+            });
         });
 
         SettingsAction::None
@@ -169,9 +203,12 @@ impl SettingsView {
         ui.label("Choose which page opens when the app launches (signed-in only)");
         ui.horizontal_wrapped(|ui| {
             for page in StartupPage::ALL {
-                if ui
-                    .selectable_label(settings.startup_page == page.key(), page.title())
-                    .clicked()
+                if crate::widgets::tab_button(
+                    ui,
+                    page.title(),
+                    settings.startup_page == page.key(),
+                )
+                .clicked()
                 {
                     settings.startup_page = page.key().to_string();
                     let _ = crate::backend::prefs::save(settings);

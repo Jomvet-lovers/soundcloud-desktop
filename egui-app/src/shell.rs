@@ -160,48 +160,6 @@ fn window_button(
     resp
 }
 
-/// サイドバーのナビ項目 (アイコン + ラベル。選択は淡いグレー)。
-fn sidebar_item(
-    ui: &mut egui::Ui,
-    icon: crate::widgets::UiIcon,
-    label: &str,
-    selected: bool,
-) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(
-        egui::Vec2::new(ui.available_width(), 30.0),
-        egui::Sense::click(),
-    );
-    if selected {
-        ui.painter()
-            .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(20));
-    } else if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(10));
-    }
-    let icon_color = if selected {
-        egui::Color32::from_white_alpha(235)
-    } else {
-        egui::Color32::from_white_alpha(150)
-    };
-    let icon_rect = egui::Rect::from_center_size(
-        egui::Pos2::new(rect.left() + 15.0, rect.center().y),
-        egui::Vec2::splat(16.0),
-    );
-    crate::widgets::paint_ui_icon(ui.painter(), icon_rect, icon, icon_color);
-    ui.painter().text(
-        egui::Pos2::new(rect.left() + 32.0, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(13.5),
-        if selected {
-            egui::Color32::from_white_alpha(240)
-        } else {
-            egui::Color32::from_white_alpha(190)
-        },
-    );
-    resp
-}
-
 pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     crate::theme::ensure_applied(ui.ctx(), &state.settings, &mut state.theme_applied);
     handle_shortcuts(state, ui.ctx());
@@ -361,12 +319,17 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             )
             .show(ui, |ui| {
                 // ナビゲーション (Tauri: Sidebar.tsx 相当。アイコン付き)。
-                if sidebar_item(ui, crate::widgets::UiIcon::Home, "Home", state.route == Route::Home)
-                    .clicked()
+                if crate::widgets::nav_item(
+                    ui,
+                    crate::widgets::UiIcon::Home,
+                    "Home",
+                    state.route == Route::Home,
+                )
+                .clicked()
                 {
                     state.navigate(Route::Home, None);
                 }
-                if sidebar_item(
+                if crate::widgets::nav_item(
                     ui,
                     crate::widgets::UiIcon::Search,
                     "Search",
@@ -376,7 +339,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 {
                     state.navigate(Route::Search, None);
                 }
-                if sidebar_item(
+                if crate::widgets::nav_item(
                     ui,
                     crate::widgets::UiIcon::Library,
                     "Library",
@@ -386,7 +349,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 {
                     state.navigate(Route::Library, None);
                 }
-                if sidebar_item(
+                if crate::widgets::nav_item(
                     ui,
                     crate::widgets::UiIcon::History,
                     "History",
@@ -397,7 +360,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 {
                     state.navigate(Route::LibraryCollection, Some("history".to_string()));
                 }
-                if sidebar_item(
+                if crate::widgets::nav_item(
                     ui,
                     crate::widgets::UiIcon::Offline,
                     "Offline",
@@ -477,7 +440,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                             }
                         });
                     }
-                    if sidebar_item(
+                    if crate::widgets::nav_item(
                         ui,
                         crate::widgets::UiIcon::Settings,
                         "Settings",
@@ -487,8 +450,13 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     {
                         state.navigate(Route::Settings, None);
                     }
-                    if sidebar_item(ui, crate::widgets::UiIcon::Collapse, "Collapse", false)
-                        .clicked()
+                    if crate::widgets::nav_item(
+                        ui,
+                        crate::widgets::UiIcon::Collapse,
+                        "Collapse",
+                        false,
+                    )
+                    .clicked()
                     {
                         state.sidebar_open = false;
                     }

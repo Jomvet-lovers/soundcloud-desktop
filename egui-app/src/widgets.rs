@@ -948,6 +948,48 @@ pub fn search_row(
     inner.inner
 }
 
+/// サイドバー/設定ナビの項目 (アイコン + ラベル。選択は淡いグレー)。
+pub fn nav_item(
+    ui: &mut egui::Ui,
+    icon: UiIcon,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(
+        egui::Vec2::new(ui.available_width(), 30.0),
+        egui::Sense::click(),
+    );
+    if selected {
+        ui.painter()
+            .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(20));
+    } else if resp.hovered() {
+        ui.painter()
+            .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(10));
+    }
+    let icon_color = if selected {
+        egui::Color32::from_white_alpha(235)
+    } else {
+        egui::Color32::from_white_alpha(150)
+    };
+    let icon_rect = egui::Rect::from_center_size(
+        egui::Pos2::new(rect.left() + 15.0, rect.center().y),
+        egui::Vec2::splat(16.0),
+    );
+    paint_ui_icon(ui.painter(), icon_rect, icon, icon_color);
+    ui.painter().text(
+        egui::Pos2::new(rect.left() + 32.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(13.5),
+        if selected {
+            egui::Color32::from_white_alpha(240)
+        } else {
+            egui::Color32::from_white_alpha(190)
+        },
+    );
+    resp
+}
+
 /// セクション見出し (タイトル + 件数)。
 pub fn section_header(ui: &mut egui::Ui, title: &str, count: Option<usize>) {
     ui.horizontal(|ui| {
