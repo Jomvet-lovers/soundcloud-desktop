@@ -12,7 +12,7 @@ export const LikeButton = React.memo(function LikeButton({
   variant = 'inline',
 }: {
   track: Track;
-  variant?: 'chip' | 'inline';
+  variant?: 'chip' | 'inline' | 'bar';
 }) {
   const liked = useLiked(track.urn);
   const { shownLiked, pulse, heartRef, pillRef } = usePulseHeart(liked);
@@ -56,6 +56,27 @@ export const LikeButton = React.memo(function LikeButton({
           className="flex items-center justify-center"
         >
           <Heart size={12} fill={shownLiked ? 'currentColor' : 'none'} />
+        </span>
+      </button>
+    );
+  }
+
+  if (variant === 'bar') {
+    return (
+      <button
+        ref={pillRef as React.RefObject<HTMLButtonElement | null>}
+        type="button"
+        onClick={toggle}
+        title={shownLiked ? 'Unlike' : 'Like'}
+        className={`cursor-pointer w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+          shownLiked ? 'text-accent hover:text-accent-hover' : 'text-white/55 hover:text-white/90'
+        }`}
+      >
+        <span
+          ref={heartRef as React.RefObject<HTMLSpanElement | null>}
+          className="flex items-center justify-center"
+        >
+          <Heart size={15} fill={shownLiked ? 'currentColor' : 'none'} />
         </span>
       </button>
     );

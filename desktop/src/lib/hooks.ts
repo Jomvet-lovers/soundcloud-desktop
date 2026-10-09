@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { Track } from '../stores/player';
 import type { SearchSort } from '../stores/searchPrefs';
 import { api } from './api';
+import { confirmHistory, mergeHistory, scTrackIdSet, usePendingHistory } from './history-pending';
 import { initLikedUrns } from './likes';
 import { rememberLikedTracks, rememberTracks } from './offline-index';
 import { fetchRelatedTracks } from './related';
@@ -304,7 +305,13 @@ export function useHistory(limit = 50) {
     staleTime: 0,
   });
 
-  const entries = useMemo(() => flattenCollectionPages(query.data?.pages), [query.data]);
+  const scEntries = useMemo(() => flattenCollectionPages(query.data?.pages), [query.data]);
+  const pending = usePendingHistory();
+  // Drop provisional entries once SC confirms them.
+  useEffect(() => {
+    confirmHistory(scTrackIdSet(scEntries));
+  }, [scEntries]);
+  const entries = useMemo(() => mergeHistory(scEntries, pending), [scEntries, pending]);
 
   return { entries, ...query };
 }
