@@ -437,6 +437,39 @@ smoke モード (どちらも表示環境用。CI では不可):
 - **既知の残差**: 検索カードのホバー時ハート/Add to Queue メニュー、NEW バッジ、
   タイトルバー内の虫眼鏡、統合 (Integrations) カテゴリ。
 
+### 8.15 Tauri 実機との 1:1 比較パス (2026-10-11 未明)
+
+ユーザー要望「再限度99%まで」を受け、Tauri 版を 1216x809 に揃えて同一サイズで
+スクリーンショット比較しながら修正 (c10bef3 / 4119cbd / 5fe4265)。
+
+- **構造**: 再生バーを **全幅フッター** に (パネル順: titlebar → bar → sidebar →
+  queue → central)。`show_now_playing()` に分離。バー中央は先頭スペーサーで
+  厳密に中央寄せ。
+- **タイトルバー**: 52px / ロゴ 36px / 検索幅 52% + 虫眼鏡 + クリア ×、
+  検索は **ライブ** (タイプ毎に Search へ反映。ページ内検索欄は廃止し Tauri の
+  GlobalSearch と同じ)。Ctrl+F / `/` でフォーカス。
+- **余白/文字**: コンテンツ 32px/28px、ページ見出し 24px、セクション 16px
+  semibold (`widgets::section_title`)、カード 13px medium / アーティスト 11px
+  white/40、カード角丸 12px。Tailwind ブレークポイント相当の `widgets::grid_cols`。
+- **Home**: セパレータ廃止、See all = テキスト + ›、グリッド gap 12 / 6列。
+- **Library**: 挨拶 34px、アバター 100px、セクション見出し 16px、See all リンク。
+- **サイドバー**: 行ピッチ 42px、上余白 16px、pin にアートワーク
+  (`PinnedPlaylist.artwork_url` 追加)、下部 (ユーザ/Settings/Collapse) の余白を
+  Tauri に一致、Sign out は Settings > Account へ移動 (`SettingsAction::Logout`)、
+  Diagnostics は撤去。
+- **Search**: ジャンル壁を色タイル 4 列に。履歴クリックは `SearchAction::SetQuery`。
+- **Tag**: `#tag` 24px + ソートピル同列、カードグリッド。
+- **Track**: 戻るシェブロン、タイトル 36px。**Playlist/Album**: タイトル 40px。
+- **User**: 名前 34px。**Collection**: 戻るシェブロン + 22px タイトル + count +
+  「Search...」フィルタ。
+- **Settings**: Appearance をテーマピル + アクセント色スウォッチに。
+- **再生バー**: Like をハートのアイコントグルに。
+- **既知の残差 (次の比較で潰す)**: 検索カードのホバー時ハート/+ /… ボタン、
+  NEW バッジ、トースト通知、統合カテゴリ、波形の高さ/アバター 24px、
+  再生バー右アイコンの厳密なグリフ、アルバムカバーのアーティファクト演出。
+- **検証メモ**: スクリーンショット比較は他アプリ (ゲーム等) が前面だと撮れない。
+  `cap.ps1` は「同プロセス名で最大のウィンドウ」を選ぶ。
+
 ### 8.14 プレイリスト追加のデータ損失ガード (2026-10-10 深夜)
 
 リポジトリ直下に置かれていた `SCD-Direct_playlist-bug_fix-instructions.md`
