@@ -486,3 +486,35 @@ smoke モード (どちらも表示環境用。CI では不可):
   Library のレールを invalidate。失敗はサイドバーに「playlist: …」と表示。
 - **Tauri 版 (desktop/) への同修正は未実施** (ブランチが異なるため)。必要なら
   指示書のタスク 2/3/4 (フロントの refetchOnMount、自己修復) も別途対応。
+
+### 8.16 Offline 再構築 + anti-slop 監査 001 対応 (2026-10-10)
+
+ユーザー指摘「offlineタブが全くの別もの / ピル型カードは使わない / Tauri の
+フロントコードを読んで忠実に再現 (視覚だけでなくコードベースで比較)」を受け、
+**anti-slop AFTER 監査** (番号付き指摘 16 件) → 全件承認 → 修正した。
+
+- **監査**: `anti-slop/audit-001-2026-10-09.md` (Tauri ソースとのコード単位比較) →
+  フォローアップ `anti-slop/audit-001-followup-2026-10-10.md`。
+  コミット `bf14d09e` (監査) / `97d5349e` (修正)。
+- **Offline ページを Tauri `OfflinePage.tsx` どおりに再構築** (`views/offline.rs`):
+  - ヘッダー: 24px「Local library」+ online ラベル + Try online again (オフライン時のみ) +
+    Sign in + **48px 円形 Play** (一覧の play/pause/resume トグル、icon-pop 0.15s)。
+  - 統計: `n files · X · Likes coverage n/m` (`format_bytes` も Tauri と同一)。
+  - **Likes / Cache セクションタブ** (件数付き) + Shuffle + Download all likes
+    (スピナー + `done/total` ライブ進捗 = `track:cache-likes-progress` イベント) /
+    Clear cache。検索は右寄せ「Search by title or artist」で title/username 絞り込み。
+  - 行: 40px アート (未キャッシュ 50% 暗転・再生中 Pause オーバーレイ) + タイトル 13 /
+    アーティスト 11 + モノスペース長さ + Download/Trash アイコン + hairline 区切り。
+  - データ: `direct_store.json` の `liked_tracks` をオフラインインデックスとして表示し、
+    オンライン時は `/me/likes/tracks` 全件取得で置換。在庫のみのファイルは stub 表示。
+    開くたびに再読込 (`AppState::refresh_on_route_change` = Tauri の再マウント相当)。
+- **形状の修正**: Like ボタンをハートのみに (トラック = 枠付きチップ + 件数、
+  プレイリスト = 枠なし + 件数。`usePulseHeart` の 560ms pulse を移植)。
+  カードのチップは 24px・未いいね線画/いいね済みアクセント 80% + コントラスト色。
+  検索カードの統計チップは右下の 2 チップ (rounded-full)。カード角丸 12 → 16
+  (TrackCard。Discover は Tauri も 12 のため据え置き)。波形コメントアバターを円に。
+- **検証**: `cargo test` 45 件 + 実機スクショ (Offline のヘッダー/タブ/行/DL・Trash
+  アイコン確認)。Cache タブ・再生トグル等の操作確認はユーザーへ。
+- **残差 (監査 002 候補)**: 検索カード右上の操作群の位置 (Tauri は like が左上で
+  右上は playlist/queue/share)、トースト通知、view-transition、TrackCard の ring。
+  online/offline 表示はセッション有無を代理指標 (connectivity ストアが無い)。
