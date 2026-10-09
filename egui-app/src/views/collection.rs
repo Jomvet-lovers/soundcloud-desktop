@@ -412,19 +412,29 @@ impl CollectionView {
                             .id_salt("collection:likes")
                             .show(ui, |ui| {
                                 for (i, track) in rows.iter().enumerate() {
-                                    match Self::track_row(ui, rt, images, player, track, accent) {
-                                        widgets::RowHit::Clicked => {
-                                            // フィルタ無しのみ「いいね最後まで」継続。
-                                            action = if needle.is_empty() {
-                                                CollectionAction::PlayLikes(rows.clone(), i)
-                                            } else {
-                                                CollectionAction::PlayList(rows.clone(), i)
-                                            };
+                                    let hit =
+                                        Self::track_row(ui, rt, images, player, track, accent);
+                                    if hit.play_clicked() {
+                                        // フィルタ無しのみ「いいね最後まで」継続。
+                                        action = if needle.is_empty() {
+                                            CollectionAction::PlayLikes(rows.clone(), i)
+                                        } else {
+                                            CollectionAction::PlayList(rows.clone(), i)
+                                        };
+                                    } else if hit.title_clicked() {
+                                        action = CollectionAction::Navigate(
+                                            Route::Track,
+                                            Some(track.urn.clone()),
+                                        );
+                                    } else if hit.artist_clicked() {
+                                        if let Some(u) = track.user.as_ref() {
+                                            action = CollectionAction::Navigate(
+                                                Route::User,
+                                                Some(u.urn.clone()),
+                                            );
                                         }
-                                        widgets::RowHit::Menu => {
-                                            action = CollectionAction::OpenMenu(track.clone());
-                                        }
-                                        widgets::RowHit::None => {}
+                                    } else if hit.menu_clicked() {
+                                        action = CollectionAction::OpenMenu(track.clone());
                                     }
                                 }
                                 if crate::pager::auto_load(
@@ -454,18 +464,10 @@ impl CollectionView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> widgets::RowHit {
+    ) -> widgets::RowParts {
         let playing = widgets::is_currently_playing(player, track);
         let dur = fmt_duration(track.duration);
-        widgets::hit_of(&widgets::track_row(
-            ui,
-            rt,
-            images,
-            track,
-            playing,
-            accent,
-            Some(&dur),
-        ))
+        widgets::track_row(ui, rt, images, track, playing, accent, Some(&dur))
     }
 
     fn playlist_row(

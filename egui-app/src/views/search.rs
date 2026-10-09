@@ -416,21 +416,29 @@ impl SearchView {
                                 for &(i, track) in chunk {
                                     let playing =
                                         widgets::is_currently_playing(player, track);
-                                    let resp = widgets::track_card_stats(
+                                    let hit = widgets::track_card_stats(
                                         ui, rt, images, track, card_w, playing, accent,
                                     );
-                                    match widgets::hit_of(&resp) {
-                                        widgets::RowHit::Clicked => {
-                                            action = SearchAction::PlayList(
-                                                page.collection.clone(),
-                                                i,
+                                    if hit.play_clicked() {
+                                        action = SearchAction::PlayList(
+                                            page.collection.clone(),
+                                            i,
+                                        );
+                                    } else if hit.title_clicked() {
+                                        action = SearchAction::Navigate(
+                                            Route::Track,
+                                            Some(track.urn.clone()),
+                                        );
+                                    } else if hit.artist_clicked() {
+                                        if let Some(u) = track.user.as_ref() {
+                                            action = SearchAction::Navigate(
+                                                Route::User,
+                                                Some(u.urn.clone()),
                                             );
                                         }
-                                        widgets::RowHit::Menu => {
-                                            action =
-                                                SearchAction::OpenMenu(track.clone());
-                                        }
-                                        widgets::RowHit::None => {}
+                                    } else if hit.menu_clicked() {
+                                        action =
+                                            SearchAction::OpenMenu(track.clone());
                                     }
                                 }
                             });
@@ -452,24 +460,31 @@ impl SearchView {
                         widgets::empty_note(ui, "No results found");
                     } else {
                         for user in &page.collection {
-                            ui.horizontal(|ui| {
-                                let art = user
-                                    .avatar_url
-                                    .as_deref()
-                                    .map(|u| u.replace("-large", "-t120x120"));
-                                images.show(ui, rt, art.as_deref(), 36.0);
-                                let name = if user.username.is_empty() {
-                                    "(unknown)"
-                                } else {
-                                    &user.username
-                                };
-                                if ui.button(name).clicked() && !user.urn.is_empty() {
-                                    action = SearchAction::Navigate(
-                                        Route::User,
-                                        Some(user.urn.clone()),
-                                    );
-                                }
-                            });
+                            let name = if user.username.is_empty() {
+                                "(unknown)"
+                            } else {
+                                &user.username
+                            };
+                            let art = user
+                                .avatar_url
+                                .as_deref()
+                                .map(|u| u.replace("-large", "-t120x120"));
+                            if widgets::search_row(
+                                ui,
+                                rt,
+                                images,
+                                art.as_deref(),
+                                name,
+                                true,
+                            )
+                            .clicked()
+                                && !user.urn.is_empty()
+                            {
+                                action = SearchAction::Navigate(
+                                    Route::User,
+                                    Some(user.urn.clone()),
+                                );
+                            }
                         }
                     }
                     Self::pager(ui, self.page, page.has_more, &mut self.page);
@@ -488,25 +503,28 @@ impl SearchView {
                         widgets::empty_note(ui, "No results found");
                     } else {
                         for playlist in &page.collection {
-                            ui.horizontal(|ui| {
-                                images.show(
-                                    ui,
-                                    rt,
-                                    playlist.artwork("t120x120").as_deref(),
-                                    36.0,
+                            let title = if playlist.title.is_empty() {
+                                "(untitled)"
+                            } else {
+                                &playlist.title
+                            };
+                            let art = playlist.artwork("t120x120");
+                            if widgets::search_row(
+                                ui,
+                                rt,
+                                images,
+                                art.as_deref(),
+                                title,
+                                false,
+                            )
+                            .clicked()
+                                && !playlist.urn.is_empty()
+                            {
+                                action = SearchAction::Navigate(
+                                    Route::Playlist,
+                                    Some(playlist.urn.clone()),
                                 );
-                                let title = if playlist.title.is_empty() {
-                                    "(untitled)"
-                                } else {
-                                    &playlist.title
-                                };
-                                if ui.button(title).clicked() && !playlist.urn.is_empty() {
-                                    action = SearchAction::Navigate(
-                                        Route::Playlist,
-                                        Some(playlist.urn.clone()),
-                                    );
-                                }
-                            });
+                            }
                         }
                     }
                     Self::pager(ui, self.page, page.has_more, &mut self.page);
@@ -525,24 +543,31 @@ impl SearchView {
                         widgets::empty_note(ui, "No results found");
                     } else {
                         for album in &page.collection {
-                            ui.horizontal(|ui| {
-                                let art = album
-                                    .cover_url
-                                    .as_deref()
-                                    .map(|u| u.replace("-large", "-t120x120"));
-                                images.show(ui, rt, art.as_deref(), 36.0);
-                                let title = if album.title.is_empty() {
-                                    "(untitled)"
-                                } else {
-                                    &album.title
-                                };
-                                if ui.button(title).clicked() && !album.id.is_empty() {
-                                    action = SearchAction::Navigate(
-                                        Route::Album,
-                                        Some(album.id.clone()),
-                                    );
-                                }
-                            });
+                            let art = album
+                                .cover_url
+                                .as_deref()
+                                .map(|u| u.replace("-large", "-t120x120"));
+                            let title = if album.title.is_empty() {
+                                "(untitled)"
+                            } else {
+                                &album.title
+                            };
+                            if widgets::search_row(
+                                ui,
+                                rt,
+                                images,
+                                art.as_deref(),
+                                title,
+                                false,
+                            )
+                            .clicked()
+                                && !album.id.is_empty()
+                            {
+                                action = SearchAction::Navigate(
+                                    Route::Album,
+                                    Some(album.id.clone()),
+                                );
+                            }
                         }
                     }
                     Self::pager(ui, self.page, page.has_more, &mut self.page);
@@ -553,7 +578,8 @@ impl SearchView {
         action
     }
 
-    /// Track 行。戻り値はクリックされたか (アートのクリック応答)。
+    /// Track 行 (検索結果では未使用。ユーザタブ等で使う場合の共通ラッパ)。
+    #[allow(dead_code)]
     fn track_row(
         ui: &mut egui::Ui,
         rt: &tokio::runtime::Handle,
@@ -561,11 +587,11 @@ impl SearchView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> widgets::RowHit {
+    ) -> widgets::RowParts {
         let playing = widgets::is_currently_playing(player, track);
         let s = (track.duration.max(0) / 1000) as u64;
         let dur = format!("{}:{:02}", s / 60, s % 60);
-        widgets::hit_of(&widgets::track_row(
+        widgets::track_row(
             ui,
             rt,
             images,
@@ -573,7 +599,7 @@ impl SearchView {
             playing,
             accent,
             Some(&dur),
-        ))
+        )
     }
 
     /// 番号なし Prev/Next ページャ (React の `<Pager/>` の簡略版)。

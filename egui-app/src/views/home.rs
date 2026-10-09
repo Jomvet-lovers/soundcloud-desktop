@@ -154,16 +154,25 @@ impl HomeView {
                     ui.horizontal(|ui| {
                         for &(i, track) in chunk {
                             let playing = is_currently_playing(player, track);
-                            match widgets::hit_of(&widgets::track_card(
+                            let hit = widgets::track_card(
                                 ui, rt, images, track, card_w, playing, accent,
-                            )) {
-                                widgets::RowHit::Clicked => {
-                                    action = HomeAction::PlayList(tracks.clone(), i);
+                            );
+                            if hit.play_clicked() {
+                                action = HomeAction::PlayList(tracks.clone(), i);
+                            } else if hit.title_clicked() {
+                                action = HomeAction::Navigate(
+                                    Route::Track,
+                                    Some(track.urn.clone()),
+                                );
+                            } else if hit.artist_clicked() {
+                                if let Some(u) = track.user.as_ref() {
+                                    action = HomeAction::Navigate(
+                                        Route::User,
+                                        Some(u.urn.clone()),
+                                    );
                                 }
-                                widgets::RowHit::Menu => {
-                                    action = HomeAction::OpenMenu(track.clone());
-                                }
-                                widgets::RowHit::None => {}
+                            } else if hit.menu_clicked() {
+                                action = HomeAction::OpenMenu(track.clone());
                             }
                         }
                     });
@@ -210,7 +219,18 @@ impl HomeView {
                 for chunk in shown.chunks(per_row) {
                     ui.horizontal(|ui| {
                         for item in chunk {
-                            let clicked = ui
+                            // タイトルはページがあれば遷移 (Tauri: DiscoverCard)。
+                            let title_nav: Option<(Route, String)> =
+                                item.urn.as_ref().and_then(|urn| {
+                                    if urn.starts_with("soundcloud:playlists:") {
+                                        Some((Route::Playlist, urn.clone()))
+                                    } else if urn.starts_with("soundcloud:users:") {
+                                        Some((Route::User, urn.clone()))
+                                    } else {
+                                        None
+                                    }
+                                });
+                            let (play_clicked, title_clicked) = ui
                                 .vertical(|ui| {
                                     ui.set_max_width(150.0);
                                     let art = item
@@ -218,8 +238,29 @@ impl HomeView {
                                         .as_deref()
                                         .map(|u| u.replace("-large", "-t300x300"));
                                     let img = images.show(ui, rt, art.as_deref(), 150.0);
-                                    if img.hovered() {
-                                        widgets::paint_play_glyph(ui.painter(), img.rect, false);
+                                    // ホバー: 暗転 + 再生グリフ (フェード)。
+                                    let hover_t = ui.ctx().animate_bool_with_time(
+                                        egui::Id::new((
+                                            "discover-hover",
+                                            item.urn.clone().unwrap_or_default(),
+                                        )),
+                                        img.hovered(),
+                                        0.15,
+                                    );
+                                    if hover_t > 0.001 {
+                                        ui.painter().rect_filled(
+                                            img.rect,
+                                            4.0,
+                                            egui::Color32::from_black_alpha(
+                                                (90.0 * hover_t) as u8,
+                                            ),
+                                        );
+                                        widgets::paint_play_glyph_alpha(
+                                            ui.painter(),
+                                            img.rect,
+                                            false,
+                                            hover_t,
+                                        );
                                     }
                                     let lbl = ui.add(
                                         egui::Label::new(&item.title)
@@ -239,11 +280,17 @@ impl HomeView {
                                         .truncate()
                                         .wrap_mode(egui::TextWrapMode::Truncate),
                                     );
-                                    img.clicked() || lbl.clicked()
+                                    (img.clicked(), lbl.clicked())
                                 })
                                 .inner;
-                            if clicked {
+                            if play_clicked {
                                 action = HomeAction::StartDiscover(item.clone());
+                            } else if title_clicked {
+                                if let Some((route, param)) = title_nav {
+                                    action = HomeAction::Navigate(route, Some(param));
+                                } else {
+                                    action = HomeAction::StartDiscover(item.clone());
+                                }
                             }
                         }
                     });

@@ -668,14 +668,17 @@ impl ArtistView {
                 ui.label(empty_text);
             }
             for (i, t) in tracks.iter().enumerate() {
-                match Self::track_row(ui, rt, images, player, t, accent) {
-                    widgets::RowHit::Clicked => {
-                        *action = ArtistAction::PlayList(tracks.clone(), i);
+                let hit = Self::track_row(ui, rt, images, player, t, accent);
+                if hit.play_clicked() {
+                    *action = ArtistAction::PlayList(tracks.clone(), i);
+                } else if hit.title_clicked() {
+                    *action = ArtistAction::Navigate(Route::Track, Some(t.urn.clone()));
+                } else if hit.artist_clicked() {
+                    if let Some(u) = t.user.as_ref() {
+                        *action = ArtistAction::Navigate(Route::User, Some(u.urn.clone()));
                     }
-                    widgets::RowHit::Menu => {
-                        *action = ArtistAction::OpenMenu(t.clone());
-                    }
-                    widgets::RowHit::None => {}
+                } else if hit.menu_clicked() {
+                    *action = ArtistAction::OpenMenu(t.clone());
                 }
             }
         }
@@ -690,14 +693,14 @@ impl ArtistView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> widgets::RowHit {
+    ) -> widgets::RowParts {
         let playing = widgets::is_currently_playing(player, track);
         let meta = format!(
             "{} plays · {}",
             track.playback_count.unwrap_or(0),
             fmt_dur_ms(track.duration),
         );
-        widgets::hit_of(&widgets::track_row(
+        widgets::track_row(
             ui,
             rt,
             images,
@@ -705,6 +708,6 @@ impl ArtistView {
             playing,
             accent,
             Some(&meta),
-        ))
+        )
     }
 }

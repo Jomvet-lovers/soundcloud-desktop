@@ -503,12 +503,18 @@ impl TrackView {
                         .map(|c| waveform::WaveVoice {
                             timestamp_ms: c.timestamp.unwrap_or(0) as f64,
                             body: c.text().to_string(),
+                            avatar_url: c
+                                .user
+                                .as_ref()
+                                .and_then(|u| u.avatar_url.clone()),
                         })
                         .collect()
                 })
                 .unwrap_or_default();
             let hit = waveform::show(
                 ui,
+                rt,
+                images,
                 &self.waveform,
                 progress,
                 96.0,
@@ -621,36 +627,81 @@ impl TrackView {
                 crate::widgets::empty_note(ui, "No related tracks");
             } else {
                 for (i, rel) in paged.collection.iter().enumerate() {
-                    let row = ui
-                        .horizontal(|ui| {
-                            let art = rel.artwork("t200x200");
-                            if images.show(ui, rt, art.as_deref(), 48.0).clicked() {
-                                action =
-                                    TrackAction::Navigate(Route::Track, Some(rel.urn.clone()));
-                            }
-                            ui.vertical(|ui| {
-                                if ui.button(rel.display_title()).clicked() {
-                                    action = TrackAction::Navigate(
-                                        Route::Track,
-                                        Some(rel.urn.clone()),
-                                    );
+                    let bg_idx = ui.painter().add(egui::Shape::Noop);
+                    let inner = ui.horizontal(|ui| {
+                        let art = rel.artwork("t200x200");
+                        let img = images.show(ui, rt, art.as_deref(), 48.0);
+                        let (t, a) = ui
+                            .vertical(|ui| {
+                                let t = ui.add(
+                                    egui::Label::new(rel.display_title())
+                                        .truncate()
+                                        .wrap_mode(egui::TextWrapMode::Truncate)
+                                        .sense(egui::Sense::click()),
+                                );
+                                let a = ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(rel.artist_name()).weak(),
+                                    )
+                                    .truncate()
+                                    .wrap_mode(egui::TextWrapMode::Truncate)
+                                    .sense(egui::Sense::click()),
+                                );
+                                (t, a)
+                            })
+                            .inner;
+                        let mut play = false;
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                if crate::widgets::transport_button(
+                                    ui,
+                                    crate::widgets::TransportIcon::Play,
+                                    true,
+                                    28.0,
+                                )
+                                .clicked()
+                                {
+                                    play = true;
                                 }
-                                ui.label(rel.artist_name());
-                            });
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui.button("▶").clicked() {
-                                        action =
-                                            TrackAction::PlayList(paged.collection.clone(), i);
-                                    }
-                                    ui.label(fmt_ms(rel.duration));
-                                },
-                            );
-                        })
-                        .response
-                        .interact(egui::Sense::click());
-                    if row.secondary_clicked() {
+                                ui.label(
+                                    egui::RichText::new(fmt_ms(rel.duration)).weak(),
+                                );
+                            },
+                        );
+                        (img, t, a, play)
+                    });
+                    let (img, t, a, play) = inner.inner;
+                    let hover_t = ui.ctx().animate_bool_with_time(
+                        egui::Id::new(("related-hover", &rel.urn)),
+                        inner.response.hovered(),
+                        0.12,
+                    );
+                    if hover_t > 0.001 {
+                        let rect = inner.response.rect.expand2(egui::vec2(6.0, 3.0));
+                        ui.painter().set(
+                            bg_idx,
+                            egui::Shape::rect_filled(
+                                rect,
+                                6.0,
+                                egui::Color32::from_white_alpha((16.0 * hover_t) as u8),
+                            ),
+                        );
+                    }
+                    if play {
+                        action = TrackAction::PlayList(paged.collection.clone(), i);
+                    } else if img.clicked() || t.clicked() {
+                        action =
+                            TrackAction::Navigate(Route::Track, Some(rel.urn.clone()));
+                    } else if a.clicked() {
+                        if let Some(u) = rel.user.as_ref() {
+                            action =
+                                TrackAction::Navigate(Route::User, Some(u.urn.clone()));
+                        }
+                    } else if img.secondary_clicked()
+                        || t.secondary_clicked()
+                        || a.secondary_clicked()
+                    {
                         action = TrackAction::OpenMenu(rel.clone());
                     }
                 }
@@ -662,8 +713,20 @@ impl TrackView {
         ui.horizontal(|ui| {
             ui.heading("Comments");
             if let Some(paged) = self.comments.data.as_ref() {
-                ui.label(format!("{} shown", paged.collection.len()));
+                ui.label(
+                    egui::RichText::new(paged.collection.len().to_string())
+                        .size(12.0)
+                        .weak(),
+                );
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::widgets::tab_button(ui, "Timeline", self.sort_timeline).clicked() {
+                    self.sort_timeline = true;
+                }
+                if crate::widgets::tab_button(ui, "Newest", !self.sort_timeline).clicked() {
+                    self.sort_timeline = false;
+                }
+            });
         });
         // 投稿先は `usePostComment` と同形: POST /tracks/{urn}/comments。
         ui.horizontal(|ui| {
@@ -696,15 +759,6 @@ impl TrackView {
                 format!("Post failed: {err}"),
             );
         }
-        ui.horizontal(|ui| {
-            ui.label("Sort:");
-            if ui.selectable_label(!self.sort_timeline, "Newest").clicked() {
-                self.sort_timeline = false;
-            }
-            if ui.selectable_label(self.sort_timeline, "Timeline").clicked() {
-                self.sort_timeline = true;
-            }
-        });
         if self.comments.loading && self.comments.data.is_none() {
             crate::widgets::loading(ui);
         } else if let Some(err) = self.comments.error.as_ref() {
@@ -724,23 +778,60 @@ impl TrackView {
             } else {
                 let me_urn = self.me.data.as_ref().map(|u| u.urn.clone());
                 let mut delete_id: Option<i64> = None;
+                let mut seek_ms: Option<i64> = None;
                 for c in &list {
                     let is_mine = matches!(
                         (&me_urn, c.user.as_ref()),
                         (Some(m), Some(u)) if m == &u.urn
                     );
-                    ui.horizontal(|ui| {
+                    ui.horizontal_top(|ui| {
+                        let avatar = c.user.as_ref().and_then(|u| u.avatar_url.clone());
+                        images.show_rounded(
+                            ui,
+                            rt,
+                            avatar.as_deref(),
+                            32.0,
+                            egui::CornerRadius::same(16),
+                        );
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
-                                ui.strong(c.author());
+                                ui.add(egui::Label::new(
+                                    egui::RichText::new(c.author())
+                                        .font(crate::theme::semibold(13.0)),
+                                ));
                                 if let Some(ts) = c.timestamp {
-                                    ui.label(format!("@ {}", fmt_ms(ts)));
+                                    // タイムスタンプチップ (クリックでそこへシーク)。
+                                    let (chip, chip_resp) = ui.allocate_exact_size(
+                                        egui::vec2(44.0, 16.0),
+                                        egui::Sense::click(),
+                                    );
+                                    ui.painter().rect_filled(
+                                        chip,
+                                        4.0,
+                                        accent.gamma_multiply(0.35),
+                                    );
+                                    ui.painter().text(
+                                        chip.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        fmt_ms(ts),
+                                        egui::FontId::proportional(10.0),
+                                        egui::Color32::WHITE,
+                                    );
+                                    if chip_resp.clicked() {
+                                        seek_ms = Some(ts);
+                                    }
                                 }
                                 if let Some(created) = c.created_at.as_deref() {
-                                    ui.label(created);
+                                    ui.label(
+                                        egui::RichText::new(
+                                            created.chars().take(10).collect::<String>(),
+                                        )
+                                        .size(10.5)
+                                        .weak(),
+                                    );
                                 }
                             });
-                            ui.label(c.text());
+                            ui.label(egui::RichText::new(c.text()).size(12.5));
                         });
                         if is_mine {
                             if let Some(id) = c.id {
@@ -750,7 +841,13 @@ impl TrackView {
                             }
                         }
                     });
+                    ui.add_space(4.0);
                     ui.separator();
+                }
+                if let Some(ms) = seek_ms {
+                    if duration > 0.0 {
+                        action = TrackAction::Seek((ms as f64 / 1000.0 / duration) as f32);
+                    }
                 }
                 // 一覧から即座に消し、writer で best-effort 同期
                 // (cf. `comments.tsx` の `remove` → DELETE /comments/:id)。

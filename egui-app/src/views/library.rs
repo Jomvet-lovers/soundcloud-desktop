@@ -323,7 +323,13 @@ impl LibraryView {
                         *color
                     };
                     let ratio = share / max_share;
-                    let bh = h_total * (32.0 + ratio * 68.0) / 100.0;
+                    // 登場アニメーション (Tauri: sp-rise)。
+                    let rise = ui.ctx().animate_bool_with_time(
+                        egui::Id::new(("sp-rise", g.as_str())),
+                        true,
+                        0.6,
+                    );
+                    let bh = h_total * (32.0 + ratio * 68.0) / 100.0 * rise;
                     let bar = egui::Rect::from_min_max(
                         egui::pos2(rect.left(), rect.top() + h_total - bh),
                         egui::pos2(rect.right(), rect.top() + h_total),
@@ -386,6 +392,7 @@ impl LibraryView {
                 ui.add_space(4.0);
                 let list: Vec<Track> = fresh.iter().take(6).cloned().collect();
                 for (i, t) in list.iter().enumerate() {
+                    let bg_idx = ui.painter().add(egui::Shape::Noop);
                     let row = ui.horizontal(|ui| {
                         let art = t.artwork("t300x300");
                         images.show(ui, rt, art.as_deref(), 88.0);
@@ -428,6 +435,22 @@ impl LibraryView {
                         egui::Id::new(("lib-fresh-row", i)),
                         egui::Sense::click(),
                     );
+                    let hover_t = ui.ctx().animate_bool_with_time(
+                        egui::Id::new(("lib-fresh-hover", i)),
+                        resp.hovered(),
+                        0.12,
+                    );
+                    if hover_t > 0.001 {
+                        let rect = row.response.rect.expand2(egui::vec2(6.0, 4.0));
+                        ui.painter().set(
+                            bg_idx,
+                            egui::Shape::rect_filled(
+                                rect,
+                                8.0,
+                                egui::Color32::from_white_alpha((14.0 * hover_t) as u8),
+                            ),
+                        );
+                    }
                     if resp.clicked() {
                         action = LibraryAction::PlayList(list.clone(), i);
                     } else if resp.secondary_clicked() {
@@ -465,17 +488,25 @@ impl LibraryView {
                     ui.horizontal(|ui| {
                         for (i, t) in continue_preview.iter().enumerate() {
                             let playing = widgets::is_currently_playing(player, t);
-                            let resp =
+                            let hit =
                                 widgets::track_card(ui, rt, images, t, 96.0, playing, accent);
-                            match widgets::hit_of(&resp) {
-                                widgets::RowHit::Clicked => {
-                                    action =
-                                        LibraryAction::PlayList(continue_preview.clone(), i);
+                            if hit.play_clicked() {
+                                action =
+                                    LibraryAction::PlayList(continue_preview.clone(), i);
+                            } else if hit.title_clicked() {
+                                action = LibraryAction::Navigate(
+                                    Route::Track,
+                                    Some(t.urn.clone()),
+                                );
+                            } else if hit.artist_clicked() {
+                                if let Some(u) = t.user.as_ref() {
+                                    action = LibraryAction::Navigate(
+                                        Route::User,
+                                        Some(u.urn.clone()),
+                                    );
                                 }
-                                widgets::RowHit::Menu => {
-                                    action = LibraryAction::OpenMenu(t.clone());
-                                }
-                                widgets::RowHit::None => {}
+                            } else if hit.menu_clicked() {
+                                action = LibraryAction::OpenMenu(t.clone());
                             }
                         }
                     });
@@ -650,16 +681,24 @@ impl LibraryView {
                     ui.horizontal(|ui| {
                         for (i, t) in likes_preview.iter().enumerate() {
                             let playing = widgets::is_currently_playing(player, t);
-                            let resp =
+                            let hit =
                                 widgets::track_card(ui, rt, images, t, 112.0, playing, accent);
-                            match widgets::hit_of(&resp) {
-                                widgets::RowHit::Clicked => {
-                                    action = LibraryAction::PlayLikes(likes_preview.clone(), i);
+                            if hit.play_clicked() {
+                                action = LibraryAction::PlayLikes(likes_preview.clone(), i);
+                            } else if hit.title_clicked() {
+                                action = LibraryAction::Navigate(
+                                    Route::Track,
+                                    Some(t.urn.clone()),
+                                );
+                            } else if hit.artist_clicked() {
+                                if let Some(u) = t.user.as_ref() {
+                                    action = LibraryAction::Navigate(
+                                        Route::User,
+                                        Some(u.urn.clone()),
+                                    );
                                 }
-                                widgets::RowHit::Menu => {
-                                    action = LibraryAction::OpenMenu(t.clone());
-                                }
-                                widgets::RowHit::None => {}
+                            } else if hit.menu_clicked() {
+                                action = LibraryAction::OpenMenu(t.clone());
                             }
                         }
                     });

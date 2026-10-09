@@ -7,9 +7,20 @@ use crate::images::Images;
 
 /// 再生/停止グリフを自作描画する (フォント依存を避けるため)。
 pub(crate) fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playing: bool) {
+    paint_play_glyph_alpha(painter, rect, playing, 1.0);
+}
+
+/// フェード付きの再生/停止グリフ (ホバーでふわっと出す)。
+pub(crate) fn paint_play_glyph_alpha(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    playing: bool,
+    alpha: f32,
+) {
+    let a = |c: egui::Color32| c.gamma_multiply(alpha);
     let center = rect.center();
     let r = rect.width().min(rect.height()) * 0.22;
-    painter.circle_filled(center, r, egui::Color32::from_black_alpha(160));
+    painter.circle_filled(center, r, a(egui::Color32::from_black_alpha(160)));
     if playing {
         let w = r * 0.45;
         let h = r * 0.8;
@@ -19,7 +30,7 @@ pub(crate) fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playin
                 egui::Vec2::new(w * 0.55, h),
             ),
             1.0,
-            egui::Color32::WHITE,
+            a(egui::Color32::WHITE),
         );
         painter.rect_filled(
             egui::Rect::from_center_size(
@@ -27,7 +38,7 @@ pub(crate) fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playin
                 egui::Vec2::new(w * 0.55, h),
             ),
             1.0,
-            egui::Color32::WHITE,
+            a(egui::Color32::WHITE),
         );
     } else {
         let p1 = center + egui::Vec2::new(-r * 0.35, -r * 0.55);
@@ -35,7 +46,7 @@ pub(crate) fn paint_play_glyph(painter: &egui::Painter, rect: egui::Rect, playin
         let p3 = center + egui::Vec2::new(r * 0.55, 0.0);
         painter.add(egui::Shape::convex_polygon(
             vec![p1, p2, p3],
-            egui::Color32::WHITE,
+            a(egui::Color32::WHITE),
             egui::Stroke::NONE,
         ));
     }
@@ -561,7 +572,32 @@ fn paint_transport_glyph(
     }
 }
 
-/// グリッド用カード (Home の棚・Search 結果)。戻り値はクリック応答。
+/// カードの操作結果 (アート=再生 / タイトル=Track / アーティスト=User / 右クリック=メニュー)。
+pub struct CardHit {
+    pub play: egui::Response,
+    pub title: egui::Response,
+    pub artist: egui::Response,
+}
+
+impl CardHit {
+    pub fn play_clicked(&self) -> bool {
+        self.play.clicked()
+    }
+    pub fn title_clicked(&self) -> bool {
+        self.title.clicked()
+    }
+    pub fn artist_clicked(&self) -> bool {
+        self.artist.clicked()
+    }
+    pub fn menu_clicked(&self) -> bool {
+        self.play.secondary_clicked()
+            || self.title.secondary_clicked()
+            || self.artist.secondary_clicked()
+    }
+}
+
+/// グリッド用カード (Home の棚・Search 結果)。
+/// アート=再生、タイトル=Track ページ、アーティスト=User ページ (Tauri と同じ)。
 pub fn track_card(
     ui: &mut egui::Ui,
     rt: &tokio::runtime::Handle,
@@ -570,36 +606,76 @@ pub fn track_card(
     size: f32,
     playing: bool,
     accent: egui::Color32,
-) -> egui::Response {
+) -> CardHit {
     ui.vertical(|ui| {
         ui.set_max_width(size + 8.0);
         let art = track.artwork("t300x300");
-        let resp = images.show(ui, rt, art.as_deref(), size);
-        if resp.hovered() || playing {
-            paint_play_glyph(ui.painter(), resp.rect, playing);
+        let play = images.show(ui, rt, art.as_deref(), size);
+        // ホバー: 暗転 + 再生グリフをフェードイン。
+        let hover_t = ui.ctx().animate_bool_with_time(
+            egui::Id::new(("card-hover", &track.urn)),
+            play.hovered() || playing,
+            0.15,
+        );
+        if hover_t > 0.001 {
+            ui.painter().rect_filled(
+                play.rect,
+                4.0,
+                egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
+            );
+            paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
         }
         let title = if playing {
             egui::RichText::new(track.display_title()).color(accent)
         } else {
             egui::RichText::new(track.display_title())
         };
-        ui.add(
+        let title = ui.add(
             egui::Label::new(title)
                 .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate),
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .sense(egui::Sense::click()),
         );
-        ui.add(
+        let artist = ui.add(
             egui::Label::new(egui::RichText::new(track.artist_name()).weak())
                 .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate),
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .sense(egui::Sense::click()),
         );
-        resp
+        CardHit {
+            play,
+            title,
+            artist,
+        }
     })
     .inner
 }
 
-/// 一覧行 (40px アート + タイトル/アーティスト + 時間)。
-/// 戻り値はアートワークのクリック応答 (再生トリガ)。
+/// 行の操作結果 (アート=再生 / タイトル=Track / アーティスト=User / 右クリック=メニュー)。
+pub struct RowParts {
+    pub art: egui::Response,
+    pub title: egui::Response,
+    pub artist: egui::Response,
+}
+
+impl RowParts {
+    pub fn play_clicked(&self) -> bool {
+        self.art.clicked()
+    }
+    pub fn title_clicked(&self) -> bool {
+        self.title.clicked()
+    }
+    pub fn artist_clicked(&self) -> bool {
+        self.artist.clicked()
+    }
+    pub fn menu_clicked(&self) -> bool {
+        self.art.secondary_clicked()
+            || self.title.secondary_clicked()
+            || self.artist.secondary_clicked()
+    }
+}
+
+/// 一覧行 (40px アート + タイトル/アーティスト + 時間)。ホバーで淡い背景 (Tauri と同じ)。
 pub fn track_row(
     ui: &mut egui::Ui,
     rt: &tokio::runtime::Handle,
@@ -608,10 +684,11 @@ pub fn track_row(
     playing: bool,
     accent: egui::Color32,
     duration_text: Option<&str>,
-) -> egui::Response {
+) -> RowParts {
     let art = track.artwork("t200x200");
-    let mut row_resp: Option<egui::Response> = None;
-    ui.horizontal(|ui| {
+    // 背景を後から差し込むためのプレースホルダ (コンテンツの下に描かれる)。
+    let bg_idx = ui.painter().add(egui::Shape::Noop);
+    let inner = ui.horizontal(|ui| {
         // 再生中は行頭にイコライザー (Spotify 風、背景ハイライトは使わない)。
         if playing {
             playing_bars(ui, true, accent);
@@ -619,37 +696,58 @@ pub fn track_row(
             ui.add_space(13.0);
         }
         let r = images.show(ui, rt, art.as_deref(), 40.0);
-        if r.hovered() || playing {
-            paint_play_glyph(ui.painter(), r.rect, playing);
-        }
         let title = if playing {
             egui::RichText::new(track.display_title()).color(accent)
         } else {
             egui::RichText::new(track.display_title())
         };
-        // 行全体 (アート + タイトル + アーティスト) をクリック可能にする。
-        let mut merged = r;
-        ui.vertical(|ui| {
-            let t = ui.add(
-                egui::Label::new(title)
-                    .truncate()
-                    .wrap_mode(egui::TextWrapMode::Truncate)
-                    .sense(egui::Sense::click()),
-            );
-            let a = ui.add(
-                egui::Label::new(egui::RichText::new(track.artist_name()).weak())
-                    .sense(egui::Sense::click()),
-            );
-            merged = merged.union(t).union(a);
-        });
+        let (t, a) = ui
+            .vertical(|ui| {
+                let t = ui.add(
+                    egui::Label::new(title)
+                        .truncate()
+                        .wrap_mode(egui::TextWrapMode::Truncate)
+                        .sense(egui::Sense::click()),
+                );
+                let a = ui.add(
+                    egui::Label::new(egui::RichText::new(track.artist_name()).weak())
+                        .truncate()
+                        .wrap_mode(egui::TextWrapMode::Truncate)
+                        .sense(egui::Sense::click()),
+                );
+                (t, a)
+            })
+            .inner;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(d) = duration_text {
                 ui.label(d);
             }
         });
-        row_resp = Some(merged);
+        (r, t, a)
     });
-    row_resp.expect("artwork response")
+    let (r, t, a) = inner.inner;
+    // ホバー背景 (フェード付き)。
+    let hover_t = ui.ctx().animate_bool_with_time(
+        egui::Id::new(("row-hover", &track.urn)),
+        inner.response.hovered(),
+        0.12,
+    );
+    if hover_t > 0.001 {
+        let rect = inner.response.rect.expand2(egui::vec2(6.0, 3.0));
+        ui.painter().set(
+            bg_idx,
+            egui::Shape::rect_filled(
+                rect,
+                6.0,
+                egui::Color32::from_white_alpha((16.0 * hover_t) as u8),
+            ),
+        );
+    }
+    RowParts {
+        art: r,
+        title: t,
+        artist: a,
+    }
 }
 
 /// ジャンルの固定色 (search/utils.ts の GENRES) + ハッシュ由来の HSL 色。
@@ -739,13 +837,24 @@ pub fn track_card_stats(
     size: f32,
     playing: bool,
     accent: egui::Color32,
-) -> egui::Response {
+) -> CardHit {
     ui.vertical(|ui| {
         ui.set_max_width(size + 8.0);
         let art = track.artwork("t300x300");
-        let resp = images.show(ui, rt, art.as_deref(), size);
-        if resp.hovered() || playing {
-            paint_play_glyph(ui.painter(), resp.rect, playing);
+        let play = images.show(ui, rt, art.as_deref(), size);
+        // ホバー: 暗転 + 再生グリフをフェードイン。
+        let hover_t = ui.ctx().animate_bool_with_time(
+            egui::Id::new(("card-hover", &track.urn)),
+            play.hovered() || playing,
+            0.15,
+        );
+        if hover_t > 0.001 {
+            ui.painter().rect_filled(
+                play.rect,
+                4.0,
+                egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
+            );
+            paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
         }
         // 左下: "833.4K plays  3:32" のピル。
         let plays = track.playback_count.map(fmt_count).unwrap_or_default();
@@ -762,8 +871,8 @@ pub fn track_card_stats(
         let pad = egui::vec2(5.0, 2.0);
         let pill = egui::Rect::from_min_size(
             egui::Pos2::new(
-                resp.rect.left() + 4.0,
-                resp.rect.bottom() - galley.size().y - pad.y * 2.0 - 4.0,
+                play.rect.left() + 4.0,
+                play.rect.bottom() - galley.size().y - pad.y * 2.0 - 4.0,
             ),
             galley.size() + pad * 2.0,
         );
@@ -776,19 +885,67 @@ pub fn track_card_stats(
         } else {
             egui::RichText::new(track.display_title())
         };
-        ui.add(
+        let title = ui.add(
             egui::Label::new(title)
                 .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate),
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .sense(egui::Sense::click()),
         );
-        ui.add(
+        let artist = ui.add(
             egui::Label::new(egui::RichText::new(track.artist_name()).weak())
                 .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate),
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .sense(egui::Sense::click()),
         );
-        resp
+        CardHit {
+            play,
+            title,
+            artist,
+        }
     })
     .inner
+}
+
+/// 検索のユーザ/プレイリスト/アルバム行 (アート + 名前。行全体クリック + ホバー背景)。
+pub fn search_row(
+    ui: &mut egui::Ui,
+    rt: &tokio::runtime::Handle,
+    images: &mut Images,
+    art_url: Option<&str>,
+    name: &str,
+    round: bool,
+) -> egui::Response {
+    let bg_idx = ui.painter().add(egui::Shape::Noop);
+    let inner = ui.horizontal(|ui| {
+        let corner = if round {
+            egui::CornerRadius::same(18)
+        } else {
+            egui::CornerRadius::same(6)
+        };
+        let img = images.show_rounded(ui, rt, art_url, 36.0, corner);
+        let label = ui.add(
+            egui::Label::new(egui::RichText::new(name).size(13.0))
+                .sense(egui::Sense::click()),
+        );
+        img.union(label)
+    });
+    let hover_t = ui.ctx().animate_bool_with_time(
+        egui::Id::new(("search-row", name)),
+        inner.response.hovered(),
+        0.12,
+    );
+    if hover_t > 0.001 {
+        let rect = inner.response.rect.expand2(egui::vec2(6.0, 4.0));
+        ui.painter().set(
+            bg_idx,
+            egui::Shape::rect_filled(
+                rect,
+                8.0,
+                egui::Color32::from_white_alpha((14.0 * hover_t) as u8),
+            ),
+        );
+    }
+    inner.inner
 }
 
 /// セクション見出し (タイトル + 件数)。

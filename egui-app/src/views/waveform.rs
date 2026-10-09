@@ -53,6 +53,8 @@ pub async fn fetch_samples(raw_url: &str) -> Result<Vec<f32>, String> {
 pub struct WaveVoice {
     pub timestamp_ms: f64,
     pub body: String,
+    /// コメント投稿者のアバター (波形上のアイコン)。
+    pub avatar_url: Option<String>,
 }
 
 /// 波形の操作結果。
@@ -67,8 +69,11 @@ pub struct WaveHit {
 
 /// 波形を描く (コメント点つき)。`voices` はタイムスタンプ付きコメント。
 /// `query` の取得・poll は呼出側 (Track ページ) が行う。
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
+    rt: &tokio::runtime::Handle,
+    images: &mut crate::images::Images,
     query: &Query<Vec<f32>>,
     progress: f32,
     height: f32,
@@ -96,43 +101,78 @@ pub fn show(
     let n = ((width / 4.0) as usize).clamp(40, 300);
     let (rect, resp) =
         ui.allocate_exact_size(egui::Vec2::new(width, height), egui::Sense::click());
-    let painter = ui.painter();
-    let bar_w = width / n as f32;
-    let dim = egui::Color32::from_white_alpha(45);
-    for i in 0..n {
-        let lo = i * samples.len() / n;
-        let hi = ((i + 1) * samples.len() / n).max(lo + 1);
-        let h = samples[lo..hi.min(samples.len())]
-            .iter()
-            .cloned()
-            .fold(0f32, f32::max);
-        let bh = (h * (height - 10.0)).max(2.0);
-        let x0 = rect.left() + i as f32 * bar_w;
-        let y0 = rect.center().y - bh / 2.0;
-        let played = (i as f32 + 1.0) / n as f32 <= progress;
-        painter.rect_filled(
-            egui::Rect::from_min_size(
-                egui::Pos2::new(x0, y0),
-                egui::Vec2::new((bar_w - 1.0).max(1.0), bh),
-            ),
-            1.0,
-            if played { accent } else { dim },
-        );
-    }
     hit.rect = rect;
-    // コメント点 (各タイムスタンプに小さな点。クリックでそこへシーク)。
     let mut dots: Vec<(egui::Pos2, f64)> = Vec::new();
-    if duration_ms > 0.0 {
-        for v in voices {
-            if v.body.is_empty() {
-                continue;
-            }
-            let pct = (v.timestamp_ms / duration_ms).clamp(0.0, 1.0) as f32;
-            let c = egui::Pos2::new(rect.left() + pct * width, rect.top() + 6.0);
-            painter.circle_filled(c, 4.0, egui::Color32::from_white_alpha(160));
-            painter.circle_stroke(c, 4.0, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(120)));
-            dots.push((c, v.timestamp_ms));
+    {
+        let painter = ui.painter();
+        let bar_w = width / n as f32;
+        let dim = egui::Color32::from_white_alpha(45);
+        for i in 0..n {
+            let lo = i * samples.len() / n;
+            let hi = ((i + 1) * samples.len() / n).max(lo + 1);
+            let h = samples[lo..hi.min(samples.len())]
+                .iter()
+                .cloned()
+                .fold(0f32, f32::max);
+            let bh = (h * (height - 10.0)).max(2.0);
+            let x0 = rect.left() + i as f32 * bar_w;
+            let y0 = rect.center().y - bh / 2.0;
+            let played = (i as f32 + 1.0) / n as f32 <= progress;
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::Pos2::new(x0, y0),
+                    egui::Vec2::new((bar_w - 1.0).max(1.0), bh),
+                ),
+                1.0,
+                if played { accent } else { dim },
+            );
         }
+        // コメント点 (アバターが取れるまでは小さな点)。
+        if duration_ms > 0.0 {
+            for v in voices {
+                if v.body.is_empty() {
+                    continue;
+                }
+                let pct = (v.timestamp_ms / duration_ms).clamp(0.0, 1.0) as f32;
+                let c = egui::Pos2::new(rect.left() + pct * width, rect.top() + 9.0);
+                painter.circle_filled(c, 5.0, egui::Color32::from_white_alpha(160));
+                painter.circle_stroke(
+                    c,
+                    5.0,
+                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(120)),
+                );
+                dots.push((c, v.timestamp_ms));
+            }
+        }
+    }
+    // アバター (Tauri: WaveVoices のアイコン)。取得でき次第、点の上に描く。
+    // `ui.put` はカーソルを動かすため、スコープ内で描いて親レイアウトに影響させない。
+    if duration_ms > 0.0 {
+        ui.scope(|ui| {
+            for v in voices {
+                if v.body.is_empty() {
+                    continue;
+                }
+                let Some(tex) = images.texture(ui, rt, v.avatar_url.as_deref()) else {
+                    continue;
+                };
+                let pct = (v.timestamp_ms / duration_ms).clamp(0.0, 1.0) as f32;
+                let center = egui::Pos2::new(rect.left() + pct * width, rect.top() + 9.0);
+                let size = 18.0;
+                let avatar_rect =
+                    egui::Rect::from_center_size(center, egui::Vec2::splat(size));
+                let resp = ui.put(
+                    avatar_rect,
+                    egui::Image::new((tex, egui::Vec2::splat(size)))
+                        .corner_radius(egui::CornerRadius::same(9))
+                        .sense(egui::Sense::click()),
+                );
+                if resp.clicked() {
+                    hit.comment_seek_ms = Some(v.timestamp_ms);
+                }
+                let _ = resp.on_hover_text(&v.body);
+            }
+        });
     }
     if resp.clicked() {
         if let Some(pos) = resp.interact_pointer_pos() {

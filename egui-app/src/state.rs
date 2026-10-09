@@ -536,7 +536,7 @@ pub struct AppState {
     pub sidebar_me: Query<ScUser>,
     /// ナビゲーション履歴と現在位置 (タイトルバーの戻る/進む)。
     nav_history: Vec<(Route, Option<String>)>,
-    nav_index: usize,
+    pub nav_index: usize,
     /// タイトルバー用の最大化状態。
     pub maximized: bool,
     pub last_sync_error: Option<String>,

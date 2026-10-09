@@ -185,21 +185,24 @@ impl AlbumView {
             return action;
         }
         for (i, track) in tracks.iter().enumerate() {
-            match Self::track_row(ui, rt, images, player, track, accent) {
-                widgets::RowHit::Clicked => {
-                    action = AlbumAction::PlayList(tracks.clone(), i);
+            let hit = Self::track_row(ui, rt, images, player, track, accent);
+            if hit.play_clicked() {
+                action = AlbumAction::PlayList(tracks.clone(), i);
+            } else if hit.title_clicked() {
+                action = AlbumAction::Navigate(Route::Track, Some(track.urn.clone()));
+            } else if hit.artist_clicked() {
+                if let Some(u) = track.user.as_ref() {
+                    action = AlbumAction::Navigate(Route::User, Some(u.urn.clone()));
                 }
-                widgets::RowHit::Menu => {
-                    action = AlbumAction::OpenMenu(track.clone());
-                }
-                widgets::RowHit::None => {}
+            } else if hit.menu_clicked() {
+                action = AlbumAction::OpenMenu(track.clone());
             }
         }
 
         action
     }
 
-    /// 1行描画。戻り値はクリックされたか (対応: `AlbumTrackRow`)。
+    /// 1行描画。戻り値は操作結果 (対応: `AlbumTrackRow`)。
     fn track_row(
         ui: &mut egui::Ui,
         rt: &tokio::runtime::Handle,
@@ -207,10 +210,10 @@ impl AlbumView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> widgets::RowHit {
+    ) -> widgets::RowParts {
         let playing = widgets::is_currently_playing(player, track);
         let dur = fmt_dur(track.duration);
-        widgets::hit_of(&widgets::track_row(
+        widgets::track_row(
             ui,
             rt,
             images,
@@ -218,6 +221,6 @@ impl AlbumView {
             playing,
             accent,
             Some(&dur),
-        ))
+        )
     }
 }

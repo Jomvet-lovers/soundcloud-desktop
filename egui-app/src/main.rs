@@ -126,6 +126,8 @@ fn app_main(args: Vec<String>) -> eframe::Result {
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([900.0, 600.0])
             .with_decorations(false),
+        // wgpu (DX12/Vulkan) で描画する (動きの滑らかさ優先)。
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
     eframe::run_native(

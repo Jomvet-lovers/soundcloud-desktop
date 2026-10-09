@@ -143,6 +143,8 @@ pub fn visuals(settings: &SettingsState) -> egui::Visuals {
     v.selection.stroke = egui::Stroke::new(1.0, accent);
     v.hyperlink_color = accent;
     v.slider_trailing_fill = true;
+    // クリック可能な要素では指カーソル (Tauri/Web と同様)。
+    v.interact_cursor = Some(egui::CursorIcon::PointingHand);
     // フラット方針: 影 (グロー) は使わない。
     v.window_shadow = egui::epaint::Shadow::NONE;
     v.popup_shadow = egui::epaint::Shadow::NONE;
@@ -208,6 +210,8 @@ pub fn install_text_styles(ctx: &egui::Context) {
     style.spacing.scroll.floating = false;
     style.spacing.scroll.bar_inner_margin = 4.0;
     style.spacing.scroll.bar_outer_margin = 2.0;
+    // 状態遷移アニメーション (Tauri の transition 相当)。
+    style.animation_time = 0.18;
     ctx.set_style_of(egui::Theme::Dark, style);
 }
 

@@ -147,14 +147,18 @@ impl TagView {
             } else {
                 ui.horizontal_wrapped(|ui| {
                     for (i, track) in page.collection.iter().enumerate() {
-                        match Self::track_card(ui, rt, images, player, track, accent) {
-                            widgets::RowHit::Clicked => {
-                                action = TagAction::PlayList(page.collection.clone(), i);
+                        let hit = Self::track_card(ui, rt, images, player, track, accent);
+                        if hit.play_clicked() {
+                            action = TagAction::PlayList(page.collection.clone(), i);
+                        } else if hit.title_clicked() {
+                            action = TagAction::Navigate(Route::Track, Some(track.urn.clone()));
+                        } else if hit.artist_clicked() {
+                            if let Some(u) = track.user.as_ref() {
+                                action =
+                                    TagAction::Navigate(Route::User, Some(u.urn.clone()));
                             }
-                            widgets::RowHit::Menu => {
-                                action = TagAction::OpenMenu(track.clone());
-                            }
-                            widgets::RowHit::None => {}
+                        } else if hit.menu_clicked() {
+                            action = TagAction::OpenMenu(track.clone());
                         }
                     }
                 });
@@ -179,7 +183,7 @@ impl TagView {
         action
     }
 
-    /// 1カード描画。戻り値はクリックされたか。
+    /// 1カード描画。戻り値は操作結果。
     fn track_card(
         ui: &mut egui::Ui,
         rt: &tokio::runtime::Handle,
@@ -187,10 +191,8 @@ impl TagView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
-    ) -> widgets::RowHit {
+    ) -> widgets::CardHit {
         let playing = widgets::is_currently_playing(player, track);
-        widgets::hit_of(&widgets::track_card(
-            ui, rt, images, track, 132.0, playing, accent,
-        ))
+        widgets::track_card(ui, rt, images, track, 132.0, playing, accent)
     }
 }

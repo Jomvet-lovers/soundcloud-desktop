@@ -7,7 +7,7 @@ edition = "2024"
 # バックエンド移植 (Phase 1) までは UI シェルと AppState 骨格のみ。
 
 [dependencies]
-eframe = "0.36"
+eframe = { version = "0.36", features = ["wgpu"] }
 egui = "0.36"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "fs", "time", "process", "sync"] }
 serde = { version = "1", features = ["derive"] }

@@ -91,6 +91,54 @@ impl Images {
         Self::placeholder(ui, size)
     }
 
+    /// テクスチャを取得する (未取得なら読み込みを開始して None)。
+    /// 波形のコメントアバターなど、`Ui::put` で描く用途。
+    pub fn texture(
+        &mut self,
+        ui: &mut egui::Ui,
+        rt: &tokio::runtime::Handle,
+        url: Option<&str>,
+    ) -> Option<egui::TextureId> {
+        let url = url?;
+        if let Some(rx) = self.pending.get_mut(url) {
+            if let Ok(result) = rx.try_recv() {
+                self.pending.remove(url);
+                match result {
+                    Ok(img) => {
+                        self.textures.insert(
+                            url.to_string(),
+                            ui.ctx().load_texture(url, img, Default::default()),
+                        );
+                    }
+                    Err(_) => {
+                        self.failed.insert(url.to_string());
+                    }
+                }
+                ui.ctx().request_repaint();
+            }
+        }
+        if let Some(tex) = self.textures.get(url) {
+            return Some(tex.id());
+        }
+        if self.failed.contains(url) {
+            return None;
+        }
+        if !self.pending.contains_key(url) {
+            let (tx, rx) = oneshot::channel();
+            let client = self.client.clone();
+            let url_owned = url.to_string();
+            let ctx = ui.ctx().clone();
+            rt.spawn(async move {
+                let result = fetch_image(&client, &url_owned).await;
+                let _ = tx.send(result);
+                ctx.request_repaint();
+            });
+            self.pending.insert(url.to_string(), rx);
+        }
+        ui.ctx().request_repaint();
+        None
+    }
+
     fn placeholder(ui: &mut egui::Ui, size: f32) -> egui::Response {
         let (rect, resp) =
             ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());

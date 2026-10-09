@@ -260,8 +260,17 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 egui::Id::new("titlebar_drag"),
                 egui::Sense::click_and_drag(),
             );
-            if drag.drag_started() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            // 手動ドラッグ (StartDrag より滑らか): 移動量を OuterPosition に反映する。
+            if drag.dragged() {
+                let delta = drag.drag_delta();
+                if delta != egui::Vec2::ZERO
+                    && let Some(outer) = ui.ctx().input(|i| i.viewport().outer_rect)
+                {
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::OuterPosition(
+                            outer.min + delta,
+                        ));
+                }
             }
             if drag.double_clicked() {
                 state.maximized = !state.maximized;
@@ -874,6 +883,18 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     });
 
     egui::CentralPanel::default().show(ui, |ui| {
+        // ページ遷移のソフトイン (Tauri: animate-soft-in)。
+        let fade = ui.ctx().animate_bool_with_time(
+            egui::Id::new((
+                "page-fade",
+                state.route as u8,
+                state.nav_param.clone(),
+                state.nav_index,
+            )),
+            true,
+            0.25,
+        );
+        ui.multiply_opacity(fade);
         egui::ScrollArea::vertical().show(ui, |ui| {
             let rt = state.runtime().handle().clone();
             let audio = state.audio().cloned();
