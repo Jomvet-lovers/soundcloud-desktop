@@ -436,3 +436,20 @@ smoke モード (どちらも表示環境用。CI では不可):
 - **再生バー**: Shuffle/Repeat を描画アイコンのトグル (ON=アクセント) に。
 - **既知の残差**: 検索カードのホバー時ハート/Add to Queue メニュー、NEW バッジ、
   タイトルバー内の虫眼鏡、統合 (Integrations) カテゴリ。
+
+### 8.14 プレイリスト追加のデータ損失ガード (2026-10-10 深夜)
+
+リポジトリ直下に置かれていた `SCD-Direct_playlist-bug_fix-instructions.md`
+(Tauri 版 desktop/ 向け) と同一のコードが egui 版 backend にも移植されているため、
+同じ不具合を egui 版で修正 (コミット 1076ab78)。
+
+- `hydrate_track_stubs` が「補完できず捨てた件数」を返すように。
+- `POST /playlists/:urn/tracks`: ローカル控えが無い SC 所有プレイリストでは
+  `/playlists/{id}` の 2xx と、補完前後の曲数一致を必須にし、満たさなければ **502 を
+  返してローカル保存も SoundCloud 書き込みもしない** (1曲への縮退事故を防止)。
+- `GET /playlists/:urn/tracks`: SC 直取得の非 2xx をそのまま返す (空の成功を返さない)。
+- 純粋関数 `append_track_unique` + ユニットテスト (cargo test 45件)。
+- egui フロント: 追加結果を oneshot で受け、成功時に開いているプレイリストと
+  Library のレールを invalidate。失敗はサイドバーに「playlist: …」と表示。
+- **Tauri 版 (desktop/) への同修正は未実施** (ブランチが異なるため)。必要なら
+  指示書のタスク 2/3/4 (フロントの refetchOnMount、自己修復) も別途対応。
