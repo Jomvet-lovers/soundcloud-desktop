@@ -519,7 +519,13 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                                 ),
                             );
                         }
-                        if resp.clicked() {
+                        if resp.secondary_clicked() {
+                            let pos = ui
+                                .ctx()
+                                .pointer_interact_pos()
+                                .unwrap_or(resp.rect.center());
+                            state.open_playlist_menu(urn.clone(), None, pos);
+                        } else if resp.clicked() {
                             state.navigate(Route::Playlist, Some(urn));
                         }
                     }
@@ -1054,8 +1060,24 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     if state.add_to_playlist.is_some() {
         show_add_to_playlist(state, ui.ctx());
     }
+    // ウィジェット発の右クリックメニュー要求を回収して開く。
+    for req in crate::widgets::take_menu_requests() {
+        match req {
+            crate::widgets::MenuRequest::User {
+                urn,
+                permalink,
+                pos,
+            } => state.open_user_menu(urn, permalink, pos),
+        }
+    }
     if state.track_menu.is_some() {
         show_track_menu(state, ui.ctx());
+    }
+    if state.user_menu.is_some() {
+        show_user_menu(state, ui.ctx());
+    }
+    if state.playlist_menu.is_some() {
+        show_playlist_menu(state, ui.ctx());
     }
     if state.download_track.is_some() {
         show_download_window(state, ui.ctx());
@@ -1329,52 +1351,277 @@ const EQ_PRESETS: &[(&str, [f64; 10])] = &[
     ),
 ];
 
-/// イコライザー窓 (Tauri 版 `EqualizerPanel` 相当)。
+/// EQ ヘッダーの丸ボタン (Tauri: 36px rounded-xl。電源は emerald で ON)。
+fn eq_header_button(ui: &mut egui::Ui, icon: crate::widgets::UiIcon, power_on: bool) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(36.0), egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return false;
+    }
+    let (bg, fg, border) = if power_on {
+        (
+            egui::Color32::from_rgba_unmultiplied(52, 211, 153, 38),
+            egui::Color32::from_rgb(52, 211, 153),
+            egui::Color32::from_rgba_unmultiplied(52, 211, 153, 77),
+        )
+    } else if resp.hovered() {
+        (
+            egui::Color32::from_white_alpha(10),
+            egui::Color32::from_white_alpha(128),
+            egui::Color32::from_white_alpha(15),
+        )
+    } else {
+        (
+            egui::Color32::from_white_alpha(10),
+            egui::Color32::from_white_alpha(64),
+            egui::Color32::from_white_alpha(15),
+        )
+    };
+    ui.painter().rect_filled(rect, 10.0, bg);
+    ui.painter().rect_stroke(
+        rect,
+        10.0,
+        egui::Stroke::new(1.0, border),
+        egui::StrokeKind::Inside,
+    );
+    crate::widgets::paint_ui_icon(
+        ui.painter(),
+        egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(15.0)),
+        icon,
+        fg,
+    );
+    resp.clicked()
+}
+
+/// EQ プリセットボタン (Tauri PresetBtn: rounded-lg / 選択 = 白背景 + 黒文字)。
+fn preset_button(ui: &mut egui::Ui, label: &str, active: bool) -> bool {
+    let font = crate::theme::medium(11.0);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font.clone(), egui::Color32::WHITE);
+    let size = egui::vec2(galley.size().x + 24.0, galley.size().y + 12.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return false;
+    }
+    let hovered = resp.hovered();
+    if active {
+        ui.painter().rect_filled(rect, 8.0, egui::Color32::WHITE);
+        ui.painter().rect_stroke(
+            rect,
+            8.0,
+            egui::Stroke::new(1.0, egui::Color32::WHITE),
+            egui::StrokeKind::Inside,
+        );
+    } else {
+        ui.painter().rect_filled(
+            rect,
+            8.0,
+            egui::Color32::from_white_alpha(if hovered { 20 } else { 10 }),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            8.0,
+            egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)),
+            egui::StrokeKind::Inside,
+        );
+    }
+    let color = if active {
+        egui::Color32::BLACK
+    } else if hovered {
+        egui::Color32::from_white_alpha(204)
+    } else {
+        egui::Color32::from_white_alpha(128)
+    };
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
+    ui.painter().galley(
+        egui::pos2(
+            rect.center().x - galley.size().x * 0.5,
+            rect.center().y - galley.size().y * 0.5,
+        ),
+        galley,
+        color,
+    );
+    resp.clicked()
+}
+
+/// イコライザー (Tauri 版 `EqualizerPanel` 相当のモーダル)。
 fn show_eq_window(state: &mut AppState, ctx: &egui::Context) {
-    let mut open = true;
     let mut changed = false;
-    egui::Window::new("Equalizer")
-        .open(&mut open)
-        .resizable(false)
-        .collapsible(false)
-        .show(ctx, |ui| {
-            changed |= ui
-                .checkbox(&mut state.settings.eq_enabled, "Enable")
-                .changed();
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_label("Preset")
-                    .selected_text("Custom")
-                    .show_ui(ui, |ui| {
-                        for (name, gains) in EQ_PRESETS {
-                            if ui.selectable_label(false, *name).clicked() {
-                                state.settings.eq_gains = gains.to_vec();
-                                changed = true;
-                            }
-                        }
-                    });
-                if ui.button("Flat").clicked() {
-                    state.settings.eq_gains = vec![0.0; 10];
-                    changed = true;
-                }
-            });
-            let mut gains = state.settings.eq_gains_or_default();
-            let mut sliders_changed = false;
-            ui.horizontal(|ui| {
-                for (i, g) in gains.iter_mut().enumerate() {
-                    ui.vertical(|ui| {
-                        sliders_changed |= ui
-                            .add(egui::Slider::new(g, -12.0..=12.0).vertical())
-                            .changed();
-                        ui.small(EQ_LABELS[i]);
-                    });
-                }
-            });
-            if sliders_changed {
-                state.settings.eq_gains = gains;
-                changed = true;
-            }
+    let mut close = false;
+    let frame = egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(20, 20, 23))
+        .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(26)))
+        .corner_radius(egui::CornerRadius::same(28))
+        .inner_margin(egui::Margin {
+            left: 24,
+            right: 24,
+            top: 20,
+            bottom: 20,
         });
-    state.show_eq = open;
+    let modal = egui::Modal::new(egui::Id::new("scd-eq-modal"))
+        .frame(frame)
+        .backdrop_color(egui::Color32::from_black_alpha(179))
+        .show(ctx, |ui| {
+            ui.set_width(472.0);
+            let enabled = state.settings.eq_enabled;
+            // ── ヘッダー (アイコンタイル + タイトル + 電源/リセット/閉じる) ──
+            ui.horizontal(|ui| {
+                let (tile, _) =
+                    ui.allocate_exact_size(egui::Vec2::splat(36.0), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(tile, 10.0, egui::Color32::from_white_alpha(15));
+                crate::widgets::paint_ui_icon(
+                    ui.painter(),
+                    egui::Rect::from_center_size(tile.center(), egui::Vec2::splat(18.0)),
+                    crate::widgets::UiIcon::AudioLines,
+                    egui::Color32::from_white_alpha(153),
+                );
+                ui.add_space(12.0);
+                ui.label(
+                    egui::RichText::new("Equalizer")
+                        .font(crate::theme::semibold(17.0))
+                        .color(egui::Color32::from_white_alpha(230)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if eq_header_button(ui, crate::widgets::UiIcon::Close, false) {
+                        close = true;
+                    }
+                    if eq_header_button(ui, crate::widgets::UiIcon::Refresh, false) {
+                        state.settings.eq_gains = vec![0.0; 10];
+                        changed = true;
+                    }
+                    if eq_header_button(ui, crate::widgets::UiIcon::Power, enabled) {
+                        state.settings.eq_enabled = !enabled;
+                        changed = true;
+                    }
+                });
+            });
+            ui.add_space(14.0);
+            // ── 本体 (無効時は 30% に減光 + 操作不可) ──
+            ui.add_enabled_ui(enabled, |ui| {
+                ui.multiply_opacity(if enabled { 1.0 } else { 0.3 });
+                let mut sliders_changed = false;
+                ui.horizontal(|ui| {
+                    // dB ラベル列。
+                    let (db_rect, _) = ui
+                        .allocate_exact_size(egui::vec2(26.0, 140.0), egui::Sense::hover());
+                    let db_font = egui::FontId::proportional(9.0);
+                    let db_color = egui::Color32::from_white_alpha(89);
+                    ui.painter().text(
+                        egui::pos2(db_rect.right(), db_rect.top()),
+                        egui::Align2::RIGHT_TOP,
+                        "+12",
+                        db_font.clone(),
+                        db_color,
+                    );
+                    ui.painter().text(
+                        egui::pos2(db_rect.right(), db_rect.center().y),
+                        egui::Align2::RIGHT_CENTER,
+                        "0",
+                        db_font.clone(),
+                        db_color,
+                    );
+                    ui.painter().text(
+                        egui::pos2(db_rect.right(), db_rect.bottom()),
+                        egui::Align2::RIGHT_BOTTOM,
+                        "-12",
+                        db_font,
+                        db_color,
+                    );
+                    ui.add_space(8.0);
+                    // バンドスライダー (Tauri: 3px レール + 16px サム)。
+                    let mut gains = state.settings.eq_gains_or_default();
+                    let avail = ui.available_width();
+                    let spacing = ((avail - 10.0 * 28.0) / 9.0).max(0.0);
+                    ui.spacing_mut().item_spacing.x = spacing;
+                    for (i, g) in gains.iter_mut().enumerate() {
+                        ui.vertical(|ui| {
+                            ui.set_width(28.0);
+                            let value_label = if *g > 0.0 {
+                                format!("+{:.1}", g)
+                            } else {
+                                format!("{:.1}", g)
+                            };
+                            let value_color = if *g > 0.0 {
+                                egui::Color32::from_rgb(52, 211, 153)
+                            } else if *g < 0.0 {
+                                egui::Color32::from_rgb(96, 165, 250)
+                            } else {
+                                egui::Color32::from_white_alpha(89)
+                            };
+                            let (vl_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(28.0, 16.0),
+                                egui::Sense::hover(),
+                            );
+                            ui.painter().text(
+                                vl_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                value_label,
+                                crate::theme::semibold(10.0),
+                                value_color,
+                            );
+                            if crate::widgets::eq_band_slider(ui, g, -12.0, 12.0) {
+                                sliders_changed = true;
+                            }
+                            let (fl_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(28.0, 12.0),
+                                egui::Sense::hover(),
+                            );
+                            ui.painter().text(
+                                fl_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                EQ_LABELS[i],
+                                crate::theme::medium(9.0),
+                                egui::Color32::from_white_alpha(102),
+                            );
+                        });
+                    }
+                    if sliders_changed {
+                        state.settings.eq_gains = gains;
+                        changed = true;
+                    }
+                });
+                ui.add_space(12.0);
+                let (pl_rect, _) =
+                    ui.allocate_exact_size(egui::vec2(200.0, 14.0), egui::Sense::hover());
+                ui.painter().text(
+                    egui::pos2(pl_rect.left(), pl_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    "Preset",
+                    crate::theme::medium(11.0),
+                    egui::Color32::from_white_alpha(102),
+                );
+                ui.add_space(10.0);
+                // プリセットボタン (rounded-lg、選択 = 白背景 + 黒文字)。
+                let current = state.settings.eq_gains_or_default();
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                    let mut matched = false;
+                    for (name, gains) in EQ_PRESETS {
+                        let active = current.len() == 10
+                            && gains
+                                .iter()
+                                .enumerate()
+                                .all(|(i, g)| (current[i] - g).abs() < 0.01);
+                        matched |= active;
+                        if preset_button(ui, name, active) {
+                            state.settings.eq_gains = gains.to_vec();
+                            changed = true;
+                        }
+                    }
+                    if !matched {
+                        // Tauri の Custom チップ (表示のみ)。
+                        let _ = preset_button(ui, "Custom", true);
+                    }
+                });
+            });
+        });
+    if modal.should_close() {
+        close = true;
+    }
+    if close {
+        state.show_eq = false;
+    }
     if changed {
         state.apply_eq();
     }
@@ -1384,34 +1631,37 @@ fn show_eq_window(state: &mut AppState, ctx: &egui::Context) {
 fn show_tuning_window(state: &mut AppState, ctx: &egui::Context) {
     let mut open = true;
     let mut changed = false;
+    let accent = crate::widgets::accent_color(&state.settings);
     egui::Window::new("Sound tuning")
         .open(&mut open)
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Speed");
-                changed |= ui
-                    .add(
-                        egui::Slider::new(&mut state.settings.playback_rate, 0.5..=2.0)
-                            .fixed_decimals(2)
-                            .suffix("x"),
-                    )
-                    .changed();
-            });
+            ui.label("Speed");
+            let mut rate = state.settings.playback_rate as f64;
+            if crate::widgets::range_slider(ui, &mut rate, 0.5, 2.0, 220.0, true, accent).changed()
+            {
+                state.settings.playback_rate = rate as f32;
+                changed = true;
+            }
             let mut manual = !state.settings.pitch_auto;
             if ui.checkbox(&mut manual, "Manual pitch control").changed() {
                 state.settings.pitch_auto = !manual;
                 changed = true;
             }
             ui.add_enabled_ui(manual, |ui| {
-                changed |= ui
-                    .add(
-                        egui::Slider::new(&mut state.settings.pitch_semitones, -12.0..=12.0)
-                            .step_by(0.5)
-                            .suffix(" st"),
-                    )
-                    .changed();
+                if !manual {
+                    ui.multiply_opacity(0.4);
+                }
+                ui.label("Pitch");
+                let mut semi = state.settings.pitch_semitones as f64;
+                if crate::widgets::range_slider(ui, &mut semi, -12.0, 12.0, 220.0, manual, accent)
+                    .changed()
+                {
+                    // Tauri と同じ 0.5 st 刻み。
+                    state.settings.pitch_semitones = (((semi * 2.0).round()) / 2.0) as f32;
+                    changed = true;
+                }
             });
             if ui.button("Reset").clicked() {
                 state.settings.playback_rate = 1.0;
@@ -1557,6 +1807,8 @@ fn open_menu(state: &mut AppState, ui: &egui::Ui, track: crate::backend::models:
 }
 
 /// トラックの右クリックメニュー (Tauri 版 `TrackContextMenu` 相当)。
+/// 先頭の like / Add to Next up / Add to playlist / Share が Tauri と同一。
+/// Tauri に無い既存項目は区切りの下に残す。
 fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
     let Some(menu) = state.track_menu.clone() else {
         return;
@@ -1584,41 +1836,52 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
         .fixed_pos(menu.pos)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.set_min_width(210.0);
+            crate::widgets::menu_frame().show(ui, |ui| {
                 let like_label = if liked {
                     "Remove from library"
                 } else {
                     "Add to library"
                 };
-                if ui.button(like_label).clicked() {
+                if crate::widgets::menu_item_heart(ui, liked, like_label).clicked() {
                     act = Some(Act::SetLike(!liked));
                 }
+                if crate::widgets::menu_item(
+                    ui,
+                    crate::widgets::UiIcon::ListPlus,
+                    "Add to Next up",
+                )
+                .clicked()
+                {
+                    act = Some(Act::PlayNext);
+                }
+                if crate::widgets::menu_item(ui, crate::widgets::UiIcon::Plus, "Add to playlist")
+                    .clicked()
+                {
+                    act = Some(Act::AddToPlaylist);
+                }
+                crate::widgets::menu_separator(ui);
+                if crate::widgets::menu_item(ui, crate::widgets::UiIcon::Link, "Share").clicked() {
+                    act = Some(Act::CopyLink);
+                }
+                // ── Tauri のメニューに無い既存項目 (互換の確認待ち) ──
+                crate::widgets::menu_separator(ui);
                 let dis_label = if disliked {
                     "Remove dislike"
                 } else {
                     "Not interested"
                 };
-                if ui.button(dis_label).clicked() {
+                if crate::widgets::menu_item_plain(ui, dis_label).clicked() {
                     act = Some(Act::SetDislike(!disliked));
                 }
-                if ui.button("Play next").clicked() {
-                    act = Some(Act::PlayNext);
-                }
-                if ui.button("Add to playlist").clicked() {
-                    act = Some(Act::AddToPlaylist);
-                }
-                if ui.button("Download...").clicked() {
+                if crate::widgets::menu_item_plain(ui, "Download...").clicked() {
                     act = Some(Act::Download);
                 }
-                ui.separator();
-                if ui.button("Copy link").clicked() {
-                    act = Some(Act::CopyLink);
-                }
-                if ui.button("Go to track").clicked() {
+                if crate::widgets::menu_item_plain(ui, "Go to track").clicked() {
                     act = Some(Act::GoTrack);
                 }
-                if track.user.is_some() && ui.button("Go to artist").clicked() {
+                if track.user.is_some()
+                    && crate::widgets::menu_item_plain(ui, "Go to artist").clicked()
+                {
                     act = Some(Act::GoArtist);
                 }
             });
@@ -1685,6 +1948,142 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
         }
     }
     state.track_menu = None;
+}
+
+/// アーティスト (ユーザー) の右クリックメニュー (Tauri `UserMenu` 相当)。
+fn show_user_menu(state: &mut AppState, ctx: &egui::Context) {
+    let Some(menu) = state.user_menu.clone() else {
+        return;
+    };
+    enum Act {
+        GoProfile,
+        CopyLink,
+    }
+    let mut act: Option<Act> = None;
+    let area = egui::Area::new(egui::Id::new("scd-user-menu"))
+        .fixed_pos(menu.pos)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            crate::widgets::menu_frame().show(ui, |ui| {
+                if crate::widgets::menu_item(ui, crate::widgets::UiIcon::Users, "Go to profile")
+                    .clicked()
+                {
+                    act = Some(Act::GoProfile);
+                }
+                if menu.permalink.is_some()
+                    && crate::widgets::menu_item(ui, crate::widgets::UiIcon::Link, "Copy link")
+                        .clicked()
+                {
+                    act = Some(Act::CopyLink);
+                }
+            });
+        })
+        .response;
+    if ctx.input(|i| i.pointer.any_click()) {
+        let inside = ctx
+            .input(|i| i.pointer.interact_pos())
+            .map(|p| area.rect.contains(p))
+            .unwrap_or(false);
+        if !inside {
+            state.user_menu = None;
+            return;
+        }
+    }
+    let Some(act) = act else {
+        return;
+    };
+    match act {
+        Act::GoProfile => {
+            state.navigate(Route::User, Some(menu.urn.clone()));
+        }
+        Act::CopyLink => {
+            if let Some(url) = menu.permalink.clone() {
+                ctx.copy_text(url);
+            }
+        }
+    }
+    state.user_menu = None;
+}
+
+/// プレイリストの右クリックメニュー (Tauri `PlaylistMenu`。サイドバー pin)。
+fn show_playlist_menu(state: &mut AppState, ctx: &egui::Context) {
+    let Some(menu) = state.playlist_menu.clone() else {
+        return;
+    };
+    enum Act {
+        GoPlaylist,
+        CopyLink,
+        Unpin,
+    }
+    let mut act: Option<Act> = None;
+    let area = egui::Area::new(egui::Id::new("scd-playlist-menu"))
+        .fixed_pos(menu.pos)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            crate::widgets::menu_frame().show(ui, |ui| {
+                if crate::widgets::menu_item(ui, crate::widgets::UiIcon::Queue, "Go to playlist")
+                    .clicked()
+                {
+                    act = Some(Act::GoPlaylist);
+                }
+                if crate::widgets::menu_item(ui, crate::widgets::UiIcon::Link, "Copy link").clicked()
+                {
+                    act = Some(Act::CopyLink);
+                }
+                crate::widgets::menu_separator(ui);
+                if crate::widgets::menu_item(
+                    ui,
+                    crate::widgets::UiIcon::MapPin,
+                    "Remove from Quick Access",
+                )
+                .clicked()
+                {
+                    act = Some(Act::Unpin);
+                }
+            });
+        })
+        .response;
+    if ctx.input(|i| i.pointer.any_click()) {
+        let inside = ctx
+            .input(|i| i.pointer.interact_pos())
+            .map(|p| area.rect.contains(p))
+            .unwrap_or(false);
+        if !inside {
+            state.playlist_menu = None;
+            return;
+        }
+    }
+    let Some(act) = act else {
+        return;
+    };
+    match act {
+        Act::GoPlaylist => {
+            state.navigate(Route::Playlist, Some(menu.urn.clone()));
+        }
+        Act::CopyLink => {
+            if let Some(url) = menu.permalink.clone() {
+                ctx.copy_text(url);
+            } else if let Some(api) = state.api.clone() {
+                let rt = state.runtime().handle().clone();
+                let ctx2 = ctx.clone();
+                let path = format!("/playlists/{}", urlencoding::encode(&menu.urn));
+                rt.spawn(async move {
+                    if let Ok(v) = api.get_json(&path).await {
+                        if let Some(u) = v.get("permalink_url").and_then(|x| x.as_str()) {
+                            ctx2.copy_text(u.to_string());
+                        }
+                    }
+                });
+            }
+        }
+        Act::Unpin => {
+            state.settings.pinned_playlists.retain(|p| p.urn != menu.urn);
+            if let Err(e) = crate::backend::prefs::save(&state.settings) {
+                eprintln!("[prefs] save failed: {e}");
+            }
+        }
+    }
+    state.playlist_menu = None;
 }
 
 /// 単曲ダウンロード (保存先はネイティブダイアログ、形式は 4 種)。
@@ -1796,8 +2195,14 @@ fn show_download_window(state: &mut AppState, ctx: &egui::Context) {
 fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
     let has_audio = state.audio().is_some();
     let playing = state.player.is_playing;
-    let loading = matches!(state.load, LoadState::Loading { .. });
     egui::Panel::bottom("now_playing").show(ui, |ui| {
+        // Tauri: バー上端の hairline (白 8%)。
+        let bar_rect = ui.max_rect();
+        ui.painter().hline(
+            bar_rect.x_range(),
+            bar_rect.top(),
+            egui::Stroke::new(1.0, egui::Color32::from_white_alpha(20)),
+        );
         let accent = crate::widgets::accent_color(&state.settings);
         // 再生中トラック (Tauri 版 NowPlayingBar: アートワーク + タイトル/アーティスト)。
         let current = state
@@ -1827,24 +2232,33 @@ fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
                         let is_sc = track.urn.starts_with("soundcloud:");
                         let rt = state.runtime().handle().clone();
                         let art = track.artwork("t200x200");
-                        state.images.show(ui, &rt, art.as_deref(), 48.0);
+                        let art_resp = state.images.show_rounded(
+                            ui,
+                            &rt,
+                            art.as_deref(),
+                            48.0,
+                            egui::CornerRadius::same(6),
+                        );
+                        if art_resp.secondary_clicked() {
+                            open_menu(state, ui, track.clone());
+                        }
                         ui.vertical(|ui| {
                             ui.set_max_width((left_w - 120.0).max(120.0));
                             let link_color = ui.visuals().hyperlink_color;
                             let title = egui::RichText::new(track.display_title())
                                 .font(crate::theme::medium(13.0));
                             let title = if is_sc { title.color(link_color) } else { title };
-                            if ui
-                                .add(
-                                    egui::Label::new(title)
-                                        .truncate()
-                                        .wrap_mode(egui::TextWrapMode::Truncate)
-                                        .sense(egui::Sense::click()),
-                                )
-                                .clicked()
-                                && is_sc
-                            {
+                            let title_resp = ui.add(
+                                egui::Label::new(title)
+                                    .truncate()
+                                    .wrap_mode(egui::TextWrapMode::Truncate)
+                                    .sense(egui::Sense::click()),
+                            );
+                            if title_resp.clicked() && is_sc {
                                 state.navigate(Route::Track, Some(track.urn.clone()));
+                            }
+                            if title_resp.secondary_clicked() {
+                                open_menu(state, ui, track.clone());
                             }
                             if let Some(user) = track.user.as_ref() {
                                 let artist = egui::RichText::new(&user.username)
@@ -1855,23 +2269,65 @@ fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
                                 } else {
                                     artist
                                 };
-                                if ui
-                                    .add(
-                                        egui::Label::new(artist)
-                                            .truncate()
-                                            .wrap_mode(egui::TextWrapMode::Truncate)
-                                            .sense(egui::Sense::click()),
-                                    )
-                                    .clicked()
-                                    && is_sc
-                                {
+                                let artist_resp = ui.add(
+                                    egui::Label::new(artist)
+                                        .truncate()
+                                        .wrap_mode(egui::TextWrapMode::Truncate)
+                                        .sense(egui::Sense::click()),
+                                );
+                                if artist_resp.clicked() && is_sc {
                                     state.navigate(Route::User, Some(user.urn.clone()));
+                                }
+                                if artist_resp.secondary_clicked() {
+                                    let pos = ui
+                                        .ctx()
+                                        .pointer_interact_pos()
+                                        .unwrap_or(artist_resp.rect.center());
+                                    state.open_user_menu(
+                                        user.urn.clone(),
+                                        user.permalink_url.clone(),
+                                        pos,
+                                    );
                                 }
                             }
                         });
                         if is_sc {
+                            // Tauri の LikeButton (inline): ホバーで現れるハート。
+                            let (rect, resp) = ui.allocate_exact_size(
+                                egui::Vec2::splat(32.0),
+                                egui::Sense::click(),
+                            );
+                            let hover_t = ui.ctx().animate_bool_with_time(
+                                egui::Id::new("bar-like-hover"),
+                                ui.rect_contains_pointer(ui.max_rect()),
+                                0.2,
+                            );
                             let liked = state.now_liked.unwrap_or(false);
-                            if icon_toggle(ui, crate::widgets::UiIcon::Heart, liked)
+                            let fade = |c: egui::Color32| {
+                                egui::Color32::from_rgba_unmultiplied(
+                                    c.r(),
+                                    c.g(),
+                                    c.b(),
+                                    (c.a() as f32 * hover_t) as u8,
+                                )
+                            };
+                            let color = if liked {
+                                fade(accent)
+                            } else if resp.hovered() {
+                                fade(egui::Color32::from_white_alpha(128))
+                            } else {
+                                fade(egui::Color32::from_white_alpha(51))
+                            };
+                            crate::widgets::paint_heart(
+                                ui.painter(),
+                                egui::Rect::from_center_size(
+                                    rect.center(),
+                                    egui::Vec2::splat(14.0),
+                                ),
+                                color,
+                                liked,
+                            );
+                            if resp
                                 .on_hover_text(if liked { "Liked" } else { "Like" })
                                 .clicked()
                             {
@@ -1969,67 +2425,72 @@ fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
                         }
                     });
                     ui.horizontal(|ui| {
-                        // 時間 + スライダー + 時間 (計 center_w-26px) を中央へ。
-                        ui.add_space(13.0);
-                        ui.label(egui::RichText::new(fmt_time(pos)).monospace().small().weak());
-                        ui.spacing_mut().slider_width = (center_w - 110.0).max(120.0);
+                        // Tauri: 現在時間 (右寄せ 40px) + range + 長さ (左寄せ 40px)。
+                        let time_font = egui::FontId::monospace(10.5);
+                        let time_color = egui::Color32::from_white_alpha(102);
+                        let (t_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(40.0, 14.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().text(
+                            egui::pos2(t_rect.right(), t_rect.center().y),
+                            egui::Align2::RIGHT_CENTER,
+                            fmt_time(pos),
+                            time_font.clone(),
+                            time_color,
+                        );
+                        let slider_w = (center_w - 96.0).max(120.0);
                         match dur {
                             Some(d) if d > 0.0 => {
                                 let mut p = pos.min(d);
-                                if ui
-                                    .add(
-                                        egui::Slider::new(&mut p, 0.0..=d)
-                                            .show_value(false)
-                                            .trailing_fill(true),
-                                    )
-                                    .changed()
+                                if crate::widgets::range_slider(
+                                    ui, &mut p, 0.0, d, slider_w, true, accent,
+                                )
+                                .changed()
                                 {
                                     if let Some(a) = &audio {
                                         let _ = engine::seek(p, a);
                                     }
                                 }
-                                ui.label(
-                                    egui::RichText::new(fmt_time(d)).monospace().small().weak(),
-                                );
                             }
                             _ => {
                                 let mut p = 0.0_f64;
-                                ui.add_enabled(
-                                    false,
-                                    egui::Slider::new(&mut p, 0.0..=1.0).show_value(false),
+                                crate::widgets::range_slider(
+                                    ui, &mut p, 0.0, 1.0, slider_w, false, accent,
                                 );
                             }
                         }
+                        let (d_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(40.0, 14.0),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().text(
+                            egui::pos2(d_rect.left(), d_rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            fmt_time(dur.unwrap_or(0.0)),
+                            time_font,
+                            time_color,
+                        );
                     });
                 },
             );
             ui.add_space((center_w - center_resp.response.rect.width()).max(0.0));
             // 右: 音量スライダー・ミュート・キュー・EQ・Tune (Tauri と同じアイコン列)。
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let mut vol = state.player.volume;
-                let _ = ui.allocate_ui_with_layout(
-                    egui::vec2(140.0, 24.0),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        ui.spacing_mut().slider_width = 132.0;
-                        let resp = ui.add(
-                            egui::Slider::new(&mut vol, 0.0..=100.0)
-                                .show_value(false)
-                                .trailing_fill(true),
-                        );
-                        if resp.changed() {
-                            if vol > 0.0 {
-                                state.player.volume_before_mute = vol;
-                            }
-                            state.set_volume(vol);
-                        }
-                        if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
-                            if let Err(e) = crate::backend::prefs::save(&state.settings) {
-                                eprintln!("[prefs] save failed: {e}");
-                            }
-                        }
-                    },
-                );
+                let mut vol = state.player.volume as f64;
+                let resp = crate::widgets::range_slider(ui, &mut vol, 0.0, 100.0, 96.0, true, accent);
+                if resp.changed() {
+                    let vol = vol as f32;
+                    if vol > 0.0 {
+                        state.player.volume_before_mute = vol;
+                    }
+                    state.set_volume(vol);
+                }
+                if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
+                    if let Err(e) = crate::backend::prefs::save(&state.settings) {
+                        eprintln!("[prefs] save failed: {e}");
+                    }
+                }
                 let muted = state.player.volume <= 0.0;
                 if icon_toggle(ui, crate::widgets::UiIcon::Volume, muted)
                     .on_hover_text(if muted { "Unmute" } else { "Mute" })
@@ -2043,35 +2504,21 @@ fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
                 {
                     state.queue_open = !state.queue_open;
                 }
-                if icon_toggle(ui, crate::widgets::UiIcon::Library, state.show_eq)
+                // EQ (Tauri: slidersHorizontal)。
+                if icon_toggle(ui, crate::widgets::UiIcon::Sliders, state.show_eq)
                     .on_hover_text("Equalizer")
                     .clicked()
                 {
                     state.show_eq = !state.show_eq;
                 }
-                if icon_toggle(ui, crate::widgets::UiIcon::Sliders, state.show_tuning)
+                // Tune (Tauri: audioLines)。
+                if icon_toggle(ui, crate::widgets::UiIcon::AudioLines, state.show_tuning)
                     .on_hover_text("Tune")
                     .clicked()
                 {
                     state.show_tuning = !state.show_tuning;
                 }
             });
-        });
-        ui.horizontal(|ui| {
-            ui.label("File:");
-            ui.text_edit_singleline(&mut state.file_path_input);
-            if ui
-                .add_enabled(has_audio && !loading, egui::Button::new("Load"))
-                .clicked()
-            {
-                state.start_file_load();
-            }
-            if loading {
-                ui.spinner();
-            }
-            if let Some(e) = state.load_error.clone() {
-                ui.colored_label(egui::Color32::RED, e);
-            }
         });
     });
 }

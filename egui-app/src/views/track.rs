@@ -337,18 +337,29 @@ impl TrackView {
                     // メタ行: アーティスト · 経過 · ジャンル (Tauri: RoomHero)。
                     ui.horizontal_wrapped(|ui| {
                         if let Some(user) = track.user.as_ref() {
-                            if ui
-                                .add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&user.username).size(13.5),
-                                    )
-                                    .sense(egui::Sense::click()),
+                            let user_resp = ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&user.username).size(13.5),
                                 )
-                                .clicked()
-                            {
+                                .sense(egui::Sense::click()),
+                            );
+                            if user_resp.clicked() {
                                 action = TrackAction::Navigate(
                                     Route::User,
                                     Some(user.urn.clone()),
+                                );
+                            }
+                            if user_resp.secondary_clicked() {
+                                let pos = ui
+                                    .ctx()
+                                    .pointer_interact_pos()
+                                    .unwrap_or(user_resp.rect.center());
+                                crate::widgets::request_menu(
+                                    crate::widgets::MenuRequest::User {
+                                        urn: user.urn.clone(),
+                                        permalink: user.permalink_url.clone(),
+                                        pos,
+                                    },
                                 );
                             }
                         }

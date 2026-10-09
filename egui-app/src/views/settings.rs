@@ -346,9 +346,39 @@ impl SettingsView {
         ui.separator();
         crate::widgets::section_title(ui, "Background image");
         ui.label("Wallpaper files are Phase 4 (in-memory tuning only)");
-        ui.add(egui::Slider::new(&mut self.bg_dim, 0.0..=0.85).text("Darkening"));
-        ui.add(egui::Slider::new(&mut self.bg_opacity, 0.0..=0.7).text("Edge darkening"));
-        ui.add(egui::Slider::new(&mut self.bg_blur, 0.0..=40.0).text("Blur"));
+        let slider_w = ui.available_width().min(420.0);
+        ui.horizontal(|ui| {
+            ui.label("Darkening");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(format!("{}%", (self.bg_dim * 100.0).round() as i32));
+            });
+        });
+        let mut v = self.bg_dim as f64;
+        if crate::widgets::plain_range_slider(ui, &mut v, 0.0, 0.85, slider_w, Some(0.01)).changed()
+        {
+            self.bg_dim = v as f32;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Edge darkening");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(format!("{}%", (self.bg_opacity * 100.0).round() as i32));
+            });
+        });
+        let mut v = self.bg_opacity as f64;
+        if crate::widgets::plain_range_slider(ui, &mut v, 0.0, 0.7, slider_w, Some(0.01)).changed()
+        {
+            self.bg_opacity = v as f32;
+        }
+        ui.horizontal(|ui| {
+            ui.label("Blur");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(format!("{}px", self.bg_blur.round() as i32));
+            });
+        });
+        let mut v = self.bg_blur as f64;
+        if crate::widgets::plain_range_slider(ui, &mut v, 0.0, 40.0, slider_w, Some(1.0)).changed() {
+            self.bg_blur = v as f32;
+        }
     }
 
     /// `PlaybackCard` 対応 (EQ/速度/ピッチは NowPlaying バーの EQ / Tune 窓)。
@@ -482,7 +512,25 @@ impl SettingsView {
         });
         ui.separator();
         ui.label("Audio cache limit (0 = unlimited, enforced on apply)");
-        ui.add(egui::Slider::new(&mut settings.cache_limit_mb, 0..=8192).text("Limit MB"));
+        ui.horizontal(|ui| {
+            ui.label("Limit MB");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(format!("{}", settings.cache_limit_mb));
+            });
+        });
+        let mut limit = settings.cache_limit_mb as f64;
+        if crate::widgets::plain_range_slider(
+            ui,
+            &mut limit,
+            0.0,
+            8192.0,
+            ui.available_width().min(420.0),
+            Some(256.0),
+        )
+        .changed()
+        {
+            settings.cache_limit_mb = limit as u64;
+        }
         if ui.button("Apply limit").clicked() {
             cache.enforce_limit(settings.cache_limit_mb);
             let _ = crate::backend::prefs::save(settings);

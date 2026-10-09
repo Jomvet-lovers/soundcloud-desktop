@@ -167,6 +167,12 @@ pub enum UiIcon {
     Volume,
     Download,
     Trash,
+    AudioLines,
+    Plus,
+    Link,
+    ListPlus,
+    MapPin,
+    Power,
 }
 
 /// アイコンを描いて応答を返す (クリックは呼出側で付ける)。
@@ -623,6 +629,111 @@ pub fn paint_ui_icon(
                 stroke,
             );
         }
+        UiIcon::AudioLines => {
+            // lucide audio-lines: 高さの違う縦バー 5 本 (波形)。
+            for (i, h) in [0.30f32, 0.50, 0.36, 0.56, 0.32].iter().enumerate() {
+                let x = c.x + (i as f32 - 2.0) * s * 0.12;
+                painter.line_segment(
+                    [
+                        egui::Pos2::new(x, c.y - s * h * 0.5),
+                        egui::Pos2::new(x, c.y + s * h * 0.5),
+                    ],
+                    egui::Stroke::new(1.6, color),
+                );
+            }
+        }
+        UiIcon::Plus => {
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.28, 0.0),
+                    c + egui::Vec2::new(s * 0.28, 0.0),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(0.0, -s * 0.28),
+                    c + egui::Vec2::new(0.0, s * 0.28),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::Link => {
+            // 斜めの鎖 2 本 (lucide link の簡略形)。
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-0.24 * s, 0.10 * s),
+                    c + egui::Vec2::new(0.10 * s, 0.24 * s),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-0.10 * s, -0.24 * s),
+                    c + egui::Vec2::new(0.24 * s, -0.10 * s),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::ListPlus => {
+            // リスト 3 本 + 右下の +。
+            for i in 0..3 {
+                let y = c.y + (i as f32 - 1.0) * s * 0.24 - s * 0.06;
+                painter.line_segment(
+                    [
+                        egui::Pos2::new(c.x - s * 0.30, y),
+                        egui::Pos2::new(c.x + s * 0.10, y),
+                    ],
+                    stroke,
+                );
+            }
+            let px = c.x + s * 0.22;
+            let py = c.y + s * 0.22;
+            painter.line_segment(
+                [
+                    egui::Pos2::new(px - s * 0.10, py),
+                    egui::Pos2::new(px + s * 0.10, py),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::Pos2::new(px, py - s * 0.10),
+                    egui::Pos2::new(px, py + s * 0.10),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::MapPin => {
+            painter.circle_stroke(c + egui::Vec2::new(0.0, -s * 0.12), s * 0.16, stroke);
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-s * 0.12, -s * 0.02),
+                    c + egui::Vec2::new(0.0, s * 0.30),
+                    c + egui::Vec2::new(s * 0.12, -s * 0.02),
+                ],
+                stroke,
+            ));
+        }
+        UiIcon::Power => {
+            // 電源: 上に縦線 + 開いた円弧。
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(0.0, -s * 0.30),
+                    c + egui::Vec2::new(0.0, -s * 0.02),
+                ],
+                stroke,
+            );
+            let r = s * 0.26;
+            let mut pts = Vec::new();
+            for k in 0..=20 {
+                let a = -std::f32::consts::FRAC_PI_2
+                    + std::f32::consts::TAU * (k as f32 / 20.0) * 0.86
+                    + std::f32::consts::TAU * 0.07;
+                pts.push(c + egui::Vec2::new(a.cos() * r, a.sin() * r));
+            }
+            painter.add(egui::Shape::line(pts, stroke));
+        }
     }
 }
 
@@ -853,6 +964,9 @@ pub fn track_card(
             .wrap_mode(egui::TextWrapMode::Truncate)
             .sense(egui::Sense::click()),
         );
+        if artist.secondary_clicked() {
+            request_user_menu(ui, track, artist.rect);
+        }
         CardHit {
             play,
             title,
@@ -929,6 +1043,9 @@ pub fn track_row(
                         .wrap_mode(egui::TextWrapMode::Truncate)
                         .sense(egui::Sense::click()),
                 );
+                if a.secondary_clicked() {
+                    request_user_menu(ui, track, a.rect);
+                }
                 (t, a)
             })
             .inner;
@@ -1213,6 +1330,9 @@ pub fn track_card_stats(
             .wrap_mode(egui::TextWrapMode::Truncate)
             .sense(egui::Sense::click()),
         );
+        if artist.secondary_clicked() {
+            request_user_menu(ui, track, artist.rect);
+        }
         let _ = add_clicked;
         CardHit {
             play,
@@ -1668,4 +1788,342 @@ pub fn like_ghost(
     pill_scale: f32,
 ) -> egui::Response {
     paint_like_button(ui, liked, count, accent, LikeStyle::Ghost, heart_scale, pill_scale)
+}
+
+// ─────────────────────── Tauri 準拠のスライダー ───────────────────────
+
+/// Tauri の `input[type=range]` (accent-color) 相当の横スライダー。
+/// 4px トラック (白 50% 枠 + 白 20% コア) + アクセント充填 + 15px 円サム。
+/// 無効時は 40% 不透明で操作不可。
+pub fn range_slider(
+    ui: &mut egui::Ui,
+    value: &mut f64,
+    min: f64,
+    max: f64,
+    width: f32,
+    enabled: bool,
+    accent: egui::Color32,
+) -> egui::Response {
+    let (rect, mut resp) = ui.allocate_exact_size(
+        egui::vec2(width, 16.0),
+        if enabled {
+            egui::Sense::click_and_drag()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let thumb_r = 7.5;
+    let usable = (rect.width() - thumb_r * 2.0).max(1.0);
+    let span = (max - min).max(f64::EPSILON);
+    if enabled && (resp.dragged() || resp.clicked()) {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let frac = ((pos.x - (rect.left() + thumb_r)) / usable).clamp(0.0, 1.0) as f64;
+            *value = (min + frac * span).clamp(min, max);
+            resp.mark_changed();
+        }
+    }
+    let dim = if enabled { 1.0 } else { 0.4 };
+    let white = |a: u8| egui::Color32::from_white_alpha((a as f32 * dim) as u8);
+    let accent = egui::Color32::from_rgba_unmultiplied(
+        accent.r(),
+        accent.g(),
+        accent.b(),
+        (255.0 * dim) as u8,
+    );
+    let painter = ui.painter();
+    let track = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 4.0));
+    let frac = ((*value - min) / span).clamp(0.0, 1.0) as f32;
+    let thumb_x = rect.left() + thumb_r + usable * frac;
+    painter.rect_filled(track, 2.0, white(51));
+    let fill = egui::Rect::from_min_max(track.min, egui::pos2(thumb_x, track.max.y));
+    painter.rect_filled(fill, 2.0, accent);
+    painter.rect_stroke(
+        track,
+        2.0,
+        egui::Stroke::new(1.0, white(128)),
+        egui::StrokeKind::Inside,
+    );
+    painter.circle_filled(egui::pos2(thumb_x, rect.center().y), thumb_r, accent);
+    resp
+}
+
+/// Tauri 設定の `RangeSlider` 相当: 4px 白 10% トラック + 16px 白サム。
+/// `step` 指定時はその刻みに丸める。
+pub fn plain_range_slider(
+    ui: &mut egui::Ui,
+    value: &mut f64,
+    min: f64,
+    max: f64,
+    width: f32,
+    step: Option<f64>,
+) -> egui::Response {
+    let (rect, mut resp) = ui.allocate_exact_size(
+        egui::vec2(width, 18.0),
+        egui::Sense::click_and_drag(),
+    );
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let thumb_r = 8.0;
+    let usable = (rect.width() - thumb_r * 2.0).max(1.0);
+    let span = (max - min).max(f64::EPSILON);
+    if resp.dragged() || resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let frac = ((pos.x - (rect.left() + thumb_r)) / usable).clamp(0.0, 1.0) as f64;
+            let mut v = min + frac * span;
+            if let Some(s) = step {
+                if s > 0.0 {
+                    v = (v / s).round() * s;
+                }
+            }
+            *value = v.clamp(min, max);
+            resp.mark_changed();
+        }
+    }
+    let painter = ui.painter();
+    let track = egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), 4.0));
+    painter.rect_filled(track, 2.0, egui::Color32::from_white_alpha(26));
+    let frac = ((*value - min) / span).clamp(0.0, 1.0) as f32;
+    let thumb_x = rect.left() + thumb_r + usable * frac;
+    painter.circle_filled(
+        egui::pos2(thumb_x, rect.center().y),
+        thumb_r,
+        egui::Color32::WHITE,
+    );
+    resp
+}
+
+/// Tauri `BandSlider` 相当の縦スライダー (EQ)。140px・3px レール +
+/// 中心線 + 上下の充填 (正 = 緑 / 負 = 青) + 16px 円サム。0.5dB 刻み。
+/// 戻り値は値が変化したか。
+pub fn eq_band_slider(ui: &mut egui::Ui, gain: &mut f64, min: f64, max: f64) -> bool {
+    let (rect, mut resp) = ui.allocate_exact_size(
+        egui::vec2(28.0, 140.0),
+        egui::Sense::click_and_drag(),
+    );
+    let mut changed = false;
+    if resp.dragged() || resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            let pct = 1.0 - ((pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0) as f64;
+            let v = (((pct * (max - min) + min) * 2.0).round()) / 2.0;
+            if (v - *gain).abs() > f64::EPSILON {
+                *gain = v;
+                changed = true;
+                resp.mark_changed();
+            }
+        }
+    }
+    if !ui.is_rect_visible(rect) {
+        return changed;
+    }
+    let painter = ui.painter();
+    let cx = rect.center().x;
+    let rail = egui::Rect::from_center_size(rect.center(), egui::vec2(3.0, rect.height()));
+    painter.rect_filled(rail, 1.5, egui::Color32::from_white_alpha(26));
+    painter.rect_filled(
+        egui::Rect::from_center_size(rect.center(), egui::vec2(8.0, 1.0)),
+        0.0,
+        egui::Color32::from_white_alpha(36),
+    );
+    let pct = ((*gain - min) / (max - min)).clamp(0.0, 1.0) as f32;
+    let (fill_color, thumb_color) = if *gain > 0.0 {
+        (
+            egui::Color32::from_rgba_unmultiplied(52, 211, 153, 140),
+            egui::Color32::from_rgb(52, 211, 153),
+        )
+    } else if *gain < 0.0 {
+        (
+            egui::Color32::from_rgba_unmultiplied(96, 165, 250, 140),
+            egui::Color32::from_rgb(96, 165, 250),
+        )
+    } else {
+        (
+            egui::Color32::TRANSPARENT,
+            egui::Color32::from_white_alpha(191),
+        )
+    };
+    let thumb_y = rect.bottom() - pct * rect.height();
+    if *gain > 0.0 {
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(cx - 1.5, thumb_y),
+                egui::pos2(cx + 1.5, rect.center().y),
+            ),
+            1.5,
+            fill_color,
+        );
+    } else if *gain < 0.0 {
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(cx - 1.5, rect.center().y),
+                egui::pos2(cx + 1.5, thumb_y),
+            ),
+            1.5,
+            fill_color,
+        );
+    }
+    painter.circle_filled(egui::pos2(cx, thumb_y), 8.0, thumb_color);
+    changed
+}
+
+// ─────────────────────── 右クリックメニュー ───────────────────────
+
+/// 右クリックメニューの要求。ウィジェットが積み、shell が毎フレーム回収して
+/// 開く (ビューの Action 列挙を増やさないための小さな受け渡し)。
+pub enum MenuRequest {
+    User {
+        urn: String,
+        permalink: Option<String>,
+        pos: egui::Pos2,
+    },
+}
+
+static MENU_REQUESTS: std::sync::Mutex<Vec<MenuRequest>> = std::sync::Mutex::new(Vec::new());
+
+pub fn request_menu(req: MenuRequest) {
+    if let Ok(mut q) = MENU_REQUESTS.lock() {
+        q.push(req);
+    }
+}
+
+pub fn take_menu_requests() -> Vec<MenuRequest> {
+    MENU_REQUESTS
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
+/// メニューのパネル (Tauri TrackContextMenu: 236px / 角丸 12 / #141417 /
+/// 白 10% 枠 / 内側 6px)。
+pub fn menu_frame() -> egui::Frame {
+    egui::Frame::NONE
+        .fill(egui::Color32::from_rgb(20, 20, 23))
+        .stroke(egui::Stroke::new(1.0, egui::Color32::from_white_alpha(26)))
+        .corner_radius(egui::CornerRadius::same(12))
+        .inner_margin(egui::Margin {
+            left: 6,
+            right: 6,
+            top: 6,
+            bottom: 6,
+        })
+}
+
+fn request_user_menu(ui: &egui::Ui, track: &Track, fallback: egui::Rect) {
+    if let Some(user) = track.user.as_ref() {
+        if !user.urn.is_empty() {
+            request_menu(MenuRequest::User {
+                urn: user.urn.clone(),
+                permalink: user.permalink_url.clone(),
+                pos: ui
+                    .ctx()
+                    .pointer_interact_pos()
+                    .unwrap_or(fallback.center()),
+            });
+        }
+    }
+}
+
+fn paint_menu_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    icon: Option<(UiIcon, egui::Color32)>,
+    heart: Option<(bool, egui::Color32)>,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(224.0, 40.0), egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let hovered = resp.hovered();
+    if hovered {
+        ui.painter().rect_filled(rect, 8.0, egui::Color32::from_white_alpha(15));
+    }
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.left() + 12.0 + 7.5, rect.center().y),
+        egui::Vec2::splat(15.0),
+    );
+    if let Some((icon, color)) = icon {
+        paint_ui_icon(ui.painter(), icon_rect, icon, color);
+    }
+    if let Some((liked, color)) = heart {
+        paint_heart(ui.painter(), icon_rect, color, liked);
+    }
+    let color = if hovered {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::from_white_alpha(204)
+    };
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), crate::theme::medium(13.0), color);
+    ui.painter().galley(
+        egui::pos2(
+            rect.left() + 12.0 + 15.0 + 12.0,
+            rect.center().y - galley.size().y * 0.5,
+        ),
+        galley,
+        color,
+    );
+    resp
+}
+
+/// メニュー項目 (Tauri MenuItem: 高さ 40 / 角丸 8 / 13px medium /
+/// アイコン 15px 白 50% / hover で白 6% 背景 + 白文字)。
+pub fn menu_item(ui: &mut egui::Ui, icon: UiIcon, label: &str) -> egui::Response {
+    paint_menu_row(
+        ui,
+        label,
+        Some((icon, egui::Color32::from_white_alpha(128))),
+        None,
+    )
+}
+
+/// メニュー項目 (ハート。未いいねは線画 / いいね済みは塗り)。
+pub fn menu_item_heart(ui: &mut egui::Ui, liked: bool, label: &str) -> egui::Response {
+    paint_menu_row(
+        ui,
+        label,
+        None,
+        Some((liked, egui::Color32::from_white_alpha(128))),
+    )
+}
+
+/// メニュー項目 (アイコンなし。Tauri に無い追加項目用)。
+pub fn menu_item_plain(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(224.0, 40.0), egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let hovered = resp.hovered();
+    if hovered {
+        ui.painter().rect_filled(rect, 8.0, egui::Color32::from_white_alpha(15));
+    }
+    let color = if hovered {
+        egui::Color32::WHITE
+    } else {
+        egui::Color32::from_white_alpha(204)
+    };
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), crate::theme::medium(13.0), color);
+    ui.painter().galley(
+        egui::pos2(
+            rect.left() + 12.0,
+            rect.center().y - galley.size().y * 0.5,
+        ),
+        galley,
+        color,
+    );
+    resp
+}
+
+/// メニューの区切り線 (Tauri: my-1 h-px 白 6%)。
+pub fn menu_separator(ui: &mut egui::Ui) {
+    ui.add_space(4.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(224.0, 1.0), egui::Sense::hover());
+    ui.painter()
+        .rect_filled(rect, 0.0, egui::Color32::from_white_alpha(15));
+    ui.add_space(4.0);
 }

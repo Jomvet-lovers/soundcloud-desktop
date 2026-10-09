@@ -507,6 +507,22 @@ pub struct TrackMenuState {
     pub pos: egui::Pos2,
 }
 
+/// ユーザー (アーティスト) 右クリックメニューの対象 (Tauri UserMenuTarget)。
+#[derive(Clone)]
+pub struct UserMenuState {
+    pub urn: String,
+    pub permalink: Option<String>,
+    pub pos: egui::Pos2,
+}
+
+/// プレイリスト右クリックメニューの対象 (Tauri PlaylistMenuTarget)。
+#[derive(Clone)]
+pub struct PlaylistMenuState {
+    pub urn: String,
+    pub permalink: Option<String>,
+    pub pos: egui::Pos2,
+}
+
 /// ファイル読込の非同期状態。デコード中も UI を固めない。
 pub enum LoadState {
     Idle,
@@ -568,6 +584,10 @@ pub struct AppState {
     pub new_playlist_title: String,
     /// トラックの右クリックメニュー。
     pub track_menu: Option<TrackMenuState>,
+    /// アーティスト右クリックメニューの対象。
+    pub user_menu: Option<UserMenuState>,
+    /// プレイリスト右クリックメニューの対象 (サイドバー pin 等)。
+    pub playlist_menu: Option<PlaylistMenuState>,
     pub menu_like: Query<LikedFlag>,
     pub menu_dislike: Query<DislikedFlag>,
     /// ダウンロードダイアログ (対象トラック・形式・状態)。
@@ -758,6 +778,8 @@ impl AppState {
             dialog_playlists: Query::default(),
             new_playlist_title: String::new(),
             track_menu: None,
+            user_menu: None,
+            playlist_menu: None,
             menu_like: Query::default(),
             menu_dislike: Query::default(),
             download_track: None,
@@ -1122,7 +1144,7 @@ impl AppState {
         }
     }
 
-    /// トラックの右クリックメニューを開く (like/dislike 状態も取得)。
+    /// トラックの右クリックメニューを開く (like 状態も取得)。
     pub fn open_track_menu(&mut self, track: Track, pos: egui::Pos2) {
         if let Some(api) = self.api.clone() {
             let rt = self.runtime.handle().clone();
@@ -1148,6 +1170,29 @@ impl AppState {
             }
         }
         self.track_menu = Some(TrackMenuState { track, pos });
+    }
+
+    /// ユーザー (アーティスト) の右クリックメニューを開く。
+    pub fn open_user_menu(&mut self, urn: String, permalink: Option<String>, pos: egui::Pos2) {
+        self.user_menu = Some(UserMenuState {
+            urn,
+            permalink,
+            pos,
+        });
+    }
+
+    /// プレイリストの右クリックメニューを開く (サイドバー pin 等)。
+    pub fn open_playlist_menu(
+        &mut self,
+        urn: String,
+        permalink: Option<String>,
+        pos: egui::Pos2,
+    ) {
+        self.playlist_menu = Some(PlaylistMenuState {
+            urn,
+            permalink,
+            pos,
+        });
     }
 
     /// メニューから like をトグルする (ローカル即時 + writer 同期)。
