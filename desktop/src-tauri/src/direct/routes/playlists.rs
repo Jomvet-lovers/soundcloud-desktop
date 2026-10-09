@@ -234,8 +234,10 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             let id = id_of(urn);
             // SoundCloud dropped `/playlists/{id}/tracks`; the playlist detail
             // already carries the full track objects, so paginate those.
+            // A non-2xx answer must not become an empty "success" page (the
+            // frontend caches it cold).
             match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
-                Ok((_status, v)) => {
+                Ok((status, v)) if (200..300).contains(&status) => {
                     let mut all = v
                         .get("tracks")
                         .and_then(Value::as_array)
@@ -252,6 +254,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     let has_more = offset + (slice.len() as u64) < total;
                     ok(page(slice, page_no, limit, has_more))
                 }
+                Ok((status, v)) => return Ok(json_resp(status, &v)),
                 Err(e) => err(502, &e),
             }
         }
@@ -348,30 +351,42 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 .as_ref()
                 .and_then(|lp| lp.get("tracks").and_then(Value::as_array).cloned())
                 .unwrap_or_default();
+            // Only a complete base may be persisted and written back: a
+            // partial base would truncate the list locally and on SoundCloud.
+            let mut base_ok = local.is_some();
             if playlist.is_none() && is_sc {
                 let id = id_of(urn);
-                if let Ok((status, v)) = s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await
-                {
-                    if (200..300).contains(&status) {
+                match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
+                    Ok((status, v)) if (200..300).contains(&status) => {
                         let detail = normalize_urn(v);
-                        if let Some(list) = detail.get("tracks").and_then(Value::as_array) {
-                            let mut list = list.clone();
-                            hydrate_track_stubs(s, token.as_deref(), &mut list).await;
-                            tracks = list.into_iter().map(normalize_urn).collect();
+                        let expected = detail.get("track_count").and_then(Value::as_u64);
+                        let mut list = detail
+                            .get("tracks")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default();
+                        let pre = list.len();
+                        let dropped = hydrate_track_stubs(s, token.as_deref(), &mut list).await;
+                        if !base_complete(pre, list.len(), expected) {
+                            eprintln!(
+                                "[playlists] refusing add: incomplete base for {urn} (listed {pre}, hydrated {}, expected {expected:?}, dropped {dropped})",
+                                list.len(),
+                            );
+                            return Ok(err(502, "playlist base incomplete; refusing to write"));
                         }
+                        tracks = list.into_iter().map(normalize_urn).collect();
                         playlist = Some(detail);
+                        base_ok = true;
+                    }
+                    _ => {
+                        eprintln!("[playlists] refusing add: could not load base for {urn}");
+                        return Ok(err(502, "could not load playlist base; refusing to write"));
                     }
                 }
             }
 
             if let Some(track) = fetched {
-                let t_urn = urn_of(&track).unwrap_or_default();
-                if !tracks
-                    .iter()
-                    .any(|t| urn_of(t).as_deref() == Some(t_urn.as_str()))
-                {
-                    tracks.push(track);
-                }
+                append_unique(&mut tracks, track);
             }
 
             if let Some(order) = order {
@@ -404,7 +419,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             }
             s.store.lock().await.upsert_playlist(playlist.clone());
 
-            if is_sc {
+            if is_sc && base_ok {
                 if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
                     let ids: Vec<Value> = tracks
                         .iter()
@@ -525,8 +540,140 @@ async fn repaired_local_playlist(
         }
     }
 
+    // Self-heal short local copies: if the SC-owned copy lists fewer tracks
+    // than a freshly fetched complete SC detail, adopt the SC tracks. Never
+    // shrink — a shorter remote side means it was already overwritten, and
+    // the local copy is the only full record left. Checked once per URN per
+    // session so reads stay cheap.
+    if urn.starts_with("soundcloud:playlists:") {
+        let fresh_check = {
+            let mut seen = state.verified_playlists.lock().await;
+            seen.insert(urn.to_string())
+        };
+        if fresh_check {
+            let local_len = repaired
+                .get("tracks")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
+            let id = id_of(urn);
+            if let Ok((status, v)) = state.sc_get(&format!("/playlists/{id}"), token).await {
+                if (200..300).contains(&status) {
+                    let expected = v.get("track_count").and_then(Value::as_u64);
+                    let mut list = v
+                        .get("tracks")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let pre = list.len();
+                    hydrate_track_stubs(state, token, &mut list).await;
+                    if base_complete(pre, list.len(), expected) && list.len() > local_len {
+                        eprintln!(
+                            "[playlists] self-healed short copy {urn}: {local_len} -> {} tracks",
+                            list.len()
+                        );
+                        if let Some(obj) = repaired.as_object_mut() {
+                            obj.insert("track_count".into(), json!(list.len()));
+                            obj.insert(
+                                "tracks".into(),
+                                json!(list.into_iter().map(normalize_urn).collect::<Vec<_>>()),
+                            );
+                        }
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
     if changed {
         state.store.lock().await.upsert_playlist(repaired.clone());
     }
     Some(repaired)
+}
+
+/// Base-completeness gate for playlist writes: the SC detail must list every
+/// track (`pre_len` matches `track_count` when the count is known) and
+/// hydration must resolve all stubs (`post_len == pre_len`). Anything less
+/// fails closed so a partial base can never be persisted or PUT back to
+/// SoundCloud (which would truncate the remote list).
+pub(crate) fn base_complete(pre_len: usize, post_len: usize, expected: Option<u64>) -> bool {
+    if post_len != pre_len {
+        return false;
+    }
+    match expected {
+        Some(e) => e as usize == pre_len,
+        None => true,
+    }
+}
+
+/// Deduplicated append. Two entries are the same track when their urns match,
+/// or when their raw SC ids match (unhydrated `{id}` stubs carry no urn).
+/// Returns true when the track was added.
+pub(crate) fn append_unique(tracks: &mut Vec<Value>, track: Value) -> bool {
+    let key = urn_of(&track).or_else(|| {
+        track
+            .get("id")
+            .map(|i| i.to_string().trim_matches('"').to_string())
+    });
+    let Some(key) = key.filter(|k| !k.is_empty()) else {
+        tracks.push(track);
+        return true;
+    };
+    let dup = tracks.iter().any(|t| {
+        urn_of(t).as_deref() == Some(key.as_str())
+            || t.get("id")
+                .map(|i| i.to_string().trim_matches('"').to_string())
+                .as_deref()
+                == Some(key.as_str())
+    });
+    if dup {
+        return false;
+    }
+    tracks.push(track);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{append_unique, base_complete};
+    use serde_json::json;
+
+    fn stub(id: u64) -> serde_json::Value {
+        json!({ "id": id, "kind": "track" })
+    }
+
+    fn full(id: u64) -> serde_json::Value {
+        json!({ "id": id, "kind": "track", "title": "t", "urn": format!("soundcloud:tracks:{id}") })
+    }
+
+    #[test]
+    fn complete_base_passes_all_gates() {
+        assert!(base_complete(30, 30, Some(30)));
+        assert!(base_complete(5, 5, None));
+        assert!(base_complete(0, 0, Some(0)));
+    }
+
+    #[test]
+    fn dropped_hydration_fails_closed() {
+        assert!(!base_complete(290, 285, Some(290)));
+        assert!(!base_complete(290, 285, None));
+    }
+
+    #[test]
+    fn short_listing_fails_closed() {
+        assert!(!base_complete(25, 25, Some(30)));
+    }
+
+    #[test]
+    fn append_unique_dedupes_by_urn() {
+        let mut tracks = vec![full(1), full(2)];
+        assert!(!append_unique(&mut tracks, full(1)));
+        assert_eq!(tracks.len(), 2);
+        assert!(append_unique(&mut tracks, full(3)));
+        assert_eq!(tracks.len(), 3);
+        // id-only stub with a matching id counts as the same track
+        assert!(!append_unique(&mut tracks, stub(2)));
+        assert_eq!(tracks.len(), 3);
+    }
 }
