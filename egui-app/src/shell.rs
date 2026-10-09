@@ -322,6 +322,16 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         .hint_text("Search")
                         .desired_width(search_w),
                 );
+                // Ctrl+F / "/" でタイトルバー検索へフォーカス。
+                let focus_now = ui
+                    .ctx()
+                    .memory_mut(|m| {
+                        m.data.remove_temp::<bool>(egui::Id::new(FOCUS_TITLEBAR_SEARCH_ID))
+                    })
+                    .unwrap_or(false);
+                if focus_now {
+                    resp.request_focus();
+                }
                 // 虫眼鏡 (右端) とクリア (×) を重ねて描く。
                 let mag = egui::Rect::from_center_size(
                     egui::pos2(resp.rect.right() - 18.0, resp.rect.center().y),
@@ -352,6 +362,14 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     if xr.clicked() {
                         state.global_search.clear();
                     }
+                }
+                if resp.changed() {
+                    // タイトルバー検索はライブ (Tauri: GlobalSearch)。
+                    let q = state.global_search.trim().to_string();
+                    state.navigate(
+                        Route::Search,
+                        if q.is_empty() { None } else { Some(q) },
+                    );
                 }
                 if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     let q = state.global_search.trim().to_string();
@@ -583,7 +601,7 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
 
     if state.queue_open {
         egui::Panel::right("queue").exact_size(320.0).show(ui, |ui| {
-            ui.heading("Queue");
+            crate::widgets::section_title(ui, "Queue");
             let accent = crate::widgets::accent_color(&state.settings);
             let rt = state.runtime().handle().clone();
             let mut jump: Option<usize> = None;
@@ -747,6 +765,10 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     SearchAction::OpenMenu(track) => {
                         open_menu(state, ui, track);
                     }
+                    SearchAction::SetQuery(q) => {
+                        state.global_search = q.clone();
+                        state.navigate(Route::Search, Some(q));
+                    }
                     SearchAction::Navigate(route, param) => {
                         state.navigate(route, param);
                     }
@@ -843,6 +865,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                     TrackAction::OpenMenu(track) => {
                         open_menu(state, ui, track);
+                    }
+                    TrackAction::Back => {
+                        state.nav_back();
                     }
                     TrackAction::Seek(frac) => {
                         if let (Some(audio), Some(dur)) =
@@ -1062,7 +1087,8 @@ fn apply_login_action(state: &mut AppState, action: LoginAction) {
     }
 }
 
-pub(crate) const FOCUS_SEARCH_ID: &str = "scd_focus_search";
+/// タイトルバー検索へフォーカスを移す (Ctrl+F / "/" ショートカット)。
+pub(crate) const FOCUS_TITLEBAR_SEARCH_ID: &str = "scd_focus_titlebar_search";
 
 const SHORTCUTS: &[(&str, &str)] = &[
     ("Space", "Play / Pause"),
@@ -1138,7 +1164,8 @@ fn handle_shortcuts(state: &mut AppState, ctx: &egui::Context) {
     if hits.search || hits.search_ctrl {
         state.navigate(Route::Search, None);
         ctx.memory_mut(|m| {
-            m.data.insert_temp(egui::Id::new(FOCUS_SEARCH_ID), true);
+            m.data
+                .insert_temp(egui::Id::new(FOCUS_TITLEBAR_SEARCH_ID), true);
         });
     }
     if hits.space {
@@ -1784,7 +1811,8 @@ fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
                         ui.vertical(|ui| {
                             ui.set_max_width((left_w - 120.0).max(120.0));
                             let link_color = ui.visuals().hyperlink_color;
-                            let title = egui::RichText::new(track.display_title());
+                            let title = egui::RichText::new(track.display_title())
+                                .font(crate::theme::medium(13.0));
                             let title = if is_sc { title.color(link_color) } else { title };
                             if ui
                                 .add(
@@ -1799,7 +1827,9 @@ fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
                                 state.navigate(Route::Track, Some(track.urn.clone()));
                             }
                             if let Some(user) = track.user.as_ref() {
-                                let artist = egui::RichText::new(&user.username).small().weak();
+                                let artist = egui::RichText::new(&user.username)
+                                    .size(11.0)
+                                    .color(egui::Color32::from_white_alpha(115));
                                 let artist = if is_sc {
                                     artist.color(link_color)
                                 } else {

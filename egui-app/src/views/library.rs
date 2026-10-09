@@ -266,7 +266,7 @@ impl LibraryView {
         // ── SoundPrint マストヘッド (アバター + 挨拶 + 円形シャッフル) ──
         ui.horizontal(|ui| {
             let avatar = self.me.data.as_ref().and_then(|u| u.avatar_url.clone());
-            images.show(ui, rt, avatar.as_deref(), 84.0);
+            images.show(ui, rt, avatar.as_deref(), 100.0);
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new("Library").size(11.0).weak());
                 let name = self
@@ -746,18 +746,26 @@ fn playlist_card(
         let art = p.artwork("t300x300");
         let resp = images.show(ui, rt, art.as_deref(), size);
         let title = ui.add(
-            egui::Label::new(&p.title)
-                .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate)
-                .sense(egui::Sense::click()),
+            egui::Label::new(
+                egui::RichText::new(&p.title)
+                    .font(crate::theme::medium(12.5))
+                    .color(egui::Color32::from_white_alpha(217)),
+            )
+            .truncate()
+            .wrap_mode(egui::TextWrapMode::Truncate)
+            .sense(egui::Sense::click()),
         );
         let mut merged = resp.union(title);
         if let Some(u) = p.user.as_ref() {
             let user = ui.add(
-                egui::Label::new(egui::RichText::new(&u.username).size(11.0).weak())
-                    .truncate()
-                    .wrap_mode(egui::TextWrapMode::Truncate)
-                    .sense(egui::Sense::click()),
+                egui::Label::new(
+                    egui::RichText::new(&u.username)
+                        .size(11.0)
+                        .color(egui::Color32::from_white_alpha(102)),
+                )
+                .truncate()
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .sense(egui::Sense::click()),
             );
             merged = merged.union(user);
         }

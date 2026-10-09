@@ -23,6 +23,8 @@ pub enum SearchAction {
     PlayList(Vec<Track>, usize),
     /// 右クリックメニューを開く。
     OpenMenu(Track),
+    /// 検索クエリをセット (履歴クリック。タイトルバー検索へ反映)。
+    SetQuery(String),
     Navigate(Route, Option<String>),
 }
 
@@ -138,9 +140,8 @@ const PAGE_LIMIT: u32 = 30;
 
 #[derive(Default)]
 pub struct SearchView {
-    input: String,
     last_key: String,
-    /// グローバル検索から渡された最後のクエリ。
+    /// タイトルバー検索から渡された最後のクエリ。
     last_param: Option<String>,
     /// query/tab/sort (ページを除く) の前回値。変化でページを先頭へ戻す。
     last_base_key: String,
@@ -188,13 +189,10 @@ impl SearchView {
         ui: &mut egui::Ui,
     ) -> SearchAction {
         let _ = (audio, cache);
-        // グローバル検索 (タイトルバー) から param で渡されたクエリを反映する。
-        if let Some(q) = param {
-            if self.last_param.as_deref() != Some(q) {
-                self.input = q.to_string();
-                self.last_param = Some(q.to_string());
-                self.page = 0;
-            }
+        // クエリはタイトルバー検索 (nav_param) が唯一の情報源 (Tauri と同じ)。
+        if param != self.last_param.as_deref() {
+            self.last_param = param.map(str::to_string);
+            self.page = 0;
         }
         let Some(api) = api else {
             ui.label("backend not running");
@@ -202,28 +200,7 @@ impl SearchView {
         };
         let mut action = SearchAction::None;
 
-        let focus_now = ui
-            .ctx()
-            .memory_mut(|m| {
-                m.data
-                    .remove_temp::<bool>(egui::Id::new(crate::shell::FOCUS_SEARCH_ID))
-            })
-            .unwrap_or(false);
-        ui.horizontal(|ui| {
-            ui.label("Search");
-            let resp = ui.text_edit_singleline(&mut self.input);
-            if focus_now {
-                resp.request_focus();
-            }
-            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                // Enter 確定: 下の差分検出で再取得される。
-            }
-            if ui.button("Clear").clicked() {
-                self.input.clear();
-            }
-        });
-
-        let query = self.input.trim().to_string();
+        let query = param.map(str::trim).unwrap_or("").to_string();
 
         if query.is_empty() {
             if !settings.search_history.is_empty() {
@@ -232,31 +209,55 @@ impl SearchView {
                     let items: Vec<String> = settings.search_history.clone();
                     for q in items {
                         if ui.selectable_label(false, &q).clicked() {
-                            self.input = q;
+                            action = SearchAction::SetQuery(q);
                         }
                     }
                 });
-                ui.separator();
+                ui.add_space(8.0);
             }
-            // ジャンルウォール (React: 空クエリ → `<GenreGrid/>`)。
+            // ジャンルウォール (React: 空クエリ → `<GenreGrid/>`。色タイル)。
             widgets::section_header(ui, "Browse all genres", None);
-            egui::Grid::new("genre_wall")
-                .num_columns(4)
-                .spacing([8.0, 8.0])
-                .show(ui, |ui| {
-                    for (i, (label, _key)) in GENRES.iter().enumerate() {
-                        if ui.button(*label).clicked() {
+            ui.add_space(4.0);
+            let avail = ui.available_width();
+            let cols = 4usize;
+            let gap = 8.0;
+            let tile_w =
+                ((avail - gap * (cols.saturating_sub(1)) as f32) / cols as f32).max(80.0);
+            for chunk in GENRES.chunks(cols) {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for (label, key) in chunk {
+                        let (rect, resp) = ui.allocate_exact_size(
+                            egui::vec2(tile_w, 64.0),
+                            egui::Sense::click(),
+                        );
+                        let color = widgets::genre_color(key);
+                        ui.painter()
+                            .rect_filled(rect, 8.0, color.gamma_multiply(0.35));
+                        if resp.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                8.0,
+                                egui::Color32::from_white_alpha(14),
+                            );
+                        }
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            *label,
+                            crate::theme::medium(13.0),
+                            egui::Color32::from_white_alpha(235),
+                        );
+                        if resp.clicked() {
                             // React: `/tag/{name}` (ラベルそのまま)。
                             action = SearchAction::Navigate(
                                 Route::Tag,
                                 Some(label.to_string()),
                             );
                         }
-                        if i % 4 == 3 {
-                            ui.end_row();
-                        }
                     }
                 });
+            }
             return action;
         }
 

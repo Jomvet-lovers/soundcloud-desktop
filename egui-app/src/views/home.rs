@@ -286,10 +286,14 @@ impl HomeView {
                                         );
                                     }
                                     let lbl = ui.add(
-                                        egui::Label::new(&item.title)
-                                            .truncate()
-                                            .wrap_mode(egui::TextWrapMode::Truncate)
-                                            .sense(egui::Sense::click()),
+                                        egui::Label::new(
+                                            egui::RichText::new(&item.title)
+                                                .font(crate::theme::medium(13.0))
+                                                .color(egui::Color32::from_white_alpha(217)),
+                                        )
+                                        .truncate()
+                                        .wrap_mode(egui::TextWrapMode::Truncate)
+                                        .sense(egui::Sense::click()),
                                     );
                                     let desc = item
                                         .short_description
@@ -298,7 +302,9 @@ impl HomeView {
                                         .unwrap_or("");
                                     ui.add(
                                         egui::Label::new(
-                                            egui::RichText::new(desc).small().weak(),
+                                            egui::RichText::new(desc)
+                                                .size(11.0)
+                                                .color(egui::Color32::from_white_alpha(102)),
                                         )
                                         .truncate()
                                         .wrap_mode(egui::TextWrapMode::Truncate),

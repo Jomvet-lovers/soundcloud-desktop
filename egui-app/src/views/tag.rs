@@ -100,18 +100,19 @@ impl TagView {
         }
         let mut action = TagAction::None;
 
-        widgets::section_header(ui, &format!("#{tag}"), None);
-
         ui.horizontal(|ui| {
-            for sort in TagSort::ALL {
-                if ui
-                    .selectable_label(self.sort == sort, sort.label())
-                    .clicked()
-                {
-                    self.sort = sort;
-                    self.page = 0;
+            ui.add(egui::Label::new(
+                egui::RichText::new(format!("#{tag}")).font(crate::theme::semibold(24.0)),
+            ));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                for sort in TagSort::ALL.iter().rev() {
+                    if widgets::tab_button(ui, sort.label(), self.sort == *sort).clicked()
+                    {
+                        self.sort = *sort;
+                        self.page = 0;
+                    }
                 }
-            }
+            });
         });
 
         let key = format!("{tag}\u{1}{}\u{1}{}", self.sort as u8, self.page);
@@ -145,23 +146,38 @@ impl TagView {
             if page.collection.is_empty() {
                 widgets::empty_note(ui, "No tracks found");
             } else {
-                ui.horizontal_wrapped(|ui| {
-                    for (i, track) in page.collection.iter().enumerate() {
-                        let hit = Self::track_card(ui, rt, images, player, track, accent);
-                        if hit.play_clicked() {
-                            action = TagAction::PlayList(page.collection.clone(), i);
-                        } else if hit.title_clicked() {
-                            action = TagAction::Navigate(Route::Track, Some(track.urn.clone()));
-                        } else if hit.artist_clicked() {
-                            if let Some(u) = track.user.as_ref() {
+                // カードグリッド (Tauri TagPage: TrackCard grid)。
+                let items: Vec<(usize, &Track)> =
+                    page.collection.iter().enumerate().collect();
+                let avail = ui.available_width();
+                let gap = 12.0;
+                let cols = widgets::grid_cols(avail, 3, 4, 5, 6, 7);
+                let card_w =
+                    ((avail - gap * (cols.saturating_sub(1)) as f32) / cols as f32).max(80.0);
+                for chunk in items.chunks(cols) {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        for &(i, track) in chunk {
+                            let hit =
+                                Self::track_card(ui, rt, images, player, track, accent, card_w);
+                            if hit.play_clicked() {
+                                action = TagAction::PlayList(page.collection.clone(), i);
+                            } else if hit.title_clicked() {
                                 action =
-                                    TagAction::Navigate(Route::User, Some(u.urn.clone()));
+                                    TagAction::Navigate(Route::Track, Some(track.urn.clone()));
+                            } else if hit.artist_clicked() {
+                                if let Some(u) = track.user.as_ref() {
+                                    action = TagAction::Navigate(
+                                        Route::User,
+                                        Some(u.urn.clone()),
+                                    );
+                                }
+                            } else if hit.menu_clicked() {
+                                action = TagAction::OpenMenu(track.clone());
                             }
-                        } else if hit.menu_clicked() {
-                            action = TagAction::OpenMenu(track.clone());
                         }
-                    }
-                });
+                    });
+                }
             }
             ui.horizontal(|ui| {
                 if ui
@@ -191,8 +207,9 @@ impl TagView {
         player: &PlayerState,
         track: &Track,
         accent: egui::Color32,
+        size: f32,
     ) -> widgets::CardHit {
         let playing = widgets::is_currently_playing(player, track);
-        widgets::track_card(ui, rt, images, track, 132.0, playing, accent)
+        widgets::track_card(ui, rt, images, track, size, playing, accent)
     }
 }

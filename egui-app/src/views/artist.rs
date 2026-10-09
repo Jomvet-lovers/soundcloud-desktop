@@ -363,7 +363,9 @@ impl ArtistView {
                     }
                     ui.label("Artist");
                 });
-                ui.heading(&artist.name);
+                ui.add(egui::Label::new(
+                    egui::RichText::new(&artist.name).font(crate::theme::semibold(34.0)),
+                ));
                 if let Some(bio) = artist.bio.as_deref() {
                     if !bio.is_empty() {
                         let text = if self.bio_expanded {

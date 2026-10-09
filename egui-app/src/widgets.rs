@@ -1200,9 +1200,9 @@ pub fn link_button(ui: &mut egui::Ui, text: &str) -> bool {
 /// セクション見出し (タイトル + 件数)。
 pub fn section_header(ui: &mut egui::Ui, title: &str, count: Option<usize>) {
     ui.horizontal(|ui| {
-        ui.heading(title);
+        section_title(ui, title);
         if let Some(n) = count {
-            ui.label(format!("{n}"));
+            ui.label(egui::RichText::new(n.to_string()).size(11.0).weak());
         }
     });
 }

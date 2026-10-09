@@ -28,6 +28,8 @@ pub enum TrackAction {
     OpenDownload(Track),
     /// 右クリックメニューを開く。
     OpenMenu(Track),
+    /// 戻る (Tauri: TrackPage の ChevronLeft)。
+    Back,
     Seek(f32),
     Navigate(Route, Option<String>),
 }
@@ -290,6 +292,16 @@ impl TrackView {
             }
         }
 
+        // 戻る (Tauri: TrackPage の ChevronLeft)。
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new("‹").size(20.0))
+                    .frame(false),
+            )
+            .clicked()
+        {
+            action = TrackAction::Back;
+        }
         // 対応: RoomHero (左: 円形再生 + 大タイトル + メタ + アクション / 右: アートワーク)。
         let is_current = player
             .current_title
@@ -314,7 +326,7 @@ impl TrackView {
                         ui.add(
                             egui::Label::new(
                                 egui::RichText::new(track.display_title())
-                                    .font(crate::theme::semibold(32.0)),
+                                    .font(crate::theme::semibold(36.0)),
                             )
                             .wrap(),
                         );
@@ -617,7 +629,7 @@ impl TrackView {
 
         // 対応: RelatedRow (クリックで Track へ遷移、▶で再生)。
         ui.separator();
-        ui.heading("Related");
+        crate::widgets::section_title(ui, "Related");
         if self.related.loading && self.related.data.is_none() {
             crate::widgets::loading(ui);
         } else if let Some(err) = self.related.error.as_ref() {
@@ -711,7 +723,7 @@ impl TrackView {
         // 対応: RoomVoices + CommentForm (newest/timeline 切替 + 投稿)。
         ui.separator();
         ui.horizontal(|ui| {
-            ui.heading("Comments");
+            crate::widgets::section_title(ui, "Comments");
             if let Some(paged) = self.comments.data.as_ref() {
                 ui.label(
                     egui::RichText::new(paged.collection.len().to_string())
