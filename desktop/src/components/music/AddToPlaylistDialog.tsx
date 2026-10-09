@@ -263,6 +263,25 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
           toast.success('Added to playlist');
           setOpen(false);
         },
+        onError: (e) => {
+          // ApiError message is `API <status>: <json body>` — surface the
+          // server's reason (e.g. incomplete base) instead of the wrapper.
+          let msg = 'Could not add to playlist';
+          if (e instanceof Error) {
+            const m = /^API \d+:\s*(\{.*\})\s*$/.exec(e.message);
+            if (m) {
+              try {
+                const parsed = JSON.parse(m[1]) as { error?: unknown };
+                if (typeof parsed.error === 'string' && parsed.error) msg = parsed.error;
+              } catch {
+                /* non-JSON body */
+              }
+            } else {
+              msg = e.message;
+            }
+          }
+          toast.error(msg);
+        },
       },
     );
   };

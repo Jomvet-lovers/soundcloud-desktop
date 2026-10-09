@@ -210,6 +210,9 @@ interface PagedQueryOptions<T> {
   /** Auto-fetch all pages until exhausted. Use sparingly. */
   autoFetchAll?: boolean;
   dedupe?: (item: T) => string;
+  /** Refetch when a mounted component subscribes (default false: lists only
+   *  refresh on explicit invalidates from mutations). */
+  refetchOnMount?: boolean | 'always';
 }
 
 type PagedQueryResult<T> = UseInfiniteQueryResult<
@@ -241,8 +244,10 @@ function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
     // Списки рефрешатся только явными invalidate'ами из мутаций. Remount/
     // reconnect не должен перетягивать весь infinite-query: для SC cursor-лент
     // это перепроходит сдвинувшийся курсор и тасует выдачу. Focus-рефетч уже
-    // выключен глобально в query-client.
-    refetchOnMount: false,
+    // выключен глобально в query-client. Отдельные холодные списки
+    // (плейлист-треки) могут попросить refetchOnMount — staleTime у них
+    // бесконечный, так что без invalidate лишних запросов не будет.
+    refetchOnMount: opts.refetchOnMount ?? false,
     refetchOnReconnect: false,
   });
 
@@ -532,6 +537,9 @@ export function usePlaylistTracks(playlistUrn: string | undefined) {
     staleTime: COLD_CACHE_MS,
     enabled: !!playlistUrn,
     autoFetchAll: true,
+    // staleTime is infinite, so this only refetches on mount after an
+    // invalidate (e.g. right after adding a track elsewhere).
+    refetchOnMount: true,
   });
 
   return { tracks: query.items, ...query };
@@ -799,9 +807,12 @@ export function useAddToPlaylist() {
     }) => {
       let last: unknown;
       for (const urn of trackUrns) {
+        // 502 (incomplete base, see routes/playlists.rs) is handled by the
+        // caller's onError with the server message — no global toast.
         last = await api(`/playlists/${encodeURIComponent(playlistUrn)}/tracks`, {
           method: 'POST',
           body: JSON.stringify({ add: urn }),
+          silentStatuses: [502],
         });
       }
       return last;
