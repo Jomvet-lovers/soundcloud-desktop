@@ -13,6 +13,8 @@ use crate::state::{PlayerState, SettingsState, ThemePreset};
 
 pub enum SettingsAction {
     None,
+    /// サインアウト (Account タブ)。
+    Logout,
 }
 
 /// `desktop/src/components/settings/registry.tsx` のカテゴリ対応
@@ -136,60 +138,79 @@ impl SettingsView {
 
         // 左: カテゴリナビ (アイコン付き) / 右: 内容 (Tauri: Settings.tsx)。
         let nav_w = 210.0;
-        ui.horizontal_top(|ui| {
-            let _ = ui.allocate_ui_with_layout(
-                egui::vec2(nav_w, 10.0),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    ui.set_max_width(nav_w);
-                    for cat in SettingsCategory::ALL {
-                        if crate::widgets::nav_item(
-                            ui,
-                            cat.icon(),
-                            cat.title(),
-                            self.active == *cat,
-                        )
-                        .clicked()
-                        {
-                            self.active = *cat;
-                        }
-                    }
-                },
-            );
-            ui.add_space(18.0);
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("Settings").size(11.0).weak());
-                ui.add(egui::Label::new(
-                    egui::RichText::new(self.active.title())
-                        .font(crate::theme::semibold(28.0)),
-                ));
-                ui.add_space(4.0);
-                match self.active {
-                    SettingsCategory::General => self.show_general(settings, rt, ui),
-                    SettingsCategory::Appearance => self.show_appearance(settings, ui),
-                    SettingsCategory::Audio => self.show_audio(settings, audio, ui),
-                    SettingsCategory::Storage => self.show_storage(cache, settings, ui),
-                    SettingsCategory::Account => Self::show_account(api, settings, ui),
-                }
-                ui.add_space(10.0);
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
-                        match crate::backend::prefs::save(settings) {
-                            Ok(()) => self.save_status = Some("Saved".to_string()),
-                            Err(e) => {
-                                self.save_status = Some(format!("Save failed: {e}"))
+        let result = ui
+            .horizontal_top(|ui| {
+                let _ = ui.allocate_ui_with_layout(
+                    egui::vec2(nav_w, 10.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_max_width(nav_w);
+                        for cat in SettingsCategory::ALL {
+                            if crate::widgets::nav_item(
+                                ui,
+                                cat.icon(),
+                                cat.title(),
+                                self.active == *cat,
+                            )
+                            .clicked()
+                            {
+                                self.active = *cat;
                             }
                         }
-                    }
-                    if let Some(status) = self.save_status.as_deref() {
-                        ui.label(status);
-                    }
-                });
-            });
-        });
-
-        SettingsAction::None
+                    },
+                );
+                ui.add_space(18.0);
+                let action = ui
+                    .vertical(|ui| {
+                        ui.label(egui::RichText::new("Settings").size(11.0).weak());
+                        ui.add(egui::Label::new(
+                            egui::RichText::new(self.active.title())
+                                .font(crate::theme::semibold(28.0)),
+                        ));
+                        ui.add_space(4.0);
+                        let mut action = SettingsAction::None;
+                        match self.active {
+                            SettingsCategory::General => {
+                                self.show_general(settings, rt, ui)
+                            }
+                            SettingsCategory::Appearance => {
+                                self.show_appearance(settings, ui)
+                            }
+                            SettingsCategory::Audio => {
+                                self.show_audio(settings, audio, ui)
+                            }
+                            SettingsCategory::Storage => {
+                                self.show_storage(cache, settings, ui)
+                            }
+                            SettingsCategory::Account => {
+                                action = Self::show_account(api, settings, ui)
+                            }
+                        }
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Save").clicked() {
+                                match crate::backend::prefs::save(settings) {
+                                    Ok(()) => {
+                                        self.save_status = Some("Saved".to_string())
+                                    }
+                                    Err(e) => {
+                                        self.save_status =
+                                            Some(format!("Save failed: {e}"))
+                                    }
+                                }
+                            }
+                            if let Some(status) = self.save_status.as_deref() {
+                                ui.label(status);
+                            }
+                        });
+                        action
+                    })
+                    .inner;
+                action
+            })
+            .inner;
+        result
     }
 
     /// `StartupCard` 対応 (起動ページ。設定に永続化して実際に適用)。
@@ -199,7 +220,7 @@ impl SettingsView {
         rt: &tokio::runtime::Handle,
         ui: &mut egui::Ui,
     ) {
-        ui.heading("Startup");
+        crate::widgets::section_title(ui, "Startup");
         ui.label("Choose which page opens when the app launches (signed-in only)");
         ui.horizontal_wrapped(|ui| {
             for page in StartupPage::ALL {
@@ -223,7 +244,7 @@ impl SettingsView {
             let _ = crate::backend::prefs::save(settings);
         }
         ui.separator();
-        ui.heading("Updates");
+        crate::widgets::section_title(ui, "Updates");
         if ui.button("Check for updates").clicked() {
             self.update_check = crate::query::Query::default();
             self.update_check.request(rt, async move {
@@ -267,7 +288,7 @@ impl SettingsView {
 
     /// `ThemeCard` + `WallpaperCard` 対応 (簡易再現。壁紙ファイル管理は Phase 4)。
     fn show_appearance(&mut self, settings: &mut SettingsState, ui: &mut egui::Ui) {
-        ui.heading("Appearance");
+        crate::widgets::section_title(ui, "Appearance");
         ui.label("Theme preset (saved only — visuals stay dark until wired)");
         ui.horizontal_wrapped(|ui| {
             for (preset, label) in [
@@ -295,7 +316,7 @@ impl SettingsView {
             *settings = SettingsState::default();
         }
         ui.separator();
-        ui.heading("Background image");
+        crate::widgets::section_title(ui, "Background image");
         ui.label("Wallpaper files are Phase 4 (in-memory tuning only)");
         ui.add(egui::Slider::new(&mut self.bg_dim, 0.0..=0.85).text("Darkening"));
         ui.add(egui::Slider::new(&mut self.bg_opacity, 0.0..=0.7).text("Edge darkening"));
@@ -309,7 +330,7 @@ impl SettingsView {
         audio: Option<&Arc<AudioState>>,
         ui: &mut egui::Ui,
     ) {
-        ui.heading("Playback");
+        crate::widgets::section_title(ui, "Playback");
         if ui
             .checkbox(&mut settings.floating_comments, "Floating comments")
             .changed()
@@ -343,7 +364,7 @@ impl SettingsView {
         }
         ui.label("When the queue ends, keep playing related tracks");
         ui.separator();
-        ui.heading("Output device");
+        crate::widgets::section_title(ui, "Output device");
         let follow = settings.follow_default_output;
         let mut follow_new = follow;
         ui.checkbox(&mut follow_new, "Follow system default");
@@ -405,7 +426,7 @@ impl SettingsView {
         settings: &mut SettingsState,
         ui: &mut egui::Ui,
     ) {
-        ui.heading("Cache");
+        crate::widgets::section_title(ui, "Cache");
         let Some(cache) = cache else {
             ui.label("cache unavailable");
             return;
@@ -441,17 +462,25 @@ impl SettingsView {
         ui.label("Bulk-download your liked tracks from the Offline page.");
     }
 
-    /// `AccountCard` 対応 (Sign Out 本体は Login ページ側。shell が処理する)。
-    fn show_account(api: Option<&ApiClient>, settings: &mut SettingsState, ui: &mut egui::Ui) {
-        ui.heading("Account");
+    /// `AccountCard` 対応 (Sign out ボタンをここに置く)。
+    fn show_account(
+        api: Option<&ApiClient>,
+        settings: &mut SettingsState,
+        ui: &mut egui::Ui,
+    ) -> SettingsAction {
+        let mut action = SettingsAction::None;
+        crate::widgets::section_title(ui, "Account");
         let signed_in = api.and_then(|a| a.session_token()).is_some();
-        ui.label(if signed_in {
-            "Signed in — use the Login page to sign out"
+        if signed_in {
+            ui.label("Signed in");
+            if ui.button("Sign out").clicked() {
+                action = SettingsAction::Logout;
+            }
         } else {
-            "Not signed in"
-        });
+            ui.label("Not signed in");
+        }
         ui.separator();
-        ui.heading("Discord");
+        crate::widgets::section_title(ui, "Discord");
         if ui
             .checkbox(&mut settings.discord_rpc, "Discord Rich Presence")
             .changed()
@@ -466,5 +495,6 @@ impl SettingsView {
             let _ = crate::backend::prefs::save(settings);
         }
         ui.label("Shows the track you are listening to on your Discord profile.");
+        action
     }
 }

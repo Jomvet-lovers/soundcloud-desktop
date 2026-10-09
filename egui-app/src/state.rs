@@ -411,6 +411,8 @@ fn default_cache_limit() -> u64 {
 pub struct PinnedPlaylist {
     pub urn: String,
     pub title: String,
+    #[serde(default)]
+    pub artwork_url: Option<String>,
 }
 
 fn default_startup() -> String {
@@ -949,7 +951,12 @@ impl AppState {
     }
 
     /// サイドバーの pin をトグルする (settings へ保存)。
-    pub fn toggle_pin_playlist(&mut self, urn: String, title: String) {
+    pub fn toggle_pin_playlist(
+        &mut self,
+        urn: String,
+        title: String,
+        artwork_url: Option<String>,
+    ) {
         if let Some(pos) = self
             .settings
             .pinned_playlists
@@ -960,7 +967,11 @@ impl AppState {
         } else {
             self.settings
                 .pinned_playlists
-                .push(PinnedPlaylist { urn, title });
+                .push(PinnedPlaylist {
+                    urn,
+                    title,
+                    artwork_url,
+                });
         }
         if let Err(e) = crate::backend::prefs::save(&self.settings) {
             eprintln!("[prefs] save failed: {e}");

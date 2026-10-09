@@ -24,7 +24,7 @@ pub enum PlaylistAction {
     /// 右クリックメニューを開く。
     OpenMenu(Track),
     /// サイドバーへの pin トグル。
-    TogglePin(String, String),
+    TogglePin(String, String, Option<String>),
     Navigate(Route, Option<String>),
 }
 
@@ -331,7 +331,11 @@ impl PlaylistView {
                     }
                     if ui.button(if pinned { "Unpin" } else { "Pin" }).clicked() {
                         action =
-                            PlaylistAction::TogglePin(playlist.urn.clone(), playlist.title.clone());
+                            PlaylistAction::TogglePin(
+                                playlist.urn.clone(),
+                                playlist.title.clone(),
+                                playlist.artwork("t200x200"),
+                            );
                     }
                 });
                 if is_owner {

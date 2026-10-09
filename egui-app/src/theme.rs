@@ -186,7 +186,7 @@ pub fn install_text_styles(ctx: &egui::Context) {
         (egui::TextStyle::Small, 11.0),
         (egui::TextStyle::Body, 13.0),
         (egui::TextStyle::Button, 13.0),
-        (egui::TextStyle::Heading, 20.0),
+        (egui::TextStyle::Heading, 24.0),
     ] {
         // 見出しはセミボールド (Tauri 版の font-bold 相当)。
         let family = if text_style == egui::TextStyle::Heading {
@@ -231,4 +231,9 @@ pub fn ensure_applied(
 /// 見出し用セミボールド。
 pub fn semibold(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name(FONT_SANS_SEMIBOLD.into()))
+}
+
+/// 本文用ミディアム (Tauri: font-medium)。
+pub fn medium(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name(FONT_SANS_MEDIUM.into()))
 }

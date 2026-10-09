@@ -168,6 +168,9 @@ pub enum UiIcon {
     Refresh,
     Shuffle,
     Repeat,
+    Sliders,
+    Queue,
+    Volume,
 }
 
 /// アイコンを描いて応答を返す (クリックは呼出側で付ける)。
@@ -490,6 +493,66 @@ pub fn paint_ui_icon(
                 egui::Stroke::NONE,
             ));
         }
+        UiIcon::Sliders => {
+            // 横スライダー3本 (つまみ位置違い)。
+            for (i, x) in [-0.26f32, 0.0, 0.26].iter().enumerate() {
+                let y = c.y + (i as f32 - 1.0) * s * 0.24;
+                painter.line_segment(
+                    [
+                        egui::Pos2::new(c.x - s * 0.34, y),
+                        egui::Pos2::new(c.x + s * 0.34, y),
+                    ],
+                    stroke,
+                );
+                let knob = c.x + s * if i == 0 { 0.14 } else if i == 1 { -0.12 } else { 0.04 };
+                painter.circle_filled(egui::Pos2::new(knob, y), s * 0.07, color);
+                let _ = x;
+            }
+        }
+        UiIcon::Queue => {
+            // リスト (3本の線 + 音符)。
+            for i in 0..3 {
+                let y = c.y + (i as f32 - 1.0) * s * 0.24;
+                painter.line_segment(
+                    [
+                        egui::Pos2::new(c.x - s * 0.30, y),
+                        egui::Pos2::new(c.x + s * 0.10, y),
+                    ],
+                    stroke,
+                );
+            }
+            painter.circle_filled(c + egui::Vec2::new(s * 0.22, s * 0.12), s * 0.08, color);
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(s * 0.29, s * 0.12),
+                    c + egui::Vec2::new(s * 0.29, -s * 0.24),
+                ],
+                stroke,
+            );
+        }
+        UiIcon::Volume => {
+            // スピーカー + 波。
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(-s * 0.30, -s * 0.10),
+                    c + egui::Vec2::new(-s * 0.12, -s * 0.10),
+                    c + egui::Vec2::new(s * 0.04, -s * 0.28),
+                    c + egui::Vec2::new(s * 0.04, s * 0.28),
+                    c + egui::Vec2::new(-s * 0.12, s * 0.10),
+                    c + egui::Vec2::new(-s * 0.30, s * 0.10),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+            for (r, w) in [(0.18f32, 1.2f32), (0.30, 1.2)] {
+                let mut pts = Vec::new();
+                for k in 0..10 {
+                    let a = -0.9 + 1.8 * k as f32 / 9.0;
+                    pts.push(c + egui::Vec2::new(s * r * a.cos(), s * r * a.sin()));
+                }
+                painter.add(egui::Shape::line(pts, egui::Stroke::new(w, color)));
+            }
+        }
     }
 }
 
@@ -671,7 +734,13 @@ pub fn track_card(
     ui.vertical(|ui| {
         ui.set_max_width(size + 8.0);
         let art = track.artwork("t300x300");
-        let play = images.show(ui, rt, art.as_deref(), size);
+        let play = images.show_rounded(
+            ui,
+            rt,
+            art.as_deref(),
+            size,
+            egui::CornerRadius::same(12),
+        );
         // ホバー: 暗転 + 再生グリフをフェードイン。
         let hover_t = ui.ctx().animate_bool_with_time(
             egui::Id::new(("card-hover", &track.urn)),
@@ -681,7 +750,7 @@ pub fn track_card(
         if hover_t > 0.001 {
             ui.painter().rect_filled(
                 play.rect,
-                4.0,
+                12.0,
                 egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
             );
             paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
@@ -692,16 +761,20 @@ pub fn track_card(
             egui::RichText::new(track.display_title())
         };
         let title = ui.add(
-            egui::Label::new(title)
+            egui::Label::new(title.font(crate::theme::medium(13.0)))
                 .truncate()
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .sense(egui::Sense::click()),
         );
         let artist = ui.add(
-            egui::Label::new(egui::RichText::new(track.artist_name()).weak())
-                .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate)
-                .sense(egui::Sense::click()),
+            egui::Label::new(
+                egui::RichText::new(track.artist_name())
+                    .size(11.0)
+                    .color(egui::Color32::from_white_alpha(102)),
+            )
+            .truncate()
+            .wrap_mode(egui::TextWrapMode::Truncate)
+            .sense(egui::Sense::click()),
         );
         CardHit {
             play,
@@ -902,7 +975,13 @@ pub fn track_card_stats(
     ui.vertical(|ui| {
         ui.set_max_width(size + 8.0);
         let art = track.artwork("t300x300");
-        let play = images.show(ui, rt, art.as_deref(), size);
+        let play = images.show_rounded(
+            ui,
+            rt,
+            art.as_deref(),
+            size,
+            egui::CornerRadius::same(12),
+        );
         // ホバー: 暗転 + 再生グリフをフェードイン。
         let hover_t = ui.ctx().animate_bool_with_time(
             egui::Id::new(("card-hover", &track.urn)),
@@ -912,7 +991,7 @@ pub fn track_card_stats(
         if hover_t > 0.001 {
             ui.painter().rect_filled(
                 play.rect,
-                4.0,
+                12.0,
                 egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
             );
             paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
@@ -947,16 +1026,20 @@ pub fn track_card_stats(
             egui::RichText::new(track.display_title())
         };
         let title = ui.add(
-            egui::Label::new(title)
+            egui::Label::new(title.font(crate::theme::medium(13.0)))
                 .truncate()
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .sense(egui::Sense::click()),
         );
         let artist = ui.add(
-            egui::Label::new(egui::RichText::new(track.artist_name()).weak())
-                .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate)
-                .sense(egui::Sense::click()),
+            egui::Label::new(
+                egui::RichText::new(track.artist_name())
+                    .size(11.0)
+                    .color(egui::Color32::from_white_alpha(102)),
+            )
+            .truncate()
+            .wrap_mode(egui::TextWrapMode::Truncate)
+            .sense(egui::Sense::click()),
         );
         CardHit {
             play,
@@ -1049,6 +1132,69 @@ pub fn nav_item(
         },
     );
     resp
+}
+
+/// Tailwind のブレークポイント (sm/md/lg/xl) に合わせて列数を返す。
+/// Tauri の `grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7` 相当。
+pub fn grid_cols(
+    avail: f32,
+    xs: usize,
+    sm: usize,
+    md: usize,
+    lg: usize,
+    xl: usize,
+) -> usize {
+    if avail < 640.0 {
+        xs
+    } else if avail < 768.0 {
+        sm
+    } else if avail < 1024.0 {
+        md
+    } else if avail < 1280.0 {
+        lg
+    } else {
+        xl
+    }
+}
+
+/// セクション見出し (Tauri: text-[16px] font-semibold white/90)。
+pub fn section_title(ui: &mut egui::Ui, text: &str) {
+    ui.add(egui::Label::new(
+        egui::RichText::new(text)
+            .size(16.0)
+            .color(egui::Color32::from_white_alpha(230)),
+    ));
+}
+
+/// 「See all >」リンク (Tauri: text-[12px] font-semibold white/45 + chevron)。
+pub fn see_all(ui: &mut egui::Ui) -> bool {
+    link_button(ui, "See all")
+}
+
+/// テキストリンク + chevron (Tauri の "See all" / "Show less" 等)。
+pub fn link_button(ui: &mut egui::Ui, text: &str) -> bool {
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        // RTL では先に追加した方が右端。chevron を先に置いて [text][›] にする。
+        let chev = ui.add(
+            egui::Label::new(
+                egui::RichText::new("›")
+                    .size(14.0)
+                    .color(egui::Color32::from_white_alpha(115)),
+            )
+            .sense(egui::Sense::click()),
+        );
+        let label = ui.add(
+            egui::Label::new(
+                egui::RichText::new(text)
+                    .size(12.0)
+                    .color(egui::Color32::from_white_alpha(115)),
+            )
+            .sense(egui::Sense::click()),
+        );
+        clicked = label.clicked() || chev.clicked();
+    });
+    clicked
 }
 
 /// セクション見出し (タイトル + 件数)。

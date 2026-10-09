@@ -281,7 +281,7 @@ impl LibraryView {
                     greeting(&name)
                 };
                 ui.add(egui::Label::new(
-                    egui::RichText::new(title).font(crate::theme::semibold(28.0)),
+                    egui::RichText::new(title).font(crate::theme::semibold(34.0)),
                 ));
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -387,10 +387,21 @@ impl LibraryView {
             if !fresh.is_empty() {
                 ui.add_space(16.0);
                 let mut refresh = false;
-                widgets::section_row(ui, "Fresh from who you follow", Some(fresh.len()), |ui| {
-                    if ui.small_button("Refresh").clicked() {
-                        refresh = true;
-                    }
+                ui.horizontal(|ui| {
+                    widgets::section_title(ui, "Fresh from who you follow");
+                    ui.label(
+                        egui::RichText::new(fresh.len().to_string())
+                            .size(11.0)
+                            .weak(),
+                    );
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if ui.small_button("Refresh").clicked() {
+                                refresh = true;
+                            }
+                        },
+                    );
                 });
                 if refresh {
                     self.fresh = Query::default();
@@ -484,9 +495,7 @@ impl LibraryView {
                     15.0,
                     egui::Color32::from_white_alpha(160),
                 );
-                ui.label(
-                    egui::RichText::new("Continue").font(crate::theme::semibold(15.0)),
-                );
+                widgets::section_title(ui, "Continue");
             });
             egui::ScrollArea::horizontal()
                 .id_salt("lib:continue")
@@ -531,16 +540,14 @@ impl LibraryView {
                     15.0,
                     egui::Color32::from_white_alpha(160),
                 );
-                ui.label(
-                    egui::RichText::new("Your Playlists").font(crate::theme::semibold(15.0)),
-                );
+                widgets::section_title(ui, "Your Playlists");
                 ui.label(
                     egui::RichText::new(self.my_playlists.items.len().to_string())
                         .size(11.0)
                         .weak(),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("See all").clicked() {
+                    if widgets::link_button(ui, "See all") {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
                             Some("playlists".to_string()),
@@ -576,12 +583,9 @@ impl LibraryView {
                     15.0,
                     egui::Color32::from_white_alpha(160),
                 );
-                ui.label(
-                    egui::RichText::new("Liked Playlists")
-                        .font(crate::theme::semibold(15.0)),
-                );
+                widgets::section_title(ui, "Liked Playlists");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("See all").clicked() {
+                    if widgets::link_button(ui, "See all") {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
                             Some("playlists".to_string()),
@@ -617,14 +621,14 @@ impl LibraryView {
                     15.0,
                     egui::Color32::from_white_alpha(160),
                 );
-                ui.label(egui::RichText::new("Artists").font(crate::theme::semibold(15.0)));
+                widgets::section_title(ui, "Artists");
                 ui.label(
                     egui::RichText::new(self.followings.items.len().to_string())
                         .size(11.0)
                         .weak(),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("See all").clicked() {
+                    if widgets::link_button(ui, "See all") {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
                             Some("following".to_string()),
@@ -664,16 +668,14 @@ impl LibraryView {
                     15.0,
                     egui::Color32::from_white_alpha(160),
                 );
-                ui.label(
-                    egui::RichText::new("Liked Tracks").font(crate::theme::semibold(15.0)),
-                );
+                widgets::section_title(ui, "Liked Tracks");
                 ui.label(
                     egui::RichText::new(self.likes.items.len().to_string())
                         .size(11.0)
                         .weak(),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("See all").clicked() {
+                    if widgets::link_button(ui, "See all") {
                         action = LibraryAction::Navigate(
                             Route::LibraryCollection,
                             Some("likes".to_string()),

@@ -121,13 +121,18 @@ impl HomeView {
                 .font(crate::theme::semibold(24.0)),
         ));
 
-        ui.separator();
+        ui.add_space(14.0);
         let accent = widgets::accent_color(settings);
-        let liked_count = self.likes.data.as_ref().map(|t| t.len()).filter(|&n| n > 0);
-        widgets::section_row(ui, "Liked Tracks", liked_count, |ui| {
-            if ui.small_button("See all").clicked() {
-                action = HomeAction::Navigate(Route::LibraryCollection, Some("likes".to_string()));
-            }
+        ui.horizontal(|ui| {
+            widgets::section_title(ui, "Liked Tracks");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::see_all(ui) {
+                    action = HomeAction::Navigate(
+                        Route::LibraryCollection,
+                        Some("likes".to_string()),
+                    );
+                }
+            });
         });
 
         if self.likes.loading && self.likes.data.is_none() {
@@ -146,12 +151,15 @@ impl HomeView {
                 // horizontal_wrapped が折り返さないため行チャンクで並べる。
                 let items: Vec<(usize, &Track)> =
                     tracks.iter().take(60).enumerate().collect();
-                let card_w = 132.0;
-                let per_row =
-                    (((ui.available_width() + 10.0) / (card_w + 10.0)).floor() as usize)
-                        .clamp(1, 7);
+                let avail = ui.available_width();
+                let gap = 12.0;
+                let cols = widgets::grid_cols(avail, 3, 4, 5, 6, 7);
+                let card_w =
+                    ((avail - gap * (cols.saturating_sub(1)) as f32) / cols as f32).max(80.0);
+                let per_row = cols;
                 for chunk in items.chunks(per_row) {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
                         for &(i, track) in chunk {
                             let playing = is_currently_playing(player, track);
                             let hit = widgets::track_card(
@@ -180,7 +188,7 @@ impl HomeView {
             }
         }
 
-        ui.separator();
+        ui.add_space(24.0);
         if self.discover.loading && self.discover.data.is_none() {
             widgets::loading(ui);
         } else if let Some(mixed) = self.discover.data.as_ref() {
@@ -203,21 +211,30 @@ impl HomeView {
                     all.iter().take(10).cloned().collect()
                 };
                 ui.horizontal(|ui| {
-                    ui.heading(&sel.title);
-                    if all.len() > 10
-                        && ui
-                            .small_button(if is_open { "Show less" } else { "See all" })
-                            .clicked()
-                    {
-                        toggled.push(sel.urn.clone());
+                    widgets::section_title(ui, &sel.title);
+                    if all.len() > 10 {
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                if widgets::link_button(
+                                    ui,
+                                    if is_open { "Show less" } else { "See all" },
+                                ) {
+                                    toggled.push(sel.urn.clone());
+                                }
+                            },
+                        );
                     }
                 });
-                // グリッド (Tauri 版 DiscoverSections: ラップ格子 + 150px カバー)。
-                let per_row =
-                    (((ui.available_width() + 10.0) / (150.0 + 10.0)).floor() as usize)
-                        .clamp(1, 8);
-                for chunk in shown.chunks(per_row) {
+                // グリッド (Tauri: grid-cols-3 sm:4 md:5 lg:6 xl:8、gap-2.5)。
+                let avail = ui.available_width();
+                let gap = 10.0;
+                let cols = widgets::grid_cols(avail, 3, 4, 5, 6, 8);
+                let card_w =
+                    ((avail - gap * (cols.saturating_sub(1)) as f32) / cols as f32).max(80.0);
+                for chunk in shown.chunks(cols) {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
                         for item in chunk {
                             // タイトルはページがあれば遷移 (Tauri: DiscoverCard)。
                             let title_nav: Option<(Route, String)> =
@@ -232,12 +249,18 @@ impl HomeView {
                                 });
                             let (play_clicked, title_clicked) = ui
                                 .vertical(|ui| {
-                                    ui.set_max_width(150.0);
+                                    ui.set_max_width(card_w);
                                     let art = item
                                         .artwork_url
                                         .as_deref()
                                         .map(|u| u.replace("-large", "-t300x300"));
-                                    let img = images.show(ui, rt, art.as_deref(), 150.0);
+                                    let img = images.show_rounded(
+                                        ui,
+                                        rt,
+                                        art.as_deref(),
+                                        card_w,
+                                        egui::CornerRadius::same(12),
+                                    );
                                     // ホバー: 暗転 + 再生グリフ (フェード)。
                                     let hover_t = ui.ctx().animate_bool_with_time(
                                         egui::Id::new((
