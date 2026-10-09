@@ -557,3 +557,24 @@ smoke モード (どちらも表示環境用。CI では不可):
 - **ビルドメモ**: sccache が rustc を落とす (ICE / STATUS_ACCESS_VIOLATION)
   ため `$env:RUSTC_WRAPPER=""` で迂回。`SetWindowPos` は wgpu Surface パニック
   (height 65535) を起こすので使わない (手動ドラッグリサイズは正常)。
+
+### 8.18 WebView2 常駐コストの削減 (2026-10-10 未明)
+
+「タスクマネージャーに WebView2 が出ている。egui+wgpu はパフォーマンスの
+ためなのに」への対応 (コミット `f7e3ed50`)。詳細: `anti-slop/audit-002` の追記。
+
+- WebView2 は `--wry-host` 子プロセスの 2 webview (ログイン + 隠し writer) の
+  ためのもので、UI 描画には関与しない (本体プロセス 27MB)。認証と
+  書き込み同期 (DataDome 回避) に必須。
+- 実測で 12 プロセス / 1,558MB を消費していた主因は
+  ①ログイン webview の常駐 (起動時に signin の SPA を読む)
+  ②writer が home の SPA を読む (renderer 805MB)。
+- **ログイン webview を遅延生成** (`ensure_login` / `ChildState`、`IsVisible`
+  は生成せず false・`Hide` は no-op)。サインイン完了後は既存 `login_close` の
+  `about:blank` 化で解放。
+- **writer のホームを `https://soundcloud.com/404`** (同一オリジンの軽量 SPA)
+  に変更 → renderer 805MB → 317MB。
+- 結果: 通常起動時の WebView2 = **9 プロセス / 約 754MB** (旧 12 / 1,558MB、
+  約 800MB 削減)。`--smoke-writer` (200 / captcha なし) と `--smoke-login`
+  (lazy 生成 + フロー完走) で検証済み。
+- `--disable-gpu` は計測上ほぼ差が無いため不採用。
