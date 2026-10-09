@@ -191,32 +191,38 @@ impl CollectionView {
 
         let mut action = CollectionAction::None;
 
-        if ui.small_button("← Library").clicked() {
+        // 戻る (Tauri: LibraryCollection のシェブロン)。
+        if ui
+            .add(egui::Button::new(egui::RichText::new("‹").size(20.0)).frame(false))
+            .on_hover_text("Back")
+            .clicked()
+        {
             action = CollectionAction::Navigate(Route::Library, None);
         }
         // React 版 (`LibrarySubHeader` + user count 由来) と同様、件数を添える。
-        match section {
-            "likes" => {
-                widgets::section_header(ui, section_title(section), Some(self.likes.items.len()));
+        let count = match section {
+            "likes" => Some(self.likes.items.len()),
+            "following" => Some(self.followings.items.len()),
+            _ => None,
+        };
+        ui.horizontal(|ui| {
+            ui.add(egui::Label::new(
+                egui::RichText::new(section_title(section))
+                    .font(crate::theme::semibold(22.0)),
+            ));
+            if let Some(n) = count {
+                ui.label(egui::RichText::new(n.to_string()).size(12.0).weak());
             }
-            "following" => {
-                widgets::section_header(
-                    ui,
-                    section_title(section),
-                    Some(self.followings.items.len()),
-                );
-            }
-            _ => {
-                widgets::section_header(ui, section_title(section), None);
-            }
-        }
+        });
         if section != "history" {
-            ui.horizontal(|ui| {
-                ui.label("Filter:");
-                ui.text_edit_singleline(&mut self.filter);
-            });
+            ui.add_space(2.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut self.filter)
+                    .hint_text("Search...")
+                    .desired_width(280.0),
+            );
         }
-        ui.separator();
+        ui.add_space(6.0);
 
         let needle = self.filter.trim().to_lowercase();
 

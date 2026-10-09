@@ -289,7 +289,7 @@ impl SettingsView {
     /// `ThemeCard` + `WallpaperCard` 対応 (簡易再現。壁紙ファイル管理は Phase 4)。
     fn show_appearance(&mut self, settings: &mut SettingsState, ui: &mut egui::Ui) {
         crate::widgets::section_title(ui, "Appearance");
-        ui.label("Theme preset (saved only — visuals stay dark until wired)");
+        ui.label("Theme");
         ui.horizontal_wrapped(|ui| {
             for (preset, label) in [
                 (ThemePreset::SoundCloud, "SoundCloud"),
@@ -299,21 +299,49 @@ impl SettingsView {
                 (ThemePreset::Crimson, "Crimson"),
                 (ThemePreset::Custom, "Custom"),
             ] {
-                if ui.selectable_label(settings.theme_preset == preset, label).clicked() {
+                if crate::widgets::tab_button(ui, label, settings.theme_preset == preset)
+                    .clicked()
+                {
                     settings.theme_preset = preset;
-                    // 将来配線メモ: egui visuals は現行ダーク固定
-                    // (`AppState::new` の `set_visuals`)。反映には shell 側で
-                    // `settings.theme_preset` に応じた Visuals 構築が必要。
+                    let _ = crate::backend::prefs::save(settings);
                 }
             }
         });
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Accent");
-            ui.color_edit_button_srgb(&mut settings.accent);
+        ui.add_space(8.0);
+        ui.label("Accent");
+        ui.horizontal_wrapped(|ui| {
+            const ACCENTS: [(&str, [u8; 3]); 6] = [
+                ("SoundCloud", [255, 85, 0]),
+                ("Blue", [96, 165, 250]),
+                ("Purple", [192, 38, 211]),
+                ("Green", [52, 211, 153]),
+                ("Red", [251, 113, 133]),
+                ("Amber", [251, 191, 36]),
+            ];
+            for (name, rgb) in ACCENTS {
+                let selected = settings.accent == rgb;
+                let (rect, resp) = ui
+                    .allocate_exact_size(egui::Vec2::splat(28.0), egui::Sense::click());
+                let c = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                ui.painter().circle_filled(rect.center(), 10.0, c);
+                if selected {
+                    ui.painter().circle_stroke(
+                        rect.center(),
+                        12.0,
+                        egui::Stroke::new(2.0, egui::Color32::WHITE),
+                    );
+                }
+                if resp.clicked() {
+                    settings.accent = rgb;
+                    let _ = crate::backend::prefs::save(settings);
+                }
+                let _ = resp.on_hover_text(name);
+            }
         });
+        ui.add_space(6.0);
         if ui.button("Reset to defaults").clicked() {
             *settings = SettingsState::default();
+            let _ = crate::backend::prefs::save(settings);
         }
         ui.separator();
         crate::widgets::section_title(ui, "Background image");

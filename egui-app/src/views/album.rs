@@ -144,7 +144,7 @@ impl AlbumView {
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(&album.title)
-                                .font(crate::theme::semibold(28.0)),
+                                .font(crate::theme::semibold(40.0)),
                         )
                         .wrap(),
                     );

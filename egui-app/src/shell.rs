@@ -1851,7 +1851,10 @@ fn show_now_playing(state: &mut AppState, ui: &mut egui::Ui) {
                         });
                         if is_sc {
                             let liked = state.now_liked.unwrap_or(false);
-                            if crate::widgets::like_button(ui, liked, accent) {
+                            if icon_toggle(ui, crate::widgets::UiIcon::Heart, liked)
+                                .on_hover_text(if liked { "Liked" } else { "Like" })
+                                .clicked()
+                            {
                                 let next = !liked;
                                 state.now_liked = Some(next);
                                 if let Some(api) = state.api.clone() {

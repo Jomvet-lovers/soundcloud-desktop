@@ -298,7 +298,7 @@ impl UserView {
                 ui.horizontal(|ui| {
                     ui.add(egui::Label::new(
                         egui::RichText::new(&user.username)
-                            .font(crate::theme::semibold(30.0)),
+                            .font(crate::theme::semibold(34.0)),
                     ));
                     if user.verified.unwrap_or(false) {
                         ui.label("✔ Verified");
