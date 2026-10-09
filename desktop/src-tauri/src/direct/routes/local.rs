@@ -5,8 +5,7 @@ use warp::reply::Response;
 use super::Ctx;
 use super::common::*;
 use super::normalize::*;
-use super::super::sc::{SC_API, id_of};
-use super::super::webview::spawn_write_silent;
+use super::super::sc::SC_API;
 use std::time::Instant;
 
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
@@ -60,10 +59,6 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         }
         ("POST", ["history"]) => {
             let mut b = body_json(&body);
-            let track_urn = b
-                .get("scTrackId")
-                .and_then(Value::as_str)
-                .map(str::to_string);
             if b.is_object() {
                 let now = chrono::Utc::now().to_rfc3339();
                 if let Some(obj) = b.as_object_mut() {
@@ -75,20 +70,29 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 store.history.truncate(500);
                 store.save();
             }
-            if let Some(urn) = track_urn {
-                if let Ok(id) = id_of(&urn).parse::<u64>() {
-                    if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
-                        spawn_write_silent(
-                            s.app.clone(),
-                            t.to_string(),
-                            "POST",
-                            format!("{SC_API}/me/play-history?client_id={cid}"),
-                            Some(json!({ "track_urn": format!("soundcloud:tracks:{id}") })),
-                        );
-                    }
-                }
-            }
+            // NOTE: the legacy POST /me/play-history write was removed here:
+            // SC accepts it (204) but never records it. Server-side
+            // attribution goes through POST /history/report (companion flow).
             ok(json!({ "ok": true }))
+        }
+        // Server-side history attribution: muted official-client companion
+        // playback in the writer window. The frontend calls this only after
+        // ~30s of sustained playback of the same track.
+        ("POST", ["history", "report"]) => {
+            let b = body_json(&body);
+            let page = b.get("permalinkUrl").and_then(Value::as_str).unwrap_or_default();
+            let page_ok = page.starts_with("https://soundcloud.com/") && page.len() < 300;
+            match (token.as_deref(), page_ok) {
+                (Some(t), true) => {
+                    super::super::webview::spawn_companion(
+                        s.app.clone(),
+                        t.to_string(),
+                        page.to_string(),
+                    );
+                    ok(json!({ "ok": true, "queued": true }))
+                }
+                _ => ok(json!({ "ok": true, "queued": false })),
+            }
         }
         ("DELETE", ["history"]) => {
             let mut store = s.store.lock().await;
@@ -231,6 +235,83 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             }
         }
 
+        // ── debug: silent companion playback (proven history attribution) ──
+        ("POST", ["debug", "companion-play"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let page = q_str(&q, "page").unwrap_or_default();
+            if page.is_empty() {
+                return Ok(err(400, "missing ?page="));
+            }
+            let hold = q_u64(&q, "hold", 25).clamp(10, 120);
+            match super::super::webview::companion_play(&s.app, t, &page, hold).await {
+                Ok(v) => ok(v),
+                Err(e) => err(502, &e),
+            }
+        }
+        // ── debug: attribute a play by streaming (in-page, with cookies) ──
+        ("POST", ["debug", "attr-play"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let id = q_str(&q, "id").unwrap_or_default();
+            if id.is_empty() {
+                return Ok(err(400, "missing ?id="));
+            }
+            let cid = match s.client_id().await {
+                Ok(c) => c,
+                Err(e) => return Ok(err(502, &e)),
+            };
+            match super::super::webview::attr_play(&s.app, t, &id, &cid).await {
+                Ok(v) => ok(v),
+                Err(e) => err(502, &e),
+            }
+        }
+        // ── debug: raw fetch through the writer page (cookies+fingerprint) ──
+        ("POST", ["debug", "page-fetch"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let url = q_str(&q, "url").unwrap_or_default();
+            if url.is_empty() {
+                return Ok(err(400, "missing ?url="));
+            }
+            let method = q_str(&q, "method").unwrap_or_else(|| "POST".into());
+            let body: Option<Value> =
+                if body.is_empty() { None } else { serde_json::from_slice(body).ok() };
+            let ct = q_str(&q, "ct").unwrap_or_default();
+            let out = if ct.is_empty() {
+                super::super::webview::execute(&s.app, Some(t), &method, &url, body.as_ref())
+                    .await
+            } else {
+                super::super::webview::execute_ct(&s.app, Some(t), &method, &url, body.as_ref(), &ct)
+                    .await
+            };
+            match out {
+                Ok(o) => ok(json!({
+                    "status": o.status,
+                    "captcha": o.captcha,
+                    "body": o.payload.chars().take(500).collect::<String>(),
+                })),
+                Err(e) => err(502, &e),
+            }
+        }
+        // ── debug: sniff the official web player's api-v2 traffic around a play ──
+        ("POST", ["debug", "sniff-play"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let page = q_str(&q, "page").unwrap_or_default();
+            if page.is_empty() {
+                return Ok(err(400, "missing ?page="));
+            }
+            let wait = q_u64(&q, "wait", 20).clamp(5, 90);
+            match super::super::webview::sniff_official_play(&s.app, t, &page, wait).await {
+                Ok(v) => ok(v),
+                Err(e) => err(502, &e),
+            }
+        }
         // ── debug: show/hide the writer webview for manual interaction ──
         ("POST", ["debug", "show-writer"]) => {
             if let Some(wv) = super::super::webview::ensure_window(&s.app) {
