@@ -115,7 +115,13 @@ pub(crate) async fn liked_track_ids(state: &DirectState, token: &str) -> Vec<Str
         .unwrap_or_default()
 }
 
-pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>, tracks: &mut Vec<Value>) {
+/// スタブを補完する。補完できず**捨てた件数**を返す (0 = 完全)。
+/// 書き込み系 (追加) はこの戻り値で土台の完全性を判定する。
+pub(crate) async fn hydrate_track_stubs(
+    state: &DirectState,
+    token: Option<&str>,
+    tracks: &mut Vec<Value>,
+) -> usize {
     // A stub is any entry without a title: the raw `{id}` refs from SC
     // playlists, and the `{urn,id}` placeholders older reorder code wrote.
     let ids: Vec<String> = tracks
@@ -128,7 +134,7 @@ pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>
         })
         .collect();
     if ids.is_empty() {
-        return;
+        return 0;
     }
     let mut by_id: HashMap<String, Value> = HashMap::new();
     for chunk in ids.chunks(50) {
@@ -148,6 +154,7 @@ pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>
             }
         }
     }
+    let before = tracks.len();
     tracks.retain_mut(|t| {
         if t.get("title").is_some() {
             return true;
@@ -167,6 +174,7 @@ pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>
             None => false,
         }
     });
+    before - tracks.len()
 }
 
 pub(crate) async fn merge_local_likes(state: &DirectState, mut items: Vec<Value>, page_no: u64) -> Vec<Value> {

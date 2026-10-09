@@ -63,6 +63,13 @@ impl PlaylistView {
         self.last_urn.as_deref()
     }
 
+    /// 追加/並替後などに曲リストを取り直す (Tauri: invalidateQueries 相当)。
+    pub fn invalidate_tracks(&mut self) {
+        self.detail = Query::default();
+        self.tracks = Query::default();
+        self.edit_tracks = None;
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,

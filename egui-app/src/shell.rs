@@ -219,6 +219,25 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     }
     state.sidebar_me.poll();
 
+    // プレイリスト追加の結果 (失敗はサイドバーに表示、成功はキャッシュ破棄)。
+    if let Some(rx) = state.playlist_add_rx.as_mut() {
+        match rx.try_recv() {
+            Ok(result) => {
+                state.playlist_add_rx = None;
+                match result {
+                    Ok(()) => {
+                        state.playlist_add_error = None;
+                        state.playlist.invalidate_tracks();
+                        state.library.invalidate_playlists();
+                    }
+                    Err(e) => state.playlist_add_error = Some(e),
+                }
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+            Err(_) => state.playlist_add_rx = None,
+        }
+    }
+
     // ── タイトルバー (Tauri: Titlebar.tsx 相当、OS 装飾なし) ──
     let accent = crate::widgets::accent_color(&state.settings);
     egui::Panel::top("titlebar")
@@ -506,6 +525,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 }
                 if let Some(e) = &state.last_sync_error {
                     ui.colored_label(egui::Color32::YELLOW, format!("sync: {e}"));
+                }
+                if let Some(e) = &state.playlist_add_error {
+                    ui.colored_label(egui::Color32::YELLOW, format!("playlist: {e}"));
                 }
             });
     }
@@ -1659,9 +1681,15 @@ fn show_add_to_playlist(state: &mut AppState, ctx: &egui::Context) {
             let rt = state.runtime().handle().clone();
             let path = format!("/playlists/{}/tracks", urlencoding::encode(&urn));
             let body = serde_json::json!({ "add": track.urn });
+            let (tx, rx) = tokio::sync::oneshot::channel();
             rt.spawn(async move {
-                let _ = api.request_json("POST", &path, Some(&body)).await;
+                let result = api
+                    .request_json("POST", &path, Some(&body))
+                    .await
+                    .map(|_| ());
+                let _ = tx.send(result);
             });
+            state.playlist_add_rx = Some(rx);
         }
         state.add_to_playlist = None;
         return;
@@ -1677,9 +1705,15 @@ fn show_add_to_playlist(state: &mut AppState, ctx: &egui::Context) {
                     "tracks": [ { "urn": track.urn } ],
                 }
             });
+            let (tx, rx) = tokio::sync::oneshot::channel();
             rt.spawn(async move {
-                let _ = api.request_json("POST", "/playlists", Some(&body)).await;
+                let result = api
+                    .request_json("POST", "/playlists", Some(&body))
+                    .await
+                    .map(|_| ());
+                let _ = tx.send(result);
             });
+            state.playlist_add_rx = Some(rx);
         }
         state.add_to_playlist = None;
         return;

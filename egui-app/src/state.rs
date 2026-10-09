@@ -593,6 +593,9 @@ pub struct AppState {
     pub window_hidden: bool,
     /// トレイの「終了」など明示的な終了要求 (close_to_tray を無視する)。
     pub force_quit: bool,
+    /// プレイリスト追加の結果待ち (oneshot)。失敗はサイドバーに出す。
+    pub playlist_add_rx: Option<oneshot::Receiver<Result<(), String>>>,
+    pub playlist_add_error: Option<String>,
     pub theme_applied: Option<(ThemePreset, [u8; 3])>,
     pub home: HomeView,
     pub search: SearchView,
@@ -767,6 +770,8 @@ impl AppState {
             tray_rx: Some(tray_rx),
             window_hidden: false,
             force_quit: false,
+            playlist_add_rx: None,
+            playlist_add_error: None,
             theme_applied: None,
             home: HomeView::default(),
             search: SearchView::default(),

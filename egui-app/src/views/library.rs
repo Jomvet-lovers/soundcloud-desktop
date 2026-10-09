@@ -168,6 +168,12 @@ pub struct LibraryView {
 }
 
 impl LibraryView {
+    /// プレイリスト追加後にレールを取り直す (Tauri: invalidateQueries 相当)。
+    pub fn invalidate_playlists(&mut self) {
+        self.my_playlists = Pager::default();
+        self.liked_playlists = Pager::default();
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
