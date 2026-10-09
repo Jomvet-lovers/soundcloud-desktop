@@ -361,7 +361,10 @@ pub fn spawn_write_silent(
                 r.status,
                 r.captcha.is_some()
             ),
-            Err(e) => eprintln!("[writer] {method} {url} failed: {e} (silent)"),
+            Err(e) => {
+                eprintln!("[writer] {method} {url} failed: {e} (silent)");
+                emit_sync_error(&app, method, &url, 0, false, Some(&e));
+            }
         }
     });
 }

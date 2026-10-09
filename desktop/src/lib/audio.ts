@@ -22,7 +22,9 @@ import { trackedInvoke as invoke } from './diagnostics';
 import { isUrnDisliked } from './dislikes';
 import { recordEvent } from './events';
 import { art } from './formatters';
+import { addPendingHistory } from './history-pending';
 import { rememberTracks } from './offline-index';
+import { queryClient } from './query-client';
 import { getArtistDisplay, getDisplayTitle } from './track-display';
 
 const SKIP_THRESHOLD_SEC = 30;
@@ -450,17 +452,32 @@ function afterLoad(track: Track, gen: number) {
 
   // Record to listening history (fire-and-forget), skip on repeat-one (same track looping)
   if (historyTrack?.urn && historyTrack.title && usePlayerStore.getState().repeat !== 'one') {
+    const entry = {
+      id: `pending:${historyTrack.urn}:${Date.now()}`,
+      scTrackId: historyTrack.urn,
+      title: getDisplayTitle(historyTrack),
+      artistName: getArtistDisplay(historyTrack).primary || historyTrack.user?.username || '',
+      artistUrn: historyTrack.user?.urn || null,
+      artworkUrl: historyTrack.artwork_url || null,
+      duration: historyTrack.duration || 0,
+      playedAt: new Date().toISOString(),
+    };
     api('/history', {
       method: 'POST',
       body: JSON.stringify({
         scTrackId: historyTrack.urn,
-        title: getDisplayTitle(historyTrack),
-        artistName: getArtistDisplay(historyTrack).primary || historyTrack.user?.username || '',
-        artistUrn: historyTrack.user?.urn || null,
-        artworkUrl: historyTrack.artwork_url || null,
-        duration: historyTrack.duration || 0,
+        title: entry.title,
+        artistName: entry.artistName,
+        artistUrn: entry.artistUrn,
+        artworkUrl: entry.artworkUrl,
+        duration: entry.duration,
       }),
-    }).catch(() => {});
+    })
+      .then(() => {
+        addPendingHistory(entry);
+        void queryClient.invalidateQueries({ queryKey: ['history'] });
+      })
+      .catch(() => {});
   }
 
   const isPlaying = usePlayerStore.getState().isPlaying;

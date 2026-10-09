@@ -142,7 +142,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
               {artwork ? <img src={artwork} alt="" className="size-full object-cover" /> : null}
             </Link>
             <TrackMeta track={currentTrack} />
-            <LikeButton track={currentTrack} />
+            <LikeButton track={currentTrack} variant="bar" />
           </>
         ) : (
           <p className="text-[12px] text-white/35">{'Not playing'}</p>

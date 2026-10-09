@@ -23,9 +23,8 @@ export function setApiBase(port: number) {
   PAY_BASE = base;
 }
 
-export const GITHUB_OWNER = 'zxcloli666';
-export const GITHUB_REPO = 'SoundCloud-Desktop';
-export const GITHUB_REPO_EN = 'SoundCloud-Desktop-EN';
+export const GITHUB_OWNER = 'Jomvet-lovers';
+export const GITHUB_REPO = 'SCD-Direct';
 export const APP_VERSION = __APP_VERSION__;
 
 export const CHECK_UPDATES = true;
