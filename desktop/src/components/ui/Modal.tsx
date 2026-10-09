@@ -172,7 +172,10 @@ export function ModalContent({
   const { mounted, state } = usePresence(open, 200);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // esc to close + body scroll lock while mounted
+  // esc to close + body scroll lock while mounted.
+  // NOTE: focus restore lives in a separate effect below that runs only on
+  // unmount. Restoring here would yank focus back to the trigger on every
+  // re-render (setOpen identity changes), making inputs unfocusable.
   useEffect(() => {
     if (!mounted) return;
     const onKey = (e: KeyboardEvent) => {
@@ -181,13 +184,25 @@ export function ModalContent({
     document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const prevFocus = document.activeElement as HTMLElement | null;
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
-      prevFocus?.focus?.();
     };
   }, [mounted, setOpen]);
+
+  // Return focus to the element that had it before the modal opened — only
+  // once, when the modal unmounts for good.
+  const prevFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (mounted) {
+      if (prevFocusRef.current === null) {
+        prevFocusRef.current = document.activeElement as HTMLElement | null;
+      }
+      return;
+    }
+    prevFocusRef.current?.focus?.();
+    prevFocusRef.current = null;
+  }, [mounted]);
 
   // focus the card once it opens
   useEffect(() => {
@@ -210,6 +225,10 @@ export function ModalContent({
         aria-labelledby={titleId}
         tabIndex={-1}
         data-state={state}
+        // Event firewall: portal content bubbles through the React tree into
+        // the trigger's ancestors (e.g. a track card that toggles playback on
+        // click), so dialog interactions must never propagate outward.
+        onClick={(e) => e.stopPropagation()}
         className={`modal-content fixed ${zClass} left-1/2 top-1/2 w-full ${WIDTH[size]} max-w-[95vw] outline-none`}
       >
         <div
