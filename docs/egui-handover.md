@@ -406,3 +406,33 @@ smoke モード (どちらも表示環境用。CI では不可):
   NEW 等バッジ、コメントのソートピル、AlbumCover の影/アーティファクト演出
   (フラット方針で省略)、タイトルバー検索内の虫眼鏡アイコン、ウィンドウ影なし。
 - **CI**: 2233711d まで全て green。
+
+### 8.13 フィードバック対応 (2026-10-10 夜)
+
+ユーザー比較コメント「アニメーションがない / Tauriで押せる所が押せない / カーソルが
+変わらない / 波形にアイコンがない / コメントが見づらい / ウィンドウ移動が滑らかでない」
+への対応 (コミット 56f7bbd9, 1bf9e01, 7984ba2)。
+
+- **wgpu レンダラに切替** (`eframe features=["wgpu"]` + `Renderer::Wgpu`、ユーザー承認済み)。
+- **滑らかさ**: タイトルバーのドラッグを `StartDrag` から `OuterPosition` 手動移動に変更。
+  加えて **リリースビルド推奨** (debug は重い。`target/release/scd-egui.exe`)。
+  リリースビルド時 sccache が `STATUS_ACCESS_VIOLATION` で落ちることがある →
+  `sccache --stop-server` で復旧 (サーバ再起動後に成功)。
+- **アニメーション**: ページ遷移のソフトイン (`animate_bool_with_time` + `multiply_opacity`)、
+  行/カード/Discover/検索行/Fresh 行のホバー背景フェード、Soundprint バーの rise、
+  `style.animation_time = 0.18`、再生グリフのフェード。
+- **カーソル**: `Visuals.interact_cursor = PointingHand` で全クリック要素に指カーソル。
+- **クリック等価**: カード/行は「アート=再生 / タイトル=Track ページ / アーティスト=User
+  ページ / 右クリック=メニュー」に分割 (`widgets::CardHit` / `RowParts`)。検索の
+  ユーザ/プレイリスト/アルバム行は全行クリック + ホバー。Related 行もホバー + ▶。
+  Discover タイトルはページがあれば遷移。コメントのタイムスタンプチップでシーク。
+- **波形**: コメント投稿者の**アバターを波形上に表示** (`Images::texture` + `ui.put`)。
+  クリックでその時刻へシーク、ホバーで本文。`ui.put` はカーソルを巻き戻すため
+  `ui.scope` で隔離 (Related が波形に重なるバグを修正)。
+- **コメント**: アバター + 著者 + タイムスタンプチップ + 本文、ヘッダに Newest/Timeline
+  ピル。
+- **Settings**: Tauri と同じ縦ナビ (アイコン付き) + 「Settings」小見出し + 28px カテゴリ
+  タイトルに再構成 (`widgets::nav_item` を共有化)。
+- **再生バー**: Shuffle/Repeat を描画アイコンのトグル (ON=アクセント) に。
+- **既知の残差**: 検索カードのホバー時ハート/Add to Queue メニュー、NEW バッジ、
+  タイトルバー内の虫眼鏡、統合 (Integrations) カテゴリ。
