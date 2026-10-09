@@ -134,11 +134,11 @@ pub fn show(
                     continue;
                 }
                 let pct = (v.timestamp_ms / duration_ms).clamp(0.0, 1.0) as f32;
-                let c = egui::Pos2::new(rect.left() + pct * width, rect.top() + 9.0);
-                painter.circle_filled(c, 5.0, egui::Color32::from_white_alpha(160));
+                let c = egui::Pos2::new(rect.left() + pct * width, rect.top() + 11.0);
+                painter.circle_filled(c, 6.0, egui::Color32::from_white_alpha(160));
                 painter.circle_stroke(
                     c,
-                    5.0,
+                    6.0,
                     egui::Stroke::new(1.0, egui::Color32::from_black_alpha(120)),
                 );
                 dots.push((c, v.timestamp_ms));
@@ -157,8 +157,8 @@ pub fn show(
                     continue;
                 };
                 let pct = (v.timestamp_ms / duration_ms).clamp(0.0, 1.0) as f32;
-                let center = egui::Pos2::new(rect.left() + pct * width, rect.top() + 9.0);
-                let size = 18.0;
+                let center = egui::Pos2::new(rect.left() + pct * width, rect.top() + 11.0);
+                let size = 24.0;
                 let avatar_rect =
                     egui::Rect::from_center_size(center, egui::Vec2::splat(size));
                 let resp = ui.put(

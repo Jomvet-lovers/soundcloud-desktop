@@ -529,7 +529,7 @@ impl TrackView {
                 images,
                 &self.waveform,
                 progress,
-                96.0,
+                110.0,
                 accent,
                 &voices,
                 duration_ms,

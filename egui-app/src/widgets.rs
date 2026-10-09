@@ -701,6 +701,12 @@ pub struct CardHit {
     pub play: egui::Response,
     pub title: egui::Response,
     pub artist: egui::Response,
+    /// ホバー時ハートが押された (検索カードのみ)。
+    pub like_clicked: bool,
+    /// ホバー時 + が押された (検索カードのみ)。
+    pub add_clicked: bool,
+    /// ホバー時 … が押された (検索カードのみ)。
+    pub more_clicked: bool,
 }
 
 impl CardHit {
@@ -717,6 +723,7 @@ impl CardHit {
         self.play.secondary_clicked()
             || self.title.secondary_clicked()
             || self.artist.secondary_clicked()
+            || self.more_clicked
     }
 }
 
@@ -780,6 +787,9 @@ pub fn track_card(
             play,
             title,
             artist,
+            like_clicked: false,
+            add_clicked: false,
+            more_clicked: false,
         }
     })
     .inner
@@ -963,6 +973,7 @@ fn fmt_ms_short(ms: i64) -> String {
 }
 
 /// 検索結果用カード (Tauri: TrackCard showStats)。アート左下に plays + 時間。
+/// ホバー時は右上にハート / + / … の小ボタン (Tauri と同じ)。
 pub fn track_card_stats(
     ui: &mut egui::Ui,
     rt: &tokio::runtime::Handle,
@@ -971,6 +982,7 @@ pub fn track_card_stats(
     size: f32,
     playing: bool,
     accent: egui::Color32,
+    liked: bool,
 ) -> CardHit {
     ui.vertical(|ui| {
         ui.set_max_width(size + 8.0);
@@ -995,6 +1007,77 @@ pub fn track_card_stats(
                 egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
             );
             paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
+        }
+        // 右上のホバー操作 (ハート / + / …)。
+        let mut like_clicked = false;
+        let mut add_clicked = false;
+        let mut menu_clicked = false;
+        if hover_t > 0.3 {
+            let btn = 26.0;
+            let gap = 4.0;
+            let mut x = play.rect.right() - 6.0 - btn;
+            let y = play.rect.top() + 6.0;
+            let ids = ["like", "add", "menu"];
+            for (i, id) in ids.iter().enumerate() {
+                let rect = egui::Rect::from_min_size(
+                    egui::Pos2::new(x, y),
+                    egui::Vec2::splat(btn),
+                );
+                let resp = ui.interact(
+                    rect,
+                    egui::Id::new(("card-btn", &track.urn, id)),
+                    egui::Sense::click(),
+                );
+                ui.painter()
+                    .circle_filled(rect.center(), btn * 0.5, egui::Color32::from_black_alpha(150));
+                if resp.hovered() {
+                    ui.painter().circle_filled(
+                        rect.center(),
+                        btn * 0.5,
+                        egui::Color32::from_black_alpha(60),
+                    );
+                }
+                let color = if *id == "like" && liked {
+                    accent
+                } else {
+                    egui::Color32::from_white_alpha(230)
+                };
+                let icon = match *id {
+                    "like" => UiIcon::Heart,
+                    "add" => UiIcon::Queue,
+                    _ => UiIcon::Sliders,
+                };
+                if *id == "menu" {
+                    // 横 3 点 (…) を直接描く。
+                    let c = rect.center();
+                    for dx in [-4.0f32, 0.0, 4.0] {
+                        ui.painter().circle_filled(
+                            egui::Pos2::new(c.x + dx, c.y),
+                            1.6,
+                            color,
+                        );
+                    }
+                } else {
+                    paint_ui_icon(
+                        ui.painter(),
+                        egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(14.0)),
+                        icon,
+                        color,
+                    );
+                }
+                if resp.clicked() {
+                    match *id {
+                        "like" => like_clicked = true,
+                        "add" => add_clicked = true,
+                        _ => menu_clicked = true,
+                    }
+                }
+                if *id == "add" {
+                    let _ = resp.clone().on_hover_text("Add to Queue");
+                }
+                x -= btn + gap;
+                let _ = i;
+            }
         }
         // 左下: "833.4K plays  3:32" のピル。
         let plays = track.playback_count.map(fmt_count).unwrap_or_default();
@@ -1041,10 +1124,14 @@ pub fn track_card_stats(
             .wrap_mode(egui::TextWrapMode::Truncate)
             .sense(egui::Sense::click()),
         );
+        let _ = add_clicked;
         CardHit {
             play,
             title,
             artist,
+            like_clicked,
+            add_clicked,
+            more_clicked: menu_clicked,
         }
     })
     .inner

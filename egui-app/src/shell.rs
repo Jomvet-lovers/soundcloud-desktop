@@ -765,6 +765,9 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     SearchAction::OpenMenu(track) => {
                         open_menu(state, ui, track);
                     }
+                    SearchAction::AddNextUp(track) => {
+                        state.player.insert_next(vec![track]);
+                    }
                     SearchAction::SetQuery(q) => {
                         state.global_search = q.clone();
                         state.navigate(Route::Search, Some(q));

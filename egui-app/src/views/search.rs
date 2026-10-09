@@ -21,6 +21,8 @@ pub enum SearchAction {
     PlayTrack(Track),
     /// リスト文脈の再生 (検索結果ページ全体がキューになる)。
     PlayList(Vec<Track>, usize),
+    /// 次の再生位置に追加 (Tauri: Add to Queue)。
+    AddNextUp(Track),
     /// 右クリックメニューを開く。
     OpenMenu(Track),
     /// 検索クエリをセット (履歴クリック。タイトルバー検索へ反映)。
@@ -150,6 +152,8 @@ pub struct SearchView {
     tab: SearchTab,
     sort: TrackSort,
     page: u32,
+    /// ハートのローカル上書き (検索カードのホバー操作)。
+    liked_overrides: std::collections::HashMap<String, bool>,
     tracks: Query<Page<Track>>,
     users: Query<Page<ScUser>>,
     playlists: Query<Page<Playlist>>,
@@ -417,10 +421,32 @@ impl SearchView {
                                 for &(i, track) in chunk {
                                     let playing =
                                         widgets::is_currently_playing(player, track);
+                                    let liked = self
+                                        .liked_overrides
+                                        .get(&track.urn)
+                                        .copied()
+                                        .or(track.user_favorite)
+                                        .unwrap_or(false);
                                     let hit = widgets::track_card_stats(
                                         ui, rt, images, track, card_w, playing, accent,
+                                        liked,
                                     );
-                                    if hit.play_clicked() {
+                                    if hit.like_clicked {
+                                        let next = !liked;
+                                        self.liked_overrides
+                                            .insert(track.urn.clone(), next);
+                                        let api = api.clone();
+                                        let path = format!(
+                                            "/likes/tracks/{}",
+                                            urlencoding::encode(&track.urn)
+                                        );
+                                        rt.spawn(async move {
+                                            let method = if next { "POST" } else { "DELETE" };
+                                            let _ = api.request_json(method, &path, None).await;
+                                        });
+                                    } else if hit.add_clicked {
+                                        action = SearchAction::AddNextUp(track.clone());
+                                    } else if hit.play_clicked() {
                                         action = SearchAction::PlayList(
                                             page.collection.clone(),
                                             i,
