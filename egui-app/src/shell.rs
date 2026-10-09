@@ -108,6 +108,23 @@ fn resize_edges(ctx: &egui::Context) {
         });
 }
 
+/// トランスポートのアイコントグル (Shuffle/Repeat)。ON はアクセント色。
+fn icon_toggle(ui: &mut egui::Ui, icon: crate::widgets::UiIcon, on: bool) -> egui::Response {
+    let (rect, resp) =
+        ui.allocate_exact_size(egui::Vec2::new(30.0, 28.0), egui::Sense::click());
+    if resp.hovered() {
+        ui.painter()
+            .rect_filled(rect, 6.0, egui::Color32::from_white_alpha(14));
+    }
+    let color = if on {
+        ui.visuals().hyperlink_color
+    } else {
+        egui::Color32::from_white_alpha(160)
+    };
+    crate::widgets::paint_ui_icon(ui.painter(), rect, icon, color);
+    resp
+}
+
 /// タイトルバーの戻る/進む/ホーム等の小さなアイコンボタン。
 fn nav_icon_button(
     ui: &mut egui::Ui,
@@ -678,7 +695,12 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                 |ui| {
                     ui.set_min_width(center_w - 12.0);
                     ui.horizontal(|ui| {
-                        if ui.selectable_label(state.player.shuffle, "Shuffle").clicked() {
+                        let sh = icon_toggle(
+                            ui,
+                            crate::widgets::UiIcon::Shuffle,
+                            state.player.shuffle,
+                        );
+                        if sh.on_hover_text("Shuffle").clicked() {
                             state.player.toggle_shuffle();
                         }
                         if crate::widgets::transport_button(
@@ -719,15 +741,18 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                         {
                             state.next_track();
                         }
-                        let repeat_label = match state.player.repeat {
+                        let repeat_on = state.player.repeat != RepeatMode::Off;
+                        let rp = icon_toggle(
+                            ui,
+                            crate::widgets::UiIcon::Repeat,
+                            repeat_on,
+                        );
+                        let tip = match state.player.repeat {
                             RepeatMode::Off => "Repeat",
                             RepeatMode::All => "Repeat: All",
-                            RepeatMode::One => "Repeat: 1",
+                            RepeatMode::One => "Repeat: One",
                         };
-                        if ui
-                            .selectable_label(state.player.repeat != RepeatMode::Off, repeat_label)
-                            .clicked()
-                        {
+                        if rp.on_hover_text(tip).clicked() {
                             state.player.cycle_repeat();
                         }
                     });

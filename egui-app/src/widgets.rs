@@ -166,6 +166,8 @@ pub enum UiIcon {
     Bookmark,
     Users,
     Refresh,
+    Shuffle,
+    Repeat,
 }
 
 /// アイコンを描いて応答を返す (クリックは呼出側で付ける)。
@@ -424,6 +426,65 @@ pub fn paint_ui_icon(
                     tip + egui::Vec2::new(-s * 0.10, -s * 0.02),
                     tip + egui::Vec2::new(s * 0.04, -s * 0.10),
                     tip + egui::Vec2::new(s * 0.02, s * 0.06),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        UiIcon::Shuffle => {
+            // 交差する2本の矢印。
+            let w = s * 0.30;
+            let h = s * 0.22;
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-w, -h),
+                    c + egui::Vec2::new(-w * 0.15, -h),
+                    c + egui::Vec2::new(w * 0.15, h),
+                    c + egui::Vec2::new(w * 0.62, h),
+                ],
+                stroke,
+            ));
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-w, h),
+                    c + egui::Vec2::new(-w * 0.35, h),
+                    c + egui::Vec2::new(w * 0.0, -h * 0.2),
+                ],
+                stroke,
+            ));
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(w * 0.62, h * 0.45),
+                    c + egui::Vec2::new(w, h),
+                    c + egui::Vec2::new(w * 0.62, h * 1.55),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(w * 0.35, -h * 1.55),
+                    c + egui::Vec2::new(w * 0.75, -h),
+                    c + egui::Vec2::new(w * 0.35, -h * 0.45),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        UiIcon::Repeat => {
+            // 角丸ループ + 矢印。
+            let r = s * 0.27;
+            painter.rect_stroke(
+                egui::Rect::from_center_size(c, egui::Vec2::new(r * 2.2, r * 1.5)),
+                r * 0.6,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    c + egui::Vec2::new(r * 0.45, -r * 1.15),
+                    c + egui::Vec2::new(r * 1.05, -r * 0.75),
+                    c + egui::Vec2::new(r * 0.45, -r * 0.35),
                 ],
                 color,
                 egui::Stroke::NONE,
