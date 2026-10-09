@@ -9,7 +9,7 @@ pub mod sc;
 pub mod store;
 pub mod webview;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,6 +28,9 @@ pub struct DirectState {
     pub store: Mutex<LocalStore>,
     /// Short-lived cache of sorted search windows (key: query + sort).
     pub search_cache: Mutex<HashMap<String, (Instant, Vec<Value>)>>,
+    /// Playlist URNs already checked against SoundCloud this session, so the
+    /// local-copy self-heal below fetches each remote detail at most once.
+    pub verified_playlists: Mutex<HashSet<String>>,
 }
 
 impl DirectState {
@@ -40,6 +43,7 @@ impl DirectState {
             me_cache: Mutex::new(None),
             store: Mutex::new(store),
             search_cache: Mutex::new(HashMap::new()),
+            verified_playlists: Mutex::new(HashSet::new()),
         })
     }
 }

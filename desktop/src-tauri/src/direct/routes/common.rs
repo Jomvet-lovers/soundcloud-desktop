@@ -115,7 +115,14 @@ pub(crate) async fn liked_track_ids(state: &DirectState, token: &str) -> Vec<Str
         .unwrap_or_default()
 }
 
-pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>, tracks: &mut Vec<Value>) {
+/// Resolve title-less `{id}` stubs in place via `/tracks?ids=`. Returns the
+/// number of entries that could not be resolved and were dropped, so write
+/// paths can fail closed instead of persisting a truncated list.
+pub(crate) async fn hydrate_track_stubs(
+    state: &DirectState,
+    token: Option<&str>,
+    tracks: &mut Vec<Value>,
+) -> usize {
     // A stub is any entry without a title: the raw `{id}` refs from SC
     // playlists, and the `{urn,id}` placeholders older reorder code wrote.
     let ids: Vec<String> = tracks
@@ -128,7 +135,7 @@ pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>
         })
         .collect();
     if ids.is_empty() {
-        return;
+        return 0;
     }
     let mut by_id: HashMap<String, Value> = HashMap::new();
     for chunk in ids.chunks(50) {
@@ -148,6 +155,7 @@ pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>
             }
         }
     }
+    let before = tracks.len();
     tracks.retain_mut(|t| {
         if t.get("title").is_some() {
             return true;
@@ -167,6 +175,11 @@ pub(crate) async fn hydrate_track_stubs(state: &DirectState, token: Option<&str>
             None => false,
         }
     });
+    let dropped = before.saturating_sub(tracks.len());
+    if dropped > 0 {
+        eprintln!("[direct] hydrate_track_stubs dropped {dropped}/{before} unresolved stubs");
+    }
+    dropped
 }
 
 pub(crate) async fn merge_local_likes(state: &DirectState, mut items: Vec<Value>, page_no: u64) -> Vec<Value> {

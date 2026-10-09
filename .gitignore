@@ -33,6 +33,7 @@ worker/venv/
 # Local-only agent docs (excluded from the public repo)
 /HANDOVER.md
 /desktop/AGENTS.md
+/SCD-Direct_playlist-bug_fix-instructions.md
 
 # FireBase
 .firebase
