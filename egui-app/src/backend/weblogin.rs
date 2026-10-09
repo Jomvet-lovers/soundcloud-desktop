@@ -34,23 +34,25 @@ pub fn open_login_window(
     session: Arc<SessionStore>,
     bus: EventBus,
 ) {
-    let Some(host) = webhost::host() else {
-        bus.emit(
-            EVENT,
-            &json!({ "status": "error", "message": "webview unavailable" }),
-        );
-        return;
-    };
     if WATCHING.swap(true, Ordering::SeqCst) {
-        let h = host.clone();
+        // 既に監視中: 表示 + フォーカスだけ。
+        let host = webhost::host();
         rt.spawn(async move {
-            h.login_show().await;
-            h.login_focus().await;
+            if let Some(h) = host {
+                h.login_show().await;
+                h.login_focus().await;
+            }
         });
         return;
     }
     rt.spawn(async move {
-        watch(host, direct, session, bus).await;
+        // アイドルで子が終了していてもここで再生成する。
+        match webhost::ensure_host().await {
+            Ok(host) => watch(host, direct, session, bus).await,
+            Err(e) => {
+                bus.emit(EVENT, &json!({ "status": "error", "message": e }));
+            }
+        }
         WATCHING.store(false, Ordering::SeqCst);
     });
 }

@@ -65,23 +65,9 @@ fn main() -> eframe::Result {
         eprintln!("smoke tao: window ok on main thread");
         return Ok(());
     }
-    let wants_web = !args.iter().any(|a| a == "--smoke")
-        || args.iter().any(|a| a == "--smoke-login" || a == "--smoke-writer");
-    let mut child: Option<std::process::Child> = None;
-    if wants_web {
-        match backend::webhost::spawn_child(backend::paths::app_cache_dir().join("webprofile")) {
-            Ok((proxy, c)) => {
-                backend::webhost::set_host(proxy);
-                child = Some(c);
-            }
-            Err(e) => eprintln!("[boot] wry host unavailable: {e}"),
-        }
-    }
-    let result = app_main(args);
-    if let Some(mut c) = child {
-        let _ = c.kill();
-    }
-    result
+    // wry host (WebView2) は常駐させない。書き込み / ログインの直前だけ
+    // `webhost::ensure_host()` が起動し、アイドル 90 秒で子が自動終了する。
+    app_main(args)
 }
 
 /// 二重起動防止 (Windows の名前付き mutex)。GUI モードでのみ使用する。
@@ -200,8 +186,8 @@ fn smoke() -> eframe::Result {
 
     // 手動の Web 経路検証 (表示環境でのみ実行する)。
     if args_has("--smoke-login") {
-        if backend::webhost::host().is_none() {
-            println!("smoke login: SKIP (wry host unavailable)");
+        if let Err(e) = runtime.block_on(backend::webhost::ensure_host()) {
+            println!("smoke login: SKIP (wry host unavailable: {e})");
             return Ok(());
         }
         backend::weblogin::open_login_window(
@@ -217,8 +203,8 @@ fn smoke() -> eframe::Result {
         return Ok(());
     }
     if args_has("--smoke-writer") {
-        if backend::webhost::host().is_none() {
-            println!("smoke writer: SKIP (wry host unavailable)");
+        if let Err(e) = runtime.block_on(backend::webhost::ensure_host()) {
+            println!("smoke writer: SKIP (wry host unavailable: {e})");
             return Ok(());
         }
         let bus = backend::events::EventBus::null();

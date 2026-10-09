@@ -23,7 +23,13 @@ fn slot() -> &'static RwLock<Option<HostProxy>> {
 }
 
 pub fn host() -> Option<HostProxy> {
-    slot().read().ok().and_then(|g| g.clone())
+    let h = slot().read().ok().and_then(|g| g.clone())?;
+    if h.alive.load(std::sync::atomic::Ordering::Relaxed) {
+        return Some(h);
+    }
+    // アイドル終了した子の残骸は捨てる (次の ensure_host が再生成する)。
+    clear_host();
+    None
 }
 
 pub fn set_host(proxy: HostProxy) {
@@ -140,6 +146,8 @@ struct RpcClient {
 #[derive(Clone)]
 pub struct HostProxy {
     rpc: Arc<RpcClient>,
+    /// 子プロセスの生存 (TCP が切れたら false)。アイドル終了の検知に使う。
+    alive: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl HostProxy {
@@ -156,6 +164,8 @@ impl HostProxy {
             pending: Arc::new(std::sync::Mutex::new(HashMap::new())),
         });
         let pending = rpc.pending.clone();
+        let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let alive_reader = alive.clone();
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
             let mut lines = tokio::io::BufReader::new(reader).lines();
@@ -178,13 +188,14 @@ impl HostProxy {
                 }
             }
             // 子が死んだ: 残リクエストを全て失敗させる。
+            alive_reader.store(false, std::sync::atomic::Ordering::Relaxed);
             if let Ok(mut p) = pending.lock() {
                 for (_, tx) in p.drain() {
                     let _ = tx.send(json!({"ok": false, "error": "wry host gone"}));
                 }
             }
         });
-        Ok(Self { rpc })
+        Ok(Self { rpc, alive })
     }
 
     /// JSON-RPC 往復。応答は `{"ok":bool,"result":...,"error":...}`。
@@ -446,6 +457,33 @@ pub fn spawn_child(profile_dir: PathBuf) -> Result<(HostProxy, std::process::Chi
     Ok((proxy, child))
 }
 
+static SPAWN_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// wry host を必要時に起動する。アイドル終了した子はここで再生成される。
+/// 呼び出しは書き込み (writer) とログインの直前のみ。常駐させない。
+pub async fn ensure_host() -> Result<HostProxy, String> {
+    if let Some(h) = host() {
+        return Ok(h);
+    }
+    let _guard = SPAWN_LOCK.lock().await;
+    if let Some(h) = host() {
+        return Ok(h);
+    }
+    let dir = crate::backend::paths::app_cache_dir().join("webprofile");
+    let spawned = tokio::task::spawn_blocking(move || spawn_child(dir))
+        .await
+        .map_err(|e| format!("spawn join: {e}"))?;
+    match spawned {
+        Ok((proxy, child)) => {
+            // 子は親の TCP が切れると自分で終了する。ハンドルは保持しない。
+            drop(child);
+            set_host(proxy.clone());
+            Ok(proxy)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 impl HostProxy {
     async fn connect(port: u16) -> Result<Self, String> {
         let stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
@@ -458,6 +496,8 @@ impl HostProxy {
             pending: Arc::new(std::sync::Mutex::new(HashMap::new())),
         });
         let pending = rpc.pending.clone();
+        let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let alive_reader = alive.clone();
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt;
             let mut lines = tokio::io::BufReader::new(reader).lines();
@@ -479,13 +519,14 @@ impl HostProxy {
                     _ => break,
                 }
             }
+            alive_reader.store(false, std::sync::atomic::Ordering::Relaxed);
             if let Ok(mut p) = pending.lock() {
                 for (_, tx) in p.drain() {
                     let _ = tx.send(json!({"ok": false, "error": "wry host gone"}));
                 }
             }
         });
-        Ok(Self { rpc })
+        Ok(Self { rpc, alive })
     }
 }
 
@@ -556,12 +597,27 @@ pub fn run_child_main(profile_dir: PathBuf) -> ! {
         login_visible: false,
         writer_visible: false,
     };
+    // 書き込み/ログインが無いままこの時間が経つと子プロセスを終了する
+    // (常駐 WebView2 をゼロにする)。次の必要時に親が ensure_host で再生成する。
+    const IDLE_EXIT: std::time::Duration = std::time::Duration::from_secs(90);
+    let mut last_activity = std::time::Instant::now();
 
     event_loop.run(move |event, event_loop, control_flow| {
-        use tao::event::{Event, WindowEvent};
-        *control_flow = tao::event_loop::ControlFlow::Wait;
+        use tao::event::{Event, StartCause, WindowEvent};
         match event {
-            Event::UserEvent(cmd) => handle_cmd(&mut state, event_loop, cmd),
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                if !state.login_visible
+                    && !state.writer_visible
+                    && last_activity.elapsed() >= IDLE_EXIT
+                {
+                    eprintln!("[wry-host] idle; exiting");
+                    std::process::exit(0);
+                }
+            }
+            Event::UserEvent(cmd) => {
+                last_activity = std::time::Instant::now();
+                handle_cmd(&mut state, event_loop, cmd);
+            }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 window_id,
@@ -579,6 +635,13 @@ pub fn run_child_main(profile_dir: PathBuf) -> ! {
             }
             _ => {}
         }
+        // 見えている窓がある間は終了しない。それ以外は最後の操作から
+        // IDLE_EXIT 後に起床して終了判定する。
+        *control_flow = if state.login_visible || state.writer_visible {
+            tao::event_loop::ControlFlow::Wait
+        } else {
+            tao::event_loop::ControlFlow::WaitUntil(last_activity + IDLE_EXIT)
+        };
     });
 }
 

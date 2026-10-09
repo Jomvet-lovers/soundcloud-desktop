@@ -210,8 +210,9 @@ pub async fn execute_with(
     extract: Option<&str>,
     solve: bool,
 ) -> Result<WriteOutcome, String> {
-    let Some(host) = webhost::host() else {
-        return Err(no_host(bus, method, url));
+    let host = match webhost::ensure_host().await {
+        Ok(h) => h,
+        Err(_) => return Err(no_host(bus, method, url)),
     };
     let _lane = LANE.lock().await;
     wait_ready(&host).await?;
