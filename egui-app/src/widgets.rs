@@ -83,13 +83,7 @@ pub fn playing_bars(ui: &mut egui::Ui, playing: bool, accent: egui::Color32) {
 
 /// アクセント塗りの主要ボタン (Play 等)。
 pub fn primary_button(ui: &mut egui::Ui, text: &str, accent: egui::Color32) -> egui::Response {
-    let lum =
-        accent.r() as u32 * 299 + accent.g() as u32 * 587 + accent.b() as u32 * 114;
-    let text_color = if lum > 150_000 {
-        egui::Color32::BLACK
-    } else {
-        egui::Color32::WHITE
-    };
+    let text_color = contrast_color(accent);
     ui.add(egui::Button::new(egui::RichText::new(text).color(text_color)).fill(accent))
 }
 
@@ -171,6 +165,8 @@ pub enum UiIcon {
     Sliders,
     Queue,
     Volume,
+    Download,
+    Trash,
 }
 
 /// アイコンを描いて応答を返す (クリックは呼出側で付ける)。
@@ -553,6 +549,80 @@ pub fn paint_ui_icon(
                 painter.add(egui::Shape::line(pts, egui::Stroke::new(w, color)));
             }
         }
+        UiIcon::Download => {
+            // lucide download: 下向き矢印 + 受け皿。
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(0.0, -s * 0.32),
+                    c + egui::Vec2::new(0.0, s * 0.06),
+                ],
+                stroke,
+            );
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-s * 0.16, -s * 0.10),
+                    c + egui::Vec2::new(0.0, s * 0.06),
+                    c + egui::Vec2::new(s * 0.16, -s * 0.10),
+                ],
+                stroke,
+            ));
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-s * 0.28, s * 0.16),
+                    c + egui::Vec2::new(-s * 0.28, s * 0.30),
+                    c + egui::Vec2::new(s * 0.28, s * 0.30),
+                    c + egui::Vec2::new(s * 0.28, s * 0.16),
+                ],
+                stroke,
+            ));
+        }
+        UiIcon::Trash => {
+            // lucide trash-2: 蓋 + 取っ手 + 缶 + 縦線 2 本。
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.30, -s * 0.20),
+                    c + egui::Vec2::new(s * 0.30, -s * 0.20),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.10, -s * 0.20),
+                    c + egui::Vec2::new(-s * 0.10, -s * 0.32),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(s * 0.10, -s * 0.20),
+                    c + egui::Vec2::new(s * 0.10, -s * 0.32),
+                ],
+                stroke,
+            );
+            painter.add(egui::Shape::line(
+                vec![
+                    c + egui::Vec2::new(-s * 0.22, -s * 0.20),
+                    c + egui::Vec2::new(-s * 0.18, s * 0.30),
+                    c + egui::Vec2::new(s * 0.18, s * 0.30),
+                    c + egui::Vec2::new(s * 0.22, -s * 0.20),
+                ],
+                stroke,
+            ));
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(-s * 0.07, -s * 0.08),
+                    c + egui::Vec2::new(-s * 0.05, s * 0.18),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    c + egui::Vec2::new(s * 0.07, -s * 0.08),
+                    c + egui::Vec2::new(s * 0.05, s * 0.18),
+                ],
+                stroke,
+            );
+        }
     }
 }
 
@@ -624,7 +694,7 @@ pub fn transport_primary_button(
 }
 
 /// トランスポートのグリフ本体 (再生/一時停止/前へ/次へ)。
-fn paint_transport_glyph(
+pub(crate) fn paint_transport_glyph(
     painter: &egui::Painter,
     rect: egui::Rect,
     icon: TransportIcon,
@@ -746,7 +816,7 @@ pub fn track_card(
             rt,
             art.as_deref(),
             size,
-            egui::CornerRadius::same(12),
+            egui::CornerRadius::same(16),
         );
         // ホバー: 暗転 + 再生グリフをフェードイン。
         let hover_t = ui.ctx().animate_bool_with_time(
@@ -757,7 +827,7 @@ pub fn track_card(
         if hover_t > 0.001 {
             ui.painter().rect_filled(
                 play.rect,
-                12.0,
+                16.0,
                 egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
             );
             paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
@@ -966,8 +1036,8 @@ pub fn fmt_count(n: i64) -> String {
     }
 }
 
-/// ミリ秒 → `m:ss` (カードの統計ピル用)。
-fn fmt_ms_short(ms: i64) -> String {
+/// ミリ秒 → `m:ss` (カードの統計チップ / Offline 行用)。
+pub fn fmt_ms_short(ms: i64) -> String {
     let s = (ms.max(0) / 1000) as u64;
     format!("{}:{:02}", s / 60, s % 60)
 }
@@ -992,7 +1062,7 @@ pub fn track_card_stats(
             rt,
             art.as_deref(),
             size,
-            egui::CornerRadius::same(12),
+            egui::CornerRadius::same(16),
         );
         // ホバー: 暗転 + 再生グリフをフェードイン。
         let hover_t = ui.ctx().animate_bool_with_time(
@@ -1003,7 +1073,7 @@ pub fn track_card_stats(
         if hover_t > 0.001 {
             ui.painter().rect_filled(
                 play.rect,
-                12.0,
+                16.0,
                 egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
             );
             paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
@@ -1013,10 +1083,10 @@ pub fn track_card_stats(
         let mut add_clicked = false;
         let mut menu_clicked = false;
         if hover_t > 0.3 {
-            let btn = 26.0;
-            let gap = 4.0;
-            let mut x = play.rect.right() - 6.0 - btn;
-            let y = play.rect.top() + 6.0;
+            let btn = 24.0;
+            let gap = 2.0;
+            let mut x = play.rect.right() - 8.0 - btn;
+            let y = play.rect.top() + 8.0;
             let ids = ["like", "add", "menu"];
             for (i, id) in ids.iter().enumerate() {
                 let rect = egui::Rect::from_min_size(
@@ -1028,26 +1098,43 @@ pub fn track_card_stats(
                     egui::Id::new(("card-btn", &track.urn, id)),
                     egui::Sense::click(),
                 );
-                ui.painter()
-                    .circle_filled(rect.center(), btn * 0.5, egui::Color32::from_black_alpha(150));
-                if resp.hovered() {
+                // Tauri チップ: 通常 = 黒 50%、hover = 黒 70%、いいね済み =
+                // アクセント 80% + コントラスト色のハート。
+                let is_like = *id == "like";
+                if is_like && liked {
                     ui.painter().circle_filled(
                         rect.center(),
                         btn * 0.5,
-                        egui::Color32::from_black_alpha(60),
+                        egui::Color32::from_rgba_unmultiplied(
+                            accent.r(),
+                            accent.g(),
+                            accent.b(),
+                            204,
+                        ),
+                    );
+                } else {
+                    let bg = if resp.hovered() { 179 } else { 128 };
+                    ui.painter().circle_filled(
+                        rect.center(),
+                        btn * 0.5,
+                        egui::Color32::from_black_alpha(bg),
                     );
                 }
-                let color = if *id == "like" && liked {
-                    accent
+                let color = if is_like && liked {
+                    contrast_color(accent)
+                } else if resp.hovered() {
+                    egui::Color32::WHITE
                 } else {
-                    egui::Color32::from_white_alpha(230)
+                    egui::Color32::from_white_alpha(204)
                 };
-                let icon = match *id {
-                    "like" => UiIcon::Heart,
-                    "add" => UiIcon::Queue,
-                    _ => UiIcon::Sliders,
-                };
-                if *id == "menu" {
+                if is_like {
+                    paint_heart(
+                        ui.painter(),
+                        egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(12.0)),
+                        color,
+                        liked,
+                    );
+                } else if *id == "menu" {
                     // 横 3 点 (…) を直接描く。
                     let c = rect.center();
                     for dx in [-4.0f32, 0.0, 4.0] {
@@ -1060,8 +1147,8 @@ pub fn track_card_stats(
                 } else {
                     paint_ui_icon(
                         ui.painter(),
-                        egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(14.0)),
-                        icon,
+                        egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(12.0)),
+                        UiIcon::Queue,
                         color,
                     );
                 }
@@ -1079,30 +1166,32 @@ pub fn track_card_stats(
                 let _ = i;
             }
         }
-        // 左下: "833.4K plays  3:32" のピル。
-        let plays = track.playback_count.map(fmt_count).unwrap_or_default();
-        let dur = fmt_ms_short(track.duration);
-        let label = if plays.is_empty() {
-            dur
-        } else {
-            format!("{plays} plays  {dur}")
-        };
-        let font = egui::FontId::proportional(10.0);
-        let galley =
+        // 右下: "833.4K plays" + "3:32" の 2 チップ (Tauri TrackCard showStats)。
+        let chip_font = crate::theme::medium(10.0);
+        let chip_text = egui::Color32::from_white_alpha(204);
+        let mut chips: Vec<String> = Vec::new();
+        if let Some(plays) = track.playback_count {
+            chips.push(format!("{} plays", fmt_count(plays)));
+        }
+        chips.push(fmt_ms_short(track.duration));
+        let pad = egui::vec2(8.0, 2.0);
+        let mut chip_x = play.rect.right() - 8.0;
+        let chip_bottom = play.rect.bottom() - 8.0;
+        for label in chips.iter().rev() {
+            let galley = ui
+                .painter()
+                .layout_no_wrap(label.clone(), chip_font.clone(), chip_text);
+            let w = galley.size().x + pad.x * 2.0;
+            let h = galley.size().y + pad.y * 2.0;
+            let chip = egui::Rect::from_min_size(
+                egui::Pos2::new(chip_x - w, chip_bottom - h),
+                egui::vec2(w, h),
+            );
             ui.painter()
-                .layout(label, font, egui::Color32::from_white_alpha(215), size);
-        let pad = egui::vec2(5.0, 2.0);
-        let pill = egui::Rect::from_min_size(
-            egui::Pos2::new(
-                play.rect.left() + 4.0,
-                play.rect.bottom() - galley.size().y - pad.y * 2.0 - 4.0,
-            ),
-            galley.size() + pad * 2.0,
-        );
-        ui.painter()
-            .rect_filled(pill, 4.0, egui::Color32::from_black_alpha(150));
-        ui.painter()
-            .galley(pill.min + pad, galley, egui::Color32::from_white_alpha(215));
+                .rect_filled(chip, h * 0.5, egui::Color32::from_black_alpha(89));
+            ui.painter().galley(chip.min + pad, galley, chip_text);
+            chip_x -= w + 4.0;
+        }
         let title = if playing {
             egui::RichText::new(track.display_title()).color(accent)
         } else {
@@ -1369,14 +1458,214 @@ pub fn hit_of(resp: &egui::Response) -> RowHit {
     }
 }
 
-/// Like トグルボタン。フォント依存の ♥/♡ を使わず、塗り + 色で状態を示す。
-/// 戻り値はクリックされたか (状態更新は呼出側)。
-pub fn like_button(ui: &mut egui::Ui, liked: bool, accent: egui::Color32) -> bool {
-    let button = if liked {
-        egui::Button::new(egui::RichText::new("Liked").color(egui::Color32::WHITE))
-            .fill(accent.gamma_multiply(0.45))
+/// アクセント色に対するコントラスト色 (黒 or 白。Tauri の `accent-contrast`)。
+pub fn contrast_color(accent: egui::Color32) -> egui::Color32 {
+    let lum =
+        accent.r() as u32 * 299 + accent.g() as u32 * 587 + accent.b() as u32 * 114;
+    if lum > 150_000 {
+        egui::Color32::BLACK
     } else {
-        egui::Button::new("Like")
+        egui::Color32::WHITE
+    }
+}
+
+/// ハートのグリフ。`filled` = 塗り (lucide Heart の fill=currentColor 相当)、
+/// それ以外は線画。カードのチップ / Like ボタン / バーで共用する。
+pub fn paint_heart(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    color: egui::Color32,
+    filled: bool,
+) {
+    let c = rect.center();
+    let s = rect.width().min(rect.height());
+    if filled {
+        let r = s * 0.16;
+        painter.circle_filled(c + egui::Vec2::new(-r * 0.85, -r * 0.55), r, color);
+        painter.circle_filled(c + egui::Vec2::new(r * 0.85, -r * 0.55), r, color);
+        painter.add(egui::Shape::convex_polygon(
+            vec![
+                c + egui::Vec2::new(-r * 1.80, -r * 0.10),
+                c + egui::Vec2::new(r * 1.80, -r * 0.10),
+                c + egui::Vec2::new(0.0, r * 1.55),
+            ],
+            color,
+            egui::Stroke::NONE,
+        ));
+        return;
+    }
+    // ハート曲線 (16sin³t / 13cos t − 5cos 2t − 2cos 3t − cos 4t) を線で描く。
+    let mut pts: Vec<egui::Pos2> = Vec::with_capacity(33);
+    for k in 0..=32 {
+        let t = std::f32::consts::TAU * k as f32 / 32.0;
+        let x = 16.0 * t.sin().powi(3);
+        let y = 13.0 * t.cos()
+            - 5.0 * (2.0 * t).cos()
+            - 2.0 * (3.0 * t).cos()
+            - (4.0 * t).cos();
+        pts.push(egui::Pos2::new(x, -y));
+    }
+    let (mut minx, mut maxx) = (f32::MAX, f32::MIN);
+    let (mut miny, mut maxy) = (f32::MAX, f32::MIN);
+    for p in &pts {
+        minx = minx.min(p.x);
+        maxx = maxx.max(p.x);
+        miny = miny.min(p.y);
+        maxy = maxy.max(p.y);
+    }
+    let span = (maxx - minx).max(maxy - miny).max(1e-3);
+    let fit = (s * 0.72) / span;
+    let mid = egui::pos2((minx + maxx) * 0.5, (miny + maxy) * 0.5);
+    let pts: Vec<egui::Pos2> = pts
+        .into_iter()
+        .map(|p| c + (p - mid) * fit)
+        .collect();
+    painter.add(egui::Shape::closed_line(
+        pts,
+        egui::Stroke::new(1.4, color),
+    ));
+}
+
+/// Tauri `usePulseHeart` のスケール計算 (heart, pill)。
+/// `t` = 経過 0..1 (560ms)、None = 静止。
+pub fn pulse_scales(t: Option<f32>) -> (f32, f32) {
+    let Some(t) = t else {
+        return (1.0, 1.0);
     };
-    ui.add(button).clicked()
+    let s = pulse_swell(t);
+    (1.0 - (1.0 - 0.3) * s, 1.0 - 0.03 * s)
+}
+
+fn pulse_swell(t: f32) -> f32 {
+    const OUT: f32 = 0.4;
+    const OVERSHOOT: f32 = 1.7;
+    if t <= 0.0 {
+        0.0
+    } else if t < OUT {
+        1.0 - (1.0 - t / OUT).powi(3)
+    } else {
+        1.0 - pulse_back((t - OUT) / (1.0 - OUT), OVERSHOOT)
+    }
+}
+
+fn pulse_back(k: f32, c: f32) -> f32 {
+    let u = k - 1.0;
+    1.0 + (c + 1.0) * u.powi(3) + c * u.powi(2)
+}
+
+/// Like ボタンの見た目 (Tauri の LikeButton バリアント)。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LikeStyle {
+    /// トラックページの `LikeBtn`: 枠線付きのハート + 件数 (h-10 rounded-full)。
+    Chip,
+    /// プレイリストページの `PlaylistLikeBtn`: 枠なしのハート + 件数
+    /// (h-10 rounded-md、hover で白 6% 背景)。
+    Ghost,
+}
+
+fn paint_like_button(
+    ui: &mut egui::Ui,
+    liked: bool,
+    count: i64,
+    accent: egui::Color32,
+    style: LikeStyle,
+    heart_scale: f32,
+    pill_scale: f32,
+) -> egui::Response {
+    let h = 40.0;
+    let pad_x = if style == LikeStyle::Chip { 14.0 } else { 12.0 };
+    let heart = 15.0;
+    let gap = 6.0;
+    let font = crate::theme::medium(12.5);
+    let text = fmt_count(count);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.clone(), font.clone(), egui::Color32::WHITE);
+    let w = pad_x * 2.0 + heart + gap + galley.size().x;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let hovered = resp.hovered();
+    let color = if liked {
+        accent
+    } else if hovered {
+        egui::Color32::WHITE
+    } else if style == LikeStyle::Chip {
+        egui::Color32::from_white_alpha(166)
+    } else {
+        egui::Color32::from_white_alpha(153)
+    };
+    let painter = ui.painter();
+    let scale_pt = |p: egui::Pos2| rect.center() + (p - rect.center()) * pill_scale;
+    let pill_rect = egui::Rect::from_min_max(
+        scale_pt(rect.min),
+        scale_pt(rect.max),
+    );
+    match style {
+        LikeStyle::Chip => {
+            let stroke_color = if liked {
+                egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 115)
+            } else if hovered {
+                egui::Color32::from_white_alpha(82)
+            } else {
+                egui::Color32::from_white_alpha(36)
+            };
+            painter.rect_stroke(
+                pill_rect,
+                20.0,
+                egui::Stroke::new(1.0, stroke_color),
+                egui::StrokeKind::Inside,
+            );
+        }
+        LikeStyle::Ghost => {
+            if !liked && hovered {
+                painter.rect_filled(pill_rect, 6.0, egui::Color32::from_white_alpha(15));
+            }
+        }
+    }
+    let heart_center = scale_pt(egui::pos2(
+        rect.left() + pad_x + heart * 0.5,
+        rect.center().y,
+    ));
+    paint_heart(
+        painter,
+        egui::Rect::from_center_size(
+            heart_center,
+            egui::Vec2::splat(heart * heart_scale * pill_scale),
+        ),
+        color,
+        liked,
+    );
+    let galley = painter.layout_no_wrap(text, font, color);
+    let text_pos = scale_pt(egui::pos2(
+        rect.left() + pad_x + heart + gap,
+        rect.center().y - galley.size().y * 0.5,
+    ));
+    painter.galley(text_pos, galley, color);
+    resp
+}
+
+/// Tauri `LikeBtn` (トラックページ): ハート + 件数のアウトラインチップ。
+pub fn like_chip(
+    ui: &mut egui::Ui,
+    liked: bool,
+    count: i64,
+    accent: egui::Color32,
+    heart_scale: f32,
+    pill_scale: f32,
+) -> egui::Response {
+    paint_like_button(ui, liked, count, accent, LikeStyle::Chip, heart_scale, pill_scale)
+}
+
+/// Tauri `PlaylistLikeBtn` (プレイリストページ): ハート + 件数 (枠なし)。
+pub fn like_ghost(
+    ui: &mut egui::Ui,
+    liked: bool,
+    count: i64,
+    accent: egui::Color32,
+    heart_scale: f32,
+    pill_scale: f32,
+) -> egui::Response {
+    paint_like_button(ui, liked, count, accent, LikeStyle::Ghost, heart_scale, pill_scale)
 }

@@ -714,6 +714,8 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
             let accent = crate::widgets::accent_color(&state.settings);
             // `backend` と各ビューは disjoint field のため同時借用できる。
             let cache = state.backend.as_ref().map(|b| &b.track_cache);
+            let direct = state.backend.as_ref().map(|b| &b.direct);
+            let bulk_progress = state.bulk_likes_progress;
             let images = &mut state.images;
             let player = &mut state.player;
 
@@ -986,10 +988,25 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
                     }
                 }
                 Route::Offline => match state.offline.show(
-                    api_ref, &rt, images, player, audio_ref, param_ref, cache, accent, ui,
+                    api_ref,
+                    &rt,
+                    images,
+                    player,
+                    cache,
+                    direct,
+                    &state.settings,
+                    bulk_progress,
+                    accent,
+                    ui,
                 ) {
-                    OfflineAction::PlayFile(path) => {
-                        state.play_file(path);
+                    OfflineAction::PlayList { tracks, index } => {
+                        state.play_list_entry(tracks, index);
+                    }
+                    OfflineAction::TogglePlayAll { tracks } => {
+                        state.toggle_play_list(tracks);
+                    }
+                    OfflineAction::ShufflePlay { tracks } => {
+                        state.shuffle_play_list(tracks);
                     }
                     OfflineAction::Navigate(route, param) => {
                         state.navigate(route, param);

@@ -35,6 +35,8 @@ pub struct PlaylistView {
     last_urn: Option<String>,
     liked: Option<bool>,
     like_count: Option<i64>,
+    /// Like ボタンの pulse 開始時刻 (egui time、560ms)。
+    like_pulse_at: Option<f64>,
     likes_status: Query<LikedFlag>,
     me: Query<ScUser>,
     /// 編集 (削除/並替) 後のローカル上書き。
@@ -100,6 +102,7 @@ impl PlaylistView {
             self.tracks = Query::default();
             self.liked = None;
             self.like_count = None;
+            self.like_pulse_at = None;
             self.likes_status = Query::default();
             self.me = Query::default();
             self.edit_tracks = None;
@@ -303,11 +306,41 @@ impl PlaylistView {
                         ui.label(desc);
                     }
                 }
+                // Like ボタンの pulse (Tauri: usePulseHeart、560ms)。
+                let now = ui.input(|i| i.time);
+                let pulse_t = self
+                    .like_pulse_at
+                    .map(|t0| (((now - t0) / 0.560) as f32).clamp(0.0, 1.0));
+                if let Some(t) = pulse_t {
+                    if t >= 1.0 {
+                        self.like_pulse_at = None;
+                    } else {
+                        ui.ctx().request_repaint();
+                    }
+                }
+                let (heart_scale, pill_scale) = crate::widgets::pulse_scales(pulse_t);
                 ui.horizontal(|ui| {
                     let liked = self.liked.unwrap_or(false);
-                    if crate::widgets::like_button(ui, liked, accent) {
+                    // pulse 中は色の切替を最小フレーム (40%) まで遅らせる。
+                    let shown_liked = if pulse_t.map(|t| t < 0.4).unwrap_or(false) {
+                        !liked
+                    } else {
+                        liked
+                    };
+                    let count = self.like_count.unwrap_or(0);
+                    if crate::widgets::like_ghost(
+                        ui,
+                        shown_liked,
+                        count,
+                        accent,
+                        heart_scale,
+                        pill_scale,
+                    )
+                    .clicked()
+                    {
                         // ローカル即時反映 + writer で best-effort 同期。
                         let next = !liked;
+                        self.like_pulse_at = Some(now);
                         self.liked = Some(next);
                         if let Some(c) = self.like_count.as_mut() {
                             *c = (*c + if next { 1 } else { -1 }).max(0);
@@ -317,13 +350,6 @@ impl PlaylistView {
                         rt.spawn(async move {
                             let method = if next { "POST" } else { "DELETE" };
                             let _ = api.request_json(method, &path, None).await;
-                        });
-                    }
-                    if let Some(c) = self.like_count {
-                        ui.label(if c >= 1000 {
-                            format!("{:.1}k", c as f64 / 1000.0)
-                        } else {
-                            c.to_string()
                         });
                     }
                     if ui.button("Shuffle").clicked() && !tracks.is_empty() {

@@ -542,6 +542,9 @@ pub struct AppState {
     /// タイトルバー用の最大化状態。
     pub maximized: bool,
     pub last_sync_error: Option<String>,
+    /// 一括 DL (いいね全件) の進捗 (done, total)。`track:cache-likes-progress`
+    /// イベントで更新し、完了 (done/cancelled) で None に戻す。
+    pub bulk_likes_progress: Option<(u32, u32)>,
     /// 再生中トラックの like 状態 (NowPlaying バー用)。
     pub now_liked: Option<bool>,
     pub now_like: Query<LikedFlag>,
@@ -739,6 +742,7 @@ impl AppState {
             nav_index: 0,
             maximized: false,
             last_sync_error: None,
+            bulk_likes_progress: None,
             now_liked: None,
             now_like: Query::default(),
             api,
@@ -889,6 +893,67 @@ impl AppState {
         self.player.set_queue(tracks, index);
         self.load_error = None;
         self.load_stream(&track);
+    }
+
+    /// 一覧の再生トグル (Tauri `OfflinePage.playAll` と同じ意味論):
+    /// この一覧を再生中なら pause、現在曲が一覧内なら resume、それ以外は先頭から。
+    pub fn toggle_play_list(&mut self, tracks: Vec<Track>) {
+        if tracks.is_empty() {
+            return;
+        }
+        let in_list = self
+            .player
+            .current_queued()
+            .map(|t| tracks.iter().any(|x| x.urn == t.urn))
+            .unwrap_or(false);
+        if in_list && self.player.is_playing {
+            if let Some(audio) = self.audio().cloned() {
+                crate::backend::audio::engine::pause(&audio);
+            }
+            self.player.is_playing = false;
+        } else if in_list {
+            if let Some(audio) = self.audio().cloned() {
+                crate::backend::audio::engine::play(&audio);
+            }
+            self.player.is_playing = true;
+        } else {
+            self.play_list(tracks, 0);
+        }
+    }
+
+    /// 一覧のシャッフル再生 (Tauri `OfflinePage` の Shuffle): 並べ替えて先頭から。
+    pub fn shuffle_play_list(&mut self, mut tracks: Vec<Track>) {
+        if tracks.is_empty() {
+            return;
+        }
+        shuffle_tracks(&mut tracks);
+        self.play_list(tracks, 0);
+    }
+
+    /// Offline 行の再生 (Tauri `OfflinePage.playEntry`)。同一トラックの再クリックは
+    /// 再読込せず、停止中なら再開する。
+    pub fn play_list_entry(&mut self, tracks: Vec<Track>, index: usize) {
+        if tracks.is_empty() {
+            return;
+        }
+        let index = index.min(tracks.len() - 1);
+        let same = self
+            .player
+            .current_queued()
+            .map(|c| c.urn == tracks[index].urn)
+            .unwrap_or(false);
+        if same {
+            let was_playing = self.player.is_playing;
+            self.player.set_queue(tracks, index);
+            if !was_playing {
+                if let Some(audio) = self.audio().cloned() {
+                    crate::backend::audio::engine::play(&audio);
+                }
+                self.player.is_playing = true;
+            }
+        } else {
+            self.play_list(tracks, index);
+        }
     }
 
     /// 音量を設定してエンジンへ反映する (0..=100、ミュートは 0)。
@@ -1273,11 +1338,19 @@ impl AppState {
         if self.route == route && self.nav_param == param {
             return;
         }
+        self.refresh_on_route_change(route);
         self.route = route;
         self.nav_param = param.clone();
         self.nav_history.truncate(self.nav_index + 1);
         self.nav_history.push((route, param));
         self.nav_index = self.nav_history.len() - 1;
+    }
+
+    /// Offline は開くたびに在庫/いいねを読み直す (Tauri のページ再マウント相当)。
+    fn refresh_on_route_change(&mut self, route: Route) {
+        if route == Route::Offline && self.route != Route::Offline {
+            self.offline = OfflineView::default();
+        }
     }
 
     pub fn can_nav_back(&self) -> bool {
@@ -1292,6 +1365,7 @@ impl AppState {
         if self.nav_index > 0 {
             self.nav_index -= 1;
             if let Some((route, param)) = self.nav_history.get(self.nav_index).cloned() {
+                self.refresh_on_route_change(route);
                 self.route = route;
                 self.nav_param = param;
             }
@@ -1302,6 +1376,7 @@ impl AppState {
         if self.nav_index + 1 < self.nav_history.len() {
             self.nav_index += 1;
             if let Some((route, param)) = self.nav_history.get(self.nav_index).cloned() {
+                self.refresh_on_route_change(route);
                 self.route = route;
                 self.nav_param = param;
             }
@@ -1368,6 +1443,7 @@ impl AppState {
         let mut media_prev = false;
         let mut media_seek_abs: Option<f64> = None;
         let mut media_seek_rel: Option<f64> = None;
+        let mut bulk_progress: Option<Option<(u32, u32)>> = None;
         if let Some(rx) = self.backend_rx.as_mut() {
             while let Ok((event, payload)) = rx.try_recv() {
                 match event.as_str() {
@@ -1377,6 +1453,25 @@ impl AppState {
                         sync_error = Some(s.chars().take(200).collect());
                     }
                     "auth:changed" => auth_changed = true,
+                    "track:cache-likes-progress" => {
+                        let phase = payload
+                            .get("phase")
+                            .and_then(|p| p.as_str())
+                            .unwrap_or("");
+                        let done = payload
+                            .get("done")
+                            .and_then(|d| d.as_u64())
+                            .unwrap_or(0) as u32;
+                        let total = payload
+                            .get("total")
+                            .and_then(|t| t.as_u64())
+                            .unwrap_or(0) as u32;
+                        bulk_progress = Some(if phase == "done" || phase == "cancelled" {
+                            None
+                        } else {
+                            Some((done, total))
+                        });
+                    }
                     "media:play" => media_play = true,
                     "media:pause" => media_pause = true,
                     "media:toggle" => media_toggle = true,
@@ -1393,6 +1488,9 @@ impl AppState {
             // ビュー状態 (トークン無しでエラーになった分) を捨てて再取得する。
             self.sync_api_session();
             self.reset_views();
+        }
+        if let Some(progress) = bulk_progress {
+            self.bulk_likes_progress = progress;
         }
         if ended {
             if self.player.repeat == RepeatMode::One {

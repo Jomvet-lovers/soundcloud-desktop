@@ -164,7 +164,7 @@ pub fn show(
                 let resp = ui.put(
                     avatar_rect,
                     egui::Image::new((tex, egui::Vec2::splat(size)))
-                        .corner_radius(egui::CornerRadius::same(9))
+                        .corner_radius(egui::CornerRadius::same(12))
                         .sense(egui::Sense::click()),
                 );
                 if resp.clicked() {

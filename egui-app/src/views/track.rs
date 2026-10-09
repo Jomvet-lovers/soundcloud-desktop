@@ -48,6 +48,8 @@ pub struct TrackView {
     sort_timeline: bool,
     liked: Option<bool>,
     like_count: Option<i64>,
+    /// Like チップの pulse 開始時刻 (egui time、560ms)。
+    like_pulse_at: Option<f64>,
     likes_status: Query<LikedFlag>,
     me: Query<ScUser>,
     /// Uploader follow state (Tauri: RoomSleeve の FollowBtn)。
@@ -122,6 +124,7 @@ impl TrackView {
             self.comment_draft.clear();
             self.liked = None;
             self.like_count = None;
+            self.like_pulse_at = None;
             self.likes_status = Query::default();
             self.me = Query::default();
             self.follow = Query::default();
@@ -376,7 +379,27 @@ impl TrackView {
                             }
                         }
                     });
-                    // アクション行 (Next up / Add / Download / Liked)。
+                    // Like チップの pulse (Tauri: usePulseHeart、560ms)。
+                    let now = ui.input(|i| i.time);
+                    let pulse_t = self
+                        .like_pulse_at
+                        .map(|t0| (((now - t0) / 0.560) as f32).clamp(0.0, 1.0));
+                    if let Some(t) = pulse_t {
+                        if t >= 1.0 {
+                            self.like_pulse_at = None;
+                        } else {
+                            ui.ctx().request_repaint();
+                        }
+                    }
+                    let (heart_scale, pill_scale) = crate::widgets::pulse_scales(pulse_t);
+                    let liked = self.liked.unwrap_or(false);
+                    // pulse 中は色の切替を最小フレーム (40%) まで遅らせる。
+                    let shown_liked = if pulse_t.map(|t| t < 0.4).unwrap_or(false) {
+                        !liked
+                    } else {
+                        liked
+                    };
+                    // アクション行 (Next up / Add / Download / Like チップ)。
                     ui.horizontal(|ui| {
                         if ui.button("+ Next up").clicked() {
                             action = TrackAction::AddNextUp(track.clone());
@@ -387,10 +410,20 @@ impl TrackView {
                         if ui.button("Download...").clicked() {
                             action = TrackAction::OpenDownload(track.clone());
                         }
-                        let liked = self.liked.unwrap_or(false);
-                        if crate::widgets::like_button(ui, liked, accent) {
-                            // ローカル即時反映 + writer で best-effort 同期 (cf. LikeButton.tsx)。
+                        let count = self.like_count.or(track.likes_count).unwrap_or(0);
+                        if crate::widgets::like_chip(
+                            ui,
+                            shown_liked,
+                            count,
+                            accent,
+                            heart_scale,
+                            pill_scale,
+                        )
+                        .clicked()
+                        {
+                            // ローカル即時反映 + writer で best-effort 同期 (cf. LikeBtn.tsx)。
                             let next = !liked;
+                            self.like_pulse_at = Some(now);
                             self.liked = Some(next);
                             if let Some(c) = self.like_count.as_mut() {
                                 *c = (*c + if next { 1 } else { -1 }).max(0);
