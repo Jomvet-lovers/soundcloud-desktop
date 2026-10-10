@@ -586,3 +586,41 @@ smoke モード (どちらも表示環境用。CI では不可):
     `/history` 同期が writer 経由で **204** → 90 秒後に `[wry-host] idle; exiting`。
     連続再生中は履歴同期のたびに起動→終了を繰り返す (再生には影響なし)。
   - ログインは初回に数秒の起動待ちがある (`--smoke-login` 検証済み)。
+
+### 8.19 Home/カードの忠実再現パス (2026-10-10 夕)
+
+ユーザー指摘「ホームでサムネの縦ラインがそろわない / フロントエンドのコードを
+参照して 99% 再現」への対応 (コミット `07c67c98`)。Tauri のコード
+(Home.tsx / TrackCard.tsx / Search.tsx の DiscoverSections / ContinueRow.tsx)
+を参照して Home とカード共通部品を修正。
+
+- **グリッドずれの原因**: カード幅が内容依存 (`set_max_width`) のため、タイトルが
+  短いカードだけ幅が狭くなり列がずれていた。カード幅を常にセル幅に固定
+  (`set_width`) して解消。
+- **列数の基準を修正**: Tauri (Tailwind) と同じ **ビューポート幅**で判定
+  (sm 640 / md 768 / lg 1024 / xl 1280)。従来はコンテンツ幅基準で 1 段少なかった。
+- **グリッド仕様**: Liked = 3/4/5/6/7 列、Discover / Search / Tag =
+  3/4/5/6/8 列。すべて gap 10 (`gap-2.5`)、行間も 10px、セル幅 =
+  (avail − gap×(cols−1)) / cols (`1fr`)。
+- **カード (TrackCard) を Tauri に一致**:
+  - アート: 角丸 16 + ring 1px (白 6% → hover 12%) + hover で画像 **1.04 倍
+    ズーム** (`RectShape::with_texture` で角丸のまま描画)。
+  - オーバーレイ: 黒 30% + **白丸 40px (scale 0.75→1) + 黒グリフ**。再生中は常時。
+  - **like チップを左上へ** (24px 円・hover でフェードイン・いいね済みは
+    アクセント 80% + コントラスト色)。
+  - **右上は playlist / queue / share** の 3 チップ (12px アイコン。share は
+    カード幅 120px 未満で非表示)。動作は `CardAction` キューで shell が実行
+    (追加ダイアログ / キュー末尾追加 / リンクコピー)。
+  - 情報: mt-3 / タイトル 13 medium 白 90% (hover 白) / アーティスト 11 白 35%
+    (hover 60%)。**再生中のカードタイトルはアクセント色にしない** (Tauri と同じ)。
+  - like の楽観上書きは `widgets::liked_state` (ビュー横断) に集約。
+- **Discover カード**: 角丸 12・hover ズーム・白丸オーバーレイ・右上コピーリンク
+  (hover 表示)・タイトル mt-2 白 85% hover 白・説明 11 白 40%。セクション間
+  32px (`gap-8`)。`DiscoverItem` に `permalink_url` を追加。
+- **Library の Continue 行**: 見出しを "Jump back in" (bold 16 + Clock + See all
+  → /library/history)、カード幅 112px。
+- **検証**: release ビルド + 実機スクショで 6 列・縦ライン一致を確認
+  (1200px = lg)。hover 状態のスクショはユーザーがマシン使用中のため未取得。
+- **ツールメモ**: `cap.ps1` / `hover.ps1` を全ウィンドウ列挙 (最大面積) 方式に
+  修正。従来は `MainWindowHandle` が SMTC 用 16x16 隠しウィンドウを指すことが
+  あり、キャプチャ/クリックが誤動作していた。
