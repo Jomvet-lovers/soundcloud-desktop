@@ -43,6 +43,9 @@ tauri-plugin-process = "2"
 # NOTE: updater with default-features enables reqwest/rustls-no-provider
 # (no crypto provider) which panics ("No provider set") in Tauri's dev-proxy
 # client at window creation. Use native-tls (SChannel) instead.
+# NOTE: Rust crates are pinned to the CEF-branch tauri 2.11.2 era
+# (process 2.3.x / updater 2.12.x); keep the NPM packages on the same
+# major/minor or the release build refuses to start.
 tauri-plugin-updater = { version = "2", default-features = false, features = [
   "native-tls",
   "system-proxy",
