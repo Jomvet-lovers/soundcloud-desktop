@@ -475,23 +475,24 @@ pub(crate) fn spawn_history_flow(
     duration_ms: i64,
 ) {
     tokio::spawn(async move {
-        // Proven pair shape: play near position ~1s, checkpoint ~36s later.
-        // (Verified 5x: SC records this; other playhead combos are ignored.)
+        // Proven pair shape: play near position ~0.5s, checkpoint ~35s later
+        // (verified: SC records this; other playhead combos are ignored for
+        // unknown server-side reasons — see HANDOVER).
         let queue = uuid::Uuid::new_v4().to_string();
         let qs = uuid::Uuid::new_v4().to_string();
         let sent_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let ts = chrono::Utc::now().timestamp_millis();
         let play = audio_event_body(
             &track_id, &owner_urn, &page_url, &user_urn, duration_ms, "play",
-            duration_ms.min(1_000), &queue, &qs, ts, &sent_at,
+            duration_ms.min(500), &queue, &qs, ts, &sent_at,
         );
         post_audio_event(&http, &cid, &page_url, &play).await;
-        tokio::time::sleep(Duration::from_secs(35)).await;
+        tokio::time::sleep(Duration::from_secs(40)).await;
         let sent_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let ts = chrono::Utc::now().timestamp_millis();
         let checkpoint = audio_event_body(
             &track_id, &owner_urn, &page_url, &user_urn, duration_ms, "checkpoint",
-            duration_ms.min(36_000), &queue, &qs, ts, &sent_at,
+            duration_ms.min(35_000), &queue, &qs, ts, &sent_at,
         );
         post_audio_event(&http, &cid, &page_url, &checkpoint).await;
     });
