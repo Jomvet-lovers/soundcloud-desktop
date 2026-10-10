@@ -1,9 +1,8 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useMemo } from 'react';
 import { proxiedAssetUrl } from '../lib/asset-url';
-import { APP_VERSION } from '../lib/constants';
 import { ExternalLink, X } from '../lib/icons';
-import type { GithubRelease } from '../lib/update-check';
+import { currentFullVersion, type GithubRelease } from '../lib/update-check';
 
 function stripLeadingV(version: string) {
   return version.replace(/^v/, '');
@@ -159,7 +158,7 @@ export function UpdateChecker({
           <div>
             <h2 className="text-sm font-semibold">{'Update available'}</h2>
             <p className="text-[11px] text-white/30 mt-0.5">
-              {stripLeadingV(APP_VERSION)} → {stripLeadingV(release.tag_name)}
+              {currentFullVersion()} → {stripLeadingV(release.tag_name)}
             </p>
           </div>
           <button

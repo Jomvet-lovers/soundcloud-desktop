@@ -41,6 +41,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -70,10 +72,27 @@ jobs:
         working-directory: desktop
         run: pnpm install --frozen-lockfile
 
+      - name: Collect release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          PREV=$(gh release list --limit 5 --json tagName --jq --arg t "$TAG" '[.[].tagName] | map(select(. != $t)) | .[0] // empty')
+          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          NOTES=$(git log "$RANGE" --format='- %s' -- desktop/ .github/workflows | head -60)
+          [ -z "$NOTES" ] && NOTES="- (no app changes)"
+          {
+            echo "RELEASE_NOTES<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCD_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         with:
           projectPath: desktop
           args: --bundles nsis
@@ -91,6 +110,9 @@ jobs:
             Windows 版: NSIS インストーラー＋ポータブル版同梱。WebView2 ランタイムが必要です（現行 Windows 10/11 には標準搭載）。
 
             機能・制限事項・サインイン方法は README を参照。Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+
+            ## What's changed
+            ${{ env.RELEASE_NOTES }}
           releaseDraft: false
           prerelease: false
 
@@ -113,6 +135,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install system dependencies
         run: |
@@ -142,10 +166,27 @@ jobs:
         working-directory: desktop
         run: pnpm install --frozen-lockfile
 
+      - name: Collect release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          PREV=$(gh release list --limit 5 --json tagName --jq --arg t "$TAG" '[.[].tagName] | map(select(. != $t)) | .[0] // empty')
+          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          NOTES=$(git log "$RANGE" --format='- %s' -- desktop/ .github/workflows | head -60)
+          [ -z "$NOTES" ] && NOTES="- (no app changes)"
+          {
+            echo "RELEASE_NOTES<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCD_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         with:
           projectPath: desktop
           tagName: ${{ inputs.tag || github.ref_name }}
@@ -162,5 +203,8 @@ jobs:
             Linux 版: deb / rpm / AppImage を同梱。
 
             機能・制限事項・サインイン方法は README を参照。Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+
+            ## What's changed
+            ${{ env.RELEASE_NOTES }}
           releaseDraft: false
           prerelease: false

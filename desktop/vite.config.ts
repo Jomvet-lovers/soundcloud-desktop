@@ -7,9 +7,14 @@ import { defineConfig } from 'vite';
 const host = process.env.TAURI_DEV_HOST;
 const pkg = JSON.parse(readFileSync('package.json', 'utf-8'));
 
+// Release builds are stamped with their tag (e.g. v8.4.13-direct.2) via
+// SCD_RELEASE_TAG so the app knows its own -direct build number.
+// Dev builds have no tag and stay on the bare package version.
 export default defineConfig(async () => ({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    // @ts-expect-error process is a nodejs global
+    __DIRECT_TAG__: JSON.stringify(process.env.SCD_RELEASE_TAG ?? ''),
   },
   plugins: [react(), tailwindcss()],
   build: {
