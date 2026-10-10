@@ -80,13 +80,17 @@ jobs:
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: ${{ inputs.tag || github.ref_name }}
           releaseBody: |
-            Windows installer for the **unofficial** SoundCloud desktop client
-            (direct mode). See the README for features, limitations and signing in.
+            **SCD-Direct** — unofficial SoundCloud desktop client (direct mode, works without the vendor backend).
 
-            非公式 SoundCloud デスクトップクライアント（direct モード）の Windows 用
-            インストーラーです。機能・制限事項・サインイン方法は README を参照してください。
+            Windows: NSIS installer plus a portable exe. Needs the WebView2 runtime (ships with current Windows 10/11).
 
-            Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+            For features, limitations and sign-in, see the README. Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+
+            **SCD-Direct** — 非公式 SoundCloud デスクトップクライアント（direct モード、開発元バックエンド不要）。
+
+            Windows 版: NSIS インストーラー＋ポータブル版同梱。WebView2 ランタイムが必要です（現行 Windows 10/11 には標準搭載）。
+
+            機能・制限事項・サインイン方法は README を参照。Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
           releaseDraft: false
           prerelease: false
 
@@ -147,13 +151,16 @@ jobs:
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: ${{ inputs.tag || github.ref_name }}
           releaseBody: |
-            Linux packages (deb / rpm / AppImage) for the **unofficial** SoundCloud
-            desktop client (direct mode). See the README for features, limitations
-            and signing in.
+            **SCD-Direct** — unofficial SoundCloud desktop client (direct mode, works without the vendor backend).
 
-            非公式 SoundCloud デスクトップクライアント（direct モード）の Linux 用
-            パッケージです。機能・制限事項・サインイン方法は README を参照してください。
+            Linux: deb / rpm / AppImage packages.
 
-            Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+            For features, limitations and sign-in, see the README. Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
+
+            **SCD-Direct** — 非公式 SoundCloud デスクトップクライアント（direct モード、開発元バックエンド不要）。
+
+            Linux 版: deb / rpm / AppImage を同梱。
+
+            機能・制限事項・サインイン方法は README を参照。Based on [zxcloli666/SoundCloud-Desktop](https://github.com/zxcloli666/SoundCloud-Desktop) (MIT).
           releaseDraft: false
           prerelease: false

@@ -11,7 +11,7 @@ function stripLeadingV(version: string) {
 
 function renderInlineMarkdown(text: string, keyPrefix: string) {
   const parts: React.ReactNode[] = [];
-  const pattern = /!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)/g;
+  const pattern = /!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null = null;
   let matchIndex = 0;
@@ -21,7 +21,7 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
       parts.push(text.slice(lastIndex, match.index));
     }
 
-    const [, imageAlt, imageUrl, linkLabel, linkUrl] = match;
+    const [, imageAlt, imageUrl, linkLabel, linkUrl, boldText] = match;
     if (imageUrl) {
       parts.push(
         <img
@@ -43,6 +43,12 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
         >
           {linkLabel}
         </button>,
+      );
+    } else if (boldText) {
+      parts.push(
+        <strong key={`${keyPrefix}-b-${matchIndex}`} className="font-semibold text-white/85">
+          {boldText}
+        </strong>,
       );
     }
 

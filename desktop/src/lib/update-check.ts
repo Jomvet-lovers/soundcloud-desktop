@@ -36,6 +36,10 @@ async function fetchRelease(repo: string): Promise<GithubRelease | null> {
 }
 
 export async function checkForAppUpdate(): Promise<GithubRelease | null> {
+  // Dev builds carry the bare package version (no -direct.N suffix), so every
+  // published fork release would look newer. Never notify from dev.
+  if (import.meta.env.DEV) return null;
+
   const primaryRelease = await fetchRelease(GITHUB_REPO).catch(() => null);
   if (!primaryRelease) return null;
 
