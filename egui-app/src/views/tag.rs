@@ -150,34 +150,40 @@ impl TagView {
                 let items: Vec<(usize, &Track)> =
                     page.collection.iter().enumerate().collect();
                 let avail = ui.available_width();
-                let gap = 12.0;
-                let cols = widgets::grid_cols(avail, 3, 4, 5, 6, 7);
-                let card_w =
-                    ((avail - gap * (cols.saturating_sub(1)) as f32) / cols as f32).max(80.0);
-                for chunk in items.chunks(cols) {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = gap;
-                        for &(i, track) in chunk {
-                            let hit =
-                                Self::track_card(ui, rt, images, player, track, accent, card_w);
-                            if hit.play_clicked() {
-                                action = TagAction::PlayList(page.collection.clone(), i);
-                            } else if hit.title_clicked() {
-                                action =
-                                    TagAction::Navigate(Route::Track, Some(track.urn.clone()));
-                            } else if hit.artist_clicked() {
-                                if let Some(u) = track.user.as_ref() {
+                let gap = 10.0;
+                let cols = widgets::grid_cols(ui.ctx(), 3, 4, 5, 6, 8);
+                let card_w = widgets::grid_cell(avail, cols, gap);
+                ui.scope(|ui| {
+                    ui.spacing_mut().item_spacing.y = gap;
+                    for chunk in items.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for &(i, track) in chunk {
+                                let hit = Self::track_card(
+                                    ui, rt, images, player, track, accent, card_w,
+                                );
+                                if hit.play_clicked() {
+                                    action =
+                                        TagAction::PlayList(page.collection.clone(), i);
+                                } else if hit.title_clicked() {
                                     action = TagAction::Navigate(
-                                        Route::User,
-                                        Some(u.urn.clone()),
+                                        Route::Track,
+                                        Some(track.urn.clone()),
                                     );
+                                } else if hit.artist_clicked() {
+                                    if let Some(u) = track.user.as_ref() {
+                                        action = TagAction::Navigate(
+                                            Route::User,
+                                            Some(u.urn.clone()),
+                                        );
+                                    }
+                                } else if hit.menu_clicked() {
+                                    action = TagAction::OpenMenu(track.clone());
                                 }
-                            } else if hit.menu_clicked() {
-                                action = TagAction::OpenMenu(track.clone());
                             }
-                        }
-                    });
-                }
+                        });
+                    }
+                });
             }
             ui.horizontal(|ui| {
                 if ui

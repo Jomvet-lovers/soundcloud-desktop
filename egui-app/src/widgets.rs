@@ -877,17 +877,14 @@ pub(crate) fn paint_transport_glyph(
     }
 }
 
-/// カードの操作結果 (アート=再生 / タイトル=Track / アーティスト=User / 右クリック=メニュー)。
+/// カードの操作結果 (アート=再生 / タイトル=Track / アーティスト=User /
+/// 右クリック=メニュー)。ホバーの like / playlist / queue / share は
+/// `CardAction` 経由で shell が実行する。
 pub struct CardHit {
     pub play: egui::Response,
     pub title: egui::Response,
     pub artist: egui::Response,
-    /// ホバー時ハートが押された (検索カードのみ)。
-    pub like_clicked: bool,
-    /// ホバー時 + が押された (検索カードのみ)。
-    pub add_clicked: bool,
-    /// ホバー時 … が押された (検索カードのみ)。
-    pub more_clicked: bool,
+    pub menu_clicked: bool,
 }
 
 impl CardHit {
@@ -901,15 +898,407 @@ impl CardHit {
         self.artist.clicked()
     }
     pub fn menu_clicked(&self) -> bool {
-        self.play.secondary_clicked()
-            || self.title.secondary_clicked()
-            || self.artist.secondary_clicked()
-            || self.more_clicked
+        self.menu_clicked
     }
 }
 
-/// グリッド用カード (Home の棚・Search 結果)。
-/// アート=再生、タイトル=Track ページ、アーティスト=User ページ (Tauri と同じ)。
+/// カードのホバー操作のうち shell 側の状態が要るもの (like トグル等)。
+/// ウィジェットが積み、shell が毎フレーム回収して実行する。
+pub enum CardAction {
+    ToggleLike { urn: String, next: bool },
+    AddToQueue(Track),
+    AddToPlaylist(Track),
+    CopyLink(Track),
+}
+
+static CARD_ACTIONS: std::sync::Mutex<Vec<CardAction>> = std::sync::Mutex::new(Vec::new());
+
+pub fn request_card_action(a: CardAction) {
+    if let Ok(mut q) = CARD_ACTIONS.lock() {
+        q.push(a);
+    }
+}
+
+pub fn take_card_actions() -> Vec<CardAction> {
+    CARD_ACTIONS
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
+/// like の楽観上書き (ビューをまたいだ即時反映。Tauri の likes ストア相当)。
+static LIKED_OVERRIDES: std::sync::Mutex<Vec<(String, bool)>> =
+    std::sync::Mutex::new(Vec::new());
+
+pub fn liked_state(urn: &str, fallback: bool) -> bool {
+    LIKED_OVERRIDES
+        .lock()
+        .ok()
+        .and_then(|v| v.iter().find(|(u, _)| u == urn).map(|(_, l)| *l))
+        .unwrap_or(fallback)
+}
+
+pub fn set_liked_override(urn: &str, liked: bool) {
+    if let Ok(mut v) = LIKED_OVERRIDES.lock() {
+        if let Some(slot) = v.iter_mut().find(|(u, _)| u == urn) {
+            slot.1 = liked;
+        } else {
+            v.push((urn.to_string(), liked));
+        }
+    }
+}
+
+/// カードのアートワーク (Tauri: aspect-square rounded bg-white/[0.03] +
+/// hover で画像ズーム)。未取得時は 32px の再生アイコン (白 20%)。
+pub fn card_art(
+    ui: &mut egui::Ui,
+    rt: &tokio::runtime::Handle,
+    images: &mut Images,
+    url: Option<&str>,
+    size: f32,
+    corner: egui::CornerRadius,
+    zoom: f32,
+) -> egui::Response {
+    let tex = url.and_then(|u| images.texture(ui, rt, Some(u)));
+    let (rect, resp) =
+        ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(rect, corner, egui::Color32::from_white_alpha(8));
+    match tex {
+        Some(tex) => {
+            let draw =
+                egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(size * zoom));
+            let shape =
+                egui::epaint::RectShape::filled(draw, corner, egui::Color32::WHITE)
+                    .with_texture(
+                        tex,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    );
+            painter.add(egui::Shape::Rect(shape));
+        }
+        None => {
+            paint_transport_glyph(
+                painter,
+                egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(32.0)),
+                TransportIcon::Play,
+                egui::Color32::from_white_alpha(51),
+                32.0,
+            );
+        }
+    }
+    resp
+}
+
+/// カードのホバー/再生オーバーレイ (Tauri: bg-black/30 + 白丸 40px +
+/// 黒グリフ。ホバーで scale 75→100)。
+pub fn card_overlay(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    corner: f32,
+    t: f32,
+    icon: TransportIcon,
+) {
+    if t <= 0.001 {
+        return;
+    }
+    painter.rect_filled(rect, corner, egui::Color32::from_black_alpha((77.0 * t) as u8));
+    let s = 0.75 + 0.25 * t;
+    painter.circle_filled(
+        rect.center(),
+        20.0 * s,
+        egui::Color32::from_white_alpha((230.0 * t) as u8),
+    );
+    let mut c = rect.center();
+    if matches!(icon, TransportIcon::Play) {
+        c.x += 1.0;
+    }
+    paint_transport_glyph(
+        painter,
+        egui::Rect::from_center_size(c, egui::Vec2::splat(20.0 * s)),
+        icon,
+        egui::Color32::from_black_alpha((230.0 * t) as u8),
+        20.0 * s,
+    );
+}
+
+/// カードのタイトル/アーティスト行 (truncate + hover 色。Tauri の <p> 相当)。
+pub fn card_text(
+    ui: &mut egui::Ui,
+    text: &str,
+    font: egui::FontId,
+    idle: egui::Color32,
+    hover: egui::Color32,
+    height: f32,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::click(),
+    );
+    let color = if resp.hovered() { hover } else { idle };
+    let mut job = egui::text::LayoutJob::single_section(
+        text.to_string(),
+        egui::TextFormat {
+            font_id: font,
+            color,
+            ..Default::default()
+        },
+    );
+    job.wrap = egui::text::TextWrapping {
+        max_width: rect.width().max(1.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    let galley = ui.painter().layout_job(job);
+    ui.painter()
+        .galley(egui::pos2(rect.left(), rect.top()), galley, color);
+    resp
+}
+
+/// Tauri TrackCard 相当のカード 1 枚 (Home/Search/Tag/Library)。
+/// `size` = セル幅。カード幅を固定して列をそろえる。
+#[allow(clippy::too_many_arguments)]
+fn paint_track_card(
+    ui: &mut egui::Ui,
+    rt: &tokio::runtime::Handle,
+    images: &mut Images,
+    track: &Track,
+    size: f32,
+    playing: bool,
+    accent: egui::Color32,
+    show_stats: bool,
+) -> CardHit {
+    ui.vertical(|ui| {
+        ui.set_width(size);
+        ui.spacing_mut().item_spacing.y = 2.0;
+        // ホバー判定は配置前に予測する (ズームとオーバーレイに使う)。
+        let next =
+            egui::Rect::from_min_size(ui.next_widget_position(), egui::Vec2::splat(size));
+        let hovered = ui.rect_contains_pointer(next);
+        let hover_t = ui.ctx().animate_bool_with_time(
+            egui::Id::new(("card-hover", &track.urn)),
+            hovered || playing,
+            0.15,
+        );
+        let reveal = ui.ctx().animate_bool_with_time(
+            egui::Id::new(("card-reveal", &track.urn)),
+            hovered,
+            0.2,
+        );
+        let art = track.artwork("t300x300");
+        let play = card_art(
+            ui,
+            rt,
+            images,
+            art.as_deref(),
+            size,
+            egui::CornerRadius::same(16),
+            1.0 + 0.04 * hover_t,
+        );
+        // ring (Tauri: ring-1 ring-white/[0.06] → hover ring-white/[0.12])。
+        ui.painter().rect_stroke(
+            play.rect,
+            16.0,
+            egui::Stroke::new(
+                1.0,
+                egui::Color32::from_white_alpha((15.0 + 16.0 * hover_t) as u8),
+            ),
+            egui::StrokeKind::Inside,
+        );
+        // 再生/ホバーオーバーレイ (Tauri: bg-black/30 + 白丸 40px + 黒グリフ。
+        // 再生中は常時、ホバーで scale 75→100)。
+        let t = if playing { 1.0 } else { hover_t };
+        card_overlay(
+            ui.painter(),
+            play.rect,
+            16.0,
+            t,
+            if playing {
+                TransportIcon::Pause
+            } else {
+                TransportIcon::Play
+            },
+        );
+        // showStats: 右下の plays + 時間チップ (Tauri と同じ)。
+        if show_stats {
+            let chip_font = crate::theme::medium(10.0);
+            let chip_text = egui::Color32::from_white_alpha(204);
+            let mut chips: Vec<String> = Vec::new();
+            if let Some(plays) = track.playback_count {
+                chips.push(format!("{} plays", fmt_count(plays)));
+            }
+            chips.push(fmt_ms_short(track.duration));
+            let pad = egui::vec2(8.0, 2.0);
+            let mut chip_x = play.rect.right() - 8.0;
+            let chip_bottom = play.rect.bottom() - 8.0;
+            for label in chips.iter().rev() {
+                let galley = ui
+                    .painter()
+                    .layout_no_wrap(label.clone(), chip_font.clone(), chip_text);
+                let w = galley.size().x + pad.x * 2.0;
+                let h = galley.size().y + pad.y * 2.0;
+                let chip = egui::Rect::from_min_size(
+                    egui::Pos2::new(chip_x - w, chip_bottom - h),
+                    egui::vec2(w, h),
+                );
+                ui.painter()
+                    .rect_filled(chip, h * 0.5, egui::Color32::from_black_alpha(89));
+                ui.painter().galley(chip.min + pad, galley, chip_text);
+                chip_x -= w + 4.0;
+            }
+        }
+        let chip_c = |c: egui::Color32, a: f32| {
+            egui::Color32::from_rgba_unmultiplied(
+                c.r(),
+                c.g(),
+                c.b(),
+                (c.a() as f32 * a) as u8,
+            )
+        };
+        // like チップ (左上、hover でフェードイン。Tauri: LikeButton chip)。
+        let liked = liked_state(&track.urn, track.user_favorite.unwrap_or(false));
+        {
+            let center = egui::pos2(play.rect.left() + 20.0, play.rect.top() + 20.0);
+            let rect = egui::Rect::from_center_size(center, egui::Vec2::splat(24.0));
+            let resp = ui.interact(
+                rect,
+                egui::Id::new(("card-like", &track.urn)),
+                egui::Sense::click(),
+            );
+            if liked {
+                ui.painter().circle_filled(
+                    center,
+                    12.0,
+                    chip_c(
+                        egui::Color32::from_rgba_unmultiplied(
+                            accent.r(),
+                            accent.g(),
+                            accent.b(),
+                            204,
+                        ),
+                        reveal,
+                    ),
+                );
+            } else {
+                let a = if resp.hovered() { 179 } else { 128 };
+                ui.painter().circle_filled(
+                    center,
+                    12.0,
+                    chip_c(egui::Color32::from_black_alpha(a), reveal),
+                );
+            }
+            let color = if liked {
+                chip_c(contrast_color(accent), reveal)
+            } else if resp.hovered() {
+                chip_c(egui::Color32::WHITE, reveal)
+            } else {
+                chip_c(egui::Color32::from_white_alpha(204), reveal)
+            };
+            paint_heart(
+                ui.painter(),
+                egui::Rect::from_center_size(center, egui::Vec2::splat(12.0)),
+                color,
+                liked,
+            );
+            if resp
+                .on_hover_text(if liked { "Liked" } else { "Like" })
+                .clicked()
+            {
+                request_card_action(CardAction::ToggleLike {
+                    urn: track.urn.clone(),
+                    next: !liked,
+                });
+            }
+        }
+        // 右上の 3 チップ: playlist / queue / share (Tauri: 24px 円 + 12px
+        // アイコン、share はカード幅 120px 未満では非表示)。
+        let trio: [(&str, UiIcon, bool); 3] = [
+            ("playlist", UiIcon::ListPlus, true),
+            ("queue", UiIcon::Queue, true),
+            ("share", UiIcon::Link, size >= 120.0),
+        ];
+        let mut x = play.rect.right() - 20.0;
+        for (id, icon, visible) in trio {
+            if !visible {
+                continue;
+            }
+            let center = egui::pos2(x, play.rect.top() + 20.0);
+            let rect = egui::Rect::from_center_size(center, egui::Vec2::splat(24.0));
+            let resp = ui.interact(
+                rect,
+                egui::Id::new(("card-chip", &track.urn, id)),
+                egui::Sense::click(),
+            );
+            let a = if resp.hovered() { 179 } else { 128 };
+            ui.painter().circle_filled(
+                center,
+                12.0,
+                chip_c(egui::Color32::from_black_alpha(a), reveal),
+            );
+            let color = if resp.hovered() {
+                chip_c(egui::Color32::WHITE, reveal)
+            } else {
+                chip_c(egui::Color32::from_white_alpha(204), reveal)
+            };
+            paint_ui_icon(
+                ui.painter(),
+                egui::Rect::from_center_size(center, egui::Vec2::splat(12.0)),
+                icon,
+                color,
+            );
+            let tip = match id {
+                "playlist" => "Add to playlist",
+                "queue" => "Add to Queue",
+                _ => "Copy link",
+            };
+            let resp = resp.on_hover_text(tip);
+            if resp.clicked() {
+                match id {
+                    "playlist" => {
+                        request_card_action(CardAction::AddToPlaylist(track.clone()))
+                    }
+                    "queue" => request_card_action(CardAction::AddToQueue(track.clone())),
+                    _ => request_card_action(CardAction::CopyLink(track.clone())),
+                }
+            }
+            x -= 26.0;
+        }
+        // 情報 (Tauri: mt-3 / タイトル 13 medium white/90 hover:white /
+        // アーティスト 11 white/35 hover:white/60)。
+        ui.add_space(10.0);
+        let title = card_text(
+            ui,
+            track.display_title(),
+            crate::theme::medium(13.0),
+            egui::Color32::from_white_alpha(230),
+            egui::Color32::WHITE,
+            17.0,
+        );
+        let artist = card_text(
+            ui,
+            track.artist_name(),
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_white_alpha(89),
+            egui::Color32::from_white_alpha(153),
+            15.0,
+        );
+        if artist.secondary_clicked() {
+            request_user_menu(ui, track, artist.rect);
+        }
+        let menu_clicked = play.secondary_clicked()
+            || title.secondary_clicked()
+            || artist.secondary_clicked();
+        CardHit {
+            play,
+            title,
+            artist,
+            menu_clicked,
+        }
+    })
+    .inner
+}
+
+/// グリッド用カード (Home の棚・Library レール・Tag)。
 pub fn track_card(
     ui: &mut egui::Ui,
     rt: &tokio::runtime::Handle,
@@ -919,64 +1308,7 @@ pub fn track_card(
     playing: bool,
     accent: egui::Color32,
 ) -> CardHit {
-    ui.vertical(|ui| {
-        ui.set_max_width(size + 8.0);
-        let art = track.artwork("t300x300");
-        let play = images.show_rounded(
-            ui,
-            rt,
-            art.as_deref(),
-            size,
-            egui::CornerRadius::same(16),
-        );
-        // ホバー: 暗転 + 再生グリフをフェードイン。
-        let hover_t = ui.ctx().animate_bool_with_time(
-            egui::Id::new(("card-hover", &track.urn)),
-            play.hovered() || playing,
-            0.15,
-        );
-        if hover_t > 0.001 {
-            ui.painter().rect_filled(
-                play.rect,
-                16.0,
-                egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
-            );
-            paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
-        }
-        let title = if playing {
-            egui::RichText::new(track.display_title()).color(accent)
-        } else {
-            egui::RichText::new(track.display_title())
-        };
-        let title = ui.add(
-            egui::Label::new(title.font(crate::theme::medium(13.0)))
-                .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate)
-                .sense(egui::Sense::click()),
-        );
-        let artist = ui.add(
-            egui::Label::new(
-                egui::RichText::new(track.artist_name())
-                    .size(11.0)
-                    .color(egui::Color32::from_white_alpha(102)),
-            )
-            .truncate()
-            .wrap_mode(egui::TextWrapMode::Truncate)
-            .sense(egui::Sense::click()),
-        );
-        if artist.secondary_clicked() {
-            request_user_menu(ui, track, artist.rect);
-        }
-        CardHit {
-            play,
-            title,
-            artist,
-            like_clicked: false,
-            add_clicked: false,
-            more_clicked: false,
-        }
-    })
-    .inner
+    paint_track_card(ui, rt, images, track, size, playing, accent, false)
 }
 
 /// 行の操作結果 (アート=再生 / タイトル=Track / アーティスト=User / 右クリック=メニュー)。
@@ -1159,8 +1491,7 @@ pub fn fmt_ms_short(ms: i64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
-/// 検索結果用カード (Tauri: TrackCard showStats)。アート左下に plays + 時間。
-/// ホバー時は右上にハート / + / … の小ボタン (Tauri と同じ)。
+/// 検索結果用カード (Tauri: TrackCard showStats)。
 pub fn track_card_stats(
     ui: &mut egui::Ui,
     rt: &tokio::runtime::Handle,
@@ -1169,181 +1500,8 @@ pub fn track_card_stats(
     size: f32,
     playing: bool,
     accent: egui::Color32,
-    liked: bool,
 ) -> CardHit {
-    ui.vertical(|ui| {
-        ui.set_max_width(size + 8.0);
-        let art = track.artwork("t300x300");
-        let play = images.show_rounded(
-            ui,
-            rt,
-            art.as_deref(),
-            size,
-            egui::CornerRadius::same(16),
-        );
-        // ホバー: 暗転 + 再生グリフをフェードイン。
-        let hover_t = ui.ctx().animate_bool_with_time(
-            egui::Id::new(("card-hover", &track.urn)),
-            play.hovered() || playing,
-            0.15,
-        );
-        if hover_t > 0.001 {
-            ui.painter().rect_filled(
-                play.rect,
-                16.0,
-                egui::Color32::from_black_alpha((100.0 * hover_t) as u8),
-            );
-            paint_play_glyph_alpha(ui.painter(), play.rect, playing, hover_t);
-        }
-        // 右上のホバー操作 (ハート / + / …)。
-        let mut like_clicked = false;
-        let mut add_clicked = false;
-        let mut menu_clicked = false;
-        if hover_t > 0.3 {
-            let btn = 24.0;
-            let gap = 2.0;
-            let mut x = play.rect.right() - 8.0 - btn;
-            let y = play.rect.top() + 8.0;
-            let ids = ["like", "add", "menu"];
-            for (i, id) in ids.iter().enumerate() {
-                let rect = egui::Rect::from_min_size(
-                    egui::Pos2::new(x, y),
-                    egui::Vec2::splat(btn),
-                );
-                let resp = ui.interact(
-                    rect,
-                    egui::Id::new(("card-btn", &track.urn, id)),
-                    egui::Sense::click(),
-                );
-                // Tauri チップ: 通常 = 黒 50%、hover = 黒 70%、いいね済み =
-                // アクセント 80% + コントラスト色のハート。
-                let is_like = *id == "like";
-                if is_like && liked {
-                    ui.painter().circle_filled(
-                        rect.center(),
-                        btn * 0.5,
-                        egui::Color32::from_rgba_unmultiplied(
-                            accent.r(),
-                            accent.g(),
-                            accent.b(),
-                            204,
-                        ),
-                    );
-                } else {
-                    let bg = if resp.hovered() { 179 } else { 128 };
-                    ui.painter().circle_filled(
-                        rect.center(),
-                        btn * 0.5,
-                        egui::Color32::from_black_alpha(bg),
-                    );
-                }
-                let color = if is_like && liked {
-                    contrast_color(accent)
-                } else if resp.hovered() {
-                    egui::Color32::WHITE
-                } else {
-                    egui::Color32::from_white_alpha(204)
-                };
-                if is_like {
-                    paint_heart(
-                        ui.painter(),
-                        egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(12.0)),
-                        color,
-                        liked,
-                    );
-                } else if *id == "menu" {
-                    // 横 3 点 (…) を直接描く。
-                    let c = rect.center();
-                    for dx in [-4.0f32, 0.0, 4.0] {
-                        ui.painter().circle_filled(
-                            egui::Pos2::new(c.x + dx, c.y),
-                            1.6,
-                            color,
-                        );
-                    }
-                } else {
-                    paint_ui_icon(
-                        ui.painter(),
-                        egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(12.0)),
-                        UiIcon::Queue,
-                        color,
-                    );
-                }
-                if resp.clicked() {
-                    match *id {
-                        "like" => like_clicked = true,
-                        "add" => add_clicked = true,
-                        _ => menu_clicked = true,
-                    }
-                }
-                if *id == "add" {
-                    let _ = resp.clone().on_hover_text("Add to Queue");
-                }
-                x -= btn + gap;
-                let _ = i;
-            }
-        }
-        // 右下: "833.4K plays" + "3:32" の 2 チップ (Tauri TrackCard showStats)。
-        let chip_font = crate::theme::medium(10.0);
-        let chip_text = egui::Color32::from_white_alpha(204);
-        let mut chips: Vec<String> = Vec::new();
-        if let Some(plays) = track.playback_count {
-            chips.push(format!("{} plays", fmt_count(plays)));
-        }
-        chips.push(fmt_ms_short(track.duration));
-        let pad = egui::vec2(8.0, 2.0);
-        let mut chip_x = play.rect.right() - 8.0;
-        let chip_bottom = play.rect.bottom() - 8.0;
-        for label in chips.iter().rev() {
-            let galley = ui
-                .painter()
-                .layout_no_wrap(label.clone(), chip_font.clone(), chip_text);
-            let w = galley.size().x + pad.x * 2.0;
-            let h = galley.size().y + pad.y * 2.0;
-            let chip = egui::Rect::from_min_size(
-                egui::Pos2::new(chip_x - w, chip_bottom - h),
-                egui::vec2(w, h),
-            );
-            ui.painter()
-                .rect_filled(chip, h * 0.5, egui::Color32::from_black_alpha(89));
-            ui.painter().galley(chip.min + pad, galley, chip_text);
-            chip_x -= w + 4.0;
-        }
-        let title = if playing {
-            egui::RichText::new(track.display_title()).color(accent)
-        } else {
-            egui::RichText::new(track.display_title())
-        };
-        let title = ui.add(
-            egui::Label::new(title.font(crate::theme::medium(13.0)))
-                .truncate()
-                .wrap_mode(egui::TextWrapMode::Truncate)
-                .sense(egui::Sense::click()),
-        );
-        let artist = ui.add(
-            egui::Label::new(
-                egui::RichText::new(track.artist_name())
-                    .size(11.0)
-                    .color(egui::Color32::from_white_alpha(102)),
-            )
-            .truncate()
-            .wrap_mode(egui::TextWrapMode::Truncate)
-            .sense(egui::Sense::click()),
-        );
-        if artist.secondary_clicked() {
-            request_user_menu(ui, track, artist.rect);
-        }
-        let _ = add_clicked;
-        CardHit {
-            play,
-            title,
-            artist,
-            like_clicked,
-            add_clicked,
-            more_clicked: menu_clicked,
-        }
-    })
-    .inner
+    paint_track_card(ui, rt, images, track, size, playing, accent, true)
 }
 
 /// 検索のユーザ/プレイリスト/アルバム行 (アート + 名前。行全体クリック + ホバー背景)。
@@ -1430,27 +1588,33 @@ pub fn nav_item(
     resp
 }
 
-/// Tailwind のブレークポイント (sm/md/lg/xl) に合わせて列数を返す。
-/// Tauri の `grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7` 相当。
+/// Tauri の CSS グリッド相当: 列数は **ビューポート幅**のブレークポイントで
+/// 決まる (Tailwind sm 640 / md 768 / lg 1024 / xl 1280)。
 pub fn grid_cols(
-    avail: f32,
+    ctx: &egui::Context,
     xs: usize,
     sm: usize,
     md: usize,
     lg: usize,
     xl: usize,
 ) -> usize {
-    if avail < 640.0 {
+    let vw = ctx.content_rect().width();
+    if vw < 640.0 {
         xs
-    } else if avail < 768.0 {
+    } else if vw < 768.0 {
         sm
-    } else if avail < 1024.0 {
+    } else if vw < 1024.0 {
         md
-    } else if avail < 1280.0 {
+    } else if vw < 1280.0 {
         lg
     } else {
         xl
     }
+}
+
+/// セル幅 (CSS の `1fr` 相当)。`avail` はコンテンツ幅。
+pub fn grid_cell(avail: f32, cols: usize, gap: f32) -> f32 {
+    ((avail - gap * (cols.saturating_sub(1)) as f32) / cols.max(1) as f32).max(60.0)
 }
 
 /// セクション見出し (Tauri: text-[16px] font-semibold white/90)。

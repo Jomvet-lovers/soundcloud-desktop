@@ -492,19 +492,33 @@ impl LibraryView {
                 widgets::ui_icon(
                     ui,
                     widgets::UiIcon::History,
-                    15.0,
-                    egui::Color32::from_white_alpha(160),
+                    16.0,
+                    egui::Color32::from_white_alpha(140),
                 );
-                widgets::section_title(ui, "Continue");
+                ui.add(egui::Label::new(
+                    egui::RichText::new("Jump back in")
+                        .font(crate::theme::bold(16.0))
+                        .color(egui::Color32::from_white_alpha(230)),
+                ));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if widgets::see_all(ui) {
+                        action = LibraryAction::Navigate(
+                            Route::LibraryCollection,
+                            Some("history".to_string()),
+                        );
+                    }
+                });
             });
+            ui.add_space(12.0);
             egui::ScrollArea::horizontal()
                 .id_salt("lib:continue")
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
                         for (i, t) in continue_preview.iter().enumerate() {
                             let playing = widgets::is_currently_playing(player, t);
                             let hit =
-                                widgets::track_card(ui, rt, images, t, 96.0, playing, accent);
+                                widgets::track_card(ui, rt, images, t, 112.0, playing, accent);
                             if hit.play_clicked() {
                                 action =
                                     LibraryAction::PlayList(continue_preview.clone(), i);

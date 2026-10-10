@@ -233,6 +233,11 @@ pub fn semibold(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name(FONT_SANS_SEMIBOLD.into()))
 }
 
+/// 見出し用ボールド (Tauri: font-bold)。
+pub fn bold(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name(FONT_SANS_BOLD.into()))
+}
+
 /// 本文用ミディアム (Tauri: font-medium)。
 pub fn medium(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name(FONT_SANS_MEDIUM.into()))

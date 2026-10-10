@@ -1060,6 +1060,27 @@ pub fn show_shell(state: &mut AppState, ui: &mut egui::Ui) {
     if state.add_to_playlist.is_some() {
         show_add_to_playlist(state, ui.ctx());
     }
+    // カードのホバー操作 (like / queue / playlist / share) を実行する。
+    for act in crate::widgets::take_card_actions() {
+        match act {
+            crate::widgets::CardAction::ToggleLike { urn, next } => {
+                state.toggle_track_like(&urn, next);
+                crate::widgets::set_liked_override(&urn, next);
+                if state.player.current_queued().map(|t| t.urn.as_str()) == Some(urn.as_str()) {
+                    state.now_liked = Some(next);
+                }
+            }
+            crate::widgets::CardAction::AddToQueue(track) => {
+                state.player.append_queue(vec![track]);
+            }
+            crate::widgets::CardAction::AddToPlaylist(track) => {
+                state.open_add_to_playlist(track);
+            }
+            crate::widgets::CardAction::CopyLink(track) => {
+                copy_track_link(state, ui.ctx(), &track);
+            }
+        }
+    }
     // ウィジェット発の右クリックメニュー要求を回収して開く。
     for req in crate::widgets::take_menu_requests() {
         match req {
@@ -1797,6 +1818,28 @@ fn show_add_to_playlist(state: &mut AppState, ctx: &egui::Context) {
     }
 }
 
+/// トラックの公開リンクをコピーする (未取得なら API から引いてから)。
+fn copy_track_link(
+    state: &mut AppState,
+    ctx: &egui::Context,
+    track: &crate::backend::models::Track,
+) {
+    if let Some(url) = track.permalink_url.clone() {
+        ctx.copy_text(url);
+    } else if let Some(api) = state.api.clone() {
+        let rt = state.runtime().handle().clone();
+        let ctx2 = ctx.clone();
+        let path = format!("/tracks/{}", urlencoding::encode(&track.urn));
+        rt.spawn(async move {
+            if let Ok(v) = api.get_json(&path).await {
+                if let Some(u) = v.get("permalink_url").and_then(|x| x.as_str()) {
+                    ctx2.copy_text(u.to_string());
+                }
+            }
+        });
+    }
+}
+
 /// 右クリック位置にトラックメニューを開く。
 fn open_menu(state: &mut AppState, ui: &egui::Ui, track: crate::backend::models::Track) {
     let pos = ui
@@ -1923,20 +1966,7 @@ fn show_track_menu(state: &mut AppState, ctx: &egui::Context) {
             state.open_download(track.clone());
         }
         Act::CopyLink => {
-            if let Some(url) = track.permalink_url.clone() {
-                ctx.copy_text(url);
-            } else if let Some(api) = state.api.clone() {
-                let rt = state.runtime().handle().clone();
-                let ctx2 = ctx.clone();
-                let path = format!("/tracks/{}", urlencoding::encode(&track.urn));
-                rt.spawn(async move {
-                    if let Ok(v) = api.get_json(&path).await {
-                        if let Some(u) = v.get("permalink_url").and_then(|x| x.as_str()) {
-                            ctx2.copy_text(u.to_string());
-                        }
-                    }
-                });
-            }
+            copy_track_link(state, ctx, &track);
         }
         Act::GoTrack => {
             state.navigate(Route::Track, Some(track.urn.clone()));

@@ -152,8 +152,6 @@ pub struct SearchView {
     tab: SearchTab,
     sort: TrackSort,
     page: u32,
-    /// ハートのローカル上書き (検索カードのホバー操作)。
-    liked_overrides: std::collections::HashMap<String, bool>,
     tracks: Query<Page<Track>>,
     users: Query<Page<ScUser>>,
     playlists: Query<Page<Playlist>>,
@@ -412,64 +410,46 @@ impl SearchView {
                         // カードグリッド (Tauri: grid-cols-3..8 + showStats)。
                         let items: Vec<(usize, &Track)> =
                             page.collection.iter().enumerate().collect();
-                        let card_w = 146.0;
-                        let per_row = (((ui.available_width() + 10.0) / (card_w + 10.0))
-                            .floor() as usize)
-                            .clamp(1, 8);
-                        for chunk in items.chunks(per_row) {
-                            ui.horizontal(|ui| {
-                                for &(i, track) in chunk {
-                                    let playing =
-                                        widgets::is_currently_playing(player, track);
-                                    let liked = self
-                                        .liked_overrides
-                                        .get(&track.urn)
-                                        .copied()
-                                        .or(track.user_favorite)
-                                        .unwrap_or(false);
-                                    let hit = widgets::track_card_stats(
-                                        ui, rt, images, track, card_w, playing, accent,
-                                        liked,
-                                    );
-                                    if hit.like_clicked {
-                                        let next = !liked;
-                                        self.liked_overrides
-                                            .insert(track.urn.clone(), next);
-                                        let api = api.clone();
-                                        let path = format!(
-                                            "/likes/tracks/{}",
-                                            urlencoding::encode(&track.urn)
+                        let avail = ui.available_width();
+                        let gap = 10.0;
+                        let cols = widgets::grid_cols(ui.ctx(), 3, 4, 5, 6, 8);
+                        let card_w = widgets::grid_cell(avail, cols, gap);
+                        ui.scope(|ui| {
+                            ui.spacing_mut().item_spacing.y = gap;
+                            for chunk in items.chunks(cols) {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = gap;
+                                    for &(i, track) in chunk {
+                                        let playing =
+                                            widgets::is_currently_playing(player, track);
+                                        let hit = widgets::track_card_stats(
+                                            ui, rt, images, track, card_w, playing, accent,
                                         );
-                                        rt.spawn(async move {
-                                            let method = if next { "POST" } else { "DELETE" };
-                                            let _ = api.request_json(method, &path, None).await;
-                                        });
-                                    } else if hit.add_clicked {
-                                        action = SearchAction::AddNextUp(track.clone());
-                                    } else if hit.play_clicked() {
-                                        action = SearchAction::PlayList(
-                                            page.collection.clone(),
-                                            i,
-                                        );
-                                    } else if hit.title_clicked() {
-                                        action = SearchAction::Navigate(
-                                            Route::Track,
-                                            Some(track.urn.clone()),
-                                        );
-                                    } else if hit.artist_clicked() {
-                                        if let Some(u) = track.user.as_ref() {
-                                            action = SearchAction::Navigate(
-                                                Route::User,
-                                                Some(u.urn.clone()),
+                                        if hit.play_clicked() {
+                                            action = SearchAction::PlayList(
+                                                page.collection.clone(),
+                                                i,
                                             );
+                                        } else if hit.title_clicked() {
+                                            action = SearchAction::Navigate(
+                                                Route::Track,
+                                                Some(track.urn.clone()),
+                                            );
+                                        } else if hit.artist_clicked() {
+                                            if let Some(u) = track.user.as_ref() {
+                                                action = SearchAction::Navigate(
+                                                    Route::User,
+                                                    Some(u.urn.clone()),
+                                                );
+                                            }
+                                        } else if hit.menu_clicked() {
+                                            action =
+                                                SearchAction::OpenMenu(track.clone());
                                         }
-                                    } else if hit.menu_clicked() {
-                                        action =
-                                            SearchAction::OpenMenu(track.clone());
                                     }
-                                }
-                            });
-                        }
+                                });
+                            }
+                        });
                     }
                     Self::pager(ui, self.page, page.has_more, &mut self.page);
                 }

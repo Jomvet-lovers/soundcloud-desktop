@@ -103,6 +103,7 @@ pub struct DiscoverItem {
     pub description: Option<String>,
     pub short_description: Option<String>,
     pub playlist_type: Option<String>,
+    pub permalink_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
