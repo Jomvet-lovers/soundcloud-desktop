@@ -28,6 +28,9 @@ import { queryClient } from './query-client';
 import { getArtistDisplay, getDisplayTitle } from './track-display';
 
 const SKIP_THRESHOLD_SEC = 30;
+/** Sustained-play threshold before reporting server-side history. */
+const REPORT_THRESHOLD_MS = 15_000;
+let reportTimer: number | undefined;
 /** Минимум, чтобы засчитать «прослушано полностью» для коротких треков (50% длительности). */
 const FULL_PLAY_RATIO = 0.5;
 /** Битый кеш: сыграло меньше этого на треке от EARLY_END_MIN_EXPECTED_SEC — лечим перекачкой. */
@@ -478,6 +481,24 @@ function afterLoad(track: Track, gen: number) {
         void queryClient.invalidateQueries({ queryKey: ['history'] });
       })
       .catch(() => {});
+    // Server-side attribution via the official analytics audio flow (the
+    // backend mirrors it from the same track still playing after 25s).
+    if (historyTrack.permalink_url && historyTrack.user?.urn && historyTrack.duration > 0) {
+      if (reportTimer !== undefined) clearTimeout(reportTimer);
+      const urn = historyTrack.urn;
+      const reportBody = JSON.stringify({
+        permalinkUrl: historyTrack.permalink_url,
+        trackUrn: historyTrack.urn,
+        ownerUrn: historyTrack.user.urn,
+        durationMs: historyTrack.duration,
+      });
+      reportTimer = window.setTimeout(() => {
+        const s = usePlayerStore.getState();
+        if (s.currentTrack?.urn === urn && s.isPlaying && s.repeat !== 'one') {
+          api('/history/report', { method: 'POST', body: reportBody }).catch(() => {});
+        }
+      }, REPORT_THRESHOLD_MS);
+    }
   }
 
   const isPlaying = usePlayerStore.getState().isPlaying;

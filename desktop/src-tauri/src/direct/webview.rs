@@ -131,6 +131,7 @@ async fn do_fetch(
     body: Option<&Value>,
     extract: Option<&str>,
     content_type: Option<&str>,
+    extra_headers: Option<&serde_json::Map<String, Value>>,
 ) -> Result<(u16, String), String> {
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let url_js = serde_json::to_string(url).map_err(|e| e.to_string())?;
@@ -141,6 +142,11 @@ async fn do_fetch(
             "Authorization".into(),
             serde_json::json!(format!("OAuth {t}")),
         );
+    }
+    if let Some(extra) = extra_headers {
+        for (k, v) in extra {
+            headers.insert(k.clone(), v.clone());
+        }
     }
     let mut init = serde_json::json!({
         "method": method,
@@ -259,7 +265,28 @@ pub async fn execute_ct(
     let window = writer_window(app).ok_or_else(|| "writer window unavailable".to_string())?;
     wait_ready(&window).await?;
     let (status, payload) =
-        do_fetch(&window, token, url, method, body, None, Some(content_type)).await?;
+        do_fetch(&window, token, url, method, body, None, Some(content_type), None).await?;
+    Ok(WriteOutcome { status, payload, captcha: None })
+}
+
+/* TEMP-DIAG(history): page fetch with explicit Content-Type, optional extra
+   headers, and optional auth suppression (token None => no Authorization). */
+pub async fn execute_full(
+    app: &AppHandle,
+    token: Option<&str>,
+    method: &str,
+    url: &str,
+    body: Option<&Value>,
+    content_type: Option<&str>,
+    extra: Option<&serde_json::Map<String, Value>>,
+) -> Result<WriteOutcome, String> {
+    // NOTE: intentionally lock-free (unlike execute/execute_with): diag-only
+    // concurrent path so replays can run DURING a sniff-held lane. The scw
+    // cookie channel is seq-guarded, so interleaved evals stay separated.
+    let window = writer_window(app).ok_or_else(|| "writer unavailable".to_string())?;
+    wait_ready(&window).await?;
+    let (status, payload) =
+        do_fetch(&window, token, url, method, body, None, content_type, extra).await?;
     Ok(WriteOutcome { status, payload, captcha: None })
 }
 
@@ -276,7 +303,7 @@ pub async fn execute_with(
     let window = writer_window(app).ok_or_else(|| "writer window unavailable".to_string())?;
     wait_ready(&window).await?;
 
-    let (status, payload) = do_fetch(&window, token, url, method, body, extract, None).await?;
+    let (status, payload) = do_fetch(&window, token, url, method, body, extract, None, None).await?;
     if !is_challenge(status, &payload) {
         return Ok(WriteOutcome {
             status,
@@ -304,7 +331,7 @@ pub async fn execute_with(
         let _ = window.hide();
         return Err(e);
     }
-    let (status, payload) = do_fetch(&window, token, url, method, body, extract, None).await?;
+    let (status, payload) = do_fetch(&window, token, url, method, body, extract, None, None).await?;
     let _ = window.hide();
     let captcha = is_challenge(status, &payload).then_some(challenge);
     Ok(WriteOutcome {
@@ -350,12 +377,17 @@ const SNIFF_HOOK_JS: &str = r#"try{
   if(!window.__sniffWrapped){
     window.__sniffWrapped=true;
     try{
+      window.__snifferrs=[];
+      window.onerror=function(m){try{if(window.__snifferrs.length<10)window.__snifferrs.push(String(m).slice(0,150));}catch(_e){}};
+    }catch(_e){}
+    try{
       var _p=HTMLMediaElement.prototype.play;
       HTMLMediaElement.prototype.play=function(){try{
         if(!window.__sniffed)window.__sniffed=[];
         window.__sniffed.push('PLAYCALLED muted='+this.muted+' src='+(this.currentSrc||'').slice(-60));
         this.muted=true;
-      }catch(_e){}return _p.call(this);};
+      }catch(_e){}
+      try{return _p.call(this).then(function(){try{window.__sniffed.push('PLAYOK');}catch(_e){}},function(err){try{window.__sniffed.push('PLAYFAIL '+(err&&err.name||err));}catch(_e){}});}catch(e){try{return _p.call(this);}catch(_e){}}};
       window.__sniffed.push('MUTEHOOK installed');
     }catch(_e){window.__sniffed.push('MUTEHOOK fail');}
     try{
@@ -395,6 +427,9 @@ const SNIFF_HOOK_JS: &str = r#"try{
       var s=String((u&&u.url)||u);
       var isApi=s.indexOf('api-v2.soundcloud.com')>=0;
       if(m!=='GET'){
+        if(isApi&&(s.indexOf('/me?')>=0||s.indexOf('play-history')>=0)){
+          try{window.__sniffed.push('HDRS fetch '+s.slice(0,120)+' :: '+JSON.stringify((o&&o.headers)||{}).slice(0,400));}catch(_e){}
+        }
         if(isApi&&s.indexOf('/me?')>=0){recBatch(m,s,(o&&o.body)||'');}
         else{rec(m+'@'+(isApi?'api':'ext'),s,(o&&o.body)||'');}
       }else if(isApi&&keep(m,s)){rec(m,s,(o&&o.body)||'');}
@@ -402,14 +437,21 @@ const SNIFF_HOOK_JS: &str = r#"try{
     return _f.apply(this,arguments);};
     var _o=XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open=function(m,u){try{
-      this.__m=String(m||'GET').toUpperCase();this.__u=String(u||'');
+      this.__m=String(m||'GET').toUpperCase();this.__u=String(u||'');this.__h={};
     }catch(_e){}return _o.apply(this,arguments);};
+    var _sh=XMLHttpRequest.prototype.setRequestHeader;
+    XMLHttpRequest.prototype.setRequestHeader=function(k,v){try{
+      if(!this.__h)this.__h={};this.__h[String(k)]=String(v).slice(0,120);
+    }catch(_e){}return _sh.apply(this,arguments);};
     var _s=XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.send=function(b){try{
       var u=String(this.__u||'');
       var isApi=u.indexOf('api-v2.soundcloud.com')>=0;
       var mm=this.__m||'?';
       if(mm!=='GET'){
+        if(isApi&&(u.indexOf('/me?')>=0||u.indexOf('play-history')>=0)){
+          try{window.__sniffed.push('HDRS '+u.slice(0,120)+' :: '+JSON.stringify(this.__h||{}).slice(0,400));}catch(_e){}
+        }
         if(isApi&&u.indexOf('/me?')>=0){recBatch('XHR '+mm,u,b);}
         else{rec('XHR '+mm+'@'+(isApi?'api':'ext'),u,b);}
       }else if(isApi&&keep(mm,u)){rec('XHR '+mm,u,b);}
@@ -449,6 +491,10 @@ async fn read_sniff(window: &WebviewWindow) -> Vec<String> {
 /// JS that finds play buttons and clicks the first visible one.
 const SNIFF_CLICK_JS: &str = r#"try{
   if(!window.__sniffed)window.__sniffed=[];
+  try{
+    var closers=['#onetrust-accept-btn-handler','button[aria-label="Close"]','.modal__closeButton','buttononetrust-close-btn-handler'];
+    for(var c=0;c<closers.length;c++){var cb2=document.querySelector(closers[c]);if(cb2&&cb2.offsetParent!==null){cb2.click();window.__sniffed.push('CLOSED '+closers[c]);break;}}
+  }catch(_e){}
   var sels=['.soundTitle__playButton','button.sc-button-play','.playControls__play','button[aria-label="Play"]','button[title="Play"]','[data-testid="play-button"]'];
   var hit='';
   for(var i=0;i<sels.length;i++){var b=document.querySelector(sels[i]);if(b&&b.offsetParent!==null){b.click();hit=sels[i];break;}}
@@ -499,6 +545,136 @@ async fn read_fullbatch(window: &WebviewWindow) -> Option<String> {
     if out.is_empty() { None } else { Some(out) }
 }
 
+/// TEMP-DIAG(history): end-to-end hot replay test. Drives official playback
+/// until a real audio checkpoint is captured, then immediately re-POSTs the
+/// identical body (fresh ts/sent_at only, same datadome header) in the same
+/// live session. Answers whether acceptance is about session-hotness.
+pub async fn hot_replay(app: &AppHandle, token: &str, page_url: &str) -> Result<Value, String> {
+    let _lane = LANE.lock().await;
+    let window = writer_window(app).ok_or_else(|| "writer unavailable".to_string())?;
+    inject_session(&window, token);
+    let url_js = serde_json::to_string(page_url).map_err(|e| e.to_string())?;
+    let _ = eval(&window, &format!("location.href={url_js}"));
+    let slug = page_url.rsplit('/').next().unwrap_or("soundcloud.com");
+    let _ = wait_for_page(&window, slug, Duration::from_secs(30)).await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let _ = eval(&window, SNIFF_HOOK_JS);
+    if let Err(e) = eval(&window, SNIFF_CLICK_JS) {
+        return Err(format!("click failed: {e}"));
+    }
+    // Phase 1: wait for real playback (PLAYOK) and capture one checkpoint.
+    // The paired HDRS line carries the live x-datadome-clientid header.
+    let mut checkpoint: Option<String> = None;
+    let mut datadome: Option<String> = None;
+    let mut playing = false;
+    let mut acc: Vec<String> = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while Instant::now() < deadline && checkpoint.is_none() {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let _ = eval(&window, SNIFF_HOOK_JS);
+        if !playing {
+            let _ = eval(&window, SNIFF_CLICK_JS);
+        }
+        for it in read_sniff(&window).await {
+            if it.contains("PLAYOK") {
+                playing = true;
+            } else if it.contains("PLAYFAIL") {
+                playing = false;
+            }
+            if datadome.is_none() && it.starts_with("HDRS ") && it.contains("/me?") {
+                if let Some(js) = it.split(" :: ").nth(1) {
+                    if let Ok(h) = serde_json::from_str::<Value>(js) {
+                        if let Some(id) = h.get("x-datadome-clientid").and_then(Value::as_str) {
+                            datadome = Some(id.to_string());
+                        }
+                    }
+                }
+            }
+            acc.push(it);
+        }
+        // Pull the full raw batch; exit as soon as a checkpoint is captured.
+        // (No PLAYOK gate: the player streams via WebAudio, so <audio>
+        // play() hooks never fire. Footer aria would tell, but the
+        // checkpoint itself is the ground truth.)
+        if let Some(raw) = read_fullbatch(&window).await {
+            if raw.contains("\"action\":\"checkpoint\"") {
+                checkpoint = Some(raw);
+            }
+        }
+    }
+    let raw = checkpoint.ok_or_else(|| {
+        let tail: Vec<&str> = acc.iter().rev().take(6).map(String::as_str).collect();
+        format!("no live checkpoint captured; recent: {}", tail.join(" // ").chars().take(600).collect::<String>())
+    })?;
+    // Phase 2: patch ts/sent_at, re-POST in the same hot session.
+    let mut body: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_iso = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    if let Some(evts) = body.get_mut("events").and_then(Value::as_array_mut) {
+        for e in evts.iter_mut() {
+            if let Some(p) = e.get_mut("payload") {
+                if let Some(obj) = p.as_object_mut() {
+                    obj.insert("ts".into(), Value::from(now_ms));
+                }
+            }
+        }
+    }
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("sent_at".into(), Value::from(now_iso.clone()));
+    }
+    // Datadome header: the live tab's id captured alongside, else cookie.
+    if datadome.is_none() {
+        datadome = read_datadome_id(&window).await;
+    }
+    let mut extra = serde_json::Map::new();
+    if let Some(id) = datadome {
+        extra.insert("x-datadome-clientid".into(), Value::from(id));
+    }
+    let cid = read_client_id(&window).await.unwrap_or_default();
+    let url = format!("https://api-v2.soundcloud.com/me?client_id={cid}");
+    let (status, payload) =
+        do_fetch(&window, None, &url, "POST", Some(&body), None, Some("application/json"), Some(&extra)).await?;
+    Ok(serde_json::json!({ "replay_status": status, "replay_body": payload.chars().take(200).collect::<String>(), "sent_ts": now_ms }))
+}
+
+/// Read the live tab's DataDome client id (set by the sensor JS).
+async fn read_datadome_id(window: &WebviewWindow) -> Option<String> {
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let _ = eval(window, &format!("try{{var m=document.cookie.match(/datadome=([^;]+)/);document.cookie='scw={seq}:DD:'+encodeURIComponent(m?m[1]:'')+';path=/';}}catch(_e){{}}"));
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        tokio::time::sleep(POLL).await;
+        if let Some(rest) = read_channel(window, seq) {
+            let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
+            let id = rest.strip_prefix("DD:").unwrap_or("").to_string();
+            let id = urlencoding::decode(&id).map(|s| s.into_owned()).unwrap_or_default();
+            return if id.is_empty() { None } else { Some(id) };
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+    }
+}
+
+/// Read the live tab's api-v2 client_id (page URL may carry a fresh one).
+async fn read_client_id(window: &WebviewWindow) -> Option<String> {
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let _ = eval(window, &format!("try{{var m=(document.documentElement.innerHTML||'').match(/client_id=([A-Za-z0-9]+)/);document.cookie='scw={seq}:CI:'+encodeURIComponent(m?m[1]:'')+';path=/';}}catch(_e){{}}"));
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        tokio::time::sleep(POLL).await;
+        if let Some(rest) = read_channel(window, seq) {
+            let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
+            let id = rest.strip_prefix("CI:").unwrap_or("").to_string();
+            let id = urlencoding::decode(&id).map(|s| s.into_owned()).unwrap_or_default();
+            return if id.is_empty() { None } else { Some(id) };
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+    }
+}
+
 /// TEMP-DIAG(history): drive the official web player in the writer page and
 /// capture the api-v2 requests it emits around a play press. Returns the
 /// captured log. Best-effort automation; never changes account state
@@ -536,19 +712,30 @@ pub async fn sniff_official_play(
 
     // Accumulate incrementally: re-hook (covers re-navigation) and drain the
     // array every few seconds so a later context wipe can't lose everything.
-    // Also re-attempt the play click until a media element appears.
+    // State-aware clicking: PLAYOK means the media is (muted-)playing, so
+    // further clicks would only toggle pause. Re-click solely after PLAYFAIL
+    // or while no play attempt has been observed yet.
+    let mut playing = false;
     let polls = (wait_secs / 5).max(1);
     for i in 0..polls {
         tokio::time::sleep(Duration::from_secs(5)).await;
         if let Err(e) = eval(&window, SNIFF_HOOK_JS) {
             acc.push(format!("(hook eval err p{i}: {e})"));
         }
-        if i > 0 {
+        if i > 0 && !playing {
             if let Err(e) = eval(&window, SNIFF_CLICK_JS) {
                 acc.push(format!("(click eval err p{i}: {e})"));
             }
         }
-        acc.extend(read_sniff(&window).await);
+        let items = read_sniff(&window).await;
+        for it in &items {
+            if it.contains("PLAYOK") {
+                playing = true;
+            } else if it.contains("PLAYFAIL") {
+                playing = false;
+            }
+        }
+        acc.extend(items);
     }
 
     let _ = eval(
@@ -558,6 +745,12 @@ pub async fn sniff_official_play(
       var st='TITLE:'+document.title.slice(0,80);
       try{var md=document.querySelector('audio,video');st+=' MEDIA:'+(md?(md.paused?'paused':'playing'):'none');}catch(_e){}
       try{st+=' PLAYBTN:'+document.querySelectorAll('.playControls__play').length;}catch(_e){}
+      try{var pb=document.querySelector('.playControls__play');st+=' FBARIA:'+((pb&&(pb.getAttribute('aria-label')||''))||'none');}catch(_e){}
+      try{st+=' DIALOGS:'+document.querySelectorAll('[role="dialog"],.modalModal').length;}catch(_e){}
+      try{var dg=document.querySelector('[role="dialog"],.modalModal');st+=' DHTML:'+((dg&&(dg.outerHTML||'')).slice(0,200));}catch(_e){}
+      try{var cb=document.querySelector('.soundTitle__playButton');var r=cb?cb.getBoundingClientRect():null;var el=r?document.elementFromPoint(r.left+r.width/2,r.top+r.height/2):null;st+=' HIT:'+((el&&(el.tagName+'.'+(el.className&&el.className.baseVal!==undefined?el.className.baseVal:String(el.className||'')).slice(0,40)))||'none');}catch(_e){}
+      try{var dcap=[document.querySelector('#datadome-captcha'),document.querySelector('#captcha')].filter(function(x){return !!x;}).length;st+=' DOME:'+dcap;}catch(_e){}
+      try{st+=' ERRS:'+(window.__snifferrs||[]).join('|').slice(0,300);}catch(_e){}
       window.__sniffed.push(st);
     }catch(_e){}"#,
     );
