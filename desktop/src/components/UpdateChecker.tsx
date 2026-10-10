@@ -194,8 +194,8 @@ export function UpdateChecker({
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
-      <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e]/95 border border-white/[0.12] shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
+      <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e] border border-white/[0.12] shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div className="flex items-center gap-2.5">
