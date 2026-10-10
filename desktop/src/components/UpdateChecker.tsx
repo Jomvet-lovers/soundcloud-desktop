@@ -1,7 +1,5 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { relaunch } from '@tauri-apps/plugin-process';
-import { check } from '@tauri-apps/plugin-updater';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { proxiedAssetUrl } from '../lib/asset-url';
 import { APP_VERSION } from '../lib/constants';
 import { ExternalLink, X } from '../lib/icons';
@@ -144,38 +142,8 @@ export function UpdateChecker({
   onDismiss: () => void;
 }) {
   const renderedNotes = useMemo(() => renderReleaseBody(release.body), [release.body]);
-  const [phase, setPhase] = useState<'idle' | 'downloading' | 'ready' | 'error'>('idle');
-  const [downloaded, setDownloaded] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState<string | null>(null);
 
   if (!release) return null;
-
-  const startInstall = async () => {
-    setError(null);
-    setDownloaded(0);
-    setTotal(0);
-    setPhase('downloading');
-    try {
-      const update = await check();
-      if (!update) {
-        setPhase('idle');
-        return;
-      }
-      await update.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          setTotal(event.data.contentLength ?? 0);
-        } else if (event.event === 'Progress') {
-          setDownloaded((prev) => prev + event.data.chunkLength);
-        } else if (event.event === 'Finished') {
-          setPhase('ready');
-        }
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Download failed');
-      setPhase('error');
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
@@ -212,72 +180,25 @@ export function UpdateChecker({
         )}
 
         {/* Actions */}
-        {phase === 'downloading' || phase === 'ready' ? (
-          <div className="px-5 py-4 border-t border-white/[0.08] space-y-3">
-            <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent transition-[width] duration-300"
-                style={{
-                  width: total > 0 ? `${Math.min(100, (downloaded / total) * 100)}%` : '100%',
-                }}
-              />
-            </div>
-            <p className="text-[12px] text-white/50 tabular-nums">
-              {phase === 'ready'
-                ? 'Downloaded — restart to apply the update'
-                : total > 0
-                  ? `Downloading… ${(downloaded / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`
-                  : 'Downloading…'}
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
-              >
-                {'Later'}
-              </button>
-              {phase === 'ready' && (
-                <button
-                  type="button"
-                  onClick={() => relaunch()}
-                  className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer"
-                >
-                  {'Restart now'}
-                </button>
-              )}
-            </div>
+        <div className="px-5 py-4 border-t border-white/[0.08]">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
+            >
+              {'Later'}
+            </button>
+            <button
+              type="button"
+              onClick={() => openUrl(release.html_url)}
+              className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              {'Release page'}
+              <ExternalLink size={13} />
+            </button>
           </div>
-        ) : (
-          <div className="px-5 py-4 border-t border-white/[0.08] space-y-2">
-            {phase === 'error' && error && <p className="text-[12px] text-red-400/90">{error}</p>}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={onDismiss}
-                className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/50 font-medium transition-colors cursor-pointer"
-              >
-                {'Later'}
-              </button>
-              <button
-                type="button"
-                onClick={() => openUrl(release.html_url)}
-                title={'Open the release page in the browser'}
-                className="flex-1 py-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/70 font-medium transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                {'Release page'}
-                <ExternalLink size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={() => void startInstall()}
-                className="flex-1 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-[13px] text-accent-contrast font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                {'Download & install'}
-              </button>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

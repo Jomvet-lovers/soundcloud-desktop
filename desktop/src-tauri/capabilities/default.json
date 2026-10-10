@@ -32,8 +32,6 @@
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
     "dialog:default",
-    "process:default",
-    "updater:default",
     {
       "identifier": "http:default",
       "allow": [
