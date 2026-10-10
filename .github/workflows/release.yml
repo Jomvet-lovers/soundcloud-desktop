@@ -54,8 +54,16 @@ jobs:
           cache: pnpm
           cache-dependency-path: desktop/pnpm-lock.yaml
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Ensure Rust stable
+        # dtolnay/rust-toolchain downloads rustup on every run and flakes
+        # when sh.rustup.rs is unreachable; the runner images ship a stable
+        # toolchain already, so prefer it and only install as fallback.
+        shell: bash
+        run: |
+          rustc --version || rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+          rustc --version
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -153,8 +161,16 @@ jobs:
           cache: pnpm
           cache-dependency-path: desktop/pnpm-lock.yaml
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Ensure Rust stable
+        # dtolnay/rust-toolchain downloads rustup on every run and flakes
+        # when sh.rustup.rs is unreachable; the runner images ship a stable
+        # toolchain already, so prefer it and only install as fallback.
+        shell: bash
+        run: |
+          rustc --version || rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+          rustc --version
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
