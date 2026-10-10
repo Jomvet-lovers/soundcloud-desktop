@@ -4,7 +4,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { useMemo, useState } from 'react';
 import { proxiedAssetUrl } from '../lib/asset-url';
 import { APP_VERSION } from '../lib/constants';
-import { AlertCircle, ExternalLink, Sparkles, X } from '../lib/icons';
+import { ExternalLink, X } from '../lib/icons';
 import type { GithubRelease } from '../lib/update-check';
 
 function stripLeadingV(version: string) {
@@ -59,20 +59,6 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
   return parts;
 }
 
-function calloutTone(kind: string) {
-  switch (kind) {
-    case 'WARNING':
-    case 'CAUTION':
-      return 'border-amber-500/20 bg-amber-500/10 text-amber-100';
-    case 'IMPORTANT':
-      return 'border-accent/25 bg-accent/10 text-white/85';
-    case 'TIP':
-      return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100';
-    default:
-      return 'border-sky-500/20 bg-sky-500/10 text-sky-100';
-  }
-}
-
 function renderReleaseBody(body: string) {
   const lines = body.split(/\r?\n/);
   const nodes: React.ReactNode[] = [];
@@ -123,19 +109,17 @@ function renderReleaseBody(body: string) {
       }
 
       nodes.push(
-        <div key={index} className={`rounded-xl border px-3 py-2.5 mt-2 ${calloutTone(kind)}`}>
-          <div className="flex items-start gap-2">
-            <AlertCircle size={14} className="mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold opacity-80">{kind}</p>
-              <div className="mt-1 space-y-1 text-[12px] leading-relaxed opacity-90">
-                {bodyLines.map((calloutLine, calloutIndex) => (
-                  <p key={`${index}-${calloutIndex}`}>
-                    {renderInlineMarkdown(calloutLine, `callout-${index}-${calloutIndex}`)}
-                  </p>
-                ))}
-              </div>
-            </div>
+        <div
+          key={index}
+          className="border-t border-white/[0.08] mt-2 pt-2 first:mt-0 first:border-t-0 first:pt-0"
+        >
+          <p className="text-[11px] font-semibold text-white/40">{kind}</p>
+          <div className="mt-1 space-y-1 text-[12px] leading-relaxed text-white/60">
+            {bodyLines.map((calloutLine, calloutIndex) => (
+              <p key={`${index}-${calloutIndex}`}>
+                {renderInlineMarkdown(calloutLine, `callout-${index}-${calloutIndex}`)}
+              </p>
+            ))}
           </div>
         </div>,
       );
@@ -195,24 +179,19 @@ export function UpdateChecker({
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
-      <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e] border border-white/[0.12] shadow-[0_8px_64px_rgba(0,0,0,0.6)] overflow-hidden">
+      <div className="relative w-full max-w-md mx-4 rounded-2xl bg-[#1a1a1e] border border-white/[0.12] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-accent/15 flex items-center justify-center">
-              <Sparkles size={16} className="text-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold">{'Update available'}</h2>
-              <p className="text-[11px] text-white/30 mt-0.5">
-                {stripLeadingV(APP_VERSION)} → {stripLeadingV(release.tag_name)}
-              </p>
-            </div>
+        <div className="flex items-center justify-between px-5 pt-5 pb-4">
+          <div>
+            <h2 className="text-sm font-semibold">{'Update available'}</h2>
+            <p className="text-[11px] text-white/30 mt-0.5">
+              {stripLeadingV(APP_VERSION)} → {stripLeadingV(release.tag_name)}
+            </p>
           </div>
           <button
             type="button"
             onClick={onDismiss}
-            className="w-7 h-7 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center transition-colors cursor-pointer"
+            className="w-7 h-7 rounded-lg bg-white/[0.05] hover:bg-white/[0.08] flex items-center justify-center transition-colors cursor-pointer"
           >
             <X size={14} className="text-white/40" />
           </button>
@@ -220,24 +199,24 @@ export function UpdateChecker({
 
         {/* Release title */}
         {release.name && (
-          <div className="px-5 pb-2">
+          <div className="px-5 pb-3 border-t border-white/[0.08] pt-3">
             <p className="text-[13px] font-medium text-white/80">{release.name}</p>
           </div>
         )}
 
         {/* Release notes */}
         {release.body && (
-          <div className="selectable mx-5 mb-4 max-h-60 overflow-y-auto rounded-xl bg-black/30 border border-white/[0.08] p-4 space-y-1">
+          <div className="selectable mx-5 mb-4 max-h-60 overflow-y-auto border-t border-white/[0.08] pt-3 space-y-1">
             {renderedNotes}
           </div>
         )}
 
         {/* Actions */}
         {phase === 'downloading' || phase === 'ready' ? (
-          <div className="px-5 pb-5 space-y-3">
+          <div className="px-5 py-4 border-t border-white/[0.08] space-y-3">
             <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
               <div
-                className="h-full bg-[var(--color-accent)] transition-[width] duration-300"
+                className="h-full bg-accent transition-[width] duration-300"
                 style={{
                   width: total > 0 ? `${Math.min(100, (downloaded / total) * 100)}%` : '100%',
                 }}
@@ -270,7 +249,7 @@ export function UpdateChecker({
             </div>
           </div>
         ) : (
-          <div className="px-5 pb-5 space-y-2">
+          <div className="px-5 py-4 border-t border-white/[0.08] space-y-2">
             {phase === 'error' && error && <p className="text-[12px] text-red-400/90">{error}</p>}
             <div className="flex gap-2">
               <button
