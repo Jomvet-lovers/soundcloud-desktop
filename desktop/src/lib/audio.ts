@@ -28,9 +28,6 @@ import { queryClient } from './query-client';
 import { getArtistDisplay, getDisplayTitle } from './track-display';
 
 const SKIP_THRESHOLD_SEC = 30;
-/** Sustained-play threshold before asking the server to attribute history. */
-const REPORT_THRESHOLD_MS = 30_000;
-let reportTimer: number | undefined;
 /** Минимум, чтобы засчитать «прослушано полностью» для коротких треков (50% длительности). */
 const FULL_PLAY_RATIO = 0.5;
 /** Битый кеш: сыграло меньше этого на треке от EARLY_END_MIN_EXPECTED_SEC — лечим перекачкой. */
@@ -481,23 +478,6 @@ function afterLoad(track: Track, gen: number) {
         void queryClient.invalidateQueries({ queryKey: ['history'] });
       })
       .catch(() => {});
-    // Server-side attribution (SoundCloud only records ~30s sustained plays
-    // reported by its official client). Queue a companion report if the same
-    // track is still playing after the threshold.
-    if (historyTrack.permalink_url) {
-      if (reportTimer !== undefined) clearTimeout(reportTimer);
-      const urn = historyTrack.urn;
-      const permalinkUrl = historyTrack.permalink_url;
-      reportTimer = window.setTimeout(() => {
-        const s = usePlayerStore.getState();
-        if (s.currentTrack?.urn === urn && s.isPlaying && s.repeat !== 'one') {
-          api('/history/report', {
-            method: 'POST',
-            body: JSON.stringify({ permalinkUrl }),
-          }).catch(() => {});
-        }
-      }, REPORT_THRESHOLD_MS);
-    }
   }
 
   const isPlaying = usePlayerStore.getState().isPlaying;

@@ -71,28 +71,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 store.save();
             }
             // NOTE: the legacy POST /me/play-history write was removed here:
-            // SC accepts it (204) but never records it. Server-side
-            // attribution goes through POST /history/report (companion flow).
+            // SC accepts it (204) but never records it.
             ok(json!({ "ok": true }))
-        }
-        // Server-side history attribution: muted official-client companion
-        // playback in the writer window. The frontend calls this only after
-        // ~30s of sustained playback of the same track.
-        ("POST", ["history", "report"]) => {
-            let b = body_json(&body);
-            let page = b.get("permalinkUrl").and_then(Value::as_str).unwrap_or_default();
-            let page_ok = page.starts_with("https://soundcloud.com/") && page.len() < 300;
-            match (token.as_deref(), page_ok) {
-                (Some(t), true) => {
-                    super::super::webview::spawn_companion(
-                        s.app.clone(),
-                        t.to_string(),
-                        page.to_string(),
-                    );
-                    ok(json!({ "ok": true, "queued": true }))
-                }
-                _ => ok(json!({ "ok": true, "queued": false })),
-            }
         }
         ("DELETE", ["history"]) => {
             let mut store = s.store.lock().await;
@@ -235,21 +215,6 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             }
         }
 
-        // ── debug: silent companion playback (proven history attribution) ──
-        ("POST", ["debug", "companion-play"]) => {
-            let Some(t) = token.as_deref() else {
-                return Ok(err(401, "unauthorized"));
-            };
-            let page = q_str(&q, "page").unwrap_or_default();
-            if page.is_empty() {
-                return Ok(err(400, "missing ?page="));
-            }
-            let hold = q_u64(&q, "hold", 25).clamp(10, 120);
-            match super::super::webview::companion_play(&s.app, t, &page, hold).await {
-                Ok(v) => ok(v),
-                Err(e) => err(502, &e),
-            }
-        }
         // ── debug: attribute a play by streaming (in-page, with cookies) ──
         ("POST", ["debug", "attr-play"]) => {
             let Some(t) = token.as_deref() else {

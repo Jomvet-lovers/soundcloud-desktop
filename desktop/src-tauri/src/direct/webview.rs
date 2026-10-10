@@ -29,9 +29,6 @@ const POLL: Duration = Duration::from_millis(150);
 
 static SEQ: AtomicU64 = AtomicU64::new(1);
 static LANE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-/// Companion playback holds the writer window for ~40s; it must not block
-/// short interactive writes (likes/follows), so it serializes separately.
-static COMPANION_LANE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub struct WriteOutcome {
     pub status: u16,
@@ -386,6 +383,8 @@ const SNIFF_HOOK_JS: &str = r#"try{
           var es=JSON.stringify(arrs[a][e]);
           if(/play|audio|checkpoint|listen/i.test(es))hits.push(es.slice(0,2000));
         }}
+        // Keep the complete raw body for exact replay experiments.
+        if(hits.length){try{window.__fullbatch=String(b);}catch(_e){}}
       }catch(_e){}
       window.__sniffed.push(m+' '+s.slice(0,160)+' BATCHPLAY total='+hits.length+' :: '+hits.join(' || ').slice(0,2400));
       if(window.__sniffed.length>60)window.__sniffed.shift();
@@ -447,16 +446,6 @@ async fn read_sniff(window: &WebviewWindow) -> Vec<String> {
     }
 }
 
-/// JS that clicks the TRACK HEADER play button only (never the footer
-/// control: that would toggle a stale queue instead of the target track).
-const COMPANION_CLICK_JS: &str = r#"try{
-  if(!window.__sniffed)window.__sniffed=[];
-  var sels=['.soundTitle__playButton','button.sc-button-play','[data-testid="play-button"]'];
-  var hit='';
-  for(var i=0;i<sels.length;i++){var b=document.querySelector(sels[i]);if(b&&b.offsetParent!==null){b.click();hit=sels[i];break;}}
-  window.__sniffed.push(hit?('CLICK '+hit):'NOBUTTON url='+location.href.slice(0,120));
-}catch(e){try{if(!window.__sniffed)window.__sniffed=[];window.__sniffed.push('CLICKERR '+String(e&&e.message||e).slice(0,120));}catch(_){}}"#;
-
 /// JS that finds play buttons and clicks the first visible one.
 const SNIFF_CLICK_JS: &str = r#"try{
   if(!window.__sniffed)window.__sniffed=[];
@@ -467,60 +456,47 @@ const SNIFF_CLICK_JS: &str = r#"try{
   window.__sniffed.push(hit?('CLICK '+hit):'NOBUTTON url='+location.href.slice(0,120));
 }catch(e){try{if(!window.__sniffed)window.__sniffed=[];window.__sniffed.push('CLICKERR '+String(e&&e.message||e).slice(0,120));}catch(_){}}"#;
 
-/// Mute hook for companion playback (no traffic logging).
-const MUTE_ONLY_JS: &str = r#"try{
-  if(!window.__muteHooked){
-    window.__muteHooked=true;
-    var _p=HTMLMediaElement.prototype.play;
-    HTMLMediaElement.prototype.play=function(){try{this.muted=true;}catch(e){}return _p.call(this);};
-    try{var AC=window.AudioContext||window.webkitAudioContext;}catch(e){}
-  }
-}catch(e){}"#;
-
-/// Silent companion playback of a track page in the writer window. The
-/// official client then reports playback itself — the only flow proven to
-/// record server-side history (legacy POST /me/play-history is ignored by
-/// SC, analytics replays are accepted but not recorded). Muted.
-pub async fn companion_play(
-    app: &AppHandle,
-    token: &str,
-    page_url: &str,
-    hold_secs: u64,
-) -> Result<Value, String> {
-    let _lane = COMPANION_LANE.lock().await;
-    let window = ensure_window(app).ok_or_else(|| "writer unavailable".to_string())?;
-    inject_session(&window, token);
-    // Hard reset first: about:blank destroys the SPA (stale player queue),
-    // so the next navigation is a full load with an empty queue.
-    let _ = eval(&window, "location.href='about:blank';");
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    let url_js = serde_json::to_string(page_url).map_err(|e| e.to_string())?;
-    let _ = eval(&window, &format!("location.href={url_js}"));
-    let slug = page_url.rsplit('/').next().unwrap_or("soundcloud.com");
-    let _ = wait_for_page(&window, slug, Duration::from_secs(30)).await;
-    tokio::time::sleep(Duration::from_secs(6)).await;
-    let _ = eval(&window, MUTE_ONLY_JS);
-    // Like the proven sniff flow: hook traffic, click, then re-click every
-    // few seconds (a single early click often lands before the player is
-    // ready; later clicks start/resume it). Toggling is harmless: the page
-    // is discarded afterwards.
-    let _ = eval(&window, SNIFF_HOOK_JS);
-    let mut acc: Vec<String> = Vec::new();
-    if let Err(e) = eval(&window, COMPANION_CLICK_JS) {
-        acc.push(format!("(click eval err init: {e})"));
-    }
-    let polls = hold_secs.clamp(10, 120) / 5;
-    for i in 0..polls.max(1) {
-        tokio::time::sleep(Duration::from_secs(5)).await;
-        if i > 0 {
-            if let Err(e) = eval(&window, COMPANION_CLICK_JS) {
-                acc.push(format!("(click eval err p{i}: {e})"));
+/// Read back the complete raw `/me` batch body captured by the sniffer,
+/// in 2000-char cookie chunks (the return path has no size limit).
+async fn read_fullbatch(window: &WebviewWindow) -> Option<String> {
+    let mut out = String::new();
+    for i in 0..8usize {
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let _ = eval(
+            window,
+            &format!(
+                "try{{var fb=String(window.__fullbatch||'');var ch=fb.slice({i}*2000,({i}+1)*2000);document.cookie='scw={seq}:FB:'+ch.length+':'+encodeURIComponent(ch)+';path=/';}}catch(_e){{}}"
+            ),
+        );
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let mut done = true;
+        loop {
+            tokio::time::sleep(POLL).await;
+            if let Some(rest) = read_channel(window, seq) {
+                let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
+                if let Some(r) = rest.strip_prefix("FB:") {
+                    if let Some((len, data)) = r.split_once(':') {
+                        if len != "0" {
+                            let chunk = urlencoding::decode(data)
+                                .map(|s| s.into_owned())
+                                .unwrap_or_default();
+                            let last = chunk.len() < 2000;
+                            out.push_str(&chunk);
+                            done = last;
+                        }
+                    }
+                }
+                break;
+            }
+            if Instant::now() >= deadline {
+                break;
             }
         }
-        acc.extend(read_sniff(&window).await);
+        if done {
+            break;
+        }
     }
-    let _ = eval(&window, &format!("location.href='{HOME}'"));
-    Ok(serde_json::json!({ "ok": true, "log": acc }))
+    if out.is_empty() { None } else { Some(out) }
 }
 
 /// TEMP-DIAG(history): drive the official web player in the writer page and
@@ -589,8 +565,9 @@ pub async fn sniff_official_play(
     if acc.is_empty() {
         acc.push("EMPTY: page context never held the hook".into());
     }
+    let fullbatch = read_fullbatch(&window).await;
     let _ = eval(&window, &format!("location.href='{HOME}'"));
-    Ok(serde_json::json!({ "log": acc }))
+    Ok(serde_json::json!({ "log": acc, "fullbatch": fullbatch }))
 }
 
 /// TEMP-DIAG(history): resolve the HLS stream and fetch two segments inside
@@ -655,20 +632,6 @@ pub async fn attr_play(
             return Err("attr-play timed out".into());
         }
     }
-}
-
-/// Fire-and-forget server-side history attribution for a played track.
-/// Runs the muted official-client companion flow; safe to call per play
-/// (serializes on its own lane, never blocks interactive writes).
-pub fn spawn_companion(app: AppHandle, token: String, page_url: String) {
-    tokio::spawn(async move {
-        match companion_play(&app, &token, &page_url, 35).await {
-            Ok(_) => eprintln!("[writer] companion ok {page_url}"),
-            // Log-only: attribution is best-effort background work, local
-            // history is already recorded; never toast the user for this.
-            Err(e) => eprintln!("[writer] companion failed {page_url}: {e}"),
-        }
-    });
 }
 
 pub fn emit_sync_error(
