@@ -86,7 +86,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          PREV=$(gh release list --limit 5 --json tagName --jq --arg t "$TAG" '[.[].tagName] | map(select(. != $t)) | .[0] // empty')
+          PREV=$(gh release list --limit 5 --json tagName --jq '[.[].tagName] | map(select(. != "'"$TAG"'")) | .[0] // empty')
           if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
           NOTES=$(git log "$RANGE" --format='- %s' -- desktop/ .github/workflows | head -60)
           [ -z "$NOTES" ] && NOTES="- (no app changes)"
@@ -188,7 +188,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          PREV=$(gh release list --limit 5 --json tagName --jq --arg t "$TAG" '[.[].tagName] | map(select(. != $t)) | .[0] // empty')
+          PREV=$(gh release list --limit 5 --json tagName --jq '[.[].tagName] | map(select(. != "'"$TAG"'")) | .[0] // empty')
           if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
           NOTES=$(git log "$RANGE" --format='- %s' -- desktop/ .github/workflows | head -60)
           [ -z "$NOTES" ] && NOTES="- (no app changes)"
