@@ -26,7 +26,6 @@ export default defineConfig(async () => ({
           }
           if (id.includes('@dnd-kit')) return 'dnd-kit';
           if (id.includes('@radix-ui')) return 'radix';
-          if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n';
           if (id.includes('lucide-react') || id.includes('simple-icons')) return 'icons';
           if (id.includes('react-markdown')) return 'markdown';
           if (id.includes('@tauri-apps')) return 'tauri';
