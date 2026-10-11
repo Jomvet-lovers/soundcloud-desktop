@@ -58,6 +58,7 @@ import {
   Repeat1 as _Repeat1,
   Repeat2 as _Repeat2,
   RotateCcw as _RotateCcw,
+  Rss as _Rss,
   Search as _Search,
   Send as _Send,
   Settings as _Settings,
@@ -154,6 +155,8 @@ export const Repeat = memo(_Repeat);
 export const Repeat1 = memo(_Repeat1);
 export const RefreshCw = memo(_RefreshCw);
 export const Repeat2 = memo(_Repeat2);
+
+export const Rss = memo(_Rss);
 export const Search = memo(_Search);
 export const Send = memo(_Send);
 export const Settings = memo(_Settings);

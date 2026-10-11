@@ -6,6 +6,7 @@ use super::common::*;
 use super::normalize::*;
 use super::super::sc::{SC_API, id_of, fetch_me};
 use super::super::webview::{spawn_write};
+use super::super::DirectState;
 
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     let s = &ctx.state;
@@ -93,6 +94,32 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     Ok((status, v)) if (200..300).contains(&status) => {
                         let tracks = stream_to_tracks(&v);
                         ok(page(tracks, page_no, limit, sc_has_more(&v)))
+                    }
+                    Ok((status, v)) => json_resp(status, &v),
+                    Err(e) => err(502, &e),
+                },
+                None => err(401, "unauthorized"),
+            }
+        }
+
+        // ── feed (upstream-style activity) ────────────────────────────
+        // SoundCloud's own `/stream`: what the people you follow uploaded and
+        // reposted, newest first. Unlike `/me/followings/tracks` above this
+        // keeps playlists too, and preserves the repost flag so the frontend
+        // can show who pushed it.
+        ("GET", ["me", "feed"]) => {
+            let limit = q_u64(&q, "limit", 30);
+            let page_no = q_u64(&q, "page", 0);
+            let offset = page_no * limit;
+            match token.as_deref() {
+                Some(t) => match s
+                    .sc_get(&format!("/stream?limit={limit}&offset={offset}"), Some(t))
+                    .await
+                {
+                    Ok((status, v)) if (200..300).contains(&status) => {
+                        let mut items = stream_feed_items(&v);
+                        mark_liked_feed_tracks(s, t, &mut items).await;
+                        ok(page(items, page_no, limit, sc_has_more(&v)))
                     }
                     Ok((status, v)) => json_resp(status, &v),
                     Err(e) => err(502, &e),
@@ -395,3 +422,222 @@ fn stream_to_tracks(v: &Value) -> Vec<Value> {
     out.retain(|t| urn_of(t).map(|u| seen.insert(u)).unwrap_or(false));
     out
 }
+
+/// `/stream` item -> the frontend `FeedItem` shape (`FeedItem` in hooks.ts).
+///
+/// Two envelope shapes arrive from SoundCloud:
+/// - a plain upload inlines the object: `{type: "track"|"playlist", track|playlist: {…}}`
+/// - a repost nests it one level down: `{type: "track-repost"|"playlist-repost", origin: {kind, …}}`
+///
+/// The SC `type` is passed through untouched (the `-repost` suffix is what the
+/// UI reads to draw the "X reposted" line), while the renderable kind is taken
+/// from the payload itself. Anything that is neither a track nor a playlist is
+/// dropped — the feed only has rows for those two.
+fn stream_feed_items(v: &Value) -> Vec<Value> {
+    let mut out = Vec::new();
+    for it in sc_items(v) {
+        let Some(sc_type) = it.get("type").and_then(Value::as_str).map(str::to_string) else {
+            continue;
+        };
+        // `origin` wins over the inlined key: a repost only has `origin`, and
+        // when both exist `origin` is the fuller copy.
+        let Some(body) = it
+            .get("origin")
+            .or_else(|| it.get("track"))
+            .or_else(|| it.get("playlist"))
+            .filter(|b| !b.is_null())
+            .cloned()
+        else {
+            continue;
+        };
+        // `kind` is authoritative; the `type` prefix is the fallback (older
+        // repost payloads carry no `kind` on `origin`).
+        let kind = body
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                sc_type
+                    .split('-')
+                    .next()
+                    .unwrap_or("track")
+                    .to_string()
+            });
+        let render = if kind == "album" { "playlist" } else { kind.as_str() };
+        if render != "track" && render != "playlist" {
+            continue;
+        }
+        let id = body
+            .get("id")
+            .and_then(Value::as_u64)
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+        let created_at = it
+            .get("created_at")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        // Item-level `user` is the reposter on `*-repost` rows (and the
+        // uploader on plain ones) — the "X reposted" line reads it.
+        let user = it
+            .get("user")
+            .filter(|u| u.is_object())
+            .cloned()
+            .unwrap_or(Value::Null);
+        // `uuid` numbers repeat across pages, so the key is the object id plus
+        // the feed timestamp — a track uploaded and reposted at the same
+        // instant would still differ by the SC `type` prefix.
+        out.push(json!({
+            "id": format!("{sc_type}:{id}:{created_at}"),
+            "type": sc_type,
+            "kind": render,
+            "created_at": created_at,
+            "user": user,
+            "origin": normalize_urn(body),
+        }));
+    }
+    out
+}
+
+/// `/stream` sends no `user_favorite`, so the like buttons on the feed would
+/// read wrong until the user's liked-tracks list happened to be cached
+/// elsewhere. Stamp the flag from `/me/track_likes/ids` (one extra call per
+/// page) — `LikeButton` seeds its global store from it.
+async fn mark_liked_feed_tracks(state: &DirectState, token: &str, items: &mut [Value]) {
+    let liked = liked_track_ids(state, token).await;
+    if liked.is_empty() {
+        return;
+    }
+    let ids: std::collections::HashSet<&str> = liked.iter().map(String::as_str).collect();
+    for item in items.iter_mut() {
+        let Some(origin) = item.get_mut("origin") else {
+            continue;
+        };
+        if origin.get("kind").and_then(Value::as_str) != Some("track") {
+            continue;
+        }
+        let liked = origin
+            .get("id")
+            .and_then(Value::as_u64)
+            .map(|n| ids.contains(n.to_string().as_str()))
+            .unwrap_or(false);
+        if let Some(obj) = origin.as_object_mut() {
+            obj.insert("user_favorite".into(), json!(liked));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{stream_feed_items, stream_to_tracks};
+    use serde_json::json;
+
+    fn track(id: u64, title: &str) -> serde_json::Value {
+        json!({ "id": id, "kind": "track", "title": title, "duration": 1000 })
+    }
+
+    fn playlist(id: u64, title: &str) -> serde_json::Value {
+        json!({
+            "id": id, "kind": "playlist", "title": title, "track_count": 3,
+            "artwork_url": null, "user": null, "tracks": [],
+        })
+    }
+
+    /// A plain upload inlines its payload under `track` / `playlist`.
+    #[test]
+    fn stream_feed_maps_inlined_track_and_playlist() {
+        let out = stream_feed_items(&json!({ "collection": [
+            { "type": "track", "created_at": "2026-09-20T03:00:41Z", "uuid": "1",
+              "user": { "id": 1547398104, "kind": "user", "username": "nkdhr" },
+              "track": track(11, "a") },
+            { "type": "playlist", "created_at": "2026-09-12T20:01:35Z", "uuid": "2",
+              "user": { "id": 1, "kind": "user", "username": "natsumi" },
+              "playlist": playlist(22, "p") },
+        ] }));
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].get("type").and_then(|v| v.as_str()), Some("track"));
+        assert_eq!(
+            out[0].get("origin").and_then(|o| o.get("urn")).and_then(|u| u.as_str()),
+            Some("soundcloud:tracks:11"),
+        );
+        assert_eq!(out[1].get("type").and_then(|v| v.as_str()), Some("playlist"));
+        assert_eq!(
+            out[1].get("origin").and_then(|o| o.get("urn")).and_then(|u| u.as_str()),
+            Some("soundcloud:playlists:22"),
+        );
+        assert_eq!(out[0].get("created_at").and_then(|v| v.as_str()), Some("2026-09-20T03:00:41Z"));
+        // The item-level `user` (reposter / uploader) is passed through.
+        assert_eq!(
+            out[0].get("user").and_then(|u| u.get("username")).and_then(|v| v.as_str()),
+            Some("nkdhr"),
+        );
+    }
+
+    /// A repost nests the payload under `origin` — the SC `type` (with its
+    /// `-repost` suffix) must survive so the UI can label it.
+    #[test]
+    fn stream_feed_keeps_repost_type_and_origin() {
+        let out = stream_feed_items(&json!({ "collection": [
+            { "type": "track-repost", "created_at": "2026-10-01T00:00:00Z", "uuid": "1",
+              "origin": track(33, "b") },
+        ] }));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].get("type").and_then(|v| v.as_str()), Some("track-repost"));
+        assert_eq!(
+            out[0].get("origin").and_then(|o| o.get("id")).and_then(|v| v.as_u64()),
+            Some(33),
+        );
+    }
+
+    /// Entries without any payload (SC's empty `origin` rows) are skipped.
+    #[test]
+    fn stream_feed_skips_payloadless_entries() {
+        let out = stream_feed_items(&json!({ "collection": [
+            { "type": "track", "created_at": "2026-10-01T00:00:00Z", "uuid": "1", "track": null },
+            { "type": "track", "created_at": "2026-10-01T00:00:00Z", "uuid": "2" },
+        ] }));
+        assert!(out.is_empty());
+    }
+
+    /// Albums render as playlists (the frontend has one row shape for sets).
+    #[test]
+    fn stream_feed_maps_album_kind_to_playlist_row() {
+        let mut album = playlist(44, "al");
+        album["kind"] = json!("album");
+        let out = stream_feed_items(&json!({ "collection": [
+            { "type": "playlist", "created_at": "2026-10-01T00:00:00Z", "uuid": "1",
+              "playlist": album },
+        ] }));
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].get("origin").and_then(|o| o.get("urn")).and_then(|u| u.as_str()),
+            Some("soundcloud:playlists:44"),
+        );
+    }
+
+    /// Repost keys must not collide with the original upload's key, nor across
+    /// pages that reuse the same `uuid` numbering.
+    #[test]
+    fn stream_feed_keys_are_unique() {
+        let out = stream_feed_items(&json!({ "collection": [
+            { "type": "track", "created_at": "2026-10-01T00:00:00Z", "uuid": "1", "track": track(5, "x") },
+            { "type": "track-repost", "created_at": "2026-10-01T00:00:00Z", "uuid": "2",
+              "origin": track(5, "x") },
+        ] }));
+        assert_ne!(out[0].get("id"), out[1].get("id"));
+    }
+
+    /// The track-only arm used by `/me/followings/tracks` still dedupes by URN
+    /// and ignores playlists.
+    #[test]
+    fn stream_to_tracks_dedupes_and_drops_playlists() {
+        let out = stream_to_tracks(&json!({ "collection": [
+            { "type": "track", "track": track(1, "a") },
+            { "type": "track", "track": track(1, "a") },
+            { "type": "playlist", "playlist": playlist(2, "p") },
+        ] }));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].get("urn").and_then(|u| u.as_str()), Some("soundcloud:tracks:1"));
+    }
+}
+

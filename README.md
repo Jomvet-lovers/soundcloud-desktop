@@ -68,6 +68,8 @@ and written back to SoundCloud where possible — see [Limitations](#limitations
 
 ## Features
 
+- **Feed** — what the artists you follow uploaded and reposted, newest first
+  (SoundCloud's own stream, tracks and playlists in one list).
 - **Search** — tracks / playlists / users / albums via the public SoundCloud api-v2
   (`client_id` extracted from the SoundCloud homepage).
 - **Playback** — streamed and cached directly from SoundCloud, no relay infrastructure.
@@ -188,6 +190,8 @@ SoundCloud へも書き込まれます（[制限事項](#制限事項)参照）�
 
 ## 機能
 
+- **フィード** — フォロー中のアーティストの新着・リポストを新しい順に
+  （SoundCloud 公式のストリーム。トラックとプレイリストを1つのリストで）
 - **検索** — トラック / プレイリスト / ユーザー / アルバム（公開 api-v2、`client_id` は
   SoundCloud トップページから取得）
 - **再生** — SoundCloud から直接ストリーミング＋キャッシュ（中継サーバー不要）

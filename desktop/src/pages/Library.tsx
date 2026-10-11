@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
+import { FreshDrops } from '../components/feed/FreshDrops';
 import { ArtistMiniCard } from '../components/library/ArtistMiniCard';
 import { CollectionRail } from '../components/library/CollectionRail';
 import { ContinueRow } from '../components/library/ContinueRow';
-import { FreshDrops } from '../components/library/FreshDrops';
 import { LibraryFrame } from '../components/library/LibraryFrame';
 import { SoundPrintMasthead } from '../components/library/SoundPrintMasthead';
 import { useSoundprint } from '../components/library/useSoundprint';

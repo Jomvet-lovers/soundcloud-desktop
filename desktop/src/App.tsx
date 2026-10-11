@@ -28,6 +28,7 @@ const OfflinePage = lazy(() =>
   import('./pages/OfflinePage').then((module) => ({ default: module.OfflinePage })),
 );
 const Search = lazy(() => import('./pages/Search').then((module) => ({ default: module.Search })));
+const Feed = lazy(() => import('./pages/Feed').then((module) => ({ default: module.Feed })));
 const TagPage = lazy(() =>
   import('./pages/TagPage').then((module) => ({ default: module.TagPage })),
 );
@@ -52,6 +53,7 @@ const UpdateChecker = lazy(() =>
 
 const STARTUP_PAGE_ROUTES: Record<StartupPage, string> = {
   home: '/home',
+  feed: '/feed',
   search: '/search',
   library: '/library',
   settings: '/settings',
@@ -229,6 +231,14 @@ export default function App() {
                     element={
                       <RouteLoader>
                         <Home />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="feed"
+                    element={
+                      <RouteLoader>
+                        <Feed />
                       </RouteLoader>
                     }
                   />

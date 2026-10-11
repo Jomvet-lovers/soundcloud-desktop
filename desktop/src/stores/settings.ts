@@ -4,7 +4,7 @@ import type { PerfMode } from '../lib/perf';
 import { tauriStorage } from '../lib/tauri-storage';
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
-export type StartupPage = 'home' | 'search' | 'library' | 'settings';
+export type StartupPage = 'home' | 'feed' | 'search' | 'library' | 'settings';
 export type DiscordRpcMode = 'track' | 'artist' | 'activity';
 export interface SidebarPinnedPlaylist {
   urn: string;

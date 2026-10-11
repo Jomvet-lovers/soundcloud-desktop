@@ -10,6 +10,7 @@ import {
   ListMusic,
   PanelLeftClose,
   PanelLeftOpen,
+  Rss,
   Search,
   Settings,
 } from '../../lib/icons';
@@ -24,6 +25,7 @@ type IconCmp = React.ComponentType<{ size?: number; strokeWidth?: number; classN
 
 const navItems: { to: string; icon: IconCmp; label: string }[] = [
   { to: '/home', icon: Home, label: 'Home' },
+  { to: '/feed', icon: Rss, label: 'Feed' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/library', icon: Library, label: 'Library' },
   { to: '/library/history', icon: Clock, label: 'History' },

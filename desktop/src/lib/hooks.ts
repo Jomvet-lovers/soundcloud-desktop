@@ -28,12 +28,6 @@ export type FeedOrigin = Track & {
   tracks?: Track[];
 };
 
-export interface FeedItem {
-  type: string;
-  created_at: string;
-  origin: FeedOrigin;
-}
-
 export interface PagedResponse<T> {
   collection: T[];
   page: number;
@@ -409,14 +403,39 @@ export function fetchAllPlaylistTracks(playlistUrn: string, pageSize = 200): Pro
   })();
 }
 
-/* ── Fresh from followed artists ───────────────────────────────── */
+/* ── Feed (upstream-style activity) ──────────────────────────────── */
 
-export function useFollowingTracks(limit = 20) {
-  return useQuery({
-    queryKey: ['me', 'followings', 'tracks', limit],
-    queryFn: () => api<TrackPage>(`/me/followings/tracks?limit=${limit}&page=0`),
+/** One `/stream` row: the SoundCloud `type` (`track`, `playlist`,
+ *  `track-repost`, `playlist-repost`) plus the object it points at. `origin`
+ *  is a track or a playlist — `kind` says which, so the row can branch without
+ *  sniffing `origin`'s shape. `user` is the reposter on `*-repost` rows and the
+ *  uploader otherwise. */
+export interface FeedItem {
+  id: string;
+  type: string;
+  kind: 'track' | 'playlist';
+  created_at: string;
+  user: {
+    id: number;
+    urn: string;
+    username: string;
+    avatar_url: string | null;
+  } | null;
+  origin: FeedOrigin;
+}
+
+/** SoundCloud's own following feed (`/me/feed`, backed by `/stream`): what
+ *  the people you follow uploaded and reposted, newest first. Tracks and
+ *  playlists share one list, so the row branches on `item.kind`. */
+export function useFeed(limit = 30) {
+  return usePagedQuery<FeedItem>({
+    queryKey: ['me', 'feed', limit],
+    url: (page, l) => pagedUrl('/me/feed', page, l),
+    limit,
     staleTime: SHORT_CACHE_MS,
-    gcTime: INFINITE_GC_MS,
+    // Same object can surface as an upload and again as a repost; the SC type
+    // prefix in `id` keeps those apart, this only guards duplicate pages.
+    dedupe: (item) => item.id,
   });
 }
 
