@@ -1,12 +1,21 @@
 import { type MouseEvent, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { preloadTrack } from '../../lib/audio';
-import { ago, art, fc } from '../../lib/formatters';
+import { ago, art, dur, fc } from '../../lib/formatters';
 import type { FeedItem } from '../../lib/hooks';
-import { ListMusic, Music, pauseWhite14, playWhite14, Repeat2 } from '../../lib/icons';
+import {
+  headphones11,
+  heart11,
+  ListMusic,
+  Music,
+  pauseWhite14,
+  playWhite14,
+  Repeat2,
+} from '../../lib/icons';
 import { useTrackPlay } from '../../lib/useTrackPlay';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { playlistMenuHandler, trackMenuHandler } from '../../stores/track-menu';
 import { LikeButton } from '../music/LikeButton';
 import { TrackTitleArtist } from '../music/TrackTitleArtist';
 
@@ -23,6 +32,17 @@ function reposterName(item: FeedItem): string | null {
 function playableTracks(item: FeedItem): Track[] {
   const tracks = item.kind === 'playlist' ? (item.origin.tracks ?? []) : [item.origin];
   return tracks.filter((t) => t.urn && t.title);
+}
+
+/** SoundCloud accepts titles made only of format characters (LRM, zero-width
+ *  space …); they render as an empty line and leave the row with just the
+ *  uploader. Only a fully blank title is flagged — one with any visible
+ *  character (letters, digits, emoji …) is passed through untouched. */
+const BLANK_TITLE = /^[\s\p{Cf}\p{Cc}\p{Zl}\p{Zp}]*$/u;
+
+function visibleText(value: string | null | undefined): string {
+  const raw = value ?? '';
+  return BLANK_TITLE.test(raw) ? '' : raw.trim();
 }
 
 /** Play/pause affordance filling the cover. */
@@ -53,6 +73,27 @@ function CoverPlay({ track, queue }: { track: Track; queue: Track[] }) {
   );
 }
 
+/** Count columns shared by both row kinds — the same slots LibraryTrackRow
+ *  uses, so the pages read alike. */
+function Counters({ plays, likes }: { plays?: number | null; likes?: number | null }) {
+  return (
+    <div className="hidden sm:flex items-center gap-4 shrink-0 pr-4">
+      {plays != null && (
+        <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-16">
+          {headphones11}
+          {fc(plays)}
+        </span>
+      )}
+      {likes != null && (
+        <span className="text-[11px] text-white/30 tabular-nums flex items-center gap-1.5 w-14">
+          {heart11}
+          {fc(likes)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** One feed row. Tracks get the track row treatment (title links to the track
  *  page, like button, artist links); playlists get their title + track count
  *  and link to the playlist page. Reposts prepend a "X reposted" line. */
@@ -64,6 +105,7 @@ export const FeedRow = memo(function FeedRow({ item }: { item: FeedItem }) {
   const by = reposterName(item);
   const when = ago(item.created_at);
   const cover = art(origin.artwork_url, 't200x200');
+  const title = visibleText(origin.title) || '(untitled)';
 
   const open = (e: MouseEvent) => {
     e.stopPropagation();
@@ -74,47 +116,71 @@ export const FeedRow = memo(function FeedRow({ item }: { item: FeedItem }) {
   return (
     <div>
       {by && (
-        <div className="flex items-center gap-1.5 px-1 pb-1 text-[11px] text-white/30">
-          <Repeat2 size={12} />
+        <div className="flex items-center gap-1.5 px-4 pb-1 text-[11px] text-white/30">
+          <Repeat2 size={12} className="shrink-0" />
           <span className="truncate">{by} reposted</span>
+          {when && <span className="shrink-0 tabular-nums">{when}</span>}
         </div>
       )}
-      <div className="group flex items-center gap-3.5 px-3 py-2 rounded-md transition-colors duration-200 hover:bg-white/[0.035]">
-        <span className="relative w-10 h-10 rounded-md overflow-hidden shrink-0 ring-1 ring-white/[0.08]">
+      <div
+        className="group flex items-center gap-4 px-4 py-3 rounded-md transition-colors duration-150 hover:bg-white/[0.04]"
+        onContextMenu={
+          isPlaylist ? playlistMenuHandler({ urn: origin.urn }) : trackMenuHandler(origin)
+        }
+      >
+        {/* A block element: an inline <span> ignores w/h/overflow, which pushed
+            the artwork out of its ring and skewed every row against the
+            playlist ones. */}
+        <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/[0.08]">
           {cover ? (
             <img src={cover} alt="" decoding="async" className="w-full h-full object-cover" />
           ) : (
-            <span className="w-full h-full flex items-center justify-center bg-white/[0.04]">
+            <div className="w-full h-full flex items-center justify-center bg-white/[0.04]">
               {isPlaylist ? (
                 <ListMusic size={14} className="text-white/25" />
               ) : (
                 <Music size={14} className="text-white/25" />
               )}
-            </span>
+            </div>
           )}
           {queue[0] && <CoverPlay track={queue[0]} queue={queue} />}
-        </span>
+        </div>
 
         {isPlaylist ? (
           <button type="button" onClick={open} className="min-w-0 flex-1 text-left">
-            <p className="text-[14px] font-medium truncate text-white/90 hover:text-white transition-colors duration-150">
-              {origin.title}
-            </p>
-            <p className="text-[12px] truncate mt-0.5 text-white/40">
+            {/* Fixed height: a playlist row must line up with the two-line track
+                rows regardless of how its own fields fall out. */}
+            <span className="block text-[14px] font-medium leading-5 truncate text-white/90 hover:text-white transition-colors duration-150">
+              {title}
+            </span>
+            <span className="block text-[12px] leading-4 truncate mt-0.5 text-white/40">
               {origin.user?.username ? `${origin.user.username} · ` : ''}
               {origin.track_count != null ? `${fc(origin.track_count)} tracks` : 'Playlist'}
-            </p>
+            </span>
           </button>
         ) : (
-          <TrackTitleArtist track={origin} size="md" />
+          <TrackTitleArtist track={origin} size="md" title={title} />
         )}
 
-        {when && (
+        {!isPlaylist && <LikeButton track={origin} />}
+
+        {isPlaylist ? (
+          <Counters likes={origin.likes_count} />
+        ) : (
+          <Counters
+            plays={origin.playback_count}
+            likes={origin.favoritings_count ?? origin.likes_count}
+          />
+        )}
+
+        {!by && (
           <span className="text-[11px] text-white/30 tabular-nums shrink-0 w-10 text-right">
             {when}
           </span>
         )}
-        {!isPlaylist && <LikeButton track={origin} />}
+        <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
+          {dur(origin.duration)}
+        </span>
       </div>
     </div>
   );

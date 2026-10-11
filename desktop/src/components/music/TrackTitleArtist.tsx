@@ -10,6 +10,10 @@ interface TrackTitleArtistProps {
   highlight?: boolean;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  /** Overrides the display title. Used when the stored title renders empty
+   *  (e.g. a SoundCloud uploader named the track with format characters) and
+   *  the caller already resolved a visible fallback. */
+  title?: string;
 }
 
 const TITLE_CLS = {
@@ -29,10 +33,12 @@ export const TrackTitleArtist = React.memo(function TrackTitleArtist({
   highlight,
   size = 'md',
   className,
+  title: titleOverride,
 }: TrackTitleArtistProps) {
   const navigate = useNavigate();
   const artistDisplay = useArtistDisplay(track);
-  const displayTitle = useDisplayTitle(track);
+  const fallbackTitle = useDisplayTitle(track);
+  const displayTitle = titleOverride ?? fallbackTitle;
   const artistLinks = useArtistLinkItems(track);
   const isWanted = artistDisplay.availability !== 'indexed';
 

@@ -47,6 +47,7 @@ import {
   MicVocal as _MicVocal,
   Minus as _Minus,
   Music as _Music,
+  Newspaper as _Newspaper,
   PanelLeftClose as _PanelLeftClose,
   PanelLeftOpen as _PanelLeftOpen,
   Pause as _Pause,
@@ -58,7 +59,6 @@ import {
   Repeat1 as _Repeat1,
   Repeat2 as _Repeat2,
   RotateCcw as _RotateCcw,
-  Rss as _Rss,
   Search as _Search,
   Send as _Send,
   Settings as _Settings,
@@ -156,7 +156,7 @@ export const Repeat1 = memo(_Repeat1);
 export const RefreshCw = memo(_RefreshCw);
 export const Repeat2 = memo(_Repeat2);
 
-export const Rss = memo(_Rss);
+export const Newspaper = memo(_Newspaper);
 export const Search = memo(_Search);
 export const Send = memo(_Send);
 export const Settings = memo(_Settings);
