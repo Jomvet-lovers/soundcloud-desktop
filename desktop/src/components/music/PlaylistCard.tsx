@@ -67,6 +67,7 @@ export const PlaylistCard = React.memo(
             artworkUrl={playlist.artwork_url}
             tracks={playlist.tracks}
             urn={playlist.urn}
+            ownerAvatarUrl={playlist.user?.avatar_url}
             alt={playlist.title}
             iconSize={32}
             className="transition-transform duration-700 ease-[var(--ease-apple)] group-hover:scale-[1.05]"

@@ -179,7 +179,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     pinPlaylist({
       urn: playlist.urn,
       title: playlist.title,
-      artworkUrl: rawPlaylistCover(playlist.artwork_url, tracks),
+      artworkUrl: rawPlaylistCover(playlist.artwork_url, tracks, playlist.user?.avatar_url),
     });
     toast.success('Pinned to sidebar');
   }, [playlist, isPinned, unpinPlaylist, pinPlaylist, tracks]);

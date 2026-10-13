@@ -45,8 +45,14 @@ export const PlaylistHero = React.memo(function PlaylistHero({
   const navigate = useNavigate();
   const kl = kindLabel(playlist.kind);
   // Playlists without their own artwork borrow the first track's (SC does the
-  // same on the web) — see rawPlaylistCover.
-  const cover = playlistCoverUrl(playlist.artwork_url, playlist.tracks, 't500x500');
+  // same on the web: own art → first track art → owner avatar) — see
+  // rawPlaylistCover.
+  const cover = playlistCoverUrl(
+    playlist.artwork_url,
+    playlist.tracks,
+    't500x500',
+    playlist.user?.avatar_url,
+  );
   const curator = playlist.user;
 
   return (

@@ -17,6 +17,7 @@ import {
   useSearchDbUsersPage,
 } from '../lib/hooks';
 import { ChevronRight, LinkIcon, Loader2, Music, playBlack20 } from '../lib/icons';
+import { playlistCoverUrl } from '../lib/playlist-cover';
 import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
@@ -439,7 +440,15 @@ function SearchResults() {
                   to={`/playlist/${encodeURIComponent(playlist.urn)}`}
                   className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
                 >
-                  <RowArt src={art(playlist.artwork_url, 't120x120')} rounded="lg" />
+                  <RowArt
+                    src={playlistCoverUrl(
+                      playlist.artwork_url,
+                      playlist.tracks,
+                      't120x120',
+                      playlist.user?.avatar_url,
+                    )}
+                    rounded="lg"
+                  />
                   <span className="text-[13px] text-white/85">{playlist.title}</span>
                 </Link>
               ))}
@@ -460,7 +469,15 @@ function SearchResults() {
                   to={`/album/${encodeURIComponent(album.id)}`}
                   className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/[0.05]"
                 >
-                  <RowArt src={art(album.cover_url ?? null, 't120x120')} rounded="lg" />
+                  <RowArt
+                    src={playlistCoverUrl(
+                      album.cover_url ?? album.artwork_url,
+                      album.tracks,
+                      't120x120',
+                      album.user?.avatar_url,
+                    )}
+                    rounded="lg"
+                  />
                   <span className="text-[13px] text-white/85">{album.title}</span>
                 </Link>
               ))}

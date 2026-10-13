@@ -13,6 +13,9 @@ interface Props {
   /** Playlist urn — lets the cover fall back to the first track's artwork
    *  even when the list payload carries no tracks (fetched once, cached). */
   urn?: string;
+  /** Last step of the official chain: shown when neither the playlist nor any
+   *  embedded track has artwork. */
+  ownerAvatarUrl?: string | null;
   size?: string;
   /** Applied to the rendered <img> / placeholder (fills its parent box). */
   className?: string;
@@ -40,18 +43,19 @@ function useFirstTrackArtwork(urn: string | undefined, enabled: boolean): string
 }
 
 /** Shared playlist thumbnail: the playlist's cover, falling back to the first
- *  track's artwork (embedded or fetched), with a glyph placeholder when neither
- *  exists. Parent sizes and clips it; this fills the box. */
+ *  track's artwork (embedded or fetched), then the owner's avatar, with a glyph
+ *  placeholder when none exists. Parent sizes and clips it; this fills the box. */
 export const PlaylistCover = React.memo(function PlaylistCover({
   artworkUrl,
   tracks,
   urn,
+  ownerAvatarUrl,
   size = 't300x300',
   className = '',
   iconSize = 28,
   alt = '',
 }: Props) {
-  const direct = rawPlaylistCover(artworkUrl, tracks);
+  const direct = rawPlaylistCover(artworkUrl, tracks, ownerAvatarUrl);
   const fetched = useFirstTrackArtwork(urn, !direct);
   const cover = art(direct ?? fetched, size);
 

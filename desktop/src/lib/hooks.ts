@@ -51,6 +51,11 @@ export interface CatalogAlbum {
   id: string;
   title: string;
   cover_url?: string;
+  /** SC albums are playlists: they carry their own artwork, an embedded
+   *  tracks array and the owner, used for the cover fallback chain. */
+  artwork_url?: string | null;
+  tracks?: { artwork_url?: string | null }[];
+  user?: { avatar_url?: string | null } | null;
   [key: string]: unknown;
 }
 
