@@ -25,6 +25,10 @@ import { fetchRelatedTracks } from './related';
 export type FeedOrigin = Track & {
   track_count?: number;
   set_type?: string;
+  /** SoundCloud names the set type (`album`, `ep`, `single`, …) in `set_type`
+   *  on `/stream` payloads but `playlist_type` on `/playlists` ones — the feed
+   *  card wants the latter, so callers fall through to `set_type`. */
+  playlist_type?: string;
   tracks?: Track[];
 };
 

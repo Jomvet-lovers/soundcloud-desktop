@@ -1,12 +1,51 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
-import { FeedRow } from '../components/feed/FeedRow';
-import { useFeed } from '../lib/hooks';
-import { AudioLines, Loader2, RefreshCw } from '../lib/icons';
+import { useCallback, useMemo } from 'react';
+import { PlaylistCard } from '../components/music/PlaylistCard';
+import { TrackCard } from '../components/music/TrackCard';
+import { ago } from '../lib/formatters';
+import { type FeedItem, type Playlist, useFeed, useInfiniteScroll } from '../lib/hooks';
+import { AudioLines, Loader2, RefreshCw, Repeat2 } from '../lib/icons';
+import type { Track } from '../stores/player';
+
+/** Playlists arrive as the same `FeedOrigin` shape as tracks; the card wants the
+ *  full `Playlist`. SoundCloud labels sets with `set_type` (`album`, `ep`, …),
+ *  which the card renders as its type badge — the type is our own addition
+ *  because `FeedOrigin` only guarantees the track-ish half of the fields. */
+function asPlaylist(item: FeedItem): Playlist {
+  const origin = item.origin;
+  return {
+    ...origin,
+    playlist_type: origin.playlist_type ?? origin.set_type ?? 'Playlist',
+  } as Playlist;
+}
+
+/** One tile. The context line above the artwork is present on every cell —
+ *  otherwise reposted tiles would start lower than plain ones and the grid
+ *  rows would stagger. */
+function FeedTile({ item, queue }: { item: FeedItem; queue: Track[] }) {
+  const by = item.type.endsWith('-repost') ? (item.user?.username ?? null) : null;
+  const when = ago(item.created_at);
+
+  return (
+    <div className="min-w-0">
+      <p className="mb-1.5 h-4 flex items-center gap-1 text-[10px] text-white/30">
+        {by && <Repeat2 size={10} className="shrink-0" />}
+        <span className="truncate">
+          {by ? `${by} reposted · ` : ''}
+          {when}
+        </span>
+      </p>
+      {item.kind === 'playlist' ? (
+        <PlaylistCard playlist={asPlaylist(item)} showPlayback />
+      ) : (
+        <TrackCard track={item.origin} queue={queue} />
+      )}
+    </div>
+  );
+}
 
 /** Feed — what the people you follow uploaded and reposted, newest first.
- *  SoundCloud's own stream (`/stream`), tracks and playlists in one list,
- *  extended with "Load more". */
+ *  SoundCloud's own stream, laid out like Home: a flat card grid, not a list. */
 export function Feed() {
   const feed = useFeed();
   const qc = useQueryClient();
@@ -14,6 +53,19 @@ export function Feed() {
   const refetch = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['me', 'feed'] });
   }, [qc]);
+
+  // Everything playable on the page, so playing one tile continues through the
+  // feed the way Home's grid does.
+  const queue = useMemo(
+    () => feed.items.filter((it) => it.kind === 'track').map((it) => it.origin as Track),
+    [feed.items],
+  );
+
+  const sentinelRef = useInfiniteScroll(
+    !!feed.hasNextPage,
+    !!feed.isFetchingNextPage,
+    feed.fetchNextPage,
+  );
 
   return (
     <div className="px-5 py-6 md:px-8">
@@ -30,9 +82,15 @@ export function Feed() {
         </button>
       </div>
 
+      <div className="mt-5 flex items-center justify-between gap-4">
+        <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
+          {'New from who you follow'}
+        </h2>
+      </div>
+
       {feed.isLoading ? (
-        <div className="mt-6 flex justify-center py-16">
-          <Loader2 size={28} className="animate-spin text-white/15" />
+        <div className="flex justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-white/20" />
         </div>
       ) : feed.items.length === 0 ? (
         <div className="mt-6 flex flex-col items-center gap-3 text-center py-14 px-6">
@@ -45,24 +103,17 @@ export function Feed() {
         </div>
       ) : (
         <>
-          <div className="mt-5 flex flex-col gap-1">
+          <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
             {feed.items.map((item) => (
-              <FeedRow key={item.id} item={item} />
+              <FeedTile key={item.id} item={item} queue={queue} />
             ))}
           </div>
 
-          {feed.hasNextPage && (
-            <div className="mt-4 flex justify-center">
-              <button
-                type="button"
-                onClick={() => feed.fetchNextPage()}
-                disabled={feed.isFetchingNextPage}
-                className="px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-[13px] text-white/60 hover:text-white/90 font-medium transition-colors cursor-pointer disabled:opacity-40"
-              >
-                {feed.isFetchingNextPage ? 'Loading…' : 'Load more'}
-              </button>
-            </div>
-          )}
+          <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
+            {feed.isFetchingNextPage && (
+              <Loader2 size={20} className="text-white/15 animate-spin" />
+            )}
+          </div>
         </>
       )}
     </div>
