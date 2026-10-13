@@ -1,6 +1,7 @@
 // Re-export shim — keeps existing imports working
 export {
   ApiError,
+  apiErrorReason,
   apiRequest as api,
   fetchWithAuthFallback,
   getSessionId,

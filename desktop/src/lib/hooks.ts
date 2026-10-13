@@ -12,9 +12,10 @@ import {
 } from '@tanstack/react-query';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect, useMemo, useRef } from 'react';
+import { toast } from 'sonner';
 import type { Track } from '../stores/player';
 import type { SearchSort } from '../stores/searchPrefs';
-import { api } from './api';
+import { ApiError, api, apiErrorReason } from './api';
 import { confirmHistory, mergeHistory, scTrackIdSet, usePendingHistory } from './history-pending';
 import { initLikedUrns } from './likes';
 import { rememberLikedTracks, rememberTracks } from './offline-index';
@@ -886,10 +887,17 @@ export function useCreatePlaylist() {
 
 /* ── Sharing (privacy) ─────────────────────────────────────────── */
 
+/** Sharing writes answer 502 with the server's reason; 401 is left to the
+ *  auth-recovery flow, which owns the re-login prompt. */
+function toastSharingError(e: unknown, fallback: string): void {
+  if (e instanceof ApiError && e.status === 401) return;
+  toast.error(apiErrorReason(e) ?? fallback);
+}
+
 /** Тоггл приватности своего плейлиста. У SC-плейлистов бэк сначала проводит
  *  `sharing` через writer WebView в SoundCloud, и только по успеху обновляет
- *  локальную копию; при отказе SC мутация падает и локальное состояние не
- *  меняется, чтобы приложение не показывало несуществующую приватность. */
+ *  локальную копию; при отказе SC мутация падает, локальное состояние не
+ *  меняется, а тост показывает причину от бэкенда. */
 export function useSetPlaylistSharing(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -897,7 +905,11 @@ export function useSetPlaylistSharing(playlistUrn: string | undefined) {
       api(`/playlists/${encodeURIComponent(playlistUrn!)}/sharing`, {
         method: 'PUT',
         body: JSON.stringify({ sharing }),
+        // 502 carries the server's reason; the toast below shows it instead
+        // of the generic "Server error".
+        silentStatuses: [502],
       }),
+    onError: (e) => toastSharingError(e, "Couldn't change the playlist's privacy"),
     onSuccess: (_data, sharing) => {
       qc.setQueryData<Playlist>(['playlist', playlistUrn], (old) =>
         old ? { ...old, sharing } : old,
@@ -910,7 +922,8 @@ export function useSetPlaylistSharing(playlistUrn: string | undefined) {
   });
 }
 
-/** Тоггл приватности своего трека. */
+/** Тоггл приватности своего трека: бэк пишет `sharing` в SoundCloud через
+ *  writer WebView и падает с 502 при отказе, не меняя состояние. */
 export function useSetTrackSharing(trackUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -918,7 +931,9 @@ export function useSetTrackSharing(trackUrn: string | undefined) {
       api(`/tracks/${encodeURIComponent(trackUrn!)}/sharing`, {
         method: 'PUT',
         body: JSON.stringify({ sharing }),
+        silentStatuses: [502],
       }),
+    onError: (e) => toastSharingError(e, "Couldn't change the track's privacy"),
     onSuccess: (_data, sharing) => {
       qc.setQueryData<Track>(['track', trackUrn], (old) => (old ? { ...old, sharing } : old));
       qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });

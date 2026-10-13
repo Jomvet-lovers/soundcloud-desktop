@@ -75,6 +75,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The server's reason out of a failed `api()` call, or null when the body
+ * has none. The wrapper message is `API <status>: <json body>`; direct-mode
+ * errors carry `{"error": "..."}`.
+ */
+export function apiErrorReason(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const m = /^API \d+:\s*(\{.*\})\s*$/.exec(error.message);
+  if (!m) return null;
+  try {
+    const parsed = JSON.parse(m[1]) as { error?: unknown };
+    if (typeof parsed.error === 'string' && parsed.error) return parsed.error;
+  } catch {
+    /* non-JSON body */
+  }
+  return null;
+}
+
 function isRateLimitError(status: number, body: string): boolean {
   if (status === 429) return true;
   const b = body.toLowerCase();
