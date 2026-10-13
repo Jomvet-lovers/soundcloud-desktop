@@ -431,7 +431,7 @@ export interface FeedItem {
 /** SoundCloud's own following feed (`/me/feed`, backed by `/stream`): what
  *  the people you follow uploaded and reposted, newest first. Tracks and
  *  playlists share one list, so the row branches on `item.kind`. */
-export function useFeed(limit = 30) {
+export function useFeed(limit = 25) {
   return usePagedQuery<FeedItem>({
     queryKey: ['me', 'feed', limit],
     url: (page, l) => pagedUrl('/me/feed', page, l),

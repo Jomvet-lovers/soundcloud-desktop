@@ -82,12 +82,6 @@ export function Feed() {
         </button>
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-4">
-        <h2 className="text-[16px] font-semibold tracking-tight text-white/90">
-          {'New from who you follow'}
-        </h2>
-      </div>
-
       {feed.isLoading ? (
         <div className="flex justify-center py-20">
           <Loader2 size={32} className="animate-spin text-white/20" />
@@ -103,7 +97,7 @@ export function Feed() {
         </div>
       ) : (
         <>
-          <div className="mt-3 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+          <div className="mt-5 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
             {feed.items.map((item) => (
               <FeedTile key={item.id} item={item} queue={queue} />
             ))}
