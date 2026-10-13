@@ -34,6 +34,7 @@ worker/venv/
 /HANDOVER.md
 /desktop/AGENTS.md
 /SCD-Direct_playlist-bug_fix-instructions.md
+/anti-slop/
 
 # FireBase
 .firebase
