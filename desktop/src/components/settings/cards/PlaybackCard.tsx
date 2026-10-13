@@ -38,7 +38,7 @@ export function PlaybackCard() {
         </Row>
         <Row
           title={'Autoplay related tracks'}
-          desc={'Keep playing recommendations after a playlist ends'}
+          desc={'Continue with related tracks when the queue reaches the end'}
         >
           <Toggle checked={autoplayStation} onChange={() => setAutoplayStation(!autoplayStation)} />
         </Row>
