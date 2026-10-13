@@ -430,13 +430,20 @@ export interface FeedItem {
 
 /** SoundCloud's own following feed (`/me/feed`, backed by `/stream`): what
  *  the people you follow uploaded and reposted, newest first. Tracks and
- *  playlists share one list, so the row branches on `item.kind`. */
-export function useFeed(limit = 25) {
+ *  playlists share one list, so the row branches on `item.kind`.
+ *
+ *  The feed is short (a few dozen entries even for an active account), so every
+ *  page is pulled in and the caller renders the whole thing — no paging UI.
+ *  `limit` is only the request batch size, not a ceiling on what is shown:
+ *  SoundCloud under-fills pages (a 25-request answers with 23), so a fixed
+ *  single-page limit would silently hide the tail. */
+export function useFeed(limit = 50) {
   return usePagedQuery<FeedItem>({
     queryKey: ['me', 'feed', limit],
     url: (page, l) => pagedUrl('/me/feed', page, l),
     limit,
     staleTime: SHORT_CACHE_MS,
+    autoFetchAll: true,
     // Same object can surface as an upload and again as a repost; the SC type
     // prefix in `id` keeps those apart, this only guards duplicate pages.
     dedupe: (item) => item.id,

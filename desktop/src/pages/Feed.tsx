@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { TrackCard } from '../components/music/TrackCard';
 import { ago } from '../lib/formatters';
-import { type FeedItem, type Playlist, useFeed, useInfiniteScroll } from '../lib/hooks';
+import { type FeedItem, type Playlist, useFeed } from '../lib/hooks';
 import { AudioLines, Loader2, RefreshCw, Repeat2 } from '../lib/icons';
 import type { Track } from '../stores/player';
 
@@ -55,16 +55,11 @@ export function Feed() {
   }, [qc]);
 
   // Everything playable on the page, so playing one tile continues through the
-  // feed the way Home's grid does.
+  // feed the way Home's grid does. The feed loads in full, so this is the whole
+  // list rather than a page of it.
   const queue = useMemo(
     () => feed.items.filter((it) => it.kind === 'track').map((it) => it.origin as Track),
     [feed.items],
-  );
-
-  const sentinelRef = useInfiniteScroll(
-    !!feed.hasNextPage,
-    !!feed.isFetchingNextPage,
-    feed.fetchNextPage,
   );
 
   return (
@@ -96,19 +91,11 @@ export function Feed() {
           </p>
         </div>
       ) : (
-        <>
-          <div className="mt-5 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
-            {feed.items.map((item) => (
-              <FeedTile key={item.id} item={item} queue={queue} />
-            ))}
-          </div>
-
-          <div ref={sentinelRef} className="h-12 flex items-center justify-center mt-4">
-            {feed.isFetchingNextPage && (
-              <Loader2 size={20} className="text-white/15 animate-spin" />
-            )}
-          </div>
-        </>
+        <div className="mt-5 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+          {feed.items.map((item) => (
+            <FeedTile key={item.id} item={item} queue={queue} />
+          ))}
+        </div>
       )}
     </div>
   );
