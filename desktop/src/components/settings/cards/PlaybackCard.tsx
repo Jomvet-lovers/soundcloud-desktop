@@ -9,6 +9,8 @@ export function PlaybackCard() {
   const setNormalizeVolume = useSettingsStore((s) => s.setNormalizeVolume);
   const highQualityStreaming = useSettingsStore((s) => s.highQualityStreaming);
   const setHighQualityStreaming = useSettingsStore((s) => s.setHighQualityStreaming);
+  const autoplayStation = useSettingsStore((s) => s.autoplayStation);
+  const setAutoplayStation = useSettingsStore((s) => s.setAutoplayStation);
 
   return (
     <Card title={'Playback'} icon={<Headphones size={17} />}>
@@ -33,6 +35,12 @@ export function PlaybackCard() {
             checked={highQualityStreaming}
             onChange={() => setHighQualityStreaming(!highQualityStreaming)}
           />
+        </Row>
+        <Row
+          title={'Autoplay related tracks'}
+          desc={'Keep playing recommendations after a playlist ends'}
+        >
+          <Toggle checked={autoplayStation} onChange={() => setAutoplayStation(!autoplayStation)} />
         </Row>
       </div>
     </Card>
