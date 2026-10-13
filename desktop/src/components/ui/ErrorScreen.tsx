@@ -1,4 +1,5 @@
-import { AlertCircle, Home, RefreshCw } from '../../lib/icons';
+import { AlertCircle, RefreshCw } from '../../lib/icons';
+import { NavHome } from '../../lib/nav-icons';
 
 /** Premium crash screen shown by the ErrorBoundary. Dark, accent-lit glass,
  *  with retry / reload / home actions and a foldaway technical detail. */
@@ -92,7 +93,7 @@ export function ErrorScreen({
                 }}
                 className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl border border-white/[0.1] bg-white/[0.04] text-[13px] font-semibold text-white/70 transition-all hover:bg-white/[0.08] hover:text-white/90 active:scale-[0.97] cursor-pointer"
               >
-                <Home size={14} />
+                <NavHome size={14} />
                 {'Home'}
               </button>
             </div>

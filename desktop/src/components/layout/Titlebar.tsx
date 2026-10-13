@@ -2,7 +2,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import appIcon from '../../assets/app-icon.png';
-import { ChevronLeft, ChevronRight, Fullscreen, Home, Minus, Square, X } from '../../lib/icons';
+import { ChevronLeft, ChevronRight, Fullscreen, Minus, Square, X } from '../../lib/icons';
+import { NavHome } from '../../lib/nav-icons';
 import { toggleWindowFullscreen } from '../../lib/window';
 import { useSettingsStore } from '../../stores/settings';
 import { GlobalSearch } from './GlobalSearch';
@@ -50,7 +51,7 @@ const NavButtons = React.memo(() => {
             : undefined
         }
       >
-        <Home size={16} strokeWidth={2.2} />
+        <NavHome size={16} />
       </button>
     </div>
   );

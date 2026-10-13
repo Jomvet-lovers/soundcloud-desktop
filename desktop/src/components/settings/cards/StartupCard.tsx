@@ -1,4 +1,4 @@
-import { Home } from '../../../lib/icons';
+import { NavHome } from '../../../lib/nav-icons';
 import { type StartupPage, useSettingsStore } from '../../../stores/settings';
 import { Card, Segmented } from '../primitives';
 
@@ -18,7 +18,7 @@ export function StartupCard() {
     <Card
       title={'Startup'}
       desc={'Choose which page opens when the app launches'}
-      icon={<Home size={17} />}
+      icon={<NavHome size={17} />}
     >
       <Segmented
         value={startupPage}
