@@ -34,17 +34,6 @@ function playableTracks(item: FeedItem): Track[] {
   return tracks.filter((t) => t.urn && t.title);
 }
 
-/** SoundCloud accepts titles made only of format characters (LRM, zero-width
- *  space …); they render as an empty line and leave the row with just the
- *  uploader. Only a fully blank title is flagged — one with any visible
- *  character (letters, digits, emoji …) is passed through untouched. */
-const BLANK_TITLE = /^[\s\p{Cf}\p{Cc}\p{Zl}\p{Zp}]*$/u;
-
-function visibleText(value: string | null | undefined): string {
-  const raw = value ?? '';
-  return BLANK_TITLE.test(raw) ? '' : raw.trim();
-}
-
 /** Play/pause affordance filling the cover. */
 function CoverPlay({ track, queue }: { track: Track; queue: Track[] }) {
   const { isThisPlaying, togglePlay } = useTrackPlay(track, queue);
@@ -105,7 +94,6 @@ export const FeedRow = memo(function FeedRow({ item }: { item: FeedItem }) {
   const by = reposterName(item);
   const when = ago(item.created_at);
   const cover = art(origin.artwork_url, 't200x200');
-  const title = visibleText(origin.title) || '(untitled)';
 
   const open = (e: MouseEvent) => {
     e.stopPropagation();
@@ -151,7 +139,7 @@ export const FeedRow = memo(function FeedRow({ item }: { item: FeedItem }) {
             {/* Fixed height: a playlist row must line up with the two-line track
                 rows regardless of how its own fields fall out. */}
             <span className="block text-[14px] font-medium leading-5 truncate text-white/90 hover:text-white transition-colors duration-150">
-              {title}
+              {origin.title}
             </span>
             <span className="block text-[12px] leading-4 truncate mt-0.5 text-white/40">
               {origin.user?.username ? `${origin.user.username} · ` : ''}
@@ -159,7 +147,7 @@ export const FeedRow = memo(function FeedRow({ item }: { item: FeedItem }) {
             </span>
           </button>
         ) : (
-          <TrackTitleArtist track={origin} size="md" title={title} />
+          <TrackTitleArtist track={origin} size="md" />
         )}
 
         {!isPlaylist && <LikeButton track={origin} />}
@@ -178,9 +166,11 @@ export const FeedRow = memo(function FeedRow({ item }: { item: FeedItem }) {
             {when}
           </span>
         )}
-        <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
-          {dur(origin.duration)}
-        </span>
+        {origin.duration > 0 && (
+          <span className="text-[12px] text-white/30 tabular-nums font-medium shrink-0 w-12 text-right">
+            {dur(origin.duration)}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -2,18 +2,16 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { art } from '../../lib/formatters';
+import { ListMusic, PanelLeftClose, PanelLeftOpen } from '../../lib/icons';
 import {
-  Clock,
-  Download,
-  Home,
-  Library,
-  ListMusic,
-  Newspaper,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Search,
-  Settings,
-} from '../../lib/icons';
+  NavFeed,
+  NavHistory,
+  NavHome,
+  NavLibrary,
+  NavOffline,
+  NavSearch,
+  NavSettings,
+} from '../../lib/nav-icons';
 import { usePerfMode } from '../../lib/perf';
 import { useAppMode } from '../../stores/app-status';
 import { useAuthStore } from '../../stores/auth';
@@ -24,12 +22,12 @@ import { Avatar } from '../ui/Avatar';
 type IconCmp = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
 const navItems: { to: string; icon: IconCmp; label: string }[] = [
-  { to: '/home', icon: Home, label: 'Home' },
-  { to: '/feed', icon: Newspaper, label: 'Feed' },
-  { to: '/search', icon: Search, label: 'Search' },
-  { to: '/library', icon: Library, label: 'Library' },
-  { to: '/library/history', icon: Clock, label: 'History' },
-  { to: '/offline', icon: Download, label: 'Offline' },
+  { to: '/home', icon: NavHome, label: 'Home' },
+  { to: '/feed', icon: NavFeed, label: 'Feed' },
+  { to: '/search', icon: NavSearch, label: 'Search' },
+  { to: '/library', icon: NavLibrary, label: 'Library' },
+  { to: '/library/history', icon: NavHistory, label: 'History' },
+  { to: '/offline', icon: NavOffline, label: 'Offline' },
 ];
 
 const ROW = 'group relative w-full flex items-center h-10 rounded-xl transition-all duration-200';
@@ -287,7 +285,7 @@ export const Sidebar = React.memo(() => {
 
         <NavItem
           to="/settings"
-          icon={Settings}
+          icon={NavSettings}
           label={'Settings'}
           collapsed={collapsed}
           title={collapsed ? 'Settings' : undefined}
