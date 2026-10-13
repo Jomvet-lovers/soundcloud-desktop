@@ -23,6 +23,9 @@ import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
 import { useSearchQueryStore } from '../stores/searchQuery';
 
+/** The Search page's result views. The active one is view state, not a pref. */
+type SearchTab = 'tracks' | 'users' | 'playlists' | 'albums';
+
 /** Debounced view of the global search query — the header field writes it. */
 export function useDebouncedSearchQuery(): string {
   const q = useSearchQueryStore((s) => s.q);
@@ -286,10 +289,20 @@ export function DiscoverSections() {
 /** SoundCloud search results — tabs, sorting and numbered pagination. */
 function SearchResults() {
   const query = useDebouncedSearchQuery();
-  const tab = useSearchPrefsStore((s) => s.tab);
-  const setTab = useSearchPrefsStore((s) => s.setTab);
+  const liveQuery = useSearchQueryStore((s) => s.q);
   const sort = useSearchPrefsStore((s) => s.sort);
   const setSort = useSearchPrefsStore((s) => s.setSort);
+
+  // The tab is view state, not a saved preference: every fresh search starts
+  // on Tracks. Mounting the page covers leaving/returning (back button); the
+  // effect covers editing the query without leaving. Keyed on the live query,
+  // not the debounced one, so a tab click right after typing isn't undone when
+  // the debounce lands.
+  const [tab, setTab] = useState<SearchTab>('tracks');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: liveQuery is the trigger
+  useEffect(() => {
+    setTab('tracks');
+  }, [liveQuery]);
 
   // Numbered pagination: the page resets whenever the query / tab / sort
   // changes, and only the visible tab requests deeper pages (the other tabs
