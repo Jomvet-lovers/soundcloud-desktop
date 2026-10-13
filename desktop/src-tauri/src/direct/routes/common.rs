@@ -225,3 +225,28 @@ pub(crate) async fn merge_local_playlist_likes(
     }
     items
 }
+
+/// Privacy values the sharing PUTs accept. Anything else is a client bug and
+/// must not reach SoundCloud, where a bad value could flip a set public.
+pub(crate) fn normalize_sharing(v: Option<&Value>) -> Option<&'static str> {
+    match v.and_then(Value::as_str) {
+        Some("public") => Some("public"),
+        Some("private") => Some("private"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_sharing;
+    use serde_json::json;
+
+    #[test]
+    fn sharing_only_accepts_known_values() {
+        assert_eq!(normalize_sharing(Some(&json!("public"))), Some("public"));
+        assert_eq!(normalize_sharing(Some(&json!("private"))), Some("private"));
+        assert_eq!(normalize_sharing(Some(&json!("unlisted"))), None);
+        assert_eq!(normalize_sharing(Some(&json!(7))), None);
+        assert_eq!(normalize_sharing(None), None);
+    }
+}

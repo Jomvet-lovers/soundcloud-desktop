@@ -395,9 +395,62 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             let has_more = (offset as u64 + slice.len() as u64) < total;
             ok(page(slice, page_no, limit, has_more))
         }
-        ("GET", ["tracks", _urn, "sharing"]) => ok(json!({ "sharing": "public" })),
-        ("PUT", ["tracks", _urn, "sharing"]) | ("DELETE", ["tracks", _urn, "sharing"]) => {
-            ok(json!({ "ok": true }))
+        ("PUT", ["tracks", urn, "sharing"]) => {
+            let b = body_json(&body);
+            let Some(sharing) = normalize_sharing(b.get("sharing")) else {
+                return Ok(err(400, "sharing must be \"public\" or \"private\""));
+            };
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => {
+                    eprintln!("[tracks] sharing PUT {urn}: no client_id: {e}");
+                    return Ok(err(502, "could not reach SoundCloud"));
+                }
+            };
+            let url = format!("{SC_API}/tracks/{}?client_id={cid}", id_of(urn));
+            let payload = json!({ "track": { "sharing": sharing } });
+            match super::super::webview::execute(&s.app, Some(t), "PUT", &url, Some(&payload))
+                .await
+            {
+                Ok(r) if (200..300).contains(&r.status) => {
+                    // The likes list renders its stored copy; keep its badge
+                    // in step with the SoundCloud answer.
+                    let mut store = s.store.lock().await;
+                    let mut mirrored = false;
+                    if let Some(track) = store
+                        .liked_tracks
+                        .iter_mut()
+                        .find(|t| t.get("urn").and_then(Value::as_str) == Some(urn))
+                    {
+                        if let Some(obj) = track.as_object_mut() {
+                            obj.insert("sharing".into(), json!(sharing));
+                            mirrored = true;
+                        }
+                    }
+                    if mirrored {
+                        store.save();
+                    }
+                    ok(json!({ "ok": true, "sharing": sharing }))
+                }
+                Ok(r) => {
+                    eprintln!(
+                        "[tracks] sharing PUT {urn} -> {} captcha={}",
+                        r.status,
+                        r.captcha.is_some()
+                    );
+                    err(502, "SoundCloud rejected the privacy change")
+                }
+                Err(e) => {
+                    eprintln!("[tracks] sharing PUT {urn} failed: {e}");
+                    err(
+                        502,
+                        "SoundCloud unreachable; the privacy change was not saved",
+                    )
+                }
+            }
         }
 
         // ── playlists ───────────────────────────────────────────────

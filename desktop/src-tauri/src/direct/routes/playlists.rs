@@ -632,16 +632,6 @@ async fn repaired_local_playlist(
     Some(repaired)
 }
 
-/// Privacy values the playlist PUT accepts. Anything else is a client bug and
-/// must not reach SoundCloud, where a bad value could flip the set public.
-pub(crate) fn normalize_sharing(v: Option<&Value>) -> Option<&'static str> {
-    match v.and_then(Value::as_str) {
-        Some("public") => Some("public"),
-        Some("private") => Some("private"),
-        _ => None,
-    }
-}
-
 /// Base-completeness gate for playlist writes: the SC detail must list every
 /// track (`pre_len` matches `track_count` when the count is known) and
 /// hydration must resolve all stubs (`post_len == pre_len`). Anything less
@@ -686,7 +676,7 @@ pub(crate) fn append_unique(tracks: &mut Vec<Value>, track: Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_unique, base_complete, normalize_sharing};
+    use super::{append_unique, base_complete};
     use serde_json::json;
 
     fn stub(id: u64) -> serde_json::Value {
@@ -725,14 +715,5 @@ mod tests {
         // id-only stub with a matching id counts as the same track
         assert!(!append_unique(&mut tracks, stub(2)));
         assert_eq!(tracks.len(), 3);
-    }
-
-    #[test]
-    fn sharing_only_accepts_known_values() {
-        assert_eq!(normalize_sharing(Some(&json!("public"))), Some("public"));
-        assert_eq!(normalize_sharing(Some(&json!("private"))), Some("private"));
-        assert_eq!(normalize_sharing(Some(&json!("unlisted"))), None);
-        assert_eq!(normalize_sharing(Some(&json!(7))), None);
-        assert_eq!(normalize_sharing(None), None);
     }
 }
