@@ -886,8 +886,10 @@ export function useCreatePlaylist() {
 
 /* ── Sharing (privacy) ─────────────────────────────────────────── */
 
-/** Тоггл приватности своего плейлиста. Optimistic: бэк сразу обновляет наш
- *  `sharing` + кладёт write-back в SC через sync_queue. */
+/** Тоггл приватности своего плейлиста. У SC-плейлистов бэк сначала проводит
+ *  `sharing` через writer WebView в SoundCloud, и только по успеху обновляет
+ *  локальную копию; при отказе SC мутация падает и локальное состояние не
+ *  меняется, чтобы приложение не показывало несуществующую приватность. */
 export function useSetPlaylistSharing(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({

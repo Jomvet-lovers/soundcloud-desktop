@@ -458,18 +458,58 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         }
         ("PUT", ["playlists", urn, "sharing"]) => {
             let b = body_json(&body);
-            let sharing = b
-                .get("sharing")
-                .cloned()
-                .unwrap_or(json!("private"));
+            let Some(sharing) = normalize_sharing(b.get("sharing")) else {
+                return Ok(err(400, "sharing must be \"public\" or \"private\""));
+            };
+
+            // An SC-owned set keeps its real privacy on SoundCloud, so the
+            // remote write happens first and the local copy only mirrors the
+            // answer. A background write would race the refetch and could
+            // keep showing the old flag; a failed write must not flip the
+            // app's state at all.
+            if urn.starts_with("soundcloud:playlists:") {
+                let Some(t) = token.as_deref() else {
+                    return Ok(err(401, "unauthorized"));
+                };
+                let cid = match s.client_id().await {
+                    Ok(cid) => cid,
+                    Err(e) => {
+                        eprintln!("[playlists] sharing PUT {urn}: no client_id: {e}");
+                        return Ok(err(502, "could not reach SoundCloud"));
+                    }
+                };
+                let url = format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn));
+                let payload = json!({ "playlist": { "sharing": sharing } });
+                match super::super::webview::execute(&s.app, Some(t), "PUT", &url, Some(&payload))
+                    .await
+                {
+                    Ok(r) if (200..300).contains(&r.status) => {}
+                    Ok(r) => {
+                        eprintln!(
+                            "[playlists] sharing PUT {urn} -> {} captcha={}",
+                            r.status,
+                            r.captcha.is_some()
+                        );
+                        return Ok(err(502, "SoundCloud rejected the privacy change"));
+                    }
+                    Err(e) => {
+                        eprintln!("[playlists] sharing PUT {urn} failed: {e}");
+                        return Ok(err(
+                            502,
+                            "SoundCloud unreachable; the privacy change was not saved",
+                        ));
+                    }
+                }
+            }
+
             let mut store = s.store.lock().await;
             if let Some(mut playlist) = store.find_playlist(urn) {
                 if let Some(obj) = playlist.as_object_mut() {
-                    obj.insert("sharing".into(), sharing);
+                    obj.insert("sharing".into(), json!(sharing));
                 }
                 store.upsert_playlist(playlist);
             }
-            ok(json!({ "ok": true }))
+            ok(json!({ "ok": true, "sharing": sharing }))
         }
 
         // ── users ───────────────────────────────────────────────────
@@ -592,6 +632,16 @@ async fn repaired_local_playlist(
     Some(repaired)
 }
 
+/// Privacy values the playlist PUT accepts. Anything else is a client bug and
+/// must not reach SoundCloud, where a bad value could flip the set public.
+pub(crate) fn normalize_sharing(v: Option<&Value>) -> Option<&'static str> {
+    match v.and_then(Value::as_str) {
+        Some("public") => Some("public"),
+        Some("private") => Some("private"),
+        _ => None,
+    }
+}
+
 /// Base-completeness gate for playlist writes: the SC detail must list every
 /// track (`pre_len` matches `track_count` when the count is known) and
 /// hydration must resolve all stubs (`post_len == pre_len`). Anything less
@@ -636,7 +686,7 @@ pub(crate) fn append_unique(tracks: &mut Vec<Value>, track: Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_unique, base_complete};
+    use super::{append_unique, base_complete, normalize_sharing};
     use serde_json::json;
 
     fn stub(id: u64) -> serde_json::Value {
@@ -675,5 +725,14 @@ mod tests {
         // id-only stub with a matching id counts as the same track
         assert!(!append_unique(&mut tracks, stub(2)));
         assert_eq!(tracks.len(), 3);
+    }
+
+    #[test]
+    fn sharing_only_accepts_known_values() {
+        assert_eq!(normalize_sharing(Some(&json!("public"))), Some("public"));
+        assert_eq!(normalize_sharing(Some(&json!("private"))), Some("private"));
+        assert_eq!(normalize_sharing(Some(&json!("unlisted"))), None);
+        assert_eq!(normalize_sharing(Some(&json!(7))), None);
+        assert_eq!(normalize_sharing(None), None);
     }
 }
