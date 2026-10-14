@@ -3,7 +3,7 @@
 <img src=".github/assets/logo.png" width="180px" alt="SCD-Direct" />
 </a>
 </p>
-<h1 align="center">SoundCloud Dekstop</h1>
+<h1 align="center">SoundCloud Desktop</h1>
 
 <p align="center">
 <a href="README.md">English</a> | <a href="README.ja.md">日本語</a>
