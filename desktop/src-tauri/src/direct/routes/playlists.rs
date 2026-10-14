@@ -599,6 +599,17 @@ async fn repaired_local_playlist(
             let id = id_of(urn);
             if let Ok((status, v)) = state.sc_get(&format!("/playlists/{id}"), token).await {
                 if (200..300).contains(&status) {
+                    // SoundCloud owns the privacy of its own sets: adopt its
+                    // value, or a stale local copy would keep showing the wrong
+                    // badge forever (another client may have toggled it).
+                    if let Some(sc_sharing) = normalize_sharing(v.get("sharing")) {
+                        if repaired.get("sharing").and_then(Value::as_str) != Some(sc_sharing) {
+                            if let Some(obj) = repaired.as_object_mut() {
+                                obj.insert("sharing".into(), json!(sc_sharing));
+                            }
+                            changed = true;
+                        }
+                    }
                     let expected = v.get("track_count").and_then(Value::as_u64);
                     let mut list = v
                         .get("tracks")

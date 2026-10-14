@@ -259,10 +259,32 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 None => None,
             };
             if let Some(v) = sc {
-                let store = s.store.lock().await;
-                let sc_items: Vec<Value> = sc_items(&v)
+                let mut store = s.store.lock().await;
+                let sc_items: Vec<Value> = sc_items(&v).into_iter().map(normalize_urn).collect();
+                // SoundCloud owns the privacy of its own sets: mirror it onto
+                // the local copies before they're served, so the list can't
+                // keep a stale badge (another client may have toggled it).
+                let mut changed = false;
+                for p in &sc_items {
+                    let (Some(u), Some(sharing)) = (urn_of(p), normalize_sharing(p.get("sharing")))
+                    else {
+                        continue;
+                    };
+                    if !u.starts_with("soundcloud:playlists:") {
+                        continue;
+                    }
+                    changed |= store.set_playlist_sharing(&u, sharing);
+                }
+                if changed {
+                    store.save();
+                    if page_no == 0 {
+                        // Re-clone so the fresh sharing reaches this response.
+                        items.clear();
+                        items.extend(store.playlists.iter().cloned());
+                    }
+                }
+                let sc_items: Vec<Value> = sc_items
                     .into_iter()
-                    .map(normalize_urn)
                     .filter(|p| {
                         urn_of(p)
                             .map(|u| {

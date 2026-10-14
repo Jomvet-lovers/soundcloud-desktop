@@ -163,6 +163,26 @@ impl LocalStore {
         self.upsert_playlist(playlist);
     }
 
+    /// Mirror SoundCloud's privacy onto a local copy of an SC-owned set.
+    /// SoundCloud owns `sharing` for its own sets, so a stale local value must
+    /// not win; returns true when the stored value changed (the caller saves).
+    pub fn set_playlist_sharing(&mut self, urn: &str, sharing: &str) -> bool {
+        let Some(p) = self
+            .playlists
+            .iter_mut()
+            .find(|p| p.get("urn").and_then(Value::as_str) == Some(urn))
+        else {
+            return false;
+        };
+        if p.get("sharing").and_then(Value::as_str) == Some(sharing) {
+            return false;
+        }
+        if let Some(obj) = p.as_object_mut() {
+            obj.insert("sharing".into(), serde_json::json!(sharing));
+        }
+        true
+    }
+
     pub fn delete_playlist(&mut self, urn: &str) {
         self.playlists
             .retain(|p| p.get("urn").and_then(Value::as_str) != Some(urn));
@@ -186,5 +206,30 @@ impl LocalStore {
             .max()
             .unwrap_or(0);
         format!("local:playlists:{}", max + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocalStore;
+    use serde_json::json;
+
+    /// SC-owned copies follow SoundCloud's privacy; only real changes report
+    /// true so the callers can batch a single store save.
+    #[test]
+    fn sharing_follows_soundcloud() {
+        let mut store = LocalStore::default();
+        store.playlists.push(json!({
+            "urn": "soundcloud:playlists:1",
+            "sharing": "public",
+        }));
+
+        assert!(store.set_playlist_sharing("soundcloud:playlists:1", "private"));
+        assert_eq!(
+            store.playlists[0].get("sharing").and_then(|v| v.as_str()),
+            Some("private"),
+        );
+        assert!(!store.set_playlist_sharing("soundcloud:playlists:1", "private"));
+        assert!(!store.set_playlist_sharing("soundcloud:playlists:2", "private"));
     }
 }
