@@ -1,18 +1,20 @@
-[English](README.md) | [日本語](README.ja.md)
-
 <p align="center">
 <a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
 <img src=".github/assets/logo.png" width="180px" alt="SCD-Direct" />
 </a>
 </p>
-<h1 align="center">SCD-Direct（日本語）</h1>
+<h1 align="center">SCD-Direct</h1>
+
+<p align="center">
+<a href="README.md">English</a> | <a href="README.ja.md">日本語</a>
+</p>
 
 <p align="center">
 <a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
 <img src="https://img.shields.io/badge/ダウンロード-Latest-FF5500?style=for-the-badge" alt="Download"/>
 </a>
-<a href="README.md">
-<img src="https://img.shields.io/badge/English-README-0066FF?style=for-the-badge" alt="English README"/>
+<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases">
+<img src="https://img.shields.io/github/downloads/Jomvet-lovers/SCD-Direct/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
 </a>
 </p>
 
