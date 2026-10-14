@@ -236,9 +236,13 @@ export function initTooltips(): void {
     true,
   );
 
+  // Only the primary button dismisses: a right-click leaves the pointer on
+  // the control, and hiding here restores the native `title` under the cursor
+  // — the WebView would then draw its own bubble instead of ours.
   document.addEventListener(
     'pointerdown',
-    () => {
+    (e) => {
+      if (e.button !== 0) return;
       if (anchor || pending) hide();
     },
     true,
