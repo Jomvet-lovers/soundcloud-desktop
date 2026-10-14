@@ -16,10 +16,18 @@ import './index.css';
 import { useSettingsStore } from './stores/settings';
 
 // Native webview context menu (Back/Reload/Inspect/…) is not part of the app UI.
-// Keep it off everywhere except text fields, where right-click paste is expected.
+// Keep it off everywhere except text entry, where right-click paste is expected
+// (sliders — volume, seek, EQ — are inputs too, but they must not get the menu).
+const TEXT_ENTRY_TYPES = new Set(['text', 'search', 'url', 'tel', 'email', 'password', 'number']);
+
 document.addEventListener('contextmenu', (e) => {
   const el = e.target as HTMLElement | null;
-  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+  const textEntry =
+    !!el &&
+    (el.isContentEditable ||
+      el.tagName === 'TEXTAREA' ||
+      (el.tagName === 'INPUT' && TEXT_ENTRY_TYPES.has((el as HTMLInputElement).type)));
+  if (textEntry) return;
   e.preventDefault();
 });
 
