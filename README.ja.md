@@ -1,9 +1,9 @@
 <p align="center">
 <a href="https://github.com/Jomvet-lovers/soundcloud-desktop/releases/latest">
-<img src=".github/assets/logo.png" width="180px" alt="SCD-Direct" />
+<img src=".github/assets/logo.png" width="180px" alt="SoundCloud Desktop" />
 </a>
 </p>
-<h1 align="center">SoundCloud Dekstop</h1>
+<h1 align="center">SoundCloud Desktop</h1>
 
 <p align="center">
 <a href="README.md">English</a> | <a href="README.ja.md">日本語</a>
