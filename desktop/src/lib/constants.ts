@@ -24,7 +24,7 @@ export function setApiBase(port: number) {
 }
 
 export const GITHUB_OWNER = 'Jomvet-lovers';
-export const GITHUB_REPO = 'SCD-Direct';
+export const GITHUB_REPO = 'soundcloud-desktop';
 export const APP_VERSION = __APP_VERSION__;
 
 export const CHECK_UPDATES = true;

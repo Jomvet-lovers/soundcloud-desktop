@@ -1,6 +1,6 @@
 pub const DISCORD_CLIENT_ID: &str = "1431978756687265872";
 
-pub const GITHUB_URL: &str = "https://github.com/Jomvet-lovers/SCD-Direct";
+pub const GITHUB_URL: &str = "https://github.com/Jomvet-lovers/soundcloud-desktop";
 
 pub const DOMAIN_WHITELIST: &[&str] = &[
     "localhost",

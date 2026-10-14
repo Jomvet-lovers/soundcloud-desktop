@@ -1,20 +1,20 @@
 <p align="center">
-<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
+<a href="https://github.com/Jomvet-lovers/soundcloud-desktop/releases/latest">
 <img src=".github/assets/logo.png" width="180px" alt="SCD-Direct" />
 </a>
 </p>
-<h1 align="center">SCD-Direct</h1>
+<h1 align="center">SoundCloud Dekstop</h1>
 
 <p align="center">
 <a href="README.md">English</a> | <a href="README.ja.md">日本語</a>
 </p>
 
 <p align="center">
-<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases/latest">
+<a href="https://github.com/Jomvet-lovers/soundcloud-desktop/releases/latest">
 <img src="https://img.shields.io/badge/Download-Latest_Version-FF5500?style=for-the-badge" alt="Download"/>
 </a>
-<a href="https://github.com/Jomvet-lovers/SCD-Direct/releases">
-<img src="https://img.shields.io/github/downloads/Jomvet-lovers/SCD-Direct/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
+<a href="https://github.com/Jomvet-lovers/soundcloud-desktop/releases">
+<img src="https://img.shields.io/github/downloads/Jomvet-lovers/soundcloud-desktop/total?style=for-the-badge&logo=download&color=FF5500&label=Downloads" alt="Downloads"/>
 </a>
 </p>
 
