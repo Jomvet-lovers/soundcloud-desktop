@@ -13,10 +13,7 @@ export interface UploadAudioProps {
   inspectError: string | null;
   /** True while an upload is in flight: the file cannot be swapped. */
   disabled: boolean;
-  /** User confirmed a file over the 500 MB request limit. */
-  largeConfirmed: boolean;
   onPick: () => void;
-  onConfirmLarge: () => void;
 }
 
 const FILE_BTN =
@@ -28,11 +25,10 @@ export function UploadAudio({
   inspecting,
   inspectError,
   disabled,
-  largeConfirmed,
   onPick,
-  onConfirmLarge,
 }: UploadAudioProps) {
-  const blocked = audio?.info.too_long ?? false;
+  const tooLarge = audio?.info.too_large ?? false;
+  const tooLong = audio?.info.too_long ?? false;
 
   return (
     <section className="flex flex-col gap-4">
@@ -61,7 +57,7 @@ export function UploadAudio({
             </button>
           </div>
 
-          {!blocked && audio.info.warnings.length > 0 && (
+          {audio.info.warnings.length > 0 && (
             <ul className="flex flex-col gap-1">
               {audio.info.warnings.map((warning) => (
                 <li
@@ -75,30 +71,20 @@ export function UploadAudio({
             </ul>
           )}
 
-          {blocked && (
+          {tooLong && (
             <p className="flex items-start gap-2 text-[12.5px] leading-snug text-red-400">
               <AlertCircle size={14} className="mt-0.5 shrink-0" />
               {'Files longer than 24 hours cannot be uploaded. Choose a different file.'}
             </p>
           )}
 
-          {audio.info.too_large && !blocked && !largeConfirmed && (
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-[12px] leading-snug text-white/55">
-                {'This file is over 500 MB, the upload request limit. Uploads this large can fail.'}
-              </p>
-              <button
-                type="button"
-                onClick={onConfirmLarge}
-                className="cursor-pointer rounded-lg border border-white/[0.12] px-3 py-1.5 text-[12px] font-medium text-white/80 transition-colors hover:bg-white/[0.06]"
-              >
-                {'Continue anyway'}
-              </button>
-            </div>
-          )}
-
-          {audio.info.too_large && !blocked && largeConfirmed && (
-            <p className="text-[12px] text-white/40">{'Continuing with a file over 500 MB.'}</p>
+          {tooLarge && (
+            <p className="flex items-start gap-2 text-[12.5px] leading-snug text-red-400">
+              <AlertCircle size={14} className="mt-0.5 shrink-0" />
+              {
+                'This file is over the 500 MB limit, so it cannot be uploaded. Choose a different file.'
+              }
+            </p>
           )}
         </div>
       ) : (

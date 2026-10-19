@@ -22,7 +22,7 @@ use crate::track_cache::transcode;
 
 use super::webview;
 
-/// SoundCloud rejects request bodies above 500 MB; the UI confirms first.
+/// SoundCloud rejects request bodies above 500 MB; the UI blocks files above it.
 const SOFT_MAX_BYTES: u64 = 500 * 1024 * 1024;
 /// Hard file-size limit (SoundCloud documents 4 GB).
 const HARD_MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
@@ -43,7 +43,7 @@ pub struct AudioInspection {
     pub filename: String,
     pub duration_ms: Option<u64>,
     pub extension_ok: bool,
-    /// Above the 500 MB request-body limit: continue only after a UI confirm.
+    /// Above the 500 MB request-body limit: the UI refuses the upload.
     pub too_large: bool,
     /// Above 24 h: the UI refuses the upload.
     pub too_long: bool,
@@ -115,17 +115,17 @@ fn grant_url(port: u16, token: &str) -> String {
 /// `Err` above the hard limit, otherwise the soft-limit warnings.
 fn inspect_verdict(size: u64, duration_ms: Option<u64>) -> Result<Verdict, String> {
     if size > HARD_MAX_BYTES {
-        return Err("ファイルが大きすぎます(4GB まで)".into());
+        return Err("File is larger than SoundCloud's 4 GB limit".into());
     }
     let mut warnings = Vec::new();
     if size > SOFT_MAX_BYTES {
-        warnings.push("500MB を超えています。アップロードに失敗することがあります".into());
+        warnings.push("File is larger than SoundCloud's 500 MB upload limit".into());
     }
     let too_long = duration_ms.is_some_and(|ms| ms > MAX_DURATION_MS);
     if too_long {
-        warnings.push("24 時間を超える曲はアップロードできません".into());
+        warnings.push("Track is longer than 24 hours".into());
     } else if duration_ms.is_none() {
-        warnings.push("長さを取得できませんでした".into());
+        warnings.push("Duration could not be determined".into());
     }
     Ok(Verdict {
         too_large: size > SOFT_MAX_BYTES,
@@ -152,13 +152,13 @@ pub async fn upload_inspect(app: AppHandle, path: String) -> Result<AudioInspect
     let path = PathBuf::from(path);
     let meta = tokio::fs::metadata(&path)
         .await
-        .map_err(|_| "ファイルが見つかりません".to_string())?;
+        .map_err(|_| "File not found".to_string())?;
     if !meta.is_file() {
-        return Err("ファイルが見つかりません".into());
+        return Err("File not found".into());
     }
     let extension = extension_of(&path);
     if !AUDIO_EXTENSIONS.contains(&extension.as_str()) {
-        return Err(format!("対応形式ではありません: .{extension}"));
+        return Err(format!("Unsupported audio format: .{extension}"));
     }
     let size = meta.len();
     let duration_ms = probe_duration(&app, &path).await;
@@ -184,23 +184,23 @@ pub async fn upload_issue_token(
     let path = PathBuf::from(path);
     let meta = tokio::fs::metadata(&path)
         .await
-        .map_err(|_| "ファイルが見つかりません".to_string())?;
+        .map_err(|_| "File not found".to_string())?;
     if !meta.is_file() {
-        return Err("ファイルが見つかりません".into());
+        return Err("File not found".into());
     }
     if meta.len() > upload_grants::MAX_BYTES {
-        return Err("ファイルが大きすぎます(500MB まで)".into());
+        return Err("The file exceeds SoundCloud's 500 MB upload limit".into());
     }
     let extension = extension_of(&path);
     match kind.as_str() {
         "audio" => {}
         "artwork" if !ARTWORK_EXTENSIONS.contains(&extension.as_str()) => {
             return Err(format!(
-                "アートワークは JPG / PNG / WebP のみ対応です: .{extension}"
+                "Artwork must be a JPG, PNG, or WebP image: .{extension}"
             ));
         }
         "artwork" => {}
-        other => return Err(format!("不明な種別です: {other}")),
+        other => return Err(format!("Unknown upload kind: {other}")),
     }
     let filename = file_name(&path);
     let content_type = upload_grants::content_type_for(&path).to_string();
@@ -221,11 +221,11 @@ pub async fn upload_issue_token(
 /// the caller omits them.
 pub(crate) fn meta_fields(meta: &UploadMeta) -> Result<Vec<(String, String)>, String> {
     if meta.title.trim().is_empty() {
-        return Err("タイトルを入力してください".into());
+        return Err("Title is required".into());
     }
     if let Some(sharing) = meta.sharing.as_deref().filter(|s| !s.is_empty()) {
         if sharing != "public" && sharing != "private" {
-            return Err(format!("公開設定が不正です: {sharing}"));
+            return Err(format!("Invalid sharing setting: {sharing}"));
         }
     }
     let mut fields = vec![("track[title]".to_string(), meta.title.clone())];
@@ -303,7 +303,7 @@ pub(crate) fn parse_uploaded_track(payload: &str) -> Result<UploadedTrack, Strin
             title: String::new(),
             state: "processing".into(),
         }),
-        None => Err("応答からトラック ID を取得できませんでした".into()),
+        None => Err("Track ID was not found in the response".into()),
     }
 }
 
@@ -368,12 +368,10 @@ pub async fn track_upload(
         .state::<Arc<SessionStore>>()
         .active_token()
         .await
-        .ok_or_else(|| "ログインしていません".to_string())?;
+        .ok_or_else(|| "You are not signed in".to_string())?;
 
     let Some(audio) = upload_grants::peek(&audio_token) else {
-        return Err(
-            "アップロード用のトークンが無効か期限切れです。ファイルを選び直してください".into(),
-        );
+        return Err("The upload token is invalid or expired. Select the file again".into());
     };
     // Artwork is optional: a dead artwork token must not sink the upload.
     let artwork = artwork_token.as_deref().and_then(upload_grants::peek);
@@ -404,7 +402,7 @@ pub async fn track_upload(
 
     if !(200..300).contains(&outcome.status) {
         return Err(format!(
-            "アップロードに失敗しました({}): {}",
+            "Upload failed ({}): {}",
             outcome.status,
             truncate_chars(&outcome.payload, ERROR_BODY_MAX)
         ));
@@ -454,12 +452,20 @@ mod tests {
 
         let soft = inspect_verdict(SOFT_MAX_BYTES + 1, Some(1_000)).unwrap();
         assert!(soft.too_large && !soft.too_long);
-        assert_eq!(soft.warnings.len(), 1);
+        assert_eq!(
+            soft.warnings,
+            ["File is larger than SoundCloud's 500 MB upload limit"]
+        );
 
         let at_boundary = inspect_verdict(SOFT_MAX_BYTES, Some(1_000)).unwrap();
         assert!(at_boundary.warnings.is_empty());
         assert!(inspect_verdict(HARD_MAX_BYTES, Some(1_000)).is_ok());
-        assert!(inspect_verdict(HARD_MAX_BYTES + 1, Some(1_000)).is_err());
+        assert_eq!(
+            inspect_verdict(HARD_MAX_BYTES + 1, Some(1_000))
+                .err()
+                .as_deref(),
+            Some("File is larger than SoundCloud's 4 GB limit")
+        );
     }
 
     #[test]
@@ -472,11 +478,11 @@ mod tests {
 
         let long = inspect_verdict(1_000, Some(MAX_DURATION_MS + 1)).unwrap();
         assert!(long.too_long);
-        assert_eq!(long.warnings.len(), 1);
+        assert_eq!(long.warnings, ["Track is longer than 24 hours"]);
 
         let unknown = inspect_verdict(1_000, None).unwrap();
         assert!(!unknown.too_long);
-        assert_eq!(unknown.warnings.len(), 1);
+        assert_eq!(unknown.warnings, ["Duration could not be determined"]);
     }
 
     #[test]
@@ -643,7 +649,7 @@ mod tests {
             "has space",
             "with/slash",
             "trailing.dot",
-            "日本語",
+            "café",
             "emoji🙂",
         ] {
             assert!(resolve_upload_id(Some(bad)).is_err(), "{bad:?}");

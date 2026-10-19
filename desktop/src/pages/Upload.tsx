@@ -65,7 +65,6 @@ export function Upload() {
   const [inspectError, setInspectError] = useState<string | null>(null);
   const [artwork, setArtwork] = useState<ArtworkSelection | null>(null);
   const [previewFailed, setPreviewFailed] = useState(false);
-  const [largeConfirmed, setLargeConfirmed] = useState(false);
   const [meta, setMeta] = useState<UploadMeta>(INITIAL_META);
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<number | null>(null);
@@ -77,8 +76,7 @@ export function Upload() {
 
   const uploading = phase === 'uploading';
   const info = audio?.info ?? null;
-  const blocked = info?.too_long ?? false;
-  const submitDisabled = (info?.too_large ?? false) && !largeConfirmed;
+  const blocked = (info?.too_long ?? false) || (info?.too_large ?? false);
 
   const pickAudio = useCallback(async () => {
     if (inspecting || uploading) return;
@@ -93,7 +91,6 @@ export function Upload() {
     try {
       const inspection = await inspectAudioFile(picked);
       setAudio({ path: picked, info: inspection });
-      setLargeConfirmed(false);
       setResult(null);
       setPhase('idle');
       setFailure(null);
@@ -131,7 +128,7 @@ export function Upload() {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!audio) return;
+    if (!audio || blocked) return;
     const uploadId = newUploadId();
     cancelRequested.current = false;
     setPhase('uploading');
@@ -164,7 +161,7 @@ export function Upload() {
       setActiveUploadId(null);
       setCancelling(false);
     }
-  }, [audio, artwork, meta]);
+  }, [audio, artwork, blocked, meta]);
 
   const handleCancel = useCallback(() => {
     if (!activeUploadId || cancelling) return;
@@ -196,7 +193,6 @@ export function Upload() {
     setAudio(null);
     setArtwork(null);
     setPreviewFailed(false);
-    setLargeConfirmed(false);
     setMeta(INITIAL_META);
     setPhase('idle');
     setProgress(null);
@@ -227,13 +223,10 @@ export function Upload() {
             inspecting={inspecting}
             inspectError={inspectError}
             disabled={uploading}
-            largeConfirmed={largeConfirmed}
             onPick={() => void pickAudio()}
-            onConfirmLarge={() => setLargeConfirmed(true)}
           />
 
           {audio &&
-            !blocked &&
             (uploading ? (
               <section className="flex flex-col gap-4 border-t border-white/[0.06] pt-6">
                 <h2 className="text-[15px] font-semibold text-white/90">{'Uploading'}</h2>
@@ -259,7 +252,7 @@ export function Upload() {
                 <UploadForm
                   value={meta}
                   onChange={patchMeta}
-                  disabled={submitDisabled}
+                  disabled={blocked}
                   onSubmit={() => void handleSubmit()}
                 >
                   <UploadArtwork

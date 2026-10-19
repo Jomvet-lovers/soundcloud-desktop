@@ -6,7 +6,7 @@ export interface AudioInspection {
   filename: string;
   duration_ms: number | null;
   extension_ok: boolean;
-  /** Over the 500 MB request-body limit: continue only after a UI confirm. */
+  /** Over the 500 MB request-body limit: the upload is refused. */
   too_large: boolean;
   /** Over 24 hours: the upload is refused. */
   too_long: boolean;
