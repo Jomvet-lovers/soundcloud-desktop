@@ -45,6 +45,24 @@ const isTextEdit = (el: EventTarget | null): boolean =>
 const isInteractive = (el: Element): boolean =>
   !!el.closest('button, input, a, select, textarea, [contenteditable="true"]');
 
+// Nearest ancestor that actually scrolls vertically (the app pants pages on
+// `<main>`, dialogs and panes have their own overflow). Null when the drag
+// started somewhere that cannot scroll at all.
+const findScroller = (el: Element): HTMLElement | null => {
+  let node: HTMLElement | null = el instanceof HTMLElement ? el : el.parentElement;
+  while (node && node !== document.documentElement) {
+    const overflow = window.getComputedStyle(node).overflowY;
+    if (
+      (overflow === 'auto' || overflow === 'scroll') &&
+      node.scrollHeight > node.clientHeight + 4
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+};
+
 let installed = false;
 
 export function initTouchInput(): void {
@@ -87,6 +105,17 @@ export function initTouchInput(): void {
   let press: Press | null = null;
   let dragPending: { pointerId: number; x: number; y: number } | null = null;
 
+  let pan: {
+    pointerId: number;
+    startY: number;
+    lastY: number;
+    scroller: HTMLElement;
+    granted: boolean;
+    moves: number;
+    downAt: number;
+  } | null = null;
+  let scrollSeen = false;
+
   const cancelPress = () => {
     if (!press) return;
     window.clearTimeout(press.timer);
@@ -128,6 +157,31 @@ export function initTouchInput(): void {
       // Text fields keep the native long-press selection flow instead.
       if (isInteractive(target)) return;
 
+      // Drag-to-scroll fallback: virtual displays (SlothMon, Spacedesk, ...)
+      // stream the desktop, but their injected finger contact does not
+      // always drive the native pan, so the still scrollable pane gets
+      // panned by hand. A native scroll event makes the hand pan yield, so
+      // real touchscreens keep the native (inertial) gesture. Mouse pans
+      // only in forced touch mode (it never pans natively there); the
+      // suppressed compat mousedown keeps text from selecting while a drag
+      // pans, clicks still fire.
+      if (!target.closest('[data-tauri-drag-region]')) {
+        const scroller = findScroller(target);
+        if (scroller) {
+          scrollSeen = false;
+          pan = {
+            pointerId: e.pointerId,
+            startY: e.clientY,
+            lastY: e.clientY,
+            scroller,
+            granted: e.pointerType === 'mouse',
+            moves: 0,
+            downAt: performance.now(),
+          };
+          if (e.pointerType === 'mouse') e.preventDefault();
+        }
+      }
+
       press = {
         pointerId: e.pointerId,
         x: e.clientX,
@@ -162,6 +216,30 @@ export function initTouchInput(): void {
         const dy = e.clientY - dragPending.y;
         if (dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) startWindowDrag();
       }
+      if (pan && e.pointerId === pan.pointerId) {
+        if (scrollSeen) {
+          // Native pan engaged; let it own the gesture.
+          pan = null;
+        } else {
+          pan.moves += 1;
+          const dyTotal = e.clientY - pan.startY;
+          if (!pan.granted) {
+            // A quiet-but-moving press on a synthetic touch stream: native
+            // pan never came, take over after a threshold.
+            if (
+              Math.abs(dyTotal) >= 14 ||
+              (pan.moves >= 3 && performance.now() - pan.downAt > 120)
+            ) {
+              pan.granted = true;
+            }
+          }
+          if (pan.granted) {
+            pan.scroller.scrollTop -= e.clientY - pan.lastY;
+          }
+          pan.lastY = e.clientY;
+        }
+      }
+
       if (press && e.pointerId === press.pointerId) {
         const dx = e.clientX - press.x;
         const dy = e.clientY - press.y;
@@ -175,12 +253,20 @@ export function initTouchInput(): void {
   const cancelAll = () => {
     cancelPress();
     dragPending = null;
+    pan = null;
   };
   window.addEventListener('pointerup', cancelAll, { capture: true });
   window.addEventListener('pointercancel', cancelAll, { capture: true });
   window.addEventListener(
     'scroll',
-    () => {
+    (e) => {
+      const tel = e.target;
+      if (pan?.granted && tel instanceof Element && tel === pan.scroller) {
+        // The programmatic scroll above; not a native gesture.
+        return;
+      }
+      scrollSeen = true;
+      pan = null;
       cancelPress();
       dragPending = null;
     },
