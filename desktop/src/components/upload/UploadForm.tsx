@@ -20,7 +20,7 @@ const EMBED_OPTIONS: ReadonlyArray<{ id: 'all' | 'me' | 'none'; label: string }>
 export interface UploadFormProps {
   value: UploadMeta;
   onChange: (patch: Partial<UploadMeta>) => void;
-  /** Blocks submit (e.g. a too-large file that was not confirmed yet). */
+  /** Blocks submit (e.g. a file over the 500 MB limit or longer than 24 hours). */
   disabled: boolean;
   onSubmit: () => void;
   /** Page-specific extra fields (the artwork picker) above the submit row. */
@@ -34,6 +34,7 @@ export function UploadForm({ value, onChange, disabled, onSubmit, children }: Up
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (disabled) return;
     if (!value.title.trim()) {
       setTitleError(true);
       titleRef.current?.focus();
