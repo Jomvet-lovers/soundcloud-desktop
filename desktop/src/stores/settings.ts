@@ -6,6 +6,7 @@ import { tauriStorage } from '../lib/tauri-storage';
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
 export type StartupPage = 'home' | 'feed' | 'search' | 'library' | 'settings';
 export type DiscordRpcMode = 'track' | 'artist' | 'activity';
+export type InputMode = 'auto' | 'touch';
 export interface SidebarPinnedPlaylist {
   urn: string;
   title: string;
@@ -72,6 +73,7 @@ export interface SettingsState {
   discordRpcMode: DiscordRpcMode;
   discordRpcShowButton: boolean;
   touchKeyboardAutoShow: boolean;
+  inputMode: InputMode;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -98,6 +100,7 @@ export interface SettingsState {
   setDiscordRpcMode: (mode: DiscordRpcMode) => void;
   setDiscordRpcShowButton: (show: boolean) => void;
   setTouchKeyboardAutoShow: (enabled: boolean) => void;
+  setInputMode: (mode: InputMode) => void;
   resetTheme: () => void;
 }
 
@@ -128,6 +131,7 @@ const DEFAULTS = {
   discordRpcMode: 'track' as DiscordRpcMode,
   discordRpcShowButton: true,
   touchKeyboardAutoShow: false,
+  inputMode: 'auto' as InputMode,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -181,6 +185,7 @@ export const useSettingsStore = create<SettingsState>()(
       setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
       setTouchKeyboardAutoShow: (touchKeyboardAutoShow) => set({ touchKeyboardAutoShow }),
+      setInputMode: (inputMode) => set({ inputMode }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -233,6 +238,7 @@ export const useSettingsStore = create<SettingsState>()(
         discordRpcMode: s.discordRpcMode,
         discordRpcShowButton: s.discordRpcShowButton,
         touchKeyboardAutoShow: s.touchKeyboardAutoShow,
+        inputMode: s.inputMode,
       }),
     },
   ),

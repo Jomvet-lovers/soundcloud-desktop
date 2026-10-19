@@ -7,6 +7,9 @@
  *   (seeded from `(any-pointer: coarse)` at load). index.css keys hover-reveal
  *   and hit-area refinements off it. Pen deliberately does NOT set it: a pen
  *   hovers like a mouse, so hover-reveal stays hover-dependent there.
+ * - Input mode override: virtual displays that deliver touch as mouse input
+ *   (SlothMon, Spacedesk, Moonlight, ...) never report `pointerType: touch`,
+ *   so Settings > General > Touch can force the touch behaviors on.
  * - Titlebar drag: Tauri's `data-tauri-drag-region` only reacts to mousedown,
  *   and WebView2 does not synthesize a mouse-drag for touch/pen gestures. Here
  *   6px of pointer travel over a drag region starts the native window drag.
@@ -60,9 +63,19 @@ export function initTouchInput(): void {
     html.setAttribute('data-input-touch', '');
   };
 
+  const applyMode = () => {
+    if (useSettingsStore.getState().inputMode === 'touch') {
+      html.setAttribute('data-input-touch', '');
+      return;
+    }
+    // Auto: keep the flag for real touch, drop it if it was set only by force.
+    if (!touchSeen) html.removeAttribute('data-input-touch');
+  };
+
   // Seed before any gesture: a touchscreen present at all already makes
   // hover-reveal awkward, so the refinements apply from load, not first tap.
   if (window.matchMedia('(any-pointer: coarse)').matches) markTouch();
+  applyMode();
 
   interface Press {
     pointerId: number;
@@ -100,10 +113,15 @@ export function initTouchInput(): void {
       cancelPress();
       dragPending = null;
 
+      if (e.button !== 0) return;
       // Mouse keeps Tauri's native drag region; pen/touch get the fallback.
-      if (e.pointerType === 'mouse' || e.button !== 0) return;
-
-      if (!isInteractive(target) && target.closest('[data-tauri-drag-region]')) {
+      // Forced touch mode treats mouse-injected presses (virtual displays
+      // deliver touch as mouse) as touch, except titlebar drag where the
+      // native region already handles mouse.
+      const forced = useSettingsStore.getState().inputMode === 'touch';
+      if (e.pointerType === 'mouse') {
+        if (!forced) return;
+      } else if (!isInteractive(target) && target.closest('[data-tauri-drag-region]')) {
         dragPending = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
       }
 
@@ -180,17 +198,29 @@ export function initTouchInput(): void {
   );
   window.addEventListener('blur', cancelAll);
 
-  // Optional OSK: only on touch, only right after a touch tap, only when the
-  // setting is on. Sits in General > Touch because Windows never opens TabTip
-  // for desktop apps on its own.
+  // Optional OSK: only on touch (or forced touch mode), only right after a
+  // touch tap in auto mode, only when the setting is on. Sits in General >
+  // Touch because Windows never opens TabTip for desktop apps on its own.
   document.addEventListener('focusin', (e) => {
-    if (!touchSeen) return;
+    // Forced mode injects input as mouse: there is no touch pointerdown to time.
+    const forced = useSettingsStore.getState().inputMode === 'touch';
+    if (!forced) {
+      if (!touchSeen) return;
+      if (performance.now() - lastTouchDownAt > OSK_RECENT_TOUCH_MS) return;
+    }
     if (!useSettingsStore.getState().touchKeyboardAutoShow) return;
-    if (performance.now() - lastTouchDownAt > OSK_RECENT_TOUCH_MS) return;
     if (!isTextEdit(e.target)) return;
     const now = performance.now();
     if (now - lastKbLaunchAt < OSK_COOLDOWN_MS) return;
     lastKbLaunchAt = now;
     void trackedInvoke('launch_touch_keyboard').catch(() => undefined);
+  });
+
+  // Mode changes apply live, without a restart or reload.
+  useSettingsStore.subscribe((s, prev) => {
+    if (s.inputMode !== prev.inputMode) {
+      applyMode();
+      cancelAll();
+    }
   });
 }
