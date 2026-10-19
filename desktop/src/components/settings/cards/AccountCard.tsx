@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Check, Loader2, Plus, Trash2, User } from '../../../lib/icons';
 import { type Account, useAuthStore } from '../../../stores/auth';
 import { Avatar } from '../../ui/Avatar';
@@ -16,6 +17,7 @@ const accountName = (account: Account) => account.username.trim() || `Account ${
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function AccountCard() {
+  const navigate = useNavigate();
   const accounts = useAuthStore((s) => s.accounts);
   const activeId = useAuthStore((s) => s.activeId);
   const switchAccount = useAuthStore((s) => s.switchAccount);
@@ -60,6 +62,16 @@ export function AccountCard() {
               </p>
             </div>
           </div>
+        )}
+
+        {accounts.length > 0 && (
+          <button
+            type="button"
+            onClick={() => navigate('/upload')}
+            className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.04] px-4 py-2 text-[12.5px] font-medium text-white/75 transition-colors hover:bg-white/[0.08] hover:text-white/90"
+          >
+            {'Upload a track'}
+          </button>
         )}
 
         {accounts.length > 0 && (

@@ -47,6 +47,7 @@ const ArtistPage = lazy(() =>
 const AlbumPage = lazy(() =>
   import('./pages/AlbumPage').then((module) => ({ default: module.AlbumPage })),
 );
+const Upload = lazy(() => import('./pages/Upload').then((module) => ({ default: module.Upload })));
 const UpdateChecker = lazy(() =>
   import('./components/UpdateChecker').then((module) => ({ default: module.UpdateChecker })),
 );
@@ -280,6 +281,14 @@ export default function App() {
                     element={
                       <RouteLoader>
                         <OfflinePage />
+                      </RouteLoader>
+                    }
+                  />
+                  <Route
+                    path="upload"
+                    element={
+                      <RouteLoader>
+                        <Upload />
                       </RouteLoader>
                     }
                   />
