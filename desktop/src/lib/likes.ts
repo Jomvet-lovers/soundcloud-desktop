@@ -32,6 +32,12 @@ export function initLikedUrns(tracks: Track[]) {
   if (changed) notify();
 }
 
+/** Forget the current account's like state (account switch / sign-out). */
+export function resetLikedUrns() {
+  _likedUrns.clear();
+  notify();
+}
+
 /** Set like status for a track URN */
 export function setLikedUrn(urn: string, liked: boolean) {
   if (liked) {

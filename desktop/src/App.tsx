@@ -81,6 +81,7 @@ export default function App() {
     });
   }, []);
   const appMode = useAppMode();
+  const token = useAuthStore((s) => s.token);
   const offlineBypass = useAppStatusStore((s) => s.offlineBypass);
   const canUseMainShell = isAuthenticated || hasSession;
   // Offline-only shell is the explicit "browse offline" choice from Login — NOT
@@ -107,7 +108,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!hasSession || appMode !== 'online') {
+    if (!token || appMode !== 'online') {
       return;
     }
 
@@ -138,7 +139,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [appMode, fetchUser, hasSession]);
+  }, [appMode, fetchUser, token]);
 
   useEffect(() => {
     if (!CHECK_UPDATES || !isAuthenticated || appMode !== 'online') {
