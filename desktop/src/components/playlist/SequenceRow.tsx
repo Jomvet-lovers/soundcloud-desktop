@@ -146,7 +146,7 @@ export const SortableSequenceRow = React.memo(
         onContextMenu={trackMenuHandler(track)}
       >
         <div
-          className="w-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-white/15 hover:text-white/40 transition-colors -ml-1"
+          className="relative w-5 flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-white/15 hover:text-white/40 transition-colors -ml-1 touch-none hit-grow"
           {...attributes}
           {...listeners}
         >
@@ -164,6 +164,7 @@ export const SortableSequenceRow = React.memo(
         <button
           type="button"
           onClick={() => onRemove(track.urn)}
+          data-touch-visible
           className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-all duration-200 shrink-0"
           title={'Remove from playlist'}
         >

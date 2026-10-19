@@ -84,7 +84,7 @@ export const QueueRow = React.memo(function QueueRow({
       }`}
     >
       <div
-        className="w-5 shrink-0 flex items-center justify-center text-white/20 cursor-grab active:cursor-grabbing touch-none"
+        className="relative w-5 shrink-0 flex items-center justify-center text-white/20 cursor-grab active:cursor-grabbing touch-none hit-grow"
         {...attributes}
         {...listeners}
       >
@@ -118,7 +118,8 @@ export const QueueRow = React.memo(function QueueRow({
           e.stopPropagation();
           handleRemove();
         }}
-        className="w-6 h-6 rounded-md flex items-center justify-center text-white/0 group-hover:text-white/25 hover:!text-white/60 hover:!bg-white/[0.06] transition-all duration-150 cursor-pointer shrink-0"
+        data-touch-visible
+        className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md flex items-center justify-center text-white/25 hover:text-white/60 hover:bg-white/[0.06] transition-all duration-150 cursor-pointer shrink-0"
       >
         <X size={12} />
       </button>

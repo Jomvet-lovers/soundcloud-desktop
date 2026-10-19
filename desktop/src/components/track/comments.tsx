@@ -109,6 +109,7 @@ export const VoiceCard = React.memo(function VoiceCard({
           onClick={remove}
           disabled={removing}
           aria-label={'Delete comment'}
+          data-touch-visible
           className="shrink-0 self-start mt-0.5 w-7 h-7 rounded-full flex items-center justify-center text-white/25 opacity-0 group-hover:opacity-100 hover:text-red-400/90 hover:bg-white/[0.06] transition-all cursor-pointer disabled:opacity-40"
         >
           {removing ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}

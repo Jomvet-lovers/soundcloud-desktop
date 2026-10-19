@@ -23,6 +23,7 @@ import { trackMenuHandler, userMenuHandler } from '../../stores/track-menu';
 import { EqualizerPanel } from '../music/EqualizerPanel';
 import { LikeButton } from '../music/LikeButton';
 import { SoundTuningPopover } from '../music/SoundTuningPopover';
+import { RangeSlider } from '../ui/RangeSlider';
 
 /** Position/duration clock, refreshed on audio events + a slow interval. */
 function useAudioClock() {
@@ -205,16 +206,15 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
           <span className="w-10 text-right font-mono text-[10.5px] tabular-nums text-white/40">
             {formatTime(time)}
           </span>
-          <input
-            type="range"
+          <RangeSlider
+            ariaLabel={'Seek'}
             min={0}
             max={Math.max(duration, 0)}
             step={1}
             value={Math.min(time, duration || 0)}
             disabled={!currentTrack || duration <= 0}
-            onChange={(e) => seek(Number(e.target.value))}
-            className="h-1 w-full cursor-pointer disabled:cursor-default"
-            style={{ accentColor: 'var(--color-accent)' }}
+            onChange={(v) => seek(v)}
+            className="w-full"
           />
           <span className="w-10 font-mono text-[10.5px] tabular-nums text-white/40">
             {formatTime(duration)}
@@ -246,15 +246,14 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
         >
           {volume === 0 ? volumeXIcon16 : volume < 50 ? volume1Icon16 : volume2Icon16}
         </button>
-        <input
-          type="range"
+        <RangeSlider
+          ariaLabel={'Volume'}
           min={0}
           max={100}
           step={1}
           value={Math.min(volume, 100)}
-          onChange={(e) => setVolume(Number(e.target.value))}
-          className="h-1 w-24 cursor-pointer"
-          style={{ accentColor: 'var(--color-accent)' }}
+          onChange={(v) => setVolume(v)}
+          className="w-24"
         />
       </div>
     </footer>

@@ -12,6 +12,7 @@ import {
   PLAYBACK_RATE_STEP,
   usePlayerStore,
 } from '../../stores/player';
+import { RangeSlider } from '../ui/RangeSlider';
 
 const formatPlaybackRate = (rate: number) =>
   `${rate
@@ -23,8 +24,6 @@ const formatPitchSemitones = (semi: number) => {
   if (Math.abs(semi) < 0.001) return '0';
   return `${semi > 0 ? '+' : ''}${semi.toFixed(1).replace(/\.0$/, '')}`;
 };
-
-const rangeClass = 'h-1 w-full cursor-pointer disabled:cursor-default disabled:opacity-40';
 
 /** Flat popover with playback speed and pitch controls, anchored in the player bar. */
 export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
@@ -84,16 +83,14 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                 {formatPlaybackRate(playbackRate)}
               </button>
             </div>
-            <input
-              type="range"
+            <RangeSlider
+              ariaLabel={'Speed'}
               min={PLAYBACK_RATE_MIN}
               max={PLAYBACK_RATE_MAX}
               step={PLAYBACK_RATE_STEP}
               value={playbackRate}
-              onChange={(e) => setPlaybackRate(Number(e.target.value))}
-              className={rangeClass}
-              style={{ accentColor: 'var(--color-accent)' }}
-              aria-label={'Speed'}
+              onChange={(v) => setPlaybackRate(v)}
+              className="w-full"
             />
           </div>
 
@@ -151,17 +148,15 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
                 {formatPitchSemitones(effectivePitch)}
               </button>
             </div>
-            <input
-              type="range"
+            <RangeSlider
+              ariaLabel={'Pitch'}
               min={PITCH_SEMITONES_MIN}
               max={PITCH_SEMITONES_MAX}
               step={PITCH_SEMITONES_STEP}
               value={effectivePitch}
               disabled={!isManual}
-              onChange={(e) => setPitchSemitones(Number(e.target.value))}
-              className={rangeClass}
-              style={{ accentColor: 'var(--color-accent)' }}
-              aria-label={'Pitch'}
+              onChange={(v) => setPitchSemitones(v)}
+              className="w-full"
             />
           </div>
         </Popover.Content>

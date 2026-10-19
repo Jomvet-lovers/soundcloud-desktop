@@ -71,6 +71,7 @@ export interface SettingsState {
   discordRpcEnabled: boolean;
   discordRpcMode: DiscordRpcMode;
   discordRpcShowButton: boolean;
+  touchKeyboardAutoShow: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -96,6 +97,7 @@ export interface SettingsState {
   setDiscordRpcEnabled: (enabled: boolean) => void;
   setDiscordRpcMode: (mode: DiscordRpcMode) => void;
   setDiscordRpcShowButton: (show: boolean) => void;
+  setTouchKeyboardAutoShow: (enabled: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -125,6 +127,7 @@ const DEFAULTS = {
   discordRpcEnabled: true,
   discordRpcMode: 'track' as DiscordRpcMode,
   discordRpcShowButton: true,
+  touchKeyboardAutoShow: false,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -177,6 +180,7 @@ export const useSettingsStore = create<SettingsState>()(
       setDiscordRpcEnabled: (discordRpcEnabled) => set({ discordRpcEnabled }),
       setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
+      setTouchKeyboardAutoShow: (touchKeyboardAutoShow) => set({ touchKeyboardAutoShow }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -228,6 +232,7 @@ export const useSettingsStore = create<SettingsState>()(
         discordRpcEnabled: s.discordRpcEnabled,
         discordRpcMode: s.discordRpcMode,
         discordRpcShowButton: s.discordRpcShowButton,
+        touchKeyboardAutoShow: s.touchKeyboardAutoShow,
       }),
     },
   ),

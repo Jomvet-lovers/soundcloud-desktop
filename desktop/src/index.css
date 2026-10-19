@@ -1625,3 +1625,38 @@ button:active:not(:disabled) {
   backdrop-filter: blur(6px) saturate(1.4);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
 }
+
+/* ── Touch & pen input ─────────────────────────────────────────
+   html[data-input-touch] is set by lib/touch-input.ts when a real touch
+   pointer has been seen (seeded from `any-pointer: coarse` at load). Pen
+   input hovers like a mouse, so it deliberately does not toggle this: the
+   hover-reveal pattern stays hover-only for pen. */
+
+/* The frameless titlebar must not start a scroll gesture under touch/pen,
+   otherwise the drag-region pointer stream is cancelled mid-gesture. */
+[data-tauri-drag-region] {
+  touch-action: none;
+}
+
+/* Controls that hover reveals for mouse/pen stay visible on touch: there is
+   no hover to reveal them with, so the first tap is not a blind one. */
+html[data-input-touch] [data-touch-visible] {
+  opacity: 1;
+}
+
+/* Invisible hit expansion around tiny always-visible handles (dnd grips). */
+html[data-input-touch] .hit-grow::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+/* Wider scrollbar thumb while a finger is the likely pointer. */
+html[data-input-touch] ::-webkit-scrollbar {
+  width: 8px;
+}
+
+/* No grey tap flash inside the webview. */
+html[data-input-touch] * {
+  -webkit-tap-highlight-color: transparent;
+}

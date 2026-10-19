@@ -127,13 +127,18 @@ export const TrackCard = React.memo(
             <LikeButton track={track} variant="chip" />
           </div>
 
-          {/* Top right: playlist / queue / share (share hidden on narrow cards) */}
-          <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          {/* Top right: playlist / queue / share. The share chip folds out only
+              when the card fits all three 28px chips; on touch (no hover) the
+              whole cluster stays visible via data-touch-visible (index.css). */}
+          <div
+            className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            data-touch-visible
+          >
             <AddToPlaylistDialog trackUrns={[track.urn]}>
               <button
                 type="button"
                 onClick={(e) => e.stopPropagation()}
-                className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+                className="cursor-pointer w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
                 title={'Add to playlist'}
               >
                 <ListPlus size={12} />
@@ -142,7 +147,7 @@ export const TrackCard = React.memo(
             <button
               type="button"
               onClick={handleAddToQueue}
-              className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+              className="cursor-pointer w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
               title={'Add to Queue'}
             >
               <ListMusic size={12} />
@@ -150,7 +155,7 @@ export const TrackCard = React.memo(
             <button
               type="button"
               onClick={handleShare}
-              className="cursor-pointer w-6 h-6 rounded-full bg-black/50 hidden @[120px]:inline-flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+              className="cursor-pointer w-7 h-7 rounded-full bg-black/50 hidden @[130px]:inline-flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
               title={'Copy link'}
             >
               <LinkIcon size={12} />
