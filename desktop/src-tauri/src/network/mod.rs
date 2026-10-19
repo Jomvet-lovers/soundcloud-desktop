@@ -5,6 +5,7 @@ pub mod proxy;
 pub mod proxy_server;
 pub mod server;
 pub mod static_server;
+pub mod upload_grants;
 
 /// Browser User-Agent for hosts that reject non-browser clients.
 pub const BROWSER_UA: &str =

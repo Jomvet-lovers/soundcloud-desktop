@@ -5,6 +5,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use sha2::{Digest, Sha256};
 use tokio::fs;
 
+use crate::network::upload_grants::{self, GrantError};
 use crate::shared::constants::is_domain_whitelisted;
 
 pub struct State {
@@ -232,8 +233,47 @@ pub fn cache_control_for(status: u16) -> &'static str {
     }
 }
 
+fn upload_response(status: u16) -> http::response::Builder {
+    let mut builder = http::Response::builder().status(status);
+    for (name, value) in upload_grants::cors_headers() {
+        builder = builder.header(name, value);
+    }
+    builder
+}
+
+fn upload_preflight_response() -> http::Response<Vec<u8>> {
+    let mut builder = http::Response::builder().status(204);
+    for (name, value) in upload_grants::preflight_cors_headers() {
+        builder = builder.header(name, value);
+    }
+    builder.body(Vec::new()).unwrap()
+}
+
+fn grant_error_response(error: GrantError) -> http::Response<Vec<u8>> {
+    upload_response(error.status())
+        .header("content-type", "text/plain")
+        .header("cache-control", "no-store")
+        .body(error.message().as_bytes().to_vec())
+        .unwrap()
+}
+
 pub async fn handle_uri(request: http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
     let path = request.uri().path();
+
+    if let Some(token) = path.strip_prefix("/up/") {
+        if request.method() == http::Method::OPTIONS {
+            return upload_preflight_response();
+        }
+        return match upload_grants::read_grant(token).await {
+            Ok((data, grant)) => upload_response(200)
+                .header("content-type", &grant.content_type)
+                .header("content-length", data.len())
+                .header("cache-control", "no-store")
+                .body(data)
+                .unwrap(),
+            Err(error) => grant_error_response(error),
+        };
+    }
 
     if let Some(encoded) = path.strip_prefix("/img/") {
         let result = crate::network::image_cache::handle(encoded).await;
