@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde_json::{json, Value};
 use warp::reply::Response;
 
@@ -319,7 +321,39 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     .await
                 {
                     Ok((_status, v)) => {
-                        let items = sc_items(&v).into_iter().map(normalize_urn).collect();
+                        let sc_tracks: Vec<Value> =
+                            sc_items(&v).into_iter().map(normalize_urn).collect();
+                        let sc_ids: HashSet<u64> = sc_tracks
+                            .iter()
+                            .filter_map(|t| t.get("id").and_then(Value::as_u64))
+                            .collect();
+                        // Only the owner's own store is read, so uploads from
+                        // another account can never leak into this list.
+                        let items = match ctx.owner {
+                            Some(owner) => {
+                                let store = s.store_for(Some(owner)).await;
+                                let mut store = store.lock().await;
+                                let items = if page_no == 0 {
+                                    let pending: Vec<Value> = store
+                                        .pending_uploaded_tracks(&sc_ids)
+                                        .into_iter()
+                                        .map(normalize_urn)
+                                        .collect();
+                                    merge_uploaded_tracks(sc_tracks, pending)
+                                } else {
+                                    sc_tracks
+                                };
+                                // SoundCloud has returned these ids, so the
+                                // local copies are no longer needed.
+                                let before = store.uploaded_tracks.len();
+                                store.prune_uploaded_tracks(&sc_ids);
+                                if store.uploaded_tracks.len() != before {
+                                    store.save();
+                                }
+                                items
+                            }
+                            None => sc_tracks,
+                        };
                         ok(page(items, page_no, limit, sc_has_more(&v)))
                     }
                     Err(e) => err(502, &e),
@@ -425,6 +459,29 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         _ => err(404, "not found"),
     };
     Ok(resp)
+}
+
+/// Locally recorded uploads are prepended when they are not yet in SoundCloud's
+/// collection. Newest first; ids already present are never repeated.
+fn merge_uploaded_tracks(items: Vec<Value>, pending: Vec<Value>) -> Vec<Value> {
+    if pending.is_empty() {
+        return items;
+    }
+    let mut seen: HashSet<u64> = items
+        .iter()
+        .filter_map(|t| t.get("id").and_then(Value::as_u64))
+        .collect();
+    let mut merged = Vec::with_capacity(pending.len() + items.len());
+    for track in pending {
+        if let Some(id) = track.get("id").and_then(Value::as_u64) {
+            if !seen.insert(id) {
+                continue;
+            }
+        }
+        merged.push(track);
+    }
+    merged.extend(items);
+    merged
 }
 
 fn stream_to_tracks(v: &Value) -> Vec<Value> {
@@ -559,11 +616,65 @@ async fn mark_liked_feed_tracks(state: &DirectState, token: &str, items: &mut [V
 
 #[cfg(test)]
 mod tests {
-    use super::{stream_feed_items, stream_to_tracks};
+    use super::{merge_uploaded_tracks, stream_feed_items, stream_to_tracks};
     use serde_json::json;
 
     fn track(id: u64, title: &str) -> serde_json::Value {
         json!({ "id": id, "kind": "track", "title": title, "duration": 1000 })
+    }
+
+    /// Fresh local uploads (still `processing` on SoundCloud) lead the list.
+    #[test]
+    fn uploaded_tracks_are_prepended() {
+        let out = merge_uploaded_tracks(
+            vec![track(1, "sc")],
+            vec![track(9, "local-new"), track(8, "local-old")],
+        );
+
+        let ids: Vec<u64> = out
+            .iter()
+            .filter_map(|t| t.get("id").and_then(|v| v.as_u64()))
+            .collect();
+        assert_eq!(ids, [9, 8, 1]);
+    }
+
+    /// A local copy must disappear behind the real SoundCloud entry instead of
+    /// appearing twice.
+    #[test]
+    fn uploaded_tracks_do_not_duplicate_soundcloud_ids() {
+        let out = merge_uploaded_tracks(
+            vec![track(1, "sc")],
+            vec![track(1, "local"), track(2, "local")],
+        );
+
+        let ids: Vec<u64> = out
+            .iter()
+            .filter_map(|t| t.get("id").and_then(|v| v.as_u64()))
+            .collect();
+        assert_eq!(ids, [2, 1]);
+    }
+
+    /// Repeated local entries (or entries without an id) collapse only by id.
+    #[test]
+    fn uploaded_track_merge_keeps_one_entry_per_id() {
+        let out = merge_uploaded_tracks(
+            vec![track(1, "sc")],
+            vec![track(2, "a"), track(2, "b"), json!({ "title": "no id" })],
+        );
+
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].get("title").and_then(|v| v.as_str()), Some("a"));
+        assert_eq!(out[1].get("title").and_then(|v| v.as_str()), Some("no id"));
+        assert_eq!(out[2].get("id").and_then(|v| v.as_u64()), Some(1));
+    }
+
+    /// With nothing pending the collection is returned untouched.
+    #[test]
+    fn empty_pending_leaves_the_collection_unchanged() {
+        let items = vec![track(1, "a"), track(2, "b")];
+        let out = merge_uploaded_tracks(items.clone(), Vec::new());
+
+        assert_eq!(out, items);
     }
 
     fn playlist(id: u64, title: &str) -> serde_json::Value {
