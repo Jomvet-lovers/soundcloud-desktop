@@ -58,6 +58,11 @@ pub fn ensure_window(app: &AppHandle) -> Option<WebviewWindow> {
 }
 
 fn writer_window(app: &AppHandle) -> Option<WebviewWindow> {
+    // The login watcher reads `oauth_token`; injecting into its window would
+    // look like a fresh sign-in, so writers use the dedicated window instead.
+    if super::login::is_watching() {
+        return ensure_window(app);
+    }
     app.get_webview_window(super::login::LABEL)
         .or_else(|| ensure_window(app))
 }
@@ -121,6 +126,17 @@ async fn wait_ready(window: &WebviewWindow) -> Result<(), String> {
             return Err("write webview never became ready".into());
         }
     }
+}
+
+/// Writer window that is ready for `do_fetch`, with the oauth cookie aligned
+/// to the token sent in the `Authorization` header.
+async fn prepared_window(app: &AppHandle, token: Option<&str>) -> Result<WebviewWindow, String> {
+    let window = writer_window(app).ok_or_else(|| "writer window unavailable".to_string())?;
+    wait_ready(&window).await?;
+    if let Some(t) = token.filter(|t| !t.is_empty()) {
+        inject_session(&window, t);
+    }
+    Ok(window)
 }
 
 async fn do_fetch(
@@ -262,8 +278,7 @@ pub async fn execute_ct(
     content_type: &str,
 ) -> Result<WriteOutcome, String> {
     let _lane = LANE.lock().await;
-    let window = writer_window(app).ok_or_else(|| "writer window unavailable".to_string())?;
-    wait_ready(&window).await?;
+    let window = prepared_window(app, token).await?;
     let (status, payload) =
         do_fetch(&window, token, url, method, body, None, Some(content_type), None).await?;
     Ok(WriteOutcome { status, payload, captcha: None })
@@ -283,8 +298,7 @@ pub async fn execute_full(
     // NOTE: intentionally lock-free (unlike execute/execute_with): diag-only
     // concurrent path so replays can run DURING a sniff-held lane. The scw
     // cookie channel is seq-guarded, so interleaved evals stay separated.
-    let window = writer_window(app).ok_or_else(|| "writer unavailable".to_string())?;
-    wait_ready(&window).await?;
+    let window = prepared_window(app, token).await?;
     let (status, payload) =
         do_fetch(&window, token, url, method, body, None, content_type, extra).await?;
     Ok(WriteOutcome { status, payload, captcha: None })
@@ -300,8 +314,7 @@ pub async fn execute_with(
     solve: bool,
 ) -> Result<WriteOutcome, String> {
     let _lane = LANE.lock().await;
-    let window = writer_window(app).ok_or_else(|| "writer window unavailable".to_string())?;
-    wait_ready(&window).await?;
+    let window = prepared_window(app, token).await?;
 
     let (status, payload) = do_fetch(&window, token, url, method, body, extract, None, None).await?;
     if !is_challenge(status, &payload) {
