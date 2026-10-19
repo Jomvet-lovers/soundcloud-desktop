@@ -49,7 +49,7 @@ pub fn preflight_cors_headers() -> [(&'static str, &'static str); 6] {
 }
 
 /// A one-time file delivery grant.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Grant {
     pub path: PathBuf,
     pub filename: String,
@@ -136,6 +136,16 @@ pub fn take(token: &str) -> Option<Grant> {
     map.remove(token).map(|entry| entry.grant)
 }
 
+/// Look a token up without consuming it, so the upload command can read the
+/// filename and content type before the writer page fetches the bytes.
+/// Expired entries are dropped first, matching [`take`].
+pub fn peek(token: &str) -> Option<Grant> {
+    let now = Instant::now();
+    let mut map = grants().lock().unwrap_or_else(|e| e.into_inner());
+    map.retain(|_, entry| !entry.is_expired(now));
+    map.get(token).map(|entry| entry.grant.clone())
+}
+
 /// Drop a token without consuming it (reserved for cancellation flows).
 pub fn revoke(token: &str) {
     let mut map = grants().lock().unwrap_or_else(|e| e.into_inner());
@@ -191,7 +201,7 @@ pub fn content_type_for(path: &Path) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{GrantError, content_type_for, issue, issue_with_ttl, read_grant, take};
+    use super::{GrantError, content_type_for, issue, issue_with_ttl, peek, read_grant, take};
     use std::path::{Path, PathBuf};
     use std::time::Duration;
 
@@ -220,6 +230,23 @@ mod tests {
     #[test]
     fn unknown_token_is_rejected() {
         assert!(take("00000000-0000-4000-8000-000000000000").is_none());
+    }
+
+    #[test]
+    fn peek_does_not_consume() {
+        let token = grant("C:/uploads/track.mp3", Duration::from_secs(60));
+        let peeked = peek(&token).expect("fresh token should peek");
+        assert_eq!(peeked.filename, "track.mp3");
+        // Still consumable: peek must not remove the entry.
+        assert!(take(&token).is_some());
+        assert!(peek(&token).is_none());
+    }
+
+    #[test]
+    fn peek_rejects_expired_and_unknown() {
+        let expired = grant("C:/uploads/track.mp3", Duration::from_secs(0));
+        assert!(peek(&expired).is_none());
+        assert!(peek("00000000-0000-4000-8000-000000000000").is_none());
     }
 
     #[test]

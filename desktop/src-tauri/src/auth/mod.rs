@@ -276,6 +276,13 @@ impl SessionStore {
         bind_active(app, state.active).await;
         app.emit(EVENT, state.view()).ok();
     }
+
+    /// Token of the active account, or `None` when signed out. Used by the
+    /// direct commands that write to SoundCloud without a request token.
+    pub async fn active_token(&self) -> Option<String> {
+        let token = self.state.read().await.view().token;
+        token.filter(|t| is_usable(t))
+    }
 }
 
 fn is_usable(token: &str) -> bool {

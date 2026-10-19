@@ -232,6 +232,10 @@ pub fn run() {
             network::edge::edge_config,
             network::edge::edge_note,
             direct::login::open_login_window,
+            direct::upload::upload_inspect,
+            direct::upload::upload_issue_token,
+            direct::upload::track_upload,
+            direct::upload::upload_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
