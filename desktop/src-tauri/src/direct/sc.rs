@@ -82,7 +82,7 @@ impl DirectState {
     pub async fn my_user_id(&self, token: &str) -> Result<u64, String> {
         {
             let guard = self.me_cache.lock().await;
-            if let Some(c) = guard.as_ref() {
+            if let Some(c) = guard.get(token) {
                 if c.at.elapsed() < Duration::from_secs(600) {
                     return Ok(c.user_id);
                 }
@@ -93,10 +93,13 @@ impl DirectState {
             .get("id")
             .and_then(Value::as_u64)
             .ok_or_else(|| "no id in /me".to_string())?;
-        *self.me_cache.lock().await = Some(MeCache {
-            user_id: id,
-            at: Instant::now(),
-        });
+        self.me_cache.lock().await.insert(
+            token.to_string(),
+            MeCache {
+                user_id: id,
+                at: Instant::now(),
+            },
+        );
         Ok(id)
     }
 }

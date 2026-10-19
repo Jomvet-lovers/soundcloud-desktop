@@ -24,7 +24,8 @@ pub struct DirectState {
     pub http: wreq::Client,
     pub app: AppHandle,
     pub client_id: Mutex<Option<String>>,
-    pub me_cache: Mutex<Option<sc::MeCache>>,
+    /// `/me` cache keyed by oauth token.
+    pub me_cache: Mutex<HashMap<String, sc::MeCache>>,
     pub store: Mutex<LocalStore>,
     /// Short-lived cache of sorted search windows (key: query + sort).
     pub search_cache: Mutex<HashMap<String, (Instant, Vec<Value>)>>,
@@ -40,7 +41,7 @@ impl DirectState {
             http,
             app,
             client_id: Mutex::new(None),
-            me_cache: Mutex::new(None),
+            me_cache: Mutex::new(HashMap::new()),
             store: Mutex::new(store),
             search_cache: Mutex::new(HashMap::new()),
             verified_playlists: Mutex::new(HashSet::new()),
