@@ -6,6 +6,7 @@ use super::Ctx;
 use super::common::*;
 use super::normalize::*;
 use super::super::sc::{SC_API, id_of};
+use super::super::store::LocalStore;
 use std::time::{Duration, Instant};
 
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
@@ -46,16 +47,9 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             }
             let limit = limit as usize;
             let offset = q_u64(&q, "offset", 0) as usize;
-            let store = s.store.lock().await;
-            let total = store.history.len();
-            let slice: Vec<Value> = store
-                .history
-                .iter()
-                .skip(offset)
-                .take(limit)
-                .cloned()
-                .collect();
-            ok(json!({ "collection": slice, "total": total, "next_cursor": null }))
+            let store = s.store_for(ctx.owner).await;
+            let store = store.lock().await;
+            ok(local_history_fallback(ctx.owner, &store, limit, offset))
         }
         ("POST", ["history"]) => {
             let mut b = body_json(&body);
@@ -65,7 +59,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     obj.entry("id").or_insert_with(|| json!(now.clone()));
                     obj.entry("playedAt").or_insert_with(|| json!(now));
                 }
-                let mut store = s.store.lock().await;
+                let store = s.store_for(ctx.owner).await;
+                let mut store = store.lock().await;
                 store.history.insert(0, b.clone());
                 store.history.truncate(500);
                 store.save();
@@ -116,7 +111,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "ok": true, "queued": true }))
         }
         ("DELETE", ["history"]) => {
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             store.history.clear();
             store.save();
             ok(json!({ "ok": true }))
@@ -126,15 +122,18 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         ("GET", ["events"]) | ("POST", ["events"]) => ok(json!({ "ok": true })),
         ("GET", ["indexing", "stats"]) => ok(json!({ "indexed": 0, "pending": 0 })),
         ("GET", ["dislikes", "ids"]) => {
-            let store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let store = store.lock().await;
             ok(json!({ "ids": store.disliked }))
         }
         ("GET", ["dislikes", "status", urn]) => {
-            let store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let store = store.lock().await;
             ok(json!({ "disliked": store.disliked.iter().any(|u| u == urn) }))
         }
         ("POST", ["dislikes", urn]) => {
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             if !store.disliked.iter().any(|u| u == urn) {
                 store.disliked.push(urn.to_string());
                 store.save();
@@ -142,7 +141,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["dislikes", urn]) => {
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             store.disliked.retain(|u| u != urn);
             store.save();
             ok(json!({ "ok": true }))
@@ -375,6 +375,29 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     Ok(resp)
 }
 
+/// Local fallback for `GET /history`. An anonymous request must never see
+/// another account's playback history, so `owner == None` always answers an
+/// empty collection.
+fn local_history_fallback(
+    owner: Option<u64>,
+    store: &LocalStore,
+    limit: usize,
+    offset: usize,
+) -> Value {
+    if owner.is_none() {
+        return json!({ "collection": [], "total": 0, "next_cursor": null });
+    }
+    let total = store.history.len();
+    let slice: Vec<Value> = store
+        .history
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect();
+    json!({ "collection": slice, "total": total, "next_cursor": null })
+}
+
 /// Map one entry of SoundCloud's `/me/play-history/tracks` response into the
 /// frontend `HistoryEntry` shape (see `useHistory` / `HistoryTab`).
 fn history_entry_from_sc(row: &Value) -> Option<Value> {
@@ -500,7 +523,8 @@ pub(crate) fn spawn_history_flow(
 
 #[cfg(test)]
 mod tests {
-    use super::history_entry_from_sc;
+    use super::{history_entry_from_sc, local_history_fallback};
+    use crate::direct::store::LocalStore;
     use serde_json::{Value, json};
 
     fn track(artwork: serde_json::Value) -> serde_json::Value {
@@ -527,6 +551,29 @@ mod tests {
         assert_eq!(
             entry.get("artworkUrl").and_then(|v| v.as_str()),
             Some("https://example.com/avatar-large.jpg"),
+        );
+    }
+
+    /// Anonymous requests must never read another account's playback history
+    /// from the shared fallback; only an identified owner gets local entries.
+    #[test]
+    fn history_fallback_is_empty_without_owner() {
+        let mut store = LocalStore::default();
+        store.history.push(json!({ "id": "x" }));
+
+        assert_eq!(
+            local_history_fallback(None, &store, 50, 0),
+            json!({ "collection": [], "total": 0, "next_cursor": null }),
+        );
+
+        let owned = local_history_fallback(Some(7), &store, 50, 0);
+        assert_eq!(owned.get("total").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            owned
+                .get("collection")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1),
         );
     }
 

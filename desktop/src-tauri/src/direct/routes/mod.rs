@@ -35,6 +35,8 @@ pub struct Ctx {
     pub q: HashMap<String, String>,
     pub body: Bytes,
     pub token: Option<String>,
+    /// SoundCloud user id handling this request (`None` = anonymous).
+    pub owner: Option<u64>,
 }
 
 pub async fn start(state: Arc<DirectState>) -> u16 {
@@ -77,6 +79,7 @@ async fn handle(
         .collect();
     let q = common::parse_query(&raw_query);
     let token = common::token_of(&headers);
+    let owner = state.resolve_owner(token.as_deref()).await;
     let m = method.as_str();
     let ctx = Ctx {
         state,
@@ -85,6 +88,7 @@ async fn handle(
         q,
         body,
         token,
+        owner,
     };
     let segs: Vec<&str> = ctx.segs.iter().map(String::as_str).collect();
     let resp = match (m, segs.as_slice()) {

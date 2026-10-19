@@ -130,7 +130,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
 
             let mut items: Vec<Value> = Vec::new();
             if page_no == 0 {
-                let store = s.store.lock().await;
+                let store = s.store_for(ctx.owner).await;
+                let store = store.lock().await;
                 for c in store
                     .comments
                     .iter()
@@ -190,7 +191,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     "sync": "pending",
                 });
                 {
-                    let mut store = s.store.lock().await;
+                    let store = s.store_for(ctx.owner).await;
+                    let mut store = store.lock().await;
                     store.comments.insert(0, entry.clone());
                     store.save();
                 }
@@ -201,6 +203,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     if let Ok(cid) = s.client_id().await {
                         tokio::spawn(sync_local_comment(
                             state.clone(),
+                            ctx.owner,
                             t,
                             id_of(urn),
                             cid,
@@ -219,7 +222,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             // (pending after a failure or an offline session).
             let mut queued: Vec<(i64, Value)> = Vec::new();
             {
-                let mut store = s.store.lock().await;
+                let store = s.store_for(ctx.owner).await;
+                let mut store = store.lock().await;
                 for c in store.comments.iter_mut().filter(|c| {
                     c.get("track_urn").and_then(Value::as_str) == Some(urn)
                         && matches!(
@@ -242,6 +246,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     for (temp_id, c) in &queued {
                         tokio::spawn(sync_local_comment(
                             state.clone(),
+                            ctx.owner,
                             t.to_string(),
                             track_id.clone(),
                             cid.clone(),
@@ -263,7 +268,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 err(400, "bad comment id")
             } else {
                 let (local, local_synced) = {
-                    let store = s.store.lock().await;
+                    let store = s.store_for(ctx.owner).await;
+                    let store = store.lock().await;
                     match store.comments.iter().find(|c| {
                         c.get("id").and_then(Value::as_i64) == Some(id)
                             || c.get("sc_id").and_then(Value::as_i64) == Some(id)
@@ -307,7 +313,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     }
                 }
                 {
-                    let mut store = s.store.lock().await;
+                    let store = s.store_for(ctx.owner).await;
+                    let mut store = store.lock().await;
                     store.comments.retain(|c| {
                         c.get("id").and_then(Value::as_i64) != Some(id)
                             && c.get("sc_id").and_then(Value::as_i64) != Some(id)
@@ -418,7 +425,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 Ok(r) if (200..300).contains(&r.status) => {
                     // The likes list renders its stored copy; keep its badge
                     // in step with the SoundCloud answer.
-                    let mut store = s.store.lock().await;
+                    let store = s.store_for(ctx.owner).await;
+                    let mut store = store.lock().await;
                     let mut mirrored = false;
                     if let Some(track) = store
                         .liked_tracks
@@ -461,7 +469,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
 }
 
 async fn sync_local_comment(
-    state: Arc<DirectState>,
+    s: Arc<DirectState>,
+    owner: Option<u64>,
     token: String,
     track_id: String,
     client_id: String,
@@ -475,10 +484,10 @@ async fn sync_local_comment(
     // params". `app_version` is required by the same validation.
     let url = format!(
         "{SC_API}/tracks/{track_id}/comments?client_id={client_id}&app_version={}&body={}&timestamp={timestamp_ms}",
-        super::super::sc::app_version(&state.http).await,
+        super::super::sc::app_version(&s.http).await,
         urlencoding::encode(&body_text)
     );
-    let (synced, sc_id) = match super::super::webview::execute(&state.app, Some(&token), "POST", &url, None).await {
+    let (synced, sc_id) = match super::super::webview::execute(&s.app, Some(&token), "POST", &url, None).await {
         Ok(r) if (200..300).contains(&r.status) => {
             let sc_id = parse_sc_comment_id(&r.payload);
             eprintln!("[comments] synced {temp_id} -> {sc_id:?}");
@@ -491,18 +500,19 @@ async fn sync_local_comment(
                 r.captcha.is_some(),
                 r.payload.chars().take(800).collect::<String>()
             );
-            emit_sync_error(&state.app, "POST", &url, r.status, r.captcha.is_some(), None);
+            emit_sync_error(&s.app, "POST", &url, r.status, r.captcha.is_some(), None);
             (false, None)
         }
         Err(e) => {
             eprintln!("[comments] sync error {temp_id}: {e}");
-            emit_sync_error(&state.app, "POST", &url, 0, false, Some(&e));
+            emit_sync_error(&s.app, "POST", &url, 0, false, Some(&e));
             (false, None)
         }
     };
 
     {
-        let mut store = state.store.lock().await;
+        let store = s.store_for(owner).await;
+        let mut store = store.lock().await;
         if let Some(c) = store.comments.iter_mut().find(|c| {
             c.get("id").and_then(Value::as_i64) == Some(temp_id)
                 && c.get("sync").and_then(Value::as_str) == Some("pending")
@@ -522,7 +532,7 @@ async fn sync_local_comment(
     }
 
     if synced {
-        let _ = state.app.emit(
+        let _ = s.app.emit(
             "direct:comments-synced",
             json!({ "track_urn": track_urn }),
         );

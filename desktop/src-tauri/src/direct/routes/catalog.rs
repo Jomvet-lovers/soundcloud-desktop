@@ -72,7 +72,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         ("GET", ["users", my_urn, "followings", target_urn]) => {
             let target_id = id_of(target_urn);
             {
-                let store = s.store.lock().await;
+                let store = s.store_for(ctx.owner).await;
+                let store = store.lock().await;
                 if store.followed.iter().any(|u| u == target_urn) {
                     return Ok(ok(json!(true)));
                 }
@@ -198,7 +199,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                         .map(normalize_urn)
                         .collect();
                     let items = if cursor.is_none() {
-                        merge_local_likes(s, items, 0).await
+                        merge_local_likes(s, ctx.owner, items, 0).await
                     } else {
                         items
                     };
@@ -230,7 +231,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                         .filter(|t| !t.is_null())
                         .map(normalize_urn)
                         .collect();
-                    let items = merge_local_likes(s, items, page_no).await;
+                    let items = merge_local_likes(s, ctx.owner, items, page_no).await;
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
                 _ => ok(empty_page(page_no, limit)),

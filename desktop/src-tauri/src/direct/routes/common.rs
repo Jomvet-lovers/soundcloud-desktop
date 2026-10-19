@@ -182,8 +182,14 @@ pub(crate) async fn hydrate_track_stubs(
     dropped
 }
 
-pub(crate) async fn merge_local_likes(state: &DirectState, mut items: Vec<Value>, page_no: u64) -> Vec<Value> {
-    let store = state.store.lock().await;
+pub(crate) async fn merge_local_likes(
+    s: &DirectState,
+    owner: Option<u64>,
+    mut items: Vec<Value>,
+    page_no: u64,
+) -> Vec<Value> {
+    let store = s.store_for(owner).await;
+    let store = store.lock().await;
     items.retain(|t| {
         urn_of(t)
             .map(|u| !store.is_unliked(&u))
@@ -203,11 +209,13 @@ pub(crate) async fn merge_local_likes(state: &DirectState, mut items: Vec<Value>
 }
 
 pub(crate) async fn merge_local_playlist_likes(
-    state: &DirectState,
+    s: &DirectState,
+    owner: Option<u64>,
     mut items: Vec<Value>,
     page_no: u64,
 ) -> Vec<Value> {
-    let store = state.store.lock().await;
+    let store = s.store_for(owner).await;
+    let store = store.lock().await;
     items.retain(|p| {
         urn_of(p)
             .map(|u| !store.is_playlist_unliked(&u))
