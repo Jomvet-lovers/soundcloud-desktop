@@ -11,6 +11,7 @@ import { initEdge } from './lib/edge';
 import { installFpsCap } from './lib/fps-cap';
 import { queryClient } from './lib/query-client';
 import { initTooltips } from './lib/tooltip';
+import { initTouchInput } from './lib/touch-input';
 import './fonts';
 import './index.css';
 import { useSettingsStore } from './stores/settings';
@@ -35,6 +36,10 @@ document.addEventListener('contextmenu', (e) => {
 // дисплеях убирает лишние кадры (CPU/GPU), на ≤60 Гц — no-op. Ставить максимально
 // рано, до первых rAF-циклов.
 installFpsCap(60);
+
+// Touch/pen plumbing (html flag, titlebar drag, long-press menu, optional OSK)
+// before the first render, so tap targets are correct from the first frame.
+initTouchInput();
 
 // Replace WebView-native `title` bubbles with one delegated custom tooltip
 // node (lib/tooltip.ts) — zero per-element listeners, no re-renders.

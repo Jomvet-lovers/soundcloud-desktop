@@ -85,6 +85,7 @@ function AlbumTrackRowImpl({ track, position, queue, aura }: AlbumTrackRowProps)
         <AddToPlaylistDialog trackUrns={[track.urn]}>
           <button
             type="button"
+            data-touch-visible
             className="cursor-pointer w-8 h-8 rounded-lg flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 transition-all"
           >
             <ListPlus size={14} />

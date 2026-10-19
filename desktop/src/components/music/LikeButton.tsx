@@ -45,7 +45,8 @@ export const LikeButton = React.memo(function LikeButton({
         ref={pillRef as React.RefObject<HTMLButtonElement | null>}
         type="button"
         onClick={toggle}
-        className={`cursor-pointer w-6 h-6 rounded-full flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200 ${
+        data-touch-visible
+        className={`cursor-pointer w-7 h-7 rounded-full flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-200 ${
           shownLiked
             ? 'bg-accent/80 text-accent-contrast'
             : 'bg-black/50 text-white/80 hover:text-white hover:bg-black/70'
@@ -87,6 +88,7 @@ export const LikeButton = React.memo(function LikeButton({
       ref={pillRef as React.RefObject<HTMLButtonElement | null>}
       type="button"
       onClick={toggle}
+      data-touch-visible
       className={`cursor-pointer w-8 h-8 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 shrink-0 ${
         shownLiked ? 'text-accent' : 'text-white/20 hover:text-white/50'
       }`}

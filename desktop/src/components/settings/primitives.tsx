@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { RangeSlider as FlatRangeSlider } from '../ui/RangeSlider';
 
 /** Shared settings primitives — one consistent visual language across every card. */
 
@@ -138,14 +139,13 @@ export function RangeSlider({
   onChange: (v: number) => void;
 }) {
   return (
-    <input
-      type="range"
+    <FlatRangeSlider
       min={min}
       max={max}
       step={step}
       value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="w-full accent-[var(--color-accent)] h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg"
+      onChange={onChange}
+      className="w-full"
     />
   );
 }

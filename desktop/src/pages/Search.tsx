@@ -107,12 +107,16 @@ function DiscoverCard({
             <Loader2 size={20} className="animate-spin text-white/80" />
           </div>
         )}
-        {/* Copy link — top right, on hover (HOME-style). */}
-        <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {/* Copy link — top right, on hover (HOME-style); always visible on touch
+            via data-touch-visible (index.css). */}
+        <div
+          className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          data-touch-visible
+        >
           <button
             type="button"
             onClick={copyLink}
-            className="cursor-pointer w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
+            className="cursor-pointer w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white/80 hover:text-white hover:bg-black/70 transition-all duration-200"
             title={'Copy link'}
           >
             <LinkIcon size={12} />

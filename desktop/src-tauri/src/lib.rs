@@ -168,6 +168,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             network::server::get_server_ports,
             app::diagnostics::diagnostics_log,
+            app::touch::launch_touch_keyboard,
             discord::discord_connect,
             discord::discord_disconnect,
             discord::discord_set_activity,

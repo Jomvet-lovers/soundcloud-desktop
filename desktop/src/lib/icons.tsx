@@ -31,6 +31,7 @@ import {
   Fullscreen as _Fullscreen,
   Globe as _Globe,
   GripVertical as _GripVertical,
+  Hand as _Hand,
   Hash as _Hash,
   Headphones as _Headphones,
   Heart as _Heart,
@@ -126,6 +127,7 @@ export const Eye = memo(_Eye);
 export const Fullscreen = memo(_Fullscreen);
 export const Globe = memo(_Globe);
 export const GripVertical = memo(_GripVertical);
+export const Hand = memo(_Hand);
 export const Hash = memo(_Hash);
 export const Headphones = memo(_Headphones);
 export const Heart = memo(_Heart);

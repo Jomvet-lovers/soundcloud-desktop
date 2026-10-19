@@ -141,16 +141,18 @@ export const CoverTile = memo(function CoverTile({ item, getQueue, onDive }: Cov
             )}
           </div>
 
-          {/* Hero rabbit-hole: dive into the vibe of this track */}
+          {/* Hero rabbit-hole: dive into the vibe of this track. Always
+              tappable on touch via data-touch-visible (index.css). */}
           {hero && onDive && (
             <button
               type="button"
+              data-touch-visible
               onClick={(e) => {
                 e.stopPropagation();
                 hardStopHoverPreview();
                 onDive(track);
               }}
-              className="absolute bottom-2 right-2 flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] text-white/85 opacity-0 group-hover:opacity-100 transition-all duration-300 cursor-pointer"
+              className="absolute bottom-2 right-2 flex items-center gap-1 h-8 px-2.5 rounded-full text-[11px] text-white/85 opacity-0 group-hover:opacity-100 transition-all duration-300 cursor-pointer"
               style={{
                 background: 'rgba(0,0,0,0.62)',
                 border: '0.5px solid rgba(255,255,255,0.18)',

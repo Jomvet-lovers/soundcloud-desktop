@@ -123,7 +123,8 @@ export function WallpaperCard() {
                       handleRemove(name);
                     }
                   }}
-                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80"
+                  className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80"
+                  data-touch-visible
                 >
                   <X size={8} className="text-white" />
                 </span>

@@ -7,6 +7,7 @@ import { DiscordCard } from './cards/DiscordCard';
 import { PlaybackCard } from './cards/PlaybackCard';
 import { StartupCard } from './cards/StartupCard';
 import { ThemeCard } from './cards/ThemeCard';
+import { TouchInputCard } from './cards/TouchInputCard';
 import { WallpaperCard } from './cards/WallpaperCard';
 
 export type SettingsCategoryId =
@@ -33,6 +34,7 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     Body: () => (
       <>
         <StartupCard />
+        <TouchInputCard />
       </>
     ),
   },
