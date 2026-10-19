@@ -19,7 +19,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             None => err(401, "unauthorized"),
             Some(t) => match fetch_me(s, t).await {
                 Ok(mut me) => {
-                    let store = s.store.lock().await;
+                    let store = s.store_for(ctx.owner).await;
+                    let store = store.lock().await;
                     if let Some(obj) = me.as_object_mut() {
                         let liked = store.liked_tracks.len() as i64;
                         let unliked = store.unliked_tracks.len() as i64;
@@ -64,7 +65,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     .await
                 {
                     Ok((status, v)) if (200..300).contains(&status) => {
-                        let store = s.store.lock().await;
+                        let store = s.store_for(ctx.owner).await;
+                        let store = store.lock().await;
                         let items: Vec<Value> = sc_user_items(&v)
                             .into_iter()
                             .filter(|u| {
@@ -129,7 +131,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         }
 
         ("PUT", ["me", "followings", urn]) => {
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             store.unfollowed.retain(|u| u != urn);
             if !store.followed.iter().any(|u| u == urn) {
                 store.followed.push(urn.to_string());
@@ -154,7 +157,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["me", "followings", urn]) => {
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             store.followed.retain(|u| u != urn);
             if !store.unfollowed.iter().any(|u| u == urn) {
                 store.unfollowed.push(urn.to_string());
@@ -199,7 +203,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                             .filter(|t| !t.is_null())
                             .map(normalize_urn)
                             .collect();
-                        let items = merge_local_likes(s, items, page_no).await;
+                        let items = merge_local_likes(s, ctx.owner, items, page_no).await;
                         ok(page(items, page_no, limit, sc_has_more(&v)))
                     }
                     Err(e) => err(502, &e),
@@ -231,7 +235,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                             .filter(|p| !p.is_null())
                             .map(normalize_urn)
                             .collect();
-                        let items = merge_local_playlist_likes(s, items, page_no).await;
+                        let items = merge_local_playlist_likes(s, ctx.owner, items, page_no).await;
                         ok(page(items, page_no, limit, sc_has_more(&v)))
                     }
                     Err(e) => err(502, &e),
@@ -249,7 +253,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             let page_no = q_u64(&q, "page", 0);
             let mut items: Vec<Value> = Vec::new();
             if page_no == 0 {
-                let store = s.store.lock().await;
+                let store = s.store_for(ctx.owner).await;
+                let store = store.lock().await;
                 items.extend(store.playlists.iter().cloned());
             }
             let sc = match token.as_deref() {
@@ -259,7 +264,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 None => None,
             };
             if let Some(v) = sc {
-                let mut store = s.store.lock().await;
+                let store = s.store_for(ctx.owner).await;
+                let mut store = store.lock().await;
                 let sc_items: Vec<Value> = sc_items(&v).into_iter().map(normalize_urn).collect();
                 // SoundCloud owns the privacy of its own sets: mirror it onto
                 // the local copies before they're served, so the list can't
@@ -324,7 +330,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
 
         // ── likes on tracks / playlists ─────────────────────────────
         ("GET", ["likes", "tracks", urn]) => {
-            let store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let store = store.lock().await;
             ok(json!({ "liked": store.is_liked(urn) }))
         }
         ("PUT", ["likes", "tracks", urn]) | ("POST", ["likes", "tracks", urn]) => {
@@ -336,7 +343,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     .unwrap_or_else(|| json!({ "urn": urn, "id": id.parse::<u64>().unwrap_or(0) })),
                 None => json!({ "urn": urn, "id": id.parse::<u64>().unwrap_or(0) }),
             };
-            s.store.lock().await.like_track(normalize_urn(track));
+            s.store_for(ctx.owner).await.lock().await.like_track(normalize_urn(track));
             // Best-effort SoundCloud sync (DataDome-protected; via writer webview).
             if let Some(t) = token.as_deref() {
                 if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
@@ -352,7 +359,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["likes", "tracks", urn]) => {
-            s.store.lock().await.unlike_track(urn);
+            s.store_for(ctx.owner).await.lock().await.unlike_track(urn);
             let id = id_of(urn);
             if let Some(t) = token.as_deref() {
                 if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
@@ -369,7 +376,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         }
 
         ("GET", ["likes", "playlists", urn]) => {
-            let store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let store = store.lock().await;
             ok(json!({ "liked": store.is_playlist_liked(urn) }))
         }
         ("PUT", ["likes", "playlists", urn]) | ("POST", ["likes", "playlists", urn]) => {
@@ -381,7 +389,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     .unwrap_or_else(|| json!({ "urn": urn })),
                 None => json!({ "urn": urn }),
             };
-            s.store.lock().await.like_playlist(normalize_urn(playlist));
+            s.store_for(ctx.owner).await.lock().await.like_playlist(normalize_urn(playlist));
             if let Some(t) = token.as_deref() {
                 if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
                     spawn_write(
@@ -396,7 +404,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["likes", "playlists", urn]) => {
-            s.store.lock().await.unlike_playlist(urn);
+            s.store_for(ctx.owner).await.lock().await.unlike_playlist(urn);
             let id = id_of(urn);
             if let Some(t) = token.as_deref() {
                 if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {

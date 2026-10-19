@@ -161,6 +161,7 @@ impl SessionStore {
             }),
         }
         guard.active = Some(me_id);
+        bind_active(app, Some(me_id)).await;
         persist_and_emit(app, &self.path, &guard, "session");
         Ok(())
     }
@@ -171,9 +172,11 @@ impl SessionStore {
             return Err(format!("account {id} not found"));
         }
         if guard.active == Some(id) {
+            bind_active(app, Some(id)).await;
             return Ok(());
         }
         guard.active = Some(id);
+        bind_active(app, Some(id)).await;
         persist_and_emit(app, &self.path, &guard, "switch");
         Ok(())
     }
@@ -187,6 +190,7 @@ impl SessionStore {
         if guard.active == Some(id) {
             guard.active = guard.accounts.first().map(|a| a.id);
         }
+        bind_active(app, guard.active).await;
         persist_and_emit(app, &self.path, &guard, "remove");
         Ok(())
     }
@@ -224,6 +228,7 @@ impl SessionStore {
             if active.is_some() {
                 guard.active = guard.accounts.first().map(|a| a.id);
             }
+            bind_active(app, guard.active).await;
             persist_and_emit(app, &self.path, &guard, "logout");
             removed
         };
@@ -265,8 +270,11 @@ impl SessionStore {
     }
 
     pub async fn emit_view(&self, app: &AppHandle) {
-        let view = self.state.read().await.view();
-        app.emit(EVENT, view).ok();
+        // Hold the read lock across bind + emit so a concurrent account change
+        // cannot interleave its own rebind/view between the two.
+        let state = self.state.read().await;
+        bind_active(app, state.active).await;
+        app.emit(EVENT, state.view()).ok();
     }
 }
 
@@ -281,6 +289,13 @@ fn persist_and_emit(app: &AppHandle, path: &Path, state: &SessionState, action: 
         log_native(app, "ERROR", format!("[auth] {action} persist failed: {e}"));
     }
     app.emit(EVENT, state.view()).ok();
+}
+
+/// Point the direct store at the active account before `auth:changed` reaches
+/// the frontend, so token-less requests cannot read another account's data.
+async fn bind_active(app: &AppHandle, active: Option<u64>) {
+    let direct = app.state::<Arc<DirectState>>().inner().clone();
+    direct.rebind_owner(active).await;
 }
 
 fn load_state(path: &Path) -> Option<SessionState> {
@@ -379,6 +394,7 @@ async fn migrate_impl(store: &SessionStore, app: &AppHandle, data_dir: &Path) {
     };
     match store.seed_legacy(account).await {
         Ok(true) => {
+            direct.rebind_owner(Some(id)).await;
             if let Err(e) = std::fs::remove_file(&source_path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     log_native(

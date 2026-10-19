@@ -16,7 +16,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     let p: Vec<&str> = ctx.segs.iter().map(String::as_str).collect();
     let resp = match (ctx.method.as_str(), p.as_slice()) {
         ("GET", ["playlists"]) => {
-            let store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let store = store.lock().await;
             let items = store.playlists.clone();
             ok(page(items, 0, 50, false))
         }
@@ -54,7 +55,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     })
                 })
                 .unwrap_or(Value::Null);
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             let urn = store.next_local_playlist_urn();
             let playlist = json!({
                 "id": urn.rsplit(':').next().and_then(|n| n.parse::<u64>().ok()).unwrap_or(0),
@@ -118,7 +120,11 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                                         p
                                     }
                                 };
-                                s.store.lock().await.rekey_playlist(&urn, detail.clone());
+                                s.store_for(ctx.owner)
+                                    .await
+                                    .lock()
+                                    .await
+                                    .rekey_playlist(&urn, detail.clone());
                                 return Ok(ok(detail));
                             }
                         }
@@ -140,7 +146,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         }
         ("GET", ["playlists", urn]) => {
             {
-                let store = s.store.lock().await;
+                let store = s.store_for(ctx.owner).await;
+                let store = store.lock().await;
                 if store.is_deleted_playlist(urn) {
                     return Ok(err(404, "playlist deleted"));
                 }
@@ -167,7 +174,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     Err(e) => Ok(err(502, &e)),
                 };
             }
-            if let Some(local) = repaired_local_playlist(s, token.as_deref(), urn).await {
+            if let Some(local) = repaired_local_playlist(s, ctx.owner, token.as_deref(), urn).await {
                 return Ok(ok(local));
             }
             let id = id_of(urn);
@@ -215,7 +222,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 let has_more = offset + (slice.len() as u64) < total;
                 return Ok(ok(page(slice, page_no, limit, has_more)));
             }
-            let local = repaired_local_playlist(s, token.as_deref(), urn).await;
+            let local = repaired_local_playlist(s, ctx.owner, token.as_deref(), urn).await;
             if let Some(local) = local {
                 let all: Vec<Value> = local
                     .get("tracks")
@@ -261,7 +268,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         ("PUT", ["playlists", urn]) | ("PUT", ["playlists", urn, "tracks"]) => {
             let b = body_json(&body);
             let input = b.get("playlist").cloned().unwrap_or(b);
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             let mut playlist = store
                 .find_playlist(urn)
                 .unwrap_or_else(|| json!({ "urn": urn, "tracks": [], "local": true }));
@@ -345,7 +353,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             // playlist detail for SC-owned playlists (SC dropped
             // `/playlists/{id}/tracks`, and the detail also carries the
             // metadata the local copy needs).
-            let local = repaired_local_playlist(s, token.as_deref(), urn).await;
+            let local = repaired_local_playlist(s, ctx.owner, token.as_deref(), urn).await;
             let mut playlist = local.clone();
             let mut tracks: Vec<Value> = local
                 .as_ref()
@@ -417,7 +425,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 obj.insert("track_count".into(), json!(tracks.len()));
                 obj.insert("tracks".into(), json!(tracks));
             }
-            s.store.lock().await.upsert_playlist(playlist.clone());
+            s.store_for(ctx.owner).await.lock().await.upsert_playlist(playlist.clone());
 
             if is_sc && base_ok {
                 if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
@@ -442,7 +450,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(playlist)
         }
         ("DELETE", ["playlists", urn]) => {
-            s.store.lock().await.delete_playlist(urn);
+            s.store_for(ctx.owner).await.lock().await.delete_playlist(urn);
             if urn.starts_with("soundcloud:playlists:") {
                 if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
                     spawn_write(
@@ -502,7 +510,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 }
             }
 
-            let mut store = s.store.lock().await;
+            let store = s.store_for(ctx.owner).await;
+            let mut store = store.lock().await;
             if let Some(mut playlist) = store.find_playlist(urn) {
                 if let Some(obj) = playlist.as_object_mut() {
                     obj.insert("sharing".into(), json!(sharing));
@@ -523,12 +532,14 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
 /// missing metadata refilled from the SoundCloud detail. The repair is
 /// persisted, but a partial fetch never drops stored tracks.
 async fn repaired_local_playlist(
-    state: &DirectState,
+    s: &DirectState,
+    owner: Option<u64>,
     token: Option<&str>,
     urn: &str,
 ) -> Option<Value> {
     let local = {
-        let store = state.store.lock().await;
+        let store = s.store_for(owner).await;
+        let store = store.lock().await;
         store.find_playlist(urn)
     }?;
     let mut repaired = local;
@@ -540,7 +551,7 @@ async fn repaired_local_playlist(
         .cloned()
         .unwrap_or_default();
     let before = tracks.clone();
-    hydrate_track_stubs(state, token, &mut tracks).await;
+    hydrate_track_stubs(s, token, &mut tracks).await;
     if tracks != before && tracks.len() == before.len() {
         if let Some(obj) = repaired.as_object_mut() {
             obj.insert("track_count".into(), json!(tracks.len()));
@@ -553,7 +564,7 @@ async fn repaired_local_playlist(
     // artwork; refill those from the SoundCloud detail.
     if urn.starts_with("soundcloud:playlists:") && repaired.get("title").is_none() {
         let id = id_of(urn);
-        if let Ok((status, detail)) = state.sc_get(&format!("/playlists/{id}"), token).await {
+        if let Ok((status, detail)) = s.sc_get(&format!("/playlists/{id}"), token).await {
             if (200..300).contains(&status) {
                 if let (Some(dst), Some(src)) = (repaired.as_object_mut(), detail.as_object()) {
                     for key in [
@@ -587,7 +598,7 @@ async fn repaired_local_playlist(
     // session so reads stay cheap.
     if urn.starts_with("soundcloud:playlists:") {
         let fresh_check = {
-            let mut seen = state.verified_playlists.lock().await;
+            let mut seen = s.verified_playlists.lock().await;
             seen.insert(urn.to_string())
         };
         if fresh_check {
@@ -597,7 +608,7 @@ async fn repaired_local_playlist(
                 .map(Vec::len)
                 .unwrap_or(0);
             let id = id_of(urn);
-            if let Ok((status, v)) = state.sc_get(&format!("/playlists/{id}"), token).await {
+            if let Ok((status, v)) = s.sc_get(&format!("/playlists/{id}"), token).await {
                 if (200..300).contains(&status) {
                     // SoundCloud owns the privacy of its own sets: adopt its
                     // value, or a stale local copy would keep showing the wrong
@@ -617,7 +628,7 @@ async fn repaired_local_playlist(
                         .cloned()
                         .unwrap_or_default();
                     let pre = list.len();
-                    hydrate_track_stubs(state, token, &mut list).await;
+                    hydrate_track_stubs(s, token, &mut list).await;
                     if base_complete(pre, list.len(), expected) && list.len() > local_len {
                         eprintln!(
                             "[playlists] self-healed short copy {urn}: {local_len} -> {} tracks",
@@ -638,7 +649,11 @@ async fn repaired_local_playlist(
     }
 
     if changed {
-        state.store.lock().await.upsert_playlist(repaired.clone());
+        s.store_for(owner)
+            .await
+            .lock()
+            .await
+            .upsert_playlist(repaired.clone());
     }
     Some(repaired)
 }
