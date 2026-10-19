@@ -9,6 +9,7 @@
 //! accounts. The whole web browsing profile (cookies, storage, service
 //! workers) is wiped before the sign-in page is shown.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -153,7 +154,7 @@ async fn watch(app: AppHandle) {
 
     // The stale token must never complete the flow: only a freshly issued one
     // (the user actually signed in) is accepted.
-    let mut last_tried: Option<String> = stale;
+    let mut tried: HashSet<String> = stale.into_iter().collect();
     let mut cookie_errors: u32 = 0;
 
     loop {
@@ -181,26 +182,46 @@ async fn watch(app: AppHandle) {
         let Some(token) = cookies.first().map(|c| c.value().to_string()) else {
             continue;
         };
-        if token.is_empty() || last_tried.as_deref() == Some(token.as_str()) {
+        if token.is_empty() || tried.contains(&token) {
             continue;
         }
 
         let direct = app.state::<Arc<DirectState>>().inner().clone();
         match super::sc::fetch_me(direct.as_ref(), &token).await {
             Ok(me) => {
+                let Some(me_id) = me.get("id").and_then(Value::as_u64) else {
+                    emit(
+                        &app,
+                        json!({ "status": "error", "message": "SoundCloud /me returned no user id" }),
+                    );
+                    return;
+                };
                 let username = me
                     .get("username")
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
+                let avatar_url = me
+                    .get("avatar_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let session = app.state::<Arc<SessionStore>>().inner().clone();
-                if let Err(e) = session.set_token(&app, token.clone()).await {
+                if let Err(e) = session
+                    .upsert_account(&app, token.clone(), me_id, &username, &avatar_url)
+                    .await
+                {
                     emit(&app, json!({ "status": "error", "message": e }));
                     return;
                 }
                 emit(
                     &app,
-                    json!({ "status": "ok", "token": token, "username": username }),
+                    json!({
+                        "status": "ok",
+                        "token": token,
+                        "username": username,
+                        "accountId": me_id,
+                    }),
                 );
                 let _ = wv.close();
                 return;
@@ -210,7 +231,7 @@ async fn watch(app: AppHandle) {
                     // Anonymous/stale cookie: remember it and wait for a
                     // fresh one to appear after the user signs in.
                     eprintln!("[login] stale oauth_token; waiting for a fresh one");
-                    last_tried = Some(token);
+                    tried.insert(token);
                 }
                 // Other errors (network, 5xx) retry with the same token.
             }
