@@ -7,6 +7,7 @@ pub mod login;
 pub mod routes;
 pub mod sc;
 pub mod store;
+pub mod upload;
 pub mod webview;
 
 use std::collections::{HashMap, HashSet};
