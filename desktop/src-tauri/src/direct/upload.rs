@@ -11,16 +11,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::Manager;
 
+use crate::app::diagnostics::log_native;
 use crate::auth::SessionStore;
 use crate::network::server::ServerState;
 use crate::network::upload_grants;
 use crate::rt::AppHandle;
 use crate::track_cache::transcode;
 
-use super::webview;
+use super::{webview, DirectState};
 
 /// SoundCloud rejects request bodies above 500 MB; the UI blocks files above it.
 const SOFT_MAX_BYTES: u64 = 500 * 1024 * 1024;
@@ -325,6 +326,55 @@ fn truncate_chars(value: &str, max: usize) -> String {
 /// Longest id the frontend may supply; generated UUIDs are well below it.
 const UPLOAD_ID_MAX: usize = 64;
 
+/// The raw response body when the writer channel preserved a complete Track
+/// object. Truncated payloads fall back to the regex-parsed id.
+fn uploaded_track_object(payload: &str) -> Option<Value> {
+    serde_json::from_str::<Value>(payload)
+        .ok()
+        .filter(|v| v.get("id").and_then(Value::as_u64).is_some())
+}
+
+/// Store entry for a finished upload. The raw Track is preferred so the list
+/// keeps artwork and user data; otherwise the parsed fields are enough for the
+/// `/me/tracks` overlay.
+fn recorded_uploaded_track(track: &UploadedTrack, raw: Option<Value>) -> Value {
+    match raw.filter(|v| v.get("id").and_then(Value::as_u64).is_some()) {
+        Some(raw) => raw,
+        None => json!({
+            "id": track.id,
+            "urn": track.urn,
+            "permalink_url": track.permalink_url,
+            "title": track.title,
+            "state": track.state,
+            "uploaded_by_app": true,
+        }),
+    }
+}
+
+/// Best-effort local record, written to the active account's store. It returns
+/// `()` on purpose: a missing owner or a store problem must never turn a
+/// successful upload into an error.
+async fn remember_uploaded_track(
+    app: &AppHandle,
+    token: &str,
+    track: &UploadedTrack,
+    raw: Option<Value>,
+) {
+    let direct = app.state::<Arc<DirectState>>().inner().clone();
+    let Some(owner) = direct.resolve_owner(Some(token)).await else {
+        log_native(
+            app,
+            "WARN",
+            "[upload] account could not be resolved; track not recorded locally",
+        );
+        return;
+    };
+    let store = direct.store_for(Some(owner)).await;
+    let mut store = store.lock().await;
+    store.record_uploaded_track(recorded_uploaded_track(track, raw));
+    store.save();
+}
+
 /// The id echoed in `track:upload-progress` and handed back to `upload_cancel`.
 /// The frontend may pick its own so the cancel button works before the first
 /// progress event arrives; `None` generates a UUID v4. Ids are restricted to
@@ -407,7 +457,15 @@ pub async fn track_upload(
             truncate_chars(&outcome.payload, ERROR_BODY_MAX)
         ));
     }
-    parse_uploaded_track(&outcome.payload)
+    let track = parse_uploaded_track(&outcome.payload)?;
+    remember_uploaded_track(
+        &app,
+        &token,
+        &track,
+        uploaded_track_object(&outcome.payload),
+    )
+    .await;
+    Ok(track)
 }
 
 /// Abort the in-flight XHR for `upload_id` (from a `track:upload-progress`
@@ -613,6 +671,63 @@ mod tests {
     fn parse_uploaded_track_without_id_is_err() {
         assert!(parse_uploaded_track(r#"{"error":"bad request"}"#).is_err());
         assert!(parse_uploaded_track("not json").is_err());
+    }
+
+    fn parsed_track(id: u64) -> UploadedTrack {
+        UploadedTrack {
+            id,
+            urn: format!("soundcloud:tracks:{id}"),
+            permalink_url: format!("https://soundcloud.com/me/track-{id}"),
+            title: "Track".into(),
+            state: "processing".into(),
+        }
+    }
+
+    #[test]
+    fn raw_upload_payload_is_kept_only_for_a_complete_track() {
+        assert!(uploaded_track_object(r#"{"id":1,"title":"x"}"#).is_some());
+        assert!(uploaded_track_object(r#"{"id":1,"title":"cut off"#).is_none());
+        assert!(uploaded_track_object(r#"{"error":"bad request"}"#).is_none());
+    }
+
+    #[test]
+    fn recorded_upload_prefers_the_raw_track_object() {
+        let raw = json!({
+            "id": 42,
+            "title": "raw",
+            "artwork_url": "https://example.com/art.jpg",
+        });
+        let value = recorded_uploaded_track(&parsed_track(42), Some(raw));
+
+        assert_eq!(
+            value.get("artwork_url").and_then(Value::as_str),
+            Some("https://example.com/art.jpg"),
+        );
+        let mut store = crate::direct::store::LocalStore::default();
+        store.record_uploaded_track(value);
+        assert_eq!(store.uploaded_tracks.len(), 1);
+    }
+
+    /// A truncated or non-object body must fall back to the parsed fields
+    /// instead of failing the already-successful upload.
+    #[test]
+    fn recorded_upload_falls_back_when_the_raw_body_is_unusable() {
+        for raw in [
+            None,
+            Some(json!(["not", "an", "object"])),
+            Some(json!({ "title": "no id" })),
+        ] {
+            let value = recorded_uploaded_track(&parsed_track(7), raw);
+            assert_eq!(value.get("id").and_then(Value::as_u64), Some(7));
+            assert_eq!(
+                value.get("urn").and_then(Value::as_str),
+                Some("soundcloud:tracks:7"),
+            );
+            assert_eq!(
+                value.get("uploaded_by_app").and_then(Value::as_bool),
+                Some(true),
+            );
+        }
     }
 
     #[test]
