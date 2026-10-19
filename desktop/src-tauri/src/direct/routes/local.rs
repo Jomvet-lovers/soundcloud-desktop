@@ -7,6 +7,11 @@ use super::common::*;
 use super::normalize::*;
 use super::super::sc::{SC_API, id_of};
 use super::super::store::LocalStore;
+use super::super::DirectState;
+use crate::network::server::ServerState;
+use crate::network::upload_grants;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
@@ -317,6 +322,80 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 Err(e) => err(502, &e),
             }
         }
+        // ── debug: upload probe 1, writer page fetches a granted local file ──
+        // State-neutral: verifies only that a fetch from the soundcloud.com
+        // writer page reaches http://127.0.0.1 (CORS + Private Network Access).
+        ("POST", ["debug", "upload-fetch-probe"]) => {
+            if token.is_none() {
+                return Ok(err(401, "unauthorized"));
+            }
+            let path = match probe_source(s, q_str(&q, "file")).await {
+                Ok(p) => p,
+                Err((code, message)) => return Ok(err(code, &message)),
+            };
+            let expected = tokio::fs::metadata(&path).await.map(|m| m.len()).unwrap_or(0);
+            let url = issue_probe_url(s, &path);
+            match super::super::webview::page_fetch_probe(&s.app, &url).await {
+                Ok(v) => ok(json!({
+                    "ok": true,
+                    "status": v.get("status").cloned().unwrap_or(Value::Null),
+                    "size": v.get("size").cloned().unwrap_or(Value::Null),
+                    "type": v.get("type").cloned().unwrap_or(Value::Null),
+                    "filename": probe_filename(&path),
+                    "expectedSize": expected,
+                })),
+                Err(e) => ok(json!({ "ok": false, "error": e })),
+            }
+        }
+        // ── debug: upload probe 2, multipart POST to a SoundCloud API ──
+        // NOT state-neutral: a 2xx leaves a real track on the signed-in
+        // account. `sharing` defaults to private so an accidental run cannot
+        // publish anything; the response notes the possible track either way.
+        ("POST", ["debug", "upload-probe"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let path = match probe_source(s, q_str(&q, "file")).await {
+                Ok(p) => p,
+                Err((code, message)) => return Ok(err(code, &message)),
+            };
+            let endpoint = q_str(&q, "endpoint")
+                .unwrap_or_else(|| "https://api.soundcloud.com/tracks".into());
+            let with_credentials = q_str(&q, "withCredentials").as_deref() == Some("1");
+            let title = q_str(&q, "title").unwrap_or_else(|| "probe".into());
+            let sharing = q_str(&q, "sharing").unwrap_or_else(|| "private".into());
+            let fields = vec![
+                ("track[title]".to_string(), title),
+                ("track[sharing]".to_string(), sharing),
+            ];
+            let audio_url = issue_probe_url(s, &path);
+            let upload_id = uuid::Uuid::new_v4().to_string();
+            let started = Instant::now();
+            match super::super::webview::do_upload(
+                &s.app,
+                &upload_id,
+                t,
+                &endpoint,
+                &fields,
+                &audio_url,
+                &probe_filename(&path),
+                None,
+                with_credentials,
+            )
+            .await
+            {
+                Ok(outcome) => {
+                    let elapsed_ms = started.elapsed().as_millis() as u64;
+                    ok(upload_probe_response(&outcome, elapsed_ms))
+                }
+                Err(e) => ok(json!({
+                    "ok": false,
+                    "error": e,
+                    "elapsedMs": started.elapsed().as_millis() as u64,
+                    "note": PROBE_TRACK_NOTE,
+                })),
+            }
+        }
         // ── debug: end-to-end hot replay test (capture + immediate re-POST) ──
         ("POST", ["debug", "hot-replay"]) => {
             let Some(t) = token.as_deref() else {
@@ -373,6 +452,120 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         _ => err(404, "not found"),
     };
     Ok(resp)
+}
+
+// ─── upload probe helpers ────────────────────────────────────────────────
+
+/// Body characters kept in the `upload-probe` response: SoundCloud error
+/// bodies carry the useful part first, and the multipart echo would not fit.
+const PROBE_BODY_MAX: usize = 800;
+
+/// Carried by both probe outcomes: an accepted upload is not rolled back.
+const PROBE_TRACK_NOTE: &str = "a private test track may have been created";
+
+/// Probe WAV sample rate.
+const PROBE_WAV_RATE: u32 = 8_000;
+
+/// Samples in the probe WAV (0.5 s at [`PROBE_WAV_RATE`], 16-bit mono).
+const PROBE_WAV_SAMPLES: u32 = PROBE_WAV_RATE / 2;
+
+/// Standard 44-byte RIFF/WAVE header (PCM, mono, 16-bit) plus `samples`
+/// zeroed samples, so the upload probes post real, decodable audio bytes.
+fn dummy_wav(sample_rate: u32, samples: u32) -> Vec<u8> {
+    let data_len = samples * 2;
+    let mut out = Vec::with_capacity(44 + data_len as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&(sample_rate * 2).to_le_bytes()); // byte rate
+    out.extend_from_slice(&2u16.to_le_bytes()); // block align
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    out.resize(44 + data_len as usize, 0);
+    out
+}
+
+/// The `?file=` path (must be an existing file), or the cached dummy WAV when
+/// the query omits it. `Err` carries the HTTP status and message to return.
+async fn probe_source(
+    s: &Arc<DirectState>,
+    file: Option<String>,
+) -> Result<PathBuf, (u16, String)> {
+    if let Some(path) = file {
+        let path = PathBuf::from(path);
+        let exists = tokio::fs::metadata(&path)
+            .await
+            .map(|m| m.is_file())
+            .unwrap_or(false);
+        if !exists {
+            return Err((400, format!("file not found: {}", path.display())));
+        }
+        return Ok(path);
+    }
+    dummy_wav_file(s).await.map_err(|e| (500, e))
+}
+
+/// `app_cache_dir()/upload-probe/dummy.wav`, written once and reused.
+async fn dummy_wav_file(s: &Arc<DirectState>) -> Result<PathBuf, String> {
+    let dir = s
+        .app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("cache dir: {e}"))?
+        .join("upload-probe");
+    let path = dir.join("dummy.wav");
+    if tokio::fs::metadata(&path).await.is_ok() {
+        return Ok(path);
+    }
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|e| format!("cache dir: {e}"))?;
+    tokio::fs::write(&path, dummy_wav(PROBE_WAV_RATE, PROBE_WAV_SAMPLES))
+        .await
+        .map_err(|e| format!("dummy wav: {e}"))?;
+    Ok(path)
+}
+
+/// Multipart filename for `path`: `track[asset_data]` needs a name with the
+/// extension SoundCloud infers the format from.
+fn probe_filename(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "probe-audio".into())
+}
+
+/// Issue a one-time grant for `path` and return the loopback URL the writer
+/// page reads the bytes from.
+fn issue_probe_url(s: &Arc<DirectState>, path: &Path) -> String {
+    let port = s.app.state::<Arc<ServerState>>().proxy_port;
+    let token = upload_grants::issue(
+        path.to_path_buf(),
+        probe_filename(path),
+        upload_grants::content_type_for(path).to_string(),
+    );
+    format!("http://127.0.0.1:{port}/up/{token}")
+}
+
+/// Response for a completed round trip of `POST /debug/upload-probe`. Pure so
+/// the status, truncation, and challenge rules stay testable.
+fn upload_probe_response(outcome: &super::super::webview::UploadOutcome, elapsed_ms: u64) -> Value {
+    let mut v = json!({
+        "ok": (200..300).contains(&outcome.status),
+        "status": outcome.status,
+        "body": outcome.payload.chars().take(PROBE_BODY_MAX).collect::<String>(),
+        "elapsedMs": elapsed_ms,
+        "note": PROBE_TRACK_NOTE,
+    });
+    if super::super::webview::is_challenge(outcome.status, &outcome.payload) {
+        v["challenge"] = json!(true);
+    }
+    v
 }
 
 /// Local fallback for `GET /history`. An anonymous request must never see
@@ -523,8 +716,12 @@ pub(crate) fn spawn_history_flow(
 
 #[cfg(test)]
 mod tests {
-    use super::{history_entry_from_sc, local_history_fallback};
+    use super::{
+        PROBE_TRACK_NOTE, PROBE_WAV_RATE, PROBE_WAV_SAMPLES, dummy_wav, history_entry_from_sc,
+        local_history_fallback, upload_probe_response,
+    };
     use crate::direct::store::LocalStore;
+    use crate::direct::webview::UploadOutcome;
     use serde_json::{Value, json};
 
     fn track(artwork: serde_json::Value) -> serde_json::Value {
@@ -620,5 +817,85 @@ mod tests {
             serde_json::from_str(&body).expect("audio body must be valid JSON");
         assert_eq!(v.get("events").and_then(Value::as_array).map(Vec::len), Some(1));
         assert!(v.get("sent_at").and_then(Value::as_str).is_some());
+    }
+
+    /// The probe WAV must be a valid 44-byte-header PCM file: SoundCloud may
+    /// reject the upload otherwise and the probe would report a false failure.
+    #[test]
+    fn dummy_wav_is_standard_silence() {
+        let wav = dummy_wav(PROBE_WAV_RATE, PROBE_WAV_SAMPLES);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(&wav[12..16], b"fmt ");
+        assert_eq!(&wav[36..40], b"data");
+        let data_len = u32::from_le_bytes(wav[40..44].try_into().unwrap());
+        assert_eq!(data_len, PROBE_WAV_SAMPLES * 2);
+        assert_eq!(wav.len(), 44 + data_len as usize);
+        assert_eq!(
+            u32::from_le_bytes(wav[4..8].try_into().unwrap()),
+            wav.len() as u32 - 8,
+        );
+        assert_eq!(u16::from_le_bytes(wav[20..22].try_into().unwrap()), 1, "PCM");
+        assert_eq!(u16::from_le_bytes(wav[22..24].try_into().unwrap()), 1, "mono");
+        assert_eq!(
+            u32::from_le_bytes(wav[24..28].try_into().unwrap()),
+            PROBE_WAV_RATE,
+        );
+        assert_eq!(u32::from_le_bytes(wav[28..32].try_into().unwrap()), 16_000);
+        assert_eq!(u16::from_le_bytes(wav[32..34].try_into().unwrap()), 2);
+        assert_eq!(u16::from_le_bytes(wav[34..36].try_into().unwrap()), 16);
+        assert!(wav[44..].iter().all(|b| *b == 0), "samples must be silent");
+    }
+
+    /// 0.5 s at the probe rate: long enough for SoundCloud, small enough to
+    /// keep the probe POST trivial.
+    #[test]
+    fn dummy_wav_is_half_a_second() {
+        assert_eq!(PROBE_WAV_SAMPLES, PROBE_WAV_RATE / 2);
+        assert_eq!(PROBE_WAV_SAMPLES * 2, 8_000);
+    }
+
+    /// A 2xx must read as ok, and the body must truncate on characters: SC
+    /// error bodies contain non-ASCII text and a byte slice would panic.
+    #[test]
+    fn upload_probe_body_truncates_on_characters() {
+        let outcome = UploadOutcome {
+            status: 201,
+            payload: "曲".repeat(900),
+        };
+        let v = upload_probe_response(&outcome, 42);
+        assert_eq!(v["ok"], json!(true));
+        assert_eq!(v["status"], json!(201));
+        assert_eq!(v["elapsedMs"], json!(42));
+        assert_eq!(v["body"].as_str().unwrap().chars().count(), 800);
+        // Truncated on a character boundary: a byte slice would have panicked
+        // on the 800th byte of a 3-byte character.
+        assert_eq!(v["body"].as_str().unwrap().len(), 800 * 3);
+        assert!(v.get("challenge").is_none());
+        assert_eq!(v["note"], json!(PROBE_TRACK_NOTE));
+    }
+
+    /// DataDome answers with the captcha URL; the probe must surface that.
+    #[test]
+    fn upload_probe_flags_challenge() {
+        let outcome = UploadOutcome {
+            status: 403,
+            payload: r#"{"url":"https://geo.captcha-delivery.com/captcha/?x"}"#.into(),
+        };
+        let v = upload_probe_response(&outcome, 5);
+        assert_eq!(v["ok"], json!(false));
+        assert_eq!(v["challenge"], json!(true));
+    }
+
+    /// A plain API error (validation, auth) is not a challenge.
+    #[test]
+    fn upload_probe_omits_challenge_on_plain_error() {
+        let outcome = UploadOutcome {
+            status: 422,
+            payload: r#"{"error":"title is required"}"#.into(),
+        };
+        let v = upload_probe_response(&outcome, 5);
+        assert_eq!(v["ok"], json!(false));
+        assert!(v.get("challenge").is_none());
     }
 }

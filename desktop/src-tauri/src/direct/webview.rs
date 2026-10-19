@@ -362,6 +362,52 @@ async fn do_fetch(
     }
 }
 
+/// Diagnostics only: fetch `url` from the writer page and report just the
+/// status, byte size, and content type. `do_fetch` returns the body as text,
+/// which cannot confirm binary payloads (audio bytes), so the upload probes
+/// use this instead. Shares the single-writer `scw` channel and holds the
+/// lane mutex, so it must not overlap other writer traffic.
+pub async fn page_fetch_probe(app: &AppHandle, url: &str) -> Result<Value, String> {
+    let _lane = LANE.lock().await;
+    let window = prepared_window(app, None).await?;
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let url_js = serde_json::to_string(url).map_err(|e| e.to_string())?;
+    let js = format!(
+        r#"fetch({url_js}).then(async function(r){{
+  var b = await r.blob();
+  document.cookie='scw={seq}:'+r.status+':'+encodeURIComponent(JSON.stringify({{size:b.size,type:b.type}}))+';path=/';
+}}).catch(function(e){{
+  document.cookie='scw={seq}:ERR:'+encodeURIComponent(String(e&&e.message||e).slice(0,300))+';path=/';
+}});"#
+    );
+    eval(&window, &js)?;
+
+    let deadline = Instant::now() + FETCH_TIMEOUT;
+    loop {
+        tokio::time::sleep(POLL).await;
+        if let Some(rest) = read_channel(&window, seq) {
+            let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
+            if let Some(msg) = rest.strip_prefix("ERR:") {
+                return Err(format!("page fetch probe: {msg}"));
+            }
+            let (status, encoded) = rest.split_once(':').unwrap_or((rest.as_str(), ""));
+            let status: u16 = status.parse().map_err(|_| format!("bad result: {rest}"))?;
+            let info: Value = urlencoding::decode(encoded)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(Value::Null);
+            return Ok(serde_json::json!({
+                "status": status,
+                "size": info.get("size").cloned().unwrap_or(Value::Null),
+                "type": info.get("type").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        if Instant::now() >= deadline {
+            return Err("page fetch probe timed out".into());
+        }
+    }
+}
+
 fn json_string(value: &str) -> Result<String, String> {
     serde_json::to_string(value).map_err(|e| e.to_string())
 }
