@@ -6,6 +6,8 @@ import { recordEvent } from './events';
 
 const _dislikedUrns = new Map<string, boolean>();
 const _listeners = new Set<() => void>();
+/** Bumped on account switch so late responses from the old account are ignored. */
+let _generation = 0;
 
 function notify() {
   for (const l of _listeners) l();
@@ -41,14 +43,16 @@ export async function fetchDislikeStatus(urn: string): Promise<boolean> {
   if (_dislikedUrns.has(urn)) return true;
   const existing = _inflightStatus.get(urn);
   if (existing) return existing;
-  const p = api<{ disliked: boolean }>(`/dislikes/status/${encodeURIComponent(urn)}`)
+  const generation = _generation;
+  let p: Promise<boolean>;
+  p = api<{ disliked: boolean }>(`/dislikes/status/${encodeURIComponent(urn)}`)
     .then((r) => {
-      if (r.disliked) setDislikedUrn(urn, true);
+      if (generation === _generation && r.disliked) setDislikedUrn(urn, true);
       return r.disliked;
     })
     .catch(() => false)
     .finally(() => {
-      _inflightStatus.delete(urn);
+      if (_inflightStatus.get(urn) === p) _inflightStatus.delete(urn);
     });
   _inflightStatus.set(urn, p);
   return p;
@@ -75,10 +79,22 @@ export function useDislikeStatus(urn: string | undefined): boolean {
  * мог работать синхронно без запросов к бэку.
  */
 let _bulkLoaded = false;
+
+/** Forget the current account's dislike state (account switch / sign-out). */
+export function resetDislikedUrns() {
+  _generation += 1;
+  _dislikedUrns.clear();
+  _inflightStatus.clear();
+  _bulkLoaded = false;
+  notify();
+}
+
 export async function loadAllDislikedIds(): Promise<void> {
   if (_bulkLoaded) return;
+  const generation = _generation;
   try {
     const r = await api<{ ids: string[] }>('/dislikes/ids');
+    if (generation !== _generation) return;
     for (const id of r.ids) {
       const urn = id.startsWith('soundcloud:tracks:') ? id : `soundcloud:tracks:${id}`;
       _dislikedUrns.set(urn, true);

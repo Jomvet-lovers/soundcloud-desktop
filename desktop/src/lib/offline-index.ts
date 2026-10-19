@@ -2,7 +2,7 @@ import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from '@taur
 import type { Track } from '../stores/player';
 
 const BASE_DIR = BaseDirectory.AppData;
-const INDEX_PATH = 'offline-index.json';
+const UNSCOPED_INDEX_PATH = 'offline-index.json';
 
 interface OfflineIndex {
   likedUrns: string[];
@@ -12,17 +12,26 @@ interface OfflineIndex {
   cacheOrder: string[];
 }
 
-const EMPTY_INDEX: OfflineIndex = {
-  likedUrns: [],
-  tracksByUrn: {},
-  updatedAt: null,
-  cacheOrder: [],
-};
+function emptyIndex(): OfflineIndex {
+  return {
+    likedUrns: [],
+    tracksByUrn: {},
+    updatedAt: null,
+    cacheOrder: [],
+  };
+}
 
+let accountId: number | null = null;
 let indexCache: OfflineIndex | null = null;
 let loadPromise: Promise<OfflineIndex> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let dirReady: Promise<void> | null = null;
+/** Bumped on account switch so an in-flight load cannot fill the new cache. */
+let generation = 0;
+
+function indexPath(id: number | null): string {
+  return id === null ? UNSCOPED_INDEX_PATH : `offline-index.${id}.json`;
+}
 
 function ensureDir() {
   if (!dirReady) {
@@ -38,15 +47,15 @@ function cloneTrack(track: Track): Track {
   };
 }
 
-async function readIndexFile(): Promise<OfflineIndex> {
+async function readIndexFile(path: string): Promise<OfflineIndex> {
   await ensureDir();
 
   try {
-    if (!(await exists(INDEX_PATH, { baseDir: BASE_DIR }))) {
-      return EMPTY_INDEX;
+    if (!(await exists(path, { baseDir: BASE_DIR }))) {
+      return emptyIndex();
     }
 
-    const raw = await readTextFile(INDEX_PATH, { baseDir: BASE_DIR });
+    const raw = await readTextFile(path, { baseDir: BASE_DIR });
     const parsed = JSON.parse(raw) as OfflineIndex;
     return {
       likedUrns: Array.isArray(parsed.likedUrns) ? parsed.likedUrns : [],
@@ -55,7 +64,7 @@ async function readIndexFile(): Promise<OfflineIndex> {
       cacheOrder: Array.isArray(parsed.cacheOrder) ? parsed.cacheOrder : [],
     };
   } catch {
-    return EMPTY_INDEX;
+    return emptyIndex();
   }
 }
 
@@ -65,17 +74,27 @@ async function loadIndex(): Promise<OfflineIndex> {
   }
 
   if (!loadPromise) {
-    loadPromise = readIndexFile()
+    const loadGeneration = generation;
+    const path = indexPath(accountId);
+    loadPromise = readIndexFile(path)
       .then((parsed) => {
-        indexCache = parsed;
+        if (loadGeneration === generation) indexCache = parsed;
         return parsed;
       })
       .finally(() => {
-        loadPromise = null;
+        if (loadGeneration === generation) {
+          loadPromise = null;
+        }
       });
   }
 
   return loadPromise;
+}
+
+function writeIndex(path: string, index: OfflineIndex) {
+  void ensureDir().then(() =>
+    writeTextFile(path, JSON.stringify(index), { baseDir: BASE_DIR }).catch(() => {}),
+  );
 }
 
 function schedulePersist() {
@@ -83,20 +102,42 @@ function schedulePersist() {
     clearTimeout(persistTimer);
   }
 
+  const path = indexPath(accountId);
+  const scheduledGeneration = generation;
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    if (!indexCache) return;
+    if (!indexCache || scheduledGeneration !== generation) return;
 
-    void ensureDir().then(() =>
-      writeTextFile(INDEX_PATH, JSON.stringify(indexCache), { baseDir: BASE_DIR }).catch(() => {}),
-    );
+    writeIndex(path, indexCache);
   }, 120);
+}
+
+/**
+ * Point the offline index at an account-scoped file (`offline-index.<id>.json`;
+ * signed-out use keeps the unscoped name). Pending writes for the previous
+ * account are flushed; the cache is dropped so the next read loads the new file.
+ */
+export async function setOfflineAccount(id: number | null): Promise<void> {
+  if (id === accountId) return;
+
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+    if (indexCache) writeIndex(indexPath(accountId), indexCache);
+  }
+
+  accountId = id;
+  generation += 1;
+  indexCache = null;
+  loadPromise = null;
 }
 
 export async function rememberTracks(tracks: Track[]) {
   if (tracks.length === 0) return;
 
+  const currentGeneration = generation;
   const index = await loadIndex();
+  if (currentGeneration !== generation) return;
   let changed = false;
 
   for (const track of tracks) {
@@ -111,7 +152,9 @@ export async function rememberTracks(tracks: Track[]) {
 }
 
 export async function rememberLikedTracks(tracks: Track[]) {
+  const currentGeneration = generation;
   const index = await loadIndex();
+  if (currentGeneration !== generation) return;
   for (const track of tracks) {
     if (!track?.urn) continue;
     index.tracksByUrn[track.urn] = cloneTrack(track);
@@ -147,7 +190,9 @@ export async function getCacheOrder(): Promise<string[]> {
 }
 
 export async function saveCacheOrder(urns: string[]) {
+  const currentGeneration = generation;
   const index = await loadIndex();
+  if (currentGeneration !== generation) return;
   index.cacheOrder = urns;
   schedulePersist();
 }
