@@ -36,6 +36,11 @@ const MAX_COOKIE_ERRORS: u32 = 30;
 /// while the window is already open.
 static WATCHING: AtomicBool = AtomicBool::new(false);
 
+/// ログイン watcher が動いているか。writer はこの間ログイン窓を触らない。
+pub fn is_watching() -> bool {
+    WATCHING.load(Ordering::SeqCst)
+}
+
 /// Open (or focus) the SoundCloud login window and watch for its cookie.
 #[tauri::command]
 pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
