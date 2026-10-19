@@ -155,6 +155,9 @@ pub fn run() {
             let auth_state =
                 auth::SessionStore::init(data_dir.clone(), auth_http_client, rt_handle.clone());
             app.manage(auth_state);
+            // Import the old single-account session in the background. It emits
+            // `auth:changed` once when done, whether or not a legacy file existed.
+            rt_handle.spawn(auth::migrate_legacy(app.handle().clone(), data_dir));
 
             Ok(())
         })
@@ -222,6 +225,8 @@ pub fn run() {
             network::image_cache::image_cache_clear,
             auth::auth_status,
             auth::auth_set_session,
+            auth::auth_switch_account,
+            auth::auth_remove_account,
             auth::auth_logout,
             auth::auth_set_premium,
             network::edge::edge_config,
