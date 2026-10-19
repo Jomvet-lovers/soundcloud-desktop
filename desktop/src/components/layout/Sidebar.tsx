@@ -12,6 +12,7 @@ import {
   NavOffline,
   NavSearch,
   NavSettings,
+  NavUpload,
 } from '../../lib/nav-icons';
 import { usePerfMode } from '../../lib/perf';
 import { useAppMode } from '../../stores/app-status';
@@ -29,6 +30,7 @@ const navItems: { to: string; icon: IconCmp; label: string }[] = [
   { to: '/library', icon: NavLibrary, label: 'Library' },
   { to: '/library/history', icon: NavHistory, label: 'History' },
   { to: '/offline', icon: NavOffline, label: 'Offline' },
+  { to: '/upload', icon: NavUpload, label: 'Upload' },
 ];
 
 const ROW = 'group relative w-full flex items-center h-10 rounded-xl transition-all duration-200';

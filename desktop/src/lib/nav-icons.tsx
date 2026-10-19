@@ -91,3 +91,12 @@ export const NavSettings = memo(({ size, className }: NavIconProps) => (
     <path d="M12,17.75C8.824,17.75 6.25,15.176 6.25,12C6.25,8.824 8.824,6.25 12,6.25C15.176,6.25 17.75,8.824 17.75,12C17.75,15.176 15.176,17.75 12,17.75ZM12,16.25C9.653,16.25 7.75,14.347 7.75,12C7.75,9.653 9.653,7.75 12,7.75C14.347,7.75 16.25,9.653 16.25,12C16.25,14.347 14.347,16.25 12,16.25Z" />
   </NavSvg>
 ));
+
+/** Upload — tray plus an up arrow, drawn in the same 1.5 px filled-outline
+ *  geometry as the extracted SoundCloud marks above. */
+export const NavUpload = memo(({ size, className }: NavIconProps) => (
+  <NavSvg size={size} className={className}>
+    <path d="M12.75,7.061V14H11.25V7.061L9,9.311L7.939,8.25L11.47,4.72C11.763,4.427 12.237,4.427 12.53,4.72L16.061,8.25L15,9.311L12.75,7.061Z" />
+    <path d="M3.25,13.75V19.25H20.75V13.75H19.25V17.75H4.75V13.75Z" />
+  </NavSvg>
+));
