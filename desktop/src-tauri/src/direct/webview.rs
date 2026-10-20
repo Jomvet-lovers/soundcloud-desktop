@@ -1,7 +1,7 @@
-//! Hidden WebView "writer" for SoundCloud mutations.
+﻿//! Hidden WebView "writer" for SoundCloud mutations.
 //!
-//! DataDome scores the whole client — TLS/HTTP2 fingerprint plus its sensor
-//! cookies — so writes sent by an HTTP client are challenged. A `fetch()` from
+//! DataDome scores the whole client 窶・TLS/HTTP2 fingerprint plus its sensor
+//! cookies 窶・so writes sent by an HTTP client are challenged. A `fetch()` from
 //! a page on https://soundcloud.com presents the real web app's fingerprint,
 //! so writes pass. The already signed-in login webview is reused (a fresh
 //! incognito jar gets hard-challenged on Windows), falling back to a
@@ -12,7 +12,6 @@
 //! stale reads and a lane mutex keeps the channel single-writer.
 
 // Upload entry points are wired into Tauri commands by the upload commit.
-#![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -472,6 +471,8 @@ fn build_upload_js(
   function fail(message){{ ev('ERR:' + encodeURIComponent(String(message || '').slice(0, 300))); }}
   function sleep(ms){{ return new Promise(function(resolve){{ setTimeout(resolve, ms); }}); }}
   function api(path){{ return API + path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client_id=' + encodeURIComponent(CID); }}
+  var ID = {upload_id_js};
+  function cancelled(){{ return !!(window.__upCancel && window.__upCancel[ID]); }}
   function emitResult(text, status){{
     var enc = encodeURIComponent(String(text).slice(0, 8000));
     var n = Math.max(1, Math.ceil(enc.length / CH));
@@ -545,6 +546,7 @@ fn build_upload_js(
       xhr.onabort = function(){{ delete window.__upXhrs[{upload_id_js}]; ev('ABORTED'); reject(new Error('__aborted')); }};
       xhr.send(blob);
     }});
+    if (cancelled()) {{ ev('ABORTED'); return; }}
     var triggered = false;
     var transcodingUrl = api('/uploads/' + encodeURIComponent(policy.uid) + '/track-transcoding');
     for (var attempt = 0; attempt < 5 && !triggered; attempt++) {{
@@ -562,6 +564,7 @@ fn build_upload_js(
     ev('P:86');
     var finished = false;
     for (var poll = 0; poll < 600; poll++) {{
+      if (cancelled()) {{ ev('ABORTED'); return; }}
       var statusResponse = await fetch(transcodingUrl, {{
         method: 'GET',
         credentials: CRED ? 'include' : 'omit',
@@ -576,6 +579,7 @@ fn build_upload_js(
       await sleep(1500);
     }}
     if (!finished) throw new Error('transcoding timed out');
+    if (cancelled()) {{ ev('ABORTED'); return; }}
     ev('P:99');
     var body = {track_json};
     body.uid = policy.uid;
@@ -593,7 +597,7 @@ fn build_upload_js(
     }}
     emitResult(text, createResponse.status);
   }}
-  main().catch(function(e){{ fail(e && e.message || e); }});
+  main().catch(function(e){{ if (cancelled()) {{ ev('ABORTED'); return; }} fail(e && e.message || e); }});
 }})();"#,
         chunk_max = UPLOAD_CHUNK_MAX,
     ))
@@ -807,7 +811,7 @@ pub fn abort_upload(app: &AppHandle, upload_id: &str) {
         return;
     };
     let js = format!(
-        "try{{var x=window.__upXhrs&&window.__upXhrs[{upload_id_js}];if(x){{x.__upAborted=true;x.abort();}}}}catch(_e){{}}"
+        "try{{window.__upCancel=window.__upCancel||{{}};window.__upCancel[{upload_id_js}]=true;var x=window.__upXhrs&&window.__upXhrs[{upload_id_js}];if(x){{x.__upAborted=true;x.abort();}}}}catch(_e){{}}"
     );
     let _ = eval(&window, &js);
 }
@@ -869,24 +873,8 @@ pub async fn execute(
     execute_with(app, token, method, url, body, None, true).await
 }
 
-/// TEMP-DIAG(history): page fetch with an explicit Content-Type.
-pub async fn execute_ct(
-    app: &AppHandle,
-    token: Option<&str>,
-    method: &str,
-    url: &str,
-    body: Option<&Value>,
-    content_type: &str,
-) -> Result<WriteOutcome, String> {
-    let _lane = LANE.lock().await;
-    let window = prepared_window(app, token).await?;
-    let (status, payload) =
-        do_fetch(&window, token, url, method, body, None, Some(content_type), None).await?;
-    Ok(WriteOutcome { status, payload, captcha: None })
-}
-
-/* TEMP-DIAG(history): page fetch with explicit Content-Type, optional extra
-   headers, and optional auth suppression (token None => no Authorization). */
+/// TEMP-DIAG(history): page fetch with explicit Content-Type, optional extra
+/// headers, and optional auth suppression (token None => no Authorization).
 pub async fn execute_full(
     app: &AppHandle,
     token: Option<&str>,
@@ -1305,7 +1293,7 @@ pub async fn sniff_official_play(
     let url_js = serde_json::to_string(page_url).map_err(|e| e.to_string())?;
     let _ = eval(&window, &format!("location.href={url_js}"));
     // Sync on the loaded track page (SPA navigation keeps context; full load
-    // wipes it — either way the hook below installs into the live document).
+    // wipes it 窶・either way the hook below installs into the live document).
     let slug = page_url.rsplit('/').next().unwrap_or("soundcloud.com");
     let _ = wait_for_page(&window, slug, Duration::from_secs(30)).await;
     // SPA keeps mounting after document.complete (player chrome, waveform);
@@ -1786,6 +1774,14 @@ mod tests {
         ] {
             assert!(js.contains(literal), "missing `{literal}`");
         }
+    }
+
+    #[test]
+    fn upload_js_checks_the_cancel_flag_between_steps() {
+        let js = build(None);
+        assert!(js.contains("function cancelled()"));
+        assert!(js.contains("window.__upCancel"));
+        assert!(js.contains("if (cancelled()) { ev('ABORTED'); return; }"));
     }
 
     #[test]
