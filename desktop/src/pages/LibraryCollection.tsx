@@ -50,6 +50,7 @@ export const LibraryCollection = React.memo(() => {
         filter={sec === 'history' ? undefined : filter}
         onFilter={sec === 'history' ? undefined : setFilter}
         titleClassName={sec === 'history' ? 'text-[24px] font-semibold' : undefined}
+        hideBack={sec === 'history'}
       />
 
       {sec === 'likes' && <LikesTab filter={deferredFilter} />}

@@ -9,6 +9,7 @@ interface LibrarySubHeaderProps {
   filter?: string;
   onFilter?: (v: string) => void;
   titleClassName?: string;
+  hideBack?: boolean;
 }
 
 /** Shared header for a deep collection page: back to the hub, the title, a
@@ -19,16 +20,19 @@ export const LibrarySubHeader = memo(function LibrarySubHeader({
   filter,
   onFilter,
   titleClassName,
+  hideBack,
 }: LibrarySubHeaderProps) {
   return (
     <div className="mb-6">
-      <Link
-        to="/library"
-        className="inline-flex items-center gap-1 text-[12px] font-semibold text-white/40 hover:text-white/85 transition-colors mb-3"
-      >
-        <ChevronLeft size={15} />
-        {'Library'}
-      </Link>
+      {!hideBack && (
+        <Link
+          to="/library"
+          className="inline-flex items-center gap-1 text-[12px] font-semibold text-white/40 hover:text-white/85 transition-colors mb-3"
+        >
+          <ChevronLeft size={15} />
+          {'Library'}
+        </Link>
+      )}
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
           <h1
