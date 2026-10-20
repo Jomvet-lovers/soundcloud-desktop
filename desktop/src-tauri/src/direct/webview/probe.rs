@@ -1,13 +1,12 @@
 //! Writer-page diagnostics: binary fetch probe and form-data writes.
 
 use std::sync::atomic::Ordering;
-use std::time::Instant;
 
 use serde_json::Value;
 
 use crate::rt::AppHandle;
 
-use super::{FETCH_TIMEOUT, LANE, POLL, SEQ, eval, json_string, prepared_window, read_channel};
+use super::{FETCH_TIMEOUT, LANE, SEQ, await_channel, eval, json_string, prepared_window};
 
 pub async fn page_fetch_probe(app: &AppHandle, url: &str) -> Result<Value, String> {
     let _lane = LANE.lock().await;
@@ -24,30 +23,13 @@ pub async fn page_fetch_probe(app: &AppHandle, url: &str) -> Result<Value, Strin
     );
     eval(&window, &js)?;
 
-    let deadline = Instant::now() + FETCH_TIMEOUT;
-    loop {
-        tokio::time::sleep(POLL).await;
-        if let Some(rest) = read_channel(&window, seq) {
-            let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
-            if let Some(msg) = rest.strip_prefix("ERR:") {
-                return Err(format!("page fetch probe: {msg}"));
-            }
-            let (status, encoded) = rest.split_once(':').unwrap_or((rest.as_str(), ""));
-            let status: u16 = status.parse().map_err(|_| format!("bad result: {rest}"))?;
-            let info: Value = urlencoding::decode(encoded)
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or(Value::Null);
-            return Ok(serde_json::json!({
-                "status": status,
-                "size": info.get("size").cloned().unwrap_or(Value::Null),
-                "type": info.get("type").cloned().unwrap_or(Value::Null),
-            }));
-        }
-        if Instant::now() >= deadline {
-            return Err("page fetch probe timed out".into());
-        }
-    }
+    let (status, payload) = await_channel(&window, seq, FETCH_TIMEOUT, "page fetch probe").await?;
+    let info: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
+    Ok(serde_json::json!({
+        "status": status,
+        "size": info.get("size").cloned().unwrap_or(Value::Null),
+        "type": info.get("type").cloned().unwrap_or(Value::Null),
+    }))
 }
 
 pub async fn execute_form(
@@ -78,24 +60,5 @@ pub async fn execute_form(
   .catch(function(e){{ document.cookie='scw={seq}:ERR:'+encodeURIComponent(String(e&&e.message||e).slice(0,200))+';path=/'; }});"#
     );
     eval(&window, &js)?;
-
-    let deadline = Instant::now() + FETCH_TIMEOUT;
-    loop {
-        tokio::time::sleep(POLL).await;
-        if let Some(rest) = read_channel(&window, seq) {
-            let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
-            if let Some(msg) = rest.strip_prefix("ERR:") {
-                return Err(format!("page form: {msg}"));
-            }
-            let (status, encoded) = rest.split_once(':').unwrap_or((rest.as_str(), ""));
-            let status: u16 = status.parse().map_err(|_| format!("bad result: {rest}"))?;
-            let payload = urlencoding::decode(encoded)
-                .map(|s| s.into_owned())
-                .unwrap_or_default();
-            return Ok((status, payload));
-        }
-        if Instant::now() >= deadline {
-            return Err("form fetch timed out".into());
-        }
-    }
+    await_channel(&window, seq, FETCH_TIMEOUT, "page form").await
 }

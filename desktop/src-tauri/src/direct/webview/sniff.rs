@@ -277,18 +277,25 @@ pub async fn hot_replay(app: &AppHandle, token: &str, page_url: &str) -> Result<
     Ok(serde_json::json!({ "replay_status": status, "replay_body": payload.chars().take(200).collect::<String>(), "sent_ts": now_ms }))
 }
 
-/// Read the live tab's DataDome client id (set by the sensor JS).
-async fn read_datadome_id(window: &WebviewWindow) -> Option<String> {
+/// Eval `js(seq)` (which writes `scw=<seq>:<prefix><encoded>`), then read the
+/// prefixed value back. `None` on timeout or an empty value.
+async fn read_prefixed_value(
+    window: &WebviewWindow,
+    prefix: &str,
+    js: impl FnOnce(u64) -> String,
+) -> Option<String> {
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let _ = eval(window, &format!("try{{var m=document.cookie.match(/datadome=([^;]+)/);document.cookie='scw={seq}:DD:'+encodeURIComponent(m?m[1]:'')+';path=/';}}catch(_e){{}}"));
+    let _ = eval(window, &js(seq));
     let deadline = Instant::now() + Duration::from_secs(8);
     loop {
         tokio::time::sleep(POLL).await;
         if let Some(rest) = read_channel(window, seq) {
             let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
-            let id = rest.strip_prefix("DD:").unwrap_or("").to_string();
-            let id = urlencoding::decode(&id).map(|s| s.into_owned()).unwrap_or_default();
-            return if id.is_empty() { None } else { Some(id) };
+            let value = rest.strip_prefix(prefix).unwrap_or("");
+            let value = urlencoding::decode(value)
+                .map(|s| s.into_owned())
+                .unwrap_or_default();
+            return (!value.is_empty()).then_some(value);
         }
         if Instant::now() >= deadline {
             return None;
@@ -296,23 +303,20 @@ async fn read_datadome_id(window: &WebviewWindow) -> Option<String> {
     }
 }
 
+/// Read the live tab's DataDome client id (set by the sensor JS).
+async fn read_datadome_id(window: &WebviewWindow) -> Option<String> {
+    read_prefixed_value(window, "DD:", |seq| {
+        format!("try{{var m=document.cookie.match(/datadome=([^;]+)/);document.cookie='scw={seq}:DD:'+encodeURIComponent(m?m[1]:'')+';path=/';}}catch(_e){{}}")
+    })
+    .await
+}
+
 /// Read the live tab's api-v2 client_id (page URL may carry a fresh one).
 async fn read_client_id(window: &WebviewWindow) -> Option<String> {
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let _ = eval(window, &format!("try{{var m=(document.documentElement.innerHTML||'').match(/client_id=([A-Za-z0-9]+)/);document.cookie='scw={seq}:CI:'+encodeURIComponent(m?m[1]:'')+';path=/';}}catch(_e){{}}"));
-    let deadline = Instant::now() + Duration::from_secs(8);
-    loop {
-        tokio::time::sleep(POLL).await;
-        if let Some(rest) = read_channel(window, seq) {
-            let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
-            let id = rest.strip_prefix("CI:").unwrap_or("").to_string();
-            let id = urlencoding::decode(&id).map(|s| s.into_owned()).unwrap_or_default();
-            return if id.is_empty() { None } else { Some(id) };
-        }
-        if Instant::now() >= deadline {
-            return None;
-        }
-    }
+    read_prefixed_value(window, "CI:", |seq| {
+        format!("try{{var m=(document.documentElement.innerHTML||'').match(/client_id=([A-Za-z0-9]+)/);document.cookie='scw={seq}:CI:'+encodeURIComponent(m?m[1]:'')+';path=/';}}catch(_e){{}}")
+    })
+    .await
 }
 
 /// TEMP-DIAG(history): drive the official web player in the writer page and

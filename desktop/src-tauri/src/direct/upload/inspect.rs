@@ -9,7 +9,7 @@ use crate::rt::AppHandle;
 use crate::track_cache::transcode;
 
 /// SoundCloud's documented request-body cap; the UI blocks files above it.
-pub(super) const SOFT_MAX_BYTES: u64 = 500 * 1024 * 1024;
+pub(super) const SOFT_MAX_BYTES: u64 = crate::network::upload_grants::MAX_BYTES;
 /// Hard file-size limit (SoundCloud documents 4 GB).
 const HARD_MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 /// Hard duration limit (24 h); the UI refuses anything longer.
@@ -47,7 +47,18 @@ pub(super) fn extension_of(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-pub(super) fn file_name(path: &Path) -> String {
+/// Shared existence check for the inspect and token commands.
+pub(super) async fn file_meta(path: &Path) -> Result<std::fs::Metadata, String> {
+    let meta = tokio::fs::metadata(path)
+        .await
+        .map_err(|_| "File not found".to_string())?;
+    if !meta.is_file() {
+        return Err("File not found".into());
+    }
+    Ok(meta)
+}
+
+pub(crate) fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default()
@@ -90,12 +101,7 @@ async fn probe_duration(app: &AppHandle, path: &Path) -> Option<u64> {
 /// File facts + the pure verdict, so the command body stays thin.
 pub(super) async fn inspect(app: &AppHandle, path: String) -> Result<AudioInspection, String> {
     let path = PathBuf::from(path);
-    let meta = tokio::fs::metadata(&path)
-        .await
-        .map_err(|_| "File not found".to_string())?;
-    if !meta.is_file() {
-        return Err("File not found".into());
-    }
+    let meta = file_meta(&path).await?;
     let extension = extension_of(&path);
     if !AUDIO_EXTENSIONS.contains(&extension.as_str()) {
         return Err(format!("Unsupported audio format: .{extension}"));

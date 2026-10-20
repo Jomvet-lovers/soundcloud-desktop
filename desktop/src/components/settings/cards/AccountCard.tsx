@@ -1,51 +1,19 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, Loader2, Plus, Trash2, User } from '../../../lib/icons';
-import { type Account, useAuthStore } from '../../../stores/auth';
+import { useAuthStore } from '../../../stores/auth';
+import { accountName, orderedAccounts } from '../../account/account-utils';
+import { useAccountActions } from '../../account/useAccountActions';
 import { Avatar } from '../../ui/Avatar';
 import { Card, Divider, Row } from '../primitives';
-
-type Pending =
-  | { kind: 'switch'; id: number }
-  | { kind: 'remove'; id: number }
-  | { kind: 'add' }
-  | { kind: 'logout' }
-  | null;
-
-const accountName = (account: Account) => account.username.trim() || `Account ${account.id}`;
-
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function AccountCard() {
   const navigate = useNavigate();
   const accounts = useAuthStore((s) => s.accounts);
   const activeId = useAuthStore((s) => s.activeId);
-  const switchAccount = useAuthStore((s) => s.switchAccount);
-  const removeAccount = useAuthStore((s) => s.removeAccount);
-  const addAccount = useAuthStore((s) => s.addAccount);
-  const logout = useAuthStore((s) => s.logout);
-  const [pending, setPending] = useState<Pending>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { pending, error, busy, switchTo, remove, add, signOut } = useAccountActions();
 
   const active = accounts.find((account) => account.id === activeId) ?? null;
-  // Active first, the rest keep the order Rust sent.
-  const ordered = active
-    ? [active, ...accounts.filter((account) => account.id !== active.id)]
-    : accounts;
-  const busy = pending !== null;
-
-  const run = async (next: Exclude<Pending, null>, action: () => Promise<void>) => {
-    if (busy) return;
-    setError(null);
-    setPending(next);
-    try {
-      await action();
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setPending(null);
-    }
-  };
+  const ordered = orderedAccounts(accounts, activeId);
 
   return (
     <Card title={'Account'} icon={<User size={17} />}>
@@ -105,11 +73,7 @@ export function AccountCard() {
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() =>
-                              run({ kind: 'switch', id: account.id }, () =>
-                                switchAccount(account.id),
-                              )
-                            }
+                            onClick={() => void switchTo(account.id)}
                             className="flex min-w-[52px] cursor-pointer items-center justify-center rounded-md px-2 py-1 text-[11.5px] font-medium text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/85 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {pending?.kind === 'switch' && pending.id === account.id ? (
@@ -121,11 +85,7 @@ export function AccountCard() {
                           <button
                             type="button"
                             disabled={busy}
-                            onClick={() =>
-                              run({ kind: 'remove', id: account.id }, () =>
-                                removeAccount(account.id),
-                              )
-                            }
+                            onClick={() => void remove(account.id)}
                             title={'Remove account'}
                             aria-label={`Remove ${label}`}
                             className="flex size-7 cursor-pointer items-center justify-center rounded-md text-white/35 transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
@@ -147,7 +107,7 @@ export function AccountCard() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => run({ kind: 'add' }, addAccount)}
+              onClick={() => void add()}
               className="flex w-fit cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-[12.5px] font-medium text-white/55 transition-colors hover:bg-white/[0.05] hover:text-white/85 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pending?.kind === 'add' ? (
@@ -171,7 +131,7 @@ export function AccountCard() {
         <button
           type="button"
           disabled={busy}
-          onClick={() => run({ kind: 'logout' }, logout)}
+          onClick={() => void signOut()}
           className="flex w-fit cursor-pointer items-center gap-2 rounded-md border border-red-500/10 bg-red-500/10 px-5 py-2.5 text-[13px] font-semibold text-red-400 transition-colors hover:border-red-500/20 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {pending?.kind === 'logout' && <Loader2 size={14} className="animate-spin" />}

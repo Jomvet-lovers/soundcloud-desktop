@@ -10,7 +10,7 @@ use crate::app::diagnostics::log_native;
 use crate::direct::{DirectState, sc};
 use crate::rt::AppHandle;
 
-use super::{Account, SESSION_FILE, SessionStore, is_usable};
+use super::{SESSION_FILE, SessionStore, is_usable};
 
 /// Single-account session written by older builds (migration source).
 const LEGACY_SESSION_FILE: &str = "auth_session.json";
@@ -56,25 +56,14 @@ async fn migrate_impl(store: &SessionStore, app: &AppHandle, data_dir: &Path) {
             return;
         }
     };
-    let Some(id) = me.get("id").and_then(Value::as_u64) else {
-        log_native(app, "WARN", "[auth] legacy /me returned no user id");
-        return;
+    let account = match super::account_from_me(&me, token, premium) {
+        Ok(account) => account,
+        Err(e) => {
+            log_native(app, "WARN", format!("[auth] legacy {e}"));
+            return;
+        }
     };
-    let account = Account {
-        id,
-        token,
-        username: me
-            .get("username")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        avatar_url: me
-            .get("avatar_url")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        premium,
-    };
+    let id = account.id;
     match store.seed_legacy(account).await {
         Ok(true) => {
             direct.rebind_owner(Some(id)).await;

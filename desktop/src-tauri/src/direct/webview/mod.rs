@@ -215,14 +215,32 @@ pub(super) async fn do_fetch(
         }});"#
     );
     eval(window, &js)?;
+    await_channel(window, seq, FETCH_TIMEOUT, "page fetch").await
+}
 
-    let deadline = Instant::now() + FETCH_TIMEOUT;
+/// Diagnostics only: fetch `url` from the writer page and report just the
+/// status, byte size, and content type. `do_fetch` returns the body as text,
+/// which cannot confirm binary payloads (audio bytes), so the upload probes
+/// use this instead. Shares the single-writer `scw` channel and holds the
+pub(super) fn json_string(value: &str) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|e| e.to_string())
+}
+
+/// Poll the single-writer `scw` channel until the page reports a result.
+/// Clears the cookie and maps page errors / timeouts onto `label`.
+pub(super) async fn await_channel(
+    window: &WebviewWindow,
+    seq: u64,
+    timeout: Duration,
+    label: &str,
+) -> Result<(u16, String), String> {
+    let deadline = Instant::now() + timeout;
     loop {
         tokio::time::sleep(POLL).await;
         if let Some(rest) = read_channel(window, seq) {
             let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
             if let Some(msg) = rest.strip_prefix("ERR:") {
-                return Err(format!("page fetch: {msg}"));
+                return Err(format!("{label}: {msg}"));
             }
             let (status, encoded) = rest.split_once(':').unwrap_or((rest.as_str(), ""));
             let status: u16 = status.parse().map_err(|_| format!("bad result: {rest}"))?;
@@ -232,17 +250,9 @@ pub(super) async fn do_fetch(
             return Ok((status, payload));
         }
         if Instant::now() >= deadline {
-            return Err("write fetch timed out".into());
+            return Err(format!("{label} timed out"));
         }
     }
-}
-
-/// Diagnostics only: fetch `url` from the writer page and report just the
-/// status, byte size, and content type. `do_fetch` returns the body as text,
-/// which cannot confirm binary payloads (audio bytes), so the upload probes
-/// use this instead. Shares the single-writer `scw` channel and holds the
-pub(super) fn json_string(value: &str) -> Result<String, String> {
-    serde_json::to_string(value).map_err(|e| e.to_string())
 }
 
 pub(crate) fn is_challenge(status: u16, payload: &str) -> bool {

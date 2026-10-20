@@ -561,9 +561,12 @@ async fn dummy_wav_file(s: &Arc<DirectState>) -> Result<PathBuf, String> {
 /// Filename sent to the upload policy; SoundCloud infers the source format
 /// from the extension.
 fn probe_filename(path: &Path) -> String {
-    path.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "probe-audio".into())
+    let name = crate::direct::upload::file_name(path);
+    if name.is_empty() {
+        "probe-audio".into()
+    } else {
+        name
+    }
 }
 
 /// Issue a one-time grant for `path` and return the loopback URL the writer
@@ -575,7 +578,7 @@ fn issue_probe_url(s: &Arc<DirectState>, path: &Path) -> String {
         probe_filename(path),
         upload_grants::content_type_for(path).to_string(),
     );
-    format!("http://127.0.0.1:{port}/up/{token}")
+    crate::direct::upload::grant_url(port, &token)
 }
 
 /// Response for a completed round trip of `POST /debug/upload-probe`. Pure so

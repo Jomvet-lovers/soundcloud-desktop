@@ -189,28 +189,17 @@ async fn watch(app: AppHandle) {
         let direct = app.state::<Arc<DirectState>>().inner().clone();
         match super::sc::fetch_me(direct.as_ref(), &token).await {
             Ok(me) => {
-                let Some(me_id) = me.get("id").and_then(Value::as_u64) else {
-                    emit(
-                        &app,
-                        json!({ "status": "error", "message": "SoundCloud /me returned no user id" }),
-                    );
-                    return;
+                let account = match crate::auth::account_from_me(&me, token.clone(), false) {
+                    Ok(account) => account,
+                    Err(e) => {
+                        emit(&app, json!({ "status": "error", "message": e }));
+                        return;
+                    }
                 };
-                let username = me
-                    .get("username")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let avatar_url = me
-                    .get("avatar_url")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
+                let me_id = account.id;
+                let username = account.username.clone();
                 let session = app.state::<Arc<SessionStore>>().inner().clone();
-                if let Err(e) = session
-                    .upsert_account(&app, token.clone(), me_id, &username, &avatar_url)
-                    .await
-                {
+                if let Err(e) = session.upsert_account(&app, account).await {
                     emit(&app, json!({ "status": "error", "message": e }));
                     return;
                 }

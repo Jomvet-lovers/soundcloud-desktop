@@ -3,11 +3,7 @@ import { create } from 'zustand';
 import { fetchWithAuthFallback, getSessionId } from '../lib/api';
 import { applyAuthFromServer, readAuthStatus } from '../lib/auth-session';
 import { trackedInvoke as invoke } from '../lib/diagnostics';
-import { resetDislikedUrns } from '../lib/dislikes';
 import { preferredControlBase } from '../lib/host-status';
-import { resetLikedUrns } from '../lib/likes';
-import { setOfflineAccount } from '../lib/offline-index';
-import { queryClient } from '../lib/query-client';
 
 export interface User {
   id: number;
@@ -52,13 +48,6 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
-/** Per-account mirrors: never let the previous account's caches survive. */
-function resetAccountCaches() {
-  resetLikedUrns();
-  resetDislikedUrns();
-  queryClient.clear();
-}
-
 export const useAuthStore = create<AuthState>()((set, get) => ({
   isAuthenticated: false,
   hasSession: false,
@@ -90,12 +79,9 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   },
 
   switchAccount: async (id: number) => {
+    // Rust emits `auth:changed`; `applyAuthFromServer` resets the account
+    // scoped caches and the token effect in App refetches `/me`.
     await invoke('auth_switch_account', { id });
-    // The store itself is updated by `auth:changed`, but per-account caches
-    // must be dropped before `/me` and the dislikes list refetch.
-    resetAccountCaches();
-    await setOfflineAccount(id);
-    await get().fetchUser();
   },
 
   removeAccount: async (id: number) => {
