@@ -35,6 +35,9 @@ const UPLOAD_CHANNEL: &str = "scu";
 const UPLOAD_CHUNK_MAX: usize = 2000;
 const UPLOAD_PROGRESS_EVENT: &str = "track:upload-progress";
 const UPLOAD_STALL: Duration = Duration::from_secs(120);
+/// Fail fast when the writer page never produces a single event, which is what
+/// an invalid cookie name (silently dropped by the browser) looks like.
+const UPLOAD_START_TIMEOUT: Duration = Duration::from_secs(120);
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 static SEQ: AtomicU64 = AtomicU64::new(1);
@@ -184,7 +187,7 @@ fn read_channel(window: &WebviewWindow, seq: u64) -> Option<String> {
 }
 
 /// Snapshot every cookie in the writer jar as `(name, value)` pairs. Upload
-/// state is read from cookie names, not from a `seq:` value prefix.
+/// payloads live in the values of `scu<seq>`, `scu<seq>-<i>`, and `scu<seq>-s`.
 fn read_upload_cookies(window: &WebviewWindow) -> Option<Vec<(String, String)>> {
     let url: Url = HOME.parse().ok()?;
     let cookies = cookies_safe(window, url)?;
@@ -468,7 +471,7 @@ fn build_upload_js(
     window.__upXhrs[{upload_id_js}] = xhr;
     xhr.upload.onprogress = function(e){{
       if(e.lengthComputable){{
-        document.cookie='{UPLOAD_CHANNEL}{seq}:P:'+Math.round(e.loaded/e.total*100)+';path=/';
+        document.cookie='{UPLOAD_CHANNEL}{seq}=P:'+Math.round(e.loaded/e.total*100)+';path=/';
       }}
     }};
     xhr.onload = function(){{
@@ -480,15 +483,15 @@ fn build_upload_js(
         document.cookie='{UPLOAD_CHANNEL}{seq}-'+i+'='+enc.slice(i*CH,(i+1)*CH)+';path=/';
       }}
       document.cookie='{UPLOAD_CHANNEL}{seq}-s='+xhr.status+';path=/';
-      document.cookie='{UPLOAD_CHANNEL}{seq}:DONE:'+n+';path=/';
+      document.cookie='{UPLOAD_CHANNEL}{seq}=DONE:'+n+';path=/';
     }};
     xhr.onerror = function(){{
       delete window.__upXhrs[{upload_id_js}];
-      document.cookie='{UPLOAD_CHANNEL}{seq}:ERR:network;path=/';
+      document.cookie='{UPLOAD_CHANNEL}{seq}=ERR:network;path=/';
     }};
     xhr.onabort = function(){{
       delete window.__upXhrs[{upload_id_js}];
-      document.cookie='{UPLOAD_CHANNEL}{seq}:ABORTED;path=/';
+      document.cookie='{UPLOAD_CHANNEL}{seq}=ABORTED;path=/';
     }};
     (async function(){{
       var audioResponse = await fetch({audio_url_js});
@@ -497,18 +500,18 @@ fn build_upload_js(
       fd.append("track[asset_data]", audioBlob, {audio_filename_js});
 {artwork_js}      if(xhr.__upAborted){{
         delete window.__upXhrs[{upload_id_js}];
-        document.cookie='{UPLOAD_CHANNEL}{seq}:ABORTED;path=/';
+        document.cookie='{UPLOAD_CHANNEL}{seq}=ABORTED;path=/';
         return;
       }}
-      document.cookie='{UPLOAD_CHANNEL}{seq}:START;path=/';
+      document.cookie='{UPLOAD_CHANNEL}{seq}=START;path=/';
       xhr.send(fd);
     }})().catch(function(e){{
       delete window.__upXhrs[{upload_id_js}];
-      document.cookie='{UPLOAD_CHANNEL}{seq}:ERR:'+encodeURIComponent(String(e && e.message || e).slice(0,200))+';path=/';
+      document.cookie='{UPLOAD_CHANNEL}{seq}=ERR:'+encodeURIComponent(String(e && e.message || e).slice(0,200))+';path=/';
     }});
   }}catch(e){{
     try{{ if(window.__upXhrs) delete window.__upXhrs[{upload_id_js}]; }}catch(_e){{}}
-    document.cookie='{UPLOAD_CHANNEL}{seq}:ERR:'+encodeURIComponent(String(e && e.message || e).slice(0,200))+';path=/';
+    document.cookie='{UPLOAD_CHANNEL}{seq}=ERR:'+encodeURIComponent(String(e && e.message || e).slice(0,200))+';path=/';
   }}
 }})();"#,
         chunk_max = UPLOAD_CHUNK_MAX,
@@ -532,6 +535,20 @@ fn stall_reason(
         return Some("upload stalled");
     }
     None
+}
+
+/// `None` while an event has been observed or the start window is still open.
+/// A channel that never carries an event (for example, because the browser
+/// rejected every cookie name) fails here instead of at `UPLOAD_TIMEOUT`.
+fn start_timeout_reason(
+    seen_event: bool,
+    now: Instant,
+    started: Instant,
+) -> Option<&'static str> {
+    if seen_event || now.duration_since(started) < UPLOAD_START_TIMEOUT {
+        return None;
+    }
+    Some("the writer page never started the upload")
 }
 
 /// Send a multipart track upload from the writer page and wait for its result.
@@ -575,6 +592,7 @@ pub async fn do_upload(
     let mut last_progress: Option<Instant> = None;
     let mut last_percent: Option<u8> = None;
     let mut done_total: Option<usize> = None;
+    let mut seen_event = false;
     let base_name = format!("{UPLOAD_CHANNEL}{seq}");
     loop {
         tokio::time::sleep(POLL).await;
@@ -585,7 +603,11 @@ pub async fn do_upload(
                 .find(|(name, _)| name == &base_name)
                 .map(|(_, value)| value.clone());
             if let Some(value) = base {
-                match parse_upload_event(&value) {
+                let event = parse_upload_event(&value);
+                if event.is_some() {
+                    seen_event = true;
+                }
+                match event {
                     // The audio fetch finished and `xhr.send` is next; waiting
                     // for the first progress event stays allowed.
                     Some(UploadEvent::Started) => {}
@@ -624,6 +646,10 @@ pub async fn do_upload(
                     return Ok(UploadOutcome { status, payload });
                 }
             }
+        }
+        if let Some(reason) = start_timeout_reason(seen_event, now, started) {
+            clear_upload_cookies(&window);
+            return Err(reason.into());
         }
         if let Some(reason) = stall_reason(last_progress, now, started) {
             clear_upload_cookies(&window);
@@ -1329,9 +1355,9 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        UPLOAD_CHUNK_MAX, UPLOAD_STALL, UPLOAD_TIMEOUT, UploadEvent, build_upload_js,
-        chunks_complete, join_upload_chunks, parse_upload_event, stall_reason, upload_chunks,
-        upload_status,
+        UPLOAD_CHUNK_MAX, UPLOAD_STALL, UPLOAD_START_TIMEOUT, UPLOAD_TIMEOUT, UploadEvent,
+        build_upload_js, chunks_complete, join_upload_chunks, parse_upload_event,
+        stall_reason, start_timeout_reason, upload_chunks, upload_status,
     };
 
     #[test]
@@ -1558,7 +1584,7 @@ mod tests {
         assert!(js.contains(&format!("var CH = {UPLOAD_CHUNK_MAX};")));
         assert!(js.contains("'scu7-'+i+'='"));
         assert!(js.contains("'scu7-s='+xhr.status"));
-        assert!(js.contains("'scu7:DONE:'+n"));
+        assert!(js.contains("'scu7=DONE:'+n"));
         // The old single-cookie completion (status + whole body) is gone.
         assert!(!js.contains("'scu=7:"));
     }
@@ -1566,7 +1592,7 @@ mod tests {
     #[test]
     fn upload_js_marks_start_right_before_send() {
         let js = build(&upload_fields("Demo"), None);
-        let start = js.find("'scu7:START;path=/'").expect("START marker");
+        let start = js.find("'scu7=START;path=/'").expect("START marker");
         let send = js.find("xhr.send(fd)").expect("send call");
         assert!(start < send);
     }
@@ -1576,5 +1602,93 @@ mod tests {
         let fields = upload_fields("Demo");
         assert!(!build_with(&fields, None, false).contains("withCredentials"));
         assert!(build_with(&fields, None, true).contains("xhr.withCredentials = true;"));
+    }
+
+    /// RFC 6265 cookie names are tokens: printable ASCII minus separators.
+    /// In particular, `:`, whitespace, `;`, and `=` are not allowed.
+    fn is_cookie_token(name: &str) -> bool {
+        const PUNCTUATION: &[u8] = b"!#$%&'*+-.^_`|~";
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || PUNCTUATION.contains(&b))
+    }
+
+    /// The JS expression of every `document.cookie='...';path=/` assignment.
+    fn cookie_assignments(js: &str) -> Vec<&str> {
+        js.match_indices("document.cookie='")
+            .map(|(start, _)| {
+                let rest = &js[start + "document.cookie='".len()..];
+                let end = rest
+                    .find(";path=/")
+                    .expect("cookie assignment should set a path");
+                &rest[..end]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn upload_js_uses_valid_cookie_names() {
+        let js = build(
+            &upload_fields("Demo"),
+            Some(("http://127.0.0.1:4321/up/art-token", "cover.jpg")),
+        );
+        let assignments = cookie_assignments(&js);
+        assert_eq!(assignments.len(), 10);
+        for assignment in assignments {
+            let (name_expr, _) = assignment
+                .split_once('=')
+                .expect("cookie assignment should have a value");
+            // The chunk name is `'scu7-' + i`; drop the quoting and the
+            // concatenation so only the literal token characters remain.
+            let name = name_expr.replace('\'', "").replace('+', "");
+            assert!(
+                is_cookie_token(&name),
+                "invalid cookie name `{name}` in `{assignment}`"
+            );
+            assert!(
+                name.starts_with("scu7"),
+                "unexpected cookie name `{name}` in `{assignment}`"
+            );
+        }
+    }
+
+    #[test]
+    fn upload_js_puts_event_kind_in_cookie_value() {
+        let js = build(&upload_fields("Demo"), None);
+        for literal in [
+            "document.cookie='scu7=P:'",
+            "document.cookie='scu7=START;path=/'",
+            "document.cookie='scu7=DONE:'",
+            "document.cookie='scu7=ERR:network;path=/'",
+            "document.cookie='scu7=ABORTED;path=/'",
+        ] {
+            assert!(js.contains(literal), "missing `{literal}`");
+        }
+        assert!(
+            !js.contains("'scu7:"),
+            "the event kind must not be part of the cookie name"
+        );
+    }
+
+    #[test]
+    fn start_timeout_fires_only_before_any_event() {
+        let started = Instant::now();
+        assert_eq!(
+            start_timeout_reason(
+                false,
+                started + UPLOAD_START_TIMEOUT - Duration::from_secs(1),
+                started
+            ),
+            None
+        );
+        assert_eq!(
+            start_timeout_reason(false, started + UPLOAD_START_TIMEOUT, started),
+            Some("the writer page never started the upload")
+        );
+        assert_eq!(
+            start_timeout_reason(true, started + UPLOAD_START_TIMEOUT, started),
+            None
+        );
     }
 }
