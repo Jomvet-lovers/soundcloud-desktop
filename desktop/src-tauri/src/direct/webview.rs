@@ -423,96 +423,158 @@ fn build_upload_js(
     seq: u64,
     upload_id: &str,
     token: &str,
-    endpoint: &str,
-    fields: &[(String, String)],
+    client_id: &str,
+    app_version: &str,
+    api_base: &str,
+    track_json: &str,
     audio_url: &str,
     audio_filename: &str,
-    artwork: Option<(&str, &str)>,
+    artwork_url: Option<&str>,
     with_credentials: bool,
 ) -> Result<String, String> {
     let upload_id_js = json_string(upload_id)?;
     let token_js = json_string(token)?;
-    let endpoint_js = json_string(endpoint)?;
+    let client_id_js = json_string(client_id)?;
+    let app_version_js = json_string(app_version)?;
+    let api_base_js = json_string(api_base)?;
     let audio_url_js = json_string(audio_url)?;
     let audio_filename_js = json_string(audio_filename)?;
-
-    let credentials_js = if with_credentials {
-        "    xhr.withCredentials = true;\n"
-    } else {
-        ""
+    let artwork_url_js = match artwork_url {
+        Some(url) => json_string(url)?,
+        None => "null".to_string(),
     };
+    let credentials_js = if with_credentials { "true" } else { "false" };
 
-    let mut fields_js = String::new();
-    for (name, value) in fields {
-        fields_js.push_str(&format!(
-            "    fd.append({}, {});\n",
-            json_string(name)?,
-            json_string(value)?
-        ));
-    }
-
-    let artwork_js = match artwork {
-        Some((url, filename)) => format!(
-            "      var artworkResponse = await fetch({});\n      if(!artworkResponse.ok){{ throw new Error('artwork fetch '+artworkResponse.status); }}\n      var artworkBlob = await artworkResponse.blob();\n      fd.append(\"track[artwork_data]\", artworkBlob, {});\n",
-            json_string(url)?,
-            json_string(filename)?
-        ),
-        None => String::new(),
-    };
-
+    // The web uploader is a three-step flow: mint an S3 upload policy, PUT the
+    // bytes to the signed URL, wait for transcoding, then create the track with
+    // a JSON body that references the upload uid. The documented multipart form
+    // is rejected by api-v2 ("Failed to parse track create request"), so the
+    // writer page has to speak the web app's protocol.
     Ok(format!(
         r#"(function(){{
-  try{{
-    var fd = new FormData();
-{fields_js}    var xhr = new XMLHttpRequest();
-    xhr.open('POST', {endpoint_js});
-    xhr.setRequestHeader('Authorization', 'OAuth ' + {token_js});
-{credentials_js}    window.__upXhrs = window.__upXhrs || {{}};
-    window.__upXhrs[{upload_id_js}] = xhr;
-    xhr.upload.onprogress = function(e){{
-      if(e.lengthComputable){{
-        document.cookie='{UPLOAD_CHANNEL}{seq}=P:'+Math.round(e.loaded/e.total*100)+';path=/';
-      }}
-    }};
-    xhr.onload = function(){{
-      delete window.__upXhrs[{upload_id_js}];
-      var enc = encodeURIComponent(String(xhr.responseText).slice(0,8000));
-      var CH = {chunk_max};
-      var n = Math.max(1, Math.ceil(enc.length / CH));
-      for (var i = 0; i < n; i++) {{
-        document.cookie='{UPLOAD_CHANNEL}{seq}-'+i+'='+enc.slice(i*CH,(i+1)*CH)+';path=/';
-      }}
-      document.cookie='{UPLOAD_CHANNEL}{seq}-s='+xhr.status+';path=/';
-      document.cookie='{UPLOAD_CHANNEL}{seq}=DONE:'+n+';path=/';
-    }};
-    xhr.onerror = function(){{
-      delete window.__upXhrs[{upload_id_js}];
-      document.cookie='{UPLOAD_CHANNEL}{seq}=ERR:network;path=/';
-    }};
-    xhr.onabort = function(){{
-      delete window.__upXhrs[{upload_id_js}];
-      document.cookie='{UPLOAD_CHANNEL}{seq}=ABORTED;path=/';
-    }};
-    (async function(){{
-      var audioResponse = await fetch({audio_url_js});
-      if(!audioResponse.ok){{ throw new Error('audio fetch '+audioResponse.status); }}
-      var audioBlob = await audioResponse.blob();
-      fd.append("track[asset_data]", audioBlob, {audio_filename_js});
-{artwork_js}      if(xhr.__upAborted){{
-        delete window.__upXhrs[{upload_id_js}];
-        document.cookie='{UPLOAD_CHANNEL}{seq}=ABORTED;path=/';
-        return;
-      }}
-      document.cookie='{UPLOAD_CHANNEL}{seq}=START;path=/';
-      xhr.send(fd);
-    }})().catch(function(e){{
-      delete window.__upXhrs[{upload_id_js}];
-      document.cookie='{UPLOAD_CHANNEL}{seq}=ERR:'+encodeURIComponent(String(e && e.message || e).slice(0,200))+';path=/';
-    }});
-  }}catch(e){{
-    try{{ if(window.__upXhrs) delete window.__upXhrs[{upload_id_js}]; }}catch(_e){{}}
-    document.cookie='{UPLOAD_CHANNEL}{seq}=ERR:'+encodeURIComponent(String(e && e.message || e).slice(0,200))+';path=/';
+  var SEQ = {seq};
+  var API = {api_base_js};
+  var CID = {client_id_js};
+  var AV = {app_version_js};
+  var TOKEN = {token_js};
+  var CRED = {credentials_js};
+  var CH = {chunk_max};
+  function cookie(name, value){{ document.cookie = name + '=' + value + ';path=/'; }}
+  function ev(value){{ cookie('{UPLOAD_CHANNEL}' + SEQ, value); }}
+  function fail(message){{ ev('ERR:' + encodeURIComponent(String(message || '').slice(0, 300))); }}
+  function sleep(ms){{ return new Promise(function(resolve){{ setTimeout(resolve, ms); }}); }}
+  function api(path){{ return API + path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client_id=' + encodeURIComponent(CID); }}
+  function emitResult(text, status){{
+    var enc = encodeURIComponent(String(text).slice(0, 8000));
+    var n = Math.max(1, Math.ceil(enc.length / CH));
+    for (var i = 0; i < n; i++) cookie('{UPLOAD_CHANNEL}' + SEQ + '-' + i, enc.slice(i * CH, (i + 1) * CH));
+    cookie('{UPLOAD_CHANNEL}' + SEQ + '-s', String(status));
+    ev('DONE:' + n);
   }}
+  async function uploadArtwork(createdText){{
+    var created = JSON.parse(createdText);
+    var urn = created && created.urn;
+    if (!urn) return;
+    var response = await fetch({artwork_url_js});
+    if (!response.ok) return;
+    var blob = await response.blob();
+    var data = await new Promise(function(resolve){{
+      var reader = new FileReader();
+      reader.onloadend = function(){{ resolve(reader.result); }};
+      reader.readAsDataURL(blob);
+    }});
+    await fetch(API + '/tracks/' + encodeURIComponent(urn) + '/artwork?client_id=' + encodeURIComponent(CID), {{
+      method: 'PUT',
+      credentials: CRED ? 'include' : 'omit',
+      headers: {{ 'Authorization': 'OAuth ' + TOKEN, 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ image_data: data }})
+    }});
+  }}
+  async function main(){{
+    ev('START');
+    var audioResponse = await fetch({audio_url_js});
+    if (!audioResponse.ok) throw new Error('audio fetch ' + audioResponse.status);
+    var blob = await audioResponse.blob();
+    ev('P:1');
+    var policyResponse = await fetch(api('/uploads/track-upload-policy'), {{
+      method: 'POST',
+      credentials: CRED ? 'include' : 'omit',
+      headers: {{ 'Authorization': 'OAuth ' + TOKEN, 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ filename: {audio_filename_js}, filesize: blob.size }})
+    }});
+    if (!policyResponse.ok) throw new Error('upload policy ' + policyResponse.status + ' ' + String(await policyResponse.text()).slice(0, 300));
+    var policy = await policyResponse.json();
+    if (!policy || !policy.url || !policy.uid) throw new Error('upload policy missing url/uid');
+    await new Promise(function(resolve, reject){{
+      var xhr = new XMLHttpRequest();
+      window.__upXhrs = window.__upXhrs || {{}};
+      window.__upXhrs[{upload_id_js}] = xhr;
+      xhr.open(policy.method || 'PUT', policy.url);
+      var headers = policy.headers || {{}};
+      for (var name in headers) {{
+        if (!/^content-length$/i.test(name) && !/^host$/i.test(name) && !/^expect$/i.test(name)) xhr.setRequestHeader(name, headers[name]);
+      }}
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.upload.onprogress = function(e){{
+        if (e.lengthComputable) ev('P:' + (3 + Math.round(e.loaded / e.total * 82)));
+      }};
+      xhr.onload = function(){{
+        delete window.__upXhrs[{upload_id_js}];
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error('audio upload ' + xhr.status + ' ' + String(xhr.responseText || '').slice(0, 300)));
+      }};
+      xhr.onerror = function(){{ delete window.__upXhrs[{upload_id_js}]; reject(new Error('audio upload network error')); }};
+      xhr.onabort = function(){{ delete window.__upXhrs[{upload_id_js}]; ev('ABORTED'); reject(new Error('__aborted')); }};
+      xhr.send(blob);
+    }});
+    var triggered = false;
+    var transcodingUrl = api('/uploads/' + encodeURIComponent(policy.uid) + '/track-transcoding');
+    for (var attempt = 0; attempt < 5 && !triggered; attempt++) {{
+      try {{
+        var trigger = await fetch(transcodingUrl, {{
+          method: 'POST',
+          credentials: CRED ? 'include' : 'omit',
+          headers: {{ 'Authorization': 'OAuth ' + TOKEN }}
+        }});
+        if (trigger.ok) triggered = true;
+        else await sleep(800);
+      }} catch (_e) {{ await sleep(800); }}
+    }}
+    if (!triggered) throw new Error('transcoding trigger failed');
+    ev('P:86');
+    var finished = false;
+    for (var poll = 0; poll < 600; poll++) {{
+      var statusResponse = await fetch(transcodingUrl, {{
+        method: 'GET',
+        credentials: CRED ? 'include' : 'omit',
+        headers: {{ 'Authorization': 'OAuth ' + TOKEN }}
+      }});
+      if (statusResponse.status === 500) {{ await sleep(1500); continue; }}
+      if (!statusResponse.ok) throw new Error('transcoding status ' + statusResponse.status);
+      var status = await statusResponse.json();
+      if (status.status === 'finished') {{ finished = true; break; }}
+      if (status.status === 'failure' || status.status === 'not_found') throw new Error('transcoding ' + status.status);
+      if (status.status === 'transcoding' && typeof status.percentage === 'number') ev('P:' + (86 + Math.round(status.percentage * 12 / 100)));
+      await sleep(1500);
+    }}
+    if (!finished) throw new Error('transcoding timed out');
+    ev('P:99');
+    var body = {track_json};
+    body.uid = policy.uid;
+    body.original_filename = {audio_filename_js};
+    var createResponse = await fetch(api('/tracks') + '&app_version=' + encodeURIComponent(AV), {{
+      method: 'POST',
+      credentials: CRED ? 'include' : 'omit',
+      headers: {{ 'Authorization': 'OAuth ' + TOKEN, 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ track: body }})
+    }});
+    var text = await createResponse.text();
+    if (createResponse.ok && {artwork_url_js}) {{
+      try {{ await uploadArtwork(text); }} catch (_e) {{}}
+    }}
+    emitResult(text, createResponse.status);
+  }}
+  main().catch(function(e){{ fail(e && e.message || e); }});
 }})();"#,
         chunk_max = UPLOAD_CHUNK_MAX,
     ))
@@ -551,17 +613,20 @@ fn start_timeout_reason(
     Some("the writer page never started the upload")
 }
 
-/// Send a multipart track upload from the writer page and wait for its result.
-/// Other writer traffic can keep using the `scw` channel during the upload.
+/// Send a track upload from the writer page and wait for its result. The page
+/// runs the web uploader's protocol: S3 policy, signed PUT, transcoding poll,
+/// then a JSON `POST /tracks`. Other writer traffic can keep using `scw`.
 pub async fn do_upload(
     app: &AppHandle,
     upload_id: &str,
     token: &str,
-    endpoint: &str,
-    fields: &[(String, String)],
+    client_id: &str,
+    app_version: &str,
+    api_base: &str,
+    track_json: &str,
     audio_url: &str,
     audio_filename: &str,
-    artwork: Option<(&str, &str)>,
+    artwork_url: Option<&str>,
     with_credentials: bool,
 ) -> Result<UploadOutcome, String> {
     let _upload_lane = UPLOAD_LANE.lock().await;
@@ -579,11 +644,13 @@ pub async fn do_upload(
         seq,
         upload_id,
         token,
-        endpoint,
-        fields,
+        client_id,
+        app_version,
+        api_base,
+        track_json,
         audio_url,
         audio_filename,
-        artwork,
+        artwork_url,
         with_credentials,
     )?;
     eval(&window, &js)?;
@@ -1354,6 +1421,8 @@ pub fn spawn_write(
 mod tests {
     use std::time::{Duration, Instant};
 
+    use serde_json::json;
+
     use super::{
         UPLOAD_CHUNK_MAX, UPLOAD_STALL, UPLOAD_START_TIMEOUT, UPLOAD_TIMEOUT, UploadEvent,
         build_upload_js, chunks_complete, join_upload_chunks, parse_upload_event,
@@ -1521,154 +1590,125 @@ mod tests {
         );
     }
 
-    fn upload_fields(value: &str) -> Vec<(String, String)> {
-        vec![("track[title]".to_string(), value.to_string())]
-    }
-
-    fn build_with(
-        fields: &[(String, String)],
-        artwork: Option<(&str, &str)>,
-        with_credentials: bool,
-    ) -> String {
+    fn build_track(track_json: &str) -> String {
         build_upload_js(
             7,
             "upload-1",
             "oauth-token",
-            "https://api.soundcloud.com/tracks",
-            fields,
+            "client-id",
+            "app-version",
+            "https://api-v2.soundcloud.com",
+            track_json,
             "http://127.0.0.1:4321/up/audio-token",
             "demo.mp3",
-            artwork,
+            None,
+            true,
+        )
+        .expect("upload JS should build")
+    }
+
+    fn build_with(artwork_url: Option<&str>, with_credentials: bool) -> String {
+        build_upload_js(
+            7,
+            "upload-1",
+            "oauth-token",
+            "client-id",
+            "app-version",
+            "https://api-v2.soundcloud.com",
+            r#"{"title":"Demo","sharing":"private"}"#,
+            "http://127.0.0.1:4321/up/audio-token",
+            "demo.mp3",
+            artwork_url,
             with_credentials,
         )
         .expect("upload JS should build")
     }
 
-    fn build(fields: &[(String, String)], artwork: Option<(&str, &str)>) -> String {
-        build_with(fields, artwork, false)
+    fn build(artwork_url: Option<&str>) -> String {
+        build_with(artwork_url, true)
     }
 
     #[test]
     fn upload_js_json_encodes_field_values() {
         let payload = r#""; document.cookie='x'; //"#;
-        let js = build(&upload_fields(payload), None);
-        assert!(js.contains(r#"fd.append("track[title]", "\"; document.cookie='x'; //");"#));
-        assert!(!js.contains(r#"fd.append("track[title]", ""; document.cookie='x'; //");"#));
+        let track = serde_json::to_string(&json!({ "title": payload })).unwrap();
+        let js = build_track(&track);
+        assert!(js.contains(r#"var body = {"title":"\"; document.cookie='x'; //"};"#));
+        assert!(!js.contains(r#"var body = {"title":""; document.cookie='x'; //"};"#));
     }
 
     #[test]
-    fn upload_js_contains_title_and_audio_fields() {
-        let js = build(&upload_fields("Demo"), None);
-        assert!(js.contains(r#""track[title]""#));
-        assert!(js.contains(r#""track[asset_data]""#));
+    fn upload_js_contains_the_web_upload_flow() {
+        let js = build(None);
+        assert!(js.contains("/uploads/track-upload-policy"));
+        assert!(js.contains("/track-transcoding"));
+        assert!(js.contains("'/tracks'"));
+        assert!(js.contains("policy.uid"));
+        assert!(js.contains("original_filename"));
+        assert!(js.contains("JSON.stringify({ track: body })"));
         assert!(js.contains(r#""demo.mp3""#));
     }
 
     #[test]
     fn upload_js_adds_artwork_only_when_provided() {
-        let fields = upload_fields("Demo");
-        let without = build(&fields, None);
-        assert!(!without.contains(r#""track[artwork_data]""#));
+        let without = build(None);
+        assert!(!without.contains("/up/art-token"));
 
-        let with = build(
-            &fields,
-            Some(("http://127.0.0.1:4321/up/art-token", "cover.jpg")),
-        );
-        assert!(with.contains(r#""track[artwork_data]""#));
-        assert!(with.contains(r#""cover.jpg""#));
+        let with = build(Some("http://127.0.0.1:4321/up/art-token"));
+        assert!(with.contains("/up/art-token"));
+        assert!(with.contains("/artwork?client_id="));
+        assert!(with.contains("readAsDataURL"));
     }
 
     #[test]
     fn upload_js_splits_completion_into_chunk_cookies() {
-        let js = build(&upload_fields("Demo"), None);
+        let js = build(None);
         assert!(js.contains(&format!("var CH = {UPLOAD_CHUNK_MAX};")));
-        assert!(js.contains("'scu7-'+i+'='"));
-        assert!(js.contains("'scu7-s='+xhr.status"));
-        assert!(js.contains("'scu7=DONE:'+n"));
-        // The old single-cookie completion (status + whole body) is gone.
-        assert!(!js.contains("'scu=7:"));
+        assert!(js.contains("cookie('scu' + SEQ + '-' + i"));
+        assert!(js.contains("cookie('scu' + SEQ + '-s'"));
+        assert!(js.contains("ev('DONE:' + n)"));
     }
 
     #[test]
-    fn upload_js_marks_start_right_before_send() {
-        let js = build(&upload_fields("Demo"), None);
-        let start = js.find("'scu7=START;path=/'").expect("START marker");
-        let send = js.find("xhr.send(fd)").expect("send call");
-        assert!(start < send);
+    fn upload_js_marks_start_before_the_audio_fetch() {
+        let js = build(None);
+        let start = js.find("ev('START')").expect("START marker");
+        let policy = js
+            .find("/uploads/track-upload-policy")
+            .expect("policy endpoint");
+        assert!(start < policy);
     }
 
     #[test]
     fn upload_js_sets_with_credentials_only_when_requested() {
-        let fields = upload_fields("Demo");
-        assert!(!build_with(&fields, None, false).contains("withCredentials"));
-        assert!(build_with(&fields, None, true).contains("xhr.withCredentials = true;"));
-    }
-
-    /// RFC 6265 cookie names are tokens: printable ASCII minus separators.
-    /// In particular, `:`, whitespace, `;`, and `=` are not allowed.
-    fn is_cookie_token(name: &str) -> bool {
-        const PUNCTUATION: &[u8] = b"!#$%&'*+-.^_`|~";
-        !name.is_empty()
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || PUNCTUATION.contains(&b))
-    }
-
-    /// The JS expression of every `document.cookie='...';path=/` assignment.
-    fn cookie_assignments(js: &str) -> Vec<&str> {
-        js.match_indices("document.cookie='")
-            .map(|(start, _)| {
-                let rest = &js[start + "document.cookie='".len()..];
-                let end = rest
-                    .find(";path=/")
-                    .expect("cookie assignment should set a path");
-                &rest[..end]
-            })
-            .collect()
+        assert!(build_with(None, false).contains("var CRED = false;"));
+        assert!(build_with(None, true).contains("var CRED = true;"));
     }
 
     #[test]
-    fn upload_js_uses_valid_cookie_names() {
-        let js = build(
-            &upload_fields("Demo"),
-            Some(("http://127.0.0.1:4321/up/art-token", "cover.jpg")),
-        );
-        let assignments = cookie_assignments(&js);
-        assert_eq!(assignments.len(), 10);
-        for assignment in assignments {
-            let (name_expr, _) = assignment
-                .split_once('=')
-                .expect("cookie assignment should have a value");
-            // The chunk name is `'scu7-' + i`; drop the quoting and the
-            // concatenation so only the literal token characters remain.
-            let name = name_expr.replace('\'', "").replace('+', "");
-            assert!(
-                is_cookie_token(&name),
-                "invalid cookie name `{name}` in `{assignment}`"
-            );
-            assert!(
-                name.starts_with("scu7"),
-                "unexpected cookie name `{name}` in `{assignment}`"
-            );
-        }
+    fn upload_js_cookie_names_are_tokens() {
+        let js = build(None);
+        assert!(js.contains("function cookie(name, value)"));
+        assert!(js.contains("cookie('scu' + SEQ, value)"));
+        assert!(js.contains("cookie('scu' + SEQ + '-' + i"));
+        assert!(js.contains("cookie('scu' + SEQ + '-s'"));
+        // No raw cookie assignment and no `:` in a cookie name.
+        assert!(!js.contains("document.cookie='scu"));
+        assert!(!js.contains("scu7:"));
     }
 
     #[test]
     fn upload_js_puts_event_kind_in_cookie_value() {
-        let js = build(&upload_fields("Demo"), None);
+        let js = build(None);
         for literal in [
-            "document.cookie='scu7=P:'",
-            "document.cookie='scu7=START;path=/'",
-            "document.cookie='scu7=DONE:'",
-            "document.cookie='scu7=ERR:network;path=/'",
-            "document.cookie='scu7=ABORTED;path=/'",
+            "ev('P:'",
+            "ev('START')",
+            "ev('DONE:'",
+            "ev('ERR:'",
+            "ev('ABORTED')",
         ] {
             assert!(js.contains(literal), "missing `{literal}`");
         }
-        assert!(
-            !js.contains("'scu7:"),
-            "the event kind must not be part of the cookie name"
-        );
     }
 
     #[test]

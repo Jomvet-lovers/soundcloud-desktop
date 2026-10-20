@@ -112,19 +112,6 @@ fn grant_url(port: u16, token: &str) -> String {
     format!("http://127.0.0.1:{port}/up/{token}")
 }
 
-/// `https://api-v2.soundcloud.com/tracks?client_id=<cid>`
-fn build_tracks_endpoint(cid: &str) -> String {
-    format!("{}/tracks?client_id={}", sc::SC_API, urlencoding::encode(cid))
-}
-
-/// Resolve the public `client_id` for the upload endpoint. There is no public
-/// API fallback: a rejected POST consumes the one-time grant, so a retry has
-/// to start from the caller again.
-async fn tracks_endpoint(direct: &DirectState) -> Result<String, String> {
-    let cid = direct.client_id().await?;
-    Ok(build_tracks_endpoint(&cid))
-}
-
 /// `Err` above the hard limit, otherwise the soft-limit warnings.
 fn inspect_verdict(size: u64, duration_ms: Option<u64>) -> Result<Verdict, String> {
     if size > HARD_MAX_BYTES {
@@ -229,10 +216,10 @@ pub async fn upload_issue_token(
     })
 }
 
-/// `track[title]` is required; optional text fields are dropped when absent or
-/// empty. `downloadable` / `commentable` default to SoundCloud's `true` when
-/// the caller omits them.
-pub(crate) fn meta_fields(meta: &UploadMeta) -> Result<Vec<(String, String)>, String> {
+/// Track attributes for the JSON create call. `title` is required; optional
+/// text fields are dropped when absent or empty. `downloadable` / `commentable`
+/// default to SoundCloud's `true` when the caller omits them.
+pub(crate) fn track_meta_json(meta: &UploadMeta) -> Result<Value, String> {
     if meta.title.trim().is_empty() {
         return Err("Title is required".into());
     }
@@ -241,41 +228,33 @@ pub(crate) fn meta_fields(meta: &UploadMeta) -> Result<Vec<(String, String)>, St
             return Err(format!("Invalid sharing setting: {sharing}"));
         }
     }
-    let mut fields = vec![("track[title]".to_string(), meta.title.clone())];
-    let texts: [(&str, Option<&String>); 8] = [
-        ("track[artist]", meta.artist.as_ref()),
-        ("track[genre]", meta.genre.as_ref()),
-        ("track[tag_list]", meta.tag_list.as_ref()),
-        ("track[description]", meta.description.as_ref()),
-        ("track[sharing]", meta.sharing.as_ref()),
-        ("track[embeddable_by]", meta.embeddable_by.as_ref()),
-        ("track[permalink]", meta.permalink.as_ref()),
-        ("track[release_date]", meta.release_date.as_ref()),
+    let mut obj = serde_json::Map::new();
+    obj.insert("title".into(), json!(meta.title));
+    let texts: [(&str, Option<&String>); 7] = [
+        ("genre", meta.genre.as_ref()),
+        ("tag_list", meta.tag_list.as_ref()),
+        ("description", meta.description.as_ref()),
+        ("sharing", meta.sharing.as_ref()),
+        // The web app sends `embeddable` (the model attribute is
+        // `embeddable_by`, but the save payload renames it).
+        ("embeddable", meta.embeddable_by.as_ref()),
+        ("permalink", meta.permalink.as_ref()),
+        ("release_date", meta.release_date.as_ref()),
     ];
     for (key, value) in texts {
         if let Some(value) = value.filter(|v| !v.is_empty()) {
-            fields.push((key.to_string(), value.clone()));
+            obj.insert(key.into(), json!(value));
         }
     }
-    fields.push((
-        "track[downloadable]".into(),
-        flag_field(meta.downloadable).into(),
-    ));
-    fields.push((
-        "track[commentable]".into(),
-        flag_field(meta.commentable).into(),
-    ));
-    Ok(fields)
-}
-
-/// `downloadable` / `commentable` serialize as `"true"` when omitted, matching
-/// SoundCloud's own default.
-fn flag_field(value: Option<bool>) -> &'static str {
-    if value.unwrap_or(true) {
-        "true"
-    } else {
-        "false"
+    if let Some(artist) = meta.artist.as_ref().filter(|v| !v.trim().is_empty()) {
+        obj.insert("publisher_metadata".into(), json!({ "artist": artist }));
     }
+    obj.insert(
+        "downloadable".into(),
+        json!(meta.downloadable.unwrap_or(true)),
+    );
+    obj.insert("commentable".into(), json!(meta.commentable.unwrap_or(true)));
+    Ok(Value::Object(obj))
 }
 
 /// Map the upload response into the wire shape the frontend consumes. The
@@ -438,29 +417,29 @@ pub async fn track_upload(
     // Artwork is optional: a dead artwork token must not sink the upload.
     let artwork = artwork_token.as_deref().and_then(upload_grants::peek);
 
-    let fields = meta_fields(&meta)?;
+    let track_meta = track_meta_json(&meta)?;
+    let track_json = serde_json::to_string(&track_meta).map_err(|e| e.to_string())?;
     let direct = app.state::<Arc<DirectState>>().inner().clone();
-    let endpoint = tracks_endpoint(&direct).await?;
+    let client_id = direct.client_id().await?;
+    let app_version = sc::app_version(&direct.http).await;
     let port = app.state::<Arc<ServerState>>().proxy_port;
     let audio_url = grant_url(port, &audio_token);
-    let artwork_pair = match (&artwork, artwork_token.as_deref()) {
-        (Some(grant), Some(artwork_token)) => {
-            Some((grant_url(port, artwork_token), grant.filename.clone()))
-        }
-        _ => None,
-    };
+    let artwork_url = artwork
+        .as_ref()
+        .zip(artwork_token.as_deref())
+        .map(|(_, token)| grant_url(port, token));
     let outcome = webview::do_upload(
         &app,
         &upload_id,
         &token,
-        &endpoint,
-        &fields,
+        &client_id,
+        &app_version,
+        sc::SC_API,
+        &track_json,
         &audio_url,
         &audio.filename,
-        artwork_pair
-            .as_ref()
-            .map(|(url, filename)| (url.as_str(), filename.as_str())),
-        false,
+        artwork_url.as_deref(),
+        true,
     )
     .await?;
 
@@ -558,32 +537,34 @@ mod tests {
     }
 
     #[test]
-    fn meta_fields_requires_title() {
-        assert!(meta_fields(&meta(json!({"title": ""}))).is_err());
-        assert!(meta_fields(&meta(json!({"title": "   "}))).is_err());
-        let fields = meta_fields(&meta(json!({"title": "Track"}))).unwrap();
-        assert_eq!(fields[0], ("track[title]".to_string(), "Track".to_string()));
+    fn track_meta_requires_title() {
+        assert!(track_meta_json(&meta(json!({"title": ""}))).is_err());
+        assert!(track_meta_json(&meta(json!({"title": "   "}))).is_err());
+        let value = track_meta_json(&meta(json!({"title": "Track"}))).unwrap();
+        assert_eq!(value["title"], "Track");
     }
 
     #[test]
-    fn meta_fields_skips_absent_and_empty_optionals() {
-        let fields = meta_fields(&meta(json!({
+    fn track_meta_skips_absent_and_empty_optionals() {
+        let value = track_meta_json(&meta(json!({
             "title": "T",
             "artist": "",
             "genre": null,
             "description": null
         })))
         .unwrap();
-        let keys: Vec<&str> = fields.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(
-            keys,
-            vec!["track[title]", "track[downloadable]", "track[commentable]"]
-        );
+        let keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, vec!["commentable", "downloadable", "title"]);
     }
 
     #[test]
-    fn meta_fields_includes_provided_values() {
-        let fields = meta_fields(&meta(json!({
+    fn track_meta_includes_provided_values() {
+        let value = track_meta_json(&meta(json!({
             "title": "T",
             "artist": "A",
             "genre": "Techno",
@@ -595,59 +576,56 @@ mod tests {
             "release_date": "2026-10-19"
         })))
         .unwrap();
-        for expected in [
-            ("track[artist]", "A"),
-            ("track[genre]", "Techno"),
-            ("track[tag_list]", "a,b"),
-            ("track[description]", "d"),
-            ("track[sharing]", "private"),
-            ("track[embeddable_by]", "me"),
-            ("track[permalink]", "my-track"),
-            ("track[release_date]", "2026-10-19"),
+        for (key, expected) in [
+            ("title", "T"),
+            ("genre", "Techno"),
+            ("tag_list", "a,b"),
+            ("description", "d"),
+            ("sharing", "private"),
+            ("embeddable", "me"),
+            ("permalink", "my-track"),
+            ("release_date", "2026-10-19"),
         ] {
-            assert!(
-                fields.contains(&(expected.0.to_string(), expected.1.to_string())),
-                "missing {}",
-                expected.0
-            );
+            assert_eq!(value[key], expected, "missing {key}");
         }
+        assert_eq!(value["publisher_metadata"]["artist"], "A");
     }
 
     #[test]
-    fn meta_fields_defaults_flags_to_true() {
-        let fields = meta_fields(&meta(json!({"title": "T"}))).unwrap();
-        assert!(fields.contains(&("track[downloadable]".to_string(), "true".to_string())));
-        assert!(fields.contains(&("track[commentable]".to_string(), "true".to_string())));
+    fn track_meta_defaults_flags_to_true() {
+        let value = track_meta_json(&meta(json!({"title": "T"}))).unwrap();
+        assert_eq!(value["downloadable"], true);
+        assert_eq!(value["commentable"], true);
 
-        let off = meta_fields(&meta(json!({
+        let off = track_meta_json(&meta(json!({
             "title": "T",
             "downloadable": false,
             "commentable": false
         })))
         .unwrap();
-        assert!(off.contains(&("track[downloadable]".to_string(), "false".to_string())));
-        assert!(off.contains(&("track[commentable]".to_string(), "false".to_string())));
+        assert_eq!(off["downloadable"], false);
+        assert_eq!(off["commentable"], false);
     }
 
     #[test]
-    fn meta_fields_rejects_bad_sharing() {
-        assert!(meta_fields(&meta(json!({"title": "T", "sharing": "unlisted"}))).is_err());
+    fn track_meta_rejects_bad_sharing() {
+        assert!(track_meta_json(&meta(json!({"title": "T", "sharing": "unlisted"}))).is_err());
         // The empty string is the omitted-value convention, not an error.
-        assert!(meta_fields(&meta(json!({"title": "T", "sharing": ""}))).is_ok());
+        assert!(track_meta_json(&meta(json!({"title": "T", "sharing": ""}))).is_ok());
     }
 
     #[test]
-    fn meta_fields_accepts_camel_case_keys() {
-        let fields = meta_fields(&meta(json!({
+    fn track_meta_accepts_camel_case_keys() {
+        let value = track_meta_json(&meta(json!({
             "title": "T",
             "tagList": "a,b",
             "embeddableBy": "me",
             "releaseDate": "2026-10-19"
         })))
         .unwrap();
-        assert!(fields.contains(&("track[tag_list]".to_string(), "a,b".to_string())));
-        assert!(fields.contains(&("track[embeddable_by]".to_string(), "me".to_string())));
-        assert!(fields.contains(&("track[release_date]".to_string(), "2026-10-19".to_string())));
+        assert_eq!(value["tag_list"], "a,b");
+        assert_eq!(value["embeddable"], "me");
+        assert_eq!(value["release_date"], "2026-10-19");
     }
 
     #[test]
@@ -742,14 +720,6 @@ mod tests {
                 Some(true),
             );
         }
-    }
-
-    #[test]
-    fn tracks_endpoint_includes_the_client_id() {
-        assert_eq!(
-            build_tracks_endpoint("abc123"),
-            "https://api-v2.soundcloud.com/tracks?client_id=abc123"
-        );
     }
 
     #[test]

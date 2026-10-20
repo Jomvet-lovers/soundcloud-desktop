@@ -347,7 +347,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 Err(e) => ok(json!({ "ok": false, "error": e })),
             }
         }
-        // ── debug: upload probe 2, multipart POST to a SoundCloud API ──
+        // ── debug: upload probe 2, web upload flow against api-v2 ──
         // NOT state-neutral: a 2xx leaves a real track on the signed-in
         // account. `sharing` defaults to private so an accidental run cannot
         // publish anything; the response notes the possible track either way.
@@ -359,21 +359,15 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 Ok(p) => p,
                 Err((code, message)) => return Ok(err(code, &message)),
             };
-            let mut endpoint = q_str(&q, "endpoint").unwrap_or_else(|| format!("{SC_API}/tracks"));
-            if q_str(&q, "clientId").as_deref() == Some("1") {
-                let cid = match s.client_id().await {
-                    Ok(c) => c,
-                    Err(e) => return Ok(err(502, &e)),
-                };
-                endpoint = with_client_id_param(&endpoint, &cid);
-            }
-            let with_credentials = q_str(&q, "withCredentials").as_deref() == Some("1");
+            let with_credentials = q_str(&q, "withCredentials").as_deref() != Some("0");
             let title = q_str(&q, "title").unwrap_or_else(|| "probe".into());
             let sharing = q_str(&q, "sharing").unwrap_or_else(|| "private".into());
-            let fields = vec![
-                ("track[title]".to_string(), title),
-                ("track[sharing]".to_string(), sharing),
-            ];
+            let track_json = json!({ "title": title, "sharing": sharing }).to_string();
+            let cid = match s.client_id().await {
+                Ok(c) => c,
+                Err(e) => return Ok(err(502, &e)),
+            };
+            let app_version = super::super::sc::app_version(&s.http).await;
             let audio_url = issue_probe_url(s, &path);
             let upload_id = uuid::Uuid::new_v4().to_string();
             let started = Instant::now();
@@ -381,8 +375,10 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 &s.app,
                 &upload_id,
                 t,
-                &endpoint,
-                &fields,
+                &cid,
+                &app_version,
+                SC_API,
+                &track_json,
                 &audio_url,
                 &probe_filename(&path),
                 None,
@@ -538,21 +534,12 @@ async fn dummy_wav_file(s: &Arc<DirectState>) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Multipart filename for `path`: `track[asset_data]` needs a name with the
-/// extension SoundCloud infers the format from.
+/// Filename sent to the upload policy; SoundCloud infers the source format
+/// from the extension.
 fn probe_filename(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "probe-audio".into())
-}
-
-/// Append `client_id` to a probe endpoint unless the URL already carries one.
-fn with_client_id_param(endpoint: &str, cid: &str) -> String {
-    if endpoint.contains("client_id=") {
-        return endpoint.to_string();
-    }
-    let sep = if endpoint.contains('?') { '&' } else { '?' };
-    format!("{endpoint}{sep}client_id={}", urlencoding::encode(cid))
 }
 
 /// Issue a one-time grant for `path` and return the loopback URL the writer
@@ -733,7 +720,7 @@ pub(crate) fn spawn_history_flow(
 mod tests {
     use super::{
         PROBE_TRACK_NOTE, PROBE_WAV_RATE, PROBE_WAV_SAMPLES, dummy_wav, history_entry_from_sc,
-        local_history_fallback, upload_probe_response, with_client_id_param,
+        local_history_fallback, upload_probe_response,
     };
     use crate::direct::store::LocalStore;
     use crate::direct::webview::UploadOutcome;
@@ -900,22 +887,6 @@ mod tests {
         let v = upload_probe_response(&outcome, 5);
         assert_eq!(v["ok"], json!(false));
         assert_eq!(v["challenge"], json!(true));
-    }
-
-    #[test]
-    fn probe_client_id_is_appended_once() {
-        assert_eq!(
-            with_client_id_param("https://api-v2.soundcloud.com/tracks", "abc123"),
-            "https://api-v2.soundcloud.com/tracks?client_id=abc123",
-        );
-        assert_eq!(
-            with_client_id_param("https://api-v2.soundcloud.com/tracks?foo=1", "abc123"),
-            "https://api-v2.soundcloud.com/tracks?foo=1&client_id=abc123",
-        );
-        assert_eq!(
-            with_client_id_param("https://api-v2.soundcloud.com/tracks?client_id=old", "new"),
-            "https://api-v2.soundcloud.com/tracks?client_id=old",
-        );
     }
 
     /// A plain API error (validation, auth) is not a challenge.
