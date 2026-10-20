@@ -12,6 +12,42 @@ use super::super::sc::{SC_API, id_of, fetch_me};
 use super::super::webview::emit_sync_error;
 use std::time::{Duration, Instant};
 
+/// Attributes the web app echoes on a track update. The API rejects a minimal
+/// body ("Failed to parse track update request"), so the current track is
+/// fetched and sent back with only `sharing` changed.
+const TRACK_UPDATE_FIELDS: &[&str] = &[
+    "api_streamable",
+    "caption",
+    "commentable",
+    "description",
+    "downloadable",
+    "embeddable",
+    "feedable",
+    "genre",
+    "isrc",
+    "isrc_generate",
+    "label_name",
+    "license",
+    "monetization",
+    "original_filename",
+    "permalink",
+    "purchase_title",
+    "purchase_url",
+    "release_date",
+    "replacing_uid",
+    "replacing_original_filename",
+    "reveal_comments",
+    "reveal_stats",
+    "shared_to",
+    "tag_list",
+    "title",
+    "uid",
+    "geo_blockings",
+    "publisher_metadata",
+    "restrictions",
+    "rightsholders",
+];
+
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     let s = &ctx.state;
     let state = &ctx.state;
@@ -417,8 +453,31 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     return Ok(err(502, "could not reach SoundCloud"));
                 }
             };
-            let url = format!("{SC_API}/tracks/{}?client_id={cid}", id_of(urn));
-            let payload = json!({ "track": { "sharing": sharing } });
+            let id = id_of(urn);
+            let (status, track) = match s.sc_get(&format!("/tracks/{id}"), Some(t)).await {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[tracks] sharing PUT {urn}: track fetch failed: {e}");
+                    return Ok(err(502, "could not load the track"));
+                }
+            };
+            if !(200..300).contains(&status) {
+                return Ok(err(502, "could not load the track"));
+            }
+            let mut update = serde_json::Map::new();
+            for key in TRACK_UPDATE_FIELDS {
+                if let Some(value) = track.get(*key) {
+                    if !value.is_null() {
+                        update.insert((*key).to_string(), value.clone());
+                    }
+                }
+            }
+            if let Some(embeddable) = track.get("embeddable_by") {
+                update.insert("embeddable".into(), embeddable.clone());
+            }
+            update.insert("sharing".into(), json!(sharing));
+            let url = format!("{SC_API}/tracks/{id}?client_id={cid}");
+            let payload = json!({ "track": update });
             match super::super::webview::execute(&s.app, Some(t), "PUT", &url, Some(&payload))
                 .await
             {

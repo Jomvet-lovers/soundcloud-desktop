@@ -12,8 +12,12 @@ use url::Url;
 const HLS_PREFETCH_SEGMENTS: usize = 3;
 
 /// Fetch a single-file (progressive) audio stream.
-pub async fn download_progressive(client: &Client, url: &str) -> Result<Bytes, String> {
-    let data = fetch_bytes(client, url).await?;
+pub async fn download_progressive(
+    client: &Client,
+    url: &str,
+    token: Option<&str>,
+) -> Result<Bytes, String> {
+    let data = fetch_bytes(client, url, token).await?;
     if data.is_empty() {
         return Err("progressive download returned empty body".into());
     }
@@ -21,8 +25,12 @@ pub async fn download_progressive(client: &Client, url: &str) -> Result<Bytes, S
 }
 
 /// Fetch + concat every segment of an HLS playlist.
-pub async fn download_hls_full(client: &Client, m3u8_url: &str) -> Result<Bytes, String> {
-    let m3u8_text = fetch_bytes(client, m3u8_url).await?;
+pub async fn download_hls_full(
+    client: &Client,
+    m3u8_url: &str,
+    token: Option<&str>,
+) -> Result<Bytes, String> {
+    let m3u8_text = fetch_bytes(client, m3u8_url, token).await?;
     let m3u8_content = String::from_utf8_lossy(&m3u8_text);
     let (init_url, segment_urls) = parse_m3u8(&m3u8_content, m3u8_url);
 
@@ -33,7 +41,7 @@ pub async fn download_hls_full(client: &Client, m3u8_url: &str) -> Result<Bytes,
     let mut buf = BytesMut::new();
 
     if let Some(ref init) = init_url {
-        let data = fetch_bytes(client, init).await?;
+        let data = fetch_bytes(client, init, token).await?;
         if data.windows(4).any(|w| w == b"enca") {
             return Err("unsupported stream".into());
         }
@@ -42,6 +50,7 @@ pub async fn download_hls_full(client: &Client, m3u8_url: &str) -> Result<Bytes,
 
     let mut inflight: Vec<tokio::task::JoinHandle<Result<Bytes, String>>> = Vec::new();
     let mut next_idx = 0usize;
+    let token_owned = token.map(str::to_string);
 
     let fill_queue = |inflight: &mut Vec<tokio::task::JoinHandle<Result<Bytes, String>>>,
                       next_idx: &mut usize,
@@ -50,7 +59,10 @@ pub async fn download_hls_full(client: &Client, m3u8_url: &str) -> Result<Bytes,
         while *next_idx < urls.len() && inflight.len() < HLS_PREFETCH_SEGMENTS {
             let c = client.clone();
             let u = urls[*next_idx].clone();
-            inflight.push(tokio::spawn(async move { fetch_bytes(&c, &u).await }));
+            let t = token_owned.clone();
+            inflight.push(tokio::spawn(async move {
+                fetch_bytes(&c, &u, t.as_deref()).await
+            }));
             *next_idx += 1;
         }
     };
@@ -70,12 +82,12 @@ pub async fn download_hls_full(client: &Client, m3u8_url: &str) -> Result<Bytes,
     Ok(buf.freeze())
 }
 
-async fn fetch_bytes(client: &Client, url: &str) -> Result<Bytes, String> {
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("request: {e}"))?;
+async fn fetch_bytes(client: &Client, url: &str, token: Option<&str>) -> Result<Bytes, String> {
+    let mut request = client.get(url);
+    if let Some(token) = token {
+        request = request.header("Authorization", format!("OAuth {token}"));
+    }
+    let resp = request.send().await.map_err(|e| format!("request: {e}"))?;
     let status = resp.status();
     if !status.is_success() {
         return Err(format!("HTTP {status}"));

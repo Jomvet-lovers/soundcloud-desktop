@@ -148,11 +148,12 @@ impl AnonClient {
         &self,
         track_urn: &str,
         hq: bool,
+        token: Option<&str>,
     ) -> Result<Option<AnonStreamResult>, String> {
         if self.in_cooldown() {
             return Ok(None);
         }
-        let result = self.do_get_stream(track_urn, hq).await;
+        let result = self.do_get_stream(track_urn, hq, token).await;
         match &result {
             Ok(Some(_)) => self.note_success(),
             Err(_) => self.note_failure(),
@@ -165,10 +166,11 @@ impl AnonClient {
         &self,
         track_urn: &str,
         hq: bool,
+        token: Option<&str>,
     ) -> Result<Option<AnonStreamResult>, String> {
         let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
 
-        let track = match self.get_track_by_id(track_id).await {
+        let track = match self.get_track_by_id(track_id, token).await {
             Ok(t) => t,
             Err(e) => {
                 self.log("WARN", format!("get track failed: {e}"));
@@ -189,7 +191,7 @@ impl AnonClient {
                     format!("no transcodings for {track_id}, refreshing client_id"),
                 );
                 self.invalidate_and_refresh().await?;
-                let retry_track = match self.get_track_by_id(track_id).await {
+                let retry_track = match self.get_track_by_id(track_id, token).await {
                     Ok(t) => t,
                     Err(e) => {
                         self.log("WARN", format!("retry get track failed: {e}"));
@@ -213,7 +215,7 @@ impl AnonClient {
         };
 
         match self
-            .stream_from_transcodings(transcodings, track_auth.as_deref(), hq)
+            .stream_from_transcodings(transcodings, track_auth.as_deref(), hq, token)
             .await
         {
             Ok(Some(r)) => Ok(Some(r)),
@@ -224,7 +226,7 @@ impl AnonClient {
                     format!("stream failed for {track_id}, refreshing client_id: {e}"),
                 );
                 self.invalidate_and_refresh().await?;
-                let retry_track = match self.get_track_by_id(track_id).await {
+                let retry_track = match self.get_track_by_id(track_id, token).await {
                     Ok(t) => t,
                     Err(e2) => {
                         self.log("WARN", format!("retry get track failed: {e2}"));
@@ -239,8 +241,13 @@ impl AnonClient {
                 if retry_transcodings.is_empty() {
                     return Ok(None);
                 }
-                self.stream_from_transcodings(&retry_transcodings, retry_auth.as_deref(), hq)
-                    .await
+                self.stream_from_transcodings(
+                    &retry_transcodings,
+                    retry_auth.as_deref(),
+                    hq,
+                    token,
+                )
+                .await
             }
         }
     }
@@ -250,6 +257,7 @@ impl AnonClient {
         transcodings: &[Transcoding],
         track_auth: Option<&str>,
         hq: bool,
+        token: Option<&str>,
     ) -> Result<Option<AnonStreamResult>, String> {
         let ranked = ranked_transcodings(transcodings, hq);
         if ranked.is_empty() {
@@ -266,7 +274,10 @@ impl AnonClient {
             let is_progressive =
                 t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive");
 
-            let media_url = match self.resolve_transcoding_url(&t.url, None, track_auth).await {
+            let media_url = match self
+                .resolve_transcoding_url(&t.url, None, track_auth, token)
+                .await
+            {
                 Ok(u) => u,
                 Err(e) => {
                     last_err = Some(format!(
@@ -279,9 +290,9 @@ impl AnonClient {
             };
 
             let result = if is_progressive {
-                download_progressive(&self.client, &media_url).await
+                download_progressive(&self.client, &media_url, token).await
             } else {
-                download_hls_full(&self.client, &media_url).await
+                download_hls_full(&self.client, &media_url, token).await
             };
 
             match result {
@@ -368,11 +379,15 @@ impl AnonClient {
             .ok_or_else(|| "Failed to extract SoundCloud client_id from page".to_string())
     }
 
-    async fn get_track_by_id(&self, track_id: &str) -> Result<ResolvedTrack, String> {
+    async fn get_track_by_id(
+        &self,
+        track_id: &str,
+        token: Option<&str>,
+    ) -> Result<ResolvedTrack, String> {
         let client_id = self.get_client_id().await?;
         let target = format!("{SC_API_V2}/tracks/{track_id}?client_id={client_id}");
 
-        match self.fetch_json::<ResolvedTrack>(&target).await {
+        match self.fetch_json::<ResolvedTrack>(&target, token).await {
             Ok(t) => Ok(t),
             // Refresh+retry — только когда смена client_id реально лечит
             // (401/403/429). 404/410 — окончательный ответ (удалён/приватный),
@@ -385,7 +400,7 @@ impl AnonClient {
                 );
                 let new_id = self.invalidate_and_refresh().await?;
                 let retry = format!("{SC_API_V2}/tracks/{track_id}?client_id={new_id}");
-                self.fetch_json(&retry).await
+                self.fetch_json(&retry, token).await
             }
             Err(e) => Err(e),
         }
@@ -396,6 +411,7 @@ impl AnonClient {
         transcoding_url: &str,
         explicit_client_id: Option<&str>,
         track_authorization: Option<&str>,
+        token: Option<&str>,
     ) -> Result<String, String> {
         let client_id = match explicit_client_id {
             Some(id) => id.to_string(),
@@ -403,7 +419,7 @@ impl AnonClient {
         };
         let target = build_transcoding_target(transcoding_url, &client_id, track_authorization);
 
-        match self.fetch_json::<TranscodingResolveResponse>(&target).await {
+        match self.fetch_json::<TranscodingResolveResponse>(&target, token).await {
             Ok(r) => Ok(r.url),
             // Только 401/403/429 лечатся сменой client_id. 404 на пресете
             // (`abr_sq` 404-ит у большинства треков) — окончательный ответ,
@@ -412,7 +428,7 @@ impl AnonClient {
             Err(e) if explicit_client_id.is_none() && is_auth_or_rate_limited(&e) => {
                 let new_id = self.invalidate_and_refresh().await?;
                 let retry = build_transcoding_target(transcoding_url, &new_id, track_authorization);
-                self.fetch_json::<TranscodingResolveResponse>(&retry)
+                self.fetch_json::<TranscodingResolveResponse>(&retry, token)
                     .await
                     .map(|r| r.url)
             }
@@ -420,14 +436,16 @@ impl AnonClient {
         }
     }
 
-    async fn fetch_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, String> {
-        let resp = self
-            .client
-            .get(url)
-            .header("User-Agent", SC_USER_AGENT)
-            .send()
-            .await
-            .map_err(|e| format!("request: {e}"))?;
+    async fn fetch_json<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<T, String> {
+        let mut request = self.client.get(url).header("User-Agent", SC_USER_AGENT);
+        if let Some(token) = token {
+            request = request.header("Authorization", format!("OAuth {token}"));
+        }
+        let resp = request.send().await.map_err(|e| format!("request: {e}"))?;
 
         let status = resp.status();
         if !status.is_success() {

@@ -398,6 +398,30 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 })),
             }
         }
+        // ── debug: track update probe (sharing via form fields) ──
+        ("POST", ["debug", "update-probe"]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let urn = q_str(&q, "urn").unwrap_or_default();
+            if urn.is_empty() {
+                return Ok(err(400, "missing ?urn="));
+            }
+            let sharing = q_str(&q, "sharing").unwrap_or_else(|| "private".into());
+            let cid = match s.client_id().await {
+                Ok(c) => c,
+                Err(e) => return Ok(err(502, &e)),
+            };
+            let url = format!("{SC_API}/tracks/{}?client_id={cid}", urlencoding::encode(&urn));
+            let fields = vec![("track[sharing]".to_string(), sharing)];
+            match super::super::webview::execute_form(&s.app, t, "PUT", &url, &fields).await {
+                Ok((status, payload)) => ok(json!({
+                    "status": status,
+                    "body": payload.chars().take(500).collect::<String>(),
+                })),
+                Err(e) => ok(json!({ "error": e })),
+            }
+        }
         // ── debug: end-to-end hot replay test (capture + immediate re-POST) ──
         ("POST", ["debug", "hot-replay"]) => {
             let Some(t) = token.as_deref() else {

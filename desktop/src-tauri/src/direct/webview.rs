@@ -324,9 +324,17 @@ async fn do_fetch(
         "headers": headers,
     });
     if let Some(b) = body {
-        let ct = content_type.unwrap_or("application/json");
+        // A string body is sent verbatim (form-encoded diagnostics); objects
+        // keep the historical JSON serialization.
+        let ct = content_type.unwrap_or(match b {
+            Value::String(_) => "application/x-www-form-urlencoded",
+            _ => "application/json",
+        });
         init["headers"]["Content-Type"] = serde_json::json!(ct);
-        init["body"] = serde_json::json!(b.to_string());
+        init["body"] = match b {
+            Value::String(raw) => serde_json::json!(raw),
+            _ => serde_json::json!(b.to_string()),
+        };
     }
 
     let extract_js = match extract {
@@ -589,6 +597,60 @@ fn build_upload_js(
 }})();"#,
         chunk_max = UPLOAD_CHUNK_MAX,
     ))
+}
+
+/// PUT/POST a `FormData` body from the writer page. Used by the sharing
+/// update and the track-edit diagnostic: SoundCloud's track update parser
+/// expects form fields (`track[sharing]`), not the JSON envelope the create
+/// endpoint takes.
+pub async fn execute_form(
+    app: &AppHandle,
+    token: &str,
+    method: &str,
+    url: &str,
+    fields: &[(String, String)],
+) -> Result<(u16, String), String> {
+    let _lane = LANE.lock().await;
+    let window = prepared_window(app, Some(token)).await?;
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let url_js = json_string(url)?;
+    let token_js = json_string(token)?;
+    let method_js = json_string(method)?;
+    let mut fields_js = String::new();
+    for (name, value) in fields {
+        fields_js.push_str(&format!(
+            "fd.append({}, {});\n",
+            json_string(name)?,
+            json_string(value)?
+        ));
+    }
+    let js = format!(
+        r#"var fd = new FormData();
+{fields_js}fetch({url_js}, {{method:{method_js}, credentials:'include', headers:{{'Authorization':'OAuth '+{token_js}}}, body:fd}})
+  .then(async function(r){{ var t=await r.text(); document.cookie='scw={seq}:'+r.status+':'+encodeURIComponent(String(t).slice(0,800))+';path=/'; }})
+  .catch(function(e){{ document.cookie='scw={seq}:ERR:'+encodeURIComponent(String(e&&e.message||e).slice(0,200))+';path=/'; }});"#
+    );
+    eval(&window, &js)?;
+
+    let deadline = Instant::now() + FETCH_TIMEOUT;
+    loop {
+        tokio::time::sleep(POLL).await;
+        if let Some(rest) = read_channel(&window, seq) {
+            let _ = window.eval("document.cookie='scw=;Max-Age=0;path=/';");
+            if let Some(msg) = rest.strip_prefix("ERR:") {
+                return Err(format!("page form: {msg}"));
+            }
+            let (status, encoded) = rest.split_once(':').unwrap_or((rest.as_str(), ""));
+            let status: u16 = status.parse().map_err(|_| format!("bad result: {rest}"))?;
+            let payload = urlencoding::decode(encoded)
+                .map(|s| s.into_owned())
+                .unwrap_or_default();
+            return Ok((status, payload));
+        }
+        if Instant::now() >= deadline {
+            return Err("form fetch timed out".into());
+        }
+    }
 }
 
 /// `None` while the upload is within limits, otherwise the reason to abort.
