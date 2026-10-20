@@ -5,8 +5,6 @@
 //! hands the writer page a URL. The bytes are resolved here from the token, so
 //! file paths never leave the process.
 
-// The issuance side is wired into Tauri commands by the upload commit.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
