@@ -17,6 +17,7 @@ import {
 import { usePerfMode } from '../../lib/perf';
 import { useAppMode } from '../../stores/app-status';
 import { type User, useAuthStore } from '../../stores/auth';
+import { claimLegacyPins, usePinnedPlaylists } from '../../stores/pinned-playlists';
 import { useSettingsStore } from '../../stores/settings';
 import { playlistMenuHandler } from '../../stores/track-menu';
 import { Avatar } from '../ui/Avatar';
@@ -291,13 +292,13 @@ function AccountMenu({
 export const Sidebar = React.memo(() => {
   const user = useAuthStore((s) => s.user);
   const appMode = useAppMode();
-  const { collapsed, pinnedPlaylists, toggleSidebar } = useSettingsStore(
+  const { collapsed, toggleSidebar } = useSettingsStore(
     useShallow((s) => ({
       collapsed: s.sidebarCollapsed,
-      pinnedPlaylists: s.pinnedPlaylists,
       toggleSidebar: s.toggleSidebar,
     })),
   );
+  const pinnedPlaylists = usePinnedPlaylists();
   const perf = usePerfMode();
   const { pathname } = useLocation();
   // The History deep page lives under /library but has its own nav row —
@@ -343,6 +344,13 @@ export const Sidebar = React.memo(() => {
     );
     return () => cancelAnimationFrame(raf);
   }, [activeKey, pinnedPlaylists, collapsed, pathname]);
+
+  // One-shot migration: the old shared pin list is claimed by the first
+  // account the shell resolves (see `claimLegacyPins`).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rerun when the signed-in account resolves.
+  useEffect(() => {
+    claimLegacyPins();
+  }, [user?.id]);
 
   const btnCls = `${ROW} text-white/45 hover:text-white/80 hover:bg-white/[0.05] cursor-pointer`;
 

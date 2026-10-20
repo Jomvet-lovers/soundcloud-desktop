@@ -68,7 +68,8 @@ export interface SettingsState {
   sidebarCollapsed: boolean;
   floatingComments: boolean;
   startupPage: StartupPage;
-  pinnedPlaylists: SidebarPinnedPlaylist[];
+  /** Sidebar pins per SoundCloud account id (`anon` when signed out). */
+  pinnedPlaylistsByAccount: Record<string, SidebarPinnedPlaylist[]>;
   discordRpcEnabled: boolean;
   discordRpcMode: DiscordRpcMode;
   discordRpcShowButton: boolean;
@@ -94,8 +95,10 @@ export interface SettingsState {
   toggleSidebar: () => void;
   setFloatingComments: (v: boolean) => void;
   setStartupPage: (page: StartupPage) => void;
-  pinPlaylist: (playlist: SidebarPinnedPlaylist) => void;
-  unpinPlaylist: (urn: string) => void;
+  pinPlaylist: (playlist: SidebarPinnedPlaylist, ownerKey: string) => void;
+  unpinPlaylist: (urn: string, ownerKey: string) => void;
+  /** Move the pre-multi-account pin list into its first signed-in account. */
+  claimLegacyPins: (ownerKey: string) => void;
   setDiscordRpcEnabled: (enabled: boolean) => void;
   setDiscordRpcMode: (mode: DiscordRpcMode) => void;
   setDiscordRpcShowButton: (show: boolean) => void;
@@ -126,7 +129,7 @@ const DEFAULTS = {
   sidebarCollapsed: false,
   floatingComments: true,
   startupPage: 'home' as StartupPage,
-  pinnedPlaylists: [] as SidebarPinnedPlaylist[],
+  pinnedPlaylistsByAccount: {} as Record<string, SidebarPinnedPlaylist[]>,
   discordRpcEnabled: true,
   discordRpcMode: 'track' as DiscordRpcMode,
   discordRpcShowButton: true,
@@ -170,17 +173,38 @@ export const useSettingsStore = create<SettingsState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setFloatingComments: (floatingComments) => set({ floatingComments }),
       setStartupPage: (startupPage) => set({ startupPage }),
-      pinPlaylist: (playlist) =>
+      pinPlaylist: (playlist, ownerKey) =>
+        set((s) => {
+          const current = s.pinnedPlaylistsByAccount[ownerKey] ?? [];
+          return {
+            pinnedPlaylistsByAccount: {
+              ...s.pinnedPlaylistsByAccount,
+              [ownerKey]: [playlist, ...current.filter((item) => item.urn !== playlist.urn)].slice(
+                0,
+                8,
+              ),
+            },
+          };
+        }),
+      unpinPlaylist: (urn, ownerKey) =>
         set((s) => ({
-          pinnedPlaylists: [
-            playlist,
-            ...s.pinnedPlaylists.filter((item) => item.urn !== playlist.urn),
-          ].slice(0, 8),
+          pinnedPlaylistsByAccount: {
+            ...s.pinnedPlaylistsByAccount,
+            [ownerKey]: (s.pinnedPlaylistsByAccount[ownerKey] ?? []).filter(
+              (item) => item.urn !== urn,
+            ),
+          },
         })),
-      unpinPlaylist: (urn) =>
-        set((s) => ({
-          pinnedPlaylists: s.pinnedPlaylists.filter((item) => item.urn !== urn),
-        })),
+      claimLegacyPins: (ownerKey) =>
+        set((s) => {
+          const next = { ...s.pinnedPlaylistsByAccount };
+          const legacy = next.legacy;
+          if (!legacy) return {};
+          delete next.legacy;
+          const target = next[ownerKey] ?? [];
+          next[ownerKey] = target.length > 0 ? target : legacy;
+          return { pinnedPlaylistsByAccount: next };
+        }),
       setDiscordRpcEnabled: (discordRpcEnabled) => set({ discordRpcEnabled }),
       setDiscordRpcMode: (discordRpcMode) => set({ discordRpcMode }),
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
@@ -201,16 +225,25 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'sc-settings',
       storage: createJSONStorage(() => tauriStorage),
-      version: 19,
+      version: 20,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;
+          pinnedPlaylists?: SidebarPinnedPlaylist[];
         };
         // v13 → v14 migration kept for compatibility: drop the old
         // diversity slider value; SoundWave was removed entirely.
+        // v19 → v20: pins moved from one shared list to per-account lists.
+        // The old list is parked under `legacy` and claimed by the first
+        // signed-in account (see `claimLegacyPins`).
+        const legacy = prev.pinnedPlaylists ?? [];
+        const byAccount = prev.pinnedPlaylistsByAccount ?? (legacy.length > 0 ? { legacy } : {});
+        const migrated = { ...prev };
+        delete (migrated as { pinnedPlaylists?: unknown }).pinnedPlaylists;
         return {
           ...DEFAULTS,
-          ...prev,
+          ...migrated,
+          pinnedPlaylistsByAccount: byAccount,
         } as SettingsState;
       },
       partialize: (s) => ({
@@ -233,7 +266,7 @@ export const useSettingsStore = create<SettingsState>()(
         sidebarCollapsed: s.sidebarCollapsed,
         floatingComments: s.floatingComments,
         startupPage: s.startupPage,
-        pinnedPlaylists: s.pinnedPlaylists,
+        pinnedPlaylistsByAccount: s.pinnedPlaylistsByAccount,
         discordRpcEnabled: s.discordRpcEnabled,
         discordRpcMode: s.discordRpcMode,
         discordRpcShowButton: s.discordRpcShowButton,
