@@ -112,17 +112,9 @@ function NavItem({
   );
 }
 
-/** Account row + quick switch. The row itself stays a NavLink, so clicking it
- *  opens the popover and keeps the existing profile navigation. */
-function AccountMenu({
-  user,
-  collapsed,
-  itemRef,
-}: {
-  user: User;
-  collapsed: boolean;
-  itemRef?: (el: HTMLAnchorElement | null) => void;
-}) {
+/** Account avatar with a right-click quick-switch menu. Left-click keeps the
+ *  profile navigation; the context menu is the only way to open the switcher. */
+function AccountMenu({ user }: { user: User }) {
   const accounts = useAuthStore((s) => s.accounts);
   const activeId = useAuthStore((s) => s.activeId);
   const switchAccount = useAuthStore((s) => s.switchAccount);
@@ -172,32 +164,34 @@ function AccountMenu({
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
-      <Popover.Trigger asChild>
+      <Popover.Anchor asChild>
         <NavLink
-          ref={itemRef}
           to={`/user/${encodeURIComponent(user.urn)}`}
-          title={collapsed ? userName : undefined}
-          className={({ isActive }) => `${ROW} ${isActive ? '' : 'hover:bg-white/[0.05]'}`}
-          style={({ isActive }) => (isActive ? ACTIVE : undefined)}
+          title={userName}
+          aria-label={userName}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setOpen(true);
+          }}
+          className={({ isActive }) =>
+            `mx-auto flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+              isActive ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'
+            }`
+          }
         >
-          <IconBox>
-            <Avatar
-              src={user.avatar_url}
-              alt={userName}
-              size={18}
-              shape="rounded"
-              className="ring-1 ring-white/[0.1]"
-            />
-          </IconBox>
-          <Label collapsed={collapsed} className="flex items-center gap-1.5 pr-3">
-            <span className="text-[12.5px] text-white/55 truncate font-medium">{userName}</span>
-          </Label>
+          <Avatar
+            src={user.avatar_url}
+            alt={userName}
+            size={22}
+            shape="rounded"
+            className="ring-1 ring-white/[0.1]"
+          />
         </NavLink>
-      </Popover.Trigger>
+      </Popover.Anchor>
       <Popover.Portal>
         <Popover.Content
           side="right"
-          align="end"
+          align="center"
           sideOffset={8}
           collisionPadding={12}
           aria-label={'Accounts'}
@@ -466,7 +460,7 @@ export const Sidebar = React.memo(() => {
 
       {user && (
         <div className="px-2 pb-3">
-          <AccountMenu user={user} collapsed={collapsed} itemRef={registerItem('me')} />
+          <AccountMenu user={user} />
         </div>
       )}
     </aside>
