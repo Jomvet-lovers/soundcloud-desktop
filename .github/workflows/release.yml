@@ -4,17 +4,20 @@ name: Release
 # Releases.
 # - workflow_dispatch: build from any ref and create the release for the given
 #   tag (the tag is created at the dispatched commit). `platform` can limit the
-#   run to one OS — useful to add assets to an existing release.
-# - tag push (v*-direct*): build both platforms and release the pushed tag.
+#   run to one OS — useful to add assets to an existing release. Bump the app
+#   version in package.json / tauri.conf.json / Cargo.toml first.
+# - tag push (v*): build both platforms and release the pushed tag.
 #
-# Fork tags use the `v` prefix + `-direct.N` suffix to stay clear of the
-# upstream tags (bare numbers such as `8.4.13`).
+# Fork tags use `v` + the app version (optionally with a `-direct.N` suffix) to
+# stay clear of the upstream tags (bare numbers such as `8.4.13`). The version
+# check job rejects a tag whose base version does not match the app version, so
+# installer and portable file names always carry that version.
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v8.4.13-direct.1)'
+        description: 'Release tag (e.g. v8.4.16)'
         required: true
         type: string
       platform:
@@ -25,7 +28,7 @@ on:
         default: all
   push:
     tags:
-      - 'v*-direct*'
+      - 'v*'
 
 permissions:
   contents: write
@@ -35,8 +38,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  version:
+    name: Version check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the tag matches the app version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          BASE="${TAG#v}"
+          BASE="${BASE%%-direct*}"
+          TAURI=$(jq -r .version desktop/src-tauri/tauri.conf.json)
+          PKG=$(jq -r .version desktop/package.json)
+          CARGO=$(sed -n 's/^version = "\(.*\)"/\1/p' desktop/src-tauri/Cargo.toml | head -n1)
+          echo "tag=$TAG base=$BASE tauri=$TAURI package=$PKG cargo=$CARGO"
+          if [ "$BASE" != "$TAURI" ] || [ "$TAURI" != "$PKG" ] || [ "$TAURI" != "$CARGO" ]; then
+            echo "::error::Release tag $TAG does not match app version $TAURI (package $PKG, cargo $CARGO). Bump every version file before releasing."
+            exit 1
+          fi
+
   windows:
     name: Windows NSIS
+    needs: version
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: windows-latest
     steps:
@@ -139,6 +164,7 @@ jobs:
 
   linux:
     name: Linux (deb / rpm / AppImage)
+    needs: version
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux' }}
     runs-on: ubuntu-22.04
     steps:
