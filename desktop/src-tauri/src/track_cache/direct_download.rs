@@ -158,7 +158,7 @@ async fn try_one_endpoint(
     }
     for cand in sorted {
         let q = cand.playback_quality();
-        match consume(client, &cand).await {
+        match consume(client, &cand, session_id).await {
             Ok(data) => {
                 println!(
                     "[direct] hit {} ({} {})",
@@ -209,10 +209,12 @@ fn sort_candidates(cands: Vec<Candidate>, hq_pref: bool) -> Vec<Candidate> {
     filtered
 }
 
-async fn consume(client: &Client, cand: &Candidate) -> Result<Bytes, String> {
+async fn consume(client: &Client, cand: &Candidate, session_id: Option<&str>) -> Result<Bytes, String> {
     match cand {
-        Candidate::Progressive { url, .. } => download_progressive(client, url).await,
-        Candidate::Hls { manifest_url, .. } => download_hls_full(client, manifest_url).await,
+        Candidate::Progressive { url, .. } => download_progressive(client, url, session_id).await,
+        Candidate::Hls { manifest_url, .. } => {
+            download_hls_full(client, manifest_url, session_id).await
+        }
         Candidate::EncryptedHls {
             init_base64,
             segments,
