@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { FreshDrops } from '../components/feed/FreshDrops';
 import { ArtistMiniCard } from '../components/library/ArtistMiniCard';
 import { CollectionRail } from '../components/library/CollectionRail';
 import { ContinueRow } from '../components/library/ContinueRow';
@@ -13,9 +12,9 @@ import { likedTracksCount } from '../lib/likes';
 import { armLikesContinuation } from '../lib/queue-continuation';
 import { useAuthStore } from '../stores/auth';
 
-/** Library "Hub" — a living home base. Your identity up top, then the reason to
- *  come back (fresh drops from who you follow), then a way back into what you
- *  were playing, then shelves into the deep pages of your collection. */
+/** Library "Hub" — a living home base. Your identity up top, then a way back
+ *  into what you were playing, then shelves into the deep pages of your
+ *  collection. */
 export const Library = React.memo(() => {
   const user = useAuthStore((s) => s.user);
   const { tracks: likedTracks } = useLikedTracks();
@@ -35,8 +34,6 @@ export const Library = React.memo(() => {
     <LibraryFrame>
       <div className="space-y-9">
         <SoundPrintMasthead user={user} likedTracks={likedTracks} />
-
-        <FreshDrops />
 
         <ContinueRow />
 
