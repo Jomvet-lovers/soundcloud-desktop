@@ -8,9 +8,9 @@ import { api } from '../../lib/api';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import { Heart, LinkIcon, ListMusic, ListPlus, MapPin, Plus, User } from '../../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
+import { unpinPlaylist } from '../../stores/pinned-playlists';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
-import { useSettingsStore } from '../../stores/settings';
 import {
   type PlaylistMenuTarget,
   type UserMenuTarget,
@@ -195,7 +195,6 @@ function UserMenu({ user }: { user: UserMenuTarget }) {
 function PlaylistMenu({ playlist }: { playlist: PlaylistMenuTarget }) {
   const close = useTrackMenuStore((s) => s.close);
   const navigate = useNavigate();
-  const unpinPlaylist = useSettingsStore((s) => s.unpinPlaylist);
 
   const copyLink = async () => {
     close();

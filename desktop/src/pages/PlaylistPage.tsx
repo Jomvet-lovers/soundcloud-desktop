@@ -19,8 +19,8 @@ import { AlertCircle, X } from '../lib/icons';
 import { rawPlaylistCover } from '../lib/playlist-cover';
 import { armPlaylistContinuation } from '../lib/queue-continuation';
 import { useAuthStore } from '../stores/auth';
+import { pinPlaylist, unpinPlaylist, usePinnedPlaylists } from '../stores/pinned-playlists';
 import { type Track, usePlayerStore } from '../stores/player';
-import { useSettingsStore } from '../stores/settings';
 
 function HeroSkeleton() {
   return (
@@ -55,13 +55,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
   const deletePlaylist = useDeletePlaylist();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const { pinnedPlaylists, pinPlaylist, unpinPlaylist } = useSettingsStore(
-    useShallow((s) => ({
-      pinnedPlaylists: s.pinnedPlaylists,
-      pinPlaylist: s.pinPlaylist,
-      unpinPlaylist: s.unpinPlaylist,
-    })),
-  );
+  const pinnedPlaylists = usePinnedPlaylists();
 
   const isLoading = playlistLoading || tracksLoading;
   const isOwner = !!playlist && !!myUrn && playlist.user?.urn === myUrn;
@@ -182,7 +176,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
       artworkUrl: rawPlaylistCover(playlist.artwork_url, tracks, playlist.user?.avatar_url),
     });
     toast.success('Pinned to sidebar');
-  }, [playlist, isPinned, unpinPlaylist, pinPlaylist, tracks]);
+  }, [playlist, isPinned, tracks]);
 
   const handleDelete = useCallback(() => {
     if (!playlist) return;
