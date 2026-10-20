@@ -61,6 +61,9 @@ export function applyAuthFromServer(view: AuthView | null): void {
   if (activeId !== previousActiveId) {
     resetAccountScopedState();
     useAuthRecoveryStore.getState().reset();
+    // Do not show the previous account's profile while `/me` for the new
+    // account is in flight; `hasSession` keeps the shell rendered.
+    useAuthStore.setState({ user: null, isAuthenticated: false });
     void setOfflineAccount(activeId);
   }
   useAuthStore.setState({ hasSession: true, token, accounts, activeId });
