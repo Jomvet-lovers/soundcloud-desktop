@@ -8,6 +8,7 @@ interface LibrarySubHeaderProps {
   count?: number;
   filter?: string;
   onFilter?: (v: string) => void;
+  titleClassName?: string;
 }
 
 /** Shared header for a deep collection page: back to the hub, the title, a
@@ -17,6 +18,7 @@ export const LibrarySubHeader = memo(function LibrarySubHeader({
   count,
   filter,
   onFilter,
+  titleClassName,
 }: LibrarySubHeaderProps) {
   return (
     <div className="mb-6">
@@ -29,7 +31,11 @@ export const LibrarySubHeader = memo(function LibrarySubHeader({
       </Link>
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-[26px] md:text-[30px] font-black tracking-tight text-white/95 truncate">
+          <h1
+            className={`truncate tracking-tight text-white/95 ${
+              titleClassName ?? 'text-[26px] md:text-[30px] font-black'
+            }`}
+          >
             {title}
           </h1>
           {count != null && count > 0 && (
