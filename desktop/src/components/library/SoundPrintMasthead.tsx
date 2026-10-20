@@ -3,9 +3,7 @@ import { art } from '../../lib/formatters';
 import { Loader2, Pause, Play, User as UserIcon } from '../../lib/icons';
 import { useIsPlayingFrom } from '../../lib/useTrackPlay';
 import { type Track, usePlayerStore } from '../../stores/player';
-import { SoundprintBars } from './SoundprintBars';
 import { useShuffleLikes } from './useShuffleLikes';
-import type { Soundprint } from './useSoundprint';
 
 interface MastheadUser {
   username: string;
@@ -36,20 +34,14 @@ const AvatarOrb = memo(function AvatarOrb({ url }: { url: string | null }) {
   );
 });
 
-/** Flat library hero — avatar, greeting, soundprint and the same circular play
- *  control as the track/playlist pages (plays your collection shuffled). */
+/** Flat library hero — avatar, greeting and the same circular play control as
+ *  the track/playlist pages (plays your collection shuffled). */
 export const SoundPrintMasthead = memo(function SoundPrintMasthead({
   user,
   likedTracks,
-  sound,
-  selected,
-  onSelect,
 }: {
   user: MastheadUser;
   likedTracks: Track[];
-  sound: Soundprint;
-  selected: string | null;
-  onSelect: (genre: string | null) => void;
 }) {
   const { shuffle, loading } = useShuffleLikes();
   const avatar = art(user.avatar_url, 't300x300');
@@ -101,10 +93,6 @@ export const SoundPrintMasthead = memo(function SoundPrintMasthead({
           )}
         </button>
       </div>
-
-      {sound.hasData && (
-        <SoundprintBars spectrum={sound.spectrum} selected={selected} onSelect={onSelect} />
-      )}
     </section>
   );
 });
