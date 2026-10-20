@@ -174,31 +174,33 @@ function AccountMenu({
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Anchor asChild>
-        <NavLink
-          ref={itemRef}
-          to={`/user/${encodeURIComponent(user.urn)}`}
-          title={collapsed ? userName : undefined}
-          aria-label={userName}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            setOpen(true);
-          }}
-          className={({ isActive }) => `${ROW} ${isActive ? '' : 'hover:bg-white/[0.05]'}`}
-          style={({ isActive }) => (isActive ? ACTIVE : undefined)}
-        >
-          <IconBox>
-            <Avatar
-              src={user.avatar_url}
-              alt={userName}
-              size={18}
-              shape="rounded"
-              className="ring-1 ring-white/[0.1]"
-            />
-          </IconBox>
-          <Label collapsed={collapsed} className="text-[12.5px] font-medium pr-3">
-            <span className="truncate text-white/55">{userName}</span>
-          </Label>
-        </NavLink>
+        <span className="block">
+          <NavLink
+            ref={itemRef}
+            to={`/user/${encodeURIComponent(user.urn)}`}
+            title={collapsed ? userName : undefined}
+            aria-label={userName}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+            className={({ isActive }) => `${ROW} ${isActive ? '' : 'hover:bg-white/[0.05]'}`}
+            style={({ isActive }) => (isActive ? ACTIVE : undefined)}
+          >
+            <IconBox>
+              <Avatar
+                src={user.avatar_url}
+                alt={userName}
+                size={18}
+                shape="rounded"
+                className="ring-1 ring-white/[0.1]"
+              />
+            </IconBox>
+            <Label collapsed={collapsed} className="text-[12.5px] font-medium pr-3">
+              <span className="truncate text-white/55">{userName}</span>
+            </Label>
+          </NavLink>
+        </span>
       </Popover.Anchor>
       <Popover.Portal>
         <Popover.Content
