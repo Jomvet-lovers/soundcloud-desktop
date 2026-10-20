@@ -402,27 +402,7 @@ async fn migrate_impl(store: &SessionStore, app: &AppHandle, data_dir: &Path) {
     match store.seed_legacy(account).await {
         Ok(true) => {
             direct.rebind_owner(Some(id)).await;
-            if let Err(e) = std::fs::remove_file(&source_path) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    log_native(
-                        app,
-                        "WARN",
-                        format!(
-                            "[auth] remove migrated legacy file {} failed: {e}",
-                            source_path.display()
-                        ),
-                    );
-                }
-            } else {
-                log_native(
-                    app,
-                    "INFO",
-                    format!(
-                        "[auth] removed migrated legacy file {}",
-                        source_path.display()
-                    ),
-                );
-            }
+            remove_legacy_source(app, &source_path);
         }
         Ok(false) => {
             log_native(
@@ -430,6 +410,10 @@ async fn migrate_impl(store: &SessionStore, app: &AppHandle, data_dir: &Path) {
                 "INFO",
                 "[auth] session changed during migration; keeping current state",
             );
+            // The account list already exists, so the legacy file is
+            // superseded. Drop it so signing out of every account later
+            // cannot resurrect this session.
+            remove_legacy_source(app, &source_path);
             return;
         }
         Err(e) => {
@@ -497,6 +481,27 @@ fn legacy_source(data_dir: &Path) -> Option<LegacySource> {
         premium: false,
         path,
     })
+}
+
+/// Remove a legacy session file that has been imported or superseded, so a
+/// later full sign-out cannot re-import it on the next launch.
+fn remove_legacy_source(app: &AppHandle, path: &Path) {
+    match std::fs::remove_file(path) {
+        Ok(()) => log_native(
+            app,
+            "INFO",
+            format!("[auth] removed migrated legacy file {}", path.display()),
+        ),
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => log_native(
+            app,
+            "WARN",
+            format!(
+                "[auth] remove migrated legacy file {} failed: {e}",
+                path.display()
+            ),
+        ),
+        Err(_) => {}
+    }
 }
 
 fn rename_if_absent(app: &AppHandle, from: &Path, to: &Path) {
