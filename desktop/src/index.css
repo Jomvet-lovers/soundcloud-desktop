@@ -1646,7 +1646,7 @@ html[data-input-touch] [data-touch-visible] {
 
 /* Invisible hit expansion around tiny always-visible handles (dnd grips). */
 html[data-input-touch] .hit-grow::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: -6px;
 }
