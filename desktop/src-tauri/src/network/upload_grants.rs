@@ -1,4 +1,4 @@
-//! One-time grants for serving local upload files to the hidden writer WebView.
+﻿//! One-time grants for serving local upload files to the hidden writer WebView.
 //!
 //! The writer page runs on soundcloud.com and cannot use Tauri IPC or read
 //! arbitrary user files. Instead, the main window asks Rust for a token and
@@ -6,7 +6,6 @@
 //! file paths never leave the process.
 
 // The issuance side is wired into Tauri commands by the upload commit.
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -144,19 +143,6 @@ pub fn peek(token: &str) -> Option<Grant> {
     let mut map = grants().lock().unwrap_or_else(|e| e.into_inner());
     map.retain(|_, entry| !entry.is_expired(now));
     map.get(token).map(|entry| entry.grant.clone())
-}
-
-/// Drop a token without consuming it (reserved for cancellation flows).
-pub fn revoke(token: &str) {
-    let mut map = grants().lock().unwrap_or_else(|e| e.into_inner());
-    map.remove(token);
-}
-
-/// Remove every expired entry.
-pub fn purge_expired() {
-    let now = Instant::now();
-    let mut map = grants().lock().unwrap_or_else(|e| e.into_inner());
-    map.retain(|_, entry| !entry.is_expired(now));
 }
 
 /// Resolve and read a granted file. The token is consumed even when the read
