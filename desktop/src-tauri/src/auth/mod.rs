@@ -39,6 +39,33 @@ pub struct Account {
     pub(crate) premium: bool,
 }
 
+/// Build an account from a SoundCloud `/me` payload; the id is required.
+pub(crate) fn account_from_me(
+    me: &Value,
+    token: String,
+    premium: bool,
+) -> Result<Account, String> {
+    let id = me
+        .get("id")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "SoundCloud /me returned no user id".to_string())?;
+    Ok(Account {
+        id,
+        token,
+        username: me
+            .get("username")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        avatar_url: me
+            .get("avatar_url")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        premium,
+    })
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SessionState {
     #[serde(default = "default_version")]
@@ -115,47 +142,18 @@ impl SessionStore {
     pub async fn set_token(&self, app: &AppHandle, token: String) -> Result<(), String> {
         let direct = app.state::<Arc<DirectState>>().inner().clone();
         let me = sc::fetch_me(direct.as_ref(), &token).await?;
-        let id = me
-            .get("id")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| "SoundCloud /me returned no user id".to_string())?;
-        let username = me
-            .get("username")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let avatar_url = me
-            .get("avatar_url")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        self.upsert_account(app, token, id, username, avatar_url)
+        self.upsert_account(app, account_from_me(&me, token, false)?)
             .await
     }
 
     /// Add a new account or refresh an existing one and make it active. Premium
     /// starts at `false`; the `/me/subscription` recheck restores it.
-    pub async fn upsert_account(
-        &self,
-        app: &AppHandle,
-        token: String,
-        me_id: u64,
-        username: &str,
-        avatar_url: &str,
-    ) -> Result<(), String> {
+    pub async fn upsert_account(&self, app: &AppHandle, account: Account) -> Result<(), String> {
+        let me_id = account.id;
         let mut guard = self.state.write().await;
         match guard.accounts.iter_mut().find(|a| a.id == me_id) {
-            Some(account) => {
-                account.token = token;
-                account.username = username.to_string();
-                account.avatar_url = avatar_url.to_string();
-                account.premium = false;
-            }
-            None => guard.accounts.push(Account {
-                id: me_id,
-                token,
-                username: username.to_string(),
-                avatar_url: avatar_url.to_string(),
-                premium: false,
-            }),
+            Some(existing) => *existing = account,
+            None => guard.accounts.push(account),
         }
         guard.active = Some(me_id);
         bind_active(app, Some(me_id)).await;

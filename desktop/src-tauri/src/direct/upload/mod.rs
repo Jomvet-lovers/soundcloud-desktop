@@ -23,7 +23,8 @@ use crate::network::upload_grants;
 use crate::rt::AppHandle;
 
 use super::{sc, webview, DirectState};
-use inspect::{ARTWORK_EXTENSIONS, AudioInspection, extension_of, file_name};
+pub(crate) use inspect::file_name;
+use inspect::{ARTWORK_EXTENSIONS, AudioInspection, extension_of};
 use meta::{parse_uploaded_track, track_meta_json};
 use record::{remember_uploaded_track, uploaded_track_object};
 
@@ -46,7 +47,7 @@ pub struct UploadToken {
 }
 
 /// Loopback URL the writer page reads the granted bytes from.
-fn grant_url(port: u16, token: &str) -> String {
+pub(crate) fn grant_url(port: u16, token: &str) -> String {
     format!("http://127.0.0.1:{port}/up/{token}")
 }
 
@@ -94,12 +95,7 @@ pub async fn upload_issue_token(
     kind: String,
 ) -> Result<UploadToken, String> {
     let path = PathBuf::from(path);
-    let meta = tokio::fs::metadata(&path)
-        .await
-        .map_err(|_| "File not found".to_string())?;
-    if !meta.is_file() {
-        return Err("File not found".into());
-    }
+    let meta = inspect::file_meta(&path).await?;
     if meta.len() > upload_grants::MAX_BYTES {
         return Err("The file exceeds SoundCloud's 500 MB upload limit".into());
     }

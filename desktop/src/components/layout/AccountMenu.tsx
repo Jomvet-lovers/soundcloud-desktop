@@ -4,6 +4,8 @@ import { NavLink } from 'react-router-dom';
 import { Check, Loader2, Plus } from '../../lib/icons';
 import { NavSettings } from '../../lib/nav-icons';
 import { type User, useAuthStore } from '../../stores/auth';
+import { accountName, orderedAccounts } from '../account/account-utils';
+import { useAccountActions } from '../account/useAccountActions';
 import { Avatar } from '../ui/Avatar';
 import { ACTIVE, IconBox, Label, ROW } from './sidebar-primitives';
 
@@ -21,49 +23,14 @@ export function AccountMenu({
 }) {
   const accounts = useAuthStore((s) => s.accounts);
   const activeId = useAuthStore((s) => s.activeId);
-  const switchAccount = useAuthStore((s) => s.switchAccount);
-  const addAccount = useAuthStore((s) => s.addAccount);
+  const { pending, error, clearError, switchTo, add } = useAccountActions();
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState<number | 'add' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const userName = user.username.trim() || `Account ${user.id}`;
-
-  const active = accounts.find((account) => account.id === activeId) ?? null;
-  const ordered = active
-    ? [active, ...accounts.filter((account) => account.id !== active.id)]
-    : accounts;
+  const userName = accountName(user);
+  const ordered = orderedAccounts(accounts, activeId);
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next) setError(null);
-  };
-
-  const handleSwitch = async (id: number) => {
-    if (pending !== null) return;
-    setError(null);
-    setPending(id);
-    try {
-      await switchAccount(id);
-      setOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPending(null);
-    }
-  };
-
-  const handleAdd = async () => {
-    if (pending !== null) return;
-    setError(null);
-    setPending('add');
-    try {
-      await addAccount();
-      setOpen(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPending(null);
-    }
+    if (!next) clearError();
   };
 
   return (
@@ -110,7 +77,7 @@ export function AccountMenu({
 
           <div className="flex flex-col">
             {ordered.map((account) => {
-              const label = account.username.trim() || `Account ${account.id}`;
+              const label = accountName(account);
               if (account.id === activeId) {
                 return (
                   <div key={account.id} className="flex items-center gap-2 rounded-md px-2 py-2">
@@ -128,12 +95,16 @@ export function AccountMenu({
                   key={account.id}
                   type="button"
                   disabled={pending !== null}
-                  onClick={() => void handleSwitch(account.id)}
+                  onClick={() =>
+                    void switchTo(account.id).then((ok) => {
+                      if (ok) setOpen(false);
+                    })
+                  }
                   className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Avatar src={account.avatar_url} alt={label} size={22} shape="rounded" />
                   <span className="min-w-0 flex-1 truncate text-[12.5px]">{label}</span>
-                  {pending === account.id && (
+                  {pending?.kind === 'switch' && pending.id === account.id && (
                     <Loader2 size={14} className="shrink-0 animate-spin text-white/50" />
                   )}
                 </button>
@@ -146,16 +117,20 @@ export function AccountMenu({
           <button
             type="button"
             disabled={pending !== null}
-            onClick={() => void handleAdd()}
+            onClick={() =>
+              void add().then((ok) => {
+                if (ok) setOpen(false);
+              })
+            }
             className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left text-[12.5px] text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending === 'add' ? (
+            {pending?.kind === 'add' ? (
               <Loader2 size={14} className="shrink-0 animate-spin" />
             ) : (
               <Plus size={14} className="shrink-0" />
             )}
             <span className="min-w-0 flex-1 truncate">
-              {pending === 'add' ? 'Waiting for sign-in...' : 'Add account'}
+              {pending?.kind === 'add' ? 'Waiting for sign-in...' : 'Add account'}
             </span>
           </button>
 
