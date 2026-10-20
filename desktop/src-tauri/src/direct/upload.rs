@@ -21,7 +21,7 @@ use crate::network::upload_grants;
 use crate::rt::AppHandle;
 use crate::track_cache::transcode;
 
-use super::{webview, DirectState};
+use super::{sc, webview, DirectState};
 
 /// SoundCloud rejects request bodies above 500 MB; the UI blocks files above it.
 const SOFT_MAX_BYTES: u64 = 500 * 1024 * 1024;
@@ -34,7 +34,6 @@ const AUDIO_EXTENSIONS: &[&str] = &[
     "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus", "aiff", "aif", "wma", "mp2", "amr",
 ];
 const ARTWORK_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];
-const TRACKS_ENDPOINT: &str = "https://api.soundcloud.com/tracks";
 /// Response-body characters kept in the failure message.
 const ERROR_BODY_MAX: usize = 500;
 
@@ -111,6 +110,19 @@ fn file_name(path: &Path) -> String {
 /// Loopback URL the writer page reads the granted bytes from.
 fn grant_url(port: u16, token: &str) -> String {
     format!("http://127.0.0.1:{port}/up/{token}")
+}
+
+/// `https://api-v2.soundcloud.com/tracks?client_id=<cid>`
+fn build_tracks_endpoint(cid: &str) -> String {
+    format!("{}/tracks?client_id={}", sc::SC_API, urlencoding::encode(cid))
+}
+
+/// Resolve the public `client_id` for the upload endpoint. There is no public
+/// API fallback: a rejected POST consumes the one-time grant, so a retry has
+/// to start from the caller again.
+async fn tracks_endpoint(direct: &DirectState) -> Result<String, String> {
+    let cid = direct.client_id().await?;
+    Ok(build_tracks_endpoint(&cid))
 }
 
 /// `Err` above the hard limit, otherwise the soft-limit warnings.
@@ -427,6 +439,8 @@ pub async fn track_upload(
     let artwork = artwork_token.as_deref().and_then(upload_grants::peek);
 
     let fields = meta_fields(&meta)?;
+    let direct = app.state::<Arc<DirectState>>().inner().clone();
+    let endpoint = tracks_endpoint(&direct).await?;
     let port = app.state::<Arc<ServerState>>().proxy_port;
     let audio_url = grant_url(port, &audio_token);
     let artwork_pair = match (&artwork, artwork_token.as_deref()) {
@@ -439,7 +453,7 @@ pub async fn track_upload(
         &app,
         &upload_id,
         &token,
-        TRACKS_ENDPOINT,
+        &endpoint,
         &fields,
         &audio_url,
         &audio.filename,
@@ -728,6 +742,14 @@ mod tests {
                 Some(true),
             );
         }
+    }
+
+    #[test]
+    fn tracks_endpoint_includes_the_client_id() {
+        assert_eq!(
+            build_tracks_endpoint("abc123"),
+            "https://api-v2.soundcloud.com/tracks?client_id=abc123"
+        );
     }
 
     #[test]
