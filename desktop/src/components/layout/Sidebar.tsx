@@ -112,9 +112,18 @@ function NavItem({
   );
 }
 
-/** Account avatar with a right-click quick-switch menu. Left-click keeps the
- *  profile navigation; the context menu is the only way to open the switcher. */
-function AccountMenu({ user }: { user: User }) {
+/** Account row with the profile link on the left and the quick-switch menu on
+ *  right-click. Left-click navigates; the context menu is the only way to open
+ *  the switcher. */
+function AccountMenu({
+  user,
+  collapsed,
+  itemRef,
+}: {
+  user: User;
+  collapsed: boolean;
+  itemRef?: (el: HTMLAnchorElement | null) => void;
+}) {
   const accounts = useAuthStore((s) => s.accounts);
   const activeId = useAuthStore((s) => s.activeId);
   const switchAccount = useAuthStore((s) => s.switchAccount);
@@ -166,26 +175,29 @@ function AccountMenu({ user }: { user: User }) {
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Anchor asChild>
         <NavLink
+          ref={itemRef}
           to={`/user/${encodeURIComponent(user.urn)}`}
-          title={userName}
+          title={collapsed ? userName : undefined}
           aria-label={userName}
           onContextMenu={(event) => {
             event.preventDefault();
             setOpen(true);
           }}
-          className={({ isActive }) =>
-            `mx-auto flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
-              isActive ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'
-            }`
-          }
+          className={({ isActive }) => `${ROW} ${isActive ? '' : 'hover:bg-white/[0.05]'}`}
+          style={({ isActive }) => (isActive ? ACTIVE : undefined)}
         >
-          <Avatar
-            src={user.avatar_url}
-            alt={userName}
-            size={22}
-            shape="rounded"
-            className="ring-1 ring-white/[0.1]"
-          />
+          <IconBox>
+            <Avatar
+              src={user.avatar_url}
+              alt={userName}
+              size={18}
+              shape="rounded"
+              className="ring-1 ring-white/[0.1]"
+            />
+          </IconBox>
+          <Label collapsed={collapsed} className="text-[12.5px] font-medium pr-3">
+            <span className="truncate text-white/55">{userName}</span>
+          </Label>
         </NavLink>
       </Popover.Anchor>
       <Popover.Portal>
@@ -460,7 +472,7 @@ export const Sidebar = React.memo(() => {
 
       {user && (
         <div className="px-2 pb-3">
-          <AccountMenu user={user} />
+          <AccountMenu user={user} collapsed={collapsed} itemRef={registerItem('me')} />
         </div>
       )}
     </aside>
