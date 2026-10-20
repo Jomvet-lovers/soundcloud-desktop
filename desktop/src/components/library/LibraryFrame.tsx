@@ -1,14 +1,8 @@
 import { memo, type ReactNode } from 'react';
 import { LIBRARY_KEYFRAMES } from './keyframes';
-import type { Soundprint } from './useSoundprint';
 
 /** Shared shell for every Library surface — flat content column. */
-export const LibraryFrame = memo(function LibraryFrame({
-  children,
-}: {
-  sound: Soundprint;
-  children: ReactNode;
-}) {
+export const LibraryFrame = memo(function LibraryFrame({ children }: { children: ReactNode }) {
   return (
     <div className="relative min-h-full w-full">
       <style>{LIBRARY_KEYFRAMES}</style>

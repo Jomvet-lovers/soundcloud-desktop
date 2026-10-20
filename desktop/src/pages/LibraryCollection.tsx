@@ -6,8 +6,6 @@ import { LibraryFrame } from '../components/library/LibraryFrame';
 import { LibrarySubHeader } from '../components/library/LibrarySubHeader';
 import { LikesTab } from '../components/library/LikesTab';
 import { PlaylistsTab } from '../components/library/PlaylistsTab';
-import { useSoundprint } from '../components/library/useSoundprint';
-import { useLikedTracks } from '../lib/hooks';
 import { likedTracksCount } from '../lib/likes';
 import { useAuthStore } from '../stores/auth';
 
@@ -26,8 +24,6 @@ const TITLE_KEY: Record<Section, string> = {
 export const LibraryCollection = React.memo(() => {
   const { section } = useParams<{ section: string }>();
   const user = useAuthStore((s) => s.user);
-  const { tracks: likedTracks } = useLikedTracks();
-  const sound = useSoundprint(likedTracks);
   const [filter, setFilter] = useState('');
   const deferredFilter = useDeferredValue(filter);
 
@@ -47,7 +43,7 @@ export const LibraryCollection = React.memo(() => {
           : undefined;
 
   return (
-    <LibraryFrame sound={sound}>
+    <LibraryFrame>
       <LibrarySubHeader
         title={TITLE_KEY[sec]}
         count={count}

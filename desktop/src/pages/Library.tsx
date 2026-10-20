@@ -1,11 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { FreshDrops } from '../components/feed/FreshDrops';
 import { ArtistMiniCard } from '../components/library/ArtistMiniCard';
 import { CollectionRail } from '../components/library/CollectionRail';
 import { ContinueRow } from '../components/library/ContinueRow';
 import { LibraryFrame } from '../components/library/LibraryFrame';
 import { SoundPrintMasthead } from '../components/library/SoundPrintMasthead';
-import { useSoundprint } from '../components/library/useSoundprint';
 import { PlaylistCard } from '../components/music/PlaylistCard';
 import { TrackCard } from '../components/music/TrackCard';
 import { useLikedTracks, useMyFollowings, useMyLikedPlaylists, useMyPlaylists } from '../lib/hooks';
@@ -20,44 +19,26 @@ import { useAuthStore } from '../stores/auth';
 export const Library = React.memo(() => {
   const user = useAuthStore((s) => s.user);
   const { tracks: likedTracks } = useLikedTracks();
-  // Picked genre tag — retints the whole hub and filters its genre-aware shelves.
-  const [genre, setGenre] = useState<string | null>(null);
-  const sound = useSoundprint(likedTracks, genre);
 
   const { playlists } = useMyPlaylists();
   const { playlists: likedPlaylists } = useMyLikedPlaylists();
   const { users: followings } = useMyFollowings();
 
-  const playlistPreview = useMemo(() => {
-    const base = genre ? playlists.filter((p) => p.genre?.trim() === genre) : playlists;
-    return base.slice(0, 12);
-  }, [playlists, genre]);
-  const likedPlaylistPreview = useMemo(() => {
-    const base = genre ? likedPlaylists.filter((p) => p.genre?.trim() === genre) : likedPlaylists;
-    return base.slice(0, 12);
-  }, [likedPlaylists, genre]);
+  const playlistPreview = useMemo(() => playlists.slice(0, 12), [playlists]);
+  const likedPlaylistPreview = useMemo(() => likedPlaylists.slice(0, 12), [likedPlaylists]);
   const artistPreview = useMemo(() => followings.slice(0, 14), [followings]);
-  const likesPreview = useMemo(() => {
-    const base = genre ? likedTracks.filter((tr) => tr.genre?.trim() === genre) : likedTracks;
-    return base.slice(0, 12);
-  }, [likedTracks, genre]);
+  const likesPreview = useMemo(() => likedTracks.slice(0, 12), [likedTracks]);
 
   if (!user) return null;
 
   return (
-    <LibraryFrame sound={sound}>
+    <LibraryFrame>
       <div className="space-y-9">
-        <SoundPrintMasthead
-          user={user}
-          likedTracks={likedTracks}
-          sound={sound}
-          selected={genre}
-          onSelect={setGenre}
-        />
+        <SoundPrintMasthead user={user} likedTracks={likedTracks} />
 
-        <FreshDrops genre={genre} />
+        <FreshDrops />
 
-        <ContinueRow genre={genre} />
+        <ContinueRow />
 
         {playlistPreview.length > 0 && (
           <CollectionRail
@@ -110,11 +91,7 @@ export const Library = React.memo(() => {
           >
             {likesPreview.map((tr) => (
               <div key={tr.urn} className="w-[112px] shrink-0">
-                <TrackCard
-                  track={tr}
-                  queue={likesPreview}
-                  onPlay={genre ? undefined : armLikesContinuation}
-                />
+                <TrackCard track={tr} queue={likesPreview} onPlay={armLikesContinuation} />
               </div>
             ))}
           </CollectionRail>
