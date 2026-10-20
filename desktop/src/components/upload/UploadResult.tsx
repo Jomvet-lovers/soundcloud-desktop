@@ -37,6 +37,13 @@ export function UploadResult({ result, onReset }: UploadResultProps) {
         </p>
       )}
 
+      {result.artwork_error && (
+        <p role="alert" className="text-[12px] leading-snug text-red-400">
+          {'The track was uploaded, but the artwork could not be applied: '}
+          {result.artwork_error}
+        </p>
+      )}
+
       <div>
         <button
           type="button"

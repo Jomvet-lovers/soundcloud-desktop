@@ -476,19 +476,29 @@ fn build_upload_js(
     var urn = created && created.urn;
     if (!urn) return;
     var response = await fetch({artwork_url_js});
-    if (!response.ok) return;
+    if (!response.ok) throw new Error('artwork fetch ' + response.status);
     var blob = await response.blob();
     var data = await new Promise(function(resolve){{
       var reader = new FileReader();
       reader.onloadend = function(){{ resolve(reader.result); }};
       reader.readAsDataURL(blob);
     }});
-    await fetch(API + '/tracks/' + encodeURIComponent(urn) + '/artwork?client_id=' + encodeURIComponent(CID), {{
+    // The web app sends the base64 payload only, without the data: prefix.
+    var base64 = String(data).split(',')[1];
+    var putResponse = await fetch(API + '/tracks/' + encodeURIComponent(urn) + '/artwork?client_id=' + encodeURIComponent(CID), {{
       method: 'PUT',
       credentials: CRED ? 'include' : 'omit',
       headers: {{ 'Authorization': 'OAuth ' + TOKEN, 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{ image_data: data }})
+      body: JSON.stringify({{ image_data: base64 }})
     }});
+    if (!putResponse.ok) throw new Error('artwork upload ' + putResponse.status + ' ' + String(await putResponse.text()).slice(0, 200));
+  }}
+  function withArtworkError(text, message){{
+    try {{
+      var parsed = JSON.parse(text);
+      parsed.artwork_error = String(message || 'artwork upload failed').slice(0, 300);
+      return JSON.stringify(parsed);
+    }} catch (_e) {{ return text; }}
   }}
   async function main(){{
     ev('START');
@@ -570,7 +580,8 @@ fn build_upload_js(
     }});
     var text = await createResponse.text();
     if (createResponse.ok && {artwork_url_js}) {{
-      try {{ await uploadArtwork(text); }} catch (_e) {{}}
+      try {{ await uploadArtwork(text); }}
+      catch (artworkError) {{ text = withArtworkError(text, artworkError && artworkError.message); }}
     }}
     emitResult(text, createResponse.status);
   }}
@@ -1658,6 +1669,10 @@ mod tests {
         assert!(with.contains("/up/art-token"));
         assert!(with.contains("/artwork?client_id="));
         assert!(with.contains("readAsDataURL"));
+        // The API takes the base64 payload only, without the data: prefix.
+        assert!(with.contains("split(',')[1]"));
+        assert!(with.contains("image_data: base64"));
+        assert!(with.contains("artwork_error"));
     }
 
     #[test]

@@ -75,6 +75,9 @@ pub struct UploadedTrack {
     pub permalink_url: String,
     pub title: String,
     pub state: String,
+    /// Present when the track was created but the artwork PUT failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artwork_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -284,6 +287,10 @@ pub(crate) fn parse_uploaded_track(payload: &str) -> Result<UploadedTrack, Strin
                 } else {
                     state
                 },
+                artwork_error: v
+                    .get("artwork_error")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             });
         }
     }
@@ -294,6 +301,7 @@ pub(crate) fn parse_uploaded_track(payload: &str) -> Result<UploadedTrack, Strin
             permalink_url: String::new(),
             title: String::new(),
             state: "processing".into(),
+            artwork_error: None,
         }),
         None => Err("Track ID was not found in the response".into()),
     }
@@ -672,7 +680,22 @@ mod tests {
             permalink_url: format!("https://soundcloud.com/me/track-{id}"),
             title: "Track".into(),
             state: "processing".into(),
+            artwork_error: None,
         }
+    }
+
+    #[test]
+    fn parse_uploaded_track_keeps_the_artwork_error() {
+        let track = parse_uploaded_track(
+            r#"{"id":9,"title":"T","artwork_error":"artwork upload 400 Invalid request"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            track.artwork_error.as_deref(),
+            Some("artwork upload 400 Invalid request")
+        );
+        let without = parse_uploaded_track(r#"{"id":9,"title":"T"}"#).unwrap();
+        assert_eq!(without.artwork_error, None);
     }
 
     #[test]
