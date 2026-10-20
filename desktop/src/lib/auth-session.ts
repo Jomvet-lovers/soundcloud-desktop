@@ -60,6 +60,7 @@ export function applyAuthFromServer(view: AuthView | null): void {
   if (view?.premium !== undefined) setIsPremium(view.premium);
   if (activeId !== previousActiveId) {
     resetAccountScopedState();
+    useAuthRecoveryStore.getState().reset();
     void setOfflineAccount(activeId);
   }
   useAuthStore.setState({ hasSession: true, token, accounts, activeId });
