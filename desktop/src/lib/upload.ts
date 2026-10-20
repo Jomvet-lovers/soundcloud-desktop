@@ -35,6 +35,8 @@ export interface UploadedTrack {
   permalink_url: string;
   title: string;
   state: string;
+  /** Set when the track was created but the artwork PUT failed. */
+  artwork_error?: string;
 }
 
 /** One-time file grant returned by `upload_issue_token`. */
