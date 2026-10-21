@@ -138,6 +138,14 @@ pub fn start_tick_emitter(app: &AppHandle) {
                             continue;
                         }
 
+                        // A streaming-first play blocks the decoder whenever it
+                        // catches up with the network; a frozen playhead there
+                        // means "waiting for bytes", not a dead output device.
+                        if state.streaming.load(Ordering::Relaxed) {
+                            last_progress_at = now;
+                            continue;
+                        }
+
                         if now < stall_cooldown_until {
                             continue;
                         }

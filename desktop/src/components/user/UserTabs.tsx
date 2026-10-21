@@ -190,6 +190,7 @@ export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
           overscan={8}
           className="flex flex-col gap-1"
           getItemKey={(t) => t.urn}
+          prefetchUrn={(t) => t.urn}
           renderItem={renderItem}
         />
       </div>

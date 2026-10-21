@@ -7,6 +7,7 @@ use rodio::Player;
 
 use crate::audio::analyser::AnalyserBuffer;
 use crate::audio::device::open_device_sink;
+use crate::audio::stream_buffer::StreamBuffer;
 use crate::audio::types::{
     AudioThreadCmd, EqParams, FloatingCommentEvent, LyricsTimingLine, MediaCmd,
 };
@@ -71,6 +72,13 @@ pub struct AudioState {
     pub media_tx: Mutex<Option<std::sync::mpsc::Sender<MediaCmd>>>,
     pub audio_tx: std::sync::mpsc::Sender<AudioThreadCmd>,
     pub source_bytes: Mutex<Option<Vec<u8>>>,
+    /// Active streaming-first-play session, if any: the download still mirroring
+    /// bytes into memory for the current player. Also the identity token for
+    /// "is that stream still the one this track owns" checks.
+    pub stream: Mutex<Option<Arc<StreamBuffer>>>,
+    /// Cheap mirror of `stream.is_some()` for the tick thread, which must not
+    /// take the stream lock while holding the player lock.
+    pub streaming: AtomicBool,
     pub follow_default_output: AtomicBool,
     pub last_known_default_output: Mutex<Option<String>>,
     pub lyrics_timeline: Mutex<Option<LyricsTimelineState>>,
@@ -178,6 +186,8 @@ pub fn init() -> AudioState {
         media_tx: Mutex::new(None),
         audio_tx: cmd_tx,
         source_bytes: Mutex::new(None),
+        stream: Mutex::new(None),
+        streaming: AtomicBool::new(false),
         follow_default_output: AtomicBool::new(true),
         last_known_default_output: Mutex::new(None),
         lyrics_timeline: Mutex::new(None),

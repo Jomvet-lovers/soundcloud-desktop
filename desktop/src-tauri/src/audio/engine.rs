@@ -1,15 +1,25 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tauri::State;
 use tokio::task;
 
-use crate::audio::decode::{create_player_from_bytes, resolve_normalization_gain};
+use crate::audio::decode::{
+    create_player_from_bytes, create_player_from_stream, resolve_normalization_gain,
+    resolve_prefix_normalization_gain,
+};
 use crate::audio::state::AudioState;
+use crate::audio::stream_buffer::StreamBuffer;
 use crate::audio::types::{AudioLoadResult, MediaCmd, EQ_BANDS, STALL_SUPPRESS_MS, TICK_INTERVAL_MS};
 
 const ENDED_SUPPRESS_MS: u64 = 1200;
+/// Cap on the prefix decoded for the loudness gain when playback starts on a
+/// partial download. The analysis only looks at the first 30 s of samples, which
+/// the prebuffer covers at SoundCloud's bitrates; a short estimate is replaced by
+/// the exact gain when the finished bytes are adopted.
+const PREFIX_ANALYSIS_BYTES: usize = 1_500_000;
 
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -40,10 +50,37 @@ fn volume_to_rodio(v: f64) -> f32 {
 
 fn stop_current_player(state: &AudioState) {
     suppress_ended_temporarily(state);
+    // A streaming session ends with its player: cancel the mirror first so a
+    // decoder parked in a blocking read returns EOF and the player can be
+    // dropped, then drop the player.
+    if let Some(stream) = state.stream.lock().unwrap().take() {
+        stream.cancel();
+    }
+    state.streaming.store(false, Ordering::Relaxed);
     let mut player = state.player.lock().unwrap();
     if let Some(old) = player.take() {
         old.stop();
     }
+}
+
+/// Install a streaming-first-play session: replaces (and cancels) whatever was
+/// playing, and makes `stream` the token every later step of that session must
+/// still match (track switch / stop clears it).
+pub fn begin_stream(state: &AudioState, stream: &Arc<StreamBuffer>) {
+    stop_current_player(state);
+    *state.stream.lock().unwrap() = Some(stream.clone());
+    state.streaming.store(true, Ordering::Relaxed);
+}
+
+/// Whether `stream` is still the session the current track owns.
+pub fn is_active_stream(state: &AudioState, stream: &Arc<StreamBuffer>) -> bool {
+    state
+        .stream
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|active| Arc::ptr_eq(active, stream))
+        .unwrap_or(false)
 }
 
 /// Current playback speed as f64, floored away from zero so it's safe to divide by.
@@ -78,6 +115,20 @@ fn commit_loaded_track(
     *state.source_bytes.lock().unwrap() = Some(bytes);
     *state.normalization_gain.lock().unwrap() = normalization_gain;
     // Fresh track starts at source 0 / output 0.
+    set_pos_anchor(state, 0.0, 0.0);
+    state.has_track.store(true, Ordering::Relaxed);
+    state.ended_notified.store(false, Ordering::Relaxed);
+    state.device_error.store(false, Ordering::Relaxed);
+}
+
+/// Install a player that reads its audio from the live download. Unlike
+/// `commit_loaded_track` there are no complete bytes yet: seeks fall back to the
+/// buffer (see `rebuild_from_stream`) and `finalize_stream` adopts the finished
+/// file later.
+fn commit_stream_player(state: &AudioState, new_player: rodio::Player, normalization_gain: f32) {
+    *state.player.lock().unwrap() = Some(new_player);
+    *state.source_bytes.lock().unwrap() = None;
+    *state.normalization_gain.lock().unwrap() = normalization_gain;
     set_pos_anchor(state, 0.0, 0.0);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
@@ -133,7 +184,20 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
     suppress_stall_temporarily(state);
     let bytes = state.source_bytes.lock().unwrap().clone();
     let Some(bytes) = bytes else {
-        return Ok(());
+        // Still streaming (download unfinished): rebuild from the live buffer so
+        // a device switch does not leave the track silent.
+        let stream = state.stream.lock().unwrap().clone();
+        let Some(stream) = stream else {
+            return Ok(());
+        };
+        let (source_position, was_paused) = {
+            let player = state.player.lock().unwrap();
+            let Some(player) = player.as_ref() else {
+                return Ok(());
+            };
+            (source_pos(state, player), player.is_paused())
+        };
+        return rebuild_from_stream(state, &stream, source_position, was_paused);
     };
 
     let rate = current_rate(state);
@@ -193,6 +257,25 @@ pub async fn load_file(
     start_paused: bool,
     state: State<'_, AudioState>,
 ) -> Result<AudioLoadResult, String> {
+    load_file_inner(
+        &state,
+        path,
+        normalization_cache_dir,
+        normalization_cache_key,
+        start_paused,
+    )
+    .await
+}
+
+/// `load_file` without a `State` handle, so the streaming command's background
+/// task can load the finished file on the fallback path.
+pub async fn load_file_inner(
+    state: &AudioState,
+    path: String,
+    normalization_cache_dir: Option<PathBuf>,
+    normalization_cache_key: Option<String>,
+    start_paused: bool,
+) -> Result<AudioLoadResult, String> {
     let bytes = task::spawn_blocking({
         let path = path.clone();
         move || std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))
@@ -200,7 +283,7 @@ pub async fn load_file(
     .await
     .map_err(|e| format!("audio file read task failed: {e}"))??;
 
-    stop_current_player(&state);
+    stop_current_player(state);
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
@@ -220,9 +303,173 @@ pub async fn load_file(
     )
     .await?;
 
-    commit_loaded_track(&state, bytes, new_player, normalization_gain);
+    commit_loaded_track(state, bytes, new_player, normalization_gain);
 
     Ok(AudioLoadResult { duration_secs })
+}
+
+/// Start playback on a download that is still arriving.
+///
+/// `begin_stream` must have installed `stream` as the current session. The build
+/// blocks until the decoder has its first frame (the caller already waited for a
+/// prebuffer), then the player reads straight from the buffer and blocks when it
+/// catches up with the network. Failures are the caller's cue to fall back to the
+/// full-file path.
+pub async fn load_stream(
+    stream: Arc<StreamBuffer>,
+    normalization_cache_dir: Option<PathBuf>,
+    normalization_cache_key: Option<String>,
+    start_paused: bool,
+    state: &AudioState,
+) -> Result<AudioLoadResult, String> {
+    let normalization_enabled = state.normalization_enabled.load(Ordering::Relaxed);
+    // The analysis window is the first 30 s, so the buffered prefix gives the
+    // same gain as the finished file. Skipped entirely when normalization is off
+    // (the default) so it never delays the first sample.
+    let normalization_gain = if normalization_enabled {
+        let head = stream.head(PREFIX_ANALYSIS_BYTES);
+        let cache_dir = normalization_cache_dir.clone();
+        let cache_key = normalization_cache_key.clone();
+        task::spawn_blocking(move || {
+            resolve_prefix_normalization_gain(&head, cache_dir.as_deref(), cache_key.as_deref())
+        })
+        .await
+        .unwrap_or(1.0)
+    } else {
+        1.0
+    };
+
+    let byte_len = stream.byte_len();
+    let reader = stream.reader();
+    let mixer = state.mixer.lock().unwrap().clone();
+    let vol = *state.volume.lock().unwrap();
+    let output_rate = state.output_rate.load(Ordering::Relaxed);
+    let speed = state.playback_rate_fp.clone();
+    let eq_params = state.eq_params.clone();
+    let analyser_buffer = state.analyser_buffer.clone();
+    let (new_player, duration_secs) = task::spawn_blocking(move || {
+        create_player_from_stream(
+            reader,
+            &mixer,
+            vol,
+            normalization_gain,
+            start_paused,
+            output_rate,
+            byte_len,
+            speed,
+            eq_params,
+            analyser_buffer,
+        )
+    })
+    .await
+    .map_err(|e| format!("audio stream decode task failed: {e}"))??;
+
+    // A track switch or stop may have landed while the decoder was building.
+    if !is_active_stream(state, &stream) {
+        new_player.stop();
+        return Err("stream cancelled".into());
+    }
+    commit_stream_player(state, new_player, normalization_gain);
+
+    Ok(AudioLoadResult { duration_secs })
+}
+
+/// Adopt the finished download: the complete bytes become the authoritative
+/// source (exact duration, seek fallback, cached loudness gain) and the player is
+/// rebuilt in place at the current position. Returns false when the session was
+/// already replaced.
+///
+/// Blocking (full decode + gain analysis): call it from `spawn_blocking`.
+pub fn finalize_stream(
+    state: &AudioState,
+    stream: &Arc<StreamBuffer>,
+    bytes: Vec<u8>,
+    normalization_cache_dir: Option<PathBuf>,
+    normalization_cache_key: Option<String>,
+) -> bool {
+    // Hold the session slot across the whole swap: a concurrent load/stop takes
+    // the same lock before installing its own source, so nothing can slip in
+    // between the identity check and the rebuild.
+    let mut slot = state.stream.lock().unwrap();
+    match slot.as_ref() {
+        Some(active) if Arc::ptr_eq(active, stream) => {}
+        _ => return false,
+    }
+
+    let normalization_gain = if state.normalization_enabled.load(Ordering::Relaxed) {
+        resolve_normalization_gain(
+            &bytes,
+            normalization_cache_dir.as_deref(),
+            normalization_cache_key.as_deref(),
+        )
+        .unwrap_or(1.0)
+    } else {
+        1.0
+    };
+    *state.source_bytes.lock().unwrap() = Some(bytes);
+    *state.normalization_gain.lock().unwrap() = normalization_gain;
+    let rebuilt = reload_current_track(state).is_ok();
+    // The player reads from memory again, so stall detection can resume.
+    *slot = None;
+    state.streaming.store(false, Ordering::Relaxed);
+    rebuilt
+}
+
+/// Recreate the player from the live stream buffer at `source_position`. Used
+/// when the decoder cannot seek in place, when the track must be rebuilt on a
+/// new device, and while no complete source exists. `try_seek` blocks until the
+/// target's bytes arrive, which is exactly what seeking into an unbuffered range
+/// has to do.
+fn rebuild_from_stream(
+    state: &AudioState,
+    stream: &Arc<StreamBuffer>,
+    source_position: f64,
+    was_paused: bool,
+) -> Result<(), String> {
+    let rate = current_rate(state);
+    let output_target = (source_position / rate).max(0.0);
+    let normalization_gain = if state.normalization_enabled.load(Ordering::Relaxed) {
+        *state.normalization_gain.lock().unwrap()
+    } else {
+        1.0
+    };
+    let mixer = state.mixer.lock().unwrap().clone();
+    let vol = *state.volume.lock().unwrap();
+    let (new_player, _) = create_player_from_stream(
+        stream.reader(),
+        &mixer,
+        vol,
+        normalization_gain,
+        was_paused,
+        state.output_rate.load(Ordering::Relaxed),
+        stream.byte_len(),
+        state.playback_rate_fp.clone(),
+        state.eq_params.clone(),
+        state.analyser_buffer.clone(),
+    )?;
+    let mut seeked = source_position <= 0.0;
+    if source_position > 0.0
+        && new_player
+            .try_seek(Duration::from_secs_f64(output_target))
+            .is_ok()
+    {
+        seeked = true;
+    }
+
+    let mut player = state.player.lock().unwrap();
+    if let Some(old) = player.take() {
+        old.stop();
+    }
+    *player = Some(new_player);
+    // A stream without an advertised length decodes incrementally and cannot
+    // seek; report the restart at 0 instead of a position the decoder is not at.
+    if seeked {
+        set_pos_anchor(state, source_position, output_target);
+    } else {
+        set_pos_anchor(state, 0.0, 0.0);
+    }
+    state.ended_notified.store(false, Ordering::Relaxed);
+    Ok(())
 }
 
 pub async fn load_url(
@@ -354,6 +601,12 @@ pub fn pause(state: State<'_, AudioState>) {
 pub fn stop(state: State<'_, AudioState>) {
     state.has_track.store(false, Ordering::Relaxed);
     state.load_gen.fetch_add(1, Ordering::Relaxed);
+    // Cancel a streaming session first: its decoder may be parked in a read and
+    // must be unblocked before the player is dropped.
+    if let Some(stream) = state.stream.lock().unwrap().take() {
+        stream.cancel();
+    }
+    state.streaming.store(false, Ordering::Relaxed);
     if let Ok(mut player) = state.player.try_lock()
         && let Some(old) = player.take() {
             old.stop();
@@ -401,7 +654,18 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
 
     let bytes = state.source_bytes.lock().unwrap().clone();
     let Some(bytes) = bytes else {
-        return Err("No source to reload for seek".into());
+        // Streaming session without a finished download: seek by rebuilding from
+        // the live buffer. Without an advertised length the decoder is reading
+        // incrementally and cannot seek, so refuse rather than restarting from the
+        // top; the tick thread restores the readout to the real position.
+        let stream = state.stream.lock().unwrap().clone();
+        let Some(stream) = stream else {
+            return Err("No source to reload for seek".into());
+        };
+        if position > 0.0 && stream.byte_len().is_none() {
+            return Err("stream is not seekable yet".into());
+        }
+        return rebuild_from_stream(state, &stream, position, was_paused);
     };
 
     let mixer = state.mixer.lock().unwrap().clone();

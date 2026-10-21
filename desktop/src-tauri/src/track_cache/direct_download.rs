@@ -213,7 +213,7 @@ async fn consume(client: &Client, cand: &Candidate, session_id: Option<&str>) ->
     match cand {
         Candidate::Progressive { url, .. } => download_progressive(client, url, session_id).await,
         Candidate::Hls { manifest_url, .. } => {
-            download_hls_full(client, manifest_url, session_id).await
+            download_hls_full(client, manifest_url, session_id, None).await
         }
         Candidate::EncryptedHls {
             init_base64,

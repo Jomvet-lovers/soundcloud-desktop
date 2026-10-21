@@ -282,6 +282,20 @@ where
     }
 }
 
+fn compute_normalization_gain(bytes: &[u8]) -> Result<f32, String> {
+    if is_ogg_opus(bytes) {
+        return OpusSource::new(bytes.to_vec())
+            .map(normalization_gain_from_samples)
+            .map_err(|e| format!("Failed to decode: {}", e));
+    }
+    match Decoder::new(Cursor::new(bytes.to_vec())) {
+        Ok(source) => Ok(normalization_gain_from_samples(source)),
+        Err(_) => OpusSource::new(bytes.to_vec())
+            .map(normalization_gain_from_samples)
+            .map_err(|e| format!("Failed to decode: {}", e)),
+    }
+}
+
 pub fn resolve_normalization_gain(
     bytes: &[u8],
     cache_dir: Option<&Path>,
@@ -291,20 +305,26 @@ pub fn resolve_normalization_gain(
         return Ok(gain);
     }
 
-    let gain = if is_ogg_opus(bytes) {
-        normalization_gain_from_samples(
-            OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?,
-        )
-    } else { match Decoder::new(Cursor::new(bytes.to_vec())) { Ok(source) => {
-        normalization_gain_from_samples(source)
-    } _ => {
-        normalization_gain_from_samples(
-            OpusSource::new(bytes.to_vec()).map_err(|e| format!("Failed to decode: {}", e))?,
-        )
-    }}};
-
+    let gain = compute_normalization_gain(bytes)?;
     write_cached_normalization_gain(cache_dir, cache_key, gain);
     Ok(gain)
+}
+
+/// Gain for a track that is still downloading. The analysis only looks at the
+/// first 30 s of audio, so a prefix that covers them yields the same gain as the
+/// finished file, and playback starts at the right loudness with no step when
+/// the completed bytes replace the stream. Not cached: a prefix may cut the
+/// analysis short for very short tracks, and the full bytes are analyzed again
+/// on finalize.
+pub fn resolve_prefix_normalization_gain(
+    bytes: &[u8],
+    cache_dir: Option<&Path>,
+    cache_key: Option<&str>,
+) -> f32 {
+    if let Some(gain) = read_cached_normalization_gain(cache_dir, cache_key) {
+        return gain;
+    }
+    compute_normalization_gain(bytes).unwrap_or(1.0)
 }
 
 pub fn create_player_from_bytes(
@@ -365,6 +385,49 @@ pub fn create_player_from_bytes(
             analyser_buffer,
         ));
     }
+
+    Ok((player, duration))
+}
+
+/// Player over a live download (see `audio::stream_buffer`). There is no
+/// in-memory byte length up front: `byte_len` is the advertised `Content-Length`
+/// (or the final size once complete) so durations and seeks use the real scale,
+/// while reads past the received bytes block until more arrive.
+#[allow(clippy::too_many_arguments)]
+pub fn create_player_from_stream(
+    reader: super::stream_buffer::StreamReader,
+    mixer: &Mixer,
+    volume: f32,
+    normalization_gain: f32,
+    start_paused: bool,
+    output_sample_rate: u32,
+    byte_len: Option<u64>,
+    speed: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    eq_params: Arc<RwLock<EqParams>>,
+    analyser_buffer: Arc<AnalyserBuffer>,
+) -> Result<(Player, Option<f64>), String> {
+    let player = Player::connect_new(mixer);
+    player.set_volume(volume);
+    if start_paused {
+        player.pause();
+    }
+
+    let mut builder = Decoder::builder().with_data(reader);
+    // Declaring a length also makes the source seekable, which requires the
+    // reader to answer `SeekFrom::End`; only claim it when the origin told us.
+    if let Some(len) = byte_len {
+        builder = builder.with_byte_len(len).with_seekable(true);
+    }
+    let source = builder
+        .build()
+        .map_err(|e| format!("Failed to decode stream: {e}"))?;
+    let duration = source.total_duration().map(|d| d.as_secs_f64());
+    let source = SpeedSource::new(source, speed);
+    let source = ResampleSource::new(source, output_sample_rate);
+    player.append(AnalyserSource::new(
+        EqSource::new(GainSource::new(source, normalization_gain), eq_params),
+        analyser_buffer,
+    ));
 
     Ok((player, duration))
 }

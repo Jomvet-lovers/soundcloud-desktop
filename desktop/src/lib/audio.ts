@@ -16,7 +16,8 @@ import {
   ensureTrackCached,
   getCacheInfo,
   removeCachedTrack,
-  type TrackCacheInfo,
+  type StreamLoadResult,
+  streamTrackCached,
 } from './cache';
 import { trackedInvoke as invoke } from './diagnostics';
 import { isUrnDisliked } from './dislikes';
@@ -395,38 +396,46 @@ async function loadTrack(track: Track) {
       return;
     }
 
-    // Strategy 2: Download full track to cache — Rust picks storage/API internally
+    // Strategy 2: fetch to cache and play. Rust mirrors the winning response
+    // into the decoder and starts as soon as a prebuffer has landed when the
+    // container allows it (progressive MP3/ADTS, front-moov m4a); otherwise it
+    // waits for the finished file exactly like before.
     setDownloadProgress(0);
 
-    let cachedInfo: TrackCacheInfo;
+    const startPaused = !usePlayerStore.getState().isPlaying;
+    let loaded: StreamLoadResult;
     try {
-      cachedInfo = await ensureTrackCached(urn, highQualityStreaming, track.duration);
+      loaded = await streamTrackCached(urn, highQualityStreaming, track.duration, startPaused);
     } catch (error) {
+      if (gen !== loadGen) {
+        invoke('audio_stop').catch(console.error);
+        return;
+      }
       if (!highQualityStreaming) throw error;
       console.warn('[Audio] HQ load failed, retrying without hq:', error);
-      cachedInfo = await ensureTrackCached(urn, false, track.duration);
+      loaded = await streamTrackCached(urn, false, track.duration, startPaused);
     }
 
-    if (gen !== loadGen) return;
-    setDownloadProgress(null);
-    usePlayerStore.getState().setPlaybackTransport(cachedInfo.quality, cachedInfo.source);
+    if (gen !== loadGen) {
+      invoke('audio_stop').catch(console.error);
+      return;
+    }
+    // A streaming load keeps the progress readout until the download finishes.
+    if (!loaded.streaming) setDownloadProgress(null);
+    usePlayerStore.getState().setPlaybackTransport(loaded.quality, loaded.source);
 
-    console.log('[Audio] Playing downloaded track:', urn);
-    const loadResult = await loadCachedFile(
+    console.log(
+      loaded.streaming ? '[Audio] Playing while downloading:' : '[Audio] Playing downloaded track:',
       urn,
-      cachedInfo.path,
-      !usePlayerStore.getState().isPlaying,
-      reResolve,
     );
-    if (loadResult?.duration_secs) {
-      fallbackDuration = loadResult.duration_secs;
-      cachedDuration = loadResult.duration_secs;
-      updateMetadata(track, loadResult.duration_secs);
+    if (loaded.durationSecs) {
+      fallbackDuration = loaded.durationSecs;
+      cachedDuration = loaded.durationSecs;
+      updateMetadata(track, loaded.durationSecs);
       notify();
     }
     void enforceAudioCacheLimit().catch(console.error);
 
-    if (gen !== loadGen) return;
     afterLoad(track, gen);
   } catch (e) {
     console.error('[Audio] Load failed:', e);
@@ -594,6 +603,23 @@ listen<{ urn: string; progress: number }>('track:download-progress', (event) => 
   if (urn === currentUrn) {
     setDownloadProgress(progress);
   }
+});
+
+// The streamed track's download finished and Rust rebuilt the player from the
+// complete bytes (exact duration, seek source, loudness gain).
+listen<{ urn: string }>('audio:stream-complete', (event) => {
+  if (event.payload.urn !== currentUrn) return;
+  setDownloadProgress(null);
+  void enforceAudioCacheLimit().catch(console.error);
+});
+
+listen<{ urn: string; error: string }>('audio:stream-failed', (event) => {
+  if (event.payload.urn !== currentUrn) return;
+  setDownloadProgress(null);
+  const errorText = getLoadErrorText(event.payload.error);
+  toast.error('Failed to load track', {
+    description: errorText ?? undefined,
+  });
 });
 
 listen('audio:ended', () => {
@@ -815,7 +841,24 @@ listen<number>('media:seek-relative', (e) => {
 
 let preloadTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Hover targets requested directly; viewport prefetch leaves them alone. */
+const hoverPrefetched = new Set<string>();
+const viewportRequested = new Set<string>();
+let viewportTimer: ReturnType<typeof setTimeout> | null = null;
+let viewportBatch = '';
+/** Rows prefetched per viewport, and the settle delay before asking. */
+const VIEWPORT_PREFETCH_LIMIT = 3;
+const VIEWPORT_PREFETCH_DELAY_MS = 1200;
+
 export function preloadTrack(urn: string) {
+  // A hover is a stronger signal than the viewport scan: drop the queued batch
+  // so this request goes out first, and never duplicate it later.
+  hoverPrefetched.add(urn);
+  if (viewportTimer) {
+    clearTimeout(viewportTimer);
+    viewportTimer = null;
+    viewportBatch = '';
+  }
   if (preloadTimer) clearTimeout(preloadTimer);
   preloadTimer = setTimeout(() => {
     const sessionId = getSessionId();
@@ -833,6 +876,42 @@ export function preloadTrack(urn: string) {
       ],
     }).catch(console.error);
   }, 500);
+}
+
+/** Prefetch a few rows of the visible viewport, so a click that never hovered
+ *  still lands on a warm cache. Debounced, deduped for the session, and skipped
+ *  for the playing track; Rust skips anything already cached. */
+export function prefetchVisibleTracks(urns: string[]) {
+  const picked: string[] = [];
+  for (const urn of urns) {
+    if (picked.length >= VIEWPORT_PREFETCH_LIMIT) break;
+    if (urn === currentUrn || hoverPrefetched.has(urn) || viewportRequested.has(urn)) continue;
+    picked.push(urn);
+  }
+  if (picked.length === 0) return;
+
+  // Same batch as the one already queued (e.g. a re-render on scroll): keep the
+  // timer running instead of pushing the request back.
+  const batch = picked.join('|');
+  if (viewportTimer && batch === viewportBatch) return;
+  viewportBatch = batch;
+  if (viewportTimer) clearTimeout(viewportTimer);
+  viewportTimer = setTimeout(() => {
+    viewportTimer = null;
+    const sessionId = getSessionId();
+    const hq = useSettingsStore.getState().highQualityStreaming;
+    invoke('track_preload', {
+      entries: picked.map((urn) => ({
+        urn,
+        urls: streamFallbackUrls(urn, hq),
+        downloadUrls: downloadFallbackUrls(urn, hq),
+        storageUrls: buildStorageUrls(urn),
+        sessionId,
+        hq,
+      })),
+    }).catch(console.error);
+    for (const urn of picked) viewportRequested.add(urn);
+  }, VIEWPORT_PREFETCH_DELAY_MS);
 }
 
 export function preloadQueue() {

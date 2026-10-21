@@ -1,5 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import React, { useLayoutEffect, useRef, useState } from 'react';
+import { prefetchVisibleTracks } from '../../lib/audio';
 
 interface VirtualListProps<T> {
   items: T[];
@@ -9,6 +10,8 @@ interface VirtualListProps<T> {
   disabled?: boolean;
   getItemKey: (item: T, index: number) => string;
   renderItem: (item: T, index: number) => React.ReactNode;
+  /** URN of a row, enabling prefetch of the visible range (track lists only). */
+  prefetchUrn?: (item: T) => string | null;
 }
 
 export function VirtualList<T>({
@@ -19,6 +22,7 @@ export function VirtualList<T>({
   disabled = false,
   getItemKey,
   renderItem,
+  prefetchUrn,
 }: VirtualListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
@@ -35,6 +39,26 @@ export function VirtualList<T>({
     overscan,
   });
 
+  const virtualItems = virtualizer.getVirtualItems();
+  const totalHeight = virtualizer.getTotalSize();
+  // A primitive range key keeps the effect from re-running on every render just
+  // because the virtualizer returns a fresh array.
+  const visibleRange =
+    !disabled && prefetchUrn && virtualItems.length > 0
+      ? `${virtualItems[0].index}:${virtualItems[virtualItems.length - 1].index}`
+      : '';
+
+  useLayoutEffect(() => {
+    if (!visibleRange) return;
+    const [first, last] = visibleRange.split(':').map(Number);
+    const urns: string[] = [];
+    for (let i = first; i <= last && i < items.length; i++) {
+      const urn = prefetchUrn?.(items[i]);
+      if (urn) urns.push(urn);
+    }
+    prefetchVisibleTracks(urns);
+  }, [visibleRange, items, prefetchUrn]);
+
   if (disabled) {
     return (
       <div ref={containerRef} className={className}>
@@ -44,9 +68,6 @@ export function VirtualList<T>({
       </div>
     );
   }
-
-  const virtualItems = virtualizer.getVirtualItems();
-  const totalHeight = virtualizer.getTotalSize();
 
   return (
     <div

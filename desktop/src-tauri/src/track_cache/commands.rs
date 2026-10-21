@@ -73,6 +73,7 @@ pub async fn track_ensure_cached(
             hq: request.hq,
             liked: false,
             expected_duration_ms: request.duration_ms,
+            stream_sink: None,
         })
         .await
 }
@@ -103,6 +104,7 @@ pub async fn track_export(
                 hq: request.hq,
                 liked: false,
                 expected_duration_ms: request.duration_ms,
+                stream_sink: None,
             },
             dest_path,
             cover_url,
@@ -176,6 +178,7 @@ pub async fn track_preload(
                     hq,
                     liked: false,
                     expected_duration_ms: duration_ms,
+                    stream_sink: None,
                 })
                 .await
             {

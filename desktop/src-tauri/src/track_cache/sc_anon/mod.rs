@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use crate::audio::stream_buffer::StreamBuffer;
 use crate::rt::AppHandle;
 use tokio::sync::{Mutex, RwLock};
 
@@ -74,9 +75,22 @@ struct TranscodingResolveResponse {
     url: String,
 }
 
-/// Successful download from SC anon API.
-pub struct AnonStreamResult {
-    pub data: Bytes,
+/// Whether the progressive candidate is handed back as a live response or read
+/// whole. `Buffered` is the retry path when streaming the body straight from the
+/// response failed mid-way.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnonMode {
+    Stream,
+    Buffered,
+}
+
+/// What the anon path resolved to.
+pub enum AnonStream {
+    /// A single-file progressive stream (MP3): the response body is handed to
+    /// the cache writer so it can be mirrored into the decoder while it lands.
+    Progressive(wreq::Response),
+    /// HLS segments concatenated in memory; mirrored segment by segment.
+    Buffered(Bytes),
 }
 
 /// Caches a public `client_id` extracted from soundcloud.com homepage hydration.
@@ -140,20 +154,26 @@ impl AnonClient {
         }
     }
 
-    /// Fetch the full audio bytes for a track URN.
+    /// Fetch the audio for a track URN.
     /// Returns `Ok(None)` if SC has no usable transcoding (geo-blocked,
     /// preview-only, etc.) so the caller can fall through to the next source.
     /// `Err` is reserved for network failures and feeds the circuit breaker.
+    ///
+    /// `stream_sink` mirrors the winning source into the decoder as it arrives;
+    /// `Buffered` means the source had to be fetched whole first.
     pub async fn get_stream(
         &self,
         track_urn: &str,
         hq: bool,
         token: Option<&str>,
-    ) -> Result<Option<AnonStreamResult>, String> {
+        stream_sink: Option<&Arc<StreamBuffer>>,
+    ) -> Result<Option<AnonStream>, String> {
         if self.in_cooldown() {
             return Ok(None);
         }
-        let result = self.do_get_stream(track_urn, hq, token).await;
+        let result = self
+            .do_get_stream(track_urn, hq, token, stream_sink, AnonMode::Stream)
+            .await;
         match &result {
             Ok(Some(_)) => self.note_success(),
             Err(_) => self.note_failure(),
@@ -162,12 +182,36 @@ impl AnonClient {
         result
     }
 
+    /// Whole-body variant, used when mirroring a progressive body straight from
+    /// the response failed: buffers every candidate like the pre-streaming path.
+    pub async fn get_stream_buffered(
+        &self,
+        track_urn: &str,
+        hq: bool,
+        token: Option<&str>,
+    ) -> Result<Option<Bytes>, String> {
+        if self.in_cooldown() {
+            return Ok(None);
+        }
+        match self
+            .do_get_stream(track_urn, hq, token, None, AnonMode::Buffered)
+            .await
+        {
+            Ok(Some(AnonStream::Buffered(data))) => Ok(Some(data)),
+            Ok(Some(AnonStream::Progressive(_))) => Ok(None),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn do_get_stream(
         &self,
         track_urn: &str,
         hq: bool,
         token: Option<&str>,
-    ) -> Result<Option<AnonStreamResult>, String> {
+        stream_sink: Option<&Arc<StreamBuffer>>,
+        mode: AnonMode,
+    ) -> Result<Option<AnonStream>, String> {
         let track_id = track_urn.rsplit(':').next().unwrap_or(track_urn);
 
         let track = match self.get_track_by_id(track_id, token).await {
@@ -215,7 +259,14 @@ impl AnonClient {
         };
 
         match self
-            .stream_from_transcodings(transcodings, track_auth.as_deref(), hq, token)
+            .stream_from_transcodings(
+                transcodings,
+                track_auth.as_deref(),
+                hq,
+                token,
+                stream_sink,
+                mode,
+            )
             .await
         {
             Ok(Some(r)) => Ok(Some(r)),
@@ -246,19 +297,24 @@ impl AnonClient {
                     retry_auth.as_deref(),
                     hq,
                     token,
+                    stream_sink,
+                    mode,
                 )
                 .await
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn stream_from_transcodings(
         &self,
         transcodings: &[Transcoding],
         track_auth: Option<&str>,
         hq: bool,
         token: Option<&str>,
-    ) -> Result<Option<AnonStreamResult>, String> {
+        stream_sink: Option<&Arc<StreamBuffer>>,
+        mode: AnonMode,
+    ) -> Result<Option<AnonStream>, String> {
         let ranked = ranked_transcodings(transcodings, hq);
         if ranked.is_empty() {
             return Ok(None);
@@ -290,13 +346,23 @@ impl AnonClient {
             };
 
             let result = if is_progressive {
-                download_progressive(&self.client, &media_url, token).await
+                match mode {
+                    AnonMode::Stream => self
+                        .open_progressive(&media_url, token)
+                        .await
+                        .map(AnonStream::Progressive),
+                    AnonMode::Buffered => download_progressive(&self.client, &media_url, token)
+                        .await
+                        .map(AnonStream::Buffered),
+                }
             } else {
-                download_hls_full(&self.client, &media_url, token).await
+                download_hls_full(&self.client, &media_url, token, stream_sink)
+                    .await
+                    .map(AnonStream::Buffered)
             };
 
             match result {
-                Ok(data) => return Ok(Some(AnonStreamResult { data })),
+                Ok(stream) => return Ok(Some(stream)),
                 Err(e) => {
                     last_err = Some(format!(
                         "{} ({}) failed: {e}",
@@ -315,6 +381,26 @@ impl AnonClient {
             return Ok(None);
         }
         Err(last_err.unwrap_or_else(|| "all anon transcodings failed".into()))
+    }
+
+    /// GET the progressive stream and hand the response back unread: the cache
+    /// writer consumes the body, which is what lets the decoder start on the
+    /// first bytes instead of after the whole file.
+    async fn open_progressive(
+        &self,
+        url: &str,
+        token: Option<&str>,
+    ) -> Result<wreq::Response, String> {
+        let mut request = self.client.get(url);
+        if let Some(token) = token {
+            request = request.header("Authorization", format!("OAuth {token}"));
+        }
+        let resp = request.send().await.map_err(|e| format!("request: {e}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(format!("HTTP {status}"));
+        }
+        Ok(resp)
     }
 
     async fn get_client_id(&self) -> Result<String, String> {

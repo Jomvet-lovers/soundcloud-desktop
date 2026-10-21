@@ -85,6 +85,27 @@ export async function ensureTrackCached(
   return invoke<TrackCacheInfo>('track_ensure_cached', { request });
 }
 
+export interface StreamLoadResult {
+  durationSecs: number | null;
+  /** Playback started on the partial download. `track:download-progress` keeps
+   *  running until `audio:stream-complete` reports the finished file. */
+  streaming: boolean;
+  quality: PlaybackQuality | null;
+  source: PlaybackSource | null;
+}
+
+/** Cache miss: Rust downloads through the normal cache pipeline and, when the
+ *  container can decode from a prefix, starts playback before it completes. */
+export async function streamTrackCached(
+  urn: string,
+  highQualityStreaming: boolean,
+  durationMs: number | undefined,
+  startPaused: boolean,
+): Promise<StreamLoadResult> {
+  const request = await buildCacheRequest(urn, highQualityStreaming, durationMs);
+  return invoke<StreamLoadResult>('audio_load_stream', { request, startPaused });
+}
+
 export function getCacheSize(): Promise<number> {
   return invoke<number>('track_cache_size');
 }

@@ -56,6 +56,7 @@ export const LikesTab = React.memo(function LikesTab({ filter }: { filter: strin
             className="flex flex-col gap-1"
             disabled={filtered.length < 40}
             getItemKey={(track) => track.urn}
+            prefetchUrn={(track) => track.urn}
             renderItem={(track, i) => (
               <LibraryTrackRow track={track} index={i} queue={filtered} onPlay={onLikePlay} />
             )}

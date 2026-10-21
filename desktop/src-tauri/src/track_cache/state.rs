@@ -15,8 +15,9 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{Mutex, Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::app::diagnostics::log_native;
+use crate::audio::stream_buffer::StreamBuffer;
 use crate::track_cache::direct_download::try_download;
-use crate::track_cache::sc_anon::AnonClient;
+use crate::track_cache::sc_anon::{AnonClient, AnonStream};
 use crate::track_cache::transcode;
 
 const MIN_AUDIO_SIZE: u64 = 8192;
@@ -398,6 +399,9 @@ pub struct CacheRequest<'a> {
     /// API-reported track length (ms), if known — enables truncated-download
     /// detection. `None` falls back to the size + magic-byte gate only.
     pub expected_duration_ms: Option<u64>,
+    /// Streaming-first play: mirror the winning response into this buffer while
+    /// it is written to the `.part` file, so the decoder can start early.
+    pub stream_sink: Option<Arc<StreamBuffer>>,
 }
 
 struct FallbackParams<'a> {
@@ -408,6 +412,7 @@ struct FallbackParams<'a> {
     storage_urls: &'a [String],
     session_id: Option<&'a str>,
     hq: bool,
+    stream_sink: Option<Arc<StreamBuffer>>,
 }
 
 fn now_secs() -> u64 {
@@ -694,6 +699,7 @@ async fn write_response_to_cache(
     quality: PlaybackQuality,
     source: DownloadSource,
     app_handle: Option<&crate::rt::AppHandle>,
+    stream_sink: Option<&Arc<StreamBuffer>>,
 ) -> Result<DownloadResult, DownloadError> {
     let final_path = target_dir.join(urn_to_filename(urn));
     let temp_path = temp_file_path(target_dir, urn);
@@ -702,6 +708,14 @@ async fn write_response_to_cache(
         .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
     let mut writer = BufWriter::with_capacity(STREAM_WRITE_BUFFER_SIZE, file);
     let content_length = response.content_length().unwrap_or(0);
+    let claim = stream_sink.and_then(|sink| sink.claim());
+    if let Some(claim) = claim.as_ref() {
+        claim.start(
+            (content_length > 0).then_some(content_length),
+            quality.label(),
+            source.label(),
+        );
+    }
     let mut stream = response.bytes_stream();
     let mut total_size = 0u64;
     let mut sniff = Vec::with_capacity(AUDIO_SNIFF_LEN);
@@ -725,6 +739,12 @@ async fn write_response_to_cache(
         if let Err(err) = writer.write_all(&chunk).await {
             cleanup_temp_file(&temp_path).await;
             return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
+        }
+
+        // Same bytes the decoder reads: the mirror is a tee of the cache write,
+        // never a second request.
+        if let Some(claim) = claim.as_ref() {
+            claim.push(&chunk);
         }
 
         if let Some(app) = app_handle
@@ -771,6 +791,11 @@ async fn write_response_to_cache(
     if !is_valid_audio(&sniff, total_size) {
         cleanup_temp_file(&temp_path).await;
         return Err(DownloadError::Fatal("Invalid audio data".into()));
+    }
+
+    // The mirror now holds exactly the bytes that are committed to the cache.
+    if let Some(claim) = claim {
+        claim.commit();
     }
 
     let cache_meta = TrackCacheMetadata {
@@ -826,11 +851,23 @@ async fn write_bytes_to_cache(
     data: &[u8],
     quality: PlaybackQuality,
     source: DownloadSource,
+    stream_sink: Option<&Arc<StreamBuffer>>,
 ) -> Result<DownloadResult, DownloadError> {
     let total_size = data.len() as u64;
     let sniff_len = AUDIO_SNIFF_LEN.min(data.len());
     if !is_valid_audio(&data[..sniff_len], total_size) {
         return Err(DownloadError::Fatal("Invalid audio data".into()));
+    }
+
+    // Already buffered by the source (anon HLS / direct), so there is no early
+    // start to gain here — but the sink must still see the winning bytes so the
+    // caller's stream session can hand playback a complete buffer.
+    if let Some(sink) = stream_sink
+        && let Some(claim) = sink.claim()
+    {
+        claim.start(Some(total_size), quality.label(), source.label());
+        claim.push(data);
+        claim.commit();
     }
 
     let final_path = target_dir.join(urn_to_filename(urn));
@@ -904,6 +941,7 @@ async fn download_api(
     url: &str,
     session_id: Option<&str>,
     app_handle: Option<&crate::rt::AppHandle>,
+    stream_sink: Option<&Arc<StreamBuffer>>,
 ) -> Result<DownloadResult, DownloadError> {
     let (response, hop) = crate::network::audio_route::get(client, url, session_id)
         .await
@@ -919,6 +957,7 @@ async fn download_api(
             quality,
             DownloadSource::Api,
             app_handle,
+            stream_sink,
         )
         .await;
         if matches!(&result, Err(DownloadError::Retryable(_))) {
@@ -1119,6 +1158,7 @@ impl TrackCacheState {
             hq,
             liked,
             expected_duration_ms,
+            stream_sink,
         } = req;
 
         if let Some(entry) = self.get_cache_entry(urn) {
@@ -1185,6 +1225,7 @@ impl TrackCacheState {
                 storage_urls,
                 session_id,
                 hq,
+                stream_sink,
             })
             .await;
 
@@ -1535,6 +1576,7 @@ impl TrackCacheState {
             storage_urls,
             session_id,
             hq,
+            stream_sink,
         } = params;
         let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
@@ -1583,6 +1625,7 @@ impl TrackCacheState {
                         quality,
                         DownloadSource::Storage,
                         self.app_handle.as_ref(),
+                        stream_sink.as_ref(),
                     )
                     .await
                     {
@@ -1618,20 +1661,75 @@ impl TrackCacheState {
         // 2. Try anon: download directly from SC public API v2.
         //    Saves a hop through our streaming infra when the user can reach
         //    SoundCloud directly.
-        match self.anon.get_stream(urn, hq, session_id).await {
-            Ok(Some(result)) => {
+        match self
+            .anon
+            .get_stream(urn, hq, session_id, stream_sink.as_ref())
+            .await
+        {
+            Ok(Some(stream)) => {
                 let line = format!("[TrackCache] {urn} → anon (SC api v2)");
                 println!("{line}");
                 self.diag("INFO", line);
-                match write_bytes_to_cache(
-                    target_dir,
-                    urn,
-                    &result.data,
-                    PlaybackQuality::Sq,
-                    DownloadSource::Anon,
-                )
-                .await
-                {
+                let streamed_body = matches!(stream, AnonStream::Progressive(_));
+                let written = match stream {
+                    // The progressive body is consumed by the cache writer, which
+                    // is what feeds the decoder while it lands.
+                    AnonStream::Progressive(response) => {
+                        write_response_to_cache(
+                            target_dir,
+                            urn,
+                            response,
+                            PlaybackQuality::Sq,
+                            DownloadSource::Anon,
+                            self.app_handle.as_ref(),
+                            stream_sink.as_ref(),
+                        )
+                        .await
+                    }
+                    AnonStream::Buffered(data) => {
+                        write_bytes_to_cache(
+                            target_dir,
+                            urn,
+                            &data,
+                            PlaybackQuality::Sq,
+                            DownloadSource::Anon,
+                            stream_sink.as_ref(),
+                        )
+                        .await
+                    }
+                };
+                // A body that breaks after the GET can no longer try the other
+                // presets in place; read the candidates whole like before streaming.
+                let written = match written {
+                    Ok(res) => Ok(res),
+                    Err(err) if streamed_body => {
+                        let first_err = match &err {
+                            DownloadError::Fatal(e) | DownloadError::Retryable(e) => e.clone(),
+                        };
+                        let line = format!(
+                            "[TrackCache] anon stream failed for {urn}: {first_err}; retrying buffered"
+                        );
+                        eprintln!("{line}");
+                        self.diag("WARN", line);
+                        match self.anon.get_stream_buffered(urn, hq, session_id).await {
+                            Ok(Some(data)) => {
+                                write_bytes_to_cache(
+                                    target_dir,
+                                    urn,
+                                    &data,
+                                    PlaybackQuality::Sq,
+                                    DownloadSource::Anon,
+                                    stream_sink.as_ref(),
+                                )
+                                .await
+                            }
+                            Ok(None) => Err(err),
+                            Err(retry_err) => Err(DownloadError::Retryable(retry_err)),
+                        }
+                    }
+                    Err(err) => Err(err),
+                };
+                match written {
                     Ok(res) => {
                         let kb = std::fs::metadata(&res.path)
                             .map(|m| m.len() / 1024)
@@ -1715,6 +1813,7 @@ impl TrackCacheState {
                         PlaybackQuality::Hq,
                         DownloadSource::Storage,
                         self.app_handle.as_ref(),
+                        stream_sink.as_ref(),
                     )
                     .await
                     {
@@ -1751,7 +1850,16 @@ impl TrackCacheState {
         // First success wins, the loser is dropped → reqwest cancels its connection.
         if !download_urls.is_empty() || !urls.is_empty() {
             match self
-                .race_direct_and_api(target_dir, urn, download_urls, urls, session_id, hq, start)
+                .race_direct_and_api(
+                    target_dir,
+                    urn,
+                    download_urls,
+                    urls,
+                    session_id,
+                    hq,
+                    start,
+                    stream_sink.clone(),
+                )
                 .await
             {
                 Ok(path) => return Ok(path),
@@ -1775,6 +1883,7 @@ impl TrackCacheState {
         session_id: Option<&str>,
         hq: bool,
         start: std::time::Instant,
+        stream_sink: Option<&Arc<StreamBuffer>>,
     ) -> Result<PathBuf, String> {
         if download_urls.is_empty() {
             return Err("no download_urls".into());
@@ -1793,6 +1902,7 @@ impl TrackCacheState {
             &result.data,
             quality,
             DownloadSource::Direct,
+            stream_sink,
         )
         .await
         {
@@ -1824,6 +1934,7 @@ impl TrackCacheState {
         urls: &[String],
         session_id: Option<&str>,
         start: std::time::Instant,
+        stream_sink: Option<Arc<StreamBuffer>>,
     ) -> Result<PathBuf, String> {
         if urls.is_empty() {
             return Err("no /stream URLs".into());
@@ -1841,10 +1952,17 @@ impl TrackCacheState {
                 let urn = urn.to_string();
                 let url = url.clone();
                 let session_id = session_id.map(str::to_string);
+                let stream_sink = stream_sink.clone();
                 println!("[TrackCache] trying URL #{} for {urn} - {url}", i + 1);
                 Box::pin(async move {
                     let res = state
-                        .download_api_with_retries(&target_dir, &urn, &url, session_id.as_deref())
+                        .download_api_with_retries(
+                            &target_dir,
+                            &urn,
+                            &url,
+                            session_id.as_deref(),
+                            stream_sink,
+                        )
                         .await;
                     (i, res)
                 }) as DownloadFut
@@ -1888,9 +2006,19 @@ impl TrackCacheState {
         session_id: Option<&str>,
         hq: bool,
         start: std::time::Instant,
+        stream_sink: Option<Arc<StreamBuffer>>,
     ) -> Result<PathBuf, String> {
-        let direct_fut = self.try_direct(target_dir, urn, download_urls, session_id, hq, start);
-        let api_fut = self.try_api(target_dir, urn, urls, session_id, start);
+        let direct_sink = stream_sink.clone();
+        let direct_fut = self.try_direct(
+            target_dir,
+            urn,
+            download_urls,
+            session_id,
+            hq,
+            start,
+            direct_sink.as_ref(),
+        );
+        let api_fut = self.try_api(target_dir, urn, urls, session_id, start, stream_sink);
         tokio::pin!(direct_fut);
         tokio::pin!(api_fut);
 
@@ -1938,6 +2066,7 @@ impl TrackCacheState {
         urn: &str,
         url: &str,
         session_id: Option<&str>,
+        stream_sink: Option<Arc<StreamBuffer>>,
     ) -> Result<PathBuf, String> {
         let mut last_err = String::new();
 
@@ -1954,6 +2083,7 @@ impl TrackCacheState {
                 url,
                 session_id,
                 self.app_handle.as_ref(),
+                stream_sink.as_ref(),
             )
             .await
             {
@@ -2133,6 +2263,7 @@ impl TrackCacheState {
                         hq,
                         liked: true,
                         expected_duration_ms: duration_ms,
+                        stream_sink: None,
                     })
                     .await;
                 if result.is_err() {

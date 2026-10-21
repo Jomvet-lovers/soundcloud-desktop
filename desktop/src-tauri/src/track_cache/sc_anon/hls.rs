@@ -9,6 +9,9 @@ use bytes::{Bytes, BytesMut};
 use wreq::Client;
 use url::Url;
 
+use crate::audio::stream_buffer::StreamBuffer;
+use std::sync::Arc;
+
 const HLS_PREFETCH_SEGMENTS: usize = 3;
 
 /// Fetch a single-file (progressive) audio stream.
@@ -25,10 +28,15 @@ pub async fn download_progressive(
 }
 
 /// Fetch + concat every segment of an HLS playlist.
+///
+/// Each segment is mirrored into `stream_sink` as it lands, in playlist order, so
+/// the decoder can start after the init segment plus the first few segments. The
+/// mirror only ever sees a prefix of the same concatenation the cache writes.
 pub async fn download_hls_full(
     client: &Client,
     m3u8_url: &str,
     token: Option<&str>,
+    stream_sink: Option<&Arc<StreamBuffer>>,
 ) -> Result<Bytes, String> {
     let m3u8_text = fetch_bytes(client, m3u8_url, token).await?;
     let m3u8_content = String::from_utf8_lossy(&m3u8_text);
@@ -39,6 +47,12 @@ pub async fn download_hls_full(
     }
 
     let mut buf = BytesMut::new();
+    // Labels mirror what the cache write stamps for an anon result; the total
+    // size is only known once every segment is in.
+    let mut claim = stream_sink.and_then(|sink| sink.claim());
+    if let Some(claim) = claim.as_ref() {
+        claim.start(None, "sq", "anon");
+    }
 
     if let Some(ref init) = init_url {
         let data = fetch_bytes(client, init, token).await?;
@@ -46,6 +60,9 @@ pub async fn download_hls_full(
             return Err("unsupported stream".into());
         }
         buf.extend_from_slice(&data);
+        if let Some(claim) = claim.as_ref() {
+            claim.push(&data);
+        }
     }
 
     let mut inflight: Vec<tokio::task::JoinHandle<Result<Bytes, String>>> = Vec::new();
@@ -72,13 +89,21 @@ pub async fn download_hls_full(
     while !inflight.is_empty() {
         let handle = inflight.remove(0);
         match handle.await {
-            Ok(Ok(chunk)) => buf.extend_from_slice(&chunk),
+            Ok(Ok(chunk)) => {
+                buf.extend_from_slice(&chunk);
+                if let Some(claim) = claim.as_ref() {
+                    claim.push(&chunk);
+                }
+            }
             Ok(Err(e)) => return Err(format!("segment download: {e}")),
             Err(e) => return Err(format!("segment task panic: {e}")),
         }
         fill_queue(&mut inflight, &mut next_idx, client, &segment_urls);
     }
 
+    if let Some(claim) = claim.take() {
+        claim.commit();
+    }
     Ok(buf.freeze())
 }
 

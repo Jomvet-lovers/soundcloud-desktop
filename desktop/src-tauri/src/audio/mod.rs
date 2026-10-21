@@ -7,6 +7,7 @@ mod eq;
 mod media_controls;
 mod resample;
 mod state;
+pub mod stream_buffer;
 mod tick;
 mod timing;
 mod types;

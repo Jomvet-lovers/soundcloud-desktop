@@ -156,6 +156,7 @@ function ArtistTracksTabImpl({
           overscan={8}
           className="flex flex-col gap-1"
           getItemKey={(track) => track.urn}
+          prefetchUrn={(track) => track.urn}
           renderItem={(track, i) => (
             <ThemedTrackRow track={track} index={i} queue={available} aura={aura} />
           )}

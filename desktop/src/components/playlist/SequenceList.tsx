@@ -95,6 +95,7 @@ export const SequenceList = React.memo(function SequenceList({
               overscan={12}
               className="space-y-0.5"
               getItemKey={(tr) => tr.urn}
+              prefetchUrn={(tr) => tr.urn}
               renderItem={(track, i) => (
                 <SortableSequenceRow
                   track={track}
@@ -119,6 +120,7 @@ export const SequenceList = React.memo(function SequenceList({
           overscan={10}
           className="space-y-0.5"
           getItemKey={(tr) => tr.urn}
+          prefetchUrn={(tr) => tr.urn}
           renderItem={(track, i) => (
             <SequenceRow track={track} index={i} queue={tracks} onPlay={onPlay} />
           )}
