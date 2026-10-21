@@ -545,12 +545,16 @@ impl AnonClient {
                     }
                     Some(Err(_)) | None => pref_dead = true,
                 },
-                chunk = body_alt.next(), if !alt_dead => match chunk {
+                chunk = body_alt.next(),
+                    if !alt_dead && (pref_dead || head_alt.len() < HEAD_BYTES) => match chunk {
                     Some(Ok(bytes)) => {
                         head_alt.extend_from_slice(&bytes);
                         // The alternate only wins once the preferred tier has
                         // actually died with still no head; while the preferred
-                        // leg is alive its bytes are drained and dropped.
+                        // leg is alive it stops being polled after this head, so
+                        // a slow preferred stream cannot make the fallback
+                        // buffer the whole file. Polling resumes if the
+                        // preferred leg dies.
                         if pref_dead && head_alt.len() >= HEAD_BYTES {
                             return Some(AnonHead {
                                 preset: legs[1].0.to_string(),
