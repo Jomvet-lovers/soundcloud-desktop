@@ -119,8 +119,17 @@ jobs:
           # walked the whole history; under bash -e -o pipefail, git log then
           # died on SIGPIPE against "| head -60" on Linux (exit 141). -n 60
           # limits inside git, no pipe to break.
-          PREV=$(git describe --tags --exclude="$TAG" --abbrev=0 'HEAD^' 2>/dev/null || true)
-          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          #
+          # Run 39589813120: the fallback was hit again because the origin
+          # v8.4.15 tag points at a commit that direct-mode's history no
+          # longer descends from, so git found no reachable tag at all.
+          # Print the describe outcome so the next failure self-reports.
+          if DESC_OUT=$(git describe --tags --exclude="$TAG" --abbrev=0 'HEAD^' 2>&1); then
+            RANGE="$DESC_OUT..HEAD"
+          else
+            echo "git describe found no reachable previous tag: $DESC_OUT"
+            RANGE="HEAD"
+          fi
           echo "release notes over: $RANGE"
           NOTES=$(git log -n 60 "$RANGE" --format='- %s' -- desktop/ .github/workflows)
           [ -z "$NOTES" ] && NOTES="- (no app changes)"
@@ -231,8 +240,17 @@ jobs:
           # walked the whole history; under bash -e -o pipefail, git log then
           # died on SIGPIPE against "| head -60" on Linux (exit 141). -n 60
           # limits inside git, no pipe to break.
-          PREV=$(git describe --tags --exclude="$TAG" --abbrev=0 'HEAD^' 2>/dev/null || true)
-          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          #
+          # Run 39589813120: the fallback was hit again because the origin
+          # v8.4.15 tag points at a commit that direct-mode's history no
+          # longer descends from, so git found no reachable tag at all.
+          # Print the describe outcome so the next failure self-reports.
+          if DESC_OUT=$(git describe --tags --exclude="$TAG" --abbrev=0 'HEAD^' 2>&1); then
+            RANGE="$DESC_OUT..HEAD"
+          else
+            echo "git describe found no reachable previous tag: $DESC_OUT"
+            RANGE="HEAD"
+          fi
           echo "release notes over: $RANGE"
           NOTES=$(git log -n 60 "$RANGE" --format='- %s' -- desktop/ .github/workflows)
           [ -z "$NOTES" ] && NOTES="- (no app changes)"
