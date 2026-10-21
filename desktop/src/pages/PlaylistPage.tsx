@@ -18,6 +18,7 @@ import {
 import { AlertCircle, X } from '../lib/icons';
 import { rawPlaylistCover } from '../lib/playlist-cover';
 import { armPlaylistContinuation } from '../lib/queue-continuation';
+import { toastWriteError } from '../lib/write-error';
 import { useAuthStore } from '../stores/auth';
 import { pinPlaylist, unpinPlaylist, usePinnedPlaylists } from '../stores/pinned-playlists';
 import { type Track, usePlayerStore } from '../stores/player';
@@ -92,9 +93,11 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
           pendingMutationRef.current = false;
           if (payload.successMsg) toast.success(payload.successMsg);
         },
-        onError: () => {
+        onError: (error) => {
           pendingMutationRef.current = false;
           setLocalTracks(serverTracksRef.current);
+          // The rows snap back because SoundCloud refused the write; say so.
+          toastWriteError(error, "Couldn't save the playlist order");
         },
       });
     },

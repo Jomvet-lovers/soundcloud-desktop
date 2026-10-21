@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import type { Aura } from '../../lib/aura';
 import { Loader2 } from '../../lib/icons';
+import { toastWriteError } from '../../lib/write-error';
 import { useAuthStore } from '../../stores/auth';
 
 interface FollowBtnProps {
@@ -42,8 +43,9 @@ export function FollowBtn({ userUrn }: FollowBtnProps) {
       // Cold-кеш `/me/followings` живёт с staleTime: Infinity — invalidate
       // обязателен, иначе UI не покажет нового follow/unfollow до перезапуска.
       qc.invalidateQueries({ queryKey: ['me', 'followings'] });
-    } catch {
+    } catch (error) {
       setFollowing(!next);
+      toastWriteError(error, "SoundCloud didn't accept the follow");
     } finally {
       setLoading(false);
     }

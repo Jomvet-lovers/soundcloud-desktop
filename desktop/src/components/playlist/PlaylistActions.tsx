@@ -5,6 +5,7 @@ import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
 import { Check, Heart, LinkIcon, MapPin, Shuffle, Trash2 } from '../../lib/icons';
 import { usePulseHeart } from '../../lib/pulse-heart';
+import { toastWriteError } from '../../lib/write-error';
 import { SharingToggle } from '../music/SharingToggle';
 
 const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
@@ -44,9 +45,10 @@ const PlaylistLikeBtn = React.memo(function PlaylistLikeBtn({
         qc.invalidateQueries({ queryKey: ['likes', 'playlist', playlistUrn] });
         qc.invalidateQueries({ queryKey: ['me', 'likes', 'playlists'] });
       }, 3000);
-    } catch {
+    } catch (error) {
       setLiked(!next);
       setLocalCount((c) => c + (next ? -1 : 1));
+      toastWriteError(error, "SoundCloud didn't accept the like");
     }
   };
 

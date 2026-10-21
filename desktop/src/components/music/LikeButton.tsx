@@ -5,6 +5,7 @@ import { invalidateAllLikesCache } from '../../lib/hooks';
 import { Heart } from '../../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
 import { usePulseHeart } from '../../lib/pulse-heart';
+import { toastWriteError } from '../../lib/write-error';
 import type { Track } from '../../stores/player';
 
 export const LikeButton = React.memo(function LikeButton({
@@ -39,8 +40,13 @@ export const LikeButton = React.memo(function LikeButton({
         method: next ? 'POST' : 'DELETE',
         body: next ? JSON.stringify(track) : undefined,
       });
-    } catch {
-      if (seq === toggleSeqRef.current) optimisticToggleLike(qc, track, !next);
+    } catch (error) {
+      if (seq === toggleSeqRef.current) {
+        optimisticToggleLike(qc, track, !next);
+        // The like is only recorded after SoundCloud accepts it, so the heart
+        // snapping back is the whole truth: say why.
+        toastWriteError(error, "SoundCloud didn't accept the like");
+      }
     }
   };
 
