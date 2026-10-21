@@ -75,6 +75,11 @@ export interface SettingsState {
   discordRpcShowButton: boolean;
   touchKeyboardAutoShow: boolean;
   inputMode: InputMode;
+  /** Output device chosen manually (cpal device id on Win/mac, pactl sink name
+   *  on Linux); null = follow the Windows default. Restored at startup. */
+  audioOutputDevice: string | null;
+  /** Whether the OS default device change is followed live. */
+  followDefaultOutput: boolean;
   setAccentColor: (color: string) => void;
   setBgPrimary: (bg: string) => void;
   setThemePreset: (id: ThemePreset) => void;
@@ -104,6 +109,8 @@ export interface SettingsState {
   setDiscordRpcShowButton: (show: boolean) => void;
   setTouchKeyboardAutoShow: (enabled: boolean) => void;
   setInputMode: (mode: InputMode) => void;
+  setAudioOutputDevice: (device: string | null) => void;
+  setFollowDefaultOutput: (follow: boolean) => void;
   resetTheme: () => void;
 }
 
@@ -135,6 +142,8 @@ const DEFAULTS = {
   discordRpcShowButton: true,
   touchKeyboardAutoShow: false,
   inputMode: 'auto' as InputMode,
+  audioOutputDevice: null,
+  followDefaultOutput: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -210,6 +219,8 @@ export const useSettingsStore = create<SettingsState>()(
       setDiscordRpcShowButton: (discordRpcShowButton) => set({ discordRpcShowButton }),
       setTouchKeyboardAutoShow: (touchKeyboardAutoShow) => set({ touchKeyboardAutoShow }),
       setInputMode: (inputMode) => set({ inputMode }),
+      setAudioOutputDevice: (audioOutputDevice) => set({ audioOutputDevice }),
+      setFollowDefaultOutput: (followDefaultOutput) => set({ followDefaultOutput }),
       resetTheme: () =>
         set({
           accentColor: DEFAULTS.accentColor,
@@ -272,6 +283,8 @@ export const useSettingsStore = create<SettingsState>()(
         discordRpcShowButton: s.discordRpcShowButton,
         touchKeyboardAutoShow: s.touchKeyboardAutoShow,
         inputMode: s.inputMode,
+        audioOutputDevice: s.audioOutputDevice,
+        followDefaultOutput: s.followDefaultOutput,
       }),
     },
   ),

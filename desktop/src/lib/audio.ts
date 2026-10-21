@@ -137,6 +137,25 @@ export async function switchAudioDevice(deviceName: string | null, manual = fals
   }
 
   await invoke('audio_switch_device', { deviceName });
+
+  // Persist so the pick survives a restart. A failed switch throws above and
+  // leaves the previous choice intact.
+  useSettingsStore.getState().setAudioOutputDevice(deviceName);
+  useSettingsStore.getState().setFollowDefaultOutput(deviceName == null);
+}
+
+/** Apply the persisted output device at startup. A saved device that is gone
+ *  (unplugged BT sink, hot-swapped USB dock) falls back to the OS default
+ *  through the switch path, and the saved id stays for the next time. */
+export async function restoreAudioDevice() {
+  const { audioOutputDevice, followDefaultOutput } = useSettingsStore.getState();
+  if (audioOutputDevice) {
+    await switchAudioDevice(audioOutputDevice, true);
+    return;
+  }
+  if (!followDefaultOutput) {
+    await invoke('audio_set_follow_default_output', { follow: false }).catch(console.error);
+  }
 }
 
 /** Reload the current track on new audio device, preserving position */
@@ -796,8 +815,11 @@ useSettingsStore.subscribe((state, prev) => {
   }
 });
 
-/* ── Native Media Controls (souvlaki: MPRIS/SMTC) ───────────── */
+/* ── Restore persisted output device ────────────────────────── */
 
+void restoreAudioDevice().catch(console.error);
+
+/* ── Native Media Controls (souvlaki: MPRIS/SMTC) ───────────── */
 function updateMetadata(track: Track, durationSecs?: number) {
   const coverUrl = art(track.artwork_url, 't500x500') || undefined;
   const display = getArtistDisplay(track);

@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { switchAudioDevice } from '../../../lib/audio';
 import { trackedInvoke } from '../../../lib/diagnostics';
 import { Check, Volume2 } from '../../../lib/icons';
+import { useSettingsStore } from '../../../stores/settings';
 import { Card } from '../primitives';
 
 interface AudioSink {
@@ -16,8 +17,20 @@ interface AudioSink {
 /** Flat two-line device list — adapter name on top, endpoint name below. */
 export function AudioDeviceCard() {
   const [sinks, setSinks] = useState<AudioSink[]>([]);
-  const [following, setFollowing] = useState(true);
+  const [following, setFollowing] = useState(() => useSettingsStore.getState().followDefaultOutput);
   const [switching, setSwitching] = useState(false);
+
+  // Rust owns the runtime truth, but the persisted choice is what a fresh
+  // mount should show before the device query lands.
+  useEffect(
+    () =>
+      useSettingsStore.subscribe((state, prev) => {
+        if (state.followDefaultOutput !== prev.followDefaultOutput) {
+          setFollowing(state.followDefaultOutput);
+        }
+      }),
+    [],
+  );
 
   const refreshSinks = useCallback(() => {
     trackedInvoke<AudioSink[]>('audio_list_devices').then(setSinks).catch(console.error);
