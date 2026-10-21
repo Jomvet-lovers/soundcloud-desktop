@@ -150,7 +150,17 @@ export async function switchAudioDevice(deviceName: string | null, manual = fals
 export async function restoreAudioDevice() {
   const { audioOutputDevice, followDefaultOutput } = useSettingsStore.getState();
   if (audioOutputDevice) {
-    await switchAudioDevice(audioOutputDevice, true);
+    try {
+      await switchAudioDevice(audioOutputDevice, true);
+    } catch (error) {
+      // The switch itself already fell back to the system default; say so once
+      // and keep the saved id so the device is picked up again when it returns.
+      console.warn('[Audio] saved output device unavailable:', error);
+      toast.error('Saved output device not found', {
+        id: 'audio-device-restore',
+        description: 'Using the system default for now.',
+      });
+    }
     return;
   }
   if (!followDefaultOutput) {
