@@ -31,6 +31,16 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
+        // Size and position only: the main window is undecorated and drawn by
+        // the app, so restoring visibility/decorations would fight the titlebar.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION,
+                )
+                .build(),
+        )
         .register_asynchronous_uri_scheme_protocol("scproxy", |_ctx, request, responder| {
             let Some(state) = network::proxy::STATE.get() else {
                 responder.respond(
