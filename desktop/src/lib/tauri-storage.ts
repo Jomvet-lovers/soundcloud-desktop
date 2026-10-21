@@ -1,7 +1,27 @@
-import { BaseDirectory, exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import {
+  BaseDirectory,
+  copyFile,
+  exists,
+  mkdir,
+  readTextFile,
+  writeTextFile,
+} from '@tauri-apps/plugin-fs';
 import type { PersistStorage, StateStorage, StorageValue } from 'zustand/middleware';
 
 const BASE_DIR = BaseDirectory.AppData;
+
+// Persist-file renames: when a store's file name changes, older releases that
+// still write the old name must not be able to touch the new file. On first
+// read we transparently transplant the legacy content once and keep updating
+// only the new name from then on.
+const FILE_MIGRATIONS: Record<string, string> = {
+  'sc-settings-v21': 'sc-settings',
+};
+
+// Keep the last written copy beside the settings file. Writing is not atomic
+// in the schema sense: a version drop (older build) or a bad migration can
+// replace the whole map, and the previous content is then unrecoverable.
+const BACKUP_UNLESS_RENAMED_SUFFIX = '.bak';
 
 let dirReady: Promise<void> | null = null;
 
@@ -16,10 +36,28 @@ function filePath(name: string) {
   return `${name}.json`;
 }
 
+async function transplantLegacyFile(name: string, path: string): Promise<void> {
+  const legacyName = FILE_MIGRATIONS[name];
+  if (!legacyName) return;
+  const legacyPath = filePath(legacyName);
+  try {
+    if (
+      !(await exists(path, { baseDir: BASE_DIR })) &&
+      (await exists(legacyPath, { baseDir: BASE_DIR }))
+    ) {
+      const legacy = await readTextFile(legacyPath, { baseDir: BASE_DIR });
+      await writeTextFile(path, legacy, { baseDir: BASE_DIR });
+    }
+  } catch {
+    // fall through: existing behavior (empty hydrate) still applies
+  }
+}
+
 export const tauriStorage: StateStorage = {
   getItem: async (name) => {
     await ensureDir();
     const path = filePath(name);
+    await transplantLegacyFile(name, path);
     try {
       if (await exists(path, { baseDir: BASE_DIR })) {
         return await readTextFile(path, { baseDir: BASE_DIR });
@@ -33,6 +71,18 @@ export const tauriStorage: StateStorage = {
   setItem: async (name, value) => {
     await ensureDir();
     const path = filePath(name);
+    if (name in FILE_MIGRATIONS) {
+      try {
+        if (await exists(path, { baseDir: BASE_DIR })) {
+          await copyFile(path, `${path}${BACKUP_UNLESS_RENAMED_SUFFIX}`, {
+            fromPathBaseDir: BASE_DIR,
+            toPathBaseDir: BASE_DIR,
+          });
+        }
+      } catch {
+        // backup failure must not block the write
+      }
+    }
     try {
       await writeTextFile(path, value, { baseDir: BASE_DIR });
     } catch {

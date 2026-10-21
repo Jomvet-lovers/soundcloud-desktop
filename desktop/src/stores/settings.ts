@@ -240,9 +240,9 @@ export const useSettingsStore = create<SettingsState>()(
         }),
     }),
     {
-      name: 'sc-settings',
+      name: 'sc-settings-v21',
       storage: createJSONStorage(() => tauriStorage),
-      version: 20,
+      version: 21,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;

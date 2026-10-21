@@ -162,7 +162,7 @@ export async function switchAudioDevice(
   useSettingsStore.getState().setFollowDefaultOutput(deviceName == null);
 }
 
-/** Resolves once zustand persist has loaded `sc-settings` from disk. */
+/** Resolves once zustand persist has loaded `sc-settings-v21` from disk. */
 function whenSettingsHydrated(): Promise<void> {
   const persist = useSettingsStore.persist;
   if (persist.hasHydrated()) return Promise.resolve();

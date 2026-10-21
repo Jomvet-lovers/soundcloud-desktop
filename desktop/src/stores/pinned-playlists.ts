@@ -31,5 +31,9 @@ export function unpinPlaylist(urn: string): void {
 
 /** Move the pre-multi-account pin list into the active account, once. */
 export function claimLegacyPins(): void {
+  // The shell can mount before the session resolves. Claiming under `anon`
+  // then would park the pins where the signed-in account never looks, so
+  // wait for an account id.
+  if (useAuthStore.getState().activeId == null) return;
   useSettingsStore.getState().claimLegacyPins(ownerKey());
 }
