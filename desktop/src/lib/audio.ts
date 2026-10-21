@@ -431,41 +431,50 @@ async function loadTrack(track: Track) {
     // waits for the finished file exactly like before.
     setDownloadProgress(0);
 
-    const startPaused = !usePlayerStore.getState().isPlaying;
-    let loaded: StreamLoadResult;
+    // This click owns the bandwidth until its first audio arrives (streaming
+    // start) or the whole file is cached; viewport prefetch waits for that.
+    setNetworkLoad(true);
     try {
-      loaded = await streamTrackCached(urn, highQualityStreaming, track.duration, startPaused);
-    } catch (error) {
+      const startPaused = !usePlayerStore.getState().isPlaying;
+      let loaded: StreamLoadResult;
+      try {
+        loaded = await streamTrackCached(urn, highQualityStreaming, track.duration, startPaused);
+      } catch (error) {
+        if (gen !== loadGen) {
+          invoke('audio_stop').catch(console.error);
+          return;
+        }
+        if (!highQualityStreaming) throw error;
+        console.warn('[Audio] HQ load failed, retrying without hq:', error);
+        loaded = await streamTrackCached(urn, false, track.duration, startPaused);
+      }
+
       if (gen !== loadGen) {
         invoke('audio_stop').catch(console.error);
         return;
       }
-      if (!highQualityStreaming) throw error;
-      console.warn('[Audio] HQ load failed, retrying without hq:', error);
-      loaded = await streamTrackCached(urn, false, track.duration, startPaused);
-    }
+      // A streaming load keeps the progress readout until the download finishes.
+      if (!loaded.streaming) setDownloadProgress(null);
+      usePlayerStore.getState().setPlaybackTransport(loaded.quality, loaded.source);
 
-    if (gen !== loadGen) {
-      invoke('audio_stop').catch(console.error);
-      return;
-    }
-    // A streaming load keeps the progress readout until the download finishes.
-    if (!loaded.streaming) setDownloadProgress(null);
-    usePlayerStore.getState().setPlaybackTransport(loaded.quality, loaded.source);
+      console.log(
+        loaded.streaming
+          ? '[Audio] Playing while downloading:'
+          : '[Audio] Playing downloaded track:',
+        urn,
+      );
+      if (loaded.durationSecs) {
+        fallbackDuration = loaded.durationSecs;
+        cachedDuration = loaded.durationSecs;
+        updateMetadata(track, loaded.durationSecs);
+        notify();
+      }
+      void enforceAudioCacheLimit().catch(console.error);
 
-    console.log(
-      loaded.streaming ? '[Audio] Playing while downloading:' : '[Audio] Playing downloaded track:',
-      urn,
-    );
-    if (loaded.durationSecs) {
-      fallbackDuration = loaded.durationSecs;
-      cachedDuration = loaded.durationSecs;
-      updateMetadata(track, loaded.durationSecs);
-      notify();
+      afterLoad(track, gen);
+    } finally {
+      setNetworkLoad(false);
     }
-    void enforceAudioCacheLimit().catch(console.error);
-
-    afterLoad(track, gen);
   } catch (e) {
     console.error('[Audio] Load failed:', e);
     setDownloadProgress(null);
@@ -877,10 +886,36 @@ let preloadTimer: ReturnType<typeof setTimeout> | null = null;
 const hoverPrefetched = new Set<string>();
 const viewportRequested = new Set<string>();
 let viewportTimer: ReturnType<typeof setTimeout> | null = null;
-let viewportBatch = '';
+/** Picked but not sent yet: waiting on the debounce or on a user load. */
+let queuedViewport: string[] | null = null;
 /** Rows prefetched per viewport, and the settle delay before asking. */
 const VIEWPORT_PREFETCH_LIMIT = 3;
 const VIEWPORT_PREFETCH_DELAY_MS = 1200;
+
+/** A click that has to fetch audio owns the bandwidth from load start until its
+ *  first audio arrives (streaming start) or the whole file is cached. Batches
+ *  queued in that window wait; already-running prefetches are left alone. */
+let networkLoads = 0;
+let networkLoadActive = false;
+
+function setNetworkLoad(active: boolean) {
+  // Loads can overlap (a click while the previous track is still fetching), so
+  // the gate closes only when the last one is done.
+  networkLoads = Math.max(0, networkLoads + (active ? 1 : -1));
+  networkLoadActive = networkLoads > 0;
+  if (networkLoadActive) {
+    // Hold a batch that is only waiting on its debounce instead of firing it
+    // while the click is still fetching.
+    if (viewportTimer) {
+      clearTimeout(viewportTimer);
+      viewportTimer = null;
+    }
+    return;
+  }
+  const pending = queuedViewport;
+  queuedViewport = null;
+  if (pending) prefetchVisibleTracks(pending);
+}
 
 export function preloadTrack(urn: string) {
   // A hover is a stronger signal than the viewport scan: drop the queued batch
@@ -889,8 +924,8 @@ export function preloadTrack(urn: string) {
   if (viewportTimer) {
     clearTimeout(viewportTimer);
     viewportTimer = null;
-    viewportBatch = '';
   }
+  queuedViewport = null;
   if (preloadTimer) clearTimeout(preloadTimer);
   preloadTimer = setTimeout(() => {
     const sessionId = getSessionId();
@@ -924,12 +959,13 @@ export function prefetchVisibleTracks(urns: string[]) {
 
   // Same batch as the one already queued (e.g. a re-render on scroll): keep the
   // timer running instead of pushing the request back.
-  const batch = picked.join('|');
-  if (viewportTimer && batch === viewportBatch) return;
-  viewportBatch = batch;
+  if (queuedViewport && queuedViewport.join('|') === picked.join('|')) return;
+  queuedViewport = picked;
+  if (networkLoadActive) return; // resumed by setNetworkLoad(false)
   if (viewportTimer) clearTimeout(viewportTimer);
   viewportTimer = setTimeout(() => {
     viewportTimer = null;
+    queuedViewport = null;
     const sessionId = getSessionId();
     const hq = useSettingsStore.getState().highQualityStreaming;
     invoke('track_preload', {
