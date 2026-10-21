@@ -5,6 +5,7 @@
 //! is persisted locally and overlaid on top of the SC read results.
 
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -60,23 +61,67 @@ pub struct LocalStore {
 
 impl LocalStore {
     pub fn load(path: &Path) -> Self {
-        let mut store: Self = std::fs::read(path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let mut store = match std::fs::read(path) {
+            Ok(bytes) => match serde_json::from_slice::<Self>(&bytes) {
+                Ok(store) => store,
+                Err(e) => {
+                    // A corrupt file must not look like "user has no data": the
+                    // next save would overwrite it with an empty store. Park the
+                    // bytes beside the original so they can be recovered.
+                    let backup = path.with_extension(format!(
+                        "corrupt-{}",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0)
+                    ));
+                    eprintln!("[store] {path:?} is not valid JSON ({e}); moved to {backup:?}");
+                    let _ = std::fs::rename(path, &backup);
+                    Self::default()
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            Err(e) => {
+                eprintln!("[store] could not read {path:?}: {e}");
+                Self::default()
+            }
+        };
         store.path = Some(path.to_path_buf());
         store
     }
 
     pub fn save(&self) {
         let Some(path) = &self.path else { return };
-        let bytes = match serde_json::to_vec_pretty(self) {
+        // Compact JSON: the pretty-printed form was 1.2x larger and slower to
+        // build, and this file is rewritten on every play (history) or like.
+        let bytes = match serde_json::to_vec(self) {
             Ok(b) => b,
             Err(_) => return,
         };
         let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-        if std::fs::write(&tmp, &bytes).is_ok() && std::fs::rename(&tmp, path).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        // fsync before rename: a rename that reaches the disk ahead of the data
+        // leaves a zero-length store after a power loss, and `load` would then
+        // start from an empty one.
+        let written = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tmp)
+            .and_then(|mut file| {
+                file.write_all(&bytes)?;
+                file.sync_all()
+            });
+        match written {
+            Ok(()) => {
+                if let Err(e) = std::fs::rename(&tmp, path) {
+                    eprintln!("[store] could not replace {path:?}: {e}");
+                    let _ = std::fs::remove_file(&tmp);
+                }
+            }
+            Err(e) => {
+                eprintln!("[store] could not write {tmp:?}: {e}");
+                let _ = std::fs::remove_file(&tmp);
+            }
         }
     }
 
@@ -262,6 +307,55 @@ mod tests {
 
     fn uploaded(id: u64, title: &str) -> serde_json::Value {
         json!({ "id": id, "kind": "track", "title": title })
+    }
+
+    fn temp_path(tag: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("scd-store-{tag}-{}-{unique}.json", std::process::id()))
+    }
+
+    /// A corrupt file is parked next to the original instead of being silently
+    /// replaced by an empty store on the next save.
+    #[test]
+    fn corrupt_store_is_backed_up_and_starts_empty() {
+        let path = temp_path("corrupt");
+        std::fs::write(&path, b"{ not json").expect("write corrupt store");
+
+        let store = LocalStore::load(&path);
+        assert!(store.liked_tracks.is_empty());
+        assert!(!path.exists(), "corrupt file must be moved away");
+
+        let parent = path.parent().expect("parent");
+        let backup = std::fs::read_dir(parent)
+            .expect("read temp dir")
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().contains(".corrupt-"))
+            .map(|e| e.path())
+            .expect("corrupt backup exists");
+        assert_eq!(std::fs::read(&backup).expect("read backup"), b"{ not json");
+        let _ = std::fs::remove_file(&backup);
+    }
+
+    /// The on-disk form is compact JSON that round-trips.
+    #[test]
+    fn save_writes_compact_json_that_loads_back() {
+        let path = temp_path("roundtrip");
+        let mut store = LocalStore::load(&path);
+        store.like_track(uploaded(7, "Round trip"));
+        assert!(path.exists());
+
+        let raw = std::fs::read_to_string(&path).expect("read saved store");
+        assert!(!raw.contains('\n'), "store must be written without indentation");
+        let loaded = LocalStore::load(&path);
+        assert_eq!(loaded.liked_tracks.len(), 1);
+        assert_eq!(
+            loaded.liked_tracks[0].get("title").and_then(|v| v.as_str()),
+            Some("Round trip"),
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     /// SC-owned copies follow SoundCloud's privacy; only real changes report

@@ -43,6 +43,19 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                         .collect()
                 })
                 .unwrap_or_default();
+            // The local copy is written before the remote create and stays the
+            // only record when that write fails (DataDome, timeout, id
+            // extraction), so it has to carry the selected tracks. Only their
+            // urns arrive from the dialog; hydrate them into full track objects.
+            let mut initial_tracks: Vec<Value> = input
+                .get("tracks")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            initial_tracks.retain(|r| r.get("urn").and_then(Value::as_str).is_some());
+            if !initial_tracks.is_empty() {
+                hydrate_track_stubs(s, token.as_deref(), &mut initial_tracks).await;
+            }
             let user = me
                 .as_ref()
                 .map(|u| {
@@ -68,12 +81,12 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 "sharing": sharing.clone(),
                 "duration": 0,
                 "artwork_url": Value::Null,
-                "track_count": 0,
+                "track_count": initial_tracks.len(),
                 "created_at": chrono::Utc::now().to_rfc3339(),
                 "last_modified": chrono::Utc::now().to_rfc3339(),
                 "playlist_type": "playlist",
                 "user_favorite": false,
-                "tracks": [],
+                "tracks": initial_tracks,
                 "user": user,
                 "local": true,
             });
@@ -362,6 +375,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             // Only a complete base may be persisted and written back: a
             // partial base would truncate the list locally and on SoundCloud.
             let mut base_ok = local.is_some();
+            let mut base_fresh = false;
             if playlist.is_none() && is_sc {
                 let id = id_of(urn);
                 match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
@@ -385,6 +399,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                         tracks = list.into_iter().map(normalize_urn).collect();
                         playlist = Some(detail);
                         base_ok = true;
+                        base_fresh = true;
                     }
                     _ => {
                         eprintln!("[playlists] refusing add: could not load base for {urn}");
@@ -393,29 +408,76 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 }
             }
 
-            if let Some(track) = fetched {
-                append_unique(&mut tracks, track);
+            // A local copy is not a licence to overwrite SoundCloud blindly: the
+            // write below replaces the remote track list wholesale, so a copy
+            // that predates a change made in the web player or on another device
+            // would delete those tracks. Re-read the remote list, require it to
+            // be complete, and adopt it when it is longer than the local copy.
+            if is_sc && playlist.is_some() && !base_fresh {
+                let id = id_of(urn);
+                match s.sc_get(&format!("/playlists/{id}"), token.as_deref()).await {
+                    Ok((status, v)) if (200..300).contains(&status) => {
+                        let detail = normalize_urn(v);
+                        let expected = detail.get("track_count").and_then(Value::as_u64);
+                        let mut list = detail
+                            .get("tracks")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default();
+                        let pre = list.len();
+                        let dropped = hydrate_track_stubs(s, token.as_deref(), &mut list).await;
+                        if !base_complete(pre, list.len(), expected) {
+                            eprintln!(
+                                "[playlists] refusing write: remote base unverifiable for {urn} (listed {pre}, hydrated {}, expected {expected:?}, dropped {dropped})",
+                                list.len(),
+                            );
+                            return Ok(err(502, "playlist base incomplete; refusing to write"));
+                        }
+                        if list.len() >= tracks.len() {
+                            // Remote is at least as complete as the local copy.
+                            tracks = list.into_iter().map(normalize_urn).collect();
+                            playlist = Some(detail);
+                        }
+                        base_ok = true;
+                    }
+                    _ => {
+                        // The remote list cannot be read, so a write could delete
+                        // tracks nobody can see right now. Keep the local update
+                        // and skip the remote push (the local-first contract).
+                        eprintln!("[playlists] skipping remote write for {urn}: base unreachable");
+                        base_ok = false;
+                    }
+                }
             }
 
             if let Some(order) = order {
+                // A partial order (for example while further pages are still
+                // loading) must never replace the base: everything the client
+                // did not list would be deleted locally and on SoundCloud.
+                if !order_matches_base(&tracks, &order) {
+                    eprintln!(
+                        "[playlists] refusing order for {urn}: {} base tracks, {} ordered",
+                        tracks.len(),
+                        order.len(),
+                    );
+                    return Ok(err(
+                        409,
+                        "playlist order is incomplete; reload the playlist and retry",
+                    ));
+                }
                 let mut ordered: Vec<Value> = Vec::new();
                 for u in &order {
                     if let Some(t) = tracks.iter().find(|t| urn_of(t).as_deref() == Some(u.as_str())) {
                         ordered.push(t.clone());
-                    } else {
-                        // Unknown urn: resolve the full track instead of
-                        // persisting a data-less stub.
-                        let id = id_of(u);
-                        let fetched = match token.as_deref() {
-                            Some(t) => s.sc_get_opt(&format!("/tracks/{id}"), Some(t)).await,
-                            None => None,
-                        };
-                        ordered.push(fetched.map(normalize_urn).unwrap_or_else(|| {
-                            json!({ "urn": u, "id": id.parse::<u64>().unwrap_or(0) })
-                        }));
                     }
                 }
                 tracks = ordered;
+            }
+
+            // Appended after the order so a combined order+add request reorders
+            // the base first and then appends the new track.
+            if let Some(track) = fetched {
+                append_unique(&mut tracks, track);
             }
 
             let mut playlist = playlist.unwrap_or_else(|| {
@@ -673,6 +735,19 @@ pub(crate) fn base_complete(pre_len: usize, post_len: usize, expected: Option<u6
     }
 }
 
+/// True when the client's order covers the base exactly: same urns, no
+/// duplicates, no additions. The write path replaces the remote track list with
+/// this order, so anything less would delete tracks the client never saw.
+pub(crate) fn order_matches_base(base: &[Value], order: &[String]) -> bool {
+    use std::collections::HashSet;
+    let base_urns: HashSet<String> = base.iter().filter_map(urn_of).collect();
+    let order_urns: HashSet<&str> = order.iter().map(String::as_str).collect();
+    base_urns.len() == base.len()
+        && order_urns.len() == order.len()
+        && base_urns.iter().all(|u| order_urns.contains(u.as_str()))
+        && order_urns.iter().all(|u| base_urns.contains(*u))
+}
+
 /// Deduplicated append. Two entries are the same track when their urns match,
 /// or when their raw SC ids match (unhydrated `{id}` stubs carry no urn).
 /// Returns true when the track was added.
@@ -702,7 +777,7 @@ pub(crate) fn append_unique(tracks: &mut Vec<Value>, track: Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_unique, base_complete};
+    use super::{append_unique, base_complete, order_matches_base};
     use serde_json::json;
 
     fn stub(id: u64) -> serde_json::Value {
@@ -711,6 +786,32 @@ mod tests {
 
     fn full(id: u64) -> serde_json::Value {
         json!({ "id": id, "kind": "track", "title": "t", "urn": format!("soundcloud:tracks:{id}") })
+    }
+
+    fn urn(id: u64) -> String {
+        format!("soundcloud:tracks:{id}")
+    }
+
+    #[test]
+    fn order_must_cover_the_whole_base() {
+        let base = vec![full(1), full(2), full(3)];
+        assert!(order_matches_base(&base, &[urn(1), urn(2), urn(3)]));
+        assert!(order_matches_base(&base, &[urn(3), urn(1), urn(2)]));
+        // A page-sized subset would delete the tracks it does not list.
+        assert!(!order_matches_base(&base, &[urn(1), urn(2)]));
+        // An unknown urn would add a track behind the client's back.
+        assert!(!order_matches_base(
+            &base,
+            &[urn(1), urn(2), urn(3), urn(9)]
+        ));
+        // Duplicates are not a permutation.
+        assert!(!order_matches_base(&base, &[urn(1), urn(1), urn(3)]));
+        // A base row without a urn cannot be matched, so the write is refused.
+        assert!(!order_matches_base(
+            &[full(1), stub(2)],
+            &[urn(1), urn(2)]
+        ));
+        assert!(order_matches_base(&[], &[]));
     }
 
     #[test]

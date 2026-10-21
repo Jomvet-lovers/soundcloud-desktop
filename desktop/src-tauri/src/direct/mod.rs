@@ -80,9 +80,20 @@ impl DirectState {
     /// Resolve the request's account: the token's SoundCloud user id when a
     /// token is present (cached after the first `/me`), otherwise the active
     /// account bound by the auth layer.
+    ///
+    /// A failed `/me` must not silently degrade to the anonymous store: that
+    /// wrote likes/follows/history into a store that is never persisted while
+    /// still answering 200. Fall back to the account the auth layer has active
+    /// for this session (the frontend always sends that session's token).
     pub async fn resolve_owner(&self, token: Option<&str>) -> Option<u64> {
         match token.filter(|t| !t.is_empty()) {
-            Some(t) => self.my_user_id(t).await.ok(),
+            Some(t) => match self.my_user_id(t).await {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    eprintln!("[direct] /me unavailable for a session request: {e}");
+                    *self.active_owner.read().await
+                }
+            },
             None => *self.active_owner.read().await,
         }
     }

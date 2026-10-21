@@ -253,19 +253,25 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             };
             let limit = q_u64(&q, "limit", 50);
             let page_no = q_u64(&q, "page", 0);
+            let offset = page_no.saturating_mul(limit);
             let mut items: Vec<Value> = Vec::new();
             if page_no == 0 {
                 let store = s.store_for(ctx.owner).await;
                 let store = store.lock().await;
                 items.extend(store.playlists.iter().cloned());
             }
+            let mut has_more = false;
             let sc = match token.as_deref() {
                 Some(t) => s
-                    .sc_get_opt(&format!("/users/{my}/playlists?limit={limit}&offset=0"), Some(t))
+                    .sc_get_opt(
+                        &format!("/users/{my}/playlists?limit={limit}&offset={offset}"),
+                        Some(t),
+                    )
                     .await,
                 None => None,
             };
             if let Some(v) = sc {
+                has_more = sc_has_more(&v);
                 let store = s.store_for(ctx.owner).await;
                 let mut store = store.lock().await;
                 let sc_items: Vec<Value> = sc_items(&v).into_iter().map(normalize_urn).collect();
@@ -304,7 +310,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     .collect();
                 items.extend(sc_items);
             }
-            ok(page(items, page_no, limit, false))
+            ok(page(items, page_no, limit, has_more))
         }
 
         ("GET", ["me", "tracks"]) => {
