@@ -48,8 +48,15 @@ fn volume_to_rodio(v: f64) -> f32 {
     (v / 100.0).clamp(0.0, 2.0) as f32
 }
 
-fn stop_current_player(state: &AudioState) {
+fn stop_player_only(state: &AudioState) {
     suppress_ended_temporarily(state);
+    let mut player = state.player.lock().unwrap();
+    if let Some(old) = player.take() {
+        old.stop();
+    }
+}
+
+fn stop_current_player(state: &AudioState) {
     // A streaming session ends with its player: cancel the mirror first so a
     // decoder parked in a blocking read returns EOF and the player can be
     // dropped, then drop the player.
@@ -57,10 +64,7 @@ fn stop_current_player(state: &AudioState) {
         stream.cancel();
     }
     state.streaming.store(false, Ordering::Relaxed);
-    let mut player = state.player.lock().unwrap();
-    if let Some(old) = player.take() {
-        old.stop();
-    }
+    stop_player_only(state);
 }
 
 /// Install a streaming-first-play session: replaces (and cancels) whatever was
@@ -263,19 +267,33 @@ pub async fn load_file(
         normalization_cache_dir,
         normalization_cache_key,
         start_paused,
+        None,
     )
     .await
 }
 
 /// `load_file` without a `State` handle, so the streaming command's background
 /// task can load the finished file on the fallback path.
+///
+/// `expected_stream` binds the load to a streaming session: the player is only
+/// installed while that session is still the current one. A cache-miss full-wait
+/// load can overlap a newer track (the download finished, then the user clicked
+/// another row); without the guard the stale load would stop the new track and
+/// install itself over it.
 pub async fn load_file_inner(
     state: &AudioState,
     path: String,
     normalization_cache_dir: Option<PathBuf>,
     normalization_cache_key: Option<String>,
     start_paused: bool,
+    expected_stream: Option<&Arc<StreamBuffer>>,
 ) -> Result<AudioLoadResult, String> {
+    if let Some(stream) = expected_stream
+        && !is_active_stream(state, stream)
+    {
+        return Err("stream cancelled".into());
+    }
+
     let bytes = task::spawn_blocking({
         let path = path.clone();
         move || std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))
@@ -283,7 +301,18 @@ pub async fn load_file_inner(
     .await
     .map_err(|e| format!("audio file read task failed: {e}"))??;
 
-    stop_current_player(state);
+    match expected_stream {
+        Some(stream) => {
+            // Re-check after the read, then silence the old player without
+            // clearing the session slot: the install below still has to pass
+            // the same check under that lock.
+            if !is_active_stream(state, stream) {
+                return Err("stream cancelled".into());
+            }
+            stop_player_only(state);
+        }
+        None => stop_current_player(state),
+    }
 
     let mixer = state.mixer.lock().unwrap().clone();
     let vol = *state.volume.lock().unwrap();
@@ -303,7 +332,27 @@ pub async fn load_file_inner(
     )
     .await?;
 
-    commit_loaded_track(state, bytes, new_player, normalization_gain);
+    match expected_stream {
+        Some(stream) => {
+            // Holding the session lock across check and install is what makes a
+            // switch during the decode win: the switch path takes it first.
+            let mut slot = state.stream.lock().unwrap();
+            if !slot
+                .as_ref()
+                .is_some_and(|active| Arc::ptr_eq(active, stream))
+            {
+                new_player.stop();
+                return Err("stream cancelled".into());
+            }
+            if let Some(old) = state.player.lock().unwrap().take() {
+                old.stop();
+            }
+            commit_loaded_track(state, bytes, new_player, normalization_gain);
+            *slot = None;
+            state.streaming.store(false, Ordering::Relaxed);
+        }
+        None => commit_loaded_track(state, bytes, new_player, normalization_gain),
+    }
 
     Ok(AudioLoadResult { duration_secs })
 }

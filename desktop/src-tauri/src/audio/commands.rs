@@ -415,29 +415,39 @@ impl StreamSession {
         let entry = entry?;
         let audio = self.app.state::<AudioState>();
         let state = audio.inner();
+        let stream = self.stream.clone();
         let load = match engine::load_file_inner(
             state,
             entry.path.clone(),
             self.normalization_cache_dir.clone(),
             self.normalization_cache_key.clone(),
             self.start_paused,
+            Some(&stream),
         )
         .await
         {
             Ok(load) => load,
-            Err(err) => match self.cache.get_cache_path(&self.urn) {
-                Some(path) if path != entry.path => {
-                    engine::load_file_inner(
-                        state,
-                        path,
-                        self.normalization_cache_dir.clone(),
-                        self.normalization_cache_key.clone(),
-                        self.start_paused,
-                    )
-                    .await?
+            Err(err) => {
+                // A replaced session must not retry: the guard would fail again
+                // and the newer track already owns the output.
+                if !engine::is_active_stream(state, &stream) {
+                    return Err(err);
                 }
-                _ => return Err(err),
-            },
+                match self.cache.get_cache_path(&self.urn) {
+                    Some(path) if path != entry.path => {
+                        engine::load_file_inner(
+                            state,
+                            path,
+                            self.normalization_cache_dir.clone(),
+                            self.normalization_cache_key.clone(),
+                            self.start_paused,
+                            Some(&stream),
+                        )
+                        .await?
+                    }
+                    _ => return Err(err),
+                }
+            }
         };
         Ok(AudioStreamLoadResult {
             duration_secs: load.duration_secs,
