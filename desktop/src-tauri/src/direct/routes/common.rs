@@ -25,6 +25,39 @@ pub(crate) fn err(code: u16, msg: &str) -> Response {
     json_resp(code, &json!({ "error": msg }))
 }
 
+/// Send a write through the writer WebView and require SoundCloud to accept it.
+///
+/// Callers touch the local store only after this returns `Ok`, so a rejected or
+/// unreachable write can never leave the UI showing a change SoundCloud does not
+/// have. `ok_404` treats "already gone" as success (removing a like or follow
+/// that SoundCloud already dropped).
+pub(crate) async fn mirror_write(
+    s: &DirectState,
+    token: &str,
+    method: &str,
+    url: &str,
+    body: Option<&Value>,
+    ok_404: bool,
+) -> Result<(), String> {
+    match super::super::webview::execute(&s.app, Some(token), method, url, body).await {
+        Ok(r) if (200..300).contains(&r.status) => Ok(()),
+        Ok(r) if ok_404 && r.status == 404 => Ok(()),
+        Ok(r) => {
+            eprintln!(
+                "[sync] {method} {url} -> {} captcha={} body={}",
+                r.status,
+                r.captcha.is_some(),
+                r.payload.chars().take(200).collect::<String>()
+            );
+            Err("SoundCloud rejected the change; nothing was changed".into())
+        }
+        Err(e) => {
+            eprintln!("[sync] {method} {url} failed: {e}");
+            Err("SoundCloud unreachable; nothing was changed".into())
+        }
+    }
+}
+
 pub(crate) fn page(items: Vec<Value>, page: u64, limit: u64, has_more: bool) -> Value {
     json!({
         "collection": items,

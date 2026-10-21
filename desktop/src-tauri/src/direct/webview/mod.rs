@@ -433,32 +433,3 @@ pub fn emit_sync_error(
         }),
     );
 }
-
-pub fn spawn_write(
-    app: AppHandle,
-    token: String,
-    method: &'static str,
-    url: String,
-    body: Option<Value>,
-) {
-    tokio::spawn(async move {
-        match execute(&app, Some(&token), method, &url, body.as_ref()).await {
-            Ok(r) if (200..300).contains(&r.status) => {
-                eprintln!("[writer] {method} {url} -> {}", r.status)
-            }
-            Ok(r) => {
-                eprintln!(
-                    "[writer] {method} {url} -> {} captcha={} body={}",
-                    r.status,
-                    r.captcha.is_some(),
-                    r.payload.chars().take(200).collect::<String>()
-                );
-                emit_sync_error(&app, method, &url, r.status, r.captcha.is_some(), None);
-            }
-            Err(e) => {
-                eprintln!("[writer] {method} {url} failed: {e}");
-                emit_sync_error(&app, method, &url, 0, false, Some(&e));
-            }
-        }
-    });
-}

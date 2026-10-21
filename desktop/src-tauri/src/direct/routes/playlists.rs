@@ -6,7 +6,6 @@ use super::common::*;
 use super::normalize::*;
 use super::super::DirectState;
 use super::super::sc::{SC_API, id_of, fetch_me};
-use super::super::webview::{spawn_write, emit_sync_error};
 
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     let s = &ctx.state;
@@ -68,94 +67,112 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     })
                 })
                 .unwrap_or(Value::Null);
-            let store = s.store_for(ctx.owner).await;
-            let mut store = store.lock().await;
-            let urn = store.next_local_playlist_urn();
-            let playlist = json!({
-                "id": urn.rsplit(':').next().and_then(|n| n.parse::<u64>().ok()).unwrap_or(0),
-                "urn": urn.clone(),
-                "title": title.clone(),
-                "description": input.get("description").cloned().unwrap_or(Value::Null),
-                "genre": input.get("genre").cloned().unwrap_or(json!("")),
-                "tag_list": input.get("tag_list").cloned().unwrap_or(json!("")),
-                "sharing": sharing.clone(),
-                "duration": 0,
-                "artwork_url": Value::Null,
-                "track_count": initial_tracks.len(),
-                "created_at": chrono::Utc::now().to_rfc3339(),
-                "last_modified": chrono::Utc::now().to_rfc3339(),
-                "playlist_type": "playlist",
-                "user_favorite": false,
-                "tracks": initial_tracks,
-                "user": user,
-                "local": true,
-            });
-            store.upsert_playlist(playlist.clone());
-            drop(store);
+            let Some(t) = token.as_deref() else {
+                // No account: a local playlist is the only meaningful result.
+                let store = s.store_for(ctx.owner).await;
+                let mut store = store.lock().await;
+                let urn = store.next_local_playlist_urn();
+                let playlist = json!({
+                    "id": urn.rsplit(':').next().and_then(|n| n.parse::<u64>().ok()).unwrap_or(0),
+                    "urn": urn.clone(),
+                    "title": title.clone(),
+                    "description": input.get("description").cloned().unwrap_or(Value::Null),
+                    "genre": input.get("genre").cloned().unwrap_or(json!("")),
+                    "tag_list": input.get("tag_list").cloned().unwrap_or(json!("")),
+                    "sharing": sharing.clone(),
+                    "duration": 0,
+                    "artwork_url": Value::Null,
+                    "track_count": initial_tracks.len(),
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                    "last_modified": chrono::Utc::now().to_rfc3339(),
+                    "playlist_type": "playlist",
+                    "user_favorite": false,
+                    "tracks": initial_tracks.clone(),
+                    "user": user.clone(),
+                    "local": true,
+                });
+                store.upsert_playlist(playlist.clone());
+                return Ok(ok(playlist));
+            };
 
-            if let Some(t) = token.as_deref() {
-                if let Ok(cid) = s.client_id().await {
-                    let payload = json!({
-                        "playlist": {
-                            "title": title,
-                            "sharing": sharing,
-                            "tracks": track_ids,
-                        }
-                    });
-                    let url = format!("{SC_API}/playlists?client_id={cid}");
-                    let extract = "(function(s){try{return String((JSON.parse(s)||{}).id||'');}catch(e){return '';}})";
-                    match super::super::webview::execute_with(
-                        &s.app,
-                        Some(t),
-                        "POST",
-                        &url,
-                        Some(&payload),
-                        Some(extract),
-                        true,
-                    )
-                    .await
-                    {
-                        Ok(o) if (200..300).contains(&o.status) => {
-                            if let Ok(id) = o.payload.trim().parse::<u64>() {
-                                let detail = match s.sc_get_opt(&format!("/playlists/{id}"), Some(t)).await
-                                {
-                                    Some(v) => normalize_urn(v),
-                                    None => {
-                                        let mut p = playlist.clone();
-                                        if let Some(obj) = p.as_object_mut() {
-                                            obj.insert("id".into(), json!(id));
-                                            obj.insert(
-                                                "urn".into(),
-                                                json!(format!("soundcloud:playlists:{id}")),
-                                            );
-                                            obj.insert("local".into(), json!(false));
-                                        }
-                                        p
-                                    }
-                                };
-                                s.store_for(ctx.owner)
-                                    .await
-                                    .lock()
-                                    .await
-                                    .rekey_playlist(&urn, detail.clone());
-                                return Ok(ok(detail));
-                            }
-                        }
-                        Ok(o) => {
-                            emit_sync_error(
-                                &s.app,
-                                "POST",
-                                &url,
-                                o.status,
-                                o.captcha.is_some(),
-                                None,
-                            );
-                        }
-                        Err(e) => emit_sync_error(&s.app, "POST", &url, 0, false, Some(&e)),
-                    }
+            // Create on SoundCloud first. The old flow wrote a local copy before
+            // the remote create and kept it when that failed, leaving a playlist
+            // on this device that SoundCloud had never seen.
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let payload = json!({
+                "playlist": {
+                    "title": title.clone(),
+                    "sharing": sharing.clone(),
+                    "tracks": track_ids,
                 }
+            });
+            let url = format!("{SC_API}/playlists?client_id={cid}");
+            let extract = "(function(s){try{return String((JSON.parse(s)||{}).id||'');}catch(e){return '';}})";
+            let outcome = match super::super::webview::execute_with(
+                &s.app,
+                Some(t),
+                "POST",
+                &url,
+                Some(&payload),
+                Some(extract),
+                true,
+            )
+            .await
+            {
+                Ok(o) => o,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            if !(200..300).contains(&outcome.status) {
+                eprintln!(
+                    "[playlists] create -> {} captcha={}",
+                    outcome.status,
+                    outcome.captcha.is_some()
+                );
+                return Ok(err(
+                    502,
+                    "SoundCloud rejected the playlist; nothing was created",
+                ));
             }
-            ok(playlist)
+            let Ok(id) = outcome.payload.trim().parse::<u64>() else {
+                eprintln!(
+                    "[playlists] create returned no id: {}",
+                    outcome.payload.chars().take(200).collect::<String>()
+                );
+                return Ok(err(
+                    502,
+                    "SoundCloud created the playlist but returned no id; check soundcloud.com",
+                ));
+            };
+
+            // Prefer the server's copy; fall back to the request payload when the
+            // detail read fails, so a successful create is recorded with its id.
+            let detail = match s.sc_get_opt(&format!("/playlists/{id}"), Some(t)).await {
+                Some(v) => normalize_urn(v),
+                None => json!({
+                    "id": id,
+                    "urn": format!("soundcloud:playlists:{id}"),
+                    "title": title,
+                    "description": input.get("description").cloned().unwrap_or(Value::Null),
+                    "genre": input.get("genre").cloned().unwrap_or(json!("")),
+                    "tag_list": input.get("tag_list").cloned().unwrap_or(json!("")),
+                    "sharing": sharing,
+                    "duration": 0,
+                    "artwork_url": Value::Null,
+                    "track_count": initial_tracks.len(),
+                    "created_at": chrono::Utc::now().to_rfc3339(),
+                    "last_modified": chrono::Utc::now().to_rfc3339(),
+                    "playlist_type": "playlist",
+                    "user_favorite": false,
+                    "tracks": initial_tracks,
+                    "user": user,
+                    "local": false,
+                }),
+            };
+            s.store_for(ctx.owner).await.lock().await.upsert_playlist(detail.clone());
+            ok(detail)
         }
         ("GET", ["playlists", urn]) => {
             {
@@ -281,6 +298,52 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         ("PUT", ["playlists", urn]) | ("PUT", ["playlists", urn, "tracks"]) => {
             let b = body_json(&body);
             let input = b.get("playlist").cloned().unwrap_or(b);
+            let is_sc = urn.starts_with("soundcloud:playlists:");
+            // Mirror only the fields SoundCloud accepts as an update; the client
+            // may send a whole playlist object and id/urn/local must not go out.
+            let mut update = serde_json::Map::new();
+            for key in ["title", "description", "genre", "tag_list", "sharing"] {
+                if let Some(v) = input.get(key) {
+                    update.insert(key.to_string(), v.clone());
+                }
+            }
+            let track_ids: Option<Vec<u64>> = input
+                .get("tracks")
+                .and_then(Value::as_array)
+                .map(|refs| {
+                    refs.iter()
+                        .filter_map(|r| {
+                            r.get("id").and_then(Value::as_u64).or_else(|| {
+                                r.get("urn")
+                                    .and_then(Value::as_str)
+                                    .and_then(|u| id_of(u).parse::<u64>().ok())
+                            })
+                        })
+                        .collect()
+                });
+            if is_sc {
+                // Same rule as the sharing endpoint: SoundCloud decides, the
+                // local copy only records what it accepted.
+                let Some(t) = token.as_deref() else {
+                    return Ok(err(401, "unauthorized"));
+                };
+                if update.is_empty() && track_ids.is_none() {
+                    return Ok(err(400, "nothing to update"));
+                }
+                let cid = match s.client_id().await {
+                    Ok(cid) => cid,
+                    Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+                };
+                if let Some(ids) = &track_ids {
+                    update.insert("tracks".into(), json!(ids));
+                }
+                let payload = json!({ "playlist": update });
+                let url = format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn));
+                if let Err(message) = mirror_write(s, t, "PUT", &url, Some(&payload), false).await {
+                    return Ok(err(502, &message));
+                }
+            }
+
             let store = s.store_for(ctx.owner).await;
             let mut store = store.lock().await;
             let mut playlist = store
@@ -374,7 +437,6 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 .unwrap_or_default();
             // Only a complete base may be persisted and written back: a
             // partial base would truncate the list locally and on SoundCloud.
-            let mut base_ok = local.is_some();
             let mut base_fresh = false;
             if playlist.is_none() && is_sc {
                 let id = id_of(urn);
@@ -398,7 +460,6 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                         }
                         tracks = list.into_iter().map(normalize_urn).collect();
                         playlist = Some(detail);
-                        base_ok = true;
                         base_fresh = true;
                     }
                     _ => {
@@ -438,14 +499,16 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                             tracks = list.into_iter().map(normalize_urn).collect();
                             playlist = Some(detail);
                         }
-                        base_ok = true;
                     }
                     _ => {
                         // The remote list cannot be read, so a write could delete
-                        // tracks nobody can see right now. Keep the local update
-                        // and skip the remote push (the local-first contract).
-                        eprintln!("[playlists] skipping remote write for {urn}: base unreachable");
-                        base_ok = false;
+                        // tracks nobody can see right now. Refuse instead of
+                        // applying a local-only change.
+                        eprintln!("[playlists] refusing write for {urn}: base unreachable");
+                        return Ok(err(
+                            502,
+                            "could not read the SoundCloud playlist; nothing was changed",
+                        ));
                     }
                 }
             }
@@ -480,6 +543,29 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 append_unique(&mut tracks, track);
             }
 
+            // SoundCloud first: the local copy below records what the server
+            // accepted. A rejected or unreachable write leaves both untouched
+            // instead of showing a track list SoundCloud does not have.
+            if is_sc {
+                let Some(t) = token.as_deref() else {
+                    return Ok(err(401, "unauthorized"));
+                };
+                let cid = match s.client_id().await {
+                    Ok(cid) => cid,
+                    Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+                };
+                let ids: Vec<Value> = tracks
+                    .iter()
+                    .filter_map(urn_of)
+                    .filter_map(|u| id_of(&u).parse::<i64>().ok().map(|n| json!(n)))
+                    .collect();
+                let payload = json!({ "playlist": { "tracks": ids } });
+                let url = format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn));
+                if let Err(message) = mirror_write(s, t, "PUT", &url, Some(&payload), false).await {
+                    return Ok(err(502, &message));
+                }
+            }
+
             let mut playlist = playlist.unwrap_or_else(|| {
                 json!({ "urn": urn, "tracks": [], "track_count": 0, "local": !is_sc })
             });
@@ -488,42 +574,24 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 obj.insert("tracks".into(), json!(tracks));
             }
             s.store_for(ctx.owner).await.lock().await.upsert_playlist(playlist.clone());
-
-            if is_sc && base_ok {
-                if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
-                    let ids: Vec<Value> = tracks
-                        .iter()
-                        .filter_map(urn_of)
-                        .filter_map(|u| {
-                            let id = id_of(&u);
-                            id.parse::<i64>().ok().map(|n| json!(n))
-                        })
-                        .collect();
-                    let payload = json!({ "playlist": { "tracks": ids } });
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "PUT",
-                        format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn)),
-                        Some(payload),
-                    );
-                }
-            }
             ok(playlist)
         }
         ("DELETE", ["playlists", urn]) => {
-            s.store_for(ctx.owner).await.lock().await.delete_playlist(urn);
             if urn.starts_with("soundcloud:playlists:") {
-                if let (Some(t), Ok(cid)) = (token.as_deref(), s.client_id().await) {
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "DELETE",
-                        format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn)),
-                        None,
-                    );
+                let Some(t) = token.as_deref() else {
+                    return Ok(err(401, "unauthorized"));
+                };
+                let cid = match s.client_id().await {
+                    Ok(cid) => cid,
+                    Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+                };
+                let url = format!("{SC_API}/playlists/{}?client_id={cid}", id_of(urn));
+                // Delete on SoundCloud first; 404 means it is already gone.
+                if let Err(message) = mirror_write(s, t, "DELETE", &url, None, true).await {
+                    return Ok(err(502, &message));
                 }
             }
+            s.store_for(ctx.owner).await.lock().await.delete_playlist(urn);
             ok(json!({ "ok": true }))
         }
         ("PUT", ["playlists", urn, "sharing"]) => {

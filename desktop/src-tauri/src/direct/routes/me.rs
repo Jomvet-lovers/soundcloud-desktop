@@ -7,7 +7,6 @@ use super::Ctx;
 use super::common::*;
 use super::normalize::*;
 use super::super::sc::{SC_API, id_of, fetch_me};
-use super::super::webview::{spawn_write};
 use super::super::DirectState;
 
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
@@ -133,51 +132,54 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         }
 
         ("PUT", ["me", "followings", urn]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let url = format!("{SC_API}/me/followings/{}?client_id={cid}", id_of(urn));
+            // SoundCloud first: a follow the server rejected must not show up
+            // locally as followed.
+            if let Err(message) = mirror_write(s, t, "POST", &url, None, false).await {
+                return Ok(err(502, &message));
+            }
             let store = s.store_for(ctx.owner).await;
             let mut store = store.lock().await;
+            let mut changed = store.unfollowed.iter().any(|u| u == urn);
             store.unfollowed.retain(|u| u != urn);
             if !store.followed.iter().any(|u| u == urn) {
                 store.followed.push(urn.to_string());
-                store.save();
+                changed = true;
             }
-            drop(store);
-            // Best-effort sync. SoundCloud's web client adds a signed query
-            // param here; without it the server may reject the call, in which
-            // case the local follow still stands.
-            let id = id_of(urn);
-            if let Some(t) = token.as_deref() {
-                if let Ok(cid) = s.client_id().await {
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "POST",
-                        format!("{SC_API}/me/followings/{id}?client_id={cid}"),
-                        None,
-                    );
-                }
+            if changed {
+                store.save();
             }
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["me", "followings", urn]) => {
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let url = format!("{SC_API}/me/followings/{}?client_id={cid}", id_of(urn));
+            if let Err(message) = mirror_write(s, t, "DELETE", &url, None, true).await {
+                return Ok(err(502, &message));
+            }
             let store = s.store_for(ctx.owner).await;
             let mut store = store.lock().await;
+            let mut changed = store.followed.iter().any(|u| u == urn);
             store.followed.retain(|u| u != urn);
             if !store.unfollowed.iter().any(|u| u == urn) {
                 store.unfollowed.push(urn.to_string());
-                store.save();
+                changed = true;
             }
-            drop(store);
-            let id = id_of(urn);
-            if let Some(t) = token.as_deref() {
-                if let Ok(cid) = s.client_id().await {
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "DELETE",
-                        format!("{SC_API}/me/followings/{id}?client_id={cid}"),
-                        None,
-                    );
-                }
+            if changed {
+                store.save();
             }
             ok(json!({ "ok": true }))
         }
@@ -375,43 +377,49 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "liked": store.is_liked(urn) }))
         }
         ("PUT", ["likes", "tracks", urn]) | ("POST", ["likes", "tracks", urn]) => {
-            let id = id_of(urn);
-            let track = match token.as_deref() {
-                Some(t) => s
-                    .sc_get_opt(&format!("/tracks/{id}"), Some(t))
-                    .await
-                    .unwrap_or_else(|| json!({ "urn": urn, "id": id.parse::<u64>().unwrap_or(0) })),
-                None => json!({ "urn": urn, "id": id.parse::<u64>().unwrap_or(0) }),
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
             };
-            s.store_for(ctx.owner).await.lock().await.like_track(normalize_urn(track));
-            // Best-effort SoundCloud sync (DataDome-protected; via writer webview).
-            if let Some(t) = token.as_deref() {
-                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "PUT",
-                        format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}"),
-                        None,
-                    );
-                }
+            let id = id_of(urn);
+            let my = match s.my_user_id(t).await {
+                Ok(my) => my,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let url = format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}");
+            // The like lands locally only after SoundCloud accepted it, so the
+            // list and the heart can never claim a like the server does not have.
+            if let Err(message) = mirror_write(s, t, "PUT", &url, None, false).await {
+                return Ok(err(502, &message));
             }
+            let track = s
+                .sc_get_opt(&format!("/tracks/{id}"), Some(t))
+                .await
+                .unwrap_or_else(|| json!({ "urn": urn, "id": id.parse::<u64>().unwrap_or(0) }));
+            s.store_for(ctx.owner).await.lock().await.like_track(normalize_urn(track));
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["likes", "tracks", urn]) => {
-            s.store_for(ctx.owner).await.lock().await.unlike_track(urn);
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
             let id = id_of(urn);
-            if let Some(t) = token.as_deref() {
-                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "DELETE",
-                        format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}"),
-                        None,
-                    );
-                }
+            let my = match s.my_user_id(t).await {
+                Ok(my) => my,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let url = format!("{SC_API}/users/{my}/track_likes/{id}?client_id={cid}");
+            if let Err(message) = mirror_write(s, t, "DELETE", &url, None, true).await {
+                return Ok(err(502, &message));
             }
+            s.store_for(ctx.owner).await.lock().await.unlike_track(urn);
             ok(json!({ "ok": true }))
         }
 
@@ -421,42 +429,47 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "liked": store.is_playlist_liked(urn) }))
         }
         ("PUT", ["likes", "playlists", urn]) | ("POST", ["likes", "playlists", urn]) => {
-            let id = id_of(urn);
-            let playlist = match token.as_deref() {
-                Some(t) => s
-                    .sc_get_opt(&format!("/playlists/{id}"), Some(t))
-                    .await
-                    .unwrap_or_else(|| json!({ "urn": urn })),
-                None => json!({ "urn": urn }),
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
             };
-            s.store_for(ctx.owner).await.lock().await.like_playlist(normalize_urn(playlist));
-            if let Some(t) = token.as_deref() {
-                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "PUT",
-                        format!("{SC_API}/users/{my}/playlist_likes/{id}?client_id={cid}"),
-                        None,
-                    );
-                }
+            let id = id_of(urn);
+            let my = match s.my_user_id(t).await {
+                Ok(my) => my,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let url = format!("{SC_API}/users/{my}/playlist_likes/{id}?client_id={cid}");
+            if let Err(message) = mirror_write(s, t, "PUT", &url, None, false).await {
+                return Ok(err(502, &message));
             }
+            let playlist = s
+                .sc_get_opt(&format!("/playlists/{id}"), Some(t))
+                .await
+                .unwrap_or_else(|| json!({ "urn": urn }));
+            s.store_for(ctx.owner).await.lock().await.like_playlist(normalize_urn(playlist));
             ok(json!({ "ok": true }))
         }
         ("DELETE", ["likes", "playlists", urn]) => {
-            s.store_for(ctx.owner).await.lock().await.unlike_playlist(urn);
+            let Some(t) = token.as_deref() else {
+                return Ok(err(401, "unauthorized"));
+            };
             let id = id_of(urn);
-            if let Some(t) = token.as_deref() {
-                if let (Ok(my), Ok(cid)) = (s.my_user_id(t).await, s.client_id().await) {
-                    spawn_write(
-                        s.app.clone(),
-                        t.to_string(),
-                        "DELETE",
-                        format!("{SC_API}/users/{my}/playlist_likes/{id}?client_id={cid}"),
-                        None,
-                    );
-                }
+            let my = match s.my_user_id(t).await {
+                Ok(my) => my,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let cid = match s.client_id().await {
+                Ok(cid) => cid,
+                Err(e) => return Ok(err(502, &format!("SoundCloud unreachable: {e}"))),
+            };
+            let url = format!("{SC_API}/users/{my}/playlist_likes/{id}?client_id={cid}");
+            if let Err(message) = mirror_write(s, t, "DELETE", &url, None, true).await {
+                return Ok(err(502, &message));
             }
+            s.store_for(ctx.owner).await.lock().await.unlike_playlist(urn);
             ok(json!({ "ok": true }))
         }
 
