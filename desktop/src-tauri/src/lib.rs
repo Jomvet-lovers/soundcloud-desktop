@@ -178,8 +178,14 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                api.prevent_close();
-                let _ = window.hide();
+                // Tray app: closing the main window only hides it. Every other
+                // window (the sign-in webview, the hidden writer) must be able
+                // to close for real; the sign-in watcher detects the close and
+                // cancels the pending login.
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
             _ => {}
         })

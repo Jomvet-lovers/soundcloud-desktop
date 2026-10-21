@@ -1,29 +1,11 @@
 import { AlertCircle, Link2, Loader2 } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { type ResolvedStreamingTrack, resolveTrackFromStreaming } from '../../lib/streaming';
+import { resolvedRoute, resolveTrackFromStreaming } from '../../lib/streaming';
 
 interface ResolveCardProps {
   url: string;
   onDone: () => void;
-}
-
-/// Резолв → внутренний роут. Плейлисты приходят без `urn` (только `id`),
-/// поэтому URN при необходимости собираем из kind+id. Альбомные сеты SC —
-/// тоже kind=playlist, их ведёт PlaylistPage.
-const KIND_ROUTES: Record<string, { route: string; ns: string }> = {
-  track: { route: 'track', ns: 'tracks' },
-  user: { route: 'user', ns: 'users' },
-  playlist: { route: 'playlist', ns: 'playlists' },
-};
-
-function resolvedRoute(resolved: ResolvedStreamingTrack | null | undefined): string | null {
-  if (!resolved) return null;
-  const target = KIND_ROUTES[resolved.kind ?? 'track'];
-  if (!target) return null;
-  const urn =
-    resolved.urn ?? (resolved.id != null ? `soundcloud:${target.ns}:${resolved.id}` : null);
-  return urn ? `/${target.route}/${encodeURIComponent(urn)}` : null;
 }
 
 /* SoundCloud URL short-circuit: resolve the link and redirect to the matching page. */

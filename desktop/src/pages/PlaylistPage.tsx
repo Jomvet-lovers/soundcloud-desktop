@@ -68,36 +68,66 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
 
   // Local order for DnD; skip server sync while a debounced save is in flight.
   const [localTracks, setLocalTracks] = useState<Track[]>([]);
+  // Rows are memoised on (urn, index), so a handler closing over `localTracks`
+  // can go stale when another row is removed without shifting this one: the next
+  // remove then filtered the old array and resurrected the deleted track. Read
+  // the live list through refs instead.
+  const localTracksRef = useRef<Track[]>([]);
+  localTracksRef.current = localTracks;
+  const serverTracksRef = useRef<Track[]>(serverTracks);
+  serverTracksRef.current = serverTracks;
   const pendingMutationRef = useRef(false);
   useEffect(() => {
     if (!pendingMutationRef.current) setLocalTracks(serverTracks);
   }, [serverTracks]);
 
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>(null!);
-  const debouncedUpdate = useCallback(
-    (next: Track[], successMsg?: string) => {
-      pendingMutationRef.current = true;
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = setTimeout(() => {
-        updateTracks.mutate(
-          next.map((tr) => tr.urn),
-          {
-            onSuccess: () => {
-              pendingMutationRef.current = false;
-              if (successMsg) toast.success(successMsg);
-            },
-            onError: () => {
-              pendingMutationRef.current = false;
-              setLocalTracks(serverTracks);
-            },
-          },
-        );
-      }, 600);
-    },
-    [updateTracks, serverTracks],
-  );
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<{ urns: string[]; successMsg?: string } | null>(null);
 
-  useEffect(() => () => clearTimeout(debounceTimerRef.current), []);
+  const sendSave = useCallback(
+    (payload: { urns: string[]; successMsg?: string }) => {
+      pendingSaveRef.current = null;
+      updateTracks.mutate(payload.urns, {
+        onSuccess: () => {
+          pendingMutationRef.current = false;
+          if (payload.successMsg) toast.success(payload.successMsg);
+        },
+        onError: () => {
+          pendingMutationRef.current = false;
+          setLocalTracks(serverTracksRef.current);
+        },
+      });
+    },
+    [updateTracks],
+  );
+  const sendSaveRef = useRef(sendSave);
+  sendSaveRef.current = sendSave;
+
+  const debouncedUpdate = useCallback((next: Track[], successMsg?: string) => {
+    pendingMutationRef.current = true;
+    const payload = { urns: next.map((tr) => tr.urn), successMsg };
+    pendingSaveRef.current = payload;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      sendSaveRef.current(payload);
+    }, 600);
+  }, []);
+
+  // Every route change unmounts this page (`AppShell` keys the outlet on the
+  // pathname), so a pending save must be flushed on the way out: clearing the
+  // timer only silently dropped the reorder/removal the user just saw.
+  useEffect(
+    () => () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+        const pending = pendingSaveRef.current;
+        if (pending) sendSaveRef.current(pending);
+      }
+    },
+    [],
+  );
 
   const tracks = isOwner ? localTracks : serverTracks;
 
@@ -117,25 +147,26 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      const oldIndex = localTracks.findIndex((tr) => tr.urn === active.id);
-      const newIndex = localTracks.findIndex((tr) => tr.urn === over.id);
+      const current = localTracksRef.current;
+      const oldIndex = current.findIndex((tr) => tr.urn === active.id);
+      const newIndex = current.findIndex((tr) => tr.urn === over.id);
       if (oldIndex === -1 || newIndex === -1) return;
-      const next = [...localTracks];
+      const next = [...current];
       const [moved] = next.splice(oldIndex, 1);
       next.splice(newIndex, 0, moved);
       setLocalTracks(next);
       debouncedUpdate(next, 'Track order saved');
     },
-    [localTracks, debouncedUpdate],
+    [debouncedUpdate],
   );
 
   const handleRemoveTrack = useCallback(
     (trackUrn: string) => {
-      const next = localTracks.filter((tr) => tr.urn !== trackUrn);
+      const next = localTracksRef.current.filter((tr) => tr.urn !== trackUrn);
       setLocalTracks(next);
       debouncedUpdate(next, 'Track removed');
     },
-    [localTracks, debouncedUpdate],
+    [debouncedUpdate],
   );
 
   // Доигрываем плейлист ДО КОНЦА (пагинированный срез в очереди → потом волна),

@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Clock, Search as SearchIcon, X } from '../../lib/icons';
+import { resolvedRoute, resolveTrackFromStreaming } from '../../lib/streaming';
 import { useSearchHistoryStore } from '../../stores/searchHistory';
 import { useSearchQueryStore } from '../../stores/searchQuery';
 import { isSoundCloudUrl } from '../search/utils';
@@ -42,6 +43,21 @@ export const GlobalSearch = memo(function GlobalSearch() {
     goSearch();
   };
 
+  /** The badge promises "open link", so resolve the SC URL into an app route. */
+  const openLink = async (url: string) => {
+    try {
+      const route = resolvedRoute(await resolveTrackFromStreaming(url));
+      if (route) {
+        setQ('');
+        navigate(route);
+        return;
+      }
+    } catch {
+      // Unresolvable (private, deleted, network): fall back to a text search.
+    }
+    goSearch();
+  };
+
   return (
     <div className="relative w-full max-w-[550px]" style={{ isolation: 'isolate' }}>
       <div
@@ -69,6 +85,8 @@ export const GlobalSearch = memo(function GlobalSearch() {
               // `#tag` opens the tag feed instead of a text search.
               if (value.startsWith('#') && value.length > 1) {
                 navigate(`/tag/${encodeURIComponent(value.slice(1).trim())}`);
+              } else if (isSoundCloudUrl(value)) {
+                void openLink(value);
               } else {
                 goSearch();
               }

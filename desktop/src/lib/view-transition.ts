@@ -17,7 +17,25 @@ export function withViewTransition(update: () => void): void {
     update();
     return;
   }
-  doc.startViewTransition(() => {
-    flushSync(update);
-  });
+  // Document-scoped transitions capture the page into snapshots and lift the
+  // named elements out of it. A dialog is portalled, fixed-position and its own
+  // compositing layer, so that lift leaves the dialog's surface unpainted: the
+  // equalizer panel lost its background every time a preset was picked. Dialogs
+  // keep plain state updates; the pill still cross-fades via CSS.
+  if (document.querySelector('[role="dialog"][data-state="open"]')) {
+    update();
+    return;
+  }
+  try {
+    const transition = doc.startViewTransition(() => {
+      flushSync(update);
+    });
+    // Starting a transition while another is running rejects the older one with
+    // "Transition was skipped". That is a normal outcome (rapid tab clicks), not
+    // an app error, so keep it out of the unhandled-rejection log.
+    void Promise.resolve(transition).catch(() => {});
+  } catch {
+    // A rejected transition must never swallow the update itself.
+    update();
+  }
 }

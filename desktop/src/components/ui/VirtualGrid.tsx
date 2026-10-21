@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 interface VirtualGridProps<T> {
   items: T[];
@@ -27,10 +27,42 @@ export function VirtualGrid<T>({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
   const [width, setWidth] = useState(0);
+  // Distance from the top of the scroll container to this grid. The virtualizer
+  // compares `scrollTop` with item offsets, so without it any grid that does not
+  // start at the top of `main` renders its window that far down the list: the
+  // visible band ends up blank.
+  const [scrollMargin, setScrollMargin] = useState(0);
 
   useEffect(() => {
     setScrollElement((containerRef.current?.closest('main') as HTMLElement | null) ?? null);
   }, []);
+
+  const measureScrollMargin = useCallback(() => {
+    const node = containerRef.current;
+    if (!node || !scrollElement) return;
+    const offset =
+      node.getBoundingClientRect().top -
+      scrollElement.getBoundingClientRect().top +
+      scrollElement.scrollTop;
+    const next = Math.max(0, Math.round(offset));
+    setScrollMargin((prev) => (prev === next ? prev : next));
+  }, [scrollElement]);
+
+  useLayoutEffect(() => {
+    measureScrollMargin();
+    const node = containerRef.current;
+    if (!node || !scrollElement) return;
+    // Content above the grid (a previous section filling in) changes its offset
+    // without resizing this node, so watch the parent too.
+    const observer = new ResizeObserver(measureScrollMargin);
+    observer.observe(node);
+    if (node.parentElement) observer.observe(node.parentElement);
+    window.addEventListener('resize', measureScrollMargin);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measureScrollMargin);
+    };
+  }, [measureScrollMargin, scrollElement]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -62,6 +94,7 @@ export function VirtualGrid<T>({
     count: rowCount,
     getScrollElement: () => scrollElement,
     estimateSize: () => rowHeight,
+    scrollMargin,
     overscan,
   });
 
@@ -105,7 +138,9 @@ export function VirtualGrid<T>({
               left: 0,
               width: '100%',
               height: itemHeight,
-              transform: `translateY(${virtualRow.start}px)`,
+              // `start` lives in the scroll element's coordinate space; the row is
+              // positioned inside this grid, so the margin comes back out.
+              transform: `translateY(${virtualRow.start - scrollMargin}px)`,
             }}
           >
             {rowItems.map((item, columnIndex) => {

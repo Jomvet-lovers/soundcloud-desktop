@@ -112,4 +112,38 @@ async function bootstrap() {
   void startDeferredRuntime();
 }
 
-void bootstrap();
+/** Last-resort UI when the shell cannot boot. Built with textContent only. */
+function renderBootFailure(error: unknown) {
+  const root = document.getElementById('root');
+  if (!root) return;
+  const box = document.createElement('div');
+  box.style.cssText =
+    'min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+    'gap:10px;padding:24px;background:#08080a;color:rgba(255,255,255,0.72);' +
+    'font:13px/1.5 system-ui,sans-serif;text-align:center';
+  const title = document.createElement('p');
+  title.textContent = 'SoundCloud Desktop could not start';
+  title.style.cssText = 'margin:0;font-size:15px;font-weight:600;color:rgba(255,255,255,0.92)';
+  const detail = document.createElement('p');
+  detail.textContent = error instanceof Error ? error.message : String(error);
+  detail.style.cssText =
+    'margin:0;max-width:520px;color:rgba(255,255,255,0.5);word-break:break-word';
+  const hint = document.createElement('p');
+  hint.textContent = 'Details are in desktop.log.';
+  hint.style.cssText = 'margin:0;font-size:12px;color:rgba(255,255,255,0.35)';
+  const reload = document.createElement('button');
+  reload.type = 'button';
+  reload.textContent = 'Reload';
+  reload.style.cssText =
+    'margin-top:6px;height:32px;padding:0 16px;border-radius:8px;cursor:pointer;' +
+    'border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);' +
+    'color:rgba(255,255,255,0.85);font:12px system-ui,sans-serif';
+  reload.onclick = () => window.location.reload();
+  box.append(title, detail, hint, reload);
+  root.replaceChildren(box);
+}
+
+void bootstrap().catch((error) => {
+  console.error('[Boot] failed:', error);
+  renderBootFailure(error);
+});

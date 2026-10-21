@@ -65,6 +65,11 @@ export const QueueList = React.memo(
             })}
           </div>
         </SortableContext>
+        {queue.length > startIndex + QUEUE_RENDER_CAP && (
+          <p className="px-3 pt-2 text-[11px] text-white/25">
+            {`+${queue.length - startIndex - QUEUE_RENDER_CAP} more in the queue`}
+          </p>
+        )}
         <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.16,1,0.3,1)' }}>
           {activeTrack ? <QueueRowClone track={activeTrack} /> : null}
         </DragOverlay>

@@ -76,6 +76,24 @@ export function resolveTrackFromStreaming(url: string) {
   return streamingJson<ResolvedStreamingTrack>(`/resolve?url=${encodeURIComponent(url)}`);
 }
 
+/// SC resolve returns a track / user / playlist. Playlists (albums included)
+/// arrive without `urn`, so rebuild one from kind + id. Null when the entity has
+/// no page in this app.
+const KIND_ROUTES: Record<string, { route: string; ns: string }> = {
+  track: { route: 'track', ns: 'tracks' },
+  user: { route: 'user', ns: 'users' },
+  playlist: { route: 'playlist', ns: 'playlists' },
+};
+
+export function resolvedRoute(resolved: ResolvedStreamingTrack | null | undefined): string | null {
+  if (!resolved) return null;
+  const target = KIND_ROUTES[resolved.kind ?? 'track'];
+  if (!target) return null;
+  const urn =
+    resolved.urn ?? (resolved.id != null ? `soundcloud:${target.ns}:${resolved.id}` : null);
+  return urn ? `/${target.route}/${encodeURIComponent(urn)}` : null;
+}
+
 function buildStreamUrl(base: string, trackUrn: string, hq: boolean) {
   const params = new URLSearchParams();
   if (hq) params.set('hq', 'true');

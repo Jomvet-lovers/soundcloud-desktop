@@ -282,6 +282,11 @@ export const AppShell = React.memo(() => {
         return;
       }
 
+      // A dialog owns the keyboard while it is open. Without this, Space on a
+      // focused dialog button toggled playback instead of activating the button,
+      // and m/q/b/arrows moved the player behind the modal.
+      if (document.querySelector('[role="dialog"]') !== null) return;
+
       // / — focus search (not in input)
       if ((e.key === '/' || code === 'Slash') && !inInput) {
         e.preventDefault();

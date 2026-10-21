@@ -430,9 +430,6 @@ button:active:not(:disabled) {
 .vt-artist-view-pill {
   view-transition-name: artist-view-pill;
 }
-.vt-eq-pill {
-  view-transition-name: eq-pill;
-}
 .vt-pitch-pill {
   view-transition-name: pitch-pill;
 }

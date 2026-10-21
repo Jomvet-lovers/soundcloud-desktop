@@ -7,7 +7,6 @@ import {
   EQ_PRESETS,
 } from '../../lib/equalizer';
 import { AudioLines, Power, RotateCcw, X } from '../../lib/icons';
-import { withViewTransition } from '../../lib/view-transition';
 import { useSettingsStore } from '../../stores/settings';
 import { Modal, ModalClose, ModalContent, ModalTrigger } from '../ui/Modal';
 
@@ -138,7 +137,10 @@ const PresetBtn = React.memo(function PresetBtn({
   return (
     <button
       type="button"
-      onClick={() => withViewTransition(() => onClick(id))}
+      // No document view transition here: the panel is a portalled dialog and a
+      // page-wide snapshot left its surface unpainted. The pill still cross-fades
+      // through `transition-colors`.
+      onClick={() => onClick(id)}
       className={`group relative px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
         active ? 'text-black' : 'text-white/50 hover:text-white/80'
       }`}
@@ -147,7 +149,7 @@ const PresetBtn = React.memo(function PresetBtn({
         aria-hidden
         className={`pointer-events-none absolute inset-0 rounded-lg border transition-colors ${
           active
-            ? 'vt-eq-pill bg-white border-white'
+            ? 'bg-white border-white'
             : 'bg-white/[0.04] border-white/[0.08] group-hover:bg-white/[0.08]'
         }`}
       />
@@ -184,9 +186,12 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
       if (preset) {
         setEqGains([...preset.gains]);
         setEqPreset(id);
+        // Picking a preset is an explicit "use this curve": turning the EQ on
+        // saves a second trip to the power button.
+        if (!eqEnabled) setEqEnabled(true);
       }
     },
-    [setEqGains, setEqPreset],
+    [eqEnabled, setEqEnabled, setEqGains, setEqPreset],
   );
 
   const handleReset = useCallback(() => {
@@ -262,7 +267,9 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
 
         {/* Presets */}
         <div
-          className={`px-6 pb-5 transition-opacity duration-300 ${eqEnabled ? '' : 'opacity-30 pointer-events-none'}`}
+          // Stays clickable while the EQ is off: applying a preset also turns it
+          // on, so the dimmed state is a hint rather than a lock.
+          className={`px-6 pb-5 transition-opacity duration-300 ${eqEnabled ? '' : 'opacity-60'}`}
         >
           <p className="text-[11px] text-white/40 font-medium mb-2.5">{'Preset'}</p>
           <div className="flex flex-wrap gap-1.5">

@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { prefetchVisibleTracks } from '../../lib/audio';
 
 interface VirtualListProps<T> {
@@ -26,16 +26,47 @@ export function VirtualList<T>({
 }: VirtualListProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+  // Offset of this list inside the scroll container. The virtualizer compares
+  // raw `scrollTop` with item offsets, so a list that starts below the top of
+  // `main` renders its window that far ahead: the visible rows go blank.
+  const [scrollMargin, setScrollMargin] = useState(0);
 
   // Resolve the scroll element before paint to avoid a visible 0-row first frame.
   useLayoutEffect(() => {
     setScrollElement((containerRef.current?.closest('main') as HTMLElement | null) ?? null);
   }, []);
 
+  const measureScrollMargin = useCallback(() => {
+    const node = containerRef.current;
+    if (!node || !scrollElement) return;
+    const offset =
+      node.getBoundingClientRect().top -
+      scrollElement.getBoundingClientRect().top +
+      scrollElement.scrollTop;
+    const next = Math.max(0, Math.round(offset));
+    setScrollMargin((prev) => (prev === next ? prev : next));
+  }, [scrollElement]);
+
+  useLayoutEffect(() => {
+    measureScrollMargin();
+    const node = containerRef.current;
+    if (!node || !scrollElement) return;
+    // A section above the list filling in shifts it without resizing this node.
+    const observer = new ResizeObserver(measureScrollMargin);
+    observer.observe(node);
+    if (node.parentElement) observer.observe(node.parentElement);
+    window.addEventListener('resize', measureScrollMargin);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measureScrollMargin);
+    };
+  }, [measureScrollMargin, scrollElement]);
+
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollElement,
     estimateSize: () => rowHeight,
+    scrollMargin,
     overscan,
   });
 
@@ -87,7 +118,9 @@ export function VirtualList<T>({
               left: 0,
               width: '100%',
               height: virtualItem.size,
-              transform: `translateY(${virtualItem.start}px)`,
+              // `start` is in the scroll element's space; the row lives inside
+              // this list, so the measured margin comes back out.
+              transform: `translateY(${virtualItem.start - scrollMargin}px)`,
             }}
           >
             {renderItem(item, virtualItem.index)}

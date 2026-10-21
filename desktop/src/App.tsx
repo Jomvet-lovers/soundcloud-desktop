@@ -1,5 +1,5 @@
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useShallow } from 'zustand/shallow';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -351,9 +351,12 @@ export default function App() {
 }
 
 function RouteLoader({ children }: { children: ReactNode }) {
+  // One boundary instance is reused for every route, so without a key a crash on
+  // one page kept showing its error screen on all the others until "Retry".
+  const location = useLocation();
   return (
     <Suspense fallback={null}>
-      <ErrorBoundary>{children}</ErrorBoundary>
+      <ErrorBoundary key={location.pathname}>{children}</ErrorBoundary>
     </Suspense>
   );
 }

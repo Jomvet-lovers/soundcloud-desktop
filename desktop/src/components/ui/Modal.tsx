@@ -216,7 +216,12 @@ export function ModalContent({
       <div
         className={`modal-overlay fixed inset-0 ${zClass} bg-black/70`}
         data-state={state}
-        onClick={() => setOpen(false)}
+        // The overlay is portalled but still a React child of the trigger's
+        // subtree: a click here must not also reach a track card's play handler.
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(false);
+        }}
       />
       <div
         ref={cardRef}

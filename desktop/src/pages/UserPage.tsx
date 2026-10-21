@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { IdentityHub } from '../components/user/IdentityHub';
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
 import { TabDock, type TabId } from '../components/user/TabDock';
@@ -15,7 +15,7 @@ import {
 } from '../components/user/UserTabs';
 import { useEditableUserAura, useUserAura } from '../components/user/useUserAura';
 import { useUser, useUserSubscription, useUserWebProfiles } from '../lib/hooks';
-import { Loader2 } from '../lib/icons';
+import { AlertCircle, Loader2 } from '../lib/icons';
 import { useRestoredTab } from '../lib/tab-memory';
 import { useAuthStore } from '../stores/auth';
 
@@ -35,6 +35,7 @@ function searchableScopeLabel(tab: TabId): string {
 
 export function UserPage() {
   const { urn } = useParams<{ urn: string }>();
+  const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
 
   const [activeTab, setActiveTab] = useRestoredTab<TabId>(urn ?? undefined, 'popular');
@@ -57,7 +58,12 @@ export function UserPage() {
     setDebouncedSearch('');
   }, [activeTab]);
 
-  const { data: user, isLoading: userLoading } = useUser(urn);
+  const {
+    data: user,
+    isLoading: userLoading,
+    isError: userError,
+    refetch: refetchUser,
+  } = useUser(urn);
   const { data: webProfiles } = useUserWebProfiles(urn);
 
   const isOwnProfile = !!user && currentUser?.urn === user.urn;
@@ -84,10 +90,42 @@ export function UserPage() {
     ] as const;
   }, [user]);
 
-  if (userLoading || !user) {
+  if (userLoading) {
     return (
       <div className="relative w-full min-h-screen flex items-center justify-center">
         <Loader2 size={28} className="text-white/30 animate-spin" />
+      </div>
+    );
+  }
+
+  // A 404/5xx user used to spin forever: `!user` alone kept the loader mounted
+  // with no way out.
+  if (!user) {
+    return (
+      <div className="relative w-full min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <AlertCircle size={26} className="text-white/25" strokeWidth={1.7} />
+        <div className="space-y-1">
+          <p className="text-[14px] text-white/70">{'This profile could not be loaded'}</p>
+          <p className="text-[12px] text-white/35">
+            {userError ? 'The account may have been removed or renamed.' : 'Nothing came back.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void refetchUser()}
+            className="h-8 px-3.5 rounded-lg text-[12px] font-medium bg-white/[0.06] text-white/80 hover:bg-white/[0.1] transition-colors cursor-pointer"
+          >
+            {'Try again'}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="h-8 px-3.5 rounded-lg text-[12px] text-white/45 hover:text-white/75 hover:bg-white/[0.06] transition-colors cursor-pointer"
+          >
+            {'Go back'}
+          </button>
+        </div>
       </div>
     );
   }
