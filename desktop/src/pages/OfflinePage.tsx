@@ -5,7 +5,7 @@ import type { OfflineEntry } from '../components/offline/types';
 import { useOfflineLibrary } from '../components/offline/useOfflineLibrary';
 import { clearCache, clearLikedCache, ensureTrackCached } from '../lib/cache';
 import { art, dur } from '../lib/formatters';
-import { Download, Loader2, Pause, Play, Shuffle, Trash2 } from '../lib/icons';
+import { Download, Loader2, Pause, Play, playWhite14, Shuffle, Trash2 } from '../lib/icons';
 import { useCacheLikes } from '../lib/likes-cache';
 import { useIsPlayingFrom } from '../lib/useTrackPlay';
 import { withViewTransition } from '../lib/view-transition';
@@ -271,7 +271,7 @@ export function OfflinePage() {
             return (
               <div
                 key={entry.urn}
-                className="group flex items-center gap-3 border-b border-white/[0.05] px-1 py-2"
+                className="group flex items-center gap-3 border-b border-white/[0.04] px-1 py-2 transition-colors hover:bg-white/[0.04]"
               >
                 <button
                   type="button"
@@ -285,12 +285,29 @@ export function OfflinePage() {
                     <span className="absolute inset-0 flex items-center justify-center bg-black/50">
                       <Pause size={14} />
                     </span>
+                  ) : entry.inv !== null ? (
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      {playWhite14}
+                    </span>
                   ) : null}
                 </button>
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] text-white/88">{entry.track.title}</p>
-                  <p className="truncate text-[11px] text-white/40">{entry.track.user?.username}</p>
+                  <p
+                    className="cursor-pointer truncate text-[13px] text-white/88 transition-colors hover:text-white"
+                    onClick={() => navigate(`/track/${encodeURIComponent(entry.urn)}`)}
+                  >
+                    {entry.track.title}
+                  </p>
+                  <p
+                    className="cursor-pointer truncate text-[11px] text-white/40 transition-colors hover:text-white/60"
+                    onClick={() =>
+                      entry.track.user?.urn &&
+                      navigate(`/user/${encodeURIComponent(entry.track.user.urn)}`)
+                    }
+                  >
+                    {entry.track.user?.username}
+                  </p>
                 </div>
 
                 <span className="font-mono text-[11px] tabular-nums text-white/35">
