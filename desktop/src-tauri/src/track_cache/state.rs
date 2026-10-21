@@ -1025,6 +1025,14 @@ impl TrackCacheState {
         self.ffmpeg.lock().ok().and_then(|g| g.clone())
     }
 
+    /// Fire-and-forget TLS warm-up for the media CDNs, once at startup. Failure
+    /// (offline, blocked) is silent; the first track just pays the handshake.
+    pub async fn warm_cdn(&self) {
+        if let Some(ms) = self.anon.warm_up().await {
+            self.diag("INFO", format!("[Audio] TLS warm-up done in {ms}ms"));
+        }
+    }
+
     /// Acquire ffmpeg (system PATH or download into `install_dir`) and publish it
     /// to all clones. Run once in the background at startup, before recovery.
     pub async fn init_ffmpeg(&self, install_dir: PathBuf) {

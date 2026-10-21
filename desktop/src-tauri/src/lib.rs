@@ -143,6 +143,7 @@ pub fn run() {
                 track_cache::init(audio_dir, liked_audio_dir, incoming_audio_dir);
             track_cache_state.set_app_handle(app.handle().clone());
             let recovery_state = track_cache_state.clone();
+            let warm_state = track_cache_state.clone();
             app.manage(track_cache_state);
             // Acquire ffmpeg (system PATH or one-time download) in the background,
             // then sweep interrupted temps and resume transcoding raw files left
@@ -151,6 +152,9 @@ pub fn run() {
                 recovery_state.init_ffmpeg(ffmpeg_dir).await;
                 recovery_state.recover_incoming().await;
             });
+            // Warm the media CDN handshake while the UI boots: one ranged request
+            // per host, silent when it fails.
+            rt_handle.spawn(async move { warm_state.warm_cdn().await });
 
             let audio_state = audio::init();
             let analyser_buffer = audio_state.analyser_buffer.clone();

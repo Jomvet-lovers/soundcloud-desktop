@@ -121,6 +121,34 @@ impl AnonClient {
         let _ = self.app_handle.set(handle);
     }
 
+    /// Open a TCP+TLS connection to the media CDNs once, so the first track
+    /// doesn't pay the handshake. The client is shared, so a completed request
+    /// leaves a warm connection in its pool. Best effort: failures stay silent
+    /// and the next track simply pays the handshake as before.
+    /// Returns the elapsed time when at least one host answered.
+    pub async fn warm_up(&self) -> Option<u128> {
+        // Progressive media and HLS segments are served from these two hosts.
+        const MEDIA_HOSTS: [&str; 2] = ["cf-media.sndcdn.com", "cf-hls-media.sndcdn.com"];
+        let started = Instant::now();
+        let mut any = false;
+        for host in MEDIA_HOSTS {
+            // A range probe on the root: the status is irrelevant (usually
+            // 403/404 there); the handshake and HTTP/2 setup are the point.
+            let request = self
+                .client
+                .get(format!("https://{host}/"))
+                .header("Range", "bytes=0-0");
+            match request.send().await {
+                Ok(response) => {
+                    let _ = response.status();
+                    any = true;
+                }
+                Err(error) => self.log("INFO", format!("{host} warm-up skipped: {error}")),
+            }
+        }
+        any.then(|| started.elapsed().as_millis())
+    }
+
     fn log(&self, level: &str, msg: String) {
         let line = format!("[SCAnon] {msg}");
         match level {
