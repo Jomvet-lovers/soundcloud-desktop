@@ -297,8 +297,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "retried": queued.len() }))
         }
         ("DELETE", ["comments", comment_id]) => {
-            // Delete a comment: best-effort SoundCloud delete (the web client
-            // uses DELETE /comments/:id), then drop the local copy.
+            // Delete a comment on SoundCloud first (the web client uses
+            // DELETE /comments/:id), then drop the local copy.
             let id: i64 = comment_id.parse().unwrap_or(0);
             if id == 0 {
                 err(400, "bad comment id")

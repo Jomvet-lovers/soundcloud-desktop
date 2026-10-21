@@ -75,8 +75,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             ok(json!({ "ok": true }))
         }
         // Server-side history attribution via the official analytics audio
-        // flow (play + checkpoint ~30s apart). The frontend calls this only
-        // after ~25s of sustained playback of the same track. Plain HTTPS,
+        // flow: a play event, then a checkpoint 40s later. The frontend calls
+        // this after 15s of sustained playback of the same track. Plain HTTPS,
         // no browser involved.
         ("POST", ["history", "report"]) => {
             let b = body_json(&body);
@@ -709,7 +709,7 @@ async fn post_audio_event(http: &wreq::Client, cid: &str, page_url: &str, body: 
     }
 }
 
-/// Fire-and-forget play attribution: `play` now, `checkpoint` 30s later.
+/// Fire-and-forget play attribution: `play` now, `checkpoint` 40s later.
 pub(crate) fn spawn_history_flow(
     http: wreq::Client,
     cid: String,
@@ -720,9 +720,9 @@ pub(crate) fn spawn_history_flow(
     duration_ms: i64,
 ) {
     tokio::spawn(async move {
-        // Proven pair shape: play near position ~0.5s, checkpoint ~35s later
-        // (verified: SC records this; other playhead combos are ignored for
-        // unknown server-side reasons — see HANDOVER).
+        // Proven pair shape: play near position ~0.5s, then a checkpoint at the
+        // 35s playhead 40s later (verified: SC records this; other playhead
+        // combos are ignored for unknown server-side reasons, see HANDOVER).
         let queue = uuid::Uuid::new_v4().to_string();
         let qs = uuid::Uuid::new_v4().to_string();
         let sent_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);

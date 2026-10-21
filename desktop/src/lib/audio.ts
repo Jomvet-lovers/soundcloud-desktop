@@ -628,7 +628,7 @@ function afterLoad(track: Track, gen: number) {
       })
       .catch(() => {});
     // Server-side attribution via the official analytics audio flow (the
-    // backend mirrors it from the same track still playing after 25s).
+    // backend reports the same track only if it is still playing after 15s).
     if (historyTrack.permalink_url && historyTrack.user?.urn && historyTrack.duration > 0) {
       if (reportTimer !== undefined) clearTimeout(reportTimer);
       const urn = historyTrack.urn;

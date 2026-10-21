@@ -1,7 +1,8 @@
 //! Local HTTP API implementing the subset of the app backend that the
-//! frontend uses. Reads are resolved against SoundCloud api-v2; writes are
-//! persisted locally in [`super::store::LocalStore`] and best-effort synced
-//! through the hidden writer webview.
+//! frontend uses. Reads are resolved against SoundCloud api-v2; writes go
+//! through the hidden writer webview first and reach [`super::store::LocalStore`]
+//! only after SoundCloud accepted them. Comments, dislikes and the local play
+//! log are the deliberate exceptions.
 //!
 //! Route handlers live in one module per domain (`me`, `tracks`, `playlists`,
 //! `catalog`, `discover`, `local`); shared plumbing is in `common` and value
