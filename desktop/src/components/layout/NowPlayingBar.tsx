@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import { getCurrentTime, getDuration, handlePrev, seek, subscribe } from '../../lib/audio';
@@ -125,9 +125,37 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
   const artwork = art(currentTrack?.artwork_url, 't200x200');
   const repeatTitle =
     repeat === 'off' ? 'Repeat off' : repeat === 'one' ? 'Repeat one' : 'Repeat all';
+  const barRef = useRef<HTMLElement>(null);
+
+  // Wheel over the bar steps the volume: one notch = 1 point on the 0..100 scale.
+  // Trackpads emit many small deltas, so they accumulate until a notch's worth.
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const NOTCH_PX = 50;
+    let pending = 0;
+    const onWheel = (event: WheelEvent) => {
+      // deltaMode 1 = lines, 2 = pages (Firefox); normalize to pixels.
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
+      pending += event.deltaY * unit;
+      event.preventDefault();
+      while (Math.abs(pending) >= NOTCH_PX) {
+        const direction = pending > 0 ? -1 : 1;
+        pending -= pending > 0 ? NOTCH_PX : -NOTCH_PX;
+        const { volume, setVolume } = usePlayerStore.getState();
+        const next = Math.max(0, Math.min(100, volume + direction));
+        if (next !== volume) setVolume(next);
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   return (
-    <footer className="flex h-[72px] flex-none items-center gap-4 border-t border-white/[0.08] bg-[#0b0b0e] px-4">
+    <footer
+      ref={barRef}
+      className="flex h-[72px] flex-none items-center gap-4 border-t border-white/[0.08] bg-[#0b0b0e] px-4"
+    >
       {/* Left: track info */}
       <div
         key={currentTrack?.urn ?? 'none'}
