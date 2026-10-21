@@ -1,14 +1,19 @@
 import { appCacheDir, join } from '@tauri-apps/api/path';
 import { mkdir, readDir, remove, writeFile } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { toast } from 'sonner';
 import type { PlaybackQuality, PlaybackSource } from '../stores/player';
 import { useSettingsStore } from '../stores/settings';
 import { toScproxyUrl } from './asset-url';
 import { getStaticPort } from './constants';
 import { trackedInvoke as invoke } from './diagnostics';
+import { formatBytes } from './formatters';
 
 const WALLPAPERS_DIR = 'wallpapers';
 const CACHE_MAINTENANCE_INTERVAL_MS = 60 * 1000;
+/** Minimum gap between automatic sweeps (Rust coalesces overlapping ones too). */
+const ENFORCE_COOLDOWN_MS = 20 * 1000;
+let lastEnforceAt = 0;
 
 let cacheMaintenanceStarted = false;
 
@@ -176,9 +181,17 @@ export function cancelCacheLikes(): Promise<void> {
 
 export function enforceAudioCacheLimit(
   limitMb = useSettingsStore.getState().audioCacheLimitMB,
-): Promise<void> {
-  if (!limitMb || limitMb <= 0) return Promise.resolve();
-  return invoke('track_enforce_cache_limit', { limitMb });
+  opts?: { force?: boolean },
+): Promise<number> {
+  if (!limitMb || limitMb <= 0) return Promise.resolve(0);
+  // Rust drops a sweep that overlaps a running one, so firing on every timer
+  // tick, focus event and finished download only fills the IPC queue. One call
+  // per window is enough; a limit change forces the immediate pass.
+  const now = Date.now();
+  if (!opts?.force && now - lastEnforceAt < ENFORCE_COOLDOWN_MS) return Promise.resolve(0);
+  lastEnforceAt = now;
+  // Resolves with the bytes this sweep removed (0 when it skipped).
+  return invoke<number>('track_enforce_cache_limit', { limitMb }).catch(() => 0);
 }
 
 /* ── Cache maintenance ───────────────────────────────────── */
@@ -191,7 +204,13 @@ export function setupCacheMaintenance() {
 
   useSettingsStore.subscribe((state, prev) => {
     if (state.audioCacheLimitMB !== prev.audioCacheLimitMB) {
-      void enforceAudioCacheLimit(state.audioCacheLimitMB);
+      const limit = state.audioCacheLimitMB;
+      void enforceAudioCacheLimit(limit, { force: true }).then((freed) => {
+        // Only an explicit limit change reports: toasting from the periodic
+        // sweeps would fire every time a download pushes the cache over the cap.
+        if (freed <= 0) return;
+        toast(`${formatBytes(freed)} freed from the audio cache`, { id: 'audio-cache-freed' });
+      });
     }
   });
 

@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import type { Track } from '../stores/player';
 import type { SearchSort } from '../stores/searchPrefs';
+import { getAllLikesPromise, setAllLikesPromise } from './all-likes-cache';
 import { ApiError, api, apiErrorReason } from './api';
 import { confirmHistory, mergeHistory, scTrackIdSet, usePendingHistory } from './history-pending';
 import { initLikedUrns } from './likes';
@@ -306,7 +307,9 @@ export function useHistory(limit = 50) {
     // SoundCloud paging hands back the next page's query string (from/offset);
     // the local offline fallback returns null and stops here.
     getNextPageParam: (last) => last.next_cursor ?? undefined,
-    staleTime: 0,
+    // The tab merges tracks that were just played from usePendingHistory, so a
+    // short cache only removes the refetch (and the loading flash) per open.
+    staleTime: 60_000,
   });
 
   const scEntries = useMemo(() => flattenCollectionPages(query.data?.pages), [query.data]);
@@ -359,43 +362,45 @@ export function useLikedTracks(limit = 30) {
   return { tracks, ...query };
 }
 
+export { invalidateAllLikesCache } from './all-likes-cache';
+
 /**
  * Fetch ALL liked tracks. Page-based pagination, shared promise.
  * Optional onPage callback fires per page during the fetch.
  */
-let _allLikesPromise: Promise<Track[]> | null = null;
+const MAX_ALL_LIKES_PAGES = 200;
 
 export function fetchAllLikedTracks(
   pageSize = 200,
   onPage?: (tracks: Track[]) => void,
 ): Promise<Track[]> {
-  if (_allLikesPromise && !onPage) return _allLikesPromise;
+  const shared = getAllLikesPromise();
+  if (shared && !onPage) return shared;
 
   const promise = (async () => {
     const all: Track[] = [];
-    for (let page = 0; ; page++) {
+    for (let page = 0; page < MAX_ALL_LIKES_PAGES; page++) {
       const data = await api<TrackPage>(pagedUrl('/me/likes/tracks', page, pageSize));
-      for (const t of data.collection) all.push(t);
-      void rememberTracks(data.collection);
-      onPage?.(data.collection);
-      if (!data.has_more) break;
+      const pageTracks = data.collection ?? [];
+      for (const t of pageTracks) all.push(t);
+      void rememberTracks(pageTracks);
+      onPage?.(pageTracks);
+      // SoundCloud keeps `next_href` on the last page of some collections, so an
+      // empty page ends the walk, and the cap keeps a stuck cursor from spinning.
+      if (!data.has_more || pageTracks.length === 0) break;
     }
-    void rememberLikedTracks(all);
+    void rememberLikedTracks(all, { replace: true });
     return all;
   })();
 
   if (!onPage) {
-    _allLikesPromise = promise;
+    setAllLikesPromise(promise);
     promise.catch(() => {
-      _allLikesPromise = null;
+      setAllLikesPromise(null);
     });
   }
 
   return promise;
-}
-
-export function invalidateAllLikesCache() {
-  _allLikesPromise = null;
 }
 
 /** Все треки плейлиста, по страницам до конца — под shuffle-continuation. */

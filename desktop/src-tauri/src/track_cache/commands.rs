@@ -228,8 +228,17 @@ pub fn track_cache_inventory(state: State<'_, TrackCacheState>) -> Vec<CacheInve
 }
 
 #[tauri::command]
-pub fn track_enforce_cache_limit(limit_mb: u64, state: State<'_, TrackCacheState>) {
-    state.enforce_limit(limit_mb);
+pub async fn track_enforce_cache_limit(
+    limit_mb: u64,
+    state: State<'_, TrackCacheState>,
+) -> Result<u64, String> {
+    // The sweep walks both cache directories and parses one sidecar per staged
+    // file. Blocking I/O on the async worker delayed every other IPC behind it.
+    // The byte count lets the UI report what the sweep actually freed.
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || state.enforce_limit(limit_mb))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

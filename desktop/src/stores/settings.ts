@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { createJSONStorage, persist } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import type { PerfMode } from '../lib/perf';
-import { tauriStorage } from '../lib/tauri-storage';
+import { createThrottledJsonStorage } from '../lib/tauri-storage';
 
 export type ThemePreset = 'soundcloud' | 'dark' | 'neon' | 'forest' | 'crimson' | 'custom';
 export type StartupPage = 'home' | 'feed' | 'search' | 'library' | 'settings';
@@ -241,7 +241,9 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'sc-settings-v21',
-      storage: createJSONStorage(() => tauriStorage),
+      // Slider drags (EQ, wallpaper) fire dozens of writes per second; the
+      // throttled adapter coalesces them and flushes when the window hides.
+      storage: createThrottledJsonStorage(),
       version: 21,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {

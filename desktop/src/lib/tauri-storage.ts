@@ -21,7 +21,10 @@ const FILE_MIGRATIONS: Record<string, string> = {
 // Keep the last written copy beside the settings file. Writing is not atomic
 // in the schema sense: a version drop (older build) or a bad migration can
 // replace the whole map, and the previous content is then unrecoverable.
+// The copy is the pre-session file: one per process is enough, and copying it on
+// every write cost an extra full-file IPC round-trip on each settings change.
 const BACKUP_UNLESS_RENAMED_SUFFIX = '.bak';
+const backedUpThisProcess = new Set<string>();
 
 let dirReady: Promise<void> | null = null;
 
@@ -71,7 +74,8 @@ export const tauriStorage: StateStorage = {
   setItem: async (name, value) => {
     await ensureDir();
     const path = filePath(name);
-    if (name in FILE_MIGRATIONS) {
+    if (name in FILE_MIGRATIONS && !backedUpThisProcess.has(name)) {
+      backedUpThisProcess.add(name);
       try {
         if (await exists(path, { baseDir: BASE_DIR })) {
           await copyFile(path, `${path}${BACKUP_UNLESS_RENAMED_SUFFIX}`, {

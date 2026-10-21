@@ -4,6 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
@@ -574,6 +575,10 @@ pub struct TrackCacheState {
     truncated_retries: Arc<StdMutex<HashMap<String, u8>>>,
     likes_running: Arc<std::sync::atomic::AtomicBool>,
     likes_cancel: Arc<std::sync::atomic::AtomicBool>,
+    /// One cache-limit sweep at a time: the UI asks from a timer, a focus event
+    /// and a settings change, and overlapping sweeps used to queue up behind each
+    /// other (observed: one call waiting 64 s while another ran).
+    enforce_running: Arc<AtomicBool>,
     /// Per-host storage circuit breaker: host -> epoch secs of last failure.
     storage_cooldowns: Arc<StdMutex<HashMap<String, u64>>>,
     /// Files the startup sweep removed, pending a diag line once the app
@@ -647,6 +652,7 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         truncated_retries: Arc::new(StdMutex::new(HashMap::new())),
         likes_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         likes_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        enforce_running: Arc::new(AtomicBool::new(false)),
         storage_cooldowns: Arc::new(StdMutex::new(HashMap::new())),
         swept_at_startup: Arc::new(StdMutex::new(swept)),
         anon,
@@ -2540,10 +2546,25 @@ impl TrackCacheState {
         out
     }
 
-    pub fn enforce_limit(&self, limit_mb: u64) {
+        /// Returns the number of bytes removed by this sweep (0 when skipped).
+    pub fn enforce_limit(&self, limit_mb: u64) -> u64 {
         if limit_mb == 0 {
-            return;
+            return 0;
         }
+        // Coalesce: an overlapping call returns immediately instead of queuing a
+        // second full walk behind this one. The drop guard releases on every exit
+        // path, so a panic in the sweep cannot wedge the flag on.
+        if self.enforce_running.swap(true, Ordering::Acquire) {
+            return 0;
+        }
+        struct RunningGuard<'a>(&'a AtomicBool);
+        impl Drop for RunningGuard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let _running = RunningGuard(&self.enforce_running);
+
         let limit_bytes = limit_mb * 1024 * 1024;
 
         let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
@@ -2596,7 +2617,7 @@ impl TrackCacheState {
         }
 
         if total <= limit_bytes {
-            return;
+            return 0;
         }
 
         let before = total;
@@ -2626,5 +2647,6 @@ impl TrackCacheState {
                 before / (1024 * 1024)
             ),
         );
+        before - total
     }
 }
