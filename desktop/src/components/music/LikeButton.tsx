@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { api } from '../../lib/api';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import { Heart } from '../../lib/icons';
@@ -22,9 +22,14 @@ export const LikeButton = React.memo(function LikeButton({
     if (track.user_favorite) setLikedUrn(track.urn, true);
   }, [track.urn, track.user_favorite]);
   const qc = useQueryClient();
+  // Rapid like/unlike leaves two requests in flight; only the newest one may
+  // roll back. The old code applied a delta on failure, so a slow POST failing
+  // after a successful DELETE re-lit the heart and drifted likes_count.
+  const toggleSeqRef = useRef(0);
 
   const toggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    const seq = ++toggleSeqRef.current;
     const next = !liked;
     pulse(next);
     optimisticToggleLike(qc, track, next);
@@ -35,7 +40,7 @@ export const LikeButton = React.memo(function LikeButton({
         body: next ? JSON.stringify(track) : undefined,
       });
     } catch {
-      optimisticToggleLike(qc, track, !next);
+      if (seq === toggleSeqRef.current) optimisticToggleLike(qc, track, !next);
     }
   };
 

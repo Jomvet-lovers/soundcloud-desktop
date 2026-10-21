@@ -2,6 +2,7 @@ import { listen } from '@tauri-apps/api/event';
 import type { Account } from '../stores/auth';
 import { useAuthStore } from '../stores/auth';
 import { useAuthRecoveryStore } from '../stores/auth-recovery';
+import { invalidateAllLikesCache } from './all-likes-cache';
 import { setSessionId } from './api';
 import { trackedInvoke as invoke } from './diagnostics';
 import { resetDislikedUrns } from './dislikes';
@@ -21,6 +22,9 @@ export interface AuthView {
 function resetAccountScopedState(): void {
   resetLikedUrns();
   resetDislikedUrns();
+  // The shared "all likes" promise is another account's snapshot until it is
+  // refetched: keeping it handed the previous account's likes to the next one.
+  invalidateAllLikesCache();
   queryClient.clear();
 }
 
