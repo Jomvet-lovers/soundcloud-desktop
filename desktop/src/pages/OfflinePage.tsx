@@ -78,7 +78,16 @@ export function OfflinePage() {
 
   const playEntry = useCallback(
     (entry: OfflineEntry) => {
-      void usePlayerStore.getState().play(entry.track, playable.length ? playable : [entry.track]);
+      const st = usePlayerStore.getState();
+      // The row shows a Pause icon while its track plays, so it has to behave
+      // like the other rows: pause/resume the current track instead of calling
+      // play() again (which is a no-op and leaves the icon as-is).
+      if (st.currentTrack?.urn === entry.track.urn) {
+        if (st.isPlaying) st.pause();
+        else st.resume();
+        return;
+      }
+      void st.play(entry.track, playable.length ? playable : [entry.track]);
     },
     [playable],
   );

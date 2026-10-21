@@ -294,6 +294,16 @@ pub async fn load_file_inner(
         return Err("stream cancelled".into());
     }
 
+    // The full-wait path has no stream session to bind to, so bind it to the
+    // engine generation instead. `stop()` bumps it, and every new load stops
+    // first: a load that finishes after the user picked another track must not
+    // stop that track or install itself over it (see `load_url`, same idiom).
+    let generation = state.load_gen.load(Ordering::Relaxed);
+    let superseded = || state.load_gen.load(Ordering::Relaxed) != generation;
+    let empty_result = AudioLoadResult {
+        duration_secs: None,
+    };
+
     let bytes = task::spawn_blocking({
         let path = path.clone();
         move || std::fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path, e))
@@ -311,7 +321,12 @@ pub async fn load_file_inner(
             }
             stop_player_only(state);
         }
-        None => stop_current_player(state),
+        None => {
+            if superseded() {
+                return Ok(empty_result);
+            }
+            stop_current_player(state);
+        }
     }
 
     let mixer = state.mixer.lock().unwrap().clone();
@@ -351,7 +366,13 @@ pub async fn load_file_inner(
             *slot = None;
             state.streaming.store(false, Ordering::Relaxed);
         }
-        None => commit_loaded_track(state, bytes, new_player, normalization_gain),
+        None => {
+            if superseded() {
+                new_player.stop();
+                return Ok(empty_result);
+            }
+            commit_loaded_track(state, bytes, new_player, normalization_gain);
+        }
     }
 
     Ok(AudioLoadResult { duration_secs })

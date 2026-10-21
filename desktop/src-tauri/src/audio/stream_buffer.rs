@@ -199,6 +199,16 @@ pub struct StreamReader {
     pos: u64,
 }
 
+impl Drop for StreamReader {
+    fn drop(&mut self) {
+        // Readers are handed to players, which are replaced on track switches and
+        // on the final rebuild onto the finished file. Without the decrement the
+        // count only grows and `claim()` refuses every later attempt forever.
+        let mut inner = self.buffer.lock();
+        inner.readers = inner.readers.saturating_sub(1);
+    }
+}
+
 /// One response's right to write into the mirror. Dropping it without `commit`
 /// rolls the mirror back to empty, so a failed or cancelled attempt never leaves
 /// bytes behind for the next one.
@@ -365,7 +375,30 @@ fn moov_before_mdat(head: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{early_start_container, moov_before_mdat};
+    use super::{early_start_container, moov_before_mdat, StreamBuffer};
+
+    /// A reader that is gone must not block the next response from taking the
+    /// mirror: the count used to only grow, so one early start disabled the
+    /// mirror for the rest of the session.
+    #[test]
+    fn dropping_the_reader_releases_the_mirror() {
+        let buffer = StreamBuffer::new();
+        let claim = buffer.claim().expect("first claim");
+        claim.start(None, "sq", "anon");
+        claim.push(b"abc");
+        drop(claim); // failed attempt: abandon() clears the bytes
+
+        let reader = buffer.reader();
+        assert!(
+            buffer.claim().is_none(),
+            "a live decoder must block a retry from resetting the mirror"
+        );
+        drop(reader);
+        assert!(
+            buffer.claim().is_some(),
+            "after the reader is gone the mirror is reusable"
+        );
+    }
 
     fn mp4(prefix: &[&[u8]]) -> Vec<u8> {
         let mut out = Vec::new();

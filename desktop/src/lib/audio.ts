@@ -39,6 +39,9 @@ const EARLY_END_PLAYED_SEC = 10;
 const EARLY_END_MIN_EXPECTED_SEC = 30;
 /** Один лечебный перекач на урн за сессию — защита от лупа на 30s-превью и мёртвых источниках. */
 const healedUrns = new Set<string>();
+/** Consecutive disliked-track auto-skips before the player gives up (see the subscriber). */
+const AUTO_SKIP_LIMIT = 200;
+let autoSkipDepth = 0;
 
 /* ── Audio engine state ──────────────────────────────────────── */
 
@@ -97,12 +100,43 @@ function setDownloadProgress(value: number | null): void {
   notify();
 }
 
+// Drag scrubbing fires an input event per pointer move. Each one used to become
+// its own IPC seek, and rodio's try_seek holds the player lock, so a long drag
+// could stall playback. Leading + trailing throttle: the first move applies at
+// once, then at most one seek per window, and the newest target always lands.
+const SEEK_THROTTLE_MS = 120;
+let seekTimer: ReturnType<typeof setTimeout> | null = null;
+let queuedSeek: number | null = null;
+let queuedSeekUrn: string | null = null;
+
+function sendSeek(seconds: number, urn: string) {
+  // The track may have changed between scheduling and sending.
+  if (!hasTrack || currentUrn !== urn) return;
+  invoke('audio_seek', { position: seconds }).catch(console.error);
+  setTimeout(() => updateMediaPosition(), 150);
+}
+
 export function seek(seconds: number) {
   if (!hasTrack) return;
-  invoke('audio_seek', { position: seconds }).catch(console.error);
+  // Optimistic time keeps the thumb on the pointer while the IPC is coalesced.
   cachedTime = seconds;
   notify();
-  setTimeout(() => updateMediaPosition(), 150);
+  if (seekTimer !== null) {
+    queuedSeek = seconds;
+    queuedSeekUrn = currentUrn;
+    return;
+  }
+  const urn = currentUrn;
+  if (urn === null) return;
+  sendSeek(seconds, urn);
+  seekTimer = setTimeout(() => {
+    seekTimer = null;
+    const target = queuedSeek;
+    const targetUrn = queuedSeekUrn;
+    queuedSeek = null;
+    queuedSeekUrn = null;
+    if (target !== null && targetUrn !== null) sendSeek(target, targetUrn);
+  }, SEEK_THROTTLE_MS);
 }
 
 /** Jump to `seconds` in `urn`, waiting for the load when the track isn't ready
@@ -129,6 +163,9 @@ function stopTrack() {
   invoke('audio_stop').catch(console.error);
   hasTrack = false;
   cachedTime = 0;
+  // A seek queued for the previous track must not land on the next one.
+  queuedSeek = null;
+  queuedSeekUrn = null;
 }
 
 export async function switchAudioDevice(
@@ -501,7 +538,9 @@ async function loadTrack(track: Track) {
         loaded = await streamTrackCached(urn, highQualityStreaming, track.duration, startPaused);
       } catch (error) {
         if (gen !== loadGen) {
-          invoke('audio_stop').catch(console.error);
+          // Superseded by a newer load, which already stopped the engine at its
+          // own start. A global `audio_stop` here would kill that newer track
+          // (engine::stop has no owner check), so just drop this attempt.
           return;
         }
         if (!highQualityStreaming) throw error;
@@ -510,7 +549,7 @@ async function loadTrack(track: Track) {
       }
 
       if (gen !== loadGen) {
-        invoke('audio_stop').catch(console.error);
+        // Same as above: the newer load owns the engine now.
         return;
       }
       // A streaming load keeps the progress readout until the download finishes.
@@ -550,7 +589,7 @@ async function loadTrack(track: Track) {
 
 function afterLoad(track: Track, gen: number) {
   if (gen !== loadGen) {
-    invoke('audio_stop').catch(console.error);
+    // A newer load already reset the engine; stopping globally here would kill it.
     return;
   }
   hasTrack = true;
@@ -815,9 +854,20 @@ usePlayerStore.subscribe((state, prev) => {
         hasTrack = false;
         usePlayerStore.getState().setPlaybackTransport(null, null);
         notify();
-        usePlayerStore.getState().next();
+        // next() re-enters this subscriber synchronously, and with repeat='all'
+        // a queue whose every track is disliked would recurse forever. Defer one
+        // step and stop skipping once the budget is spent.
+        if (++autoSkipDepth > AUTO_SKIP_LIMIT) {
+          autoSkipDepth = 0;
+          usePlayerStore.getState().pause();
+          return;
+        }
+        queueMicrotask(() => {
+          if (usePlayerStore.getState().isPlaying) usePlayerStore.getState().next();
+        });
         return;
       }
+      autoSkipDepth = 0;
       updateMetadata(state.currentTrack);
       void loadTrack(state.currentTrack);
     } else {

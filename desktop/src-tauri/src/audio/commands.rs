@@ -368,34 +368,47 @@ impl StreamSession {
         }
 
         let bytes = self.stream.copy_bytes();
-        if bytes.len() >= MIN_MIRROR_BYTES {
-            let rebuild_t0 = std::time::Instant::now();
-            let stream = self.stream.clone();
-            let app = self.app.clone();
-            let dir = self.normalization_cache_dir.clone();
-            let key = self.normalization_cache_key.clone();
-            let rebuilt = tokio::task::spawn_blocking(move || {
-                let audio = app.state::<AudioState>();
-                engine::finalize_stream(audio.inner(), &stream, bytes, dir, key)
-            })
-            .await
-            .unwrap_or(false);
-            if rebuilt {
-                log_native(
-                    &self.app,
-                    "INFO",
-                    format!(
-                        "[Audio] {} rebuild onto finished bytes: {} ms",
-                        self.urn,
-                        rebuild_t0.elapsed().as_millis(),
-                    ),
-                );
-            } else {
-                eprintln!(
-                    "[Audio] stream finalize skipped for {} (session replaced)",
-                    self.urn
-                );
-            }
+        if bytes.len() < MIN_MIRROR_BYTES {
+            // The download succeeded, but nothing of it reached the decoder: a
+            // retry after a mid-stream failure cannot continue a mirror the
+            // player has already read past. Surface it instead of letting the
+            // track end in silence and quietly skip to the next one.
+            let _ = self.app.emit(
+                "audio:stream-failed",
+                serde_json::json!({
+                    "urn": self.urn,
+                    "error": "playback buffer was lost; reload the track",
+                }),
+            );
+            return;
+        }
+
+        let rebuild_t0 = std::time::Instant::now();
+        let stream = self.stream.clone();
+        let app = self.app.clone();
+        let dir = self.normalization_cache_dir.clone();
+        let key = self.normalization_cache_key.clone();
+        let rebuilt = tokio::task::spawn_blocking(move || {
+            let audio = app.state::<AudioState>();
+            engine::finalize_stream(audio.inner(), &stream, bytes, dir, key)
+        })
+        .await
+        .unwrap_or(false);
+        if rebuilt {
+            log_native(
+                &self.app,
+                "INFO",
+                format!(
+                    "[Audio] {} rebuild onto finished bytes: {} ms",
+                    self.urn,
+                    rebuild_t0.elapsed().as_millis(),
+                ),
+            );
+        } else {
+            eprintln!(
+                "[Audio] stream finalize skipped for {} (session replaced)",
+                self.urn
+            );
         }
 
         // Emitted even when the rebuild was skipped: it only means "the download

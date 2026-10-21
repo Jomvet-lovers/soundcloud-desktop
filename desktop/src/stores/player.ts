@@ -255,11 +255,15 @@ export const usePlayerStore = create<PlayerState>()(
         if (queue) {
           const { shuffle } = get();
           const idx = queue.findIndex((t) => t.urn === track.urn);
+          // The clicked track can be absent from the queue (the offline page
+          // passes only rows whose file is on disk). Prepend it instead of
+          // leaving queueIndex pointing at a different track.
+          const base = idx >= 0 ? queue : [track, ...queue];
           const realIdx = idx >= 0 ? idx : 0;
 
           if (shuffle) {
-            const original = [...queue];
-            const rest = [...queue.slice(0, realIdx), ...queue.slice(realIdx + 1)];
+            const original = [...base];
+            const rest = [...base.slice(0, realIdx), ...base.slice(realIdx + 1)];
             shuffleArray(rest);
             set({
               currentTrack: track,
@@ -271,7 +275,7 @@ export const usePlayerStore = create<PlayerState>()(
           } else {
             set({
               currentTrack: track,
-              queue,
+              queue: base,
               queueIndex: realIdx,
               isPlaying: true,
               originalQueue: null,
@@ -308,7 +312,12 @@ export const usePlayerStore = create<PlayerState>()(
 
       next: () => {
         const { queue, queueIndex, repeat } = get();
-        if (queue.length === 0) return;
+        // "Clear Queue" leaves the current track playing with no queue; the end
+        // of that track must stop playback instead of leaving isPlaying stuck.
+        if (queue.length === 0) {
+          if (get().isPlaying) set({ isPlaying: false });
+          return;
+        }
 
         let nextIdx = queueIndex + 1;
 
@@ -337,6 +346,9 @@ export const usePlayerStore = create<PlayerState>()(
 
       prev: () => {
         const { queue, queueIndex } = get();
+        // No queue (after "Clear Queue"): nothing to step to. Writing
+        // queue[0] here set currentTrack to undefined.
+        if (queue.length === 0) return;
         const prevIdx = Math.max(0, queueIndex - 1);
         set({
           currentTrack: queue[prevIdx],
