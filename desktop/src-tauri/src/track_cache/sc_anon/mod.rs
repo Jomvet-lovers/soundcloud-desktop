@@ -8,6 +8,7 @@
 pub(super) mod hls;
 
 use bytes::Bytes;
+use futures_util::StreamExt;
 use wreq::Client;
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -91,6 +92,21 @@ pub enum AnonStream {
     Progressive(wreq::Response),
     /// HLS segments concatenated in memory; mirrored segment by segment.
     Buffered(Bytes),
+    /// Streaming-first play preset race: the winner's response, with the bytes
+    /// already read handed back for replay. The whole track comes from it.
+    Head(AnonHead),
+}
+
+/// The winning leg of a preset race: its first bytes plus the rest of its body.
+pub struct AnonHead {
+    /// Preset that won (`aac_160k` / `mp3_1_0`), for the log line.
+    pub preset: String,
+    /// Preset that lost the race and was dropped.
+    pub dropped: String,
+    pub elapsed_ms: u128,
+    pub head: Bytes,
+    pub content_length: Option<u64>,
+    pub body: futures_util::stream::BoxStream<'static, Result<Bytes, wreq::Error>>,
 }
 
 /// Caches a public `client_id` extracted from soundcloud.com homepage hydration.
@@ -226,7 +242,9 @@ impl AnonClient {
             .await
         {
             Ok(Some(AnonStream::Buffered(data))) => Ok(Some(data)),
-            Ok(Some(AnonStream::Progressive(_))) => Ok(None),
+            // Buffered mode never races or streams a body; treat anything else
+            // as "no whole-body result".
+            Ok(Some(AnonStream::Progressive(_)) | Some(AnonStream::Head(_))) => Ok(None),
             Ok(None) => Ok(None),
             Err(e) => Err(e),
         }
@@ -348,6 +366,18 @@ impl AnonClient {
             return Ok(None);
         }
 
+        // Streaming-first play only: race the two progressive presets so the
+        // first audible bytes aren't hostage to one CDN path. Falls through to
+        // the ordered loop whenever the track offers fewer than two.
+        if mode == AnonMode::Stream
+            && stream_sink.is_some()
+            && let Some(head) = self
+                .race_progressive_head(&ranked, track_auth, token, hq)
+                .await
+        {
+            return Ok(Some(AnonStream::Head(head)));
+        }
+
         let mut last_err: Option<String> = None;
         // Собираем ВСЕ ошибки кандидатов: «ресурс исчез» — только когда 404
         // у каждого. Раньше флаг сбрасывался на любой не-404, из-за чего
@@ -355,8 +385,7 @@ impl AnonClient {
         // рабочие `mp3_1_0`/`aac_160k` под «трек недоступен».
         let mut errors: Vec<String> = Vec::new();
         for t in ranked {
-            let is_progressive =
-                t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive");
+            let is_progressive = is_progressive(t);
 
             let media_url = match self
                 .resolve_transcoding_url(&t.url, None, track_auth, token)
@@ -429,6 +458,118 @@ impl AnonClient {
             return Err(format!("HTTP {status}"));
         }
         Ok(resp)
+    }
+
+    /// Open the two progressive presets together and keep the preferred tier's
+    /// body for the whole track (`hq` picks which tier leads). The alternate
+    /// leg is a live fallback that may win only after the preferred stream
+    /// dies before its head lands. Streaming-first-play only, and only for
+    /// progressive sources, so the source never changes mid-track and a
+    /// dropped leg never creates a cache file.
+    ///
+    /// `None` means "no race ran" (fewer than two presets, a resolve/open
+    /// failure, or a body that died early); the caller then uses the ordered
+    /// loop.
+    async fn race_progressive_head(
+        &self,
+        ranked: &[&Transcoding],
+        track_auth: Option<&str>,
+        token: Option<&str>,
+        hq: bool,
+    ) -> Option<AnonHead> {
+        /// Enough to prove the body flows without holding the start back.
+        const HEAD_BYTES: usize = 16 * 1024;
+        // Preferred tier first: aac_160k for hq, mp3_1_0 otherwise.
+        let wanted: [&str; 2] = if hq {
+            ["aac_160k", "mp3_1_0"]
+        } else {
+            ["mp3_1_0", "aac_160k"]
+        };
+
+        let mut legs: Vec<(&str, String)> = Vec::with_capacity(2);
+        for preset in wanted {
+            let Some(t) = ranked
+                .iter()
+                .find(|t| t.preset.as_deref() == Some(preset) && is_progressive(t))
+            else {
+                continue;
+            };
+            if let Ok(url) = self
+                .resolve_transcoding_url(&t.url, None, track_auth, token)
+                .await
+            {
+                legs.push((preset, url));
+            }
+        }
+        if legs.len() < 2 {
+            return None;
+        }
+
+        // Both requests go out together, but tier order decides first: the
+        // preferred tier plays and gets cached, while the alternate leg is
+        // kept only as a fallback for a preferred stream that dies before its
+        // head lands. That is the exact condition under which the ordered
+        // loop would have moved to the lower tier, so playback quality keeps
+        // the same preference the user chose.
+        let (Ok(resp_pref), Ok(resp_alt)) = tokio::join!(
+            self.open_progressive(&legs[0].1, token),
+            self.open_progressive(&legs[1].1, token),
+        ) else {
+            return None;
+        };
+        let length_pref = resp_pref.content_length();
+        let length_alt = resp_alt.content_length();
+        let mut body_pref = Box::pin(resp_pref.bytes_stream());
+        let mut body_alt = Box::pin(resp_alt.bytes_stream());
+        let mut head_pref: Vec<u8> = Vec::with_capacity(HEAD_BYTES);
+        let mut head_alt: Vec<u8> = Vec::with_capacity(HEAD_BYTES);
+        let started = Instant::now();
+        let mut pref_dead = false;
+        let mut alt_dead = false;
+
+        loop {
+            tokio::select! {
+                chunk = body_pref.next(), if !pref_dead => match chunk {
+                    Some(Ok(bytes)) => {
+                        head_pref.extend_from_slice(&bytes);
+                        if head_pref.len() >= HEAD_BYTES {
+                            return Some(AnonHead {
+                                preset: legs[0].0.to_string(),
+                                dropped: legs[1].0.to_string(),
+                                elapsed_ms: started.elapsed().as_millis(),
+                                head: Bytes::from(head_pref),
+                                content_length: length_pref,
+                                body: body_pref,
+                            });
+                        }
+                    }
+                    Some(Err(_)) | None => pref_dead = true,
+                },
+                chunk = body_alt.next(), if !alt_dead => match chunk {
+                    Some(Ok(bytes)) => {
+                        head_alt.extend_from_slice(&bytes);
+                        // The alternate only wins once the preferred tier has
+                        // actually died with still no head; while the preferred
+                        // leg is alive its bytes are drained and dropped.
+                        if pref_dead && head_alt.len() >= HEAD_BYTES {
+                            return Some(AnonHead {
+                                preset: legs[1].0.to_string(),
+                                dropped: legs[0].0.to_string(),
+                                elapsed_ms: started.elapsed().as_millis(),
+                                head: Bytes::from(head_alt),
+                                content_length: length_alt,
+                                body: body_alt,
+                            });
+                        }
+                    }
+                    Some(Err(_)) | None => alt_dead = true,
+                },
+                // Both legs dead before either had a head: hand over to the
+                // caller's ordered loop, which retries candidates one at a
+                // time.
+                else => return None,
+            }
+        }
     }
 
     async fn get_client_id(&self) -> Result<String, String> {
@@ -569,6 +710,11 @@ impl AnonClient {
     }
 }
 
+/// Whether a candidate is a single-file (non-HLS) stream.
+fn is_progressive(t: &Transcoding) -> bool {
+    t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive")
+}
+
 /// Drop previews/snipped/restricted, then rank by preset quality first — a
 /// 160k AAC HLS stream is both better and remuxable (no re-encode) — and only
 /// inside the same preset prefer progressive (one GET, no chunk failures).
@@ -590,10 +736,6 @@ fn ranked_transcodings(transcodings: &[Transcoding], hq: bool) -> Vec<&Transcodi
     if candidates.is_empty() {
         return Vec::new();
     }
-
-    let is_progressive = |t: &&Transcoding| {
-        t.format.as_ref().and_then(|f| f.protocol.as_deref()) == Some("progressive")
-    };
 
     let mut ordered: Vec<&Transcoding> = Vec::with_capacity(candidates.len());
 

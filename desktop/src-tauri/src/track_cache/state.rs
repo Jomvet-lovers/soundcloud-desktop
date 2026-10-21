@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bytes::Bytes;
 use futures_util::StreamExt;
 use wreq::Url;
 use wreq::Client;
@@ -703,10 +704,51 @@ async fn write_cache_metadata(path: &Path, meta: &TrackCacheMetadata) {
     }
 }
 
+/// Body of a winning source: for a preset race the first bytes are already read
+/// (proof the leg is alive), so they are replayed before the live remainder.
+struct CacheBody {
+    content_length: Option<u64>,
+    head: Bytes,
+    stream: futures_util::stream::BoxStream<'static, Result<Bytes, wreq::Error>>,
+}
+
+impl CacheBody {
+    fn from_response(response: wreq::Response) -> Self {
+        let content_length = response.content_length();
+        Self {
+            content_length,
+            head: Bytes::new(),
+            stream: Box::pin(response.bytes_stream()),
+        }
+    }
+}
+
 async fn write_response_to_cache(
     target_dir: &Path,
     urn: &str,
     response: wreq::Response,
+    quality: PlaybackQuality,
+    source: DownloadSource,
+    app_handle: Option<&crate::rt::AppHandle>,
+    stream_sink: Option<&Arc<StreamBuffer>>,
+) -> Result<DownloadResult, DownloadError> {
+    write_body_to_cache(
+        target_dir,
+        urn,
+        CacheBody::from_response(response),
+        quality,
+        source,
+        app_handle,
+        stream_sink,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn write_body_to_cache(
+    target_dir: &Path,
+    urn: &str,
+    body: CacheBody,
     quality: PlaybackQuality,
     source: DownloadSource,
     app_handle: Option<&crate::rt::AppHandle>,
@@ -718,7 +760,7 @@ async fn write_response_to_cache(
         .await
         .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
     let mut writer = BufWriter::with_capacity(STREAM_WRITE_BUFFER_SIZE, file);
-    let content_length = response.content_length().unwrap_or(0);
+    let content_length = body.content_length.unwrap_or(0);
     let claim = stream_sink.and_then(|sink| sink.claim());
     if let Some(claim) = claim.as_ref() {
         claim.start(
@@ -727,7 +769,12 @@ async fn write_response_to_cache(
             source.label(),
         );
     }
-    let mut stream = response.bytes_stream();
+    let prelude = if body.head.is_empty() {
+        futures_util::stream::iter(Vec::new())
+    } else {
+        futures_util::stream::iter(vec![Ok(body.head)])
+    };
+    let mut stream = prelude.chain(body.stream);
     let mut total_size = 0u64;
     let mut sniff = Vec::with_capacity(AUDIO_SNIFF_LEN);
     let mut emitted_progress = -1.0f64;
@@ -1702,7 +1749,8 @@ impl TrackCacheState {
                 let line = format!("[TrackCache] {urn} → anon (SC api v2)");
                 println!("{line}");
                 self.diag("INFO", line);
-                let streamed_body = matches!(stream, AnonStream::Progressive(_));
+                let streamed_body =
+                    matches!(stream, AnonStream::Progressive(_) | AnonStream::Head(_));
                 let written = match stream {
                     // The progressive body is consumed by the cache writer, which
                     // is what feeds the decoder while it lands.
@@ -1711,6 +1759,30 @@ impl TrackCacheState {
                             target_dir,
                             urn,
                             response,
+                            PlaybackQuality::Sq,
+                            DownloadSource::Anon,
+                            self.app_handle.as_ref(),
+                            stream_sink.as_ref(),
+                        )
+                        .await
+                    }
+                    // Preset race winner: its head bytes were already read to
+                    // decide the race, so replay them ahead of the live body.
+                    AnonStream::Head(head) => {
+                        let line = format!(
+                            "[Audio] early start preset race: {} head in {}ms, {} dropped",
+                            head.preset, head.elapsed_ms, head.dropped
+                        );
+                        println!("{line}");
+                        self.diag("INFO", line);
+                        write_body_to_cache(
+                            target_dir,
+                            urn,
+                            CacheBody {
+                                content_length: head.content_length,
+                                head: head.head,
+                                stream: head.body,
+                            },
                             PlaybackQuality::Sq,
                             DownloadSource::Anon,
                             self.app_handle.as_ref(),
