@@ -5,6 +5,7 @@ use std::time::Duration;
 use crate::rt::AppHandle;
 use tauri::{Emitter, Manager, State};
 
+use crate::app::diagnostics::log_native;
 use crate::audio::device;
 use crate::audio::engine;
 use crate::audio::state::AudioState;
@@ -29,8 +30,10 @@ const MIN_MIRROR_BYTES: usize = 8192;
 
 fn prebuffer_target(total: Option<u64>) -> u64 {
     match total {
-        Some(total) => (total / 8)
-            .clamp(STREAM_PREBUFFER_MIN_BYTES.min(total), STREAM_PREBUFFER_MAX_BYTES),
+        Some(total) => (total / 8).clamp(
+            STREAM_PREBUFFER_MIN_BYTES.min(total),
+            STREAM_PREBUFFER_MAX_BYTES,
+        ),
         None => STREAM_PREBUFFER_MIN_BYTES,
     }
 }
@@ -180,12 +183,16 @@ impl StreamSession {
         self,
         ready: tokio::sync::oneshot::Sender<Result<AudioStreamLoadResult, String>>,
     ) -> Result<(), String> {
+        let t0 = std::time::Instant::now();
         let (done_tx, mut done_rx) = tokio::sync::oneshot::channel();
         tokio::spawn({
             let cache = self.cache.clone();
             let stream = self.stream.clone();
-            let (urn, urls, download_urls) =
-                (self.urn.clone(), self.urls.clone(), self.download_urls.clone());
+            let (urn, urls, download_urls) = (
+                self.urn.clone(),
+                self.urls.clone(),
+                self.download_urls.clone(),
+            );
             let (storage_urls, session_id) = (self.storage_urls.clone(), self.session_id.clone());
             let (hq, duration_ms) = (self.hq, self.duration_ms);
             async move {
@@ -251,8 +258,8 @@ impl StreamSession {
             early = Some(result);
         }
 
-        let early_start = early.is_none()
-            && early_start_container(&self.stream.head(STREAM_SNIFF_BYTES)).is_some();
+        let container = early_start_container(&self.stream.head(STREAM_SNIFF_BYTES));
+        let early_start = early.is_none() && container.is_some();
         let started = if early_start {
             let audio = self.app.state::<AudioState>();
             match engine::load_stream(
@@ -264,12 +271,25 @@ impl StreamSession {
             )
             .await
             {
-                Ok(load) => Some(AudioStreamLoadResult {
-                    duration_secs: load.duration_secs,
-                    streaming: true,
-                    quality: self.stream.quality().map(str::to_string),
-                    source: self.stream.source().map(str::to_string),
-                }),
+                Ok(load) => {
+                    log_native(
+                        &self.app,
+                        "INFO",
+                        format!(
+                            "[Audio] {} early start ({}): {} ms to first audio, {} KB prebuffered",
+                            self.urn,
+                            container.unwrap_or("?"),
+                            t0.elapsed().as_millis(),
+                            self.stream.state().bytes / 1024,
+                        ),
+                    );
+                    Some(AudioStreamLoadResult {
+                        duration_secs: load.duration_secs,
+                        streaming: true,
+                        quality: self.stream.quality().map(str::to_string),
+                        source: self.stream.source().map(str::to_string),
+                    })
+                }
                 Err(err) => {
                     if !stream_active(&self.app, &self.stream) {
                         cancelled = true;
@@ -300,12 +320,28 @@ impl StreamSession {
 
         // Full-wait path: identical to the pre-streaming behaviour (the download
         // is already running, so only the load is left).
+        let reason = if early.is_some() {
+            "download finished before prebuffer"
+        } else if container.is_none() {
+            "container needs the full file"
+        } else {
+            "early player build failed"
+        };
         let entry = match early {
             Some(result) => result,
             None => done_rx
                 .await
                 .unwrap_or_else(|_| Err("download task dropped".to_string())),
         };
+        log_native(
+            &self.app,
+            "INFO",
+            format!(
+                "[Audio] {} full-wait load: {} ms ({reason})",
+                self.urn,
+                t0.elapsed().as_millis(),
+            ),
+        );
         let result = self.load_finished(entry).await;
         let _ = ready.send(result);
         Ok(())
@@ -333,6 +369,7 @@ impl StreamSession {
 
         let bytes = self.stream.copy_bytes();
         if bytes.len() >= MIN_MIRROR_BYTES {
+            let rebuild_t0 = std::time::Instant::now();
             let stream = self.stream.clone();
             let app = self.app.clone();
             let dir = self.normalization_cache_dir.clone();
@@ -343,7 +380,17 @@ impl StreamSession {
             })
             .await
             .unwrap_or(false);
-            if !rebuilt {
+            if rebuilt {
+                log_native(
+                    &self.app,
+                    "INFO",
+                    format!(
+                        "[Audio] {} rebuild onto finished bytes: {} ms",
+                        self.urn,
+                        rebuild_t0.elapsed().as_millis(),
+                    ),
+                );
+            } else {
                 eprintln!(
                     "[Audio] stream finalize skipped for {} (session replaced)",
                     self.urn
@@ -353,9 +400,10 @@ impl StreamSession {
 
         // Emitted even when the rebuild was skipped: it only means "the download
         // behind this track is done", which is what clears the progress readout.
-        let _ = self
-            .app
-            .emit("audio:stream-complete", serde_json::json!({ "urn": self.urn }));
+        let _ = self.app.emit(
+            "audio:stream-complete",
+            serde_json::json!({ "urn": self.urn }),
+        );
     }
 
     /// Load the finished cache entry (or the re-resolved current path when the

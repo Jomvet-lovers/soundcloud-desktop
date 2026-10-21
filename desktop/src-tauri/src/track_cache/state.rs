@@ -502,17 +502,22 @@ fn collect_cached_urns(
 /// Remove abandoned temp files from interrupted writes/transcodes: `.part`
 /// (audio/transcode renders) and `.meta.json.tmp` (metadata renders). Only call
 /// when no writer is active (startup, before the webview issues downloads).
-fn sweep_temp_files(dir: &Path) {
+/// Returns what was removed so the app handle can log it once it's wired up.
+fn sweep_temp_files(dir: &Path) -> Vec<String> {
+    let mut swept = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+        return swept;
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
         if name.contains(".part") || name.ends_with(".tmp") {
-            std::fs::remove_file(entry.path()).ok();
+            if std::fs::remove_file(entry.path()).is_ok() {
+                swept.push(name.into_owned());
+            }
         }
     }
+    swept
 }
 
 /// Valid raw URNs awaiting transcode; drops undersized stragglers in passing.
@@ -570,16 +575,21 @@ pub struct TrackCacheState {
     likes_cancel: Arc<std::sync::atomic::AtomicBool>,
     /// Per-host storage circuit breaker: host -> epoch secs of last failure.
     storage_cooldowns: Arc<StdMutex<HashMap<String, u64>>>,
+    /// Files the startup sweep removed, pending a diag line once the app
+    /// handle exists.
+    swept_at_startup: Arc<StdMutex<Vec<String>>>,
     anon: Arc<AnonClient>,
 }
 
 pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> TrackCacheState {
     // Sweep temps left by an interrupted previous run. Safe here: init() runs
     // during setup, before the webview can issue any download, so nothing the
-    // sweep matches is live.
-    for dir in [&incoming_dir, &audio_dir, &liked_dir] {
-        sweep_temp_files(dir);
-    }
+    // sweep matches is live. Removals surface in the log once the app handle
+    // is wired (they are a plausible answer to "why did my cache get smaller").
+    let swept: Vec<String> = [&incoming_dir, &audio_dir, &liked_dir]
+        .iter()
+        .flat_map(|dir| sweep_temp_files(dir).into_iter())
+        .collect();
 
     let client = sc_fingerprint::builder(None)
         .redirect(wreq::redirect::Policy::limited(10))
@@ -637,6 +647,7 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         likes_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         likes_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         storage_cooldowns: Arc::new(StdMutex::new(HashMap::new())),
+        swept_at_startup: Arc::new(StdMutex::new(swept)),
         anon,
     }
 }
@@ -991,6 +1002,15 @@ impl TrackCacheState {
     pub fn set_app_handle(&mut self, handle: crate::rt::AppHandle) {
         self.anon.set_app_handle(handle.clone());
         self.app_handle = Some(handle);
+        if let Ok(swept) = self.swept_at_startup.lock() {
+            let count = swept.len();
+            if count > 0 {
+                self.diag(
+                    "INFO",
+                    format!("[TrackCache] startup sweep removed {count} temp file(s)"),
+                );
+            }
+        }
     }
 
     fn diag(&self, level: &str, msg: String) {
@@ -1105,8 +1125,11 @@ impl TrackCacheState {
     }
 
     pub fn get_cache_path(&self, urn: &str) -> Option<String> {
-        self.resolve_path(urn)
-            .map(|p| p.to_string_lossy().into_owned())
+        let hit = self.resolve_path(urn);
+        if hit.is_some() {
+            self.diag("INFO", format!("[TrackCache] path hit: {urn}"));
+        }
+        hit.map(|p| p.to_string_lossy().into_owned())
     }
 
     pub fn get_cache_entry(&self, urn: &str) -> Option<TrackCacheEntry> {
@@ -1163,6 +1186,7 @@ impl TrackCacheState {
 
         if let Some(entry) = self.get_cache_entry(urn) {
             println!("[TrackCache] hit: {urn}");
+            self.diag("INFO", format!("[TrackCache] hit: {urn}"));
             return Ok(entry);
         }
 
@@ -2499,7 +2523,7 @@ impl TrackCacheState {
         files.sort_by_key(|x| x.2);
 
         let mut removed = 0u32;
-        for (path, size, _) in files {
+        for (path, size, _) in files.iter() {
             if total <= limit_bytes {
                 break;
             }
@@ -2512,6 +2536,15 @@ impl TrackCacheState {
         println!(
             "[TrackCache] evicted {removed} files, freed {} MB",
             (before - total) / (1024 * 1024)
+        );
+        self.diag(
+            "WARN",
+            format!(
+                "[TrackCache] evicted {removed} file(s), freed {} MB ({} files, {} MB there)",
+                (before - total) / (1024 * 1024),
+                files.len(),
+                before / (1024 * 1024)
+            ),
         );
     }
 }
