@@ -136,11 +136,24 @@ export async function switchAudioDevice(
   manual = false,
   deviceLabel: string | null = null,
 ) {
+  const previousFollow = useSettingsStore.getState().followDefaultOutput;
   if (manual) {
+    // Follow-off before the switch keeps the default-device monitor from
+    // stealing the sink while it is being opened.
     await invoke('audio_set_follow_default_output', { follow: deviceName == null });
   }
 
-  await invoke('audio_switch_device', { deviceName, deviceLabel });
+  try {
+    await invoke('audio_switch_device', { deviceName, deviceLabel });
+  } catch (error) {
+    // The switch failed, so the sink stayed where it was: put the follow choice
+    // back, otherwise Rust keeps following nothing while the UI still says it
+    // follows the system default.
+    if (manual) {
+      await invoke('audio_set_follow_default_output', { follow: previousFollow }).catch(() => {});
+    }
+    throw error;
+  }
 
   // Persist so the pick survives a restart. A failed switch throws above and
   // leaves the previous choice intact.
