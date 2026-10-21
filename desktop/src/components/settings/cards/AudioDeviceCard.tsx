@@ -46,13 +46,15 @@ export function AudioDeviceCard() {
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshSinks]);
 
-  const handleSwitch = async (sinkName: string | null) => {
+  const handleSwitch = async (sinkName: string | null, label: string | null) => {
     const current = sinks.find((s) => s.is_default);
     const alreadyActive = sinkName == null ? following : !following && current?.name === sinkName;
     if (switching || alreadyActive) return;
     setSwitching(true);
     try {
-      await switchAudioDevice(sinkName, true);
+      // The label is the fallback matcher when the OS re-ids the endpoint later
+      // (re-paired Bluetooth); Rust tries the saved id first.
+      await switchAudioDevice(sinkName, true, label);
       setFollowing(sinkName == null);
       if (sinkName != null) {
         setSinks((prev) => prev.map((s) => ({ ...s, is_default: s.name === sinkName })));
@@ -79,7 +81,7 @@ export function AudioDeviceCard() {
       <div className="flex flex-col">
         <button
           type="button"
-          onClick={() => handleSwitch(null)}
+          onClick={() => handleSwitch(null, null)}
           disabled={switching}
           className={rowCls}
         >
@@ -96,7 +98,7 @@ export function AudioDeviceCard() {
           <button
             key={sink.name}
             type="button"
-            onClick={() => handleSwitch(sink.name)}
+            onClick={() => handleSwitch(sink.name, sink.description)}
             disabled={switching}
             className={`${rowCls} border-t border-white/[0.05]`}
           >

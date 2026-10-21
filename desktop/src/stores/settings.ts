@@ -78,6 +78,9 @@ export interface SettingsState {
   /** Output device chosen manually (cpal device id on Win/mac, pactl sink name
    *  on Linux); null = follow the Windows default. Restored at startup. */
   audioOutputDevice: string | null;
+  /** Friendly name of the chosen endpoint, used only when the saved id no
+   *  longer matches (re-paired Bluetooth, id drift). */
+  audioOutputDeviceName: string | null;
   /** Whether the OS default device change is followed live. */
   followDefaultOutput: boolean;
   setAccentColor: (color: string) => void;
@@ -110,6 +113,7 @@ export interface SettingsState {
   setTouchKeyboardAutoShow: (enabled: boolean) => void;
   setInputMode: (mode: InputMode) => void;
   setAudioOutputDevice: (device: string | null) => void;
+  setAudioOutputDeviceName: (name: string | null) => void;
   setFollowDefaultOutput: (follow: boolean) => void;
   resetTheme: () => void;
 }
@@ -143,6 +147,7 @@ const DEFAULTS = {
   touchKeyboardAutoShow: false,
   inputMode: 'auto' as InputMode,
   audioOutputDevice: null,
+  audioOutputDeviceName: null,
   followDefaultOutput: true,
 };
 
@@ -220,6 +225,7 @@ export const useSettingsStore = create<SettingsState>()(
       setTouchKeyboardAutoShow: (touchKeyboardAutoShow) => set({ touchKeyboardAutoShow }),
       setInputMode: (inputMode) => set({ inputMode }),
       setAudioOutputDevice: (audioOutputDevice) => set({ audioOutputDevice }),
+      setAudioOutputDeviceName: (audioOutputDeviceName) => set({ audioOutputDeviceName }),
       setFollowDefaultOutput: (followDefaultOutput) => set({ followDefaultOutput }),
       resetTheme: () =>
         set({
@@ -284,6 +290,7 @@ export const useSettingsStore = create<SettingsState>()(
         touchKeyboardAutoShow: s.touchKeyboardAutoShow,
         inputMode: s.inputMode,
         audioOutputDevice: s.audioOutputDevice,
+        audioOutputDeviceName: s.audioOutputDeviceName,
         followDefaultOutput: s.followDefaultOutput,
       }),
     },

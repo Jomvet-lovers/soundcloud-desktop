@@ -50,6 +50,9 @@ pub enum MediaCmd {
 pub enum AudioThreadCmd {
     SwitchDevice {
         name: Option<String>,
+        /// Friendly endpoint name of the requested device. Only used when the
+        /// saved id no longer matches (re-paired Bluetooth, cpal id drift).
+        label: Option<String>,
         reply: Sender<Result<Mixer, String>>,
     },
     Reconnect,

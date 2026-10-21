@@ -19,7 +19,7 @@ import {
   type StreamLoadResult,
   streamTrackCached,
 } from './cache';
-import { trackedInvoke as invoke } from './diagnostics';
+import { trackedInvoke as invoke, logInfo } from './diagnostics';
 import { isUrnDisliked } from './dislikes';
 import { recordEvent } from './events';
 import { art } from './formatters';
@@ -131,31 +131,75 @@ function stopTrack() {
   cachedTime = 0;
 }
 
-export async function switchAudioDevice(deviceName: string | null, manual = false) {
+export async function switchAudioDevice(
+  deviceName: string | null,
+  manual = false,
+  deviceLabel: string | null = null,
+) {
   if (manual) {
     await invoke('audio_set_follow_default_output', { follow: deviceName == null });
   }
 
-  await invoke('audio_switch_device', { deviceName });
+  await invoke('audio_switch_device', { deviceName, deviceLabel });
 
   // Persist so the pick survives a restart. A failed switch throws above and
   // leaves the previous choice intact.
   useSettingsStore.getState().setAudioOutputDevice(deviceName);
+  useSettingsStore.getState().setAudioOutputDeviceName(deviceName ? deviceLabel : null);
   useSettingsStore.getState().setFollowDefaultOutput(deviceName == null);
 }
 
+/** Resolves once zustand persist has loaded `sc-settings` from disk. */
+function whenSettingsHydrated(): Promise<void> {
+  const persist = useSettingsStore.persist;
+  if (persist.hasHydrated()) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const unsubscribe = persist.onFinishHydration(() => {
+      unsubscribe();
+      resolve();
+    });
+    // Hydration can finish between the check above and the subscription.
+    if (persist.hasHydrated()) {
+      unsubscribe();
+      resolve();
+    }
+  });
+}
+
+/** Set once per session: this is a boot step, not a retryable action. */
+let restoreBootDone = false;
+
 /** Apply the persisted output device at startup. A saved device that is gone
  *  (unplugged BT sink, hot-swapped USB dock) falls back to the OS default
- *  through the switch path, and the saved id stays for the next time. */
+ *  through the switch path, and the saved id stays for the next time.
+ *
+ *  Waits for persist hydration first: `lib/audio` is also reached through the
+ *  static import graph (`AppShell` → `NowPlayingBar`), so this module evaluates
+ *  while `main.tsx` is still importing `App` — before `bootstrap()` awaits
+ *  `rehydrate()`. Reading the store at module-eval time only ever saw the
+ *  defaults, which made the restore a silent no-op on every launch. */
 export async function restoreAudioDevice() {
-  const { audioOutputDevice, followDefaultOutput } = useSettingsStore.getState();
+  if (restoreBootDone) return;
+  restoreBootDone = true;
+
+  await whenSettingsHydrated();
+  const { audioOutputDevice, audioOutputDeviceName, followDefaultOutput } =
+    useSettingsStore.getState();
+  logInfo(
+    `[Audio] restore: hydrated=${useSettingsStore.persist.hasHydrated()} ` +
+      `saved=${audioOutputDevice ?? '(none)'} label=${audioOutputDeviceName ?? '(none)'} ` +
+      `follow=${followDefaultOutput}`,
+  );
+
   if (audioOutputDevice) {
     try {
-      await switchAudioDevice(audioOutputDevice, true);
+      await switchAudioDevice(audioOutputDevice, true, audioOutputDeviceName);
+      logInfo('[Audio] restore: switched to the saved output device');
     } catch (error) {
       // The switch itself already fell back to the system default; say so once
       // and keep the saved id so the device is picked up again when it returns.
       console.warn('[Audio] saved output device unavailable:', error);
+      logInfo(`[Audio] restore FAILED: ${getLoadErrorText(error) ?? String(error)}`);
       toast.error('Saved output device not found', {
         id: 'audio-device-restore',
         description: 'Using the system default for now.',
@@ -163,9 +207,12 @@ export async function restoreAudioDevice() {
     }
     return;
   }
-  if (!followDefaultOutput) {
-    await invoke('audio_set_follow_default_output', { follow: false }).catch(console.error);
-  }
+
+  // No manual pick: hand the persisted follow choice to Rust explicitly instead
+  // of relying on the store default matching Rust's startup value.
+  await invoke('audio_set_follow_default_output', { follow: followDefaultOutput }).catch((error) =>
+    logInfo(`[Audio] restore: follow flag failed: ${String(error)}`),
+  );
 }
 
 /** Reload the current track on new audio device, preserving position */

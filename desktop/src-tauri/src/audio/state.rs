@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
 use rodio::mixer::Mixer;
@@ -11,6 +11,16 @@ use crate::audio::stream_buffer::StreamBuffer;
 use crate::audio::types::{
     AudioThreadCmd, EqParams, FloatingCommentEvent, LyricsTimingLine, MediaCmd,
 };
+
+/// The endpoint the user picked for this session, remembered so a reconnect
+/// (stream error, device wake) reopens it instead of falling back to the OS
+/// default. `None` means "follow the OS default".
+#[derive(Clone)]
+pub struct OutputChoice {
+    pub id: String,
+    /// Friendly name, the fallback when the id stops matching.
+    pub label: Option<String>,
+}
 
 pub struct LyricsTimelineState {
     pub lines: Vec<LyricsTimingLine>,
@@ -88,6 +98,18 @@ pub struct AudioState {
     pub ab_loop: Mutex<Option<(f64, f64)>>,
     pub analyser_buffer: Arc<AnalyserBuffer>,
     pub preview: Mutex<PreviewState>,
+    /// Endpoint to reopen on reconnect; written by the output thread when a
+    /// switch succeeds and cleared when it has to fall back to the system default.
+    pub manual_output: Arc<Mutex<Option<OutputChoice>>>,
+    /// Set from `setup` so the output thread can write device decisions to
+    /// desktop.log (it starts before an AppHandle exists).
+    pub app_handle: Arc<OnceLock<crate::rt::AppHandle>>,
+}
+
+impl AudioState {
+    pub fn set_app_handle(&self, handle: crate::rt::AppHandle) {
+        let _ = self.app_handle.set(handle);
+    }
 }
 
 pub fn init() -> AudioState {
@@ -96,11 +118,17 @@ pub fn init() -> AudioState {
     let device_error_flag = Arc::new(AtomicBool::new(false));
     let reconnected_flag = Arc::new(AtomicBool::new(false));
     let output_rate = Arc::new(AtomicU32::new(0));
+    // Shared with the output thread: it starts before `setup` exists, so it reads
+    // the handle lazily to put device decisions into desktop.log.
+    let app_handle_slot: Arc<OnceLock<crate::rt::AppHandle>> = Arc::new(OnceLock::new());
+    let manual_output: Arc<Mutex<Option<OutputChoice>>> = Arc::new(Mutex::new(None));
 
     let cmd_tx_for_thread = cmd_tx.clone();
     let reconnected_for_thread = reconnected_flag.clone();
     let error_flag_for_thread = device_error_flag.clone();
     let output_rate_for_thread = output_rate.clone();
+    let app_handle_for_thread = app_handle_slot.clone();
+    let manual_output_for_thread = manual_output.clone();
     std::thread::Builder::new()
         .name("audio-output".into())
         .spawn(move || {
@@ -108,52 +136,126 @@ pub fn init() -> AudioState {
             let reconnected = reconnected_for_thread;
             let error_flag = error_flag_for_thread;
             let output_rate = output_rate_for_thread;
-            let mut device_sink = open_device_sink(None, &cmd_tx, &error_flag, &output_rate)
-                .expect("no audio output device");
+            let manual_output = manual_output_for_thread;
+            // A silent fallback to the system default is the failure mode this
+            // path used to hide; every open decision goes to desktop.log.
+            let log_device = |level: &str, message: String| {
+                if let Some(app) = app_handle_for_thread.get() {
+                    crate::app::diagnostics::log_native(app, level, &message);
+                }
+                match level {
+                    "WARN" | "ERROR" => eprintln!("{message}"),
+                    _ => println!("{message}"),
+                }
+            };
+
+            let mut device_sink =
+                open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate)
+                    .expect("no audio output device");
+            log_device(
+                "INFO",
+                "[Audio] output opened: system default".to_string(),
+            );
             let shared_mixer = Arc::new(Mutex::new(device_sink.mixer().clone()));
             mixer_tx.send(shared_mixer.clone()).ok();
 
             loop {
                 match cmd_rx.recv() {
-                    Ok(AudioThreadCmd::SwitchDevice { name, reply }) => {
+                    Ok(AudioThreadCmd::SwitchDevice { name, label, reply }) => {
                         drop(device_sink);
 
-                        match open_device_sink(name.as_deref(), &cmd_tx, &error_flag, &output_rate) {
+                        match open_device_sink(
+                            name.as_deref(),
+                            label.as_deref(),
+                            &cmd_tx,
+                            &error_flag,
+                            &output_rate,
+                        ) {
                             Ok(new_sink) => {
                                 let mixer = new_sink.mixer().clone();
                                 *shared_mixer.lock().unwrap() = mixer.clone();
                                 device_sink = new_sink;
+                                *manual_output.lock().unwrap() = name.clone().map(|id| OutputChoice {
+                                    id,
+                                    label: label.clone(),
+                                });
+                                log_device(
+                                    "INFO",
+                                    match &name {
+                                        Some(id) => format!("[Audio] output opened: '{id}'"),
+                                        None => {
+                                            "[Audio] output opened: system default".to_string()
+                                        }
+                                    },
+                                );
                                 reply.send(Ok(mixer)).ok();
                             }
                             Err(error) => {
+                                log_device(
+                                    "WARN",
+                                    format!("[Audio] output switch failed: {error}"),
+                                );
                                 device_sink =
-                                    open_device_sink(None, &cmd_tx, &error_flag, &output_rate)
+                                    open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate)
                                         .expect("no audio output device");
                                 *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
+                                // The requested endpoint is gone for good: a later
+                                // reconnect must not keep chasing it.
+                                *manual_output.lock().unwrap() = None;
                                 reply.send(Err(error)).ok();
                             }
                         }
                     }
                     Ok(AudioThreadCmd::Reconnect) => {
-                        eprintln!("[audio] device invalidated, reconnecting...");
+                        log_device(
+                            "INFO",
+                            "[Audio] output invalidated, reconnecting...".to_string(),
+                        );
                         std::thread::sleep(Duration::from_millis(500));
 
+                        // Reopen what the user picked, not the OS default: a
+                        // stream error used to reset a manual device silently.
+                        let wanted = manual_output.lock().unwrap().clone();
                         drop(device_sink);
-                        match open_device_sink(None, &cmd_tx, &error_flag, &output_rate) {
+                        let (opened, target) = match wanted.as_ref() {
+                            Some(choice) => (
+                                open_device_sink(
+                                    Some(&choice.id),
+                                    choice.label.as_deref(),
+                                    &cmd_tx,
+                                    &error_flag,
+                                    &output_rate,
+                                ),
+                                format!("saved device '{}'", choice.id),
+                            ),
+                            None => (
+                                open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate),
+                                "system default".to_string(),
+                            ),
+                        };
+                        match opened {
                             Ok(new_sink) => {
                                 *shared_mixer.lock().unwrap() = new_sink.mixer().clone();
                                 device_sink = new_sink;
                                 reconnected.store(true, std::sync::atomic::Ordering::Release);
-                                eprintln!("[audio] reconnected successfully");
+                                log_device("INFO", format!("[Audio] reconnected on {target}"));
                             }
                             Err(error) => {
-                                eprintln!("[audio] reconnect failed: {error}, retrying...");
+                                log_device(
+                                    "WARN",
+                                    format!("[Audio] reconnect on {target} failed: {error}"),
+                                );
                                 std::thread::sleep(Duration::from_secs(1));
+                                *manual_output.lock().unwrap() = None;
                                 device_sink =
-                                    open_device_sink(None, &cmd_tx, &error_flag, &output_rate)
+                                    open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate)
                                         .expect("no audio output device");
                                 *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
                                 reconnected.store(true, std::sync::atomic::Ordering::Release);
+                                log_device(
+                                    "INFO",
+                                    "[Audio] reconnected on the system default".to_string(),
+                                );
                             }
                         }
                     }
@@ -194,6 +296,8 @@ pub fn init() -> AudioState {
         comments_timeline: Mutex::new(None),
         ab_loop: Mutex::new(None),
         analyser_buffer: AnalyserBuffer::new(),
+        manual_output,
+        app_handle: app_handle_slot,
         preview: Mutex::new(PreviewState {
             player: None,
             volume: 0.0,

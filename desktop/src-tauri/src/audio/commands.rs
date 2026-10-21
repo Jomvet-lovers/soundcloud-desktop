@@ -540,9 +540,11 @@ pub fn audio_list_devices() -> Vec<AudioSink> {
 #[tauri::command]
 pub fn audio_switch_device(
     device_name: Option<String>,
+    device_label: Option<String>,
+    app: AppHandle,
     state: State<'_, AudioState>,
 ) -> Result<(), String> {
-    device::switch_device(state, device_name)
+    device::switch_device(&app, state, device_name, device_label)
 }
 
 #[tauri::command]

@@ -13,6 +13,7 @@ use crate::audio::types::{AudioSink, AudioThreadCmd};
 
 pub fn open_device_sink(
     device_id: Option<&str>,
+    device_label: Option<&str>,
     reconnect_tx: &std::sync::mpsc::Sender<AudioThreadCmd>,
     error_flag: &Arc<AtomicBool>,
     output_rate: &AtomicU32,
@@ -33,20 +34,36 @@ pub fn open_device_sink(
 
     if let Some(id) = device_id {
         let host = cpal::default_host();
-        if let Ok(devices) = host.output_devices() {
-            for dev in devices {
-                if dev.id().ok().map(|d| d.to_string()).as_deref() == Some(id) {
-                    let mut sink = DeviceSinkBuilder::from_device(dev)
-                        .map_err(|e| format!("Failed to open device '{}': {}", id, e))?
-                        .with_error_callback(error_cb)
-                        .open_stream()
-                        .map_err(|e| format!("Failed to open device '{}': {}", id, e))?;
-                    sink.log_on_drop(false);
-                    output_rate.store(sink.config().sample_rate().get(), Ordering::Relaxed);
-                    eprintln!("[audio] opened output: {:?}", sink.config());
-                    return Ok(sink);
-                }
-            }
+        let devices: Vec<cpal::Device> = host
+            .output_devices()
+            .map(|devices| devices.collect())
+            .unwrap_or_default();
+
+        // Exact endpoint id first: that is what the picker stored.
+        let chosen = devices
+            .iter()
+            .position(|dev| dev.id().ok().map(|d| d.to_string()).as_deref() == Some(id))
+            .or_else(|| {
+                // Id drift (re-paired Bluetooth, host API change): fall back to
+                // the friendly name the UI showed. Two endpoints can share a
+                // name; the first match wins, which only matters with identical
+                // labels (dock + monitor) and then it may pick the wrong one.
+                let wanted = device_label.map(normalize_label)?;
+                devices
+                    .iter()
+                    .position(|dev| device_label_of(dev).as_deref() == Some(wanted.as_str()))
+            });
+
+        if let Some(dev) = chosen.and_then(|index| devices.into_iter().nth(index)) {
+            let mut sink = DeviceSinkBuilder::from_device(dev)
+                .map_err(|e| format!("Failed to open device '{}': {}", id, e))?
+                .with_error_callback(error_cb)
+                .open_stream()
+                .map_err(|e| format!("Failed to open device '{}': {}", id, e))?;
+            sink.log_on_drop(false);
+            output_rate.store(sink.config().sample_rate().get(), Ordering::Relaxed);
+            eprintln!("[audio] opened output: {:?}", sink.config());
+            return Ok(sink);
         }
         return Err(format!("Device '{}' not found", id));
     }
@@ -95,6 +112,41 @@ pub fn open_device_sink(
     Ok(sink)
 }
 
+/// Case/whitespace-insensitive form of a friendly endpoint name.
+fn normalize_label(label: &str) -> String {
+    label.trim().to_lowercase()
+}
+
+/// Friendly name of an output device in the same normalized form, `None` when
+/// cpal cannot describe it.
+fn device_label_of(dev: &cpal::Device) -> Option<String> {
+    use cpal::traits::DeviceTrait;
+    dev.description()
+        .ok()
+        .map(|desc| normalize_label(desc.name()))
+}
+
+/// `"<friendly name> = <id>"` per output, for failure logs (desktop.log has no
+/// other way to see what the build actually enumerated).
+pub fn available_outputs() -> Vec<String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let Ok(devices) = cpal::default_host().output_devices() else {
+        return Vec::new();
+    };
+    devices
+        .filter_map(|dev| {
+            let id = dev.id().ok()?.to_string();
+            let name = dev
+                .description()
+                .ok()
+                .map(|desc| desc.name().to_string())
+                .unwrap_or_else(|| "(unnamed)".to_string());
+            Some(format!("{name} = {id}"))
+        })
+        .collect()
+}
+
 pub fn list_devices() -> Vec<AudioSink> {
     #[cfg(target_os = "linux")]
     {
@@ -137,6 +189,7 @@ fn resolve_switch_name(device_name: &Option<String>) -> Result<Option<String>, S
 fn swap_device_and_continue(
     state: &AudioState,
     switch_name: Option<String>,
+    switch_label: Option<String>,
 ) -> Result<(), String> {
     // The old player freezes the instant the output thread drops its sink and the new
     // device may lag before it starts pulling samples; hold off stall-detection so the
@@ -148,6 +201,7 @@ fn swap_device_and_continue(
         .audio_tx
         .send(AudioThreadCmd::SwitchDevice {
             name: switch_name,
+            label: switch_label,
             reply: reply_tx,
         })
         .map_err(|e| e.to_string())?;
@@ -163,8 +217,10 @@ fn swap_device_and_continue(
 }
 
 pub fn switch_device(
+    app: &AppHandle,
     state: State<'_, AudioState>,
     device_name: Option<String>,
+    device_label: Option<String>,
 ) -> Result<(), String> {
     let preserved_default_name = if device_name.is_none() {
         current_default_output_name()
@@ -172,8 +228,39 @@ pub fn switch_device(
         None
     };
 
+    diagnostics::log_native(
+        app,
+        "INFO",
+        format!(
+            "[Audio] switch requested: id={} label={}",
+            device_name.as_deref().unwrap_or("(system default)"),
+            device_label.as_deref().unwrap_or("(none)")
+        ),
+    );
+
     let switch_name = resolve_switch_name(&device_name)?;
-    swap_device_and_continue(&state, switch_name)?;
+    let result = swap_device_and_continue(&state, switch_name, device_label.clone());
+    match &result {
+        Ok(()) => diagnostics::log_native(
+            app,
+            "INFO",
+            format!(
+                "[Audio] switch done: {}",
+                device_name.as_deref().unwrap_or("system default")
+            ),
+        ),
+        // The requested endpoint did not open (or did not exist): the audio
+        // thread already fell back to the system default and the caller fails.
+        Err(error) => diagnostics::log_native(
+            app,
+            "WARN",
+            format!(
+                "[Audio] switch FAILED: {error}; available outputs: [{}]",
+                available_outputs().join("; ")
+            ),
+        ),
+    }
+    result?;
 
     // Pin the resolved default as the known baseline so the follow monitor treats it
     // as already-applied instead of a fresh change to chase.
@@ -405,5 +492,5 @@ fn switch_to_device_internal(
     device_name: Option<String>,
 ) -> Result<(), String> {
     let switch_name = resolve_switch_name(&device_name)?;
-    swap_device_and_continue(state, switch_name)
+    swap_device_and_continue(state, switch_name, None)
 }
