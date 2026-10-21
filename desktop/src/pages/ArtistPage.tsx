@@ -14,6 +14,7 @@ import {
 import { USER_PAGE_KEYFRAMES } from '../components/user/keyframes';
 import { type TabDescriptor, TabDock } from '../components/user/TabDock';
 import { Loader2 } from '../lib/icons';
+import { useRestoredTab } from '../lib/tab-memory';
 
 export function ArtistPage() {
   const { id } = useParams<{ id: string }>();
@@ -23,7 +24,7 @@ export function ArtistPage() {
 
   const { hasStar, aura } = useArtistStar(id);
 
-  const [tab, setTab] = useState<ArtistTabId>('tracks');
+  const [tab, setTab] = useRestoredTab<ArtistTabId>(id ?? undefined, 'tracks');
   const [primarySort, setPrimarySort] = useState<TracksSort>('popular');
   const [featuredSort, setFeaturedSort] = useState<TracksSort>('popular');
   const [primaryView, setPrimaryView] = useState<TracksView>('list');

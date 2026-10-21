@@ -16,6 +16,7 @@ import {
 import { useEditableUserAura, useUserAura } from '../components/user/useUserAura';
 import { useUser, useUserSubscription, useUserWebProfiles } from '../lib/hooks';
 import { Loader2 } from '../lib/icons';
+import { useRestoredTab } from '../lib/tab-memory';
 import { useAuthStore } from '../stores/auth';
 
 /**
@@ -36,7 +37,7 @@ export function UserPage() {
   const { urn } = useParams<{ urn: string }>();
   const currentUser = useAuthStore((s) => s.user);
 
-  const [activeTab, setActiveTab] = useState<TabId>('popular');
+  const [activeTab, setActiveTab] = useRestoredTab<TabId>(urn ?? undefined, 'popular');
   // Inline-поиск по контенту юзера. Debounce 350ms — баланс между "не лагает
   // на каждый символ" и "ощущается отзывчиво". Поиск работает только в
   // tracks/popular/playlists скоупах — в followers/following/likes контент

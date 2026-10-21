@@ -18,6 +18,7 @@ import {
 } from '../lib/hooks';
 import { ChevronRight, LinkIcon, Loader2, Music, playBlack20 } from '../lib/icons';
 import { playlistCoverUrl } from '../lib/playlist-cover';
+import { useRestoredTab } from '../lib/tab-memory';
 import { withViewTransition } from '../lib/view-transition';
 import { type Track, usePlayerStore } from '../stores/player';
 import { useSearchPrefsStore } from '../stores/searchPrefs';
@@ -297,16 +298,12 @@ function SearchResults() {
   const sort = useSearchPrefsStore((s) => s.sort);
   const setSort = useSearchPrefsStore((s) => s.setSort);
 
-  // The tab is view state, not a saved preference: every fresh search starts
-  // on Tracks. Mounting the page covers leaving/returning (back button); the
-  // effect covers editing the query without leaving. Keyed on the live query,
-  // not the debounced one, so a tab click right after typing isn't undone when
+  // The tab is view state, not a saved preference: a new search word starts
+  // on Tracks. Leaving and returning (Search → user → back) keeps it — the
+  // tab memory in lib/tab-memory.ts does both — keyed on the live query, not
+  // the debounced one, so a tab click right after typing isn't undone when
   // the debounce lands.
-  const [tab, setTab] = useState<SearchTab>('tracks');
-  // biome-ignore lint/correctness/useExhaustiveDependencies: liveQuery is the trigger
-  useEffect(() => {
-    setTab('tracks');
-  }, [liveQuery]);
+  const [tab, setTab] = useRestoredTab<SearchTab>(liveQuery, 'tracks');
 
   // Numbered pagination: the page resets whenever the query / tab / sort
   // changes, and only the visible tab requests deeper pages (the other tabs
