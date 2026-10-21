@@ -67,6 +67,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # workflow_dispatch builds the tagged commit, not the branch HEAD
+          # (dispatch runs on the default branch).
+          ref: ${{ inputs.tag || github.ref_name }}
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
@@ -111,9 +114,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          PREV=$(gh release list --limit 5 --json tagName --jq '[.[].tagName] | map(select(. != "'"$TAG"'")) | .[0] // empty')
+          # Previous tag via git (offline). The gh release list probe came
+          # back empty on both OS jobs of run 39582244791, so the fallback
+          # walked the whole history; under bash -e -o pipefail, git log then
+          # died on SIGPIPE against "| head -60" on Linux (exit 141). -n 60
+          # limits inside git, no pipe to break.
+          PREV=$(git describe --tags --exclude="$TAG" --abbrev=0 'HEAD^' 2>/dev/null || true)
           if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
-          NOTES=$(git log "$RANGE" --format='- %s' -- desktop/ .github/workflows | head -60)
+          echo "release notes over: $RANGE"
+          NOTES=$(git log -n 60 "$RANGE" --format='- %s' -- desktop/ .github/workflows)
           [ -z "$NOTES" ] && NOTES="- (no app changes)"
           {
             echo "RELEASE_NOTES<<EOF"
@@ -170,6 +179,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # workflow_dispatch builds the tagged commit, not the branch HEAD
+          # (dispatch runs on the default branch).
+          ref: ${{ inputs.tag || github.ref_name }}
           fetch-depth: 0
 
       - name: Install system dependencies
@@ -214,9 +226,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          PREV=$(gh release list --limit 5 --json tagName --jq '[.[].tagName] | map(select(. != "'"$TAG"'")) | .[0] // empty')
+          # Previous tag via git (offline). The gh release list probe came
+          # back empty on both OS jobs of run 39582244791, so the fallback
+          # walked the whole history; under bash -e -o pipefail, git log then
+          # died on SIGPIPE against "| head -60" on Linux (exit 141). -n 60
+          # limits inside git, no pipe to break.
+          PREV=$(git describe --tags --exclude="$TAG" --abbrev=0 'HEAD^' 2>/dev/null || true)
           if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
-          NOTES=$(git log "$RANGE" --format='- %s' -- desktop/ .github/workflows | head -60)
+          echo "release notes over: $RANGE"
+          NOTES=$(git log -n 60 "$RANGE" --format='- %s' -- desktop/ .github/workflows)
           [ -z "$NOTES" ] && NOTES="- (no app changes)"
           {
             echo "RELEASE_NOTES<<EOF"
