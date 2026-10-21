@@ -127,21 +127,24 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
     repeat === 'off' ? 'Repeat off' : repeat === 'one' ? 'Repeat one' : 'Repeat all';
   const barRef = useRef<HTMLElement>(null);
 
-  // Wheel over the bar steps the volume: one notch = 1 point on the 0..100 scale.
-  // Trackpads emit many small deltas, so they accumulate until a notch's worth.
+  // Wheel over the bar steps the volume: 1 point on the 0..100 scale per tick.
+  // Chromium (WebView2) reports ~100px per mouse tick and Firefox reports 3
+  // lines per tick, so 100 normalized pixels are one step; trackpads send many
+  // small deltas that add up.
   useEffect(() => {
     const el = barRef.current;
     if (!el) return;
-    const NOTCH_PX = 50;
+    const PIXELS_PER_STEP = 100;
+    const LINE_PX = 33;
     let pending = 0;
     const onWheel = (event: WheelEvent) => {
       // deltaMode 1 = lines, 2 = pages (Firefox); normalize to pixels.
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1;
+      const unit = event.deltaMode === 1 ? LINE_PX : event.deltaMode === 2 ? 400 : 1;
       pending += event.deltaY * unit;
       event.preventDefault();
-      while (Math.abs(pending) >= NOTCH_PX) {
+      while (Math.abs(pending) >= PIXELS_PER_STEP) {
         const direction = pending > 0 ? -1 : 1;
-        pending -= pending > 0 ? NOTCH_PX : -NOTCH_PX;
+        pending -= pending > 0 ? PIXELS_PER_STEP : -PIXELS_PER_STEP;
         const { volume, setVolume } = usePlayerStore.getState();
         const next = Math.max(0, Math.min(100, volume + direction));
         if (next !== volume) setVolume(next);
