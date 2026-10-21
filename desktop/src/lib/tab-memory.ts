@@ -4,8 +4,8 @@ import { useCallback, useRef, useState } from 'react';
 
 /**
  * In-page tab selections survive a leave-and-return (Search → user → back)
- * for the same context key — a search word, an entity urn — while a *new*
- * context (a different word, another profile) always opens on its default
+ * for the same context key: a search word, an entity urn. A *new* context
+ * (a different word, another profile) always opens on its default
  * tab. Memory is session-only; a FIFO cap keeps it bounded.
  */
 const TAB_MEMORY_CAP = 48;

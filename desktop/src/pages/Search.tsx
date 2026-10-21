@@ -299,8 +299,8 @@ function SearchResults() {
   const setSort = useSearchPrefsStore((s) => s.setSort);
 
   // The tab is view state, not a saved preference: a new search word starts
-  // on Tracks. Leaving and returning (Search → user → back) keeps it — the
-  // tab memory in lib/tab-memory.ts does both — keyed on the live query, not
+  // on Tracks. Leaving and returning (Search → user → back) keeps it via the
+  // tab memory in lib/tab-memory.ts, which is keyed on the live query, not
   // the debounced one, so a tab click right after typing isn't undone when
   // the debounce lands.
   const [tab, setTab] = useRestoredTab<SearchTab>(liveQuery, 'tracks');
