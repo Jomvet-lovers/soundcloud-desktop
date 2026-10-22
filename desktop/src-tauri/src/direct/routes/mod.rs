@@ -117,7 +117,7 @@ async fn handle(
             "me" | "likes" => me::route(&ctx).await?,
             "tracks" | "tags" | "comments" => tracks::route(&ctx).await?,
             "playlists" => playlists::route(&ctx).await?,
-            "users" | "albums" | "artists" => catalog::route(&ctx).await?,
+            "users" | "albums" | "artists" | "resolve" => catalog::route(&ctx).await?,
             "search" | "featured" | "discover" | "system-playlists" | "recommendations" => {
                 discover::route(&ctx).await?
             }

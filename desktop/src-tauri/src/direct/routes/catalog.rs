@@ -14,6 +14,37 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     let token = &ctx.token;
     let p: Vec<&str> = ctx.segs.iter().map(String::as_str).collect();
     let resp = match (ctx.method.as_str(), p.as_slice()) {
+        // Resolve a soundcloud.com page URL to the entity it points at. The
+        // global search's "open link" badge and the paste-a-link card both call
+        // this; without it the app fell back to a text search and looked broken.
+        ("GET", ["resolve"]) => {
+            let Some(raw) = q_str(q, "url") else {
+                return Ok(err(400, "missing url"));
+            };
+            let raw = raw.trim();
+            let is_page = [
+                "https://soundcloud.com/",
+                "https://www.soundcloud.com/",
+                "http://soundcloud.com/",
+                "http://www.soundcloud.com/",
+            ]
+            .iter()
+            .any(|prefix| raw.starts_with(prefix));
+            if !is_page {
+                return Ok(err(400, "not a SoundCloud page URL"));
+            }
+            match s
+                .sc_get(
+                    &format!("/resolve?url={}", urlencoding::encode(raw)),
+                    token.as_deref(),
+                )
+                .await
+            {
+                Ok((status, v)) if (200..300).contains(&status) => ok(normalize_urn(v)),
+                Ok((status, v)) => json_resp(status, &v),
+                Err(e) => err(502, &e),
+            }
+        }
         ("GET", ["users", urn]) => {
             let id = id_of(urn);
             match s.sc_get(&format!("/users/{id}"), token.as_deref()).await {

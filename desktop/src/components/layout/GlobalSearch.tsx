@@ -36,7 +36,9 @@ export const GlobalSearch = memo(function GlobalSearch() {
   };
   const change = (v: string) => {
     setQ(v);
-    if (v) goSearch();
+    // A pasted SoundCloud link resolves on Enter; do not flash the search page
+    // (and fire a text search for the URL) while it is still being typed.
+    if (v && !isSoundCloudUrl(v)) goSearch();
   };
   const pick = (value: string) => {
     setQ(value);
