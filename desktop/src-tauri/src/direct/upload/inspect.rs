@@ -94,7 +94,7 @@ fn ffmpeg_dir(app: &AppHandle) -> Option<PathBuf> {
 
 /// `None` when ffmpeg cannot be resolved or the duration line cannot be parsed.
 async fn probe_duration(app: &AppHandle, path: &Path) -> Option<u64> {
-    let ffmpeg = transcode::acquire_ffmpeg(&ffmpeg_dir(app)?).await?;
+    let ffmpeg = transcode::acquire_ffmpeg(&ffmpeg_dir(app)?).await.ok()?;
     transcode::probe_duration_ms(&ffmpeg, path).await
 }
 

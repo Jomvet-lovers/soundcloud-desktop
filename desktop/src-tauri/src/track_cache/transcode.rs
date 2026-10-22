@@ -35,18 +35,20 @@ fn ffmpeg_bin_name() -> &'static str {
 
 /// Resolve a usable ffmpeg, in order: an already-downloaded binary in
 /// `install_dir`, a system `ffmpeg` on PATH, then a fresh download into
-/// `install_dir`. Returns `None` when none can be obtained (cache then serves
-/// raw bytes). Safe to call repeatedly — it no-ops once a binary is present.
-pub async fn acquire_ffmpeg(install_dir: &Path) -> Option<PathBuf> {
+/// `install_dir`. `Err` carries the reason (no writable dir, download failed,
+/// downloaded binary does not run) so the caller can put it in desktop.log;
+/// callers degrade to raw bytes when it fails. Safe to call repeatedly — it
+/// no-ops once a binary is present.
+pub async fn acquire_ffmpeg(install_dir: &Path) -> Result<PathBuf, String> {
     let bundled = install_dir.join(ffmpeg_bin_name());
     if bundled.is_file() && ffmpeg_runs(&bundled).await {
-        return Some(bundled);
+        return Ok(bundled);
     }
     // Prefer a system ffmpeg — spares the download and is the safest bet on ARM,
     // where the crate's download sources are third-party / best-effort.
     let system = PathBuf::from("ffmpeg");
     if ffmpeg_runs(&system).await {
-        return Some(system);
+        return Ok(system);
     }
     download_ffmpeg(install_dir).await
 }
@@ -62,7 +64,6 @@ async fn ffmpeg_runs(program: &Path) -> bool {
         .stderr(Stdio::null());
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
     matches!(cmd.status().await, Ok(status) if status.success())
@@ -70,9 +71,9 @@ async fn ffmpeg_runs(program: &Path) -> bool {
 
 /// Download + unpack the host-appropriate ffmpeg into `install_dir`, then verify
 /// it runs. Blocking work (ureq + archive extraction) runs off the async runtime.
-/// Returns `None` on an unsupported target, a failed download, or a binary that
-/// won't execute (e.g. a wrong-arch ARM build) — handled gracefully upstream.
-async fn download_ffmpeg(install_dir: &Path) -> Option<PathBuf> {
+/// `Err` explains why the binary is missing (unsupported target, failed download
+/// or a binary that won't execute) so the startup log is actionable.
+async fn download_ffmpeg(install_dir: &Path) -> Result<PathBuf, String> {
     let dir = install_dir.to_path_buf();
     let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
         use ffmpeg_sidecar::download::{
@@ -85,26 +86,27 @@ async fn download_ffmpeg(install_dir: &Path) -> Option<PathBuf> {
         std::fs::remove_file(&archive).ok();
         Ok(())
     })
-        .await;
+    .await;
 
     match result {
         Ok(Ok(())) => {
             let bin = install_dir.join(ffmpeg_bin_name());
             if bin.is_file() && ffmpeg_runs(&bin).await {
-                Some(bin)
+                Ok(bin)
             } else {
                 eprintln!("[Transcode] downloaded ffmpeg does not run — discarding");
                 tokio::fs::remove_file(&bin).await.ok();
-                None
+                Err("the downloaded ffmpeg does not run (wrong architecture or corrupt archive)"
+                    .into())
             }
         }
         Ok(Err(e)) => {
             eprintln!("[Transcode] ffmpeg download failed: {e}");
-            None
+            Err(format!("download failed: {e}"))
         }
         Err(e) => {
             eprintln!("[Transcode] ffmpeg download task panicked: {e}");
-            None
+            Err(format!("download task failed: {e}"))
         }
     }
 }
@@ -159,7 +161,6 @@ fn base_command(ffmpeg: &Path) -> Command {
     #[cfg(windows)]
     {
         // CREATE_NO_WINDOW — don't flash a console on Windows.
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
     cmd
@@ -384,7 +385,6 @@ pub async fn probe_duration_ms(ffmpeg: &Path, path: &Path) -> Option<u64> {
         .stderr(Stdio::piped());
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
     // `-i` with no output makes ffmpeg exit non-zero after printing metadata; we

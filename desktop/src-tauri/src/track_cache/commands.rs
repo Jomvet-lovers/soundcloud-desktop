@@ -123,6 +123,16 @@ pub fn track_transcode_status(state: State<'_, TrackCacheState>) -> TranscodeSta
     state.transcode_status()
 }
 
+/// Retry the ffmpeg acquisition after a failed first-run download and return
+/// the fresh status, so the Settings card needs one round trip.
+#[tauri::command]
+pub async fn track_transcode_retry(
+    state: State<'_, TrackCacheState>,
+) -> Result<TranscodeStatus, String> {
+    state.retry_ffmpeg().await;
+    Ok(state.transcode_status())
+}
+
 #[tauri::command]
 pub fn track_get_cache_path(urn: String, state: State<'_, TrackCacheState>) -> Option<String> {
     state.get_cache_path(&urn)

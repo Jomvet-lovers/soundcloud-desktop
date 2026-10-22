@@ -564,6 +564,11 @@ pub struct TrackCacheState {
     /// Set once the startup ffmpeg acquisition finishes (success or not), so the
     /// UI can distinguish "still preparing" from "gave up / unavailable".
     ffmpeg_probe_done: Arc<std::sync::atomic::AtomicBool>,
+    /// Directory the managed ffmpeg lives in, recorded by `init_ffmpeg` so a
+    /// retry from Settings can re-run the acquisition without an AppHandle.
+    ffmpeg_dir: Arc<StdMutex<Option<PathBuf>>>,
+    /// One retry download at a time; the Settings button can be clicked twice.
+    ffmpeg_retrying: Arc<std::sync::atomic::AtomicBool>,
     active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
     preload_limiter: Arc<Semaphore>,
     likes_limiter: Arc<Semaphore>,
@@ -644,6 +649,8 @@ pub fn init(audio_dir: PathBuf, liked_dir: PathBuf, incoming_dir: PathBuf) -> Tr
         app_handle: None,
         ffmpeg: Arc::new(StdMutex::new(None)),
         ffmpeg_probe_done: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ffmpeg_dir: Arc::new(StdMutex::new(None)),
+        ffmpeg_retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         active: Arc::new(Mutex::new(HashMap::new())),
         preload_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_PRELOADS)),
         likes_limiter: Arc::new(Semaphore::new(MAX_PARALLEL_LIKES)),
@@ -1089,8 +1096,11 @@ impl TrackCacheState {
     /// Acquire ffmpeg (system PATH or download into `install_dir`) and publish it
     /// to all clones. Run once in the background at startup, before recovery.
     pub async fn init_ffmpeg(&self, install_dir: PathBuf) {
+        if let Ok(mut slot) = self.ffmpeg_dir.lock() {
+            *slot = Some(install_dir.clone());
+        }
         match transcode::acquire_ffmpeg(&install_dir).await {
-            Some(path) => {
+            Ok(path) => {
                 let line = format!("[TrackCache] ffmpeg ready: {}", path.display());
                 println!("{line}");
                 self.diag("INFO", line);
@@ -1098,16 +1108,78 @@ impl TrackCacheState {
                     *slot = Some(path);
                 }
             }
-            None => {
-                let line =
-                    "[TrackCache] ffmpeg unavailable — transcoding disabled, serving raw audio"
-                        .to_string();
+            Err(reason) => {
+                // The reason used to die on stderr, which a release build does
+                // not have: keep it in desktop.log so support can read it.
+                let line = format!(
+                    "[TrackCache] ffmpeg unavailable ({reason}); transcoding disabled, serving raw audio"
+                );
                 eprintln!("{line}");
                 self.diag("WARN", line);
             }
         }
-        self.ffmpeg_probe_done
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.ffmpeg_probe_done.store(true, Ordering::Relaxed);
+    }
+
+    /// Re-run the acquisition after a failed startup download (Settings card).
+    /// No-op when a binary is already published, the startup probe is still
+    /// running, or a retry is in flight.
+    pub async fn retry_ffmpeg(&self) {
+        if self.ffmpeg().is_some()
+            || !self.ffmpeg_probe_done.load(Ordering::Relaxed)
+            || self.ffmpeg_retrying.swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
+        let dir = self.ffmpeg_dir.lock().ok().and_then(|guard| guard.clone());
+        if let Some(dir) = dir {
+            match transcode::acquire_ffmpeg(&dir).await {
+                Ok(path) => {
+                    let line = format!("[TrackCache] ffmpeg ready after retry: {}", path.display());
+                    println!("{line}");
+                    self.diag("INFO", line);
+                    if let Ok(mut slot) = self.ffmpeg.lock() {
+                        *slot = Some(path);
+                    }
+                }
+                Err(reason) => {
+                    let line = format!("[TrackCache] ffmpeg retry failed: {reason}");
+                    eprintln!("{line}");
+                    self.diag("WARN", line);
+                }
+            }
+        }
+        self.ffmpeg_retrying.store(false, Ordering::SeqCst);
+    }
+
+    /// Wait (bounded) for a first-run acquisition or a manual retry instead of
+    /// failing an export with "still preparing". Returns the binary when it
+    /// appears; a finished-and-failed acquisition returns `None` at once.
+    async fn wait_for_ffmpeg(&self) -> Option<PathBuf> {
+        const WAIT_TICKS: usize = 600; // 120 s at 200 ms
+        for _ in 0..=WAIT_TICKS {
+            if let Some(path) = self.ffmpeg() {
+                return Some(path);
+            }
+            let busy = !self.ffmpeg_probe_done.load(Ordering::Relaxed)
+                || self.ffmpeg_retrying.load(Ordering::Relaxed);
+            if !busy {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        self.ffmpeg()
+    }
+
+    /// Why an export cannot use the encoder right now, for the error toast.
+    fn export_block_reason(&self) -> &'static str {
+        if self.ffmpeg().is_some() {
+            "the track is still being converted, try again in a moment"
+        } else if self.ffmpeg_probe_done.load(Ordering::Relaxed) {
+            "the audio encoder could not be prepared, check the connection and retry from Settings > Storage"
+        } else {
+            "the audio encoder is still being prepared, try again in a moment"
+        }
     }
 
     /// Live snapshot of the А→Б pipeline for the Settings UI.
@@ -1599,6 +1671,15 @@ impl TrackCacheState {
         let entry = self.ensure_cached(req).await?;
         let mut source_path = PathBuf::from(&entry.path);
 
+        // An m4a export can be served by copying the raw bytes, so it must not
+        // wait for the encoder. Anything else needs ffmpeg: on a first run the
+        // ~100 MB download may still be running, so wait (bounded) instead of
+        // failing with "still preparing".
+        let raw_is_m4a = transcode::is_m4a(&source_path).await;
+        if format != transcode::ExportFormat::M4a || !raw_is_m4a {
+            self.wait_for_ffmpeg().await;
+        }
+
         if let Some(ffmpeg) = self.ffmpeg() {
             if let Some(clean) = self.ensure_clean_for_export(&urn, &ffmpeg).await {
                 source_path = clean;
@@ -1629,14 +1710,19 @@ impl TrackCacheState {
             }
         }
 
-        // No clean m4a available (ffmpeg unavailable, or the transcode failed /
+        // No clean m4a available (encoder missing, or the transcode failed /
         // timed out). Only m4a can be served by copying raw bytes; the other
         // containers need the encoder.
         if format != transcode::ExportFormat::M4a {
-            return Err(
-                "Cannot export this format: audio transcoder is still preparing or unavailable"
-                    .into(),
-            );
+            let hint = if self.ffmpeg().is_none() {
+                " Choose M4A to export without the encoder."
+            } else {
+                ""
+            };
+            return Err(format!(
+                "Cannot export this format: {}.{hint}",
+                self.export_block_reason()
+            ));
         }
         // Re-resolve in case a concurrent transcode finished and
         // deleted the raw path we held, then only copy if the source is already a
@@ -1648,7 +1734,10 @@ impl TrackCacheState {
                 .map_err(|e| format!("Copy failed: {e}"))?;
             return Ok(dest_path);
         }
-        Err("Cannot export to m4a: audio transcoder is still preparing or unavailable".into())
+        Err(format!(
+            "Cannot export to m4a: {}.",
+            self.export_block_reason()
+        ))
     }
 
     /// Try each storage URL once (healthy hosts first), then API URLs with retries.
