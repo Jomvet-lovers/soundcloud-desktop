@@ -76,7 +76,7 @@ export interface SettingsState {
   touchKeyboardAutoShow: boolean;
   inputMode: InputMode;
   /** Output device chosen manually (cpal device id on Win/mac, pactl sink name
-   *  on Linux); null = follow the Windows default. Restored at startup. */
+   *  on Linux); null = follow the system default. Restored at startup. */
   audioOutputDevice: string | null;
   /** Friendly name of the chosen endpoint, used only when the saved id no
    *  longer matches (re-paired Bluetooth, id drift). */

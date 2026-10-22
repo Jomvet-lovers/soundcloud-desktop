@@ -86,7 +86,7 @@ export function AudioDeviceCard() {
           className={rowCls}
         >
           <span className="min-w-0">
-            <span className={titleCls}>{'Windows default'}</span>
+            <span className={titleCls}>{'System default'}</span>
             {defaultSink && (
               <span className={subCls}>{defaultSink.interface ?? defaultSink.description}</span>
             )}
