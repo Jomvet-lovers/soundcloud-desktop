@@ -18,6 +18,9 @@ interface AudioSink {
 export function AudioDeviceCard() {
   const [sinks, setSinks] = useState<AudioSink[]>([]);
   const [following, setFollowing] = useState(() => useSettingsStore.getState().followDefaultOutput);
+  // The active sink is the saved choice, not `is_default`: that flag is the OS
+  // default and stays true on its row after a manual pick.
+  const savedDevice = useSettingsStore((s) => s.audioOutputDevice);
   const [switching, setSwitching] = useState(false);
 
   // Rust owns the runtime truth, but the persisted choice is what a fresh
@@ -47,8 +50,7 @@ export function AudioDeviceCard() {
   }, [refreshSinks]);
 
   const handleSwitch = async (sinkName: string | null, label: string | null) => {
-    const current = sinks.find((s) => s.is_default);
-    const alreadyActive = sinkName == null ? following : !following && current?.name === sinkName;
+    const alreadyActive = sinkName == null ? following : !following && savedDevice === sinkName;
     if (switching || alreadyActive) return;
     setSwitching(true);
     try {
@@ -106,7 +108,9 @@ export function AudioDeviceCard() {
               <span className={titleCls}>{sink.interface ?? sink.description}</span>
               {sink.interface && <span className={subCls}>{sink.description}</span>}
             </span>
-            {!following && sink.is_default && <Check size={15} className="shrink-0 text-accent" />}
+            {!following && savedDevice === sink.name && (
+              <Check size={15} className="shrink-0 text-accent" />
+            )}
           </button>
         ))}
       </div>
