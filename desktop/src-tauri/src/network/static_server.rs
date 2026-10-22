@@ -54,7 +54,15 @@ pub async fn start(wallpapers_dir: PathBuf) -> u16 {
                     }
                 };
 
-                let metadata = file.metadata().await.unwrap();
+                let metadata = match file.metadata().await {
+                    Ok(m) => m,
+                    Err(_) => {
+                        return Ok(Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Body::empty())
+                            .unwrap());
+                    }
+                };
                 let total = metadata.len();
                 let ct = content_type_for(&filename);
 
