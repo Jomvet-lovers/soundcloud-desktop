@@ -8,7 +8,7 @@ import { api } from '../../lib/api';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import { Heart, LinkIcon, ListMusic, ListPlus, MapPin, Plus, User } from '../../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
-import { unpinPlaylist } from '../../stores/pinned-playlists';
+import { pinPlaylist, unpinPlaylist, usePinnedPlaylists } from '../../stores/pinned-playlists';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 import {
@@ -195,6 +195,8 @@ function UserMenu({ user }: { user: UserMenuTarget }) {
 function PlaylistMenu({ playlist }: { playlist: PlaylistMenuTarget }) {
   const close = useTrackMenuStore((s) => s.close);
   const navigate = useNavigate();
+  const pins = usePinnedPlaylists();
+  const isPinned = pins.some((p) => p.urn === playlist.urn);
 
   const copyLink = async () => {
     close();
@@ -222,6 +224,35 @@ function PlaylistMenu({ playlist }: { playlist: PlaylistMenuTarget }) {
     }
   };
 
+  const togglePin = async () => {
+    close();
+    if (isPinned) {
+      unpinPlaylist(playlist.urn);
+      toast.success('Removed from sidebar');
+      return;
+    }
+    let title = playlist.title ?? null;
+    let art = playlist.artworkUrl ?? null;
+    if (!title) {
+      // Sidebar pins only carry the urn; cards pass the title through.
+      try {
+        const fresh = await api<{ title?: string; artwork_url?: string | null }>(
+          `/playlists/${encodeURIComponent(playlist.urn)}`,
+        );
+        title = fresh.title ?? null;
+        art = art ?? fresh.artwork_url ?? null;
+      } catch {
+        // fall through to the error toast
+      }
+    }
+    if (!title) {
+      toast.error('Could not pin this playlist');
+      return;
+    }
+    pinPlaylist({ urn: playlist.urn, title, artworkUrl: art });
+    toast.success('Pinned to sidebar');
+  };
+
   return (
     <MenuShell>
       <MenuItem
@@ -236,12 +267,8 @@ function PlaylistMenu({ playlist }: { playlist: PlaylistMenuTarget }) {
       <div className="my-1 h-px bg-white/[0.06]" />
       <MenuItem
         icon={<MapPin size={15} />}
-        label={'Remove from Quick Access'}
-        onClick={() => {
-          close();
-          unpinPlaylist(playlist.urn);
-          toast.success('Removed from sidebar');
-        }}
+        label={isPinned ? 'Remove from Quick Access' : 'Pin to Quick Access'}
+        onClick={togglePin}
       />
     </MenuShell>
   );

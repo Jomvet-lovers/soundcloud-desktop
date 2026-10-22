@@ -17,6 +17,7 @@ import {
 } from '../../lib/hooks';
 import { ChevronLeft, ChevronRight, Loader2, Music } from '../../lib/icons';
 import type { Track } from '../../stores/player';
+import { userMenuHandler } from '../../stores/track-menu';
 import { PlaylistCard } from '../music/PlaylistCard';
 import { Avatar } from '../ui/Avatar';
 import { VirtualGrid } from '../ui/VirtualGrid';
@@ -318,6 +319,10 @@ export function UserConnectionsTab({
       <button
         type="button"
         onClick={() => nav(`/user/${encodeURIComponent(user.urn)}`)}
+        onContextMenu={userMenuHandler({
+          target: `/user/${encodeURIComponent(user.urn)}`,
+          permalink: user.permalink_url,
+        })}
         className="group flex h-full w-full flex-col items-center gap-2 p-3 cursor-pointer"
       >
         <div className="h-16 w-16 overflow-hidden rounded-full ring-1 ring-white/10 transition-colors group-hover:ring-white/30">

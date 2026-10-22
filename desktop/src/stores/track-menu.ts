@@ -10,11 +10,14 @@ export interface UserMenuTarget {
   permalink?: string | null;
 }
 
-/** A playlist target for the right-click menu (sidebar pins, …). */
+/** A playlist target for the right-click menu (sidebar pins, cards). */
 export interface PlaylistMenuTarget {
   urn: string;
   /** Public URL when known; otherwise it is fetched on demand. */
   permalink?: string | null;
+  /** Card context: lets the menu pin without a second fetch. */
+  title?: string | null;
+  artworkUrl?: string | null;
 }
 
 /** One app-wide right-click menu: track actions, profile actions, or playlist

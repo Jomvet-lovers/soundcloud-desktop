@@ -7,6 +7,7 @@ import { Heart, ListMusic, Play, pauseBlack20 } from '../../lib/icons';
 import { useAutoHide } from '../../lib/useAutoHide';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
+import { playlistMenuHandler } from '../../stores/track-menu';
 import { PlaylistCover } from './PlaylistCover';
 
 interface PlaylistCardProps {
@@ -61,6 +62,12 @@ export const PlaylistCard = React.memo(
       <div
         className="group relative flex flex-col gap-3 cursor-pointer select-none"
         onClick={() => navigate(`/playlist/${encodeURIComponent(playlist.urn)}`)}
+        onContextMenu={playlistMenuHandler({
+          urn: playlist.urn,
+          permalink: playlist.permalink_url,
+          title: playlist.title,
+          artworkUrl: playlist.artwork_url,
+        })}
       >
         <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">
           <PlaylistCover
