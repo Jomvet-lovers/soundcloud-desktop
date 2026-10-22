@@ -393,11 +393,14 @@ export function fetchAllPlaylistTracks(playlistUrn: string, pageSize = 200): Pro
   return (async () => {
     const all: Track[] = [];
     const base = `/playlists/${encodeURIComponent(playlistUrn)}/tracks`;
-    for (let page = 0; ; page++) {
+    // Same guard as the likes walk: a route that keeps claiming `has_more` must
+    // not spin forever, and an empty page ends the walk.
+    for (let page = 0; page < MAX_ALL_LIKES_PAGES; page++) {
       const data = await api<TrackPage>(pagedUrl(base, page, pageSize));
-      for (const t of data.collection) all.push(t);
-      void rememberTracks(data.collection);
-      if (!data.has_more) break;
+      const pageTracks = data.collection ?? [];
+      for (const t of pageTracks) all.push(t);
+      void rememberTracks(pageTracks);
+      if (!data.has_more || pageTracks.length === 0) break;
     }
     return all;
   })();
