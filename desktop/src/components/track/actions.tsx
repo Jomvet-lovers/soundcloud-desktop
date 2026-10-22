@@ -3,7 +3,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { type DownloadFormat, downloadTrack } from '../../lib/cache';
+import {
+  type DownloadFormat,
+  downloadTrack,
+  type FfmpegState,
+  getTranscodeStatus,
+} from '../../lib/cache';
 import { fc } from '../../lib/formatters';
 import { invalidateAllLikesCache } from '../../lib/hooks';
 import { Check, Download, Heart, LinkIcon, Loader2 } from '../../lib/icons';
@@ -165,6 +170,23 @@ const DOWNLOAD_FORMATS: Array<{ id: DownloadFormat; label: string; desc: string 
 export const DownloadButton = React.memo(({ track }: { track: Track }) => {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [encoder, setEncoder] = useState<FfmpegState | null>(null);
+
+  // Only the encoder-less M4A copy can run without ffmpeg; if the one-time
+  // download failed, mark the other formats instead of letting the user pick
+  // one and hit the export error. Re-read per open so a Settings retry lands.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    getTranscodeStatus()
+      .then((status) => {
+        if (!cancelled) setEncoder(status.ffmpeg);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const download = async (format: DownloadFormat) => {
     if (loading) return;
@@ -207,17 +229,31 @@ export const DownloadButton = React.memo(({ track }: { track: Track }) => {
           collisionPadding={12}
           className="z-[200] w-[190px] rounded-xl border border-white/[0.1] bg-[#141417] p-1.5 outline-none"
         >
-          {DOWNLOAD_FORMATS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => void download(f.id)}
-              className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/[0.06] cursor-pointer"
-            >
-              <span className="text-[12.5px] font-medium text-white/85">{f.label}</span>
-              <span className="text-[10.5px] text-white/35">{f.desc}</span>
-            </button>
-          ))}
+          {DOWNLOAD_FORMATS.map((f) => {
+            const blocked = encoder === 'unavailable' && f.id !== 'm4a';
+            return (
+              <button
+                key={f.id}
+                type="button"
+                disabled={blocked}
+                title={
+                  blocked ? 'The audio encoder is unavailable. M4A works without it.' : undefined
+                }
+                onClick={() => void download(f.id)}
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/[0.06] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              >
+                <span className="text-[12.5px] font-medium text-white/85">{f.label}</span>
+                <span className="text-[10.5px] text-white/35">
+                  {blocked ? 'needs encoder' : f.desc}
+                </span>
+              </button>
+            );
+          })}
+          {encoder === 'unavailable' && (
+            <p className="px-3 pt-1 pb-0.5 text-[10.5px] text-white/35">
+              {'Audio encoder unavailable. M4A still works.'}
+            </p>
+          )}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>

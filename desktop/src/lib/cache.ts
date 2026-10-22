@@ -58,6 +58,11 @@ export function getTranscodeStatus(): Promise<TranscodeStatus> {
   return invoke<TranscodeStatus>('track_transcode_status');
 }
 
+/** Retry the one-time ffmpeg download after it failed at startup. */
+export function retryTranscode(): Promise<TranscodeStatus> {
+  return invoke<TranscodeStatus>('track_transcode_retry');
+}
+
 /** Builds the Rust-side cache request (stream/download/storage fallbacks + the
  *  API duration used to detect truncated downloads). `durationMs` is the track's
  *  API-reported length in milliseconds. */
