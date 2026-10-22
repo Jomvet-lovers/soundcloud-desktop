@@ -76,7 +76,8 @@ It is never sent anywhere other than SoundCloud.
 ## App data directory (Storage location)
 
 - Windows
-  - `%LOCALAPPDATA%\fun.natsumi.scd.direct`
+  - session and settings: `%APPDATA%\fun.natsumi.scd.direct`
+  - caches and logs: `%LOCALAPPDATA%\fun.natsumi.scd.direct`
 
 ## Build
 
