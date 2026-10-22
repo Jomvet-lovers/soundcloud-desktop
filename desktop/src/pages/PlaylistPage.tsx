@@ -44,7 +44,12 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
   const navigate = useNavigate();
   const myUrn = useAuthStore((s) => s.user?.urn);
 
-  const { data: playlist, isLoading: playlistLoading } = usePlaylist(urn);
+  const {
+    data: playlist,
+    isLoading: playlistLoading,
+    isError: playlistError,
+    refetch: refetchPlaylist,
+  } = usePlaylist(urn);
   const {
     tracks: playlistTracks,
     isLoading: tracksLoading,
@@ -222,7 +227,7 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     });
   }, [playlist, deletePlaylist, navigate]);
 
-  if (isLoading || !playlist) {
+  if (isLoading) {
     return (
       <div className="relative min-h-full w-full">
         <style>{PLAYLIST_KEYFRAMES}</style>
@@ -231,6 +236,38 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
           style={{ isolation: 'isolate' }}
         >
           <HeroSkeleton />
+        </div>
+      </div>
+    );
+  }
+
+  // A deleted/private playlist used to keep the skeleton forever: checking
+  // `!playlist` alone leaves no way out once the fetch has settled.
+  if (!playlist) {
+    return (
+      <div className="relative w-full min-h-[60vh] flex flex-col items-center justify-center gap-4 px-6 text-center">
+        <AlertCircle size={26} className="text-white/25" strokeWidth={1.7} />
+        <div className="space-y-1">
+          <p className="text-[14px] text-white/70">{'This playlist could not be loaded'}</p>
+          <p className="text-[12px] text-white/35">
+            {playlistError ? 'It may be private or deleted.' : 'Nothing came back.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void refetchPlaylist()}
+            className="h-8 px-3.5 rounded-lg text-[12px] font-medium bg-white/[0.06] text-white/80 hover:bg-white/[0.1] transition-colors cursor-pointer"
+          >
+            {'Try again'}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="h-8 px-3.5 rounded-lg text-[12px] text-white/45 hover:text-white/75 hover:bg-white/[0.06] transition-colors cursor-pointer"
+          >
+            {'Go back'}
+          </button>
         </div>
       </div>
     );

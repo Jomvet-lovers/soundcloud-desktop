@@ -33,7 +33,8 @@ export function VirtualGrid<T>({
   // visible band ends up blank.
   const [scrollMargin, setScrollMargin] = useState(0);
 
-  useEffect(() => {
+  // Resolve before paint: the grid measured one empty frame with useEffect.
+  useLayoutEffect(() => {
     setScrollElement((containerRef.current?.closest('main') as HTMLElement | null) ?? null);
   }, []);
 

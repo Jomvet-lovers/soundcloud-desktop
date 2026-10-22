@@ -51,7 +51,7 @@ export const RoomFloor = React.memo(function RoomFloor({
         <LiveWaveform track={track} isCurrent={isCurrent} onCommentPosition={onCommentPosition} />
         {previewTail > 0 && (
           <div
-            className="absolute inset-y-0 right-0 pointer-events-none rounded-r-lg bg-gradient-to-r from-transparent via-black/55 via-40% to-black/70"
+            className="absolute inset-y-0 right-0 pointer-events-none rounded-r-lg bg-black/50"
             style={{
               width: `${previewTail * 100}%`,
             }}

@@ -179,6 +179,9 @@ export const SortableSequenceRow = React.memo(
     prev.track.user_favorite === next.track.user_favorite &&
     prev.track.title === next.track.title &&
     prev.track.enrichment === next.track.enrichment &&
+    // A reorder rewrites the queue identity; rows whose urn/index did not move
+    // would otherwise keep playing from the pre-drag order.
+    prev.queue === next.queue &&
     sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );
 
@@ -248,5 +251,8 @@ export const SequenceRow = React.memo(
     prev.track.user_favorite === next.track.user_favorite &&
     prev.track.title === next.track.title &&
     prev.track.enrichment === next.track.enrichment &&
+    // A reorder rewrites the queue identity; rows whose urn/index did not move
+    // would otherwise keep playing from the pre-drag order.
+    prev.queue === next.queue &&
     sameScdMeta(prev.track._scd_meta, next.track._scd_meta),
 );

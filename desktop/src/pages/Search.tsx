@@ -339,12 +339,17 @@ function SearchResults() {
     [tracks.tracks.length, users.users.length, playlists.playlists.length, albums.albums.length],
   );
 
-  const empty =
-    query.length > 0 &&
-    tracks.tracks.length === 0 &&
-    users.users.length === 0 &&
-    playlists.playlists.length === 0 &&
-    albums.albums.length === 0;
+  // "No results" speaks for the visible tab: requiring all four tabs to be empty
+  // left a blank panel when only the active tab had no matches.
+  const activeCount =
+    tab === 'tracks'
+      ? tracks.tracks.length
+      : tab === 'users'
+        ? users.users.length
+        : tab === 'playlists'
+          ? playlists.playlists.length
+          : albums.albums.length;
+  const empty = query.length > 0 && activeCount === 0;
 
   if (!query) return null;
 
