@@ -323,21 +323,6 @@ export function useHistory(limit = 50) {
   return { entries, ...query };
 }
 
-/* ── Featured ─────────────────────────────────────────────────── */
-
-export interface FeaturedResponse {
-  type: 'track' | 'playlist' | 'user';
-  data: any;
-}
-
-export function useFeatured() {
-  return useQuery<FeaturedResponse | null>({
-    queryKey: ['featured'],
-    queryFn: () => api<FeaturedResponse | null>('/featured'),
-    staleTime: 5 * 60_000,
-  });
-}
-
 /* ── Liked tracks ──────────────────────────────────────────────── */
 
 export function useLikedTracks(limit = 30) {
@@ -961,50 +946,6 @@ export function useDeletePlaylist() {
   });
 }
 
-/* ── Search ────────────────────────────────────────────────────── */
-
-export function useSearchTracks(q: string) {
-  const query = usePagedQuery<Track>({
-    queryKey: ['search', 'tracks', q],
-    url: (page, limit) => pagedUrl('/tracks', page, limit, `q=${encodeURIComponent(q)}`),
-    limit: 20,
-    staleTime: SEARCH_CACHE_MS,
-    maxPages: 5,
-    enabled: !!q.trim(),
-    dedupe: (t) => t.urn,
-  });
-
-  return { tracks: query.items, ...query };
-}
-
-export function useSearchPlaylists(q: string) {
-  const query = usePagedQuery<Playlist>({
-    queryKey: ['search', 'playlists', q],
-    url: (page, limit) => pagedUrl('/playlists', page, limit, `q=${encodeURIComponent(q)}`),
-    limit: 20,
-    staleTime: SEARCH_CACHE_MS,
-    maxPages: 5,
-    enabled: !!q.trim(),
-    dedupe: (p) => p.urn,
-  });
-
-  return { playlists: query.items, ...query };
-}
-
-export function useSearchUsers(q: string) {
-  const query = usePagedQuery<SCUser>({
-    queryKey: ['search', 'users', q],
-    url: (page, limit) => pagedUrl('/users', page, limit, `q=${encodeURIComponent(q)}`),
-    limit: 20,
-    staleTime: SEARCH_CACHE_MS,
-    maxPages: 5,
-    enabled: !!q.trim(),
-    dedupe: (u) => u.urn,
-  });
-
-  return { users: query.items, ...query };
-}
-
 /* ── Search: SCD-DB ───────────────────────────────────────────── */
 
 /**
@@ -1076,19 +1017,6 @@ export function useSearchDbUsers(q: string) {
     dedupe: (u) => u.urn,
   });
   return { users: query.items, ...query };
-}
-
-export function useSearchDbArtists(q: string) {
-  const query = usePagedQuery<CatalogArtist>({
-    queryKey: ['search', 'db', 'artists', q],
-    url: (page, limit) => searchDbUrl('artists', page, limit, q, searchDbExtra()),
-    limit: SEARCH_DB_LIMIT,
-    staleTime: SEARCH_CACHE_MS,
-    maxPages: SEARCH_DB_MAX_PAGES,
-    enabled: !!q.trim(),
-    dedupe: (a) => a.id,
-  });
-  return { artists: query.items, ...query };
 }
 
 export function useSearchDbAlbums(q: string) {
