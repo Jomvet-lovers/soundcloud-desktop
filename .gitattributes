@@ -1,0 +1,7 @@
+# Normalize line endings in the working tree on every platform.
+#
+# core.autocrlf=true was rewriting checkouts to CRLF on Windows, so `npx biome
+# check` failed on untouched files ("Formatter would have printed the following
+# content") and the working tree drifted from the LF blobs. The formatter, the
+# Rust toolchain and CI all expect LF.
+* text=auto eol=lf

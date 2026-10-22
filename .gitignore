@@ -35,6 +35,9 @@ worker/venv/
 /desktop/AGENTS.md
 /SCD-Direct_playlist-bug_fix-instructions.md
 /anti-slop/
+/BUG-AUDIT-*.md
+/PERFORMANCE-*.md
+/logs_*.tmp.txt
 
 # FireBase
 .firebase
