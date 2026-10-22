@@ -67,6 +67,7 @@ import {
   SlidersHorizontal as _SlidersHorizontal,
   Smartphone as _Smartphone,
   Sparkles as _Sparkles,
+  Speaker as _Speaker,
   Square as _Square,
   Star as _Star,
   ThumbsDown as _ThumbsDown,
@@ -253,6 +254,7 @@ export const repeatAbIcon16 = (
 export const volumeXIcon16 = <_VolumeX size={16} />;
 export const volume1Icon16 = <_Volume1 size={16} />;
 export const volume2Icon16 = <_Volume2 size={16} />;
+export const speakerIcon16 = <_Speaker size={16} />;
 
 // Info icons (small, for stats)
 export const headphones9 = <_Headphones size={9} />;

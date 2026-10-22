@@ -20,6 +20,7 @@ import {
 import { useArtistDisplay, useDisplayTitle } from '../../lib/track-display';
 import { type Track, usePlayerStore } from '../../stores/player';
 import { trackMenuHandler, userMenuHandler } from '../../stores/track-menu';
+import { AudioOutputPopover } from '../music/AudioOutputPopover';
 import { EqualizerPanel } from '../music/EqualizerPanel';
 import { LikeButton } from '../music/LikeButton';
 import { SoundTuningPopover } from '../music/SoundTuningPopover';
@@ -269,6 +270,7 @@ export const NowPlayingBar = React.memo(function NowPlayingBar({
         >
           {listMusic16}
         </button>
+        <AudioOutputPopover />
         <button
           type="button"
           className={iconBtnIdle}
