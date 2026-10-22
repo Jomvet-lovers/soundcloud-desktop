@@ -37,6 +37,17 @@ const MAX_COOKIE_ERRORS: u32 = 30;
 /// while the window is already open.
 static WATCHING: AtomicBool = AtomicBool::new(false);
 
+/// Clears the flag even if `watch` unwinds. A cookie read can panic on an
+/// unsupported WebView, and without the guard `WATCHING` would stay true
+/// forever, so every later login click would only refocus the window.
+struct WatchingGuard;
+
+impl Drop for WatchingGuard {
+    fn drop(&mut self) {
+        WATCHING.store(false, Ordering::SeqCst);
+    }
+}
+
 /// ログイン watcher が動いているか。writer はこの間ログイン窓を触らない。
 pub fn is_watching() -> bool {
     WATCHING.load(Ordering::SeqCst)
@@ -58,8 +69,8 @@ pub async fn open_login_window(app: AppHandle) -> Result<(), String> {
     let _ = w.hide();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let _watching = WatchingGuard;
         watch(app).await;
-        WATCHING.store(false, Ordering::SeqCst);
     });
     Ok(())
 }
