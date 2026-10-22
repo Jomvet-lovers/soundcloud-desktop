@@ -22,14 +22,22 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 return Ok(err(400, "missing url"));
             };
             let raw = raw.trim();
-            let is_page = [
-                "https://soundcloud.com/",
-                "https://www.soundcloud.com/",
-                "http://soundcloud.com/",
-                "http://www.soundcloud.com/",
-            ]
-            .iter()
-            .any(|prefix| raw.starts_with(prefix));
+            // Every host the search box recognises: plain, www, mobile and the
+            // on.soundcloud.com share links; SC's /resolve follows the redirects.
+            let lower = raw.to_ascii_lowercase();
+            let host = lower
+                .strip_prefix("https://")
+                .or_else(|| lower.strip_prefix("http://"))
+                .and_then(|rest| rest.split('/').next());
+            let is_page = matches!(
+                host,
+                Some(
+                    "soundcloud.com"
+                        | "www.soundcloud.com"
+                        | "m.soundcloud.com"
+                        | "on.soundcloud.com"
+                )
+            );
             if !is_page {
                 return Ok(err(400, "not a SoundCloud page URL"));
             }
