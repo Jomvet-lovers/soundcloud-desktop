@@ -121,7 +121,11 @@ async fn handle(
             "search" | "featured" | "discover" | "system-playlists" | "recommendations" => {
                 discover::route(&ctx).await?
             }
-            "history" | "events" | "indexing" | "dislikes" | "debug" => local::route(&ctx).await?,
+            "history" | "events" | "indexing" | "dislikes" => local::route(&ctx).await?,
+            // Dev-only probes (they fetch arbitrary pages through the signed-in
+            // writer and can mutate the account); a release binary 404s them.
+            "debug" if !cfg!(debug_assertions) => common::err(404, "not found"),
+            "debug" => local::route(&ctx).await?,
             _ => common::err(404, "not found"),
         },
         _ => common::err(404, "not found"),
