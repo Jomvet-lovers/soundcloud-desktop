@@ -202,14 +202,36 @@ pub fn init() -> AudioState {
                                     "WARN",
                                     format!("[Audio] output switch failed: {error}"),
                                 );
-                                device_sink =
-                                    open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate)
-                                        .expect("no audio output device");
-                                *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
                                 // The requested endpoint is gone for good: a later
-                                // reconnect must not keep chasing it.
+                                // reconnect must not keep chasing it. The caller
+                                // gets its error now; the fallback may have to
+                                // wait for a device, so it must not block the reply.
                                 *manual_output.lock().unwrap() = None;
                                 reply.send(Err(error)).ok();
+                                device_sink = loop {
+                                    match open_device_sink(
+                                        None,
+                                        None,
+                                        &cmd_tx,
+                                        &error_flag,
+                                        &output_rate,
+                                    ) {
+                                        Ok(sink) => break sink,
+                                        Err(retry_error) => {
+                                            // Panicking here used to kill the audio
+                                            // thread for the rest of the process;
+                                            // wait for the OS to expose a sink again.
+                                            log_device(
+                                                "WARN",
+                                                format!(
+                                                    "[Audio] no output device ({retry_error}); retrying in 1s"
+                                                ),
+                                            );
+                                            std::thread::sleep(Duration::from_millis(1000));
+                                        }
+                                    }
+                                };
+                                *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
                             }
                         }
                     }
@@ -254,9 +276,28 @@ pub fn init() -> AudioState {
                                 );
                                 std::thread::sleep(Duration::from_secs(1));
                                 *manual_output.lock().unwrap() = None;
-                                device_sink =
-                                    open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate)
-                                        .expect("no audio output device");
+                                device_sink = loop {
+                                    match open_device_sink(
+                                        None,
+                                        None,
+                                        &cmd_tx,
+                                        &error_flag,
+                                        &output_rate,
+                                    ) {
+                                        Ok(sink) => break sink,
+                                        Err(retry_error) => {
+                                            // Every sink may be unplugged for a
+                                            // while; retry instead of panicking.
+                                            log_device(
+                                                "WARN",
+                                                format!(
+                                                    "[Audio] no output device ({retry_error}); retrying in 1s"
+                                                ),
+                                            );
+                                            std::thread::sleep(Duration::from_millis(1000));
+                                        }
+                                    }
+                                };
                                 *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
                                 reconnected.store(true, std::sync::atomic::Ordering::Release);
                                 log_device(

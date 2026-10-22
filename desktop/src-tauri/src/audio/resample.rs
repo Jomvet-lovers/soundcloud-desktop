@@ -128,35 +128,33 @@ impl<S: Source<Item = f32>> ResampleSource<S> {
 
     /// Compute the next output frame into `frame_buf`. Returns false at EOF.
     fn compute_frame(&mut self) -> bool {
-        loop {
-            let num = self.out_index as u128 * self.down as u128;
-            let base = (num / self.up as u128) as i64;
-            let phase = (num % self.up as u128) as usize;
+        let num = self.out_index as u128 * self.down as u128;
+        let base = (num / self.up as u128) as i64;
+        let phase = (num % self.up as u128) as usize;
 
-            let want = base + HALF_TAPS;
-            self.pull_until(want);
+        let want = base + HALF_TAPS;
+        self.pull_until(want);
 
-            let first = base - HALF_TAPS + 1;
-            if self.eof && first > self.last_index {
-                return false;
-            }
-            self.drop_before(first);
-
-            let taps = (2 * HALF_TAPS) as usize;
-            let coeff = &self.coeffs[phase * taps..phase * taps + taps];
-            for channel in 0..self.channels {
-                let mut sum = 0.0f32;
-                let mut idx = first;
-                for &c in coeff {
-                    sum += self.sample_at(idx, channel) * c;
-                    idx += 1;
-                }
-                self.frame_buf[channel] = sum;
-            }
-            self.out_index += 1;
-            self.frame_pos = 0;
-            return true;
+        let first = base - HALF_TAPS + 1;
+        if self.eof && first > self.last_index {
+            return false;
         }
+        self.drop_before(first);
+
+        let taps = (2 * HALF_TAPS) as usize;
+        let coeff = &self.coeffs[phase * taps..phase * taps + taps];
+        for channel in 0..self.channels {
+            let mut sum = 0.0f32;
+            let mut idx = first;
+            for &c in coeff {
+                sum += self.sample_at(idx, channel) * c;
+                idx += 1;
+            }
+            self.frame_buf[channel] = sum;
+        }
+        self.out_index += 1;
+        self.frame_pos = 0;
+        true
     }
 }
 
