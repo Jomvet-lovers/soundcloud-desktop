@@ -115,7 +115,7 @@ fn commit_loaded_track(
     new_player: rodio::Player,
     normalization_gain: f32,
 ) {
-    *state.player.lock().unwrap() = Some(new_player);
+    *state.player.lock().unwrap() = Some(Arc::new(new_player));
     *state.source_bytes.lock().unwrap() = Some(bytes);
     *state.normalization_gain.lock().unwrap() = normalization_gain;
     // Fresh track starts at source 0 / output 0.
@@ -130,7 +130,7 @@ fn commit_loaded_track(
 /// buffer (see `rebuild_from_stream`) and `finalize_stream` adopts the finished
 /// file later.
 fn commit_stream_player(state: &AudioState, new_player: rodio::Player, normalization_gain: f32) {
-    *state.player.lock().unwrap() = Some(new_player);
+    *state.player.lock().unwrap() = Some(Arc::new(new_player));
     *state.source_bytes.lock().unwrap() = None;
     *state.normalization_gain.lock().unwrap() = normalization_gain;
     set_pos_anchor(state, 0.0, 0.0);
@@ -201,7 +201,7 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
             };
             (source_pos(state, player), player.is_paused())
         };
-        return rebuild_from_stream(state, &stream, source_position, was_paused);
+        return rebuild_from_stream(state, &stream, source_position, was_paused, None);
     };
 
     let rate = current_rate(state);
@@ -245,7 +245,7 @@ pub fn reload_current_track(state: &AudioState) -> Result<(), String> {
     if let Some(old) = player.take() {
         old.stop();
     }
-    *player = Some(new_player);
+    *player = Some(Arc::new(new_player));
     set_pos_anchor(state, source_position, output_target);
     state.has_track.store(true, Ordering::Relaxed);
     state.ended_notified.store(false, Ordering::Relaxed);
@@ -495,6 +495,7 @@ fn rebuild_from_stream(
     stream: &Arc<StreamBuffer>,
     source_position: f64,
     was_paused: bool,
+    guard: Option<&Option<Arc<rodio::Player>>>,
 ) -> Result<(), String> {
     let rate = current_rate(state);
     let output_target = (source_position / rate).max(0.0);
@@ -527,10 +528,23 @@ fn rebuild_from_stream(
     }
 
     let mut player = state.player.lock().unwrap();
+    if let Some(expected) = guard {
+        let same = match (player.as_ref(), expected.as_ref()) {
+            (Some(installed), Some(snapshot)) => Arc::ptr_eq(installed, snapshot),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            drop(player);
+            // The seek that asked for this rebuild was superseded by a load/stop.
+            new_player.stop();
+            return Ok(());
+        }
+    }
     if let Some(old) = player.take() {
         old.stop();
     }
-    *player = Some(new_player);
+    *player = Some(Arc::new(new_player));
     // A stream without an advertised length decodes incrementally and cannot
     // seek; report the restart at 0 instead of a position the decoder is not at.
     if seeked {
@@ -703,21 +717,31 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
     let rate = current_rate(state);
     let output_target = (position / rate).max(0.0);
     let target = Duration::from_secs_f64(output_target);
-    let was_paused = state
-        .player
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|player| player.is_paused())
-        .unwrap_or(false);
+
+    // Serialize seeks, but never hold the player lock across `try_seek`: on a
+    // network-backed decoder the seek can sit for tens of milliseconds, and while
+    // the lock was held there play/pause (try_lock) silently gave up and the
+    // position readout stalled. The Arc keeps the player alive if a load swaps it.
+    let _order = state.seek_lock.lock().unwrap();
+    let current = state.player.lock().unwrap().clone();
+    let was_paused = current.as_ref().map(|p| p.is_paused()).unwrap_or(false);
 
     // For position 0, always recreate the player to avoid decoder state issues
     if position > 0.0 {
-        let player = state.player.lock().unwrap();
-        if let Some(ref player) = *player
+        if let Some(player) = &current
             && player.try_seek(target).is_ok() {
-                state.ended_notified.store(false, Ordering::Relaxed);
-                set_pos_anchor(state, position, output_target);
+                // Rebase only while this player is still the installed one; a
+                // load or stop may have swapped it while the seek was running.
+                let still_current = state
+                    .player
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|installed| Arc::ptr_eq(installed, player));
+                if still_current {
+                    state.ended_notified.store(false, Ordering::Relaxed);
+                    set_pos_anchor(state, position, output_target);
+                }
                 return Ok(());
             }
     }
@@ -735,7 +759,7 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
         if position > 0.0 && stream.byte_len().is_none() {
             return Err("stream is not seekable yet".into());
         }
-        return rebuild_from_stream(state, &stream, position, was_paused);
+        return rebuild_from_stream(state, &stream, position, was_paused, Some(&current));
     };
 
     let mixer = state.mixer.lock().unwrap().clone();
@@ -762,10 +786,22 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
     }
 
     let mut player = state.player.lock().unwrap();
+    let same = match (player.as_ref(), current.as_ref()) {
+        (Some(installed), Some(snapshot)) => Arc::ptr_eq(installed, snapshot),
+        (None, None) => true,
+        _ => false,
+    };
+    if !same {
+        drop(player);
+        // A load or stop took over while the source was being rebuilt; the newer
+        // load owns the engine now, so drop this player instead of clobbering it.
+        new_player.stop();
+        return Ok(());
+    }
     if let Some(old) = player.take() {
         old.stop();
     }
-    *player = Some(new_player);
+    *player = Some(Arc::new(new_player));
     set_pos_anchor(state, position, output_target);
     state.ended_notified.store(false, Ordering::Relaxed);
 

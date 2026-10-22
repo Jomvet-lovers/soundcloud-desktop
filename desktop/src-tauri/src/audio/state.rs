@@ -52,7 +52,14 @@ pub struct PreviewState {
 }
 
 pub struct AudioState {
-    pub player: Mutex<Option<Player>>,
+    /// The live player, kept behind an `Arc` so a seek can hold a handle while
+    /// the lock is released. `try_seek` can block for tens of milliseconds on a
+    /// network-backed decoder, and holding the mutex there stalled play, pause
+    /// and the position readout (their `try_lock` calls silently gave up).
+    pub player: Mutex<Option<Arc<Player>>>,
+    /// Serializes seeks so the newest target still wins when two overlap. Never
+    /// held while talking to the player lock except for the brief clone/swap.
+    pub seek_lock: Mutex<()>,
     pub mixer: Arc<Mutex<Mixer>>,
     pub eq_params: Arc<RwLock<EqParams>>,
     pub normalization_enabled: AtomicBool,
@@ -269,6 +276,7 @@ pub fn init() -> AudioState {
 
     AudioState {
         player: Mutex::new(None),
+        seek_lock: Mutex::new(()),
         mixer: shared_mixer,
         eq_params: Arc::new(RwLock::new(EqParams::default())),
         normalization_enabled: AtomicBool::new(true),
