@@ -6,12 +6,13 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { invalidateAllLikesCache } from '../../lib/hooks';
-import { Heart, LinkIcon, ListMusic, ListPlus, MapPin, Plus, User } from '../../lib/icons';
+import { Heart, LinkIcon, ListMusic, ListPlus, MapPin, Music, Plus, User } from '../../lib/icons';
 import { optimisticToggleLike, setLikedUrn, useLiked } from '../../lib/likes';
 import { pinPlaylist, unpinPlaylist, usePinnedPlaylists } from '../../stores/pinned-playlists';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
 import {
+  type LinkMenuTarget,
   type PlaylistMenuTarget,
   type UserMenuTarget,
   useTrackMenuStore,
@@ -274,14 +275,45 @@ function PlaylistMenu({ playlist }: { playlist: PlaylistMenuTarget }) {
   );
 }
 
+/** Menu for a bare link (uploaded track permalink). */
+function LinkMenu({ link }: { link: LinkMenuTarget }) {
+  const close = useTrackMenuStore((s) => s.close);
+  const navigate = useNavigate();
+
+  const copyLink = async () => {
+    close();
+    try {
+      await navigator.clipboard.writeText(link.url);
+      toast.success('Copied!');
+    } catch {
+      toast.error('Something went wrong');
+    }
+  };
+
+  return (
+    <MenuShell>
+      <MenuItem
+        icon={<Music size={15} />}
+        label={'Go to track'}
+        onClick={() => {
+          close();
+          navigate(link.target);
+        }}
+      />
+      <MenuItem icon={<LinkIcon size={15} />} label={'Copy link'} onClick={copyLink} />
+    </MenuShell>
+  );
+}
+
 /** App-wide right-click menu: track actions on rows/cards/now-playing, profile
- *  actions on artist links, playlist actions on sidebar pins. Mounted once in
- *  the shell. */
+ *  actions on artist links, playlist actions on sidebar pins, link actions on
+ *  plain permalinks. Mounted once in the shell. */
 export function TrackContextMenuHost() {
   const kind = useTrackMenuStore((s) => s.kind);
   const track = useTrackMenuStore((s) => s.track);
   const user = useTrackMenuStore((s) => s.user);
   const playlist = useTrackMenuStore((s) => s.playlist);
+  const link = useTrackMenuStore((s) => s.link);
   // The playlist dialog outlives the menu (the menu closes when it opens).
   const [dialogTrack, setDialogTrack] = useState<Track | null>(null);
 
@@ -294,6 +326,7 @@ export function TrackContextMenuHost() {
       )}
       {kind === 'user' && user && <UserMenu user={user} />}
       {kind === 'playlist' && playlist && <PlaylistMenu playlist={playlist} />}
+      {kind === 'link' && link && <LinkMenu link={link} />}
       <AddToPlaylistDialog
         trackUrns={dialogTrack ? [dialogTrack.urn] : []}
         open={!!dialogTrack}

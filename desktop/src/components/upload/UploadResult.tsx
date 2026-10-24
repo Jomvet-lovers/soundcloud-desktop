@@ -1,6 +1,6 @@
-import { openUrl } from '@tauri-apps/plugin-opener';
-import { ExternalLink } from '../../lib/icons';
+import { useNavigate } from 'react-router-dom';
 import type { UploadedTrack } from '../../lib/upload';
+import { useTrackMenuStore } from '../../stores/track-menu';
 
 export interface UploadResultProps {
   result: UploadedTrack;
@@ -9,7 +9,10 @@ export interface UploadResultProps {
 
 /** Success summary: the created track, its permalink, and the processing note. */
 export function UploadResult({ result, onReset }: UploadResultProps) {
+  const navigate = useNavigate();
+  const openLink = useTrackMenuStore((s) => s.openLink);
   const permalink = result.permalink_url;
+  const trackPath = `/track/${encodeURIComponent(result.urn)}`;
 
   return (
     <section className="flex flex-col gap-4 border-t border-white/[0.06] pt-6">
@@ -20,11 +23,15 @@ export function UploadResult({ result, onReset }: UploadResultProps) {
         {permalink && (
           <button
             type="button"
-            onClick={() => void openUrl(permalink)}
-            className="flex w-fit cursor-pointer items-center gap-1.5 break-all text-left text-[12.5px] text-accent hover:underline"
+            title={'Open in the app. Right-click to copy the link.'}
+            onClick={() => navigate(trackPath)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              openLink({ url: permalink, target: trackPath }, e.clientX, e.clientY);
+            }}
+            className="w-fit cursor-pointer break-all text-left text-[12.5px] text-accent hover:underline"
           >
             {permalink}
-            <ExternalLink size={12} className="shrink-0" />
           </button>
         )}
       </div>

@@ -20,18 +20,28 @@ export interface PlaylistMenuTarget {
   artworkUrl?: string | null;
 }
 
-/** One app-wide right-click menu: track actions, profile actions, or playlist
- *  actions. */
+/** A bare link target for the right-click menu (uploaded track links). */
+export interface LinkMenuTarget {
+  /** Public URL to copy. */
+  url: string;
+  /** In-app route to open. */
+  target: string;
+}
+
+/** One app-wide right-click menu: track actions, profile actions, playlist
+ *  actions, or a plain link. */
 interface TrackMenuState {
-  kind: 'track' | 'user' | 'playlist' | null;
+  kind: 'track' | 'user' | 'playlist' | 'link' | null;
   track: Track | null;
   user: UserMenuTarget | null;
   playlist: PlaylistMenuTarget | null;
+  link: LinkMenuTarget | null;
   x: number;
   y: number;
   openTrack: (track: Track, x: number, y: number) => void;
   openUser: (user: UserMenuTarget, x: number, y: number) => void;
   openPlaylist: (playlist: PlaylistMenuTarget, x: number, y: number) => void;
+  openLink: (link: LinkMenuTarget, x: number, y: number) => void;
   close: () => void;
 }
 
@@ -40,13 +50,18 @@ export const useTrackMenuStore = create<TrackMenuState>()((set) => ({
   track: null,
   user: null,
   playlist: null,
+  link: null,
   x: 0,
   y: 0,
-  openTrack: (track, x, y) => set({ kind: 'track', track, user: null, playlist: null, x, y }),
-  openUser: (user, x, y) => set({ kind: 'user', track: null, user, playlist: null, x, y }),
+  openTrack: (track, x, y) =>
+    set({ kind: 'track', track, user: null, playlist: null, link: null, x, y }),
+  openUser: (user, x, y) =>
+    set({ kind: 'user', track: null, user, playlist: null, link: null, x, y }),
   openPlaylist: (playlist, x, y) =>
-    set({ kind: 'playlist', track: null, user: null, playlist, x, y }),
-  close: () => set({ kind: null, track: null, user: null, playlist: null }),
+    set({ kind: 'playlist', track: null, user: null, playlist, link: null, x, y }),
+  openLink: (link, x, y) =>
+    set({ kind: 'link', track: null, user: null, playlist: null, link, x, y }),
+  close: () => set({ kind: null, track: null, user: null, playlist: null, link: null }),
 }));
 
 /** Attach to any track surface: opens the track menu at the pointer. */
