@@ -234,16 +234,28 @@ function PlaylistMenu({ playlist }: { playlist: PlaylistMenuTarget }) {
     }
     let title = playlist.title ?? null;
     let art = playlist.artworkUrl ?? null;
-    if (!title) {
-      // Sidebar pins only carry the urn; cards pass the title through.
+    if (!title || !art) {
+      // Sidebar pins only carry the urn; cards pass what they have. Fill in
+      // the rest so the pin matches the card's cover.
       try {
         const fresh = await api<{ title?: string; artwork_url?: string | null }>(
           `/playlists/${encodeURIComponent(playlist.urn)}`,
         );
-        title = fresh.title ?? null;
+        title = title ?? fresh.title ?? null;
         art = art ?? fresh.artwork_url ?? null;
       } catch {
-        // fall through to the error toast
+        // fall through to the track cover and the error toast
+      }
+    }
+    if (!art) {
+      // Playlists without their own cover borrow the first track's artwork.
+      try {
+        const res = await api<{ collection: { artwork_url?: string | null }[] }>(
+          `/playlists/${encodeURIComponent(playlist.urn)}/tracks?limit=1`,
+        );
+        art = res.collection?.[0]?.artwork_url ?? null;
+      } catch {
+        // pin without a thumbnail rather than not at all
       }
     }
     if (!title) {

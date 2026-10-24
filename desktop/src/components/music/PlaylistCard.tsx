@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { fc } from '../../lib/formatters';
 import type { Playlist } from '../../lib/hooks';
 import { Heart, ListMusic, Play, pauseBlack20 } from '../../lib/icons';
+import { rawPlaylistCover } from '../../lib/playlist-cover';
 import { useAutoHide } from '../../lib/useAutoHide';
 import type { Track } from '../../stores/player';
 import { usePlayerStore } from '../../stores/player';
@@ -66,7 +67,13 @@ export const PlaylistCard = React.memo(
           urn: playlist.urn,
           permalink: playlist.permalink_url,
           title: playlist.title,
-          artworkUrl: playlist.artwork_url,
+          // Same fallback chain as the cover, so a pin taken from this card
+          // carries the artwork the user is looking at.
+          artworkUrl: rawPlaylistCover(
+            playlist.artwork_url,
+            playlist.tracks,
+            playlist.user?.avatar_url,
+          ),
         })}
       >
         <div className="relative aspect-square rounded-2xl overflow-hidden bg-white/[0.02] ring-1 ring-white/[0.06] shadow-lg group-hover:shadow-2xl group-hover:ring-white/[0.15] transition-all duration-500 ease-[var(--ease-apple)]">

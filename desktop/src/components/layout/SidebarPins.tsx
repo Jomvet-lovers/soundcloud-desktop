@@ -1,8 +1,7 @@
 import { NavLink } from 'react-router-dom';
-import { art } from '../../lib/formatters';
-import { ListMusic } from '../../lib/icons';
 import type { SidebarPinnedPlaylist } from '../../stores/settings';
 import { playlistMenuHandler } from '../../stores/track-menu';
+import { PlaylistCover } from '../music/PlaylistCover';
 import { ACTIVE, IconBox, Label, ROW } from './sidebar-primitives';
 
 /** Quick Access: the playlists pinned for the active account. */
@@ -38,31 +37,31 @@ export function SidebarPins({
       </div>
 
       {pinnedPlaylists.map((playlist) => {
-        const artwork = art(playlist.artworkUrl, 'small');
         return (
           <NavLink
             key={playlist.urn}
             ref={registerItem(`pin:${playlist.urn}`)}
             to={`/playlist/${encodeURIComponent(playlist.urn)}`}
             title={collapsed ? playlist.title : undefined}
-            onContextMenu={playlistMenuHandler({ urn: playlist.urn })}
+            onContextMenu={playlistMenuHandler({
+              urn: playlist.urn,
+              title: playlist.title,
+              artworkUrl: playlist.artworkUrl,
+            })}
             className={({ isActive }) =>
               `${ROW} ${isActive ? '' : 'text-white/45 hover:text-white/80 hover:bg-white/[0.05]'}`
             }
             style={({ isActive }) => (isActive ? ACTIVE : undefined)}
           >
             <IconBox>
-              {artwork ? (
-                <img
-                  src={artwork}
-                  alt=""
-                  className="w-[18px] h-[18px] rounded-[5px] object-cover ring-1 ring-white/[0.1]"
-                  decoding="async"
-                  loading="lazy"
+              <span className="flex h-[18px] w-[18px] items-center justify-center overflow-hidden rounded-[5px] ring-1 ring-white/[0.1]">
+                <PlaylistCover
+                  artworkUrl={playlist.artworkUrl}
+                  urn={playlist.urn}
+                  size="small"
+                  iconSize={17}
                 />
-              ) : (
-                <ListMusic size={17} strokeWidth={1.9} />
-              )}
+              </span>
             </IconBox>
             <Label collapsed={collapsed} className="text-[12.5px] font-medium pr-3">
               {playlist.title}
