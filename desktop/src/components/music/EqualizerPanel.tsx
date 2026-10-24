@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
   EQ_BAND_COUNT,
   EQ_LABELS,
@@ -184,10 +185,21 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
   const eqEnabled = useSettingsStore((s) => s.eqEnabled);
   const eqGains = useSettingsStore((s) => s.eqGains);
   const eqPreset = useSettingsStore((s) => s.eqPreset);
+  const eqProfiles = useSettingsStore((s) => s.eqProfiles);
   const setEqEnabled = useSettingsStore((s) => s.setEqEnabled);
-  const setEqGains = useSettingsStore((s) => s.setEqGains);
-  const setEqPreset = useSettingsStore((s) => s.setEqPreset);
+  const selectEqProfile = useSettingsStore((s) => s.selectEqProfile);
+  const createEqProfile = useSettingsStore((s) => s.createEqProfile);
+  const deleteEqProfile = useSettingsStore((s) => s.deleteEqProfile);
+  const resetEq = useSettingsStore((s) => s.resetEq);
   const setEqBand = useSettingsStore((s) => s.setEqBand);
+
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (creating) nameRef.current?.focus();
+  }, [creating]);
 
   const handleBandChange = useCallback(
     (index: number, gain: number) => {
@@ -196,24 +208,36 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
     [setEqBand],
   );
 
-  const handlePreset = useCallback(
+  const handleProfile = useCallback(
     (id: string) => {
-      const preset = EQ_PRESETS[id];
-      if (preset) {
-        setEqGains([...preset.gains]);
-        setEqPreset(id);
-        // Picking a preset is an explicit "use this curve": turning the EQ on
-        // saves a second trip to the power button.
-        if (!eqEnabled) setEqEnabled(true);
-      }
+      selectEqProfile(id);
     },
-    [eqEnabled, setEqEnabled, setEqGains, setEqPreset],
+    [selectEqProfile],
   );
 
-  const handleReset = useCallback(() => {
-    setEqGains([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    setEqPreset('flat');
-  }, [setEqGains, setEqPreset]);
+  const submitProfile = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      const label = newName.trim();
+      if (!label) return;
+      if (eqProfiles.some((p) => p.label.toLowerCase() === label.toLowerCase())) {
+        toast.error('A profile with that name already exists');
+        return;
+      }
+      createEqProfile(label);
+      setNewName('');
+      setCreating(false);
+    },
+    [createEqProfile, eqProfiles, newName],
+  );
+
+  const activeIsUser = eqProfiles.some((p) => p.id === eqPreset);
+
+  // Factory presets first, then the profiles the user has saved.
+  const profileEntries = [
+    ...Object.entries(EQ_PRESETS).map(([id, preset]) => ({ id, label: preset.label })),
+    ...eqProfiles.map((p) => ({ id: p.id, label: p.label })),
+  ];
 
   return (
     <Modal>
@@ -243,7 +267,7 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
             {/* Reset */}
             <button
               type="button"
-              onClick={handleReset}
+              onClick={resetEq}
               className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/25 hover:text-white/50 transition-all cursor-pointer"
             >
               <RotateCcw size={14} />
@@ -281,25 +305,69 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
           </div>
         </div>
 
-        {/* Presets */}
+        {/* Profiles */}
         <div
-          // Stays clickable while the EQ is off: applying a preset also turns it
-          // on, so the dimmed state is a hint rather than a lock.
+          // Stays clickable while the EQ is off: applying a profile also turns
+          // it on, so the dimmed state is a hint rather than a lock.
           className={`px-6 pb-5 transition-opacity duration-300 ${eqEnabled ? '' : 'opacity-60'}`}
         >
-          <p className="text-[11px] text-white/40 font-medium mb-2.5">{'Preset'}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {Object.entries(EQ_PRESETS).map(([id, preset]) => (
+          <p className="text-[11px] text-white/40 font-medium mb-2.5">{'Profiles'}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {profileEntries.map((entry) => (
               <PresetBtn
-                key={id}
-                id={id}
-                label={preset.label}
-                active={eqPreset === id}
-                onClick={handlePreset}
+                key={entry.id}
+                id={entry.id}
+                label={entry.label}
+                active={eqPreset === entry.id}
+                onClick={handleProfile}
               />
             ))}
-            {eqPreset === 'custom' && (
-              <PresetBtn id="custom" label={'Custom'} active onClick={() => {}} />
+            {creating ? (
+              <form onSubmit={submitProfile} className="flex items-center gap-1">
+                <input
+                  ref={nameRef}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  maxLength={24}
+                  placeholder={'Profile name'}
+                  aria-label={'New profile name'}
+                  className="h-7 w-36 rounded-lg border border-white/[0.12] bg-white/[0.06] px-2 text-[11px] text-white/90 outline-none placeholder:text-white/25 focus:border-white/25"
+                />
+                <button
+                  type="submit"
+                  disabled={!newName.trim()}
+                  className="h-7 rounded-lg bg-white px-2.5 text-[11px] font-semibold text-black transition-opacity disabled:opacity-40"
+                >
+                  {'Add'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreating(false);
+                    setNewName('');
+                  }}
+                  className="h-7 px-1.5 text-[11px] text-white/45 hover:text-white/80"
+                >
+                  {'Cancel'}
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white/45 border border-dashed border-white/[0.15] hover:text-white/80 hover:border-white/30 transition-colors cursor-pointer"
+              >
+                {'+ New profile'}
+              </button>
+            )}
+            {activeIsUser && !creating && (
+              <button
+                type="button"
+                onClick={() => deleteEqProfile(eqPreset)}
+                className="px-2 py-1.5 text-[10px] text-white/30 hover:text-red-400 transition-colors cursor-pointer"
+              >
+                {'Delete profile'}
+              </button>
             )}
           </div>
         </div>

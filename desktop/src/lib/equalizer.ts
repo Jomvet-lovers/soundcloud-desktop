@@ -47,3 +47,23 @@ export const EQ_PRESETS: Record<string, { label: string; labelRu: string; gains:
     gains: [-3, -2, 0, 2, 3, 3, 2, 0, -2, -4],
   },
 };
+
+/** Minimal shape of a user-created profile (the store owns the full record). */
+export interface EqProfileShape {
+  id: string;
+  gains: number[];
+}
+
+/** Gains for a profile id: user profiles first, then factory presets with the
+ *  user's saved edit applied. Null when the id is unknown. */
+export function eqGainsFor(
+  id: string,
+  profiles: EqProfileShape[],
+  edits: Record<string, number[]>,
+): number[] | null {
+  const user = profiles.find((p) => p.id === id);
+  if (user) return [...user.gains];
+  const preset = EQ_PRESETS[id];
+  if (!preset) return null;
+  return [...(edits[id] ?? preset.gains)];
+}

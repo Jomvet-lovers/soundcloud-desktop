@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { EQ_PRESETS, eqGainsFor } from '../lib/equalizer';
 import type { PerfMode } from '../lib/perf';
 import { createThrottledJsonStorage } from '../lib/tauri-storage';
 
@@ -11,6 +12,14 @@ export interface SidebarPinnedPlaylist {
   urn: string;
   title: string;
   artworkUrl: string | null;
+}
+
+/** Equalizer profile created by the user. Factory presets stay in
+ *  `EQ_PRESETS`; their edits live in `eqPresetEdits`. */
+export interface EqProfile {
+  id: string;
+  label: string;
+  gains: number[];
 }
 
 export interface ThemePresetDef {
@@ -62,6 +71,10 @@ export interface SettingsState {
   eqEnabled: boolean;
   eqGains: number[];
   eqPreset: string;
+  /** User-created profiles, in creation order. */
+  eqProfiles: EqProfile[];
+  /** Factory presets the user has adjusted, keyed by preset id. */
+  eqPresetEdits: Record<string, number[]>;
   normalizeVolume: boolean;
   highQualityStreaming: boolean;
   autoplayStation: boolean;
@@ -94,8 +107,13 @@ export interface SettingsState {
   setGlassBlur: (blur: number) => void;
   setAudioCacheLimitMB: (limit: number) => void;
   setEqEnabled: (enabled: boolean) => void;
-  setEqGains: (gains: number[]) => void;
-  setEqPreset: (preset: string) => void;
+  /** Apply a factory preset, an edited preset or a user profile. */
+  selectEqProfile: (id: string) => void;
+  /** Save the current curve as a new named profile and select it. */
+  createEqProfile: (label: string) => void;
+  deleteEqProfile: (id: string) => void;
+  /** Flat curve, stock factory presets, no profile edits. */
+  resetEq: () => void;
   setEqBand: (index: number, gain: number) => void;
   setNormalizeVolume: (enabled: boolean) => void;
   setHighQualityStreaming: (enabled: boolean) => void;
@@ -134,6 +152,8 @@ const DEFAULTS = {
   eqEnabled: false,
   eqGains: DEFAULT_EQ_GAINS,
   eqPreset: 'flat',
+  eqProfiles: [] as EqProfile[],
+  eqPresetEdits: {} as Record<string, number[]>,
   normalizeVolume: false,
   highQualityStreaming: true,
   autoplayStation: true,
@@ -173,13 +193,55 @@ export const useSettingsStore = create<SettingsState>()(
       setGlassBlur: (glassBlur) => set({ glassBlur }),
       setAudioCacheLimitMB: (audioCacheLimitMB) => set({ audioCacheLimitMB }),
       setEqEnabled: (eqEnabled) => set({ eqEnabled }),
-      setEqGains: (eqGains) => set({ eqGains, eqPreset: 'custom' }),
-      setEqPreset: (eqPreset) => set({ eqPreset }),
+      selectEqProfile: (id) =>
+        set((s) => {
+          const gains = eqGainsFor(id, s.eqProfiles, s.eqPresetEdits);
+          if (!gains) return {};
+          // Picking a profile is an explicit "use this curve": turning the EQ
+          // on saves a second trip to the power button.
+          return { eqPreset: id, eqGains: gains, eqEnabled: true };
+        }),
+      createEqProfile: (label) =>
+        set((s) => {
+          const id = `user-${Date.now().toString(36)}`;
+          return {
+            eqProfiles: [...s.eqProfiles, { id, label, gains: [...s.eqGains] }],
+            eqPreset: id,
+          };
+        }),
+      deleteEqProfile: (id) =>
+        set((s) => {
+          const eqProfiles = s.eqProfiles.filter((p) => p.id !== id);
+          if (s.eqPreset !== id) return { eqProfiles };
+          return {
+            eqProfiles,
+            eqPreset: 'flat',
+            eqGains: [...EQ_PRESETS.flat.gains],
+          };
+        }),
+      resetEq: () =>
+        set({
+          eqGains: [...EQ_PRESETS.flat.gains],
+          eqPreset: 'flat',
+          eqPresetEdits: {},
+        }),
       setEqBand: (index, gain) =>
         set((s) => {
           const eqGains = [...s.eqGains];
           eqGains[index] = gain;
-          return { eqGains, eqPreset: 'custom' };
+          const active = s.eqPreset;
+          if (s.eqProfiles.some((p) => p.id === active)) {
+            // Editing a user profile writes through to the profile itself, so
+            // the change survives switching to another profile and back.
+            return {
+              eqGains,
+              eqProfiles: s.eqProfiles.map((p) => (p.id === active ? { ...p, gains: eqGains } : p)),
+            };
+          }
+          if (EQ_PRESETS[active]) {
+            return { eqGains, eqPresetEdits: { ...s.eqPresetEdits, [active]: eqGains } };
+          }
+          return { eqGains };
         }),
       setNormalizeVolume: (normalizeVolume) => set({ normalizeVolume }),
       setHighQualityStreaming: (highQualityStreaming) => set({ highQualityStreaming }),
@@ -244,7 +306,7 @@ export const useSettingsStore = create<SettingsState>()(
       // Slider drags (EQ, wallpaper) fire dozens of writes per second; the
       // throttled adapter coalesces them and flushes when the window hides.
       storage: createThrottledJsonStorage(),
-      version: 21,
+      version: 22,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;
@@ -259,10 +321,21 @@ export const useSettingsStore = create<SettingsState>()(
         const byAccount = prev.pinnedPlaylistsByAccount ?? (legacy.length > 0 ? { legacy } : {});
         const migrated = { ...prev };
         delete (migrated as { pinnedPlaylists?: unknown }).pinnedPlaylists;
+        // v21 → v22: a curve left in the transient `custom` state becomes a
+        // real profile, so it survives later profile switches.
+        const eqGains = prev.eqGains ?? DEFAULT_EQ_GAINS;
+        let eqProfiles = prev.eqProfiles ?? [];
+        const eqPreset = prev.eqPreset ?? 'flat';
+        if (eqPreset === 'custom' && !eqProfiles.some((p) => p.id === 'custom')) {
+          eqProfiles = [...eqProfiles, { id: 'custom', label: 'Custom', gains: [...eqGains] }];
+        }
         return {
           ...DEFAULTS,
           ...migrated,
           pinnedPlaylistsByAccount: byAccount,
+          eqProfiles,
+          eqPreset,
+          eqPresetEdits: prev.eqPresetEdits ?? {},
         } as SettingsState;
       },
       partialize: (s) => ({
@@ -279,6 +352,8 @@ export const useSettingsStore = create<SettingsState>()(
         eqEnabled: s.eqEnabled,
         eqGains: s.eqGains,
         eqPreset: s.eqPreset,
+        eqProfiles: s.eqProfiles,
+        eqPresetEdits: s.eqPresetEdits,
         normalizeVolume: s.normalizeVolume,
         highQualityStreaming: s.highQualityStreaming,
         autoplayStation: s.autoplayStation,
