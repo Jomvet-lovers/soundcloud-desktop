@@ -8,15 +8,14 @@
  * - only `transform` (positioning) and `opacity` (fade) are animated;
  * - layout is read once per show (`getBoundingClientRect`), never on move.
  *
- * Any element with a DOM `title` attribute is intercepted. The attribute is
- * removed as soon as the pointer enters the element — not when the custom
- * bubble appears — so the WebView can never race us with its own bubble while
- * the show delay runs (or restarts). The value is restored on leave, unless
- * React replaced it meanwhile. `data-tooltip` takes precedence when an element
- * carries both.
+ * Native `title` attributes never stay in the DOM: each one is moved to
+ * `data-tooltip` (and to `aria-label` when the element carries no other name)
+ * as soon as it appears, at startup and via a MutationObserver for later
+ * renders, so the WebView cannot draw its own bubble at any point. The custom
+ * bubble is driven by `data-tooltip`.
  *
  * React component props named `title` (Card/Row headings etc.) never reach the
- * DOM as attributes, so they are unaffected by the interception.
+ * DOM as attributes, so they are unaffected by the conversion.
  */
 
 const SHOW_DELAY_MS = 350;
@@ -36,6 +35,30 @@ let shown = false;
 
 /** Elements whose native `title` we removed, with the value to put back. */
 const suppressed = new Map<HTMLElement, string>();
+
+/** Move a native `title` into the custom-tooltip channel and the accessible
+ *  name, then drop the attribute so the WebView can never show its bubble. */
+function adopt(el: Element): void {
+  const title = el.getAttribute('title');
+  if (title === null) return;
+  if (!el.hasAttribute('data-tooltip') && title.trim()) {
+    el.setAttribute('data-tooltip', title);
+  }
+  el.removeAttribute('title');
+  if (
+    title.trim() &&
+    !el.hasAttribute('aria-label') &&
+    !el.hasAttribute('aria-labelledby') &&
+    !(el.textContent ?? '').trim()
+  ) {
+    el.setAttribute('aria-label', title);
+  }
+}
+
+function adoptAll(root: ParentNode): void {
+  if (root instanceof Element) adopt(root);
+  for (const el of root.querySelectorAll('[title]')) adopt(el);
+}
 
 function node(): HTMLDivElement {
   if (tip) return tip;
@@ -293,5 +316,27 @@ export function initTooltips(): void {
   );
   window.addEventListener('blur', () => {
     if (anchor || pending) hide();
+  });
+
+  // Native titles are converted as soon as they reach the DOM, at startup and
+  // on every later render. Removing the attribute, instead of only intercepting
+  // hover, is what makes the WebView's own bubble impossible rather than rare.
+  adoptAll(document);
+  const titleObserver = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === 'attributes') {
+        if (record.target instanceof Element) adopt(record.target);
+        continue;
+      }
+      for (const node of record.addedNodes) {
+        if (node instanceof Element) adoptAll(node);
+      }
+    }
+  });
+  titleObserver.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['title'],
   });
 }
