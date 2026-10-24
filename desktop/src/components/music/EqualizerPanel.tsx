@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   EQ_BAND_COUNT,
   EQ_LABELS,
@@ -55,6 +55,22 @@ const BandSlider = React.memo(function BandSlider({
   const handlePointerUp = useCallback(() => {
     dragging.current = false;
   }, []);
+
+  // Wheel: one notch per event on the same 0.5 dB grid as dragging, mapped so
+  // scrolling up raises the band. Non-passive so the modal does not scroll.
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      const next = gain + (e.deltaY < 0 ? 0.5 : -0.5);
+      const clamped = Math.max(EQ_MIN_GAIN, Math.min(EQ_MAX_GAIN, next));
+      onChange(index, Math.round(clamped * 2) / 2);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [gain, index, onChange]);
 
   // Normalized 0-1 position
   const pct = (gain - EQ_MIN_GAIN) / (EQ_MAX_GAIN - EQ_MIN_GAIN);

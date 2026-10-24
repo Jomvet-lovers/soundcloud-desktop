@@ -90,6 +90,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
               step={PLAYBACK_RATE_STEP}
               value={playbackRate}
               onChange={(v) => setPlaybackRate(v)}
+              wheelStep={PLAYBACK_RATE_STEP}
               className="w-full"
             />
           </div>
@@ -156,6 +157,7 @@ export const SoundTuningPopover = React.memo(function SoundTuningPopover() {
               value={effectivePitch}
               disabled={!isManual}
               onChange={(v) => setPitchSemitones(v)}
+              wheelStep={PITCH_SEMITONES_STEP}
               className="w-full"
             />
           </div>

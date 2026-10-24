@@ -8,6 +8,10 @@ import React from 'react';
  * entire row drives the value on touch and pen while keyboard control and the
  * native event contract stay unchanged for mouse. Solid colors only: the accent
  * fill is the value hierarchy cue, deliberately not a gradient.
+ *
+ * Passing `wheelStep` also lets the mouse wheel nudge the value: one notch per
+ * event, clamped to the range. The listener is non-passive so the page behind
+ * the control does not scroll while the pointer is over the slider.
  */
 export const RangeSlider = React.memo(function RangeSlider({
   min,
@@ -18,6 +22,7 @@ export const RangeSlider = React.memo(function RangeSlider({
   onChange,
   className,
   ariaLabel,
+  wheelStep,
 }: {
   min: number;
   max: number;
@@ -27,12 +32,29 @@ export const RangeSlider = React.memo(function RangeSlider({
   onChange: (v: number) => void;
   className?: string;
   ariaLabel?: string;
+  /** Value change per wheel notch. Omit to leave the wheel alone. */
+  wheelStep?: number;
 }) {
   const span = max - min;
   const pct = span > 0 ? (Math.min(Math.max(value, min), max) - min) / span : 0;
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || wheelStep === undefined || disabled) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      const next = value + (e.deltaY < 0 ? wheelStep : -wheelStep);
+      onChange(Math.round(Math.min(max, Math.max(min, next)) * 1000) / 1000);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [wheelStep, disabled, value, min, max, onChange]);
 
   return (
     <div
+      ref={wrapRef}
       className={`relative flex h-6 items-center touch-none ${
         disabled ? 'opacity-40' : ''
       } ${className ?? ''}`}
