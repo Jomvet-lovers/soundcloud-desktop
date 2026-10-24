@@ -20,6 +20,8 @@ export interface EqProfile {
   id: string;
   label: string;
   gains: number[];
+  /** Curve the profile was created with. Reset returns to this. */
+  defaults: number[];
 }
 
 export interface ThemePresetDef {
@@ -112,8 +114,8 @@ export interface SettingsState {
   /** Save the current curve as a new named profile and select it. */
   createEqProfile: (label: string) => void;
   deleteEqProfile: (id: string) => void;
-  /** Flat curve, stock factory presets, no profile edits. */
-  resetEq: () => void;
+  /** Restore the active profile to its default curve. */
+  resetEqProfile: () => void;
   setEqBand: (index: number, gain: number) => void;
   setNormalizeVolume: (enabled: boolean) => void;
   setHighQualityStreaming: (enabled: boolean) => void;
@@ -205,7 +207,10 @@ export const useSettingsStore = create<SettingsState>()(
         set((s) => {
           const id = `user-${Date.now().toString(36)}`;
           return {
-            eqProfiles: [...s.eqProfiles, { id, label, gains: [...s.eqGains] }],
+            eqProfiles: [
+              ...s.eqProfiles,
+              { id, label, gains: [...s.eqGains], defaults: [...s.eqGains] },
+            ],
             eqPreset: id,
           };
         }),
@@ -219,11 +224,26 @@ export const useSettingsStore = create<SettingsState>()(
             eqGains: [...EQ_PRESETS.flat.gains],
           };
         }),
-      resetEq: () =>
-        set({
-          eqGains: [...EQ_PRESETS.flat.gains],
-          eqPreset: 'flat',
-          eqPresetEdits: {},
+      resetEqProfile: () =>
+        set((s) => {
+          const active = s.eqPreset;
+          // Factory preset: drop the user's edit and restore the stock curve.
+          const preset = EQ_PRESETS[active];
+          if (preset) {
+            const eqPresetEdits = { ...s.eqPresetEdits };
+            delete eqPresetEdits[active];
+            return { eqGains: [...preset.gains], eqPresetEdits };
+          }
+          // User profile: go back to the curve it was created with.
+          const profile = s.eqProfiles.find((p) => p.id === active);
+          if (profile) {
+            const gains = [...(profile.defaults ?? profile.gains)];
+            return {
+              eqGains: gains,
+              eqProfiles: s.eqProfiles.map((p) => (p.id === active ? { ...p, gains } : p)),
+            };
+          }
+          return {};
         }),
       setEqBand: (index, gain) =>
         set((s) => {
@@ -306,7 +326,7 @@ export const useSettingsStore = create<SettingsState>()(
       // Slider drags (EQ, wallpaper) fire dozens of writes per second; the
       // throttled adapter coalesces them and flushes when the window hides.
       storage: createThrottledJsonStorage(),
-      version: 22,
+      version: 23,
       migrate: (persistedState) => {
         const prev = (persistedState ?? {}) as Partial<SettingsState> & {
           soundwaveDiversity?: number;
@@ -323,17 +343,33 @@ export const useSettingsStore = create<SettingsState>()(
         delete (migrated as { pinnedPlaylists?: unknown }).pinnedPlaylists;
         // v21 → v22: a curve left in the transient `custom` state becomes a
         // real profile, so it survives later profile switches.
+        // v22 → v23: profiles remember the curve they were created with, which
+        // is what the Reset button restores.
         const eqGains = prev.eqGains ?? DEFAULT_EQ_GAINS;
-        let eqProfiles = prev.eqProfiles ?? [];
+        // Older files predate `defaults`.
+        type StoredEqProfile = Omit<EqProfile, 'defaults'> & { defaults?: number[] };
+        let eqProfiles: StoredEqProfile[] = prev.eqProfiles ?? [];
         const eqPreset = prev.eqPreset ?? 'flat';
         if (eqPreset === 'custom' && !eqProfiles.some((p) => p.id === 'custom')) {
-          eqProfiles = [...eqProfiles, { id: 'custom', label: 'Custom', gains: [...eqGains] }];
+          eqProfiles = [
+            ...eqProfiles,
+            {
+              id: 'custom',
+              label: 'Custom',
+              gains: [...eqGains],
+              defaults: [...eqGains],
+            },
+          ];
         }
+        const migratedProfiles: EqProfile[] = eqProfiles.map((p) => ({
+          ...p,
+          defaults: p.defaults ?? [...p.gains],
+        }));
         return {
           ...DEFAULTS,
           ...migrated,
           pinnedPlaylistsByAccount: byAccount,
-          eqProfiles,
+          eqProfiles: migratedProfiles,
           eqPreset,
           eqPresetEdits: prev.eqPresetEdits ?? {},
         } as SettingsState;

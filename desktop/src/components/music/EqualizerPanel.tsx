@@ -190,7 +190,7 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
   const selectEqProfile = useSettingsStore((s) => s.selectEqProfile);
   const createEqProfile = useSettingsStore((s) => s.createEqProfile);
   const deleteEqProfile = useSettingsStore((s) => s.deleteEqProfile);
-  const resetEq = useSettingsStore((s) => s.resetEq);
+  const resetEqProfile = useSettingsStore((s) => s.resetEqProfile);
   const setEqBand = useSettingsStore((s) => s.setEqBand);
 
   const [creating, setCreating] = useState(false);
@@ -267,7 +267,7 @@ export const EqualizerPanel = React.memo(function EqualizerPanel({
             {/* Reset */}
             <button
               type="button"
-              onClick={resetEq}
+              onClick={resetEqProfile}
               className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-white/25 hover:text-white/50 transition-all cursor-pointer"
             >
               <RotateCcw size={14} />
