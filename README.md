@@ -61,7 +61,10 @@ Screenshots are from an earlier build; the layout has since been simplified.
 - Streaming playback with queue, shuffle and repeat
 - Seek everywhere (waveform, slider, comment timestamps, A-B loop)
 - Playback speed and pitch control
-- 10-band equalizer with presets; changing a preset switches the EQ on
+- 10-band equalizer with presets, editable bands saved into the active profile,
+  custom profiles and a reset to the profile's default curve; changing a preset
+  switches the EQ on
+- Speed, pitch and equalizer band sliders also adjust with the mouse wheel
 - Volume normalization
 - Output device picker in the player bar and in Settings: follow the system
   default or pin a specific device (persisted across restarts)
@@ -96,7 +99,8 @@ Screenshots are from an earlier build; the layout has since been simplified.
 
 ### Upload
 
-- Upload audio files with artwork, title, artist, genre, tags and sharing choice
+- Upload audio files with artwork, title, artist, genre, tags and sharing choice;
+  a finished upload opens in the app and its link is copied
 
 ### Customization
 
