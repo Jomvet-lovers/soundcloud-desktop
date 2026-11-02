@@ -39,9 +39,13 @@ export const QueuePanel = React.memo(
 
     return (
       <>
-        {/* Backdrop */}
+        {/* Backdrop — stops at the docked player bar instead of covering it.
+            NowPlayingBar's <footer> is `h-[72px]` with border-box sizing (the
+            global reset in index.css) and AppShell pins it to the bottom of the
+            viewport, so its top edge is exactly 72px above the bottom. Covering
+            that strip made play/pause, seek and like look alive but dead. */}
         <div
-          className={`queue-backdrop fixed inset-0 bg-black/60 z-40 ${
+          className={`queue-backdrop fixed inset-x-0 top-0 bottom-[72px] bg-black/60 z-40 ${
             shown ? 'opacity-100' : 'opacity-0 pointer-events-none'
           }`}
           onClick={onClose}

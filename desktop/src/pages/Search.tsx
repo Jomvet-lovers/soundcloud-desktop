@@ -16,7 +16,7 @@ import {
   useSearchDbTracksPage,
   useSearchDbUsersPage,
 } from '../lib/hooks';
-import { ChevronRight, LinkIcon, Loader2, Music, playBlack20 } from '../lib/icons';
+import { AlertCircle, ChevronRight, LinkIcon, Loader2, Music, playBlack20 } from '../lib/icons';
 import { playlistCoverUrl } from '../lib/playlist-cover';
 import { useRestoredTab } from '../lib/tab-memory';
 import { withViewTransition } from '../lib/view-transition';
@@ -340,7 +340,11 @@ function SearchResults() {
   );
 
   // "No results" speaks for the visible tab: requiring all four tabs to be empty
-  // left a blank panel when only the active tab had no matches.
+  // left a blank panel when only the active tab had no matches. Loading and
+  // error do the same — a tab with no rows is not "empty" until its first page
+  // settles, and a failed fetch is not a result set.
+  const activeQuery =
+    tab === 'tracks' ? tracks : tab === 'users' ? users : tab === 'playlists' ? playlists : albums;
   const activeCount =
     tab === 'tracks'
       ? tracks.tracks.length
@@ -349,7 +353,8 @@ function SearchResults() {
         : tab === 'playlists'
           ? playlists.playlists.length
           : albums.albums.length;
-  const empty = query.length > 0 && activeCount === 0;
+  const empty =
+    query.length > 0 && !activeQuery.isLoading && !activeQuery.isError && activeCount === 0;
 
   if (!query) return null;
 
@@ -413,7 +418,25 @@ function SearchResults() {
       </div>
 
       <div key={tab} className="mt-5 animate-soft-in">
-        {empty ? (
+        {activeQuery.isLoading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 size={28} className="animate-spin text-white/20" />
+          </div>
+        ) : activeQuery.isError ? (
+          <div className="flex flex-col items-start gap-3 py-6">
+            <p className="flex items-center gap-2 text-[13px] text-white/35">
+              <AlertCircle size={15} className="shrink-0 text-white/25" />
+              {'Results could not be loaded'}
+            </p>
+            <button
+              type="button"
+              onClick={() => void activeQuery.refetch()}
+              className="h-8 px-3.5 rounded-lg text-[12px] font-medium bg-white/[0.06] text-white/80 hover:bg-white/[0.1] transition-colors cursor-pointer"
+            >
+              {'Try again'}
+            </button>
+          </div>
+        ) : empty ? (
           <p className="text-[13px] text-white/35">{'No results found'}</p>
         ) : tab === 'tracks' ? (
           <>

@@ -236,8 +236,12 @@ export function ModalContent({
         onClick={(e) => e.stopPropagation()}
         className={`modal-content fixed ${zClass} left-1/2 top-1/2 w-full ${WIDTH[size]} max-w-[95vw] outline-none`}
       >
+        {/* Height shell only: the card is capped at the viewport (minus a 1rem
+            gutter on each side) and is a flex column, so a body that opts into
+            `flex flex-col` can bound itself. Without the cap an over-tall body
+            grows past the window and its header scrolls off the top. */}
         <div
-          className={`relative overflow-hidden rounded-[1.75rem] border border-white/[0.1] bg-[#141417] ${className ?? ''}`}
+          className={`relative flex max-h-[calc(100vh_-_2rem)] flex-col overflow-hidden rounded-[1.75rem] border border-white/[0.1] bg-[#141417] ${className ?? ''}`}
         >
           {showClose && (
             <button
@@ -249,7 +253,10 @@ export function ModalContent({
               <X size={16} />
             </button>
           )}
-          <div className="relative">{children}</div>
+          {/* Body slot: a flex column that can shrink inside the capped card,
+              so a caller's `flex-1 min-h-0` list finally has a definite height
+              to scroll against. For auto-height bodies this is inert. */}
+          <div className="relative flex min-h-0 grow flex-col">{children}</div>
         </div>
       </div>
     </>,

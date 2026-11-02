@@ -336,8 +336,11 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
         {/* Divider */}
         <div className="h-px bg-white/[0.04] mx-5" />
 
-        {/* Playlist list */}
-        <div className="px-3 py-2 pb-4 overflow-y-auto flex-1 min-h-0">
+        {/* Playlist list — this is the scroll container. `grow` (flex-basis auto)
+            keeps the rows' natural height while the card is uncapped, and
+            `min-h-0` lets it shrink into the remaining card height and scroll
+            once the card hits its viewport cap. */}
+        <div className="px-3 py-2 pb-4 overflow-y-auto grow min-h-0">
           {isLoading ? (
             <div className="flex justify-center py-10">
               <Loader2 size={20} className="animate-spin text-white/20" />
