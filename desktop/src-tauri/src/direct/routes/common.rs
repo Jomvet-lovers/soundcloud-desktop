@@ -162,6 +162,18 @@ pub(crate) fn wrapped_items(v: &Value, key: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Whether a profile route is looking at the signed-in user's own collection.
+///
+/// Local likes and unlikes belong to the viewer, so merging them into someone
+/// else's profile (as `/me/likes/tracks` legitimately does for its own) would
+/// splice one account's activity into another account's list.
+pub(crate) fn is_own_profile(owner: Option<u64>, urn: &str) -> bool {
+    match (owner, id_of(urn).parse::<u64>()) {
+        (Some(me), Ok(id)) => me == id,
+        _ => false,
+    }
+}
+
 /// Page envelope carrying the next cursor when SoundCloud offered one.
 ///
 /// `has_more` follows the cursor, not the row count: SoundCloud returns short
@@ -344,7 +356,9 @@ pub(crate) fn normalize_sharing(v: Option<&Value>) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cursor_page, normalize_sharing, user_cursor_path, wrapped_items, SC_API};
+    use super::{
+        cursor_page, is_own_profile, normalize_sharing, user_cursor_path, wrapped_items, SC_API,
+    };
     use serde_json::json;
 
     #[test]
@@ -412,6 +426,15 @@ mod tests {
         let items = wrapped_items(&v, "playlist");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["urn"], json!("soundcloud:playlists:7"));
+    }
+
+    #[test]
+    fn local_likes_only_merge_into_the_viewer_profile() {
+        let urn = "soundcloud:users:123";
+        assert!(is_own_profile(Some(123), urn));
+        assert!(!is_own_profile(Some(999), urn));
+        assert!(!is_own_profile(None, urn));
+        assert!(!is_own_profile(Some(123), "soundcloud:users:not-a-number"));
     }
 
     #[test]

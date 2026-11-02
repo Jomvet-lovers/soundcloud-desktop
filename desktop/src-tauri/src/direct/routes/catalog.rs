@@ -220,6 +220,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             // Cursor-paged track_likes: `cursor` is the previous page's
             // `next_href`, passed through untouched (see `user_cursor_path`).
             let cursor = q_str(&q, "cursor");
+            let own_profile = is_own_profile(ctx.owner, urn);
             match s
                 .sc_get(
                     &user_cursor_path("track_likes", id, limit, cursor.as_deref()),
@@ -229,7 +230,9 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             {
                 Ok((status, v)) if (200..300).contains(&status) => {
                     let items = wrapped_items(&v, "track");
-                    let items = if cursor.is_none() {
+                    // Local likes belong to the viewer: only their own profile
+                    // may show them merged in.
+                    let items = if cursor.is_none() && own_profile {
                         merge_local_likes(s, ctx.owner, items, 0).await
                     } else {
                         items
@@ -258,7 +261,11 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                         .filter(|t| !t.is_null())
                         .map(normalize_urn)
                         .collect();
-                    let items = merge_local_likes(s, ctx.owner, items, page_no).await;
+                    let items = if is_own_profile(ctx.owner, urn) {
+                        merge_local_likes(s, ctx.owner, items, page_no).await
+                    } else {
+                        items
+                    };
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
                 _ => ok(empty_page(page_no, limit)),
