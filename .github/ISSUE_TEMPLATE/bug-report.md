@@ -1,33 +1,36 @@
 ---
 name: Bug report
-about: Нашли баг? Создайте баг-репорт. Это позволит нам улучшить приложение
+about: Something isn't working — reports help make the app better
 title: "[BUG]"
 labels: bug, help wanted
-assignees: zxcloli666
-
 ---
 
-**Опишите ошибку**
-Чёткое и краткое описание того, в чём заключается ошибка.
+**What happened**
+A clear and concise description of the bug.
 
-**Как воспроизвести**
-Шаги для воспроизведения поведения:
+**How to reproduce**
+Steps that bring the bug back:
 
-1. Перейдите в '...'
-2. Нажмите на '....'
-3. Прокрутите вниз до '....'
-4. Увидите ошибку
+1. Go to '...'
+2. Click on '....'
+3. Scroll down to '....'
+4. See the error
 
-**Ожидаемое поведение**
-Чёткое и краткое описание того, что вы ожидали увидеть.
+**Expected behaviour**
+A clear and concise description of what you expected to happen.
 
-**Скриншоты**
-Если применимо, добавьте скриншоты, чтобы помочь объяснить вашу проблему.
+**Screenshots**
+If applicable, add screenshots to help explain the problem.
 
-**Окружение (пожалуйста, заполните следующую информацию):**
+**Environment**
 
-- ОС: [например, Windows 10]
-- Версия приложения [например, 2.0.0]
+- OS: [e.g. Windows 11]
+- App version: [e.g. 8.4.18]
+- Installed build or `pnpm tauri dev`: [e.g. NSIS installer]
 
-**Дополнительный контекст**
-Добавьте любую другую информацию о проблеме здесь.
+**Logs**
+If the app misbehaved, attach the relevant lines from
+`%LOCALAPPDATA%\fun.natsumi.scd.direct\logs\desktop.log` (remove anything private first).
+
+**Additional context**
+Anything else about the problem goes here.
