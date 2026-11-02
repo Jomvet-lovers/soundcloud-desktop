@@ -20,9 +20,9 @@ import { useRestoredTab } from '../lib/tab-memory';
 import { useAuthStore } from '../stores/auth';
 
 /**
- * Какие табы поддерживают inline-поиск по контенту юзера. На followers/
- * following/likes контент принадлежит другим людям / SC owns it — локальный
- * trgm-поиск там не имеет смысла. На popular/tracks/playlists скоуп — наш.
+ * Which tabs support inline search over the user's content. On followers/
+ * following/likes the content belongs to other people / SC owns it — a local
+ * trgm search makes no sense there. On popular/tracks/playlists the scope is ours.
  */
 function isSearchableScope(tab: TabId): boolean {
   return tab === 'popular' || tab === 'tracks' || tab === 'playlists';
@@ -39,19 +39,19 @@ export function UserPage() {
   const currentUser = useAuthStore((s) => s.user);
 
   const [activeTab, setActiveTab] = useRestoredTab<TabId>(urn ?? undefined, 'popular');
-  // Inline-поиск по контенту юзера. Debounce 350ms — баланс между "не лагает
-  // на каждый символ" и "ощущается отзывчиво". Поиск работает только в
-  // tracks/popular/playlists скоупах — в followers/following/likes контент
-  // принадлежит другим юзерам/SC API, локальный фильтр там бессмысленен.
+  // Inline search over the user's content. 350 ms debounce — a balance between
+  // "doesn't lag on every keystroke" and "feels responsive". Search works only
+  // in tracks/popular/playlists scopes — in followers/following/likes the content
+  // belongs to other users/SC API, so a local filter is meaningless there.
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedSearch(searchInput.trim()), 350);
     return () => clearTimeout(handler);
   }, [searchInput]);
-  // При смене таба чистим поиск — иначе при переходе followers→tracks инпут
-  // покажет старую строку, у которой уже был отдельный контекст. activeTab —
-  // именно триггер эффекта, тело его не читает.
+  // Clear search on tab change — otherwise going followers→tracks leaves the
+  // input showing the old string, which already had its own context. activeTab
+  // is exactly the effect trigger; the body doesn't read it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeTab is the trigger
   useEffect(() => {
     setSearchInput('');

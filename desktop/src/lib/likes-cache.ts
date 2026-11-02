@@ -1,5 +1,5 @@
-//! Bulk-кеширование лайков: общий запуск Rust-цикла `track_cache_likes` и
-//! подписка на его прогресс. Используется из Settings (CacheCard) и OfflinePage.
+//! Bulk like caching: shared launch of the Rust `track_cache_likes` loop and
+//! subscription to its progress. Used from Settings (CacheCard) and OfflinePage.
 
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,8 +20,8 @@ export interface CacheLikesProgress {
   urn?: string | null;
 }
 
-/** Собирает заявки по всем лайкам и запускает фоновый цикл в Rust.
- *  Возвращает число поставленных в очередь треков (0 = лайков нет). */
+/** Collects entries for all likes and starts the background loop in Rust.
+ *  Returns the number of queued tracks (0 = no likes). */
 export async function startCacheLikes(): Promise<number> {
   const [
     { fetchAllLikedTracks },
@@ -45,8 +45,8 @@ export async function startCacheLikes(): Promise<number> {
   return entries.length;
 }
 
-/** Стейт bulk-кеширования: подхватывает уже идущий цикл, слушает прогресс.
- *  `onFinish` зовётся на done/cancelled (например, перечитать инвентарь). */
+/** Bulk-caching state: picks up an already running loop and listens for progress.
+ *  `onFinish` is called on done/cancelled (e.g. re-read the inventory). */
 export function useCacheLikes(onFinish?: (progress: CacheLikesProgress) => void) {
   const [caching, setCaching] = useState(false);
   const [progress, setProgress] = useState<CacheLikesProgress | null>(null);

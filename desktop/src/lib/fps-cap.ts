@@ -1,20 +1,20 @@
-//! Кап частоты кадров.
+//! Frame-rate cap.
 //!
-//! В windowed-вебвью (и wry/webkitgtk, и CEF/chromium) анимации идут с частотой
-//! развёртки монитора — на 120/144 Гц это лишние CPU/GPU на ту же картинку.
-//! Chromium-флага «cap до N fps» для windowed нет (`windowless_frame_rate` —
-//! только off-screen). Поэтому троттлим `requestAnimationFrame`: пропущенные
-//! кадры переназначаем (чтобы rAF-циклы не рвались), `cancelAnimationFrame`
-//! сохраняем рабочим. На дисплеях ≤ целевого FPS — фактически no-op.
+//! In a windowed webview (both wry/webkitgtk and CEF/chromium) animations run at the
+//! monitor's refresh rate — on 120/144 Hz that is wasted CPU/GPU for the same picture.
+//! Chromium has no «cap to N fps» flag for windowed (`windowless_frame_rate` is
+//! off-screen only). So we throttle `requestAnimationFrame`: skipped frames are
+//! re-scheduled (so rAF loops do not break), and `cancelAnimationFrame`
+//! keeps working. On displays at or below the target FPS it is effectively a no-op.
 //!
-//! Решение о пропуске кадра — ОДНО на кадр, и разрешённый кадр забирает ВСЕХ
-//! ожидающих разом. Иначе получается голодание: раньше у каждого колбэка была
-//! своя проверка против общего `last`, первый отработавший двигал `last` на
-//! `now`, и все остальные в том же кадре видели дельту 0 и откладывались. Пока
-//! в приложении крутится хоть один постоянный rAF-цикл, он двигает `last`
-//! каждый кадр — и отложенные не выполняются НИКОГДА. Так молча умирал переход
-//! `data-state` у модалки: она монтировалась и оставалась на `opacity: 0`,
-//! то есть «модалки нет» при живом DOM.
+//! The skip decision is ONE per frame, and an allowed frame takes ALL waiting
+//! callbacks at once. Otherwise it starves: each callback used to have its own
+//! check against the shared `last`, the first one to run moved `last` to
+//! `now`, and everyone else in the same frame saw a delta of 0 and was deferred. While
+//! the app spins even one constant rAF loop, it moves `last` every
+//! frame — and the deferred callbacks NEVER run. That is how the modal's
+//! `data-state` transition died silently: it mounted and stayed at `opacity: 0`,
+//! i.e. «no modal» with a live DOM.
 
 const DEFAULT_FPS = 60;
 
@@ -28,7 +28,7 @@ export function installFpsCap(targetFps: number = DEFAULT_FPS): void {
   const rafNative = window.requestAnimationFrame.bind(window);
   const cafNative = window.cancelAnimationFrame.bind(window);
 
-  /** Наш handle → колбэк, ожидающий ближайшего разрешённого кадра. */
+  /** Our handle → the callback waiting for the nearest allowed frame */
   const pending = new Map<number, FrameRequestCallback>();
   let nextHandle = 1;
   let nativeId: number | null = null;
@@ -41,12 +41,12 @@ export function installFpsCap(targetFps: number = DEFAULT_FPS): void {
   function pump(now: number): void {
     nativeId = null;
     if (now - last < minDelta - 1) {
-      schedule(); // кадр пропускаем целиком — вместе со всеми, без исключений
+      schedule(); // skip the whole frame — everyone included, no exceptions
       return;
     }
     last = now;
-    // Снимок: колбэк вправе тут же заказать следующий кадр, и он должен попасть
-    // в СЛЕДУЮЩУЮ пачку, а не быть съеденным текущей итерацией.
+    // Snapshot: a callback may request the next frame right away, and it must land
+    // in the NEXT batch instead of being eaten by the current iteration.
     const batch = Array.from(pending.values());
     pending.clear();
     for (const cb of batch) cb(now);
@@ -60,7 +60,7 @@ export function installFpsCap(targetFps: number = DEFAULT_FPS): void {
   };
 
   window.cancelAnimationFrame = (handle: number): void => {
-    // id не из нашего пула (например, выдан до установки капа) — в нативный.
+    // id not from our pool (e.g. handed out before the cap was installed) — go native.
     if (!pending.delete(handle)) cafNative(handle);
   };
 }

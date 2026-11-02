@@ -59,10 +59,10 @@ export function looksLikeRoleTag(inner: string): boolean {
 }
 
 /**
- * Хвостовая транскрипция в скобках: "МОКЕРИ (moxckery)" → срезаем. Триггер:
- * outer имеет non-Latin codepoint (>U+02AF), inner — чисто ASCII-латиница.
- * Role-теги ("трек (cover)") не трогаем — их обрабатывает stripInlineTags.
- * "Beyoncé (Sasha Fierce)" не срезается (обе стороны latin).
+ * Trailing parenthesised transliteration: "МОКЕРИ (moxckery)" → cut it off. Trigger:
+ * outer has a non-Latin codepoint (>U+02AF), inner is pure ASCII Latin.
+ * Role tags ("трек (cover)") are left alone — stripInlineTags handles them.
+ * "Beyoncé (Sasha Fierce)" is not cut (both sides are latin).
  */
 export function stripTranslitParens(s: string | null | undefined): string {
   if (!s) return '';
@@ -87,17 +87,17 @@ export function stripTranslitParens(s: string | null | undefined): string {
 }
 
 /**
- * Inline-теги в скобках, относящиеся к роли участника (prod./feat./remix/…)
- * и [Free DL]-шум — срезаем из отображаемого title'а.
+ * Inline bracketed tags that name a participant role (prod./feat./remix/…)
+ * and [Free DL] noise — cut them out of the displayed title.
  *
- * Режем ТОЛЬКО когда внутри скобок не осталось имени: "(Remix)", "(Cover)",
- * "[Free DL]" уходят, а "(ETIA. Remix)" и "(prod. Иван)" остаются — иначе
- * приложение показывает «S0S» вместо официального «S0S (ETIA. Remix)».
+ * Cut ONLY when no name is left inside the brackets: "(Remix)", "(Cover)",
+ * "[Free DL]" go away, while "(ETIA. Remix)" and "(prod. Иван)" stay — otherwise
+ * the app shows «S0S» instead of the official «S0S (ETIA. Remix)».
  */
 const TAG_PATTERN =
   /\s*[([][^)\]]*(?:prod\.?|produced\s+by|prod\s+by|feat\.?|featuring|ft\.?|with|remix|rmx|edit|version|cover|instrumental|free\s+(?:dl|download)|out\s+now|original\s+mix|extended\s+mix|radio\s+edit|premiere|exclusive|hd|hq|official(?:\s+(?:audio|video))?|lyrics|lyric\s+video|visualizer)\b[^)\]]*[)\]]/gi;
 
-/** Слова, из которых целиком состоит role-скобка (шум, который режем). */
+/** Words a role bracket consists of entirely (the noise we cut) */
 const NOISE_WORDS = [
   'prod',
   'produced',
@@ -145,8 +145,8 @@ const NOISE_WORDS = [
 ];
 
 /**
- * В скобках осталось хоть что-то, кроме role-шума? Тогда это имя
- * («ETIA. Remix») и скобки трогать нельзя.
+ * Is anything left inside the brackets besides role noise? Then it is a name
+ * («ETIA. Remix») and the brackets must not be touched.
  */
 function hasNameInside(inner: string): boolean {
   const words = inner

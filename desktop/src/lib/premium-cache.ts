@@ -25,9 +25,9 @@ export function usePremium(): boolean {
   return useSyncExternalStore(subscribePremium, getIsPremium);
 }
 
-// Канал «premium-флаг под подозрением — свериться с /me/subscription».
-// Дёргают api-client (star 403) и host-status (вход в star-reserve);
-// обрабатывает subscription.ts (single-flight + cooldown там).
+// Channel "premium flag under suspicion — recheck /me/subscription".
+// Triggered by api-client (star 403) and host-status (entering star-reserve);
+// handled by subscription.ts (single-flight + cooldown live there).
 let recheckHandler: (() => void) | null = null;
 let recheckPending = false;
 

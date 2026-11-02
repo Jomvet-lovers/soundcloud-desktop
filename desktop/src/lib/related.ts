@@ -12,8 +12,8 @@ const emptyRelated = (page: number, limit: number): RelatedTracks => ({
 });
 
 /**
- * Похожие треки к seed-треку. 404 от бэка = «соседей пока нет», а не ошибка:
- * отдаём пустую страницу — без тоста и без throw. Прочие ошибки пробрасываем.
+ * Related tracks for a seed track. A 404 from the backend means "no neighbors yet",
+ * not an error: return an empty page — no toast, no throw. Other errors propagate.
  */
 export async function fetchRelatedTracks(
   urn: string,

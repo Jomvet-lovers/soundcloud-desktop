@@ -1,7 +1,7 @@
-// Единственное место знания о хостах: health-карта data-plane роутинга (30s cooldown),
-// вердикты main/star/net + incident-state, probe-движок, выбор control-plane базы.
-// Вердикт меняют только активные пробы и реальные успехи; пассивные фейлы лишь планируют пробу.
-// Отдельно от вердиктов живёт деградация main — «отвечает `/health`, но не обслуживает».
+// The single place that knows about hosts: the data-plane routing health map (30s cooldown),
+// the main/star/net verdicts + incident state, the probe engine, control-plane base choice.
+// Only active probes and real successes change the verdict; passive failures merely schedule a probe.
+// Separate from the verdicts lives main degradation — «answers `/health`, but does not serve».
 export {
   isMainDegraded,
   markMainDegraded,

@@ -41,7 +41,7 @@ interface OfflineIndex {
   likedUrns: string[];
   tracksByUrn: Record<string, Track>;
   updatedAt: number | null;
-  /** User-arranged order of the cached list ("Свой порядок" sort mode). */
+  /** User-arranged order of the cached list (the "custom order" sort mode). */
   cacheOrder: string[];
 }
 

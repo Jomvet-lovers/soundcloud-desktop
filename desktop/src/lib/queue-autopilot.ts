@@ -1,22 +1,22 @@
 /**
- * Дозагрузка очереди, когда она кончилась.
+ * Top up the queue once it runs out.
  *
- * Триггерится из player store: как только `next()` упирается в конец очереди
- * с repeat='off', она зовёт зарегистрированный здесь fallback вместо паузы.
- * Покрывает оба сценария:
- *   1) трек докрутился до конца естественно → audio:ended → handleTrackEnd → next()
- *   2) юзер вручную клацнул «Next» на последнем треке → next()
+ * Triggered from the player store: as soon as `next()` hits the end of the queue
+ * with repeat='off', it calls the fallback registered here instead of pausing.
+ * Covers both scenarios:
+ *   1) the track ran to its natural end → audio:ended → handleTrackEnd → next()
+ *   2) the user pressed «Next» on the last track by hand → next()
  *
- * Стратегия (по приоритету):
- *   0) контекстный источник (лайки/плейлист/…), если активен, — доигрываем его
- *      ДО КОНЦА, подкачивая страницы (см. lib/queue-continuation.ts);
- *   1) «волна» рекомендаций от последнего трека — SC related, затем треки его
- *      артиста (см. lib/queue-wave.ts). Это автоплей уровня официального
- *      клиента: плейлист/лайки кончились — играем похожее.
- * Волну выключает настройка autoplayStation («Autoplay related tracks»);
- * с ней выключенной поведение прежнее: контекст доигран — пауза.
+ * Strategy (by priority):
+ *   0) the context source (likes/playlist/…), when active — play it
+ *      TO THE END, pulling pages as we go (see lib/queue-continuation.ts);
+ *   1) the «wave» of recommendations from the last track — SC related, then its
+ *      artist's tracks (see lib/queue-wave.ts). This is official-client
+ *      level autoplay: playlist/likes ran out — play something similar.
+ * The wave is switched off by the autoplayStation setting («Autoplay related tracks»);
+ * with it off the behaviour is as before: context played out — pause.
  *
- * Не вызывать параллельно: повторный вызов пока летит первый — игнор.
+ * Do not call in parallel: a second call while the first is in flight is ignored.
  */
 
 import {
@@ -32,17 +32,17 @@ import { fetchWaveTracks, resetWaveState } from './queue-wave';
 let inFlight = false;
 
 /**
- * Дотягивает очередь из активного контекстного источника.
- * @returns true — добавили порцию свежих треков и поехали дальше; false —
- *   источника нет / он исчерпан / упал (тогда вызывающий уходит в волну).
+ * Tops the queue up from the active context source.
+ * @returns true — a batch of fresh tracks was added and playback moves on; false —
+ *   no source / it is exhausted / it failed (the caller then falls through to the wave).
  */
 async function continueFromContextSource(): Promise<boolean> {
   const source = getQueueContinuationSource();
   if (!source) return false;
 
   const existing = new Set(usePlayerStore.getState().queue.map((t) => t.urn));
-  // Тянем страницы, пока не наберём свежие треки либо источник не кончится
-  // (страница может оказаться целиком из дублей, уже доскролленных в очередь).
+  // Pull pages until we collect fresh tracks or the source runs out
+  // (a page may turn out to be all duplicates already scrolled into the queue).
   for (;;) {
     let batch: Track[];
     try {
@@ -67,7 +67,7 @@ async function continueFromContextSource(): Promise<boolean> {
   }
 }
 
-/** Волна: related последнего трека → треки его артиста. Пусто — пауза. */
+/** The wave: last track's related → its artist's tracks. Empty — pause */
 async function continueWithWave(lastTrack: Track): Promise<boolean> {
   let fresh: Track[];
   try {

@@ -10,9 +10,9 @@ interface Props {
 }
 
 /**
- * Сравнение полей меты, влияющих на бейдж. Для `React.memo`-компараторов
- * строк трека — чтобы бейдж переставал отставать, когда у того же урна
- * меняется статус анализа/кеша (например, трек дослушали → проиндексировали).
+ * Comparison of the meta fields that affect the badge. For `React.memo`
+ * comparators of track rows — so the badge stops lagging when the same urn's
+ * analysis/cache status changes (e.g. track played through → indexed).
  */
 export function sameScdMeta(a?: TrackScdMeta, b?: TrackScdMeta): boolean {
   return (

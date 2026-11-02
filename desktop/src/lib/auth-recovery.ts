@@ -5,33 +5,33 @@ import { describeError, logInfo } from './diagnostics';
 import { queryClient } from './query-client';
 
 /**
- * Оркестратор восстановления сессии.
+ * Session recovery orchestrator.
  *
- * Триггеры (из api-client):
- *   - `noteRateLimit()` — rate-limit. НЕ реагируем на одиночный: накопитель,
- *     модалка только при устойчивом троттлинге (THRESHOLD за WINDOW).
- *   - `noteAuthGap()`   — протухший токен (401) ИЛИ юзер пропал из сайдбара.
- *     Это сильный сигнал → silent renew сразу.
- *   - `noteSuccess()`   — любой успешный ответ: чистит накопитель и, если
- *     всё само починилось, гасит pending-recovery / закрывает модалку.
+ * Triggers (from api-client):
+ *   - `noteRateLimit()` — rate limit. We do NOT react to a single one: accumulator,
+ *     modal only on sustained throttling (THRESHOLD per WINDOW).
+ *   - `noteAuthGap()`   — stale token (401) OR the user vanished from the sidebar.
+ *     A strong signal → silent renew at once.
+ *   - `noteSuccess()`   — any successful response: clears the accumulator and, if
+ *     everything recovered on its own, dismisses pending-recovery / closes the modal.
  *
- * Стратегия: silent renew без UI. Модалка ре-логина — ТОЛЬКО на 401 (SC отверг
- * refresh). Транзиент (5xx/429/timeout) означает недоступный хост, а не мёртвую
- * сессию: тихо ретраим с растущей паузой и НЕ предлагаем перелогиниться — иначе
- * падение бэкенда выкидывает живого юзера. Single-flight по `inFlight` + `phase`.
+ * Strategy: silent renew with no UI. The re-login modal — ONLY on 401 (SC rejected
+ * refresh). A transient (5xx/429/timeout) means an unreachable host, not a dead
+ * session: retry quietly with a growing delay and do NOT offer re-login — otherwise
+ * a backend outage kicks out a live user. Single-flight via `inFlight` + `phase`.
  */
 
 const RL_WINDOW_MS = 15_000;
 const RL_THRESHOLD = 3;
 const RECOVERED_COOLDOWN_MS = 5000;
 const SILENT_RETRY_DELAY_MS = 2000;
-/** Потолок паузы, когда лежит бэкенд: ждать его можно долго, но не молча вечно. */
+/** Delay ceiling while the backend is down: it may be waited on for a long time, but not silently forever. */
 const OUTAGE_RETRY_MAX_MS = 30_000;
 
 /**
- * Сессия действительно мертва? Только 401 — это вердикт SoundCloud о токене.
- * Всё остальное (5xx нашего бэка, таймаут, обрыв) говорит о доступности хоста,
- * а не о сессии.
+ * Is the session actually dead? Only a 401 is SoundCloud's verdict on the token.
+ * Everything else (our backend's 5xx, timeout, connection drop) speaks to host
+ * availability, not the session.
  */
 function isSessionDead(e: unknown): boolean {
   return e instanceof ApiError && e.status === 401;
@@ -39,7 +39,7 @@ function isSessionDead(e: unknown): boolean {
 
 let rlHits: number[] = [];
 let inFlight: Promise<void> | null = null;
-/** Поколение текущей silent-попытки — для отмены при само-восстановлении. */
+/** Generation of the current silent attempt — to cancel on self-recovery. */
 let gen = 0;
 let cancelledGen = -1;
 let silentAttempts = 0;
@@ -54,10 +54,10 @@ function clearRetryTimer(): void {
 }
 
 /**
- * Единственная точка смены фазы — и она логируется. Восстановление сессии до сих
- * пор было полностью невидимым: снаружи виден только результат («модалка есть» /
- * «модалки нет»), а из-за какого именно перехода её нет — не видно ниоткуда.
- * Каждый разбор упирался в это, так что переходы теперь в логе.
+ * The single point of phase change — and it is logged. Session recovery has been
+ * completely invisible so far: from outside only the result shows ("modal present" /
+ * "no modal"), and which transition caused its absence is visible from nowhere.
+ * Every investigation hit this wall, so transitions are now in the log.
  */
 function movePhase(phase: RecoveryPhase, why: string): void {
   const s = useAuthRecoveryStore.getState();
@@ -75,7 +75,7 @@ async function runRenew(manual: boolean): Promise<void> {
     silentAttempts = 0;
     store.setBusy(true);
   } else {
-    movePhase('silent', 'renew пошёл');
+    movePhase('silent', 'renew started');
   }
 
   inFlight = (async () => {
@@ -83,38 +83,38 @@ async function runRenew(manual: boolean): Promise<void> {
       await useAuthStore.getState().renewSession();
       silentAttempts = 0;
       clearRetryTimer();
-      logInfo('[Recovery] renew удался → сессия жива');
+      logInfo('[Recovery] renew succeeded → session is alive');
       useAuthRecoveryStore.getState().markRecovered();
       queryClient.invalidateQueries();
     } catch (e) {
-      // Само-восстановилось параллельным успешным запросом — модалку не лепим.
+      // Self-recovered via a parallel successful request — don't slap up the modal.
       if (cancelledGen === myGen) {
-        logInfo('[Recovery] вердикт отброшен: авторизованный запрос успел пройти сам');
+        logInfo('[Recovery] verdict discarded: an authenticated request went through first');
         return;
       }
       const s = useAuthRecoveryStore.getState();
       s.setBusy(false);
-      // Отказ обновления бывает ДВУХ родов, и путать их нельзя.
-      // 401 — SC отверг refresh: сессия действительно мертва, нужен ре-логин.
-      // 5xx/таймаут/транспорт — лежит НАШ бэкенд: сессия цела, ре-логин её не
-      // воскресит, а юзера выкинет. Раньше сюда попадало и то и другое (два
-      // любых провала подряд → модалка), и во время падения main пользователю
-      // предлагали перелогиниться на ровном месте.
+      // A refresh refusal comes in TWO kinds, and they must not be confused.
+      // 401 — SC rejected the refresh: the session really is dead, re-login needed.
+      // 5xx/timeout/transport — OUR backend is down: the session is fine, re-login
+      // won't revive it but will kick the user out. Previously both landed here (two
+      // arbitrary failures in a row → modal), and during a main outage the user was
+      // offered a re-login out of nowhere.
       const needsReauth = isSessionDead(e);
       if (needsReauth) {
         silentAttempts = 0;
-        movePhase('modal', `refresh отверг сессию: ${describeError(e)}`);
+        movePhase('modal', `refresh rejected the session: ${describeError(e)}`);
       } else if (!manual) {
-        // Бэкенд лежит — ждём его, не трогая сессию. Пауза растёт, чтобы не
-        // долбить упавший хост, но потолок держим: хост вернётся сам.
+        // Backend is down — wait for it without touching the session. The delay grows
+        // so we don't hammer a fallen host, but we keep a ceiling: the host will return on its own.
         silentAttempts++;
-        movePhase('idle', `хост недоступен, ждём и повторим: ${describeError(e)}`);
+        movePhase('idle', `host unreachable, waiting to retry: ${describeError(e)}`);
         clearRetryTimer();
         const scheduledAt = Date.now();
         const delay = Math.min(SILENT_RETRY_DELAY_MS * silentAttempts, OUTAGE_RETRY_MAX_MS);
         retryTimer = setTimeout(() => {
           retryTimer = null;
-          if (lastSuccessAt > scheduledAt) return; // ожило само за паузу
+          if (lastSuccessAt > scheduledAt) return; // came back on its own during the delay
           void runRenew(false);
         }, delay);
       }
@@ -128,15 +128,15 @@ async function runRenew(manual: boolean): Promise<void> {
 
 function startRecovery(): void {
   const s = useAuthRecoveryStore.getState();
-  if (s.phase !== 'idle') return; // renew уже идёт либо модалка уже висит
+  if (s.phase !== 'idle') return; // renew already in flight or the modal already up
   if (Date.now() - s.recoveredAt < RECOVERED_COOLDOWN_MS) {
-    logInfo('[Recovery] старт подавлен: только что успешно восстановились');
+    logInfo('[Recovery] start suppressed: we just recovered successfully');
     return;
   }
   void runRenew(false);
 }
 
-/** Rate-limit: накапливаем, эскалируем только при устойчивом троттлинге. */
+/** Rate limit: accumulate, escalate only on sustained throttling. */
 export function noteRateLimit(): void {
   const now = Date.now();
   rlHits.push(now);
@@ -147,23 +147,24 @@ export function noteRateLimit(): void {
   }
 }
 
-/** Протухший токен / юзер пропал из сайдбара — реагируем сразу. */
+/** Stale token / user vanished from the sidebar — react immediately. */
 export function noteAuthGap(): void {
   startRecovery();
 }
 
 /**
- * Успешный ответ: чистим накопитель и, если всё ожило само, снимаем
- * pending-recovery или авто-закрываем модалку (но не во время ручного
- * renew / OAuth — там юзер сам рулит).
+ * Successful response: clear the accumulator and, if everything recovered on
+ * its own, drop pending-recovery or auto-close the modal (but not during a manual
+ * renew / OAuth — there the user is in charge).
  *
- * `authenticated` — нёс ли запрос `x-session-id`. Считать «сессия жива» можно
- * ТОЛЬКО по такому ответу. Раньше сюда шёл любой 200, в том числе с публичных
- * ручек, и это тихо съедало вердикт: renew под конвоем идёт десятки секунд
- * (в логах — 24 с), за это время успевал пройти какой-нибудь публичный запрос,
- * ставил `cancelledGen` и гасил фазу в idle, а вернувшийся следом 401 от
- * refresh'а упирался в «само починилось» и молча выходил. Модалка ре-логина не
- * показывалась никогда — юзер оставался смотреть на пустой экран.
+ * `authenticated` — whether the request carried `x-session-id`. "Session alive" can
+ * ONLY be concluded from such a response. Previously any 200 went here, including
+ * from public endpoints, and it quietly ate the verdict: renew under convoy runs
+ * for tens of seconds (24 s in the logs), during which some public request got
+ * through, set `cancelledGen` and dropped the phase to idle, while the 401 that
+ * came back right after from refresh hit "recovered by itself" and exited
+ * silently. The re-login modal was never shown — the user was left staring at an
+ * empty screen.
  */
 export function noteSuccess(authenticated: boolean): void {
   if (!authenticated) return;
@@ -176,12 +177,12 @@ export function noteSuccess(authenticated: boolean): void {
   s.markRecovered();
 }
 
-/** Ручной повтор renew из модалки. */
+/** Manual renew retry from the modal. */
 export function retryRenew(): Promise<void> {
   return runRenew(true);
 }
 
-/** Успешный полный re-login (OAuth). */
+/** Successful full re-login (OAuth). */
 export function completeReauth(sessionId: string): void {
   void (async () => {
     const auth = useAuthStore.getState();

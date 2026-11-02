@@ -32,9 +32,9 @@ document.addEventListener('contextmenu', (e) => {
   e.preventDefault();
 });
 
-// Кап 60 fps: троттл requestAnimationFrame (см. lib/fps-cap.ts). На высокогерцовых
-// дисплеях убирает лишние кадры (CPU/GPU), на ≤60 Гц — no-op. Ставить максимально
-// рано, до первых rAF-циклов.
+// 60 fps cap: throttle requestAnimationFrame (see lib/fps-cap.ts). On high-refresh
+// displays it drops excess frames (CPU/GPU); at ≤60 Hz it's a no-op. Install it as
+// early as possible, before the first rAF cycles.
 installFpsCap(60);
 
 // Touch/pen plumbing (html flag, titlebar drag, long-press menu, optional OSK)
@@ -91,8 +91,8 @@ async function bootstrap() {
   setServerPorts(staticPort, proxyPort);
   setApiBase(apiPort);
 
-  // Вердикт транспорта (прямой / relay / воркеры) — до первого запроса,
-  // иначе забаненный юзер платит таймаутом на логине.
+  // Transport verdict (direct / relay / workers) before the first request;
+  // otherwise a banned user pays a timeout at login.
   await initEdge();
 
   // Seed the Rust-owned session into the frontend mirror + subscribe to

@@ -5,16 +5,16 @@ import { type NamePart, splitNamesWithOffsets, TITLE_SEPARATORS } from './split'
 
 export type DisplayInput = Pick<Track, 'title' | 'user' | 'enrichment'>;
 
-/** Единый результат разбора трека для отображения: что писать в заголовок
- *  и кого — в строку авторов. Все компоненты (карточки, очередь, плеер,
- *  оффлайн) обязаны брать отсюда, своих разборов не заводить. */
+/** The single parse result for a track's display: what goes into the title
+ *  and who goes into the artist line. Every component (cards, queue, player,
+ *  offline) must take it from here, not build its own parse. */
 export interface TrackDisplay {
   title: string;
-  /** Компоненты строки авторов в порядке показа. */
+  /** The artist-line components in display order */
   artistNames: string[];
-  /** Готовая строка авторов: "МОКЕРИ, Psychosis". */
+  /** The ready-made artist line: "МОКЕРИ, Psychosis" */
   artistLine: string;
-  /** true — авторы взяты из разметки "Artist1, Artist2 - Title" в тайтле. */
+  /** true — the artists came from "Artist1, Artist2 - Title" markup in the title */
   fromTitleSplit: boolean;
 }
 
@@ -31,15 +31,15 @@ export interface ArtistDisplay {
 
 export type UploadKind = 'original' | 'demo' | 'alt' | 'reupload' | 'cover' | 'unknown';
 
-/** Максимум имён в левой части, чтобы не принять предложение с запятыми
- *  за список авторов. */
+/** Max names on the left side, so a sentence with commas is not taken
+ *  for an artist list. */
 const MAX_TITLE_ARTISTS = 6;
 
-/** Известные имена трека по силе источника:
- *  - `strong` — из enrichment (primary/co-primary/участники), полные имена И
- *    их компоненты («МОКЕРИ, Psychosis» матчится и кусками;
+/** Known track names by source strength:
+ *  - `strong` — from enrichment (primary/co-primary/participants), full names AND
+ *    their components («МОКЕРИ, Psychosis» also matches piecewise;
  *  - `all` — strong + uploader;
- *  - `full` — только ПОЛНЫЕ имена (для склейки «Tyler, The Creator» обратно). */
+ *  - `full` — FULL names only (for gluing «Tyler, The Creator» back together). */
 interface KnownNames {
   strong: Set<string>;
   all: Set<string>;
@@ -71,7 +71,7 @@ function knownNames(track: DisplayInput): KnownNames {
   return { strong, all, full };
 }
 
-/** Co-primary артисты из enrichment.participants (role='primary'). */
+/** Co-primary artists from enrichment.participants (role='primary') */
 export function coPrimaryNames(track: DisplayInput): string[] {
   return (
     track.enrichment?.participants
@@ -80,7 +80,7 @@ export function coPrimaryNames(track: DisplayInput): string[] {
   );
 }
 
-/** Фитующие из enrichment.participants (role='featured'). */
+/** Featured artists from enrichment.participants (role='featured') */
 export function featuredNames(track: DisplayInput): string[] {
   return (
     track.enrichment?.participants
@@ -101,9 +101,9 @@ export function dedupeByFold(names: string[]): string[] {
   return out;
 }
 
-/** Склейка соседних кусков обратно в известное ПОЛНОЕ имя: сплит порвал
- *  "Tyler, The Creator" → [Tyler, The Creator], но сырой подотрезок целиком
- *  есть в `full` → возвращаем одним именем. Жадно, до 4 кусков. */
+/** Glue adjacent pieces back into a known FULL name: the split tore
+ *  "Tyler, The Creator" → [Tyler, The Creator], but the raw sub-span as a whole
+ *  is in `full` → return it as one name. Greedy, up to 4 pieces. */
 function glueKnownAdjacent(raw: string, parts: NamePart[], full: Set<string>): string[] {
   const out: string[] = [];
   let i = 0;
@@ -128,8 +128,8 @@ function glueKnownAdjacent(raw: string, parts: NamePart[], full: Set<string>): s
 }
 
 /**
- * Единый разбор трека для отображения. Фитующие из enrichment добираются в
- * строку авторов ПОСЛЕ основного состава («feat писать в списке авторов»).
+ * The single display parse for a track. Featured artists from enrichment are
+ * added to the artist line AFTER the main line-up ("write feat in the artist list").
  */
 function computeTrackDisplay(track: DisplayInput): TrackDisplay {
   const base = splitTitleAuthors(track);
@@ -143,14 +143,14 @@ function computeTrackDisplay(track: DisplayInput): TrackDisplay {
 }
 
 /**
- * Разбор заголовка на (авторы, название).
+ * Split the title into (artists, name).
  *
- * Левая часть "… - …" — список авторов, если подтверждена сигналом:
- * хотя бы одно имя известно из enrichment (сильный сигнал), ЛИБО известны
- * ВСЕ имена слева (когда единственный источник — uploader: «трек, друзья -
- * подпишитесь» не должен стать «авторами» из-за совпадения с ником).
- * "МОКЕРИ, Psychosis - kill" при известном «МОКЕРИ» → авторы
- * "МОКЕРИ, Psychosis", название "kill".
+ * The left side of "… - …" is an artist list when a signal confirms it:
+ * at least one name is known from enrichment (strong signal), OR ALL names
+ * on the left are known (when the only source is the uploader: «трек, друзья -
+ * подпишитесь» must not become «artists» just because it matches the nick).
+ * "МОКЕРИ, Psychosis - kill" with «МОКЕРИ» known → artists
+ * "МОКЕРИ, Psychosis", name "kill".
  */
 function splitTitleAuthors(track: DisplayInput): TrackDisplay {
   const cleaned = stripTranslitParens(stripInlineTags(track.title));
@@ -179,8 +179,8 @@ function splitTitleAuthors(track: DisplayInput): TrackDisplay {
     }
   }
 
-  // Перевёрнутая разметка "Track - Artist" (~4% дефисных тайтлов): слева
-  // ничего знакомого, справа — целиком известные артисты.
+  // Reversed "Track - Artist" markup (~4% of dashed titles): nothing familiar
+  // on the left, fully known artists on the right.
   for (const sep of TITLE_SEPARATORS) {
     const idx = cleaned.indexOf(sep);
     if (idx <= 0) continue;
@@ -201,8 +201,8 @@ function splitTitleAuthors(track: DisplayInput): TrackDisplay {
     }
   }
 
-  // Голый дефис ("Уннв-Без даты"): режем только когда левая часть целиком —
-  // известный артист, иначе порвём имя вида "x-ray".
+  // Bare hyphen ("Уннв-Без даты"): cut only when the whole left side is a
+  // known artist, otherwise a name like "x-ray" gets torn apart.
   const bareIdx = cleaned.indexOf('-');
   if (bareIdx > 0 && bareIdx + 1 < cleaned.length && cleaned[bareIdx + 1] !== '-') {
     const left = cleaned.slice(0, bareIdx).trim();
@@ -229,9 +229,9 @@ function splitTitleAuthors(track: DisplayInput): TrackDisplay {
   };
 }
 
-/** Кэш разборов по identity трека (structural sharing TanStack Query держит
- *  объект стабильным между рендерами) с ревалидацией по полям-входам.
- *  Результат референсно стабилен → memo-компоненты не перерендериваются. */
+/** Parse cache keyed by track identity (TanStack Query structural sharing keeps
+ *  the object stable across renders), revalidated against the input fields.
+ *  The result is referentially stable → memo components do not re-render. */
 interface CacheEntry {
   title: string;
   user: unknown;

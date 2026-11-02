@@ -4,9 +4,9 @@ import type { ArtistLinkItem } from '../../lib/track-display';
 import { userMenuHandler } from '../../stores/track-menu';
 
 /**
- * Строка авторов «A, B, C», где каждое имя — отдельная ссылка на СВОЕГО
- * артиста/юзера (item.target из `getArtistLinkItems`). Несматченные имена —
- * обычный текст. stopPropagation — ряды сами кликабельны (play/контекст).
+ * Artist line "A, B, C" where each name is a separate link to ITS OWN
+ * artist/user (item.target from `getArtistLinkItems`). Unmatched names stay
+ * plain text. stopPropagation — rows are clickable themselves (play/context).
  */
 export const ArtistNameLinks = React.memo(function ArtistNameLinks({
   items,

@@ -3,14 +3,14 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { tauriStorage } from '../lib/tauri-storage';
 
 /**
- * `db` — поиск в локальной базе SCD (быстрее, ограничен зеркалом).
- * `sc` — fan-out в SoundCloud API (медленнее, видит всё).
+ * `db` — search the local SCD database (faster, limited to the mirror).
+ * `sc` — fan-out to the SoundCloud API (slower, sees everything).
  */
 export type SearchSource = 'db' | 'sc';
 
 /**
- * `text` — лексический поиск (название/артист + строчки лирики) с тизером «по вайбу».
- * `vibe` — чисто семантический поиск по вайбу (борда + атмосфера под выдачу).
+ * `text` — lexical search (title/artist + lyric lines) with a "by vibe" teaser.
+ * `vibe` — purely semantic search by vibe (board + atmosphere tuned to the results).
  */
 export type SearchMode = 'text' | 'vibe';
 

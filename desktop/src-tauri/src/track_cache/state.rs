@@ -52,7 +52,7 @@ const DURATION_TOLERANCE_FRAC: f64 = 0.04;
 /// source only offers a preview and stop re-fetching it (prevents a download loop
 /// for tracks whose API length is full but whose only stream is a 30s snippet).
 const MAX_TRUNCATED_RETRIES: u8 = 2;
-/// Grace before deleting the raw А file after its clean Б is committed. A path
+/// Grace before deleting the raw file once its clean copy is committed. A path
 /// handed to the player is read in a separate command a few ms later; this keeps
 /// that file alive across the gap so playback never reads a just-deleted file.
 const INCOMING_GRACE_SECS: u64 = 30;
@@ -401,7 +401,7 @@ impl TrackCacheEntry {
 pub struct CacheInventoryEntry {
     pub urn: String,
     pub bytes: u64,
-    /// "clean" = transcoded m4a in Б, "raw" = staged in А awaiting transcode.
+    /// "clean" = transcoded m4a in the clean dir, "raw" = staged raw awaiting transcode.
     pub stage: &'static str,
     pub liked: bool,
     pub quality: Option<String>,
@@ -413,20 +413,20 @@ pub struct CacheInventoryEntry {
     pub modified_at: Option<u64>,
 }
 
-/// Live snapshot of the А→Б transcode pipeline for the Settings UI.
+/// Live snapshot of the raw→clean transcode pipeline for the Settings UI.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscodeStatus {
     /// "ready" | "preparing" | "unavailable".
     pub ffmpeg: &'static str,
-    /// Raw files staged in А.
+    /// Raw files in the staging dir.
     pub incoming: u32,
     pub incoming_bytes: u64,
     /// Transcodes in flight right now.
     pub transcoding: u32,
     /// URNs being forged right now, for per-row UI state.
     pub transcoding_urns: Vec<String>,
-    /// Clean m4a files in Б (audio + liked).
+    /// Clean m4a files in the clean dirs (audio + liked).
     pub clean: u32,
     pub clean_bytes: u64,
 }
@@ -617,8 +617,8 @@ fn list_incoming_urns(dir: &Path) -> Vec<String> {
 pub struct TrackCacheState {
     pub audio_dir: PathBuf,
     pub liked_dir: PathBuf,
-    /// Staging area (folder "А") for freshly downloaded raw bytes awaiting
-    /// transcode into the clean m4a caches (`audio_dir` / `liked_dir` = folder "Б").
+    /// Staging area for freshly downloaded raw bytes awaiting
+    /// transcode into the clean m4a caches (`audio_dir` / `liked_dir`).
     pub incoming_dir: PathBuf,
     pub client: Client,
     pub storage_client: Client,
@@ -1312,7 +1312,7 @@ impl TrackCacheState {
         }
     }
 
-    /// Live snapshot of the А→Б pipeline for the Settings UI.
+    /// Live snapshot of the raw→clean pipeline for the Settings UI.
     pub fn transcode_status(&self) -> TranscodeStatus {
         let ffmpeg = if self.ffmpeg().is_some() {
             "ready"
@@ -1355,7 +1355,7 @@ impl TrackCacheState {
         self.incoming_dir.join(urn_to_filename(urn))
     }
 
-    /// A clean transcoded file (folder "Б") lives in the liked or audio dir, not
+    /// A clean transcoded file lives in the liked or audio dir, not
     /// in the raw staging dir.
     fn is_clean_path(&self, path: &Path) -> bool {
         path.starts_with(&self.audio_dir) || path.starts_with(&self.liked_dir)
@@ -1453,8 +1453,8 @@ impl TrackCacheState {
             return Ok(entry);
         }
 
-        // Fresh bytes always land in the raw staging dir ("А"); a background
-        // transcode promotes them to the clean m4a cache ("Б") afterwards.
+        // Fresh bytes always land in the raw staging dir; a background
+        // transcode promotes them to the clean m4a cache afterwards.
         let target_dir = &self.incoming_dir;
 
         // Coalesce concurrent requests for the same URN
@@ -1501,7 +1501,7 @@ impl TrackCacheState {
             }
             return match result {
                 Some(Ok(path)) => {
-                    // Re-resolve: the transcode may have already promoted А→Б and
+                    // Re-resolve: the transcode may have already promoted raw→clean and
                     // deleted the raw path stored in the slot.
                     let current = self.resolve_path(urn).unwrap_or(path);
                     Ok(TrackCacheEntry::from_path_and_meta(
@@ -1553,7 +1553,7 @@ impl TrackCacheState {
             .await;
 
         // Stamp the raw file with routing + integrity info, then kick off the
-        // background transcode (А → Б). Playback uses the raw path immediately.
+        // background transcode (raw → clean). Playback uses the raw path immediately.
         if let Ok(ref incoming_path) = download_result {
             self.finalize_incoming(incoming_path, liked, expected_duration_ms)
                 .await;
@@ -1569,8 +1569,8 @@ impl TrackCacheState {
         guard.disarm();
 
         download_result.map(|path| {
-            // Hand back whatever currently exists (clean Б if the transcode is
-            // already done, else the raw А path) so the caller never receives a
+            // Hand back whatever currently exists (clean if the transcode is
+            // already done, else the raw path) so the caller never receives a
             // path the background transcode is about to delete.
             let current = self.resolve_path(urn).unwrap_or(path);
             TrackCacheEntry::from_path_and_meta(&current, read_cache_metadata(&current))
@@ -1708,7 +1708,7 @@ impl TrackCacheState {
             duration_ms: probed,
         };
         write_cache_metadata(&clean_path, &clean_meta).await;
-        // Defer dropping the raw А file: the path may have just been handed to the
+        // Defer dropping the raw file: the path may have just been handed to the
         // player, which reads it a moment later in a separate command.
         self.schedule_remove_incoming(urn.to_string());
         println!("[TrackCache] transcoded {urn} → {}", clean_path.display());
@@ -1721,9 +1721,9 @@ impl TrackCacheState {
         tokio::fs::remove_file(cache_metadata_path(&path)).await.ok();
     }
 
-    /// Delete the raw А file after a grace period, so a path just handed to the
+    /// Delete the raw file after a grace period, so a path just handed to the
     /// player survives the brief gap before it is read. Re-checks at fire time:
-    /// only drops А when its clean Б is present and no fresh transcode is running
+    /// only drops raw when its clean copy is present and no fresh transcode runs
     /// (guards against nuking a new download cycle for the same URN).
     fn schedule_remove_incoming(&self, urn: String) {
         let state = self.clone();
@@ -1922,9 +1922,9 @@ impl TrackCacheState {
         let start = std::time::Instant::now();
         let mut last_err = String::from("no stream URLs provided");
 
-        // `/stream` и `/download` сами выбирают direct/temp через hedged headers:
-        // предпочтительный тир получает 300 мс форы, затем стартует запасной.
-        // Тело читает только победитель, поэтому быстрота не удваивает аудиотрафик.
+        // `/stream` and `/download` pick direct/temp themselves via hedged headers:
+        // the preferred tier gets a 300 ms head start, then the backup starts.
+        // Only the winner reads the body, so the speedup does not double audio traffic.
 
         // Sort storage URLs: healthy hosts first.
         let mut sorted: Vec<&String> = storage_urls.iter().collect();
@@ -1941,9 +1941,9 @@ impl TrackCacheState {
 
         // 1. Try storage `/redirect/...` URLs — fast 307 to presigned S3.
         //    Saves storage server bandwidth when the upstream is reachable.
-        //    ПРОПУСКАЕМ на проксируемом тире: 307 ведёт на s3 (его НЕ проксируем),
-        //    у забаненного он тоже мёртв — бросок туда лишь жрёт connect-таймаут.
-        //    На relay/воркер идём сразу к storage-stream (шаг 3).
+        //    SKIP on the proxied tier: the 307 leads to s3 (we do NOT proxy it),
+        //    and for a banned host it is dead too — a throw there only burns the connect timeout.
+        //    On relay/worker go straight to storage-stream (step 3).
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
                 continue;
@@ -2132,10 +2132,10 @@ impl TrackCacheState {
             }
         }
 
-        // Storage stream — proxies bytes through our storage server. Каждый
-        // storage-URL разворачивается в тиры edge: прямой хост → relay →
-        // CF-воркеры (X-Target). Транспортный провал тира ротатит на следующий,
-        // ответ самого storage (200/404/5xx) — уже результат.
+        // Storage stream — proxies bytes through our storage server. Each
+        // storage URL expands into edge tiers: direct host → relay →
+        // CF workers (X-Target). A transport failure of a tier rotates to the next;
+        // the storage response itself (200/404/5xx) is already the result.
         for storage_url in &sorted {
             let Some(host) = host_of(storage_url) else {
                 continue;
@@ -2146,9 +2146,9 @@ impl TrackCacheState {
 
             let mut transport_ok = false;
             for hop in crate::network::edge::plan(storage_url) {
-                // Прямой хост — тугой storage_client (1.2 c: быстрый отказ, если
-                // забанен). relay тянет мегабайты через полсвета → нужен
-                // потоковый клиент (read-timeout, без общего кап-таймаута).
+                // Direct host — tight storage_client (1.2 s: fast failure if
+                // banned). relay pulls megabytes across half the world → needs a
+                // streaming client (read timeout, no overall cap timeout).
                 let client = if hop.tier_label() == "direct" {
                     &self.storage_client
                 } else {
@@ -2163,7 +2163,7 @@ impl TrackCacheState {
                     }
                 };
                 if !crate::network::edge::hop_ok(&hop, &resp) {
-                    continue; // транспорт тира виноват — исход записан, следующий тир
+                    continue; // tier transport is at fault — outcome recorded, go to the next tier
                 }
                 transport_ok = true;
                 hop.note(resp.status().as_u16() < 500);
@@ -2201,7 +2201,7 @@ impl TrackCacheState {
                         }
                     }
                 } else if matches!(status.as_u16(), 404 | 410) {
-                    break; // объект отсутствует — другие тиры не помогут
+                    break; // object is missing — other tiers will not help
                 } else {
                     eprintln!("[TrackCache] storage HTTP {status} for {urn} ({host})");
                 }
@@ -2747,7 +2747,7 @@ impl TrackCacheState {
         urns
     }
 
-    /// Batched per-track snapshot across Б (liked + audio) and А. Clean dirs are
+    /// Batched per-track snapshot across the clean dirs (liked + audio) and the raw
     /// scanned first so a track mid-promotion (raw kept for the grace window)
     /// reports its clean entry.
     pub fn cache_inventory(&self) -> Vec<CacheInventoryEntry> {
@@ -2827,7 +2827,7 @@ impl TrackCacheState {
         let mut total = 0u64;
 
         // URNs with a transcode in flight — their raw source must not be evicted
-        // out from under the А→Б promotion.
+        // out from under the raw→clean promotion.
         let in_flight = self
             .transcoding
             .lock()
@@ -2835,7 +2835,7 @@ impl TrackCacheState {
             .map(|s| s.clone())
             .unwrap_or_default();
 
-        // Account for both the clean cache ("Б") and any raw staging files ("А")
+        // Account for both the clean cache and any raw staging files
         // so a build without ffmpeg (which keeps serving raw bytes) stays bounded.
         for dir in [&self.audio_dir, &self.incoming_dir] {
             let is_incoming = *dir == self.incoming_dir;

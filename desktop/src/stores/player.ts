@@ -116,8 +116,8 @@ export interface AbLoop {
 export const AB_MIN_GAP = 0.2;
 
 /**
- * Module-level slot для обработчика "очередь кончилась". Не часть PlayerState,
- * чтобы persist его не сериализовал. Регистрирует lib/queue-autopilot.ts.
+ * Module-level slot for the "queue ran out" handler. Not part of PlayerState,
+ * so persist doesn't serialize it. Registered by lib/queue-autopilot.ts.
  */
 let endOfQueueFallback: ((lastTrack: Track) => void) | null = null;
 export function setEndOfQueueFallback(fn: (lastTrack: Track) => void): void {
@@ -125,9 +125,9 @@ export function setEndOfQueueFallback(fn: (lastTrack: Track) => void): void {
 }
 
 /**
- * Слот «началось новое воспроизведение из UI» — сбрасывает контекстный источник
- * дозагрузки очереди (см. lib/queue-continuation.ts), чтобы прошлый контекст
- * (напр. лайки) не дотягивался в чужую очередь. Регистрирует queue-autopilot.ts.
+ * The "new playback started from the UI" slot — resets the contextual queue
+ * refill source (see lib/queue-continuation.ts), so the previous context
+ * (e.g. likes) doesn't get pulled into another queue. Registered by queue-autopilot.ts.
  */
 let onPlaybackContextReset: (() => void) | null = null;
 
@@ -324,9 +324,9 @@ export const usePlayerStore = create<PlayerState>()(
         if (nextIdx >= queue.length) {
           if (repeat === 'all') nextIdx = 0;
           else {
-            // Конец очереди + repeat=off → отдаём управление autopilot'у
-            // (см. lib/queue-autopilot.ts). Если он зарегистрирован — он сам
-            // дозагрузит треки и пнёт next() ещё раз. Если нет — просто пауза.
+            // End of queue + repeat=off → hand control to autopilot
+            // (see lib/queue-autopilot.ts). If registered, it will fetch more
+            // tracks itself and nudge next() again. If not — just pause.
             const last = queue[queueIndex];
             if (endOfQueueFallback && last) {
               endOfQueueFallback(last);

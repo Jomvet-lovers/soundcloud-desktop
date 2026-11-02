@@ -116,6 +116,6 @@ export function useEditableUserAura(urn: string | undefined, enabled: boolean) {
     [queueSave],
   );
 
-  // Без «звезды» кастомизация недоступна — отдаём ауру по теме смотрящего.
+  // Without the "star", customization is unavailable — serve the viewer's theme aura.
   return { aura: enabled ? aura : viewerAura, customHex, onPickAura, onPickCustom };
 }

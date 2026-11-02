@@ -129,8 +129,8 @@ export interface SCUser {
   followings_count?: number;
   track_count?: number;
   city?: string | null;
-  /// Backend now emits `country_code` (ISO-2). Legacy `country` оставляем
-  /// для совместимости со старыми payload'ами SC.
+  /// Backend now emits `country_code` (ISO-2). We keep legacy `country`
+  /// for compatibility with old SC payloads.
   country_code?: string | null;
   country?: string | null;
 }
@@ -170,11 +170,11 @@ const SEARCH_CACHE_MS = 1000 * 60 * 2;
 const INFINITE_GC_MS = 1000 * 60 * 3;
 
 /**
- * Cold-эндпоинты (треки/плейлисты/лайки/фолловинги юзеров, /me/*) живут в
- * нашей БД и обновляются бэком SWR-cron'ом без участия фронта. tanstack-query
- * не должен сам дёргать refetch на каждый mount — бэк всё равно отдаст cold
- * копию мгновенно. Полагаемся на явные invalidate'ы из мутаций
- * (like/unlike/follow/playlist updates).
+ * Cold endpoints (tracks/playlists/likes/user followings, /me/*) live in our
+ * DB and are refreshed by the backend's SWR cron without frontend involvement.
+ * tanstack-query must not fire a refetch on every mount — the backend will hand
+ * out the cold copy instantly anyway. We rely on explicit invalidates from
+ * mutations (like/unlike/follow/playlist updates).
  */
 const COLD_CACHE_MS = Number.POSITIVE_INFINITY;
 
@@ -232,8 +232,8 @@ type PagedQueryResult<T> = UseInfiniteQueryResult<
 > & { items: T[] };
 
 /**
- * Унифицированный page-based useInfiniteQuery helper. Бэк отдаёт
- * { collection, page, page_size, has_more } — этого достаточно для пагинации.
+ * Unified page-based useInfiniteQuery helper. The backend returns
+ * { collection, page, page_size, has_more } — enough for pagination.
  */
 function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
   const limit = opts.limit ?? 30;
@@ -252,12 +252,12 @@ function usePagedQuery<T>(opts: PagedQueryOptions<T>): PagedQueryResult<T> {
     gcTime: opts.gcTime ?? INFINITE_GC_MS,
     maxPages: opts.maxPages,
     enabled: opts.enabled,
-    // Списки рефрешатся только явными invalidate'ами из мутаций. Remount/
-    // reconnect не должен перетягивать весь infinite-query: для SC cursor-лент
-    // это перепроходит сдвинувшийся курсор и тасует выдачу. Focus-рефетч уже
-    // выключен глобально в query-client. Отдельные холодные списки
-    // (плейлист-треки) могут попросить refetchOnMount — staleTime у них
-    // бесконечный, так что без invalidate лишних запросов не будет.
+    // Lists refresh only on explicit invalidates from mutations. Remount/
+    // reconnect must not re-pull the whole infinite query: for SC cursor feeds
+    // it re-walks a shifted cursor and shuffles the results. Focus refetch is
+    // already off globally in query-client. A few cold lists (playlist tracks)
+    // may ask for refetchOnMount — their staleTime is infinite, so no invalidate
+    // means no extra requests.
     refetchOnMount: opts.refetchOnMount ?? false,
     refetchOnReconnect: false,
   });
@@ -456,7 +456,7 @@ export function fetchAllLikedTracks(
   return promise;
 }
 
-/** Все треки плейлиста, по страницам до конца — под shuffle-continuation. */
+/** All playlist tracks, page by page to the end — for shuffle-continuation. */
 export function fetchAllPlaylistTracks(playlistUrn: string, pageSize = 200): Promise<Track[]> {
   return (async () => {
     const all: Track[] = [];
@@ -666,9 +666,9 @@ export function useUserTracks(userUrn: string | undefined) {
     queryKey: ['user', userUrn, 'tracks'],
     url: (page, limit) => pagedUrl(`/users/${encodeURIComponent(userUrn!)}/tracks`, page, limit),
     limit: 30,
-    // НЕ cold-infinite: owned-треки переупорядочиваются при новых загрузках
-    // артиста, а клиентской мутации (как у like/follow) тут нет — некому слать
-    // invalidate. Финитный stale → ремоунт подтянет свежий порядок с бэка.
+    // NOT cold-infinite: owned tracks get reordered on new artist uploads, and
+    // there is no client mutation (as with like/follow) here — nobody to send an
+    // invalidate. Finite stale → a remount pulls the fresh order from the backend.
     staleTime: MEDIUM_CACHE_MS,
     maxPages: 8,
     enabled: !!userUrn,
@@ -799,8 +799,8 @@ export function useUserFollowings(userUrn: string | undefined) {
   return { users: query.items, ...query };
 }
 
-/* `/users/{urn}/followers` остался горячим на бэке (входящих подписчиков мы не
- * храним как сущность) — короткий staleTime, как раньше. */
+/* `/users/{urn}/followers` stayed hot on the backend (we don't store incoming
+ * followers as an entity) — short staleTime, as before. */
 export function useUserFollowers(userUrn: string | undefined) {
   const query = usePagedQuery<SCUser>({
     queryKey: ['user', userUrn, 'followers'],
@@ -891,8 +891,8 @@ export function useMyPlaylists(limit = 30) {
 
 /* ── Playlist Mutations ────────────────────────────────────────── */
 
-// Полная перестановка/удаление из свежей загруженной вью — шлём `{order}`-дельту
-// (а не PUT всего списка): backend применяет к desired-state и пушит в SC фоном.
+// Full reorder/removal from a freshly loaded view — send an `{order}` delta
+// (not a full-list PUT): the backend applies it to desired-state and pushes to SC in the background.
 export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -909,9 +909,9 @@ export function useUpdatePlaylistTracks(playlistUrn: string | undefined) {
   });
 }
 
-// Добавление — `{add}`-дельты (по одной на трек). Backend дедупит и считает
-// дельту против сохранённого desired-state, поэтому устаревшая клиентская вью
-// НЕ может уронить уже лежащие треки (прежний full-list PUT мог).
+// Addition — `{add}` deltas (one per track). The backend dedupes and computes
+// the delta against the stored desired-state, so a stale client view can NOT
+// drop tracks that are already there (the old full-list PUT could).
 export function useAddToPlaylist() {
   const qc = useQueryClient();
   return useMutation({
@@ -969,10 +969,10 @@ export function useCreatePlaylist() {
 
 /* ── Sharing (privacy) ─────────────────────────────────────────── */
 
-/** Тоггл приватности своего плейлиста. У SC-плейлистов бэк сначала проводит
- *  `sharing` через writer WebView в SoundCloud, и только по успеху обновляет
- *  локальную копию; при отказе SC мутация падает, локальное состояние не
- *  меняется, а тост показывает причину от бэкенда. */
+/** Toggles privacy of the user's playlist. For SC playlists the backend first
+ *  pushes `sharing` through the writer WebView to SoundCloud, and only on success
+ *  updates the local copy; if SC refuses, the mutation fails, local state stays
+ *  unchanged, and the toast shows the reason from the backend. */
 export function useSetPlaylistSharing(playlistUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -991,14 +991,14 @@ export function useSetPlaylistSharing(playlistUrn: string | undefined) {
       );
       qc.invalidateQueries({ queryKey: ['playlist', playlistUrn] });
       qc.invalidateQueries({ queryKey: ['me', 'playlists'] });
-      // Список своих плейлистов на профиле — ['user', urn, 'playlists'].
+      // The user's playlists on the profile — ['user', urn, 'playlists'].
       qc.invalidateQueries({ queryKey: ['user'] });
     },
   });
 }
 
-/** Тоггл приватности своего трека: бэк пишет `sharing` в SoundCloud через
- *  writer WebView и падает с 502 при отказе, не меняя состояние. */
+/** Toggles privacy of the user's track: the backend writes `sharing` to SoundCloud
+ *  through the writer WebView and fails with 502 on refusal, changing no state. */
 export function useSetTrackSharing(trackUrn: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
@@ -1012,7 +1012,7 @@ export function useSetTrackSharing(trackUrn: string | undefined) {
     onSuccess: (_data, sharing) => {
       qc.setQueryData<Track>(['track', trackUrn], (old) => (old ? { ...old, sharing } : old));
       qc.invalidateQueries({ queryKey: ['track', trackUrn], exact: true });
-      // Списки своих треков на профиле — ['user', urn, 'tracks'] (нет ['me','tracks']).
+      // The user's tracks on the profile — ['user', urn, 'tracks'] (no ['me','tracks']).
       qc.invalidateQueries({ queryKey: ['user'] });
     },
   });
@@ -1033,10 +1033,10 @@ export function useDeletePlaylist() {
 /* ── Search: SCD-DB ───────────────────────────────────────────── */
 
 /**
- * Поиск в нашей базе (зеркало SoundCloud). Возвращает только то, что мы уже
- * индексировали — но без сетевого fan-out'а в SC API, поэтому в разы быстрее.
- * Бэк зашит на trgm-индексы + statement_timeout, фронту достаточно поднести
- * `q` и опционально `userUrn` для скоупа.
+ * Search in our own DB (a SoundCloud mirror). Returns only what we have already
+ * indexed — but with no network fan-out to the SC API, so it's many times faster.
+ * The backend is wired to trgm indexes + statement_timeout; the frontend just
+ * supplies `q` and optionally `userUrn` for scope.
  */
 
 const SEARCH_DB_LIMIT = 20;
@@ -1361,9 +1361,9 @@ export function useDiscoverData(pool: RelatedPool | undefined, likedTracks: Trac
 }
 
 /**
- * Общий related-pool фид: рекомендации + дискавери по жанрам, всё из лайков
- * зрителя. Только данные (без рендера), чтобы полка «Recommended» на Home и
- * призма Discover читали один источник, а не пересобирали пул каждая у себя.
+ * Shared related-pool feed: recommendations + genre discovery, all from the
+ * viewer's likes. Data only (no render), so the "Recommended" shelf on Home and
+ * the Discover prism read one source instead of each rebuilding the pool.
  */
 export function useDiscoverFeed() {
   const { tracks: likedTracks } = useLikedTracks(100);

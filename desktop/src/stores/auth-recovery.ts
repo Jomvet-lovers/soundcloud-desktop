@@ -1,34 +1,34 @@
 import { create } from 'zustand';
 
 /**
- * Состояние авто-восстановления сессии.
+ * Session auto-recovery state.
  *
- * - `idle`   — всё хорошо, ничего не делаем.
- * - `silent` — идёт первая, автоматическая попытка renew. Модалки НЕТ:
- *              для юзера всё должно пройти незаметно.
- * - `modal`  — авто-renew не помог. Показываем единственную модалку, где
- *              можно повторить renew вручную либо войти заново (OAuth).
+ * - `idle`   — all good, nothing to do.
+ * - `silent` — the first automatic renew attempt is in flight. NO modal:
+ *              everything must stay invisible to the user.
+ * - `modal`  — auto-renew didn't help. Show the only modal, where renew can be
+ *              retried manually or the user can sign in again (OAuth).
  *
- * `busy` — внутри модалки идёт ручной renew (спиннер, модалка не закрывается).
- * OAuth-флоу трекается отдельно в самой модалке (useOAuthFlow.isPolling).
+ * `busy` — a manual renew is running inside the modal (spinner, the modal can't be closed).
+ * The OAuth flow is tracked separately inside the modal itself (useOAuthFlow.isPolling).
  *
- * Логика переходов живёт в `lib/auth-recovery.ts`, тут только стейт.
+ * Transition logic lives in `lib/auth-recovery.ts`; this file holds state only.
  */
 export type RecoveryPhase = 'idle' | 'silent' | 'modal';
 
 interface AuthRecoveryState {
   phase: RecoveryPhase;
   busy: boolean;
-  /** Идёт OAuth-поллинг в модалке — авто-закрытие по успеху не трогаем. */
+  /** OAuth polling is running in the modal — leave success auto-close alone. */
   oauthActive: boolean;
-  /** Момент последнего успешного восстановления — для cooldown. */
+  /** Timestamp of the last successful recovery — for cooldown. */
   recoveredAt: number;
   setPhase: (phase: RecoveryPhase) => void;
   setBusy: (busy: boolean) => void;
   setOauthActive: (oauthActive: boolean) => void;
-  /** Успех: гасим модалку и ставим cooldown-метку. */
+  /** Success: dismiss the modal and stamp the cooldown. */
   markRecovered: () => void;
-  /** Сброс без cooldown (dismiss / logout). */
+  /** Reset without cooldown (dismiss / logout). */
   reset: () => void;
 }
 

@@ -5,21 +5,22 @@ interface UserSearchBoxProps {
   value: string;
   onChange: (v: string) => void;
   /**
-   * Лейбл скоупа: подсказка "ищем по трекам/плейлистам", чтобы юзер понимал,
-   * что результаты ограничены текущим табом.
+   * Scope label: a hint like "searching tracks/playlists" so the user
+   * understands that results are limited to the current tab.
    */
   scopeLabel: string;
   /**
-   * Когда true — инпут disabled (текущий таб не поддерживает поиск по контенту,
-   * например followers/following).
+   * When true the input is disabled (the current tab doesn't support content
+   * search, e.g. followers/following).
    */
   disabled?: boolean;
 }
 
 /**
- * Inline-поиск контента конкретного юзера. Всегда бьёт в нашу базу (на SC такой
- * выборки нет), поэтому рядом — бейдж "DB". Бейдж сообщает юзеру цену запроса
- * и почему результаты могут отличаться от внешнего профиля.
+ * Inline search over a specific user's content. Always hits our own database
+ * (SC has no such query), hence the "DB" badge next to it. The badge tells the
+ * user the cost of the request and why results may differ from the external
+ * profile.
  */
 function UserSearchBoxImpl({ value, onChange, scopeLabel, disabled }: UserSearchBoxProps) {
   return (

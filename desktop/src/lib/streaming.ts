@@ -10,15 +10,15 @@ import {
 import { logHttpError, logHttpFailure, trackAsync } from './diagnostics';
 import { edgeFetch } from './edge';
 import { markHealthy, markUnhealthy } from './host-status';
-// Прямо из premium-cache, а не из subscription: тот тянет api-client и
-// query-client, и импорт отсюда замкнул бы цикл (см. шапку premium-cache).
+// Straight from premium-cache, not subscription: that one pulls in api-client and
+// query-client, and importing from here would close the cycle (see premium-cache's header).
 import { getIsPremium } from './premium-cache';
 
 // ─── Types ──────────────────────────────────────────────────
 
 export type ResolvedStreamingTrack = Partial<Track> & {
   full_duration?: number;
-  /// SC resolve отдаёт любую сущность: track / user / playlist (включая альбомы).
+  /// SC resolve returns any entity: track / user / playlist (albums included).
   kind?: string;
 };
 
@@ -103,12 +103,12 @@ function buildStreamUrl(base: string, trackUrn: string, hq: boolean) {
 }
 
 /**
- * Точки отдачи медиа, приоритетная первой. Премиум забирает байты с резервной
- * (S3 read-only на star-host), не гоняя за каждым файлом на main; ядро само
- * упорядочит список по здоровью хостов и переберёт до первого ответа.
+ * Media-serving endpoints, preferred first. Premium pulls bytes from the reserve
+ * one (read-only S3 on star-host) instead of chasing every file on main; the core
+ * orders the list by host health on its own and walks it until the first answer.
  *
- * Не-премиуму star отдаёт 403 (`PREMIUM_ONLY`), так что второй адрес ему только
- * стоил бы лишнего запроса — у него список из одного main.
+ * To a non-premium user star returns 403 (`PREMIUM_ONLY`), so a second address
+ * would only cost an extra request — their list is a single main.
  */
 export function buildStorageUrls(trackUrn: string): string[] {
   const file = `${trackUrn.replace(/:/g, '_')}.m4a`;
@@ -145,10 +145,10 @@ function buildDownloadUrl(base: string, trackUrn: string, hq: boolean) {
   return `${base}/download/${encodeURIComponent(trackUrn)}${suffix}`;
 }
 
-/// URL'ы `/download/:urn` по всем валидным стриминг-базам.
-/// Клиент дергает их между anon и storage stream: сервер только резолвит
-/// SoundCloud-ссылки + (для encrypted) делает Widevine handshake, скачивание
-/// сегментов идёт прямо с SC.
+/// `/download/:urn` URLs across all valid streaming bases.
+/// The client hits them between the anon and storage stream: the server only resolves
+/// SoundCloud links + (for encrypted) does the Widevine handshake, segment download
+/// goes straight to SC.
 export function downloadFallbackUrls(
   trackUrn: string,
   hq = useSettingsStore.getState().highQualityStreaming,

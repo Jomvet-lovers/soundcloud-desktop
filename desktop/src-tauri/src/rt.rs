@@ -1,9 +1,9 @@
-//! Рантайм-абстракция приложения.
+//! Application runtime abstraction.
 //!
-//! Фича `cef` переключает весь апп на рантайм CEF (Chromium) вместо wry
-//! (webkitgtk/webview2). Ветка `feat/cef` убрала дефолтный параметр рантайма
-//! у публичных типов Tauri, поэтому «голые» `AppHandle`/`WebviewWindow`/`App`
-//! по коду берём отсюда — уже привязанными к выбранному рантайму.
+//! The `cef` feature switches the whole app to the CEF (Chromium) runtime instead of wry
+//! (webkitgtk/webview2). The `feat/cef` branch removed the default runtime parameter
+//! from Tauri's public types, so the "bare" `AppHandle`/`WebviewWindow`/`App`
+//! are taken from here throughout the code — already bound to the selected runtime.
 
 #[cfg(feature = "cef")]
 pub type Rt = tauri::Cef;

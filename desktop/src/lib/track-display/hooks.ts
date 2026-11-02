@@ -8,8 +8,8 @@ import {
 } from './display';
 import { type ArtistLinkItem, getArtistLinkItems } from './links';
 
-// Хуки — тонкие обёртки: WeakMap-кэш в display/links делает результат
-// референсно стабильным на неизменном треке, useMemo здесь лишний.
+// Hooks are thin wrappers: the WeakMap cache in display/links keeps the result
+// referentially stable on an unchanged track, so useMemo is redundant here.
 
 export function useTrackDisplay(track: DisplayInput): TrackDisplay {
   return getTrackDisplay(track);

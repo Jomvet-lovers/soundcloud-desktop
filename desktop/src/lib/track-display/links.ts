@@ -3,18 +3,18 @@ import { type DisplayInput, getTrackDisplay } from './display';
 import { foldName } from './fold';
 import { splitNames } from './split';
 
-/** Имя в строке авторов + куда оно ведёт (null — некликабельно). */
+/** A name in the artist line + where it leads (null — not clickable) */
 export interface ArtistLinkItem {
   name: string;
   target: string | null;
 }
 
 /**
- * Поимённые ссылки для строки авторов: каждое имя из `getTrackDisplay`
- * матчится (fold) на enrichment primary / co-primary / участников (→ страница
- * артиста) или на uploader'а (→ страница юзера). Цели регистрируются и под
- * полным именем, и под его компонентами — «Tyler, The Creator» кликабелен,
- * даже когда сплит порвал его на куски. Несматченное — просто текст.
+ * Per-name links for the artist line: every name from `getTrackDisplay`
+ * is matched (fold) against enrichment primary / co-primary / participants (→ artist
+ * page) or against the uploader (→ user page). Targets are registered both under
+ * the full name and under its components — «Tyler, The Creator» stays clickable
+ * even when the split tore it into pieces. Unmatched names are plain text.
  */
 function computeLinkItems(track: DisplayInput): ArtistLinkItem[] {
   const display = getTrackDisplay(track);
@@ -71,10 +71,10 @@ export function getArtistLinkItems(track: DisplayInput): ArtistLinkItem[] {
 }
 
 /**
- * Куда ведёт клик по «строке авторов целиком» (карточки, где имена не
- * раскликаны поимённо): первый слинкованный участник — ТО ЖЕ направление,
- * что и у первого имени в ArtistNameLinks. Раньше тут был свой гейт по
- * verified, и одно и то же имя вело в разные места из списка и из карточки.
+ * Where a click on the "whole artist line" leads (cards where the names are not
+ * cracked out individually): the first linked participant — the SAME target
+ * as the first name in ArtistNameLinks. This used to have its own verified
+ * gate, and the same name led to different places from the list and from the card.
  */
 export function getArtistTarget(
   track: Pick<Track, 'title' | 'user' | 'enrichment'>,

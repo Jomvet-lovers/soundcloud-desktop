@@ -40,8 +40,8 @@ export function FollowBtn({ userUrn }: FollowBtnProps) {
       });
       qc.invalidateQueries({ queryKey: ['following', currentUser?.urn, userUrn] });
       qc.invalidateQueries({ queryKey: ['user', userUrn] });
-      // Cold-кеш `/me/followings` живёт с staleTime: Infinity — invalidate
-      // обязателен, иначе UI не покажет нового follow/unfollow до перезапуска.
+      // The cold `/me/followings` cache has staleTime: Infinity — invalidation
+      // is mandatory, or the UI won't show a new follow/unfollow until restart.
       qc.invalidateQueries({ queryKey: ['me', 'followings'] });
     } catch (error) {
       setFollowing(!next);

@@ -9,9 +9,9 @@ type Props = {
   sharing: string | undefined;
 };
 
-/** Owner-only тоггл приватности (public ⇄ private) для своего трека/плейлиста.
- *  Икон-кнопка в стиле utility-rail. Оба хука зовём безусловно (rules-of-hooks),
- *  «лишний» с undefined-urn просто не триггерится. */
+/** Owner-only privacy toggle (public ⇄ private) for your own track/playlist.
+ *  An icon button in the utility-rail style. Both hooks are called unconditionally
+ *  (rules-of-hooks); the "extra" one with an undefined urn simply never fires. */
 export const SharingToggle = React.memo(function SharingToggle({ kind, urn, sharing }: Props) {
   const trackMut = useSetTrackSharing(kind === 'track' ? urn : undefined);
   const playlistMut = useSetPlaylistSharing(kind === 'playlist' ? urn : undefined);

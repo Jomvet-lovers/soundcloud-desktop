@@ -59,7 +59,7 @@ export function scDateMs(dateStr: string | null | undefined): number {
   return parseScDate(dateStr)?.getTime() ?? 0;
 }
 
-/** Relative time: "2026-01-01T00:00:00Z" → "2mo". Пустой/невалидный → ''. */
+/** Relative time: "2026-01-01T00:00:00Z" → "2mo". Empty/invalid → ''. */
 export function ago(dateStr: string | null | undefined): string {
   const d = parseScDate(dateStr);
   if (!d) return '';
@@ -78,7 +78,7 @@ export function ago(dateStr: string | null | undefined): string {
   return `${Math.floor(dd / 365)}y`;
 }
 
-/** Formatted date: "2026-01-01" → "Jan 1, 2026". Пустой/невалидный → ''. */
+/** Formatted date: "2026-01-01" → "Jan 1, 2026". Empty/invalid → ''. */
 export function dateFormatted(dateStr: string | null | undefined): string {
   const d = parseScDate(dateStr);
   if (!d) return '';

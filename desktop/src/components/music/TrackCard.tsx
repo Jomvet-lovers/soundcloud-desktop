@@ -26,7 +26,7 @@ import { UploadKindDot } from './UploadKindDot';
 interface TrackCardProps {
   track: Track;
   queue?: Track[];
-  /** Fires after a new track starts — e.g. arm «лайки до конца». Keep stable. */
+  /** Fires after a new track starts — e.g. arm "likes to the end". Keep stable. */
   onPlay?: () => void;
   /** Play-count / duration chips over the artwork — search results only. */
   showStats?: boolean;

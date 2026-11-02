@@ -1,5 +1,5 @@
-//! Чистые хелперы офлайн-библиотеки: сборка строк, сортировка, фильтр,
-//! зеркало односторонней duration-проверки Rust (короче заявленного = обрезок).
+//! Pure offline-library helpers: row building, sorting, filtering, and a
+//! mirror of Rust's one-sided duration check (shorter than declared = truncated).
 
 import type { CacheInventoryEntry } from '../../lib/cache';
 import type { Track } from '../../stores/player';
@@ -14,13 +14,13 @@ export function isTruncated(inv: CacheInventoryEntry | null): boolean {
   return inv.durationMs + tol < inv.expectedDurationMs;
 }
 
-/** Реальная длительность файла, если измерена; иначе заявленная API. */
+/** Actual file duration if measured; otherwise the API-declared one. */
 export function effectiveDurationMs(entry: OfflineEntry): number {
   return entry.inv?.durationMs ?? entry.track.duration ?? 0;
 }
 
-/** Минимальный Track для файла, которого нет в офлайн-индексе — файл должен
- *  быть виден и играбелен, а не молча выпадать из списка. */
+/** Minimal Track for a file missing from the offline index — the file must
+ *  stay visible and playable instead of silently dropping out of the list. */
 export function stubTrack(inv: CacheInventoryEntry): Track {
   return {
     id: 0,
@@ -66,9 +66,9 @@ export function filterEntries(entries: OfflineEntry[], query: string): OfflineEn
 
 const recentKey = (e: OfflineEntry) => e.inv?.modifiedAt ?? 0;
 
-/** `customOrder === null` в режиме custom — входной порядок уже канонический
- *  (лайки идут в порядке лайканья). Неизвестные custom-порядку треки уходят в
- *  конец списка, свежие выше. */
+/** `customOrder === null` in custom mode — the input order is already canonical
+ *  (likes are in like order). Tracks missing from the custom order go to the end
+ *  of the list, newest first. */
 export function sortEntries(
   entries: OfflineEntry[],
   mode: SortMode,

@@ -1,6 +1,5 @@
-//! Данные офлайн-страницы: офлайн-индекс (метаданные) + батч-инвентарь файлов
-//! (Rust) + живой прогресс докачек. Один IPC-вызов на список, никакого
-//! по-трекового дёрганья моста.
+//! Offline-page data: offline index (metadata) + batch file inventory (Rust)
+//! + live download progress. One IPC call per list, no per-track bridge calls.
 
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -37,8 +36,8 @@ export function useOfflineLibrary() {
       if (disposed.current) return;
       setInventory(inv);
       setResolvedTracks(tracks);
-      // Файл в инвентаре = докачка завершена; чистим прогресс даже если
-      // финальное событие не дошло до 1.0.
+      // A file in the inventory = download finished; clear progress even if the
+      // final event never reached 1.0.
       const landed = new Set(inv.map((e) => e.urn));
       setDownloads((prev) => {
         const stale = Object.keys(prev).filter((urn) => landed.has(urn));
@@ -73,7 +72,7 @@ export function useOfflineLibrary() {
     };
   }, [refreshInventory]);
 
-  // Онлайн: дотягиваем полный список лайков с бэка (он же синкает офлайн-индекс).
+  // Online: pull the full likes list from the backend (it also syncs the offline index).
   useEffect(() => {
     if (appMode !== 'online' || bgFetchDone.current) return;
     let cancelled = false;
@@ -83,15 +82,15 @@ export function useOfflineLibrary() {
         if (!cancelled) setLikedTracks(allLikes);
       })
       .catch(() => {
-        // Офлайн-режим продолжает жить на локальном индексе.
+        // Offline mode keeps running on the local index.
       });
     return () => {
       cancelled = true;
     };
   }, [appMode]);
 
-  // Живой прогресс докачек: копим в ref, флашим в стейт не чаще 4 Гц; докачанный
-  // файл с задержкой подтягивает свежий инвентарь.
+  // Live download progress: accumulate in a ref, flush to state at most 4 Hz; a
+  // finished file pulls a fresh inventory after a delay.
   useEffect(() => {
     const pending = new Map<string, number>();
     let flushTimer: number | null = null;

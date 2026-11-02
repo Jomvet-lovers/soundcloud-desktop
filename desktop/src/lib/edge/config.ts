@@ -1,10 +1,10 @@
-// Транспортные тиры до наших доменов: прямой хост → relay-пул
-// (`<сервис>.<нода>.relay.scnative.space`). Тира CF-воркеров больше нет —
-// их лимиты не держали наш трафик, см. `network/edge.rs`.
-// Таблица и персист живут в Rust (`network/edge.rs`), здесь — зеркало вердикта для
-// запросов, которые фронт делает сам. Политика та же, чтобы оба мира сходились к
-// одному тиру; в ядро уходит только СМЕНА вердикта, не каждый запрос.
-// Состав relay-пула приезжает из ядра — новую ноду сюда дописывать не нужно.
+// Transport tiers to our domains: direct host → relay pool
+// (`<service>.<node>.relay.scnative.space`). The CF-workers tier is gone —
+// its limits did not hold our traffic, see `network/edge.rs`.
+// The table and persistence live in Rust (`network/edge.rs`); this is the mirror of the verdict for
+// the requests the frontend makes itself. The policy is the same, so both worlds converge on
+// one tier; only the verdict CHANGE goes to the core, not every request.
+// The relay pool roster arrives from the core — a new node does not have to be written here.
 
 import { trackedInvoke as invoke } from '../diagnostics';
 
@@ -35,7 +35,7 @@ let relays = new Map<string, string[]>();
 let revalidateMs = 600_000;
 const origins = new Map<string, OriginState>();
 
-/** Дёргать до первого сетевого запроса. Без конфига остаётся прямой путь. */
+/** Call before the first network request. Without config the direct path stays */
 export async function initEdge(): Promise<void> {
   try {
     const cfg = await invoke<RustConfig>('edge_config');
@@ -51,7 +51,7 @@ export async function initEdge(): Promise<void> {
       });
     }
   } catch {
-    // Ядро не ответило — работаем как раньше.
+    // The core did not answer — keep going as before.
   }
 }
 
@@ -75,7 +75,7 @@ function swapHost(url: string, host: string): string {
   }
 }
 
-/** Пусто = домен не наш, идём как есть. */
+/** Empty = not our domain, go as is */
 export function planHops(url: string): Hop[] {
   const origin = hostOf(url);
   if (!origin) return [];
@@ -84,8 +84,8 @@ export function planHops(url: string): Hop[] {
 
   const now = Date.now();
   const state = origins.get(origin);
-  // До ревалидации тиры ниже залипшего не трогаем — иначе каждый запрос
-  // платит таймаутом за заведомо закрытый путь.
+  // Until revalidation, do not try tiers below the stuck one — otherwise every request
+  // pays a timeout for a path that is known to be closed.
   const from = !state || now >= state.revalidateAt ? 'direct' : state.tier;
   const min = TIER_ORDER[from];
 
@@ -96,17 +96,17 @@ export function planHops(url: string): Hop[] {
   }
 
   if (min > TIER_ORDER.direct) {
-    // Прямой путь остаётся последним шансом даже когда вердикт увёл на relay:
-    // relay-нода может лечь, а origin к этому моменту уже разбанят.
+    // The direct path stays as the last chance even when the verdict moved to relay:
+    // the relay node may go down, and by then the origin may be unblocked.
     hops.push({ url, tier: 'direct', origin });
   }
   return hops;
 }
 
 /**
- * В ядро уходит ВЫВОД (текущий тир), а не событие: у Rust свой счётчик провалов,
- * и одиночный «direct не ответил» его бы не сдвинул — вердикт фронта потерялся бы.
- * Шлём только смену, поэтому IPC не идёт на каждый запрос.
+ * What goes to the core is the CONCLUSION (the current tier), not an event: Rust keeps its own
+ * failure counter, and a lone «direct did not answer» would not move it — the frontend verdict
+ * would be lost. Only the change is sent, so IPC does not run on every request.
  */
 const reported = new Map<string, Tier>();
 
@@ -122,8 +122,8 @@ export function noteHop(hop: Hop, ok: boolean): void {
 
   if (ok) {
     const tier = hop.tier;
-    // Часы ревалидации перезапускает только СМЕНА тира — иначе на живом
-    // трафике они никогда не досчитают и юзер навсегда останется на relay.
+    // Only a TIER CHANGE restarts the revalidation clock — otherwise under live
+    // traffic it never counts down and the user stays on relay forever.
     const revalidateAt = prev && prev.tier === tier ? prev.revalidateAt : now + revalidateMs;
     origins.set(hop.origin, {
       tier,
@@ -143,7 +143,7 @@ export function noteHop(hop: Hop, ok: boolean): void {
   if (state.tier !== 'direct') report(hop.origin, state.tier);
 }
 
-/** Текущий тир — для диагностики и баннера состояния. */
+/** Current tier — for diagnostics and the status banner */
 export function tierOf(origin: string): Tier {
   return origins.get(origin)?.tier ?? 'direct';
 }

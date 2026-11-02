@@ -1,7 +1,7 @@
-//! GET `/download/:urn` → JSON-список кандидатов SoundCloud. Тянем выбранного
-//! напрямую с SC, наш сервер только резолвит ссылки.
+//! GET `/download/:urn` → JSON list of SoundCloud candidates. We pull the selected one
+//! directly from SC; our server only resolves the links.
 //!
-//! Порядок: при `hq=true` сначала hq-группа, иначе sq. Внутри группы —
+//! Order: with `hq=true` the hq group first, otherwise sq. Within a group —
 //! progressive → hls → encrypted-hls.
 
 use std::future::Future;

@@ -11,8 +11,8 @@ import { rememberTracks } from './offline-index';
  * lazily at play time.
  *
  * `onPlay` fires right AFTER a NEW track starts (the play branch, not resume) —
- * used to arm a queue-continuation source (см. lib/queue-continuation.ts), напр.
- * «лайки до конца». Pass a STABLE ref to keep memo'd tiles happy.
+ * used to arm a queue-continuation source (see lib/queue-continuation.ts), e.g.
+ * "likes to the end". Pass a STABLE ref to keep memo'd tiles happy.
  */
 export function useTrackPlay(track: Track, queue?: Track[] | (() => Track[]), onPlay?: () => void) {
   const isThis = usePlayerStore((s) => s.currentTrack?.urn === track.urn);

@@ -29,12 +29,13 @@ export const LikesTab = React.memo(function LikesTab({ filter }: { filter: strin
     );
   }, [likedTracks, filter]);
 
-  // Включили трек из лайков → ставим прослойку: она доиграет ВСЕ лайки,
-  // подкачивая страницы по мере опустошения очереди, а как кончатся — отдаст
-  // управление волне (lib/queue-autopilot.ts). Под активным фильтром очередь
-  // уже = весь матч (страницы дотянуты выше), источник не нужен (play() и так
-  // сбросил прошлый) → сразу волна. filterRef — чтобы колбэк был стабильным
-  // для memo'нутых строк и при этом видел свежий фильтр.
+  // Starting a track from likes → install the layer: it plays ALL likes through
+  // to the end, fetching pages as the queue drains, and hands control to the
+  // wave once they run out (lib/queue-autopilot.ts). Under an active filter the
+  // queue already equals the whole match (pages pulled above), so no source is
+  // needed (play() reset the previous one anyway) → straight to the wave.
+  // filterRef keeps the callback stable for memo'd rows while still seeing the
+  // fresh filter.
   const filterRef = React.useRef(filter);
   filterRef.current = filter;
   const onLikePlay = React.useCallback(() => {

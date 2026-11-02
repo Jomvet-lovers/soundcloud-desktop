@@ -1,15 +1,15 @@
 /**
- * «Волна» рекомендаций: продолжение очереди, когда контекст воспроизведения
- * (плейлист/лайки/…) доигран до конца — как автоплей официального клиента SC.
+ * The recommendation «wave»: the continuation of the queue once the playback context
+ * (playlist/likes/…) has played to the end — like autoplay in the official SC client.
  *
- * Цепочка: related текущего сид-трека (страницы подряд), затем, если related
- * исчерпан, перемешанные треки того же артиста (локальная «станция», тот же
- * приём, что у карточек станций в Search.tsx). Autopilot зовёт fetchWaveTracks
- * с последним треком очереди, поэтому сид каждый раз новый и цепочка тянется,
- * пока находятся свежие треки.
+ * The chain: related of the current seed track (pages in sequence), then, if related
+ * is exhausted, shuffled tracks by the same artist (a local «station», the same
+ * trick as the station cards in Search.tsx). The autopilot calls fetchWaveTracks
+ * with the last track in the queue, so the seed is new every time and the chain keeps
+ * going while fresh tracks turn up.
  *
- * Состояние живёт в пределах сессии воспроизведения: resetWaveState() зовёт
- * autopilot при новом play() (см. lib/queue-autopilot.ts).
+ * State lives for one playback session: resetWaveState() is called by the
+ * autopilot on a new play() (see lib/queue-autopilot.ts).
  */
 
 import { shuffleArray, type Track, usePlayerStore } from '../stores/player';
@@ -17,23 +17,23 @@ import { api } from './api';
 import type { PagedResponse } from './hooks';
 import { fetchRelatedTracks } from './related';
 
-/** Размер страницы related: как у самой SC. */
+/** Related page size: same as SC itself */
 const RELATED_PAGE_SIZE = 20;
-/** Сколько страниц related перебрать за вызов, прежде чем идти к артисту. */
+/** How many related pages to walk per call before falling back to the artist */
 const RELATED_MAX_PAGES = 3;
-/** Фоллбек на артиста: 2 страницы по 50 — хватает на локальную «станцию». */
+/** Artist fallback: 2 pages of 50 — enough for a local «station» */
 const ARTIST_PAGE_SIZE = 50;
 const ARTIST_MAX_PAGES = 2;
-/** Больше этого за один вызов в очередь не подкидываем. */
+/** Never push more than this into the queue per call */
 const WAVE_BATCH_MAX = 20;
 
-// Сид related-цепочки и его курсор страниц.
+// Seed of the related chain and its page cursor.
 let seedUrn: string | null = null;
 let seedPage = 0;
-// Пул артиста-фоллбека: один артист за раз, перемешанный.
+// Artist-fallback pool: one artist at a time, shuffled.
 let artistId: string | null = null;
 let artistPool: Track[] = [];
-// Артисты, чьи треки уже полностью ушли в очередь (повторно не тянем).
+// Artists whose tracks all went into the queue already (not pulled twice).
 const exhaustedArtists = new Set<string>();
 
 export function resetWaveState(): void {
@@ -44,7 +44,7 @@ export function resetWaveState(): void {
   exhaustedArtists.clear();
 }
 
-/** Берёт из пачки свежие треки (не из очереди), не больше `max`. */
+/** Take fresh tracks (not queued yet) from a batch, at most `max` */
 function takeFresh(batch: Track[], existing: Set<string>, max: number): Track[] {
   const out: Track[] = [];
   for (const track of batch) {
@@ -57,8 +57,8 @@ function takeFresh(batch: Track[], existing: Set<string>, max: number): Track[] 
 }
 
 /**
- * Related-цепочка: страницы сида подряд. Страницы копятся в один вызов,
- * пока не наберём WAVE_BATCH_MAX свежих или у сида не кончится related.
+ * Related chain: the seed's pages in sequence. Pages accumulate within one call
+ * until WAVE_BATCH_MAX fresh tracks are collected or the seed's related runs out.
  */
 async function fromRelated(seed: Track, existing: Set<string>): Promise<Track[]> {
   if (seed.urn !== seedUrn) {
@@ -75,7 +75,7 @@ async function fromRelated(seed: Track, existing: Set<string>): Promise<Track[]>
   return out;
 }
 
-/** Все треки артиста (1–2 страницы), перемешанные. */
+/** All of the artist's tracks (1–2 pages), shuffled. */
 async function fetchArtistPool(id: string): Promise<Track[]> {
   const all: Track[] = [];
   for (let page = 0; page < ARTIST_MAX_PAGES; page++) {
@@ -89,7 +89,7 @@ async function fetchArtistPool(id: string): Promise<Track[]> {
   return all;
 }
 
-/** Фоллбек: треки артиста сид-трека, по мере расхода пула. */
+/** Fallback: the seed track's artist's tracks, as the pool drains. */
 async function fromArtist(seed: Track, existing: Set<string>): Promise<Track[]> {
   const id = seed.user?.id != null ? String(seed.user.id) : null;
   if (!id || exhaustedArtists.has(id)) return [];
@@ -110,8 +110,8 @@ async function fromArtist(seed: Track, existing: Set<string>): Promise<Track[]> 
 }
 
 /**
- * Следующая порция «волны». Пустой массив = рекомендаций больше нет —
- * autopilot ставит паузу.
+ * The next batch of the «wave». An empty array = no more recommendations —
+ * the autopilot pauses.
  */
 export async function fetchWaveTracks(seed: Track): Promise<Track[]> {
   const existing = new Set(usePlayerStore.getState().queue.map((t) => t.urn));

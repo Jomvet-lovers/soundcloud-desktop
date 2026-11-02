@@ -71,8 +71,8 @@ pub fn run() {
             let liked_audio_dir = cache_dir.join("audio_liked");
             std::fs::create_dir_all(&liked_audio_dir).ok();
 
-            // Raw staging ("А") for freshly downloaded bytes pending transcode
-            // into the clean m4a caches ("Б" = audio_dir / audio_liked).
+            // Raw staging dir for freshly downloaded bytes pending transcode
+            // into the clean m4a caches (audio_dir / audio_liked).
             let incoming_audio_dir = cache_dir.join("audio_incoming");
             std::fs::create_dir_all(&incoming_audio_dir).ok();
 

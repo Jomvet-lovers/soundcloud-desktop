@@ -33,8 +33,8 @@ impl Default for EqParams {
     }
 }
 
-// Все варианты — это команды на установку state у системного медиа-контроллера
-// (MPRIS/SMTC), общий `Set`-префикс отражает это назначение, не редандант.
+// Every variant is a command to set state on the system media controller
+// (MPRIS/SMTC); the shared `Set` prefix reflects that purpose, it is not redundant.
 #[allow(clippy::enum_variant_names)]
 pub enum MediaCmd {
     SetMetadata {

@@ -1,13 +1,13 @@
 //! System tray.
 //!
-//! Linux: нативный StatusNotifierItem через `ksni` (D-Bus, без GTK) — работает и в
-//! wry, и в CEF-рантайме (CEF не инициализирует GTK, поэтому GTK-путь tray-icon/muda
-//! паниковал бы `GTK has not been initialized`).
-//! Windows/macOS: нативный Tauri `tray-icon`/`muda` (Win32 Shell_NotifyIcon / AppKit
-//! NSStatusItem) — GTK там не нужен, под CEF работает.
+//! Linux: native StatusNotifierItem via `ksni` (D-Bus, no GTK) — works under both
+//! wry and the CEF runtime (CEF does not initialize GTK, so the GTK path of tray-icon/muda
+//! would panic with `GTK has not been initialized`).
+//! Windows/macOS: native Tauri `tray-icon`/`muda` (Win32 Shell_NotifyIcon / AppKit
+//! NSStatusItem) — no GTK needed there, and it works under CEF.
 //!
-//! Колбэки трея могут приходить НЕ с main-потока (у ksni — задача D-Bus), а оконные
-//! операции Tauri обязаны идти с main-потока → действия гоним через
+//! Tray callbacks can arrive NOT on the main thread (under ksni it is a D-Bus task), while
+//! Tauri window operations must run on the main thread → so we route actions through
 //! `run_on_main_thread`.
 
 use tauri::{Emitter, Manager};
@@ -26,7 +26,7 @@ pub fn setup_tray(app: &crate::rt::App) -> Result<(), Box<dyn std::error::Error>
     }
 }
 
-/// Выполнить действие пункта меню на main-потоке.
+/// Run a menu item action on the main thread.
 fn run_action(app: &AppHandle, id: &str) {
     let h = app.clone();
     let id = id.to_string();
@@ -39,9 +39,9 @@ fn run_action(app: &AppHandle, id: &str) {
             }
         }
         "quit" => {
-            // На CEF graceful `app.exit()` может зависнуть в teardown (кросс-процессный
-            // OnBeforeClose окон/вебвью не завершается) → жёсткий выход; Chromium-хелперы
-            // сами умирают по смерти родителя. На wry — обычный graceful exit.
+            // Under CEF a graceful `app.exit()` can hang in teardown (the cross-process
+            // OnBeforeClose of windows/webviews never completes) → hard exit; the Chromium helpers
+            // die on their own when the parent dies. Under wry — the usual graceful exit.
             #[cfg(feature = "cef")]
             std::process::exit(0);
             #[cfg(not(feature = "cef"))]
@@ -55,7 +55,7 @@ fn run_action(app: &AppHandle, id: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// Linux: ksni / StatusNotifierItem (без GTK)
+// Linux: ksni / StatusNotifierItem (no GTK)
 // ---------------------------------------------------------------------------
 #[cfg(target_os = "linux")]
 mod linux {
@@ -78,7 +78,7 @@ mod linux {
         fn icon_pixmap(&self) -> Vec<ksni::Icon> {
             self.icon.clone()
         }
-        // Левый клик по иконке → показать главное окно.
+        // Left click on the icon → show the main window.
         fn activate(&mut self, _x: i32, _y: i32) {
             super::run_action(&self.app, "show");
         }
@@ -107,7 +107,7 @@ mod linux {
     pub fn setup(app: &crate::rt::App) {
         let handle = app.handle().clone();
         let icon = icon_pixmap(app);
-        // ksni поднимает D-Bus-сервис на нашем tokio-рантайме; держим задачу живой.
+        // ksni brings up the D-Bus service on our tokio runtime; keep the task alive.
         tauri::async_runtime::spawn(async move {
             let tray = ScTray { app: handle, icon };
             match tray.spawn().await {
@@ -117,7 +117,7 @@ mod linux {
         });
     }
 
-    /// Иконка приложения → ARGB32-пиксмап SNI (RGBA из Tauri → A,R,G,B).
+    /// App icon → ARGB32 pixmap for SNI (RGBA from Tauri → A,R,G,B).
     fn icon_pixmap(app: &crate::rt::App) -> Vec<ksni::Icon> {
         let Some(img) = app.default_window_icon() else {
             return Vec::new();
@@ -136,7 +136,7 @@ mod linux {
 }
 
 // ---------------------------------------------------------------------------
-// Windows / macOS: нативный Tauri tray-icon / muda
+// Windows / macOS: native Tauri tray-icon / muda
 // ---------------------------------------------------------------------------
 #[cfg(not(target_os = "linux"))]
 mod native {
@@ -159,12 +159,12 @@ mod native {
             .icon(app.default_window_icon().cloned().expect("no app icon"))
             .tooltip("SoundCloud Desktop")
             .menu(&menu)
-            // Левый клик показывает главное окно; меню — на правый клик.
+            // Left click shows the main window; the menu opens on right click.
             .show_menu_on_left_click(false)
             .on_menu_event(|app, event| super::run_action(app, event.id().as_ref()))
             .on_tray_icon_event(|tray, event| {
-                // Release-only: Click шлёт и press, и release — иначе тоггл срабатывает
-                // дважды за клик и поповер мгновенно исчезает.
+                // Release-only: Click sends both press and release — otherwise the toggle fires
+                // twice per click and the popover disappears instantly.
                 if let tauri::tray::TrayIconEvent::Click {
                     button: tauri::tray::MouseButton::Left,
                     button_state: tauri::tray::MouseButtonState::Up,

@@ -1,4 +1,4 @@
-/** Малые капители, которыми стилизуют ники (ᴍᴏɴᴀʀᴄʜ). NFKD их не трогает. */
+/** Small caps used to style nicks (ᴍᴏɴᴀʀᴄʜ). NFKD leaves them alone */
 const SMALL_CAPS: Record<string, string> = {
   ᴀ: 'a',
   ʙ: 'b',
@@ -25,25 +25,25 @@ const SMALL_CAPS: Record<string, string> = {
   ᴡ: 'w',
   ʏ: 'y',
   ᴢ: 'z',
-  // Музыкальная стилизация: $ = s (A$AP, Ke$ha) — как на бэке.
+  // Musical styling: $ = s (A$AP, Ke$ha) — same as the backend.
   $: 's',
 };
 
-/** Вся категория Mark — как `is_combining_mark` на бэке (таблицы диапазонов
- *  пропускали кириллические U+0483-0489 и пр.). */
+/** The whole Mark category — like `is_combining_mark` on the backend (range
+ *  tables used to miss Cyrillic U+0483-0489 and friends). */
 const COMBINING_MARKS = /\p{M}/gu;
 
-/** Невидимые форматирующие символы (ZWSP, BOM, soft-hyphen, object
- *  replacement) — бэковый `is_invisible` их ВЫБРАСЫВАЕТ, не заменяет
- *  пробелом; иначе "МО​КЕРИ" фолдится в "мо кери" ≠ "мокери". */
+/** Invisible formatting characters (ZWSP, BOM, soft-hyphen, object
+ *  replacement) — backend `is_invisible` DROPS them, it does not replace
+ *  them with a space; otherwise "МО​КЕРИ" folds to "мо кери" ≠ "мокери". */
 const INVISIBLE = /[\u200B-\u200F\uFEFF\u2060\uFFFC\u00AD]/g;
 
 /**
- * Канонический ключ сравнения имён — зеркало бэкендового
- * `enrich::normalize::normalize_name`: NFKD-fold стилизованного юникода и
- * диакритики, выброс невидимых символов, lowercase, только буквы/цифры,
- * `&` ≡ "and", `$` ≡ s, без ведущего "the".
- * Сравнивать имена где-либо ещё другим способом — нельзя.
+ * Canonical key for comparing names — a mirror of the backend's
+ * `enrich::normalize::normalize_name`: NFKD-fold of styled unicode and
+ * diacritics, invisible characters dropped, lowercase, letters/digits only,
+ * `&` ≡ "and", `$` ≡ s, no leading "the".
+ * Comparing names anywhere else by another method is not allowed.
  */
 export function foldName(s: string): string {
   let folded = '';
@@ -62,7 +62,7 @@ export function foldName(s: string): string {
       out += ch;
       prevSpace = false;
     } else if (ch === "'" || ch === '’' || ch === 'ʼ' || ch === '`') {
-      // апострофы схлопываем: Don't == Dont
+      // collapse apostrophes: Don't == Dont
     } else if (!prevSpace) {
       out += ' ';
       prevSpace = true;

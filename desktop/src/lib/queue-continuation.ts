@@ -1,13 +1,13 @@
 /**
- * «Прослойка» дозагрузки очереди для конкретного контекста воспроизведения
- * (лайки, плейлист, лента подписок…). Пока активный источник не исчерпан, его
- * страницы доезжают в очередь раньше, чем включится волна: контекст играется
- * ДО КОНЦА. Источник кончился — отдаёт управление autopilot'у (волне), см.
+ * The top-up «layer» for the queue of one specific playback context
+ * (likes, playlist, following feed…). While the active source is not exhausted,
+ * its pages land in the queue before the wave kicks in: the context plays
+ * TO THE END. The source is done — it hands over to the autopilot (the wave), see
  * lib/queue-autopilot.ts.
  *
- * Источник один на сессию воспроизведения: ставится при play() из контекста,
- * сбрасывается при старте нового play() (player store зовёт reset-handler) и
- * при исчерпании.
+ * One source per playback session: armed on play() from a context,
+ * reset when a new play() starts (the player store calls the reset handler) and
+ * on exhaustion.
  */
 
 import { shuffleArray, type Track, usePlayerStore } from '../stores/player';
@@ -15,12 +15,12 @@ import { api } from './api';
 import { fetchAllLikedTracks, fetchAllPlaylistTracks, fetchLikedTracksPage } from './hooks';
 
 export interface QueueContinuationSource {
-  /** Имя для логов. */
+  /** Name for logs */
   readonly kind: string;
 
   /**
-   * Следующая порция треков. Пустой массив = источник исчерпан (дальше волна).
-   * Дубли отсеивает вызывающий по живой очереди — здесь чистая пагинация.
+   * The next batch of tracks. An empty array = source exhausted (the wave comes next).
+   * The caller filters duplicates against the live queue — this is pure pagination.
    */
   next(): Promise<Track[]>;
 }
@@ -41,8 +41,8 @@ interface PagedTracks {
 }
 
 /**
- * Источник из любого page-based эндпоинта `{ collection, has_more }`.
- * Тянет по странице за вызов; `has_more=false` или пустая страница = иссяк.
+ * A source over any page-based endpoint `{ collection, has_more }`.
+ * Pulls one page per call; `has_more=false` or an empty page = exhausted.
  */
 export function createPagedContinuationSource(
   kind: string,
@@ -70,13 +70,13 @@ const LIKES_PAGE_SIZE = 50;
 const PLAYLIST_PAGE_SIZE = 200;
 
 /**
- * Лайки от и до. `alreadyLoaded` — сколько лайков уже в очереди при старте
- * (первая страница списка): их пропускаем, стык добивает дедуп на стороне
- * autopilot'а.
+ * Likes, start to finish. `alreadyLoaded` is how many likes are already in the queue
+ * at start (the first page of the list): those are skipped, and the seam is closed by
+ * the dedupe on the autopilot side.
  *
- * Курсор тянется с начала цепочки: track_likes не принимает численный offset
- * (`invalid cursor format`), и на N-ю страницу можно попасть только пройдя
- * предыдущие — поэтому страницы-подряд идут, а лишние отсекаются по счётчику.
+ * The cursor is pulled from the start of the chain: track_likes does not accept a numeric
+ * offset (`invalid cursor format`), and the Nth page is only reachable by walking the
+ * previous ones — so pages go in sequence and the extra ones are cut by the counter.
  */
 export function createLikesContinuationSource(alreadyLoaded = 0): QueueContinuationSource {
   let cursor: string | null = null;
@@ -100,11 +100,11 @@ export function createLikesContinuationSource(alreadyLoaded = 0): QueueContinuat
 }
 
 /**
- * Перемешанный ленивый источник под shuffle. На первом `next()` тянет ВЕСЬ набор
- * (`fetchAll`), отсекает то, что уже стоит в очереди (стартовая перемешанная
- * страница), тасует остаток и отдаёт кусками — так под shuffle играет весь набор
- * в случайном порядке, а очередь не раздувается разом. Исчерпался — autopilot
- * уходит в волну.
+ * Shuffled lazy source for shuffle mode. On the first `next()` it pulls the WHOLE set
+ * (`fetchAll`), cuts what is already queued (the initial shuffled page), shuffles
+ * the rest and hands it out in chunks — so under shuffle the whole set plays in
+ * random order without the queue ballooning at once. Exhausted — the autopilot
+ * falls through to the wave.
  */
 function createShuffledContinuationSource(
   kind: string,
@@ -133,14 +133,14 @@ export function createShuffledLikesContinuationSource(): QueueContinuationSource
 }
 
 /**
- * Поставить «лайки до конца» под текущую (уже выставленную play()) очередь —
- * один вызов для всех точек входа в лайки (LikesTab, шелф на home, превью
- * в library, masthead-shuffle). Зовётся в `onPlay` сразу после play(): тот
- * сбросил прошлый источник, мы ставим свой.
+ * Arm «likes to the end» under the current queue (the one play() already set up) —
+ * one call for every likes entry point (LikesTab, the shelf on home, the preview
+ * in library, masthead-shuffle). Called in `onPlay` right after play(): that call
+ * reset the previous source, and we install our own.
  *
- * Под shuffle — источник тасует ВЕСЬ список лайков (а не только подгруженную
- * страницу). Без shuffle — последовательная пагинация со стартом из живой
- * длины очереди.
+ * Under shuffle the source shuffles the WHOLE likes list (not just the loaded
+ * page). Without shuffle — sequential pagination starting from the live
+ * queue length.
  */
 export function armLikesContinuation(): void {
   if (usePlayerStore.getState().shuffle) {
@@ -152,10 +152,10 @@ export function armLikesContinuation(): void {
 }
 
 /**
- * Поставить «плейлист до конца» под текущую очередь — зовётся в `onPlay` сразу
- * после play() из плейлиста. Плейлист пагинируется (`usePlaylistTracks`), и
- * play() кладёт в очередь лишь подгруженный срез; без источника очередь кончалась
- * на нём и волна включалась посреди плейлиста. Тот же приём, что и у лайков.
+ * Arm «playlist to the end» under the current queue — called in `onPlay` right
+ * after play() from a playlist. The playlist is paginated (`usePlaylistTracks`), and
+ * play() only queues the loaded slice; without a source the queue ended
+ * there and the wave kicked in mid-playlist. Same trick as for likes.
  */
 export function armPlaylistContinuation(playlistUrn: string): void {
   if (usePlayerStore.getState().shuffle) {

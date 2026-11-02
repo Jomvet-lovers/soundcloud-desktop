@@ -44,7 +44,7 @@ export const SequenceList = React.memo(function SequenceList({
   isOwner: boolean;
   onDragEnd: (e: DragEndEvent) => void;
   onRemove: (urn: string) => void;
-  /** Армит continuation-источник после старта НОВОГО трека (стабильный ref). */
+  /** Arms the continuation source after a NEW track starts (stable ref). */
   onPlay?: () => void;
   sentinelRef: React.Ref<HTMLDivElement>;
   hasNextPage: boolean;

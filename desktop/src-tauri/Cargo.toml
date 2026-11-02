@@ -10,7 +10,7 @@ name = "soundcloud_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-# Пин на версию ветки feat/cef — иначе cargo берёт более свежую crates.io (без фичи cef).
+# Pin to the feat/cef branch version — otherwise cargo picks a newer crates.io release (without the cef feature).
 tauri-build = { version = "=2.6.2", features = [] }
 
 [dependencies]
@@ -54,20 +54,20 @@ if-addrs = "0.15"
 uuid = { version = "1", features = ["v4"] }
 
 [features]
-# Opt-in: рендер через CEF (Chromium) вместо wry/webkitgtk. Требует [patch.crates-io] ниже.
-# Дефолтная сборка (без этой фичи) остаётся на wry.
+# Opt-in: render through CEF (Chromium) instead of wry/webkitgtk. Requires [patch.crates-io] below.
+# The default build (without this feature) stays on wry.
 cef = ["tauri/cef"]
 
 [profile.release]
 # thin LTO: nearly fat-LTO runtime quality with a much faster build.
 lto = "thin"
 
-# Экспериментальная ветка Tauri с рантаймом tauri-runtime-cef и фичей `cef`.
-# Патчим ТОЛЬКО `tauri` (одна крейта на весь граф → плагины с crates.io разделяют
-# тот же рантайм) и `tauri-build` (наш build-dep, пин на версию ветки). Внутренние
-# tauri-* (tauri-runtime/utils/macros/codegen/plugin) git-tauri тянет по path сам;
-# отдельно их НЕ патчим — иначе build-script'ы crates.io-плагинов ловят skew
-# версий schemars (tauri-plugin::global_scope_schema).
+# Experimental Tauri branch with the tauri-runtime-cef runtime and the `cef` feature.
+# Patch ONLY `tauri` (a single crate for the whole graph → crates.io plugins share
+# the same runtime) and `tauri-build` (our build-dep, pinned to the branch version). Internal
+# tauri-* (tauri-runtime/utils/macros/codegen/plugin) are pulled in by git-tauri itself via path;
+# we do NOT patch them separately — otherwise crates.io plugin build scripts hit a schemars
+# version skew (tauri-plugin::global_scope_schema).
 [patch.crates-io]
 tauri = { git = "https://github.com/tauri-apps/tauri", branch = "feat/cef" }
 tauri-build = { git = "https://github.com/tauri-apps/tauri", branch = "feat/cef" }

@@ -1,5 +1,5 @@
-// Единая логика показа авторов/названия трека. Разбор — display.ts,
-// поимённые ссылки — links.ts, ключи сравнения — fold.ts (зеркало бэка).
+// Single source of truth for showing a track's artists/title. Parsing — display.ts,
+// per-name links — links.ts, comparison keys — fold.ts (mirror of the backend).
 
 export { looksLikeRoleTag, stripInlineTags, stripTranslitParens } from './clean';
 export {

@@ -4,21 +4,21 @@ import type { Track, TrackScdMeta } from '../stores/player';
 import { api } from './api';
 
 /**
- * Клиентский добор `_scd_meta` (статус-бейдж трека) для шелфов из SC-источников.
+ * Client-side fetch of `_scd_meta` (the track's status badge) for shelves fed from SC sources.
  *
- * `/tracks/:urn/related` (и public-search) приходят SC-shaped без нашей меты, а
- * она нужна для бейджа A/C/F. Единственный эндпоинт, который её отдаёт —
- * одиночный `/tracks/:urn` (бэк кеширует ~10м). Добираем её точечно и кешируем
- * по урну в памяти, чтобы один и тот же трек в разных шелфах/жанрах не дёргал
- * бэк повторно. `null` = трека нет в нашем каталоге → мета не положена, бейдж
- * остаётся скрытым (компонент null-safe).
+ * `/tracks/:urn/related` (and public-search) arrive SC-shaped without our meta, and
+ * it is needed for the A/C/F badge. The only endpoint that serves it is the
+ * single `/tracks/:urn` (the backend caches it for ~10m). We fetch it pointwise and cache
+ * it in memory keyed by urn, so the same track in different shelves/genres does not hit
+ * the backend again. `null` = the track is not in our catalog → no meta applies, the badge
+ * stays hidden (the component is null-safe).
  */
 const metaCache = new Map<string, TrackScdMeta | null>();
 
-/** `pending` storage/index ещё перевернётся (pending→ok, pending→indexed) —
- *  такую мету НЕ пиним, иначе бейдж замёрзнет на первом увиденном статусе на
- *  всю сессию. Терминальную (готово/ошибка/too_long/`null`=не в каталоге)
- *  кешируем — она уже не меняется. */
+/** `pending` storage/index will still flip (pending→ok, pending→indexed) —
+ *  do NOT pin such meta, otherwise the badge freezes on the first status seen for
+ *  the whole session. A terminal one (done/error/too_long/`null`=not in the catalog)
+ *  we cache — it no longer changes. */
 function isTerminal(meta: TrackScdMeta | null): boolean {
   if (!meta) return true;
   return meta.storage_state !== 'pending' && meta.index_state !== 'pending';
@@ -28,7 +28,7 @@ async function fetchMeta(urn: string): Promise<TrackScdMeta | null> {
   if (metaCache.has(urn)) return metaCache.get(urn) ?? null;
   const full = await api<Track>(`/tracks/${encodeURIComponent(urn)}`).catch(() => null);
   const meta = full?._scd_meta ?? null;
-  if (isTerminal(meta)) metaCache.set(urn, meta); // pending → re-fetch на следующем заходе
+  if (isTerminal(meta)) metaCache.set(urn, meta); // pending → re-fetch on the next visit
   return meta;
 }
 
@@ -48,9 +48,9 @@ async function enrich(tracks: Track[]): Promise<Track[]> {
 }
 
 /**
- * Возвращает те же треки, но с добранной `_scd_meta` для бейджей. Бандлит ровно
- * переданный (отрендеренный) список — не весь пул. До загрузки отдаёт исходные
- * треки, потом — обогащённые.
+ * Returns the same tracks, but with `_scd_meta` fetched for the badges. Bundles exactly
+ * the passed (rendered) list — not the whole pool. Before loading it returns the original
+ * tracks, afterwards the enriched ones.
  */
 export function useScdMeta(tracks: Track[]): Track[] {
   const key = useMemo(() => tracks.map((t) => t.urn).join(','), [tracks]);

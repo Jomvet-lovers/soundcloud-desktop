@@ -226,10 +226,10 @@ export function UserLikesTab({ urn, aura }: { urn: string; aura: Aura }) {
 }
 
 /**
- * Поиск треков юзера в нашей базе (`/search/db/tracks?user_urn=...`). Идёт
- * только локально — на SC нет API "tracks этого юзера с подстрочным q=".
- * Рендер совместим с обычным UserTracksTab, чтобы UI не "прыгал" при
- * включении/выключении поиска.
+ * Searches a user's tracks in our database (`/search/db/tracks?user_urn=...`).
+ * Runs locally only — SC has no API for "this user's tracks with a substring q=".
+ * The render matches the regular UserTracksTab so the UI doesn't "jump" when
+ * search is enabled/disabled.
  */
 export function UserSearchTracksTab({
   urn,
@@ -270,7 +270,7 @@ export function UserSearchTracksTab({
 }
 
 /**
- * Поиск плейлистов юзера в нашей базе. Та же логика, что и Tracks-вариант.
+ * Searches a user's playlists in our database. Same logic as the Tracks variant.
  */
 export function UserSearchPlaylistsTab({ urn, query }: { urn: string; query: string }) {
   const q = useSearchDbPlaylists(query, urn);

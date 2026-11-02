@@ -177,8 +177,8 @@ export const PlaylistPage = React.memo(function PlaylistPage() {
     [debouncedUpdate],
   );
 
-  // Доигрываем плейлист ДО КОНЦА (пагинированный срез в очереди → потом волна),
-  // как у лайков. Армить ПОСЛЕ play(): он сбрасывает прошлый источник.
+  // Play the playlist THROUGH TO THE END (paginated slice in the queue → then the
+  // wave), like likes. Arm AFTER play(): it resets the previous source.
   const armContinuation = useCallback(() => {
     if (urn) armPlaylistContinuation(urn);
   }, [urn]);

@@ -379,10 +379,10 @@ impl AnonClient {
         }
 
         let mut last_err: Option<String> = None;
-        // Собираем ВСЕ ошибки кандидатов: «ресурс исчез» — только когда 404
-        // у каждого. Раньше флаг сбрасывался на любой не-404, из-за чего
-        // единственный мёртвый пресет (`abr_sq` 404-ит у всех треков) маскировал
-        // рабочие `mp3_1_0`/`aac_160k` под «трек недоступен».
+        // Collect ALL candidate errors: "resource gone" only when 404
+        // on every one. Previously the flag was reset by any non-404, so
+        // a single dead preset (`abr_sq` 404s on every track) masked
+        // working `mp3_1_0`/`aac_160k` as "track unavailable".
         let mut errors: Vec<String> = Vec::new();
         for t in ranked {
             let is_progressive = is_progressive(t);
@@ -431,9 +431,9 @@ impl AnonClient {
             }
         }
 
-        // 404 на всех кандидатах = у трека нет аудио. 401/403/429 — клиентский
-        // (протухший client_id / бан): это Err, чтобы сработал refresh+retry
-        // и НЕ открылся circuit breaker.
+        // 404 on all candidates = the track has no audio. 401/403/429 are client-side
+        // (stale client_id / ban): they are Err so refresh+retry kicks in
+        // and the circuit breaker does NOT open.
         if all_candidates_gone(&errors) && !errors.iter().any(|e| is_auth_or_rate_limited(e)) {
             return Ok(None);
         }
@@ -586,20 +586,20 @@ impl AnonClient {
         self.coalesced_refresh().await
     }
 
-    /// Принудительно сбросить кэш client_id и взять новый.
+    /// Force-reset the client_id cache and take a fresh one.
     ///
-    /// Обычный `coalesced_refresh` уважает 30-секундный гейт и возвращает
-    /// ТОТ ЖЕ протухший id — «обновление» после 401 снова била тем же id.
-    /// Здесь гейт пропускается: id выбрасывается, и следующий запрос уходит с
-    /// реально свежим.
+    /// The usual `coalesced_refresh` respects the 30-second gate and returns
+    /// THE SAME stale id — a "refresh" after 401 hit the same id again.
+    /// Here the gate is skipped: the id is discarded, and the next request goes out with
+    /// a genuinely fresh one.
     async fn invalidate_and_refresh(&self) -> Result<String, String> {
         *self.client_id.write().await = None;
         *self.refresh_gate.lock().await = None;
         self.coalesced_refresh().await
     }
 
-    /// Гейт нужен, чтобы пачка параллельных треков не устроила N заходов на
-    /// homepage. Кэш при этом НЕ трогаем — решает вызывающий.
+    /// The gate exists so a burst of parallel tracks does not cause N visits to the
+    /// homepage. The cache is NOT touched here — the caller decides.
     async fn coalesced_refresh(&self) -> Result<String, String> {
         {
             let gate = self.refresh_gate.lock().await;
@@ -611,9 +611,9 @@ impl AnonClient {
             }
         }
 
-        // Гейт отпускаем ДО похода в сеть: иначе все ждущие конкуренты
-        // блокируются на время фетча homepage вместо того, чтобы увидеть
-        // уже готовый свежий id.
+        // Release the gate BEFORE going to the network: otherwise all waiting competitors
+        // block for the duration of the homepage fetch instead of seeing
+        // the already prepared fresh id.
         let client_id = self.fetch_client_id().await?;
 
         *self.client_id.write().await = Some(client_id.clone());
@@ -648,10 +648,10 @@ impl AnonClient {
 
         match self.fetch_json::<ResolvedTrack>(&target, token).await {
             Ok(t) => Ok(t),
-            // Refresh+retry — только когда смена client_id реально лечит
-            // (401/403/429). 404/410 — окончательный ответ (удалён/приватный),
-            // остальное (500/таймаут/decode) новый id не чинит: лишний
-            // homepage-запрос жечь не будем, ошибка уходит наверх как есть.
+            // Refresh+retry only when changing client_id actually fixes it
+            // (401/403/429). 404/410 are a final answer (deleted/private);
+            // everything else (500/timeout/decode) a new id will not fix: we will
+            // not burn an extra homepage request; the error goes up as is.
             Err(e) if is_auth_or_rate_limited(&e) => {
                 self.log(
                     "INFO",
@@ -680,10 +680,10 @@ impl AnonClient {
 
         match self.fetch_json::<TranscodingResolveResponse>(&target, token).await {
             Ok(r) => Ok(r.url),
-            // Только 401/403/429 лечатся сменой client_id. 404 на пресете
-            // (`abr_sq` 404-ит у большинства треков) — окончательный ответ,
-            // остальное новый id не чинит: refresh здесь лишь сжигал
-            // homepage-запрос на каждый мёртвый пресет, замедляя весь подбор.
+            // Only 401/403/429 are fixed by changing client_id. A 404 on a preset
+            // (`abr_sq` 404s on most tracks) is a final answer;
+            // everything else a new id will not fix: a refresh here only burned
+            // a homepage request per dead preset, slowing down the whole selection.
             Err(e) if explicit_client_id.is_none() && is_auth_or_rate_limited(&e) => {
                 let new_id = self.invalidate_and_refresh().await?;
                 let retry = build_transcoding_target(transcoding_url, &new_id, track_authorization);
@@ -770,16 +770,16 @@ fn looks_like_resource_gone(err: &str) -> bool {
     err.contains("HTTP 404") || err.contains("HTTP 410")
 }
 
-/// 401/403/429 — проблема клиента (протухший client_id, бан), а не трека.
-/// Такие ошибки обязаны дойти до вызывающего как `Err`: он обновит client_id и
-/// повторит, а `Ok(None)` их обещал бы как «аудио нет».
+/// 401/403/429 are a client-side problem (stale client_id, ban), not a track problem.
+/// Such errors must reach the caller as `Err`: it will refresh client_id and
+/// retry, while `Ok(None)` would promise them as "no audio".
 fn is_auth_or_rate_limited(err: &str) -> bool {
     err.contains("HTTP 401") || err.contains("HTTP 403") || err.contains("HTTP 429")
 }
 
-/// 404 на ВСЕХ кандидатах — трек реально без аудио (geo-block, превью,
-/// удалён). Один 404 — норма: `abr_sq` 404-ит у большинства треков, и раньше
-/// он маскировал рабочие `mp3_1_0`/`aac_160k` под «трек недоступен».
+/// A 404 on ALL candidates — the track really has no audio (geo-block, preview,
+/// deleted). A single 404 is normal: `abr_sq` 404s on most tracks, and previously
+/// it masked working `mp3_1_0`/`aac_160k` as "track unavailable".
 fn all_candidates_gone(errors: &[String]) -> bool {
     !errors.is_empty() && errors.iter().all(|e| looks_like_resource_gone(e))
 }
@@ -818,9 +818,9 @@ mod tests {
         looks_like_resource_gone,
     };
 
-    /// Регрессия: `abr_sq` 404-ит у почти всех треков. Считать «трек без
-    /// аудио» по ЕДИНСТВЕННОМУ 404 значило отбрасывать рабочие mp3/aac
-    /// и ронять воспроизведение целиком (см. `dreamin chuchu <3`).
+    /// Regression: `abr_sq` 404s on almost every track. Treating "track without
+    /// audio" from a SINGLE 404 meant discarding working mp3/aac
+    /// and breaking playback entirely (see `dreamin chuchu <3`).
     #[test]
     fn one_404_does_not_condemn_the_track() {
         let errors = vec![
@@ -836,15 +836,15 @@ mod tests {
         assert!(!all_candidates_gone(&errors));
     }
 
-    /// Пустой список ошибок — не «всё пропало»: значит кандидатов не было.
+    /// An empty error list is not "everything is gone": it means there were no candidates.
     #[test]
     fn no_errors_is_not_all_gone() {
         assert!(!all_candidates_gone(&[]));
     }
 
-    /// Подписанные URL (`expires=…`, base64) содержат runs вроде "404":
-    /// голый `.contains("404")` принимал их за статус и хоронил трек.
-    /// Матчим только префикс `HTTP {status}` от собственного `fetch_json`.
+    /// Signed URLs (`expires=…`, base64) contain runs like "404":
+    /// a bare `.contains("404")` mistook them for a status and buried the track.
+    /// We match only the `HTTP {status}` prefix produced by our own `fetch_json`.
     #[test]
     fn signed_url_digit_runs_are_not_statuses() {
         assert!(!looks_like_resource_gone(
@@ -861,8 +861,8 @@ mod tests {
         // is exact in practice; there is no 4-digit HTTP status to collide with.
     }
 
-    /// Протухший client_id обязан дойти до вызывающего как Err, иначе
-    /// circuit breaker откроется и убьёт все треки разом.
+    /// A stale client_id must reach the caller as Err, otherwise
+    /// the circuit breaker opens and kills all tracks at once.
     #[test]
     fn client_errors_are_not_resource_gone() {
         assert!(is_auth_or_rate_limited("resolve mp3_1_0 failed: HTTP 401"));

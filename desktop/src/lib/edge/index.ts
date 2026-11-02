@@ -1,5 +1,5 @@
-// Единая точка сетевых запросов фронта к нашим доменам: перебирает тиры
-// (прямой → relay) и запоминает, что сработало.
+// The single entry point for the frontend's requests to our domains: it walks the tiers
+// (direct → relay) and remembers what worked.
 
 import { fetch } from '@tauri-apps/plugin-http';
 import { type Hop, noteHop, planHops } from './config';
@@ -17,9 +17,9 @@ function timedFetch(url: string, init: RequestInit, timeoutMs?: number): Promise
 }
 
 /**
- * Ответ пришёл — но виноват ли транспорт? Relay отдаёт свои 421/502/503/504,
- * прямой хост — HTML-страницу балансера. И то и другое лечится следующим хопом,
- * а ответ origin'а (401/404/500 приложения) — уже валидный результат.
+ * An answer arrived — but is the transport to blame? Relay serves its own 421/502/503/504,
+ * the direct host serves the balancer's HTML page. Both are cured by the next hop,
+ * while the origin's answer (the app's 401/404/500) is a valid result already.
  */
 function hopUsable(hop: Hop, res: Response): boolean {
   if (hop.tier === 'relay') return ![421, 502, 503, 504].includes(res.status);
@@ -32,11 +32,11 @@ function isDirectInfrastructureError(res: Response): boolean {
 }
 
 /**
- * Короткий бюджет (проба хостов — 3 с) не доказывает, что прямой путь закрыт:
- * первый холодный TLS у медленного канала в него не влезает. Такой запрос всё
- * равно уйдёт следующим тиром, но вердикт не двигаем — иначе здоровые юзеры
- * переезжают на relay из-за одной медленной пробы. Реальный бан режет соединение
- * сразу (RST), так что на скорость детекта это не влияет.
+ * A short budget (host probe — 3 s) does not prove the direct path is closed:
+ * a first cold TLS does not fit into it on a slow link. Such a request still
+ * moves on to the next tier, but we do not move the verdict — otherwise healthy users
+ * migrate to relay because of one slow probe. A real ban cuts the connection
+ * immediately (RST), so this does not affect detection speed.
  */
 const WEAK_BUDGET_MS = 5_000;
 
@@ -47,10 +47,10 @@ function isTimeout(error: unknown): boolean {
 }
 
 /**
- * Отказ ТРАНСПОРТА, дошедший до вызывающего: страница CF/балансера вместо ответа
- * приложения. Отдельный тип, чтобы `api-client` не принял её за ответ API —
- * иначе 429 от воркера читается как «нас рейт-лимитят», а 502 балансера как
- * «сервер лёг», и то и другое будит recovery сессии на ровном месте.
+ * A TRANSPORT refusal that reached the caller: a CF/balancer page instead of an
+ * app answer. A separate type so `api-client` does not take it for an API response —
+ * otherwise a worker's 429 reads as «we are being rate-limited», a balancer's 502 as
+ * «the server is down», and both wake session recovery for nothing.
  */
 export class EdgeTransportError extends Error {
   constructor(
@@ -63,14 +63,14 @@ export class EdgeTransportError extends Error {
 }
 
 /**
- * Резерв под запасные хопы. Делить бюджет поровну нельзя: отвечает обычно ПЕРВЫЙ
- * хоп, и его легитимно долгий ответ дороже, чем шанс попробовать резерв. При
- * бюджете 30 с прямой путь получает 20 с — этого хватает на наблюдавшиеся на
- * проде 17.9 с под конвоем refresh-лока, а relay всё равно остаётся с 10 с.
+ * Reserve for the spare hops. The budget cannot be split evenly: usually the FIRST
+ * hop answers, and its legitimately slow answer is worth more than the chance to try the
+ * reserve. With a 30 s budget the direct path gets 20 s — enough for the 17.9 s
+ * observed in prod under the refresh-lock convoy, and relay still keeps 10 s.
  */
 const FALLBACK_RESERVE_MS = 10_000;
 
-/** Сколько времени отдать этому хопу; последнему достаётся весь остаток. */
+/** How much time to give this hop; the last one gets the whole remainder */
 function hopBudgetMs(remaining: number, hopsLeft: number): number {
   if (hopsLeft <= 1) return remaining;
   const reserve = Math.min(FALLBACK_RESERVE_MS, Math.floor(remaining / 3));
@@ -86,9 +86,9 @@ export async function edgeFetch(
   if (hops.length === 0) return timedFetch(url, init, timeoutMs);
 
   const weakBudget = timeoutMs !== undefined && timeoutMs < WEAK_BUDGET_MS;
-  // Бюджет — на ВЕСЬ вызов, а не на каждый хоп. Иначе таймаут молча умножается
-  // на длину плана: 10 с control-plane превращались в 20 с на двух хопах и в
-  // 40 с на двух базах, и вызывающий получал «Request canceled» вместо ответа.
+  // The budget covers the WHOLE call, not each hop. Otherwise the timeout silently multiplies
+  // by the plan length: 10 s of control-plane became 20 s over two hops and
+  // 40 s over two bases, and the caller got «Request canceled» instead of an answer.
   const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
   let lastError: unknown = null;
 
@@ -111,7 +111,7 @@ export async function edgeFetch(
       if (error instanceof EdgeTransportError) throw error;
       lastError = error;
       if (!(weakBudget && isTimeout(error))) noteHop(hop, false);
-      // Отмена вызывающим (не таймаут хопа) — перебор бессмысленен.
+      // Aborted by the caller (not a hop timeout) — further attempts are pointless.
       if (init.signal?.aborted) throw error;
       if (isLast) throw error;
     }

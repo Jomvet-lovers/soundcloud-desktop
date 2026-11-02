@@ -79,12 +79,13 @@ const SNAPSHOT_RETRY_MS = 300;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Снимок сессии из Rust. Провал invoke — это НЕ «юзер разлогинен», а «Rust не
- * ответил», и путать их нельзя: в dev webview перезагружается отдельно от
- * бэкенда, висящий callback теряется (`[TAURI] Couldn't find callback id`), и
- * ошибка прилетает на ровном месте. Раньше её принимали за пустую сессию —
- * зеркало чистилось, и первые запросы уходили без `x-session-id`, ловя
- * бессмысленный 401 «Missing or malformed». Поэтому: ретраим, а не отвечаем.
+ * Session snapshot from Rust. A failed invoke is NOT "user signed out" but "Rust
+ * didn't answer", and the two must not be confused: in dev the webview reloads
+ * separately from the backend, the hanging callback is lost
+ * (`[TAURI] Couldn't find callback id`), and the error shows up out of nowhere.
+ * It used to be taken for an empty session — the mirror got cleared and the
+ * first requests went out without `x-session-id`, catching a meaningless 401
+ * "Missing or malformed". So: retry instead of answering.
  */
 export async function readAuthStatus(): Promise<AuthView | null> {
   for (let attempt = 1; attempt <= SNAPSHOT_ATTEMPTS; attempt++) {
@@ -99,13 +100,13 @@ export async function readAuthStatus(): Promise<AuthView | null> {
 
 /** Seed the mirror from Rust once, then track every `auth:changed` broadcast. */
 export async function initAuthBridge(): Promise<void> {
-  // Подписка ПЕРЕД снимком: логин/логаут, случившийся пока читаем снимок,
-  // иначе потерялся бы целиком.
+  // Subscribe BEFORE the snapshot: a login/logout that happens while we read
+  // the snapshot would otherwise be lost entirely.
   await listen<AuthView>('auth:changed', (e) => {
     applyAuthFromServer(e.payload ?? null);
   });
   const snap = await readAuthStatus();
-  // Rust так и не ответил — зеркало не трогаем. Пусть его заполнит
-  // `auth:changed`, а запросы подождут (`api-client`: гейт с потолком).
+  // Rust never answered — leave the mirror alone. Let `auth:changed` fill it,
+  // and requests can wait (`api-client`: gate with a ceiling).
   if (snap) applyAuthFromServer(snap);
 }

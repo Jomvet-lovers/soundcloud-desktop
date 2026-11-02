@@ -74,9 +74,9 @@ export function useDislikeStatus(urn: string | undefined): boolean {
 }
 
 /**
- * Загружает все ID дизлайкнутых треков юзера в локальный кеш.
- * Вызывается один раз после авторизации, чтобы автоскип в audio.ts
- * мог работать синхронно без запросов к бэку.
+ * Loads all of the user's disliked track IDs into the local cache.
+ * Called once after sign-in so autoskip in audio.ts can run synchronously
+ * without backend requests.
  */
 let _bulkLoaded = false;
 
@@ -102,7 +102,7 @@ export async function loadAllDislikedIds(): Promise<void> {
     _bulkLoaded = true;
     notify();
   } catch {
-    /* ignore — fallback на per-track fetchDislikeStatus */
+    /* ignore — fall back to per-track fetchDislikeStatus */
   }
 }
 

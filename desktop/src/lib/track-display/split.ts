@@ -1,23 +1,23 @@
-/** Спейс-дефисы — те же 7 вариантов, что у бэкендового `split_first_dash`. */
+/** Spaced dashes — the same 7 variants as the backend's `split_first_dash` */
 export const TITLE_SEPARATORS = [' - ', ' — ', ' – ', ' -- ', ' ‒ ', ' − ', ' ─ '] as const;
 
 /**
- * Сочленители списка имён — зеркало бэкендового `RE_SPLIT_NAMES`
- * (artist_names.rs): запятая/точка с запятой всегда; связки (x, кириллическая
- * х, кресты, +, vs, &, and, w/, feat, /) — только отбитые пробелами, чтобы не
- * порезать "AC/DC", "She&Him" или "Axwell".
+ * Name-list joiners — a mirror of the backend's `RE_SPLIT_NAMES`
+ * (artist_names.rs): comma/semicolon always; ligatures (x, Cyrillic
+ * х, crosses, +, vs, &, and, w/, feat, /) — only when space-delimited, so that
+ * "AC/DC", "She&Him" or "Axwell" are not cut.
  */
 const SPLITTER =
   /\s*[,;]\s*|\s+(?:x|х|×|✕|✖|⨯|\+|vs\.?|&|and|w\/|feat\.?|ft\.?|featuring|\/)\s+/giu;
 
 export interface NamePart {
   text: string;
-  /** Смещения в исходной строке — нужны для склейки обратно в полное имя. */
+  /** Offsets into the source string — needed to glue pieces back into a full name */
   start: number;
   end: number;
 }
 
-/** Разбить строку-список на имена с позициями в исходнике. */
+/** Split a list string into names with their positions in the source */
 export function splitNamesWithOffsets(s: string): NamePart[] {
   const parts: NamePart[] = [];
   let cursor = 0;

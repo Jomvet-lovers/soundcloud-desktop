@@ -139,9 +139,9 @@ fn commit_stream_player(state: &AudioState, new_player: rodio::Player, normaliza
     state.device_error.store(false, Ordering::Relaxed);
 }
 
-// Все 9 параметров — это один build шаг плеера: mixer/volume/normalization-кеш
-// + eq + analyser идут в одну `spawn_blocking`-обертку. Заводить отдельную
-// структуру `BuildPlayerArgs` ради одной точки вызова — лишний слой.
+// All 9 parameters are one player build step: mixer/volume/normalization cache
+// + eq + analyser go into a single `spawn_blocking` wrapper. Introducing a separate
+// `BuildPlayerArgs` struct for one call site would be an extra layer.
 #[allow(clippy::too_many_arguments)]
 async fn build_player_from_bytes(
     bytes: Vec<u8>,

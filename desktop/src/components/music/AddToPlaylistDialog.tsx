@@ -244,8 +244,8 @@ export const AddToPlaylistDialog = React.memo(function AddToPlaylistDialog({
   }, [playlists, playlistTrackMap, normalizedTrackUrns]);
 
   const handleSelect = async (playlist: Playlist) => {
-    // existingUrns — только для UX-хинта «уже в плейлисте»; в мутацию идут
-    // `{add}`-дельты, backend дедупит, полный список не реконструируем.
+    // existingUrns is only for the "already in playlist" UX hint; the mutation
+    // gets `{add}` deltas, the backend dedupes, and we don't rebuild the full list.
     const existingUrns = playlistTrackMap[playlist.urn] ?? playlist.tracks?.map((t) => t.urn) ?? [];
     const existingSet = new Set(existingUrns);
     const newUrns = trackUrns.filter((u) => !existingSet.has(u));

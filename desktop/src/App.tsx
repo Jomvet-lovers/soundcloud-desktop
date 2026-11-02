@@ -118,8 +118,8 @@ export default function App() {
     fetchUser().catch((error) => {
       if (cancelled) return;
 
-      // Auth-recoverable сбои (401/429/пустой юзер) уже перехвачены в
-      // api-client → recoverSession() (silent renew, при неудаче — модалка).
+      // Auth-recoverable failures (401/429/empty user) are already handled in
+      // api-client → recoverSession() (silent renew, modal on failure).
       if (error instanceof ApiError) return;
 
       if (getAppMode() !== 'online') {

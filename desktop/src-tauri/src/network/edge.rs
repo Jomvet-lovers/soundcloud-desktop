@@ -520,11 +520,11 @@ mod tests {
         for (origin, source) in INHERIT {
             assert!(
                 !hosts(origin).is_empty(),
-                "origin {origin} наследует вердикт, но сам не в RELAYS"
+                "origin {origin} inherits a verdict but is not in RELAYS"
             );
             assert!(
                 !hosts(source).is_empty(),
-                "{origin} наследует у {source}, которого нет в RELAYS"
+                "{origin} inherits from {source}, which is not in RELAYS"
             );
         }
     }
@@ -558,7 +558,7 @@ mod tests {
         assert_eq!(
             [Tier::Direct, Tier::Relay].map(|t| t as u8).len(),
             2,
-            "Tier должен остаться двухступенчатым"
+            "Tier must stay two-stage"
         );
     }
 

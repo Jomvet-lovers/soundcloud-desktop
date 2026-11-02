@@ -39,17 +39,17 @@ export function getCacheInfo(urn: string): Promise<TrackCacheInfo | null> {
 
 export type FfmpegState = 'ready' | 'preparing' | 'unavailable';
 
-/** Live snapshot of the А→Б transcode pipeline (Rust `TranscodeStatus`). */
+/** Live snapshot of the raw→clean transcode pipeline (Rust `TranscodeStatus`). */
 export interface TranscodeStatus {
   ffmpeg: FfmpegState;
-  /** Raw files staged in folder А, awaiting transcode. */
+  /** Raw files in the staging dir, awaiting transcode. */
   incoming: number;
   incomingBytes: number;
   /** Transcodes running right now. */
   transcoding: number;
   /** URNs being forged right now, for per-row UI state. */
   transcodingUrns: string[];
-  /** Clean m4a files in folder Б (regular + liked). */
+  /** Clean m4a files in the clean dirs (regular + liked). */
   clean: number;
   cleanBytes: number;
 }
@@ -145,7 +145,7 @@ export function listCachedUrns(): Promise<string[]> {
 export interface CacheInventoryEntry {
   urn: string;
   bytes: number;
-  /** "clean" = transcoded m4a (Б), "raw" = staged for transcode (А). */
+  /** "clean" = transcoded m4a, "raw" = staged awaiting transcode. */
   stage: 'clean' | 'raw';
   liked: boolean;
   quality: PlaybackQuality | null;
@@ -275,9 +275,9 @@ function extensionFromType(mime: string): string {
   return '.jpg';
 }
 
-/** Скачивает картинку по URL и сохраняет в wallpapers/. Возвращает имя файла.
- *  Идём через локальный прокси в режиме `direct` — он фетчит с браузерным UA
- *  (Wallhaven/Konachan 403-ят не-браузер), webview-fetch так не умеет. */
+/** Downloads an image by URL and saves it into wallpapers/. Returns the file name.
+ *  Goes through the local proxy in `direct` mode — it fetches with a browser UA
+ *  (Wallhaven/Konachan reject non-browsers with 403), which webview-fetch can't do. */
 export async function downloadWallpaper(url: string): Promise<string> {
   const res = await tauriFetch(toScproxyUrl(url, { direct: true }));
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
@@ -291,7 +291,7 @@ export async function downloadWallpaper(url: string): Promise<string> {
   return name;
 }
 
-/** Сохраняет ArrayBuffer (из input type=file) как wallpaper. Возвращает имя файла. */
+/** Saves an ArrayBuffer (from input type=file) as a wallpaper. Returns the file name. */
 export async function saveWallpaperFromBuffer(
   buffer: ArrayBuffer,
   fileName: string,
@@ -304,7 +304,7 @@ export async function saveWallpaperFromBuffer(
   return name;
 }
 
-/** Получить имена всех сохранённых wallpapers */
+/** List the names of all saved wallpapers */
 export async function listWallpapers(): Promise<string[]> {
   try {
     const dir = await getWallpapersDir();
@@ -321,14 +321,14 @@ export async function listWallpapers(): Promise<string[]> {
   }
 }
 
-/** Удалить wallpaper по имени файла */
+/** Delete a wallpaper by file name */
 export async function removeWallpaper(name: string): Promise<void> {
   const dir = await getWallpapersDir();
   const path = await join(dir, name);
   await remove(path).catch(() => {});
 }
 
-/** HTTP URL для wallpaper по имени файла */
+/** HTTP URL for a wallpaper by file name */
 export function getWallpaperUrl(name: string): string | null {
   const port = getStaticPort();
   if (!port) return null;

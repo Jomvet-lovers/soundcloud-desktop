@@ -32,12 +32,12 @@ const SKIP_THRESHOLD_SEC = 30;
 /** Sustained-play threshold before reporting server-side history. */
 const REPORT_THRESHOLD_MS = 15_000;
 let reportTimer: number | undefined;
-/** Минимум, чтобы засчитать «прослушано полностью» для коротких треков (50% длительности). */
+/** Minimum to count as "listened fully" for short tracks (50% of duration). */
 const FULL_PLAY_RATIO = 0.5;
-/** Битый кеш: сыграло меньше этого на треке от EARLY_END_MIN_EXPECTED_SEC — лечим перекачкой. */
+/** Corrupt cache: played less than this on a track from EARLY_END_MIN_EXPECTED_SEC — heal by re-downloading. */
 const EARLY_END_PLAYED_SEC = 10;
 const EARLY_END_MIN_EXPECTED_SEC = 30;
-/** Один лечебный перекач на урн за сессию — защита от лупа на 30s-превью и мёртвых источниках. */
+/** One healing re-download per urn per session — guard against looping on 30s previews and dead sources. */
 const healedUrns = new Set<string>();
 /** Consecutive disliked-track auto-skips before the player gives up (see the subscriber). */
 const AUTO_SKIP_LIMIT = 200;
@@ -420,7 +420,7 @@ function isFileMissing(e: unknown): boolean {
 }
 
 /**
- * Load a cached file, surviving the raw-А → clean-Б transcode swap: if the path
+ * Load a cached file, surviving the raw → clean transcode swap: if the path
  * was deleted between cache-resolve and read, re-resolve through the cache (the
  * clean file now, or a fresh download) and retry once.
  */
@@ -487,7 +487,7 @@ async function loadTrack(track: Track) {
   try {
     const highQualityStreaming = useSettingsStore.getState().highQualityStreaming;
 
-    // The cached file can be swapped (raw А → clean Б) or evicted between resolve
+    // The cached file can be swapped (raw → clean) or evicted between resolve
     // and read; re-resolve through the cache to recover the current path.
     const reResolve = async (): Promise<string | null> => {
       const info = await getCacheInfo(urn);
@@ -669,10 +669,10 @@ async function hydrateTrackMetadata(track: Track, gen: number) {
   commitTrackMetadata(nextTrack);
 }
 
-/** Трек «закончился» через пару секунд при заявленных минутах — в кеше битый
- *  файл (заголовок целый, данные обрезаны: легаси без .meta.json или яд из
- *  storage до серверного duration-гейта). Сносим файл и перекачиваем вместо
- *  тихого скипа на следующий. */
+/** Track "ended" a couple of seconds in despite the claimed minutes — a corrupt
+ *  file in the cache (header intact, data truncated: legacy without .meta.json or
+ *  poison from storage before the server-side duration gate). Delete the file and
+ *  re-download instead of silently skipping to the next one. */
 function maybeHealEarlyEnd(): boolean {
   if (!currentUrn || navigator.onLine === false) return false;
   const state = usePlayerStore.getState();
@@ -720,8 +720,8 @@ function handleTrackEnd() {
     if (state.currentTrack) void loadTrack(state.currentTrack);
     return;
   }
-  // Всегда через next(). Если упёрся в конец очереди — store сам позовёт
-  // autopilot (см. setEndOfQueueFallback в lib/queue-autopilot.ts).
+  // Always via next(). If it hits the end of the queue — the store calls
+  // autopilot itself (see setEndOfQueueFallback in lib/queue-autopilot.ts).
   // Clear currentUrn so subscriber detects change even if next track has same URN.
   currentUrn = null;
   usePlayerStore.getState().next();
@@ -762,9 +762,9 @@ listen<{ urn: string; error: string }>('audio:stream-failed', (event) => {
 listen('audio:ended', () => {
   if (maybeHealEarlyEnd()) return;
   if (currentUrn) {
-    // Засчитываем full_play только если трек реально игрался: либо ≥30s,
-    // либо проиграно ≥50% длительности (для коротких треков). Иначе это
-    // зависшая загрузка / зеро-длительность баг — не отправляем.
+    // Count full_play only if the track actually played: either ≥30s,
+    // or ≥50% of duration played (for short tracks). Otherwise it's a
+    // stuck load / zero-duration bug — don't report.
     const playedEnough =
       cachedTime >= SKIP_THRESHOLD_SEC ||
       (cachedDuration > 0 && cachedTime >= cachedDuration * FULL_PLAY_RATIO);
@@ -852,7 +852,7 @@ usePlayerStore.subscribe((state, prev) => {
     lastEndedUrn = null;
 
     if (state.currentTrack) {
-      // Автоскип дизлайкнутых треков: пропускаем без загрузки/плэя.
+      // Autoskip disliked tracks: skip without loading/playing.
       if (isUrnDisliked(state.currentTrack.urn)) {
         currentUrn = null;
         fallbackDuration = 0;

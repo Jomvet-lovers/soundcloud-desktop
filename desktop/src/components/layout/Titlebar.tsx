@@ -15,8 +15,8 @@ const NavButtons = React.memo(() => {
   const navigate = useNavigate();
   const location = useLocation();
   const canGoBack = location.key !== 'default';
-  // `/` — индекс-роут, который всегда редиректит на стартовую страницу; домашняя
-  // лента живёт на `/home`. Активное состояние и навигация — по нему.
+  // `/` is an index route that always redirects to the start page; the home
+  // feed lives at `/home`. Active state and navigation follow `/home`.
   const onHome = location.pathname === '/home';
 
   return (

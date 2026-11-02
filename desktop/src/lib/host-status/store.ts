@@ -10,9 +10,9 @@ export interface HostStatusState {
   main: HostVerdict;
   star: HostVerdict;
   net: NetVerdict;
-  /** Активная проба идёт (single-flight гейт + фидбек retry-кнопки). */
+  /** An active probe is under way (single-flight gate + retry-button feedback) */
   probing: boolean;
-  /** ++ на подтверждённом переходе main→down при net=online. */
+  /** ++ on a confirmed main→down transition with net=online */
   incidentId: number;
   modalDismissedIncidentId: number;
   bannerDismissedIncidentId: number;
@@ -22,7 +22,7 @@ export interface HostStatusState {
   reopenModal: () => void;
 }
 
-// Без persist: статус аварии — runtime-only.
+// No persist: incident status is runtime-only
 export const useHostStatusStore = create<HostStatusState>()((set, get) => ({
   main: 'unknown',
   star: 'unknown',
@@ -40,7 +40,7 @@ export const useHostStatusStore = create<HostStatusState>()((set, get) => ({
 
 export type FailoverUi = 'none' | 'star-active' | 'star-offer' | 'all-down';
 
-/** Derived UI-состояние; UI его рендерит, нигде не хранится. backendReachable в гейте не участвует. */
+/** Derived UI state; the UI renders it, it is never stored. backendReachable takes no part in the gate */
 export function selectFailoverUi(
   s: Pick<HostStatusState, 'main' | 'star' | 'net'>,
   premium: boolean,
@@ -49,17 +49,17 @@ export function selectFailoverUi(
   offlineBypass: boolean,
   mainDegraded: boolean,
 ): FailoverUi {
-  if (!navigatorOnline || offlineBypass) return 'none'; // нет сети / юзер сам выбрал offline
+  if (!navigatorOnline || offlineBypass) return 'none'; // no network / the user picked offline themselves
   if (s.net === 'no-internet') return 'none';
   if (s.main !== 'down') {
-    // main формально жив, но не обслуживает, и премиум уже уехал на star.
-    // Молчать тут нельзя: снаружи это «половина экранов пустая, и никто ничего
-    // не сказал» — неотличимо от сломанного приложения.
+    // main is formally alive but not serving, and premium has already moved to star.
+    // Silence is not an option here: from the outside it is «half the screens empty and nobody
+    // said anything» — indistinguishable from a broken app.
     return mainDegraded && premium && hasSession && s.star !== 'down' ? 'star-active' : 'none';
   }
   if (s.star === 'up') return premium && hasSession ? 'star-active' : 'star-offer';
   if (s.star === 'down') return 'all-down';
-  return 'none'; // star='unknown': окно ранней пробы (≤10 c), не мигаем
+  return 'none'; // star='unknown': early-probe window (≤10 s), no blinking
 }
 
 export function getHostVerdict(base: string): HostVerdict {
@@ -74,13 +74,13 @@ export function isIncidentActive(): boolean {
 }
 
 /**
- * Control-plane база: ровно ОДИН хост, без перебора (refresh нельзя гонять по двум).
+ * Control-plane base: exactly ONE host, no iteration (refresh must not be run against two).
  *
- * Деградировавший main для премиума равносилен мёртвому: его renew встанет в тот
- * же конвой, что и всё остальное, а star у него есть. Не-премиума туда не пускаем
- * даже тогда: на star его ждёт 403, а main пусть медленно, но отвечает — менять
- * медленный ответ на быстрый отказ незачем. Мёртвый main — другое дело: там выбор
- * между 403 и гарантированным провалом, и это поведение мы не трогаем.
+ * For premium, a degraded main is as good as a dead one: its renew lands in the same
+ * convoy as everything else, and star is available. Non-premium is not sent there even
+ * then: star answers it with 403, while main is slow but does answer — there is no
+ * reason to trade a slow answer for a fast refusal. A dead main is another matter: there the choice
+ * is between 403 and a guaranteed failure, and we leave that behaviour alone.
  */
 export function preferredControlBase(): string {
   const s = useHostStatusStore.getState();
