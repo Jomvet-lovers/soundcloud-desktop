@@ -218,17 +218,17 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             let limit = q_u64(&q, "limit", 30);
             let page_no = q_u64(&q, "page", 0);
             // Cursor-paged track_likes: `cursor` is the previous page's
-            // `next_href`, passed through untouched (see `track_likes_path`).
+            // `next_href`, passed through untouched (see `user_cursor_path`).
             let cursor = q_str(&q, "cursor");
             match s
                 .sc_get(
-                    &track_likes_path(id, limit, cursor.as_deref()),
+                    &user_cursor_path("track_likes", id, limit, cursor.as_deref()),
                     token.as_deref(),
                 )
                 .await
             {
                 Ok((status, v)) if (200..300).contains(&status) => {
-                    let items = track_likes_items(&v);
+                    let items = wrapped_items(&v, "track");
                     let items = if cursor.is_none() {
                         merge_local_likes(s, ctx.owner, items, 0).await
                     } else {

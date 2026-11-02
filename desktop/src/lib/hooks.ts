@@ -350,6 +350,16 @@ export function fetchLikedTracksPage(
   return api<CursorPage<Track>>(`/me/likes/tracks?${params.toString()}`);
 }
 
+/** One cursor page of the signed-in user's liked playlists (`playlist_likes`). */
+export function fetchLikedPlaylistsPage(
+  cursor: string | null,
+  limit = LIKED_PAGE_SIZE,
+): Promise<CursorPage<Playlist>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return api<CursorPage<Playlist>>(`/me/likes/playlists?${params.toString()}`);
+}
+
 export function useLikedTracks(limit = LIKED_PAGE_SIZE) {
   const query = useInfiniteQuery<
     CursorPage<Track>,
@@ -833,15 +843,33 @@ export function useMyFollowings(limit = 30) {
   return { users: query.items, ...query };
 }
 
-export function useMyLikedPlaylists(limit = 30) {
-  const query = usePagedQuery<Playlist>({
+export function useMyLikedPlaylists(limit = LIKED_PAGE_SIZE) {
+  const query = useInfiniteQuery<
+    CursorPage<Playlist>,
+    DefaultError,
+    InfiniteData<CursorPage<Playlist>, string | null>,
+    QueryKey,
+    string | null
+  >({
     queryKey: ['me', 'likes', 'playlists', limit],
-    url: (page, l) => pagedUrl('/me/likes/playlists', page, l),
-    limit,
+    queryFn: ({ pageParam }) => fetchLikedPlaylistsPage(pageParam, limit),
+    initialPageParam: null,
+    // Same contract as liked tracks: a short page still has a successor, and the
+    // cursor SoundCloud leaves on the last page leads to an empty one.
+    getNextPageParam: (last) =>
+      (last.collection ?? []).length > 0 ? (last.next_cursor ?? undefined) : undefined,
     staleTime: COLD_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
-  return { playlists: query.items, ...query };
+  const playlists = useMemo(
+    () => dedupeByUrn(query.data?.pages.flatMap((p) => p.collection ?? []) ?? []),
+    [query.data],
+  );
+
+  return { playlists, ...query };
 }
 
 export function useMyPlaylists(limit = 30) {

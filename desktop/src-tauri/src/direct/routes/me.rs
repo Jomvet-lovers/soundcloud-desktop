@@ -201,11 +201,14 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             }
             match token.as_deref() {
                 Some(t) => match s
-                    .sc_get(&track_likes_path(my, limit, cursor.as_deref()), Some(t))
+                    .sc_get(
+                        &user_cursor_path("track_likes", my, limit, cursor.as_deref()),
+                        Some(t),
+                    )
                     .await
                 {
                     Ok((status, v)) if (200..300).contains(&status) => {
-                        let items = track_likes_items(&v);
+                        let items = wrapped_items(&v, "track");
                         // Likes recorded locally still waiting for SoundCloud
                         // ride on the first page only, as on the profile route.
                         let items = if cursor.is_none() {
@@ -237,25 +240,41 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             };
             let limit = q_u64(&q, "limit", 30);
             let page_no = q_u64(&q, "page", 0);
-            let offset = page_no * limit;
+            // Liked playlists live on `playlist_likes`, not on `likes` (that one
+            // is the track-likes alias, so filtering it for `playlist` rows
+            // returned an empty list). Same cursor contract as liked tracks: a
+            // numeric offset is silently ignored, so `page > 0` without a cursor
+            // must stop instead of re-reading page 0.
+            let cursor = q_str(&q, "cursor");
+            if cursor.is_none() && page_no > 0 {
+                return Ok(ok(empty_page(page_no, limit)));
+            }
             match token.as_deref() {
                 Some(t) => match s
                     .sc_get(
-                        &format!("/users/{my}/likes?limit={limit}&offset={offset}"),
+                        &user_cursor_path("playlist_likes", my, limit, cursor.as_deref()),
                         Some(t),
                     )
                     .await
                 {
-                    Ok((_status, v)) => {
-                        let items: Vec<Value> = sc_items(&v)
-                            .into_iter()
-                            .filter_map(|it| it.get("playlist").cloned())
-                            .filter(|p| !p.is_null())
-                            .map(normalize_urn)
-                            .collect();
-                        let items = merge_local_playlist_likes(s, ctx.owner, items, page_no).await;
-                        ok(page(items, page_no, limit, sc_has_more(&v)))
+                    Ok((status, v)) if (200..300).contains(&status) => {
+                        let items = wrapped_items(&v, "playlist");
+                        let items = if cursor.is_none() {
+                            merge_local_playlist_likes(s, ctx.owner, items, 0).await
+                        } else {
+                            items
+                        };
+                        ok(cursor_page(items, page_no, limit, sc_next_cursor(&v)))
                     }
+                    Ok((status, v)) => err(
+                        502,
+                        &format!(
+                            "SoundCloud playlist_likes returned {status}: {}",
+                            v.get("error")
+                                .and_then(Value::as_str)
+                                .unwrap_or("no reason given")
+                        ),
+                    ),
                     Err(e) => err(502, &e),
                 },
                 None => err(401, "unauthorized"),

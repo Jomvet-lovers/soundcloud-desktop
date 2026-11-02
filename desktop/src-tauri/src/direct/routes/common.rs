@@ -124,30 +124,35 @@ pub(crate) fn sc_next_cursor(v: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Path for one page of a user's `track_likes`.
+/// Path for one page of a cursor-paged user collection (`track_likes`,
+/// `playlist_likes`).
 ///
-/// The endpoint is cursor-paged (`ChronoParams.Cursor`): past the first page a
-/// numeric `offset` is rejected, and the real cursor is the opaque `offset`
-/// value inside the previous page's `next_href`. So a page is addressed by
-/// replaying that URL. Only our own api-v2 host is followed — `sc_get`
-/// reattaches it together with a fresh `client_id` — which also keeps a crafted
-/// cursor from steering the read at another host.
-pub(crate) fn track_likes_path(
+/// Both are cursor-paged (`ChronoParams.Cursor`): the real cursor is the opaque
+/// `offset` value inside the previous page's `next_href`, so a page is addressed
+/// by replaying that URL. Neither survives numeric paging — `track_likes`
+/// rejects it (400 `invalid cursor format`) and `playlist_likes` silently serves
+/// page 1 again — so the cursor is the only way through. Only our own api-v2
+/// host is followed (`sc_get` reattaches it with a fresh `client_id`), which also
+/// keeps a crafted cursor from steering the read at another host.
+pub(crate) fn user_cursor_path(
+    collection: &str,
     user_id: impl std::fmt::Display,
     limit: u64,
     cursor: Option<&str>,
 ) -> String {
     match cursor {
         Some(c) if c.starts_with(SC_API) => c[SC_API.len()..].to_string(),
-        _ => format!("/users/{user_id}/track_likes?limit={limit}&offset=0"),
+        _ => format!("/users/{user_id}/{collection}?limit={limit}&offset=0"),
     }
 }
 
-/// The track behind each row of a `track_likes` page; rows wrap it as `track`.
-pub(crate) fn track_likes_items(v: &Value) -> Vec<Value> {
+/// The object behind each row of a likes page: rows wrap it as `track` or
+/// `playlist`. Rows without one are dropped, as SoundCloud leaves holes for
+/// deleted items.
+pub(crate) fn wrapped_items(v: &Value, key: &str) -> Vec<Value> {
     sc_items(v)
         .into_iter()
-        .filter_map(|it| it.get("track").cloned())
+        .filter_map(|it| it.get(key).cloned())
         .filter(|t| !t.is_null())
         .map(normalize_urn)
         .collect()
@@ -335,7 +340,7 @@ pub(crate) fn normalize_sharing(v: Option<&Value>) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cursor_page, normalize_sharing, track_likes_items, track_likes_path, SC_API};
+    use super::{cursor_page, normalize_sharing, user_cursor_path, wrapped_items, SC_API};
     use serde_json::json;
 
     #[test]
@@ -348,32 +353,30 @@ mod tests {
     }
 
     #[test]
-    fn track_likes_pages_are_addressed_by_cursor() {
-        assert_eq!(
-            track_likes_path(42, 30, None),
-            "/users/42/track_likes?limit=30&offset=0"
-        );
-        // The cursor is the whole api-v2 URL: the host is reattached by sc_get.
-        let cursor =
-            format!("{SC_API}/users/42/track_likes?limit=30&offset=2026-04-16T23%3A31%3A23Z");
-        assert_eq!(
-            track_likes_path(42, 30, Some(&cursor)),
-            "/users/42/track_likes?limit=30&offset=2026-04-16T23%3A31%3A23Z"
-        );
-        // Anything not on our own api-v2 host falls back to the first page
-        // instead of being replayed against someone else's server.
-        assert_eq!(
-            track_likes_path(42, 30, Some("https://evil.example/track_likes")),
-            "/users/42/track_likes?limit=30&offset=0"
-        );
-        assert_eq!(
-            track_likes_path(42, 30, Some("")),
-            "/users/42/track_likes?limit=30&offset=0"
-        );
+    fn cursor_collections_are_addressed_by_cursor() {
+        for collection in ["track_likes", "playlist_likes"] {
+            let first = format!("/users/42/{collection}?limit=30&offset=0");
+            assert_eq!(user_cursor_path(collection, 42, 30, None), first);
+            // The cursor is the whole api-v2 URL: the host is reattached by
+            // sc_get.
+            let cursor =
+                format!("{SC_API}/users/42/{collection}?limit=30&offset=2026-04-16T23%3A31%3A23Z");
+            assert_eq!(
+                user_cursor_path(collection, 42, 30, Some(&cursor)),
+                format!("/users/42/{collection}?limit=30&offset=2026-04-16T23%3A31%3A23Z")
+            );
+            // Anything not on our own api-v2 host falls back to the first page
+            // instead of being replayed against someone else's server.
+            assert_eq!(
+                user_cursor_path(collection, 42, 30, Some("https://evil.example/x")),
+                first
+            );
+            assert_eq!(user_cursor_path(collection, 42, 30, Some("")), first);
+        }
     }
 
     #[test]
-    fn track_likes_rows_keep_only_track_objects() {
+    fn likes_rows_keep_only_the_wrapped_object() {
         let v = json!({
             "collection": [
                 { "track": { "id": 1, "kind": "track", "urn": "soundcloud:tracks:1" } },
@@ -382,10 +385,21 @@ mod tests {
                 { "track": { "id": 2, "kind": "track", "urn": "soundcloud:tracks:2" } }
             ]
         });
-        let items = track_likes_items(&v);
+        let items = wrapped_items(&v, "track");
         assert_eq!(items.len(), 2);
         assert_eq!(items[0]["urn"], json!("soundcloud:tracks:1"));
         assert_eq!(items[1]["urn"], json!("soundcloud:tracks:2"));
+
+        // A page of playlist likes wraps `playlist` rows and ignores the rest.
+        let v = json!({
+            "collection": [
+                { "playlist": { "id": 7, "kind": "playlist", "urn": "soundcloud:playlists:7" } },
+                { "track": { "id": 9, "kind": "track", "urn": "soundcloud:tracks:9" } }
+            ]
+        });
+        let items = wrapped_items(&v, "playlist");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["urn"], json!("soundcloud:playlists:7"));
     }
 
     #[test]
