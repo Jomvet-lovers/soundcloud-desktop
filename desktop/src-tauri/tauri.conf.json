@@ -22,7 +22,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:* http://scproxy-*.localhost:* scproxy:; media-src 'self' blob: https: http://localhost:* http://127.0.0.1:* http://scproxy-*.localhost:* scproxy:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* http://scproxy-*.localhost:* ws://localhost:* ws://127.0.0.1:* https:"
     }
   },
   "bundle": {
