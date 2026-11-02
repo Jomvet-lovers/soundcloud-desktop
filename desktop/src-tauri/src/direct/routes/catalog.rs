@@ -239,7 +239,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     };
                     ok(cursor_page(items, page_no, limit, sc_next_cursor(&v)))
                 }
-                _ => ok(empty_page(page_no, limit)),
+                Ok((status, v)) => upstream_error(status, &v),
+                Err(e) => err(502, &e),
             }
         }
         ("GET", ["users", urn, "track_likes"]) | ("GET", ["users", urn, "likes"]) => {
@@ -268,7 +269,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     };
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
-                _ => ok(empty_page(page_no, limit)),
+                Ok((status, v)) => upstream_error(status, &v),
+                Err(e) => err(502, &e),
             }
         }
         ("GET", ["users", urn, "followers"]) => {
@@ -287,7 +289,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     let items = sc_items(&v).into_iter().map(normalize_urn).collect();
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
-                _ => ok(empty_page(page_no, limit)),
+                Ok((status, v)) => upstream_error(status, &v),
+                Err(e) => err(502, &e),
             }
         }
 
@@ -316,12 +319,13 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                 )
                 .await
             {
-                Ok((_status, v)) => {
+                Ok((status, v)) if (200..300).contains(&status) => {
                     let items: Vec<Value> =
                         sc_items(&v).into_iter().map(|p| artist_album(&p)).collect();
                     ok(json!(items))
                 }
-                Err(_) => ok(json!([])),
+                Ok((status, v)) => upstream_error(status, &v),
+                Err(e) => err(502, &e),
             }
         }
         ("GET", ["artists", urn, "tracks"]) => {

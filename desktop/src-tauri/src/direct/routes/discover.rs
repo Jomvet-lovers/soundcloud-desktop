@@ -78,9 +78,13 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     _ => String::new(),
                 };
                 if !path.is_empty() {
-                    if let Ok((_s, v)) = s.sc_get(&path, token.as_deref()).await {
-                        let items = sc_items(&v).into_iter().map(normalize_urn).collect();
-                        return Ok(ok(page(items, page_no, limit, sc_has_more(&v))));
+                    match s.sc_get(&path, token.as_deref()).await {
+                        Ok((status, v)) if (200..300).contains(&status) => {
+                            let items = sc_items(&v).into_iter().map(normalize_urn).collect();
+                            return Ok(ok(page(items, page_no, limit, sc_has_more(&v))));
+                        }
+                        Ok((status, v)) => return Ok(upstream_error(status, &v)),
+                        Err(e) => return Ok(err(502, &e)),
                     }
                 }
                 return Ok(ok(empty_page(page_no, limit)));
@@ -107,7 +111,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                         .collect();
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
-                Ok((_status, _v)) => ok(empty_page(page_no, limit)),
+                Ok((status, v)) => upstream_error(status, &v),
                 Err(e) => err(502, &e),
             }
         }

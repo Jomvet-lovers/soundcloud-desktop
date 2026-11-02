@@ -174,6 +174,27 @@ pub(crate) fn is_own_profile(owner: Option<u64>, urn: &str) -> bool {
     }
 }
 
+/// Reply for an upstream page that SoundCloud did not serve.
+///
+/// These routes used to answer `200 { collection: [], has_more: false }` for any
+/// upstream failure. List queries are cached for a long time, so one transient
+/// 5xx became "this profile has no likes" until the app restarted. Keep a real
+/// 404, treat a private/forbidden resource as 403 (a 401 would trip the client's
+/// session-recovery path), and surface everything else as 502 so the UI retries.
+pub(crate) fn upstream_error(status: u16, v: &Value) -> Response {
+    match status {
+        404 => json_resp(404, &json!({ "error": "not found" })),
+        401 | 403 => json_resp(403, &json!({ "error": "not accessible" })),
+        _ => {
+            let reason = v
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("upstream request failed");
+            err(502, &format!("SoundCloud returned {status}: {reason}"))
+        }
+    }
+}
+
 /// Page envelope carrying the next cursor when SoundCloud offered one.
 ///
 /// `has_more` follows the cursor, not the row count: SoundCloud returns short
