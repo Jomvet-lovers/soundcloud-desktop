@@ -56,6 +56,13 @@ const MAX_TRUNCATED_RETRIES: u8 = 2;
 /// handed to the player is read in a separate command a few ms later; this keeps
 /// that file alive across the gap so playback never reads a just-deleted file.
 const INCOMING_GRACE_SECS: u64 = 30;
+/// Upper bound for a follower coalescing on another download of the same URN.
+/// The winning download is already bounded by its own read timeouts (130 s per
+/// attempt, retried across a handful of candidate URLs), so five minutes sits
+/// comfortably above any legitimate download while still guaranteeing that a
+/// winner which died without writing its result surfaces an error instead of
+/// parking the caller for the lifetime of the process.
+const COALESCE_WAIT_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Magic-byte validation for audio files
 fn is_valid_audio(prefix: &[u8], total_size: u64) -> bool {
@@ -107,6 +114,18 @@ fn is_valid_audio(prefix: &[u8], total_size: u64) -> bool {
         return true;
     }
     false
+}
+
+/// Whether a streamed body may be committed as a complete cache file: a body
+/// that ends early without a transport error still arrives as a normal stream
+/// end, so the declared `Content-Length` is the only signal that it is short.
+/// A missing (or zero) declared length keeps the old behaviour — most SC media
+/// responses are length-delimited, but chunked responses must still land.
+fn body_length_matches(declared: Option<u64>, written: u64) -> bool {
+    match declared {
+        Some(declared) if declared > 0 => declared == written,
+        _ => true,
+    }
 }
 
 fn urn_to_filename(urn: &str) -> String {
@@ -271,6 +290,54 @@ impl PlaybackQuality {
 struct ActiveDownload {
     notify: Arc<Notify>,
     result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
+    /// Set by the winner's [`ActiveDownloadGuard`] when its future is abandoned
+    /// (cancelled caller or panic) before the tail ran, so followers fail fast
+    /// and a later request can replace the dead entry instead of parking on it.
+    cancelled: Arc<AtomicBool>,
+}
+
+/// Owns one `active` entry for the winning `ensure_cached` call and drops it
+/// when that future ends for *any* reason. Without it, a winner that is dropped
+/// or panics before the tail leaves the entry in `active` forever and every
+/// later `ensure_cached` for the URN parks on `notified.await` with nothing left
+/// to notify it.
+struct ActiveDownloadGuard {
+    active: Arc<Mutex<HashMap<String, ActiveDownload>>>,
+    urn: String,
+    notify: Arc<Notify>,
+    result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
+    cancelled: Arc<AtomicBool>,
+    armed: bool,
+}
+
+impl ActiveDownloadGuard {
+    /// The winner reached its tail and cleaned up after itself.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ActiveDownloadGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // Drop cannot await, so publish the failure synchronously: flag the
+        // entry (followers check it before parking, and late callers use it to
+        // discard the stale entry) and fill the result slot if the winner had
+        // not done so yet. Both locks are only ever held for a few statements,
+        // but `try_lock` keeps a contended lock from panicking the unwind.
+        self.cancelled.store(true, Ordering::Release);
+        if let Ok(mut slot) = self.result.try_lock()
+            && slot.is_none()
+        {
+            *slot = Some(Err("download was cancelled".into()));
+        }
+        self.notify.notify_waiters();
+        if let Ok(mut active) = self.active.try_lock() {
+            active.remove(&self.urn);
+        }
+    }
 }
 
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -690,8 +757,50 @@ fn temp_file_path(target_dir: &Path, urn: &str) -> PathBuf {
     target_dir.join(format!("{}.{}.part", urn_to_filename(urn), nonce))
 }
 
-async fn cleanup_temp_file(path: &Path) {
-    tokio::fs::remove_file(path).await.ok();
+async fn cleanup_temp_file(path: &Path) -> bool {
+    tokio::fs::remove_file(path).await.is_ok()
+}
+
+/// Owns the `.part` path of an in-flight cache write and removes it on drop
+/// unless disarmed. A cancelled writer — the losing leg of `race_direct_and_api`
+/// is dropped as soon as the other leg succeeds — never reaches its error paths,
+/// and `*.part` files are invisible to accounting/eviction (which only look at
+/// `.audio`), so this is what keeps them from leaking until the next startup
+/// sweep.
+struct TempFileGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    /// Remove the temp file on the explicit error paths. The guard stays armed
+    /// if the unlink failed (or was cancelled), so `Drop` retries once the
+    /// writer has released the file.
+    async fn discard(&mut self) {
+        if cleanup_temp_file(&self.path).await {
+            self.armed = false;
+        }
+    }
+
+    /// The temp file was renamed into the cache; stop tracking it.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            // Drop cannot await; an unlink is a single cheap syscall. The guard
+            // is declared before the writer, so the file handle is already
+            // closed by the time this runs on a cancelled future.
+            std::fs::remove_file(&self.path).ok();
+        }
+    }
 }
 
 fn read_cache_metadata(path: &Path) -> Option<TrackCacheMetadata> {
@@ -769,6 +878,9 @@ async fn write_body_to_cache(
 ) -> Result<DownloadResult, DownloadError> {
     let final_path = target_dir.join(urn_to_filename(urn));
     let temp_path = temp_file_path(target_dir, urn);
+    // Declared before the writer so it is dropped after it: on a cancelled
+    // future the file handle is closed before the guard unlinks the temp.
+    let mut temp_guard = TempFileGuard::new(temp_path.clone());
     let file = File::create(&temp_path)
         .await
         .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
@@ -796,7 +908,7 @@ async fn write_body_to_cache(
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(err) => {
-                cleanup_temp_file(&temp_path).await;
+                temp_guard.discard().await;
                 return Err(DownloadError::Retryable(format!("body read: {err}")));
             }
         };
@@ -808,7 +920,7 @@ async fn write_body_to_cache(
         }
 
         if let Err(err) = writer.write_all(&chunk).await {
-            cleanup_temp_file(&temp_path).await;
+            temp_guard.discard().await;
             return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
         }
 
@@ -837,6 +949,18 @@ async fn write_body_to_cache(
             }
     }
 
+    // A body that ends before the declared length is a truncated download, not a
+    // complete file: the stream simply finishes without a transport error, so the
+    // size + magic-byte gate below would commit the short prefix as "cached".
+    // Treat it like any other transient download failure so the caller retries.
+    if !body_length_matches(body.content_length, total_size) {
+        temp_guard.discard().await;
+        return Err(DownloadError::Retryable(format!(
+            "truncated body: {total_size} of {} bytes",
+            body.content_length.unwrap_or_default()
+        )));
+    }
+
     if let Some(app) = app_handle
         && content_length > 0
         && emitted_progress < 1.0
@@ -854,13 +978,13 @@ async fn write_body_to_cache(
     }
 
     if let Err(err) = writer.flush().await {
-        cleanup_temp_file(&temp_path).await;
+        temp_guard.discard().await;
         return Err(DownloadError::Fatal(format!("Cache flush failed: {err}")));
     }
     drop(writer);
 
     if !is_valid_audio(&sniff, total_size) {
-        cleanup_temp_file(&temp_path).await;
+        temp_guard.discard().await;
         return Err(DownloadError::Fatal("Invalid audio data".into()));
     }
 
@@ -879,13 +1003,14 @@ async fn write_body_to_cache(
 
     if let Ok(meta) = tokio::fs::metadata(&final_path).await
         && meta.len() >= MIN_AUDIO_SIZE {
-            cleanup_temp_file(&temp_path).await;
+            temp_guard.discard().await;
             return Ok(DownloadResult { path: final_path });
         }
 
     match tokio::fs::rename(&temp_path, &final_path).await {
         Ok(()) => {
             write_cache_metadata(&final_path, &cache_meta).await;
+            temp_guard.disarm();
             Ok(DownloadResult { path: final_path })
         }
         Err(first_err) => {
@@ -894,7 +1019,7 @@ async fn write_body_to_cache(
                 .map(|meta| meta.len() >= MIN_AUDIO_SIZE)
                 .unwrap_or(false)
             {
-                cleanup_temp_file(&temp_path).await;
+                temp_guard.discard().await;
                 return Ok(DownloadResult { path: final_path });
             }
 
@@ -902,10 +1027,11 @@ async fn write_body_to_cache(
             match tokio::fs::rename(&temp_path, &final_path).await {
                 Ok(()) => {
                     write_cache_metadata(&final_path, &cache_meta).await;
+                    temp_guard.disarm();
                     Ok(DownloadResult { path: final_path })
                 }
                 Err(second_err) => {
-                    cleanup_temp_file(&temp_path).await;
+                    temp_guard.discard().await;
                     Err(DownloadError::Fatal(format!(
                         "Cache rename failed: {first_err}; {second_err}"
                     )))
@@ -943,17 +1069,19 @@ async fn write_bytes_to_cache(
 
     let final_path = target_dir.join(urn_to_filename(urn));
     let temp_path = temp_file_path(target_dir, urn);
+    // Declared before the writer so it is dropped after it (see TempFileGuard).
+    let mut temp_guard = TempFileGuard::new(temp_path.clone());
 
     let file = File::create(&temp_path)
         .await
         .map_err(|err| DownloadError::Fatal(format!("Cache create failed: {err}")))?;
     let mut writer = BufWriter::with_capacity(STREAM_WRITE_BUFFER_SIZE, file);
     if let Err(err) = writer.write_all(data).await {
-        cleanup_temp_file(&temp_path).await;
+        temp_guard.discard().await;
         return Err(DownloadError::Fatal(format!("Cache write failed: {err}")));
     }
     if let Err(err) = writer.flush().await {
-        cleanup_temp_file(&temp_path).await;
+        temp_guard.discard().await;
         return Err(DownloadError::Fatal(format!("Cache flush failed: {err}")));
     }
     drop(writer);
@@ -968,13 +1096,14 @@ async fn write_bytes_to_cache(
 
     if let Ok(meta) = tokio::fs::metadata(&final_path).await
         && meta.len() >= MIN_AUDIO_SIZE {
-            cleanup_temp_file(&temp_path).await;
+            temp_guard.discard().await;
             return Ok(DownloadResult { path: final_path });
         }
 
     match tokio::fs::rename(&temp_path, &final_path).await {
         Ok(()) => {
             write_cache_metadata(&final_path, &cache_meta).await;
+            temp_guard.disarm();
             Ok(DownloadResult { path: final_path })
         }
         Err(first_err) => {
@@ -983,7 +1112,7 @@ async fn write_bytes_to_cache(
                 .map(|meta| meta.len() >= MIN_AUDIO_SIZE)
                 .unwrap_or(false)
             {
-                cleanup_temp_file(&temp_path).await;
+                temp_guard.discard().await;
                 return Ok(DownloadResult { path: final_path });
             }
 
@@ -991,10 +1120,11 @@ async fn write_bytes_to_cache(
             match tokio::fs::rename(&temp_path, &final_path).await {
                 Ok(()) => {
                     write_cache_metadata(&final_path, &cache_meta).await;
+                    temp_guard.disarm();
                     Ok(DownloadResult { path: final_path })
                 }
                 Err(second_err) => {
-                    cleanup_temp_file(&temp_path).await;
+                    temp_guard.discard().await;
                     Err(DownloadError::Fatal(format!(
                         "Cache rename failed: {first_err}; {second_err}"
                     )))
@@ -1329,10 +1459,21 @@ impl TrackCacheState {
 
         // Coalesce concurrent requests for the same URN
         let mut active = self.active.lock().await;
+        // A cancelled winner may have left its entry behind (the guard's removal
+        // is best-effort); drop it so this request can start a fresh download
+        // instead of waiting on a slot nobody will ever fill.
+        if active
+            .get(urn)
+            .map(|existing| existing.cancelled.load(Ordering::Acquire))
+            .unwrap_or(false)
+        {
+            active.remove(urn);
+        }
         if let Some(existing) = active.get(urn) {
             println!("[TrackCache] coalescing request for {urn}");
             let notify = existing.notify.clone();
             let result_slot = existing.result.clone();
+            let cancelled = existing.cancelled.clone();
             drop(active);
             // `notify_waiters()` keeps no permit for late waiters, so register the
             // wait BEFORE re-checking the result slot. If the winner already
@@ -1344,8 +1485,19 @@ impl TrackCacheState {
             notified.as_mut().enable();
             let mut result = result_slot.lock().await.clone();
             if result.is_none() {
-                notified.await;
-                result = result_slot.lock().await.clone();
+                if cancelled.load(Ordering::Acquire) {
+                    return Err("download was cancelled".into());
+                }
+                // A winner that dies without storing a result must not park this
+                // caller for the lifetime of the process, so the wait is bounded.
+                match tokio::time::timeout(COALESCE_WAIT_TIMEOUT, notified).await {
+                    Ok(()) => result = result_slot.lock().await.clone(),
+                    Err(_) => {
+                        return Err(format!(
+                            "timed out waiting for the concurrent download of {urn}"
+                        ));
+                    }
+                }
             }
             return match result {
                 Some(Ok(path)) => {
@@ -1364,14 +1516,28 @@ impl TrackCacheState {
 
         let notify = Arc::new(Notify::new());
         let result_slot: Arc<Mutex<Option<Result<PathBuf, String>>>> = Arc::new(Mutex::new(None));
+        let cancelled = Arc::new(AtomicBool::new(false));
         active.insert(
             urn.to_string(),
             ActiveDownload {
                 notify: notify.clone(),
                 result: result_slot.clone(),
+                cancelled: cancelled.clone(),
             },
         );
         drop(active);
+
+        // Owns the `active` entry: on a panic or a dropped future it removes it
+        // (or at least flags it cancelled) and wakes any follower with an error.
+        // The normal tail below disarms it after removing the entry itself.
+        let mut guard = ActiveDownloadGuard {
+            active: self.active.clone(),
+            urn: urn.to_string(),
+            notify: notify.clone(),
+            result: result_slot.clone(),
+            cancelled,
+            armed: true,
+        };
 
         let download_result = self
             .download_with_fallback(FallbackParams {
@@ -1400,6 +1566,7 @@ impl TrackCacheState {
         }
         notify.notify_waiters();
         self.active.lock().await.remove(urn);
+        guard.disarm();
 
         download_result.map(|path| {
             // Hand back whatever currently exists (clean Б if the transcode is
@@ -2737,5 +2904,78 @@ impl TrackCacheState {
             ),
         );
         before - total
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{TempFileGuard, body_length_matches, is_valid_audio};
+
+    fn probe_path(tag: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("scd-track-cache-{tag}-{nonce}.part"))
+    }
+
+    #[test]
+    fn rejects_a_body_shorter_than_a_declared_length() {
+        assert!(body_length_matches(Some(4096), 4096));
+        assert!(!body_length_matches(Some(4096), 4095));
+        assert!(!body_length_matches(Some(4096), 0));
+        // No declared length (chunked / unknown) keeps the old behaviour.
+        assert!(body_length_matches(None, 1234));
+        assert!(body_length_matches(Some(0), 1234));
+    }
+
+    #[test]
+    fn validates_audio_by_size_and_magic_prefix() {
+        assert!(!is_valid_audio(b"ID3\x04\x00\x00", 4096)); // below MIN_AUDIO_SIZE
+        assert!(!is_valid_audio(b"junk-junk-junk-junk", 8192));
+        assert!(is_valid_audio(b"ID3\x04\x00\x00", 8192)); // mp3 ID3
+        assert!(is_valid_audio(b"\xff\xfb\x90\x00", 8192)); // MPEG sync
+        assert!(is_valid_audio(b"\x00\x00\x00\x20ftypM4A ", 8192)); // mp4/aac
+        assert!(is_valid_audio(b"OggS\x00\x02\x00\x00", 8192)); // ogg
+        assert!(is_valid_audio(b"RIFF\x00\x00\x00\x00WAVE", 8192)); // wav
+        assert!(is_valid_audio(b"fLaC\x00\x00\x00\x22", 8192)); // flac
+    }
+
+    #[test]
+    fn temp_guard_removes_the_part_file_when_dropped() {
+        let path = probe_path("drop");
+        std::fs::write(&path, b"partial bytes").unwrap();
+        {
+            let _guard = TempFileGuard::new(path.clone());
+            assert!(path.exists());
+        }
+        assert!(
+            !path.exists(),
+            "a cancelled writer must not leave a .part file behind"
+        );
+    }
+
+    #[test]
+    fn disarmed_temp_guard_keeps_the_committed_file() {
+        let path = probe_path("disarm");
+        std::fs::write(&path, b"committed bytes").unwrap();
+        {
+            let mut guard = TempFileGuard::new(path.clone());
+            guard.disarm();
+        }
+        assert!(path.exists());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn discarding_a_temp_guard_removes_the_part_file() {
+        let path = probe_path("discard");
+        std::fs::write(&path, b"partial bytes").unwrap();
+        let mut guard = TempFileGuard::new(path.clone());
+        guard.discard().await;
+        assert!(!path.exists());
     }
 }
