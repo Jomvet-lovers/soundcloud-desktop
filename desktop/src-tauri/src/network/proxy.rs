@@ -135,6 +135,18 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
         };
     }
 
+    // The asset proxy is deliberately open to third-party image hosts
+    // (wallpapers), so this cannot be an allowlist: the ceiling is "public
+    // http(s) only". Without it, any script in a webview could read the local
+    // API, the intranet or the cloud metadata endpoint through `scproxy://`.
+    if is_blocked_target(&target_url) {
+        return ProxyResult {
+            status: 403,
+            content_type: "text/plain".into(),
+            data: b"blocked target".to_vec(),
+        };
+    }
+
     let cache_path = state.assets_dir.join(cache_key(&target_url));
 
     if let Ok(data) = fs::read(&cache_path).await {
@@ -180,6 +192,13 @@ pub async fn proxy_request(encoded: &str) -> ProxyResult {
                 continue;
             }
         };
+
+        // A redirect can land on a private host even when the requested URL was
+        // public; refuse the body in that case instead of handing it back.
+        if resp.url().host_str().map(is_blocked_host).unwrap_or(true) {
+            hop.note(false);
+            continue;
+        }
 
         status = resp.status().as_u16();
         if !crate::network::edge::hop_ok(&hop, &resp) {
@@ -295,4 +314,102 @@ pub async fn handle_uri(request: http::Request<Vec<u8>>) -> http::Response<Vec<u
         .header("access-control-allow-origin", "*")
         .body(result.data)
         .unwrap()
+}
+
+/// Whether a proxy target points at this machine or the private network.
+///
+/// The proxy is reachable from every webview in the app, so an unrestricted
+/// target is a read primitive for the local direct API, intranet services and
+/// the cloud metadata endpoint. Only `http(s)` to a public host passes.
+fn is_blocked_target(url: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return true;
+    };
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return true;
+    }
+    match parsed.host_str() {
+        Some(host) => is_blocked_host(host),
+        None => true,
+    }
+}
+
+fn is_blocked_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    if host.is_empty() {
+        return true;
+    }
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host == "metadata.google.internal"
+    {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => is_blocked_ip(ip),
+        Err(_) => false,
+    }
+}
+
+fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_unspecified()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+        }
+        IpAddr::V6(v6) => {
+            let seg = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || (seg & 0xffc0) == 0xfe80
+                || (seg & 0xfe00) == 0xfc00
+                || v6.to_ipv4_mapped()
+                    .map(|v4| is_blocked_ip(IpAddr::V4(v4)))
+                    .unwrap_or(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_blocked_host, is_blocked_target};
+
+    #[test]
+    fn local_and_private_targets_are_blocked() {
+        for url in [
+            "http://127.0.0.1:8090/me",
+            "http://localhost:1420/",
+            "http://[::1]/",
+            "http://scproxy-1.localhost/p/x",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://192.168.1.1/",
+            "http://10.0.0.5/",
+            "http://172.16.0.1/",
+            "http://0.0.0.0/",
+            "file:///etc/passwd",
+            "ftp://example.com/x",
+            "not-a-url",
+        ] {
+            assert!(is_blocked_target(url), "{url} should be blocked");
+        }
+    }
+
+    #[test]
+    fn public_hosts_still_pass() {
+        for url in [
+            "https://i1.sndcdn.com/artworks-000-large.jpg",
+            "https://cf-media.sndcdn.com/abc.mp3",
+            "https://images.unsplash.com/photo-1.jpg",
+            "http://example.com/a.png",
+        ] {
+            assert!(!is_blocked_target(url), "{url} should pass");
+        }
+        assert!(!is_blocked_host("example.com"));
+    }
 }
