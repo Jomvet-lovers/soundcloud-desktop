@@ -12,6 +12,20 @@ name: Release
 # stay clear of the upstream tags (bare numbers such as `8.4.13`). The version
 # check job rejects a tag whose base version does not match the app version, so
 # installer and portable file names always carry that version.
+#
+# Hardening (release pipeline):
+# - `verify` runs the CI checks on the tagged commit (tsc, biome, cargo check,
+#   cargo test --lib) and every build/publish job needs it, so a red commit
+#   cannot publish on either trigger.
+# - `release-assets` re-downloads the published files, adds one SHA256SUMS.txt
+#   covering all of them, and attests those exact bytes with SLSA build
+#   provenance.
+# - Permissions are least-privilege: `contents: read` workflow-wide, raised per
+#   job only where a job writes to the release (`contents: write`) or mints
+#   attestations (`id-token: write`, `attestations: write`).
+# - Actions stay pinned by tag, not by commit SHA: pinning every `uses:` to a
+#   SHA is the next step (it cannot be resolved offline, and a wrong SHA is
+#   worse than a tag).
 
 on:
   workflow_dispatch:
@@ -31,7 +45,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
@@ -59,9 +73,90 @@ jobs:
             exit 1
           fi
 
+  # Gate for publishing: the checks that catch a red commit (frontend types +
+  # lint, Rust compile + unit tests) run on the commit about to be released, on
+  # one cached runner. Cheaper than letting a broken tag spend 20+ minutes
+  # building installers first.
+  verify:
+    name: Verify (tsc + biome + cargo test)
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The tagged commit on tag push; the input tag on workflow_dispatch
+          # (dispatch runs on the default branch).
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Install Linux dependencies
+        # Same set as the rust job in ci.yml: tauri needs webkit2gtk, the audio
+        # stack needs ALSA, and the native deps build through bindgen.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev cmake clang libclang-dev pkg-config
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      - name: Ensure Rust stable
+        # Same pattern as the build jobs below: the image ships a stable
+        # toolchain, only install as fallback.
+        shell: bash
+        run: |
+          rustc --version || rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+          rustc --version
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: release-verify
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        working-directory: desktop
+        run: npx tsc --noEmit
+
+      - name: Biome check
+        working-directory: desktop
+        run: npx biome check src
+
+      # Same check CI runs: the bundle is what ships, and a tag can point at a
+      # commit CI never saw.
+      - name: Production build
+        working-directory: desktop
+        run: pnpm build
+
+      - name: Cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check --locked
+
+      - name: Cargo tests (lib)
+        # The unit tests live in the lib target; --lib skips the bins and keeps
+        # the gate to one compile + test pass.
+        working-directory: desktop/src-tauri
+        run: cargo test --lib --locked
+
   windows:
     name: Windows NSIS
-    needs: version
+    # No installer is built or published unless `verify` passed.
+    needs: [version, verify]
+    # tauri-action creates/updates the release in this job, so it gets the
+    # write token; nothing else here needs more than `contents: read`.
+    permissions:
+      contents: write
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: windows-latest
     steps:
@@ -182,7 +277,12 @@ jobs:
 
   linux:
     name: Linux (deb / rpm / AppImage)
-    needs: version
+    # No package is built or published unless `verify` passed.
+    needs: [version, verify]
+    # tauri-action creates/updates the release in this job, so it gets the
+    # write token; nothing else here needs more than `contents: read`.
+    permissions:
+      contents: write
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux' }}
     runs-on: ubuntu-22.04
     steps:
@@ -286,3 +386,67 @@ jobs:
             ${{ env.RELEASE_NOTES }}
           releaseDraft: false
           prerelease: false
+
+  # One job over the whole asset set: a single SHA256SUMS.txt for every file
+  # attached to the release, plus a build-provenance attestation for the same
+  # bytes. Runs after both platform jobs, or after the single platform a
+  # workflow_dispatch asked for. A platform that failed blocks it, so a partial
+  # release never gets a misleading SHA256SUMS.txt.
+  # If a build job is re-run on its own, re-run this job too: the rebuild
+  # replaces release assets and the sums must describe the new bytes.
+  release-assets:
+    name: Checksums and provenance
+    needs: [version, verify, windows, linux]
+    # `!cancelled()` instead of the implicit `success()`: the platform a
+    # dispatch did not build is skipped, and a skipped need would otherwise
+    # skip this job too. A failed platform is still excluded below.
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.verify.result == 'success' && needs.windows.result != 'failure' && needs.linux.result != 'failure' && (needs.windows.result == 'success' || needs.linux.result == 'success') }}
+    runs-on: ubuntu-latest
+    # Least privilege: `contents: write` only to attach SHA256SUMS.txt. The
+    # OIDC and attestation scopes exist for the attest action alone.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Download released assets
+        run: |
+          mkdir -p release-assets
+          # Whatever tauri-action and the portable-exe step attached to this
+          # tag. --clobber so a re-run does not fail on leftovers.
+          gh release download "$TAG" --repo "$GH_REPO" --dir release-assets --clobber
+          ls -l release-assets
+
+      - name: Write SHA256SUMS.txt
+        run: |
+          # Computed from the downloaded copies, so the file describes exactly
+          # the bytes users download. Asset names (and the version in them) come
+          # from the tag, which the version job keeps in sync with the app.
+          # Written inside release-assets/ so the attestation below covers it
+          # too, and so its own name is excluded from its content.
+          (
+            cd release-assets
+            find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
+              | LC_ALL=C sort \
+              | while IFS= read -r f; do sha256sum --text -- "$f"; done
+          ) > release-assets/SHA256SUMS.txt
+          if [ ! -s release-assets/SHA256SUMS.txt ]; then
+            echo "::error::no release assets found for $TAG; refusing to attach an empty SHA256SUMS.txt"
+            exit 1
+          fi
+          cat release-assets/SHA256SUMS.txt
+
+      - name: Attach SHA256SUMS.txt
+        run: gh release upload "$TAG" release-assets/SHA256SUMS.txt --repo "$GH_REPO" --clobber
+
+      # Action versions are tag-pinned; commit-SHA pinning is the next step.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          # The downloaded release assets, byte-identical to what is published;
+          # SHA256SUMS.txt is included because it is uploaded above.
+          subject-path: release-assets/*
