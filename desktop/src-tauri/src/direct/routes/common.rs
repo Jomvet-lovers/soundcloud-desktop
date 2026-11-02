@@ -140,8 +140,12 @@ pub(crate) fn user_cursor_path(
     limit: u64,
     cursor: Option<&str>,
 ) -> String {
-    match cursor {
-        Some(c) if c.starts_with(SC_API) => c[SC_API.len()..].to_string(),
+    // A bare prefix match is not a host check: `https://api-v2.soundcloud.com@evil`
+    // and `https://api-v2.soundcloud.com.evil` both "start with" SC_API, and the
+    // former sends the request — with the caller's OAuth header — to `evil`.
+    // Demand a path separator right after the origin.
+    match cursor.and_then(|c| c.strip_prefix(SC_API)) {
+        Some(rest) if rest.starts_with('/') || rest.starts_with('?') => rest.to_string(),
         _ => format!("/users/{user_id}/{collection}?limit={limit}&offset=0"),
     }
 }
@@ -371,6 +375,14 @@ mod tests {
                 user_cursor_path(collection, 42, 30, Some("https://evil.example/x")),
                 first
             );
+            // Host confusion: a bare prefix match would accept both of these and
+            // send the OAuth header to the attacker's host.
+            for sneaky in [
+                format!("{SC_API}@evil.example/x"),
+                format!("{SC_API}.evil.example/x"),
+            ] {
+                assert_eq!(user_cursor_path(collection, 42, 30, Some(&sneaky)), first);
+            }
             assert_eq!(user_cursor_path(collection, 42, 30, Some("")), first);
         }
     }
