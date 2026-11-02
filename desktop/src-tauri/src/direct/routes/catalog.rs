@@ -6,7 +6,7 @@ use warp::reply::Response;
 use super::Ctx;
 use super::common::*;
 use super::normalize::*;
-use super::super::sc::{SC_API, id_of};
+use super::super::sc::id_of;
 
 pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     let s = &ctx.state;
@@ -217,36 +217,24 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             let id = id_of(urn);
             let limit = q_u64(&q, "limit", 30);
             let page_no = q_u64(&q, "page", 0);
-            // SoundCloud's track_likes is cursor-paged: a numeric `offset`
-            // is rejected ("invalid cursor format"). The opaque cursor comes
-            // from the previous page's `next_href`, so pass it through.
+            // Cursor-paged track_likes: `cursor` is the previous page's
+            // `next_href`, passed through untouched (see `track_likes_path`).
             let cursor = q_str(&q, "cursor");
-            let path = match cursor.as_deref() {
-                Some(c) if c.starts_with(SC_API) => c[SC_API.len()..].to_string(),
-                _ => format!("/users/{id}/track_likes?limit={limit}&offset=0"),
-            };
-            match s.sc_get(&path, token.as_deref()).await {
+            match s
+                .sc_get(
+                    &track_likes_path(id, limit, cursor.as_deref()),
+                    token.as_deref(),
+                )
+                .await
+            {
                 Ok((status, v)) if (200..300).contains(&status) => {
-                    let next_cursor = v
-                        .get("next_href")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let items: Vec<Value> = sc_items(&v)
-                        .into_iter()
-                        .filter_map(|it| it.get("track").cloned())
-                        .filter(|t| !t.is_null())
-                        .map(normalize_urn)
-                        .collect();
+                    let items = track_likes_items(&v);
                     let items = if cursor.is_none() {
                         merge_local_likes(s, ctx.owner, items, 0).await
                     } else {
                         items
                     };
-                    let mut body = page(items, page_no, limit, next_cursor.is_some());
-                    if let Some(nc) = next_cursor {
-                        body["next_cursor"] = json!(nc);
-                    }
-                    ok(body)
+                    ok(cursor_page(items, page_no, limit, sc_next_cursor(&v)))
                 }
                 _ => ok(empty_page(page_no, limit)),
             }

@@ -7,7 +7,7 @@ use warp::reply::{Reply, Response};
 
 use super::super::DirectState;
 use super::normalize::*;
-use super::super::sc::{id_of};
+use super::super::sc::{id_of, SC_API};
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
@@ -114,6 +114,62 @@ pub(crate) fn sc_has_more(v: &Value) -> bool {
     v.get("next_href")
         .map(|n| n.is_string() && !n.is_null())
         .unwrap_or(false)
+}
+
+/// Verbatim `next_href` of a page — the opaque cursor `/me/likes/tracks` hands
+/// to the frontend and takes back as `?cursor=`.
+pub(crate) fn sc_next_cursor(v: &Value) -> Option<String> {
+    v.get("next_href")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// Path for one page of a user's `track_likes`.
+///
+/// The endpoint is cursor-paged (`ChronoParams.Cursor`): past the first page a
+/// numeric `offset` is rejected, and the real cursor is the opaque `offset`
+/// value inside the previous page's `next_href`. So a page is addressed by
+/// replaying that URL. Only our own api-v2 host is followed — `sc_get`
+/// reattaches it together with a fresh `client_id` — which also keeps a crafted
+/// cursor from steering the read at another host.
+pub(crate) fn track_likes_path(
+    user_id: impl std::fmt::Display,
+    limit: u64,
+    cursor: Option<&str>,
+) -> String {
+    match cursor {
+        Some(c) if c.starts_with(SC_API) => c[SC_API.len()..].to_string(),
+        _ => format!("/users/{user_id}/track_likes?limit={limit}&offset=0"),
+    }
+}
+
+/// The track behind each row of a `track_likes` page; rows wrap it as `track`.
+pub(crate) fn track_likes_items(v: &Value) -> Vec<Value> {
+    sc_items(v)
+        .into_iter()
+        .filter_map(|it| it.get("track").cloned())
+        .filter(|t| !t.is_null())
+        .map(normalize_urn)
+        .collect()
+}
+
+/// Page envelope carrying the next cursor when SoundCloud offered one.
+///
+/// `has_more` follows the cursor, not the row count: SoundCloud returns short
+/// pages mid-collection (29 of a 30 limit) and still has more, and it also keeps
+/// reporting a cursor on the last page — which the caller detects by following it
+/// to an empty page.
+pub(crate) fn cursor_page(
+    items: Vec<Value>,
+    page_no: u64,
+    limit: u64,
+    next_cursor: Option<String>,
+) -> Value {
+    let mut body = page(items, page_no, limit, next_cursor.is_some());
+    if let Some(c) = next_cursor {
+        body["next_cursor"] = json!(c);
+    }
+    body
 }
 
 pub(crate) fn sc_user_items(v: &Value) -> Vec<Value> {
@@ -279,7 +335,7 @@ pub(crate) fn normalize_sharing(v: Option<&Value>) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_sharing;
+    use super::{cursor_page, normalize_sharing, track_likes_items, track_likes_path, SC_API};
     use serde_json::json;
 
     #[test]
@@ -289,5 +345,59 @@ mod tests {
         assert_eq!(normalize_sharing(Some(&json!("unlisted"))), None);
         assert_eq!(normalize_sharing(Some(&json!(7))), None);
         assert_eq!(normalize_sharing(None), None);
+    }
+
+    #[test]
+    fn track_likes_pages_are_addressed_by_cursor() {
+        assert_eq!(
+            track_likes_path(42, 30, None),
+            "/users/42/track_likes?limit=30&offset=0"
+        );
+        // The cursor is the whole api-v2 URL: the host is reattached by sc_get.
+        let cursor =
+            format!("{SC_API}/users/42/track_likes?limit=30&offset=2026-04-16T23%3A31%3A23Z");
+        assert_eq!(
+            track_likes_path(42, 30, Some(&cursor)),
+            "/users/42/track_likes?limit=30&offset=2026-04-16T23%3A31%3A23Z"
+        );
+        // Anything not on our own api-v2 host falls back to the first page
+        // instead of being replayed against someone else's server.
+        assert_eq!(
+            track_likes_path(42, 30, Some("https://evil.example/track_likes")),
+            "/users/42/track_likes?limit=30&offset=0"
+        );
+        assert_eq!(
+            track_likes_path(42, 30, Some("")),
+            "/users/42/track_likes?limit=30&offset=0"
+        );
+    }
+
+    #[test]
+    fn track_likes_rows_keep_only_track_objects() {
+        let v = json!({
+            "collection": [
+                { "track": { "id": 1, "kind": "track", "urn": "soundcloud:tracks:1" } },
+                { "track": null },
+                {},
+                { "track": { "id": 2, "kind": "track", "urn": "soundcloud:tracks:2" } }
+            ]
+        });
+        let items = track_likes_items(&v);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["urn"], json!("soundcloud:tracks:1"));
+        assert_eq!(items[1]["urn"], json!("soundcloud:tracks:2"));
+    }
+
+    #[test]
+    fn cursor_page_reports_more_only_with_a_cursor() {
+        let body = cursor_page(vec![json!({ "id": 1 })], 0, 30, Some("next".into()));
+        assert_eq!(body["has_more"], json!(true));
+        assert_eq!(body["next_cursor"], json!("next"));
+        assert_eq!(body["page"], json!(0));
+        assert_eq!(body["page_size"], json!(30));
+
+        let body = cursor_page(Vec::new(), 0, 30, None);
+        assert_eq!(body["has_more"], json!(false));
+        assert!(body.get("next_cursor").is_none());
     }
 }
