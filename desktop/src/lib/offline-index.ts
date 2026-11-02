@@ -62,6 +62,16 @@ let dirReady: Promise<void> | null = null;
 /** Bumped on account switch so an in-flight load cannot fill the new cache. */
 let generation = 0;
 
+/**
+ * Account generation at this instant. A long read that writes into the index
+ * (`fetchAllLikedTracks`) snapshots this and drops its result if it changed —
+ * otherwise a walk that spans an account switch stores one account's likes in
+ * the other account's mirror.
+ */
+export function offlineGeneration(): number {
+  return generation;
+}
+
 function indexPath(id: number | null): string {
   return id === null ? UNSCOPED_INDEX_PATH : `offline-index.${id}.json`;
 }

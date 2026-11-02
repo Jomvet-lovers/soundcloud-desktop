@@ -18,7 +18,7 @@ import { getAllLikesPromise, setAllLikesPromise } from './all-likes-cache';
 import { api } from './api';
 import { confirmHistory, mergeHistory, scTrackIdSet, usePendingHistory } from './history-pending';
 import { initLikedUrns } from './likes';
-import { rememberLikedTracks, rememberTracks } from './offline-index';
+import { offlineGeneration, rememberLikedTracks, rememberTracks } from './offline-index';
 import { fetchRelatedTracks } from './related';
 import { toastWriteError } from './write-error';
 
@@ -417,11 +417,16 @@ export function fetchAllLikedTracks(
   if (shared && !onPage) return shared;
 
   const promise = (async () => {
+    // A walk can outlive an account switch: the remaining pages are then signed
+    // with the new session, and the snapshot below would be written into the new
+    // account's offline index. Bail out instead of storing a spliced list.
+    const startedAt = offlineGeneration();
     const all: Track[] = [];
     const seen = new Set<string>();
     let cursor: string | null = null;
     for (let page = 0; page < MAX_ALL_LIKES_PAGES; page++) {
       const data = await fetchLikedTracksPage(cursor, pageSize);
+      if (offlineGeneration() !== startedAt) return [];
       const pageTracks = data.collection ?? [];
       // A like added mid-walk shifts the cursor's window, so pages can overlap.
       for (const t of pageTracks) {
@@ -436,6 +441,7 @@ export function fetchAllLikedTracks(
       cursor = data.next_cursor ?? null;
       if (!cursor || pageTracks.length === 0) break;
     }
+    if (offlineGeneration() !== startedAt) return [];
     void rememberLikedTracks(all, { replace: true });
     return all;
   })();
