@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { getCurrentTime, subscribe } from '../../lib/audio';
@@ -7,6 +7,43 @@ import { ago, art, durLong } from '../../lib/formatters';
 import { type Comment, usePostComment } from '../../lib/hooks';
 import { Clock, Loader2, Send, Trash2 } from '../../lib/icons';
 import { useAuthStore } from '../../stores/auth';
+
+/** Tracks with a comment-retry request in flight. Shared by every row of the
+ *  same track, so all retry controls stay disabled while one request runs. */
+const retryingTracks = new Set<string>();
+const retryListeners = new Set<() => void>();
+
+function notifyRetrying() {
+  for (const listener of retryListeners) listener();
+}
+
+function subscribeRetrying(listener: () => void) {
+  retryListeners.add(listener);
+  return () => {
+    retryListeners.delete(listener);
+  };
+}
+
+/** Re-post every unsynced comment on `trackUrn` once. The endpoint is
+ *  track-wide, so concurrent calls are collapsed into a single request. */
+async function retryTrackComments(trackUrn: string) {
+  if (retryingTracks.has(trackUrn)) return;
+  retryingTracks.add(trackUrn);
+  notifyRetrying();
+  try {
+    await api(`/tracks/${encodeURIComponent(trackUrn)}/comments/sync`, { method: 'POST' });
+  } catch {
+    // The rows keep their failed badge, so retry stays available.
+  } finally {
+    retryingTracks.delete(trackUrn);
+    notifyRetrying();
+  }
+}
+
+function useRetryingComments(trackUrn: string) {
+  const getSnapshot = () => retryingTracks.has(trackUrn);
+  return useSyncExternalStore(subscribeRetrying, getSnapshot, getSnapshot);
+}
 
 /** A single voice: who said it, an optional clickable timestamp that seeks,
  *  when it was left, and the body. Flat rows separated by hairlines. */
@@ -26,6 +63,7 @@ export const VoiceCard = React.memo(function VoiceCard({
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [removing, setRemoving] = useState(false);
+  const retrying = useRetryingComments(trackUrn);
   const ts = comment.timestamp;
   const user = comment.user;
   const myUrn = useAuthStore((s) => s.user?.urn);
@@ -88,14 +126,13 @@ export const VoiceCard = React.memo(function VoiceCard({
           {comment.sync === 'failed' && (
             <button
               type="button"
-              onClick={() => {
-                api(`/tracks/${encodeURIComponent(trackUrn)}/comments/sync`, {
-                  method: 'POST',
-                }).catch(() => {});
-              }}
-              className="text-[10px] text-amber-400/85 hover:text-amber-300 transition-colors cursor-pointer"
+              onClick={() => void retryTrackComments(trackUrn)}
+              disabled={retrying}
+              aria-busy={retrying}
+              className="inline-flex items-center gap-1 text-[10px] text-amber-400/85 hover:text-amber-300 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-default"
             >
-              {'not synced · retry'}
+              {retrying && <Loader2 size={9} className="animate-spin" />}
+              {retrying ? 'retrying' : 'not synced · retry'}
             </button>
           )}
         </div>
@@ -154,14 +191,24 @@ export const CommentForm = React.memo(function CommentForm({
   }, [isCurrent, pinned]);
 
   const submit = () => {
+    if (mutation.isPending) return;
     const text = body.trim();
     if (!text) return;
     const time = getCurrentTime();
     const timestamp =
       pendingAt != null ? pendingAt : time > 0 ? Math.floor(time * 1000) : undefined;
-    mutation.mutate({ body: text, timestamp });
-    setBody('');
-    onCommitted?.();
+    mutation.mutate(
+      { body: text, timestamp },
+      {
+        // Clear the draft only once the local write is accepted: a rejected
+        // POST keeps the text so it can be sent again. The SoundCloud sync
+        // that follows runs in the background and owns the "not synced" badge.
+        onSuccess: () => {
+          setBody('');
+          onCommitted?.();
+        },
+      },
+    );
   };
 
   const [focused, setFocused] = useState(false);

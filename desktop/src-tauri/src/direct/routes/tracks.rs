@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{json, Value};
 use tauri::Emitter;
@@ -11,6 +12,76 @@ use super::super::DirectState;
 use super::super::sc::{SC_API, id_of, fetch_me};
 use super::super::webview::emit_sync_error;
 use std::time::{Duration, Instant};
+
+/// Comment ids whose SoundCloud POST is currently in flight, keyed by account
+/// so two sessions cannot block each other. Deliberately in memory only: an
+/// attempt cannot outlive the process, so a crash never leaves a comment stuck
+/// as "in flight" with no task behind it.
+static COMMENT_SYNC_IN_FLIGHT: OnceLock<Mutex<HashSet<(Option<u64>, i64)>>> = OnceLock::new();
+
+fn syncing_comments() -> &'static Mutex<HashSet<(Option<u64>, i64)>> {
+    COMMENT_SYNC_IN_FLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Claim on one SoundCloud POST for a local comment. Holding it marks the
+/// comment in flight; dropping it (normal return, early return, panic or a
+/// dropped task) releases the comment, so exactly one attempt can run at a
+/// time and a failed one stays retryable.
+struct CommentSync {
+    owner: Option<u64>,
+    id: i64,
+}
+
+impl CommentSync {
+    /// `None` when an attempt for this comment is already in flight.
+    fn claim(owner: Option<u64>, id: i64) -> Option<Self> {
+        let mut in_flight = syncing_comments().lock().unwrap_or_else(|e| e.into_inner());
+        if !in_flight.insert((owner, id)) {
+            return None;
+        }
+        Some(Self { owner, id })
+    }
+
+    fn is_in_flight(owner: Option<u64>, id: i64) -> bool {
+        syncing_comments()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&(owner, id))
+    }
+}
+
+impl Drop for CommentSync {
+    fn drop(&mut self) {
+        syncing_comments()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&(self.owner, self.id));
+    }
+}
+
+/// Whether the retry route may attempt this stored comment now. `pending` is
+/// included because an offline session leaves comments that never got a POST;
+/// anything already in flight is skipped so a second click cannot queue the
+/// same comment twice.
+fn is_comment_retry_candidate(
+    c: &Value,
+    track_urn: &str,
+    is_in_flight: impl Fn(i64) -> bool,
+) -> bool {
+    if c.get("track_urn").and_then(Value::as_str) != Some(track_urn) {
+        return false;
+    }
+    if !matches!(
+        c.get("sync").and_then(Value::as_str),
+        Some("pending") | Some("failed")
+    ) {
+        return false;
+    }
+    match c.get("id").and_then(Value::as_i64) {
+        Some(id) => !is_in_flight(id),
+        None => false,
+    }
+}
 
 /// Attributes the web app echoes on a track update. The API rejects a minimal
 /// body ("Failed to parse track update request"), so the current track is
@@ -119,7 +190,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     let items = sc_items(&v).into_iter().map(normalize_urn).collect();
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
-                _ => ok(empty_page(page_no, limit)),
+                Ok((status, v)) => upstream_error(status, &v),
+                Err(e) => err(502, &e),
             }
         }
         ("GET", ["tracks", urn, "favoriters"]) => {
@@ -138,7 +210,8 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     let items = sc_items(&v).into_iter().map(normalize_urn).collect();
                     ok(page(items, page_no, limit, sc_has_more(&v)))
                 }
-                _ => ok(empty_page(page_no, limit)),
+                Ok((status, v)) => upstream_error(status, &v),
+                Err(e) => err(502, &e),
             }
         }
         ("GET", ["tracks", urn, "comments"]) => {
@@ -226,16 +299,22 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                     "user": user,
                     "sync": "pending",
                 });
-                {
+                // Claim the in-flight slot while the entry is inserted: from
+                // the moment the pending comment is visible to the retry
+                // route, its POST must be accounted for, otherwise a retry
+                // click landing before the spawn below re-posts it.
+                let in_flight = {
                     let store = s.store_for(ctx.owner).await;
                     let mut store = store.lock().await;
+                    let in_flight = CommentSync::claim(ctx.owner, temp_id);
                     store.comments.insert(0, entry.clone());
                     store.save();
-                }
+                    in_flight
+                };
 
                 // Best-effort SoundCloud write through the hidden writer webview.
                 // The local copy stays visible until (or unless) it lands there.
-                if let Some(t) = token.clone() {
+                if let (Some(t), Some(in_flight)) = (token.clone(), in_flight) {
                     if let Ok(cid) = s.client_id().await {
                         tokio::spawn(sync_local_comment(
                             state.clone(),
@@ -247,6 +326,7 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                             temp_id,
                             text.clone(),
                             timestamp.unwrap_or(0),
+                            in_flight,
                         ));
                     }
                 }
@@ -255,31 +335,37 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
         }
         ("POST", ["tracks", urn, "comments", "sync"]) => {
             // Re-attempt the SoundCloud write for this track's local comments
-            // (pending after a failure or an offline session).
-            let mut queued: Vec<(i64, Value)> = Vec::new();
+            // (pending after a failure or an offline session). Each comment is
+            // claimed under the store lock, so a second click of the same
+            // button cannot queue an attempt that is already in flight.
+            let mut queued: Vec<(CommentSync, i64, Value)> = Vec::new();
             {
                 let store = s.store_for(ctx.owner).await;
                 let mut store = store.lock().await;
-                for c in store.comments.iter_mut().filter(|c| {
-                    c.get("track_urn").and_then(Value::as_str) == Some(urn)
-                        && matches!(
-                            c.get("sync").and_then(Value::as_str),
-                            Some("pending") | Some("failed")
-                        )
-                }) {
-                    if let Some(id) = c.get("id").and_then(Value::as_i64) {
-                        c["sync"] = json!("pending");
-                        queued.push((id, c.clone()));
+                for c in store.comments.iter_mut() {
+                    if !is_comment_retry_candidate(c, urn, |id| {
+                        CommentSync::is_in_flight(ctx.owner, id)
+                    }) {
+                        continue;
                     }
+                    let Some(id) = c.get("id").and_then(Value::as_i64) else {
+                        continue;
+                    };
+                    let Some(in_flight) = CommentSync::claim(ctx.owner, id) else {
+                        continue;
+                    };
+                    c["sync"] = json!("pending");
+                    queued.push((in_flight, id, c.clone()));
                 }
                 if !queued.is_empty() {
                     store.save();
                 }
             }
+            let retried = queued.len();
             if let Some(t) = token.as_deref() {
                 if let Ok(cid) = s.client_id().await {
                     let track_id = id_of(urn);
-                    for (temp_id, c) in &queued {
+                    for (in_flight, temp_id, c) in queued {
                         tokio::spawn(sync_local_comment(
                             state.clone(),
                             ctx.owner,
@@ -287,14 +373,15 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
                             track_id.clone(),
                             cid.clone(),
                             urn.to_string(),
-                            *temp_id,
+                            temp_id,
                             c.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
                             c.get("timestamp").and_then(Value::as_u64).unwrap_or(0),
+                            in_flight,
                         ));
                     }
                 }
             }
-            ok(json!({ "retried": queued.len() }))
+            ok(json!({ "retried": retried }))
         }
         ("DELETE", ["comments", comment_id]) => {
             // Delete a comment on SoundCloud first (the web client uses
@@ -527,6 +614,10 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
     Ok(resp)
 }
 
+/// POST one local comment to SoundCloud and record the outcome. `_in_flight`
+/// is the claim taken by the caller before spawning this task; it stays held
+/// for the whole attempt and releases the comment whenever this function
+/// returns, panics or the task is dropped.
 async fn sync_local_comment(
     s: Arc<DirectState>,
     owner: Option<u64>,
@@ -537,6 +628,7 @@ async fn sync_local_comment(
     temp_id: i64,
     body_text: String,
     timestamp_ms: u64,
+    _in_flight: CommentSync,
 ) {
     // The web client sends comment writes as QUERY parameters (`body` and
     // `timestamp`), not a JSON body — a JSON body answers 400 "missing
@@ -595,5 +687,74 @@ async fn sync_local_comment(
             "direct:comments-synced",
             json!({ "track_urn": track_urn }),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+
+    use super::{is_comment_retry_candidate, CommentSync};
+
+    fn stored_comment(id: i64, sync: &str) -> Value {
+        json!({
+            "id": id,
+            "urn": format!("local:comments:{id}"),
+            "track_urn": "soundcloud:tracks:1",
+            "body": "hello",
+            "sync": sync,
+        })
+    }
+
+    fn retryable(id: i64, sync: &str, track: &str, owner: Option<u64>) -> bool {
+        is_comment_retry_candidate(&stored_comment(id, sync), track, |comment_id| {
+            CommentSync::is_in_flight(owner, comment_id)
+        })
+    }
+
+    /// A second click while the first attempt is still POSTing must not queue
+    /// the comment again (that is what made two retries post it twice).
+    #[test]
+    fn retry_queue_skips_a_comment_that_is_already_in_flight() {
+        let owner = Some(9_000_001);
+        let track = "soundcloud:tracks:1";
+        let claimed = CommentSync::claim(owner, 7).expect("fresh comment is claimable");
+
+        // `failed` and `pending` are both retryable, unless already in flight.
+        assert!(!retryable(7, "failed", track, owner));
+        assert!(!retryable(7, "pending", track, owner));
+        // Per comment, not per track: everything else on the track stays queued.
+        assert!(retryable(8, "failed", track, owner));
+        assert!(retryable(9, "pending", track, owner));
+        // Already done, or another track's comment: never queued.
+        assert!(!retryable(10, "synced", track, owner));
+        assert!(!retryable(8, "failed", "soundcloud:tracks:2", owner));
+
+        drop(claimed);
+        assert!(retryable(7, "failed", track, owner));
+    }
+
+    /// The claim is exclusive while held and released on drop, which is what
+    /// lets a failed attempt be retried afterwards.
+    #[test]
+    fn a_comment_claim_is_exclusive_and_released_on_drop() {
+        let owner = Some(9_000_002);
+        let first = CommentSync::claim(owner, 42).expect("first claim wins");
+
+        assert!(CommentSync::is_in_flight(owner, 42));
+        assert!(
+            CommentSync::claim(owner, 42).is_none(),
+            "second claim must be refused"
+        );
+        assert!(
+            CommentSync::claim(Some(9_000_003), 42).is_some(),
+            "claims are per account"
+        );
+
+        drop(first);
+        assert!(!CommentSync::is_in_flight(owner, 42));
+        let again = CommentSync::claim(owner, 42).expect("released comment is claimable");
+        drop(again);
+        assert!(!CommentSync::is_in_flight(owner, 42));
     }
 }
