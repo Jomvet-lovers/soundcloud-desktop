@@ -124,6 +124,20 @@ pub(crate) fn sc_next_cursor(v: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Replay a cursor that points at our own api-v2 host, else fall back to a
+/// fresh first page.
+///
+/// A bare prefix match is not a host check: `https://api-v2.soundcloud.com@evil`
+/// and `https://api-v2.soundcloud.com.evil` both "start with" SC_API, and the
+/// former sends the request — with the caller's OAuth header — to `evil`. Demand
+/// a path separator right after the origin.
+pub(crate) fn cursor_or(cursor: Option<&str>, fallback: String) -> String {
+    match cursor.and_then(|c| c.strip_prefix(SC_API)) {
+        Some(rest) if rest.starts_with('/') || rest.starts_with('?') => rest.to_string(),
+        _ => fallback,
+    }
+}
+
 /// Path for one page of a cursor-paged user collection (`track_likes`,
 /// `playlist_likes`).
 ///
@@ -140,14 +154,10 @@ pub(crate) fn user_cursor_path(
     limit: u64,
     cursor: Option<&str>,
 ) -> String {
-    // A bare prefix match is not a host check: `https://api-v2.soundcloud.com@evil`
-    // and `https://api-v2.soundcloud.com.evil` both "start with" SC_API, and the
-    // former sends the request — with the caller's OAuth header — to `evil`.
-    // Demand a path separator right after the origin.
-    match cursor.and_then(|c| c.strip_prefix(SC_API)) {
-        Some(rest) if rest.starts_with('/') || rest.starts_with('?') => rest.to_string(),
-        _ => format!("/users/{user_id}/{collection}?limit={limit}&offset=0"),
-    }
+    cursor_or(
+        cursor,
+        format!("/users/{user_id}/{collection}?limit={limit}&offset=0"),
+    )
 }
 
 /// The object behind each row of a likes page: rows wrap it as `track` or

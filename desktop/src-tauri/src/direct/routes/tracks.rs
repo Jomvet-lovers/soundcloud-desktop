@@ -198,17 +198,20 @@ pub async fn route(ctx: &Ctx) -> Result<Response, warp::Rejection> {
             let id = id_of(urn);
             let limit = q_u64(&q, "limit", 12);
             let page_no = q_u64(&q, "page", 0);
-            let offset = page_no * limit;
-            match s
-                .sc_get(
-                    &format!("/tracks/{id}/favoriters?limit={limit}&offset={offset}"),
-                    token.as_deref(),
-                )
-                .await
-            {
+            // The track page asks "who liked this": api-v2 names that `likers`
+            // (`favoriters` only exists on the v1 host and 404s here). It is
+            // cursor-paged like track_likes — a numeric offset 500s — so replay
+            // `next_href` when one is handed back, and only ever ask for the
+            // first page otherwise.
+            let cursor = q_str(&q, "cursor");
+            let path = cursor_or(
+                cursor.as_deref(),
+                format!("/tracks/{id}/likers?limit={limit}&offset=0"),
+            );
+            match s.sc_get(&path, token.as_deref()).await {
                 Ok((status, v)) if (200..300).contains(&status) => {
                     let items = sc_items(&v).into_iter().map(normalize_urn).collect();
-                    ok(page(items, page_no, limit, sc_has_more(&v)))
+                    ok(cursor_page(items, page_no, limit, sc_next_cursor(&v)))
                 }
                 Ok((status, v)) => upstream_error(status, &v),
                 Err(e) => err(502, &e),
