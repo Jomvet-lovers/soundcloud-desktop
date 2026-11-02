@@ -782,6 +782,13 @@ listen('audio:device-reconnected', () => {
   console.log('[Audio] Device reconnected');
 });
 
+// The backend drops an A-B loop it cannot seek to (a stream without finished
+// bytes or a known length). Drop the markers with it, otherwise the bar stays
+// pinned at A until the next track.
+listen('audio:ab-loop-cleared', () => {
+  usePlayerStore.getState().clearAbLoop();
+});
+
 listen<string>('audio:default-device-changed', (event) => {
   console.log(`[Audio] Default output changed to '${event.payload}'`);
 });

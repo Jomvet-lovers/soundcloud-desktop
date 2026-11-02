@@ -659,6 +659,25 @@ pub async fn load_url(
     Ok(AudioLoadResult { duration_secs })
 }
 
+/// `try_lock` attempts before `lock_player` falls back to a blocking lock.
+const PLAYER_LOCK_SPINS: usize = 128;
+
+/// Acquire `state.player` for a play/pause/stop command. The tick thread takes
+/// this lock every 100 ms, and a plain `try_lock` dropped the command whenever
+/// the two collided. Spin briefly for the common case, then block: a command
+/// applied a moment late is fine, one that is silently lost is not. The tick
+/// thread holds the lock only for a few field reads and drops it before the
+/// `audio:tick` emit (see tick.rs), so the fallback normally waits microseconds.
+fn lock_player(state: &AudioState) -> std::sync::MutexGuard<'_, Option<Arc<rodio::Player>>> {
+    for _ in 0..PLAYER_LOCK_SPINS {
+        if let Ok(guard) = state.player.try_lock() {
+            return guard;
+        }
+        std::thread::yield_now();
+    }
+    state.player.lock().unwrap()
+}
+
 pub fn play(state: State<'_, AudioState>) {
     // If the device errored (sleep/wake, headphone unplug), reconnect immediately
     // instead of waiting for stall detection (2s delay).
@@ -668,18 +687,20 @@ pub fn play(state: State<'_, AudioState>) {
             .send(crate::audio::types::AudioThreadCmd::Reconnect)
             .ok();
     }
-    // Always unpause so reload_current_track sees was_paused=false
-    if let Ok(player) = state.player.try_lock()
-        && let Some(ref player) = *player {
-            player.play();
-        }
+    // Always unpause so reload_current_track sees was_paused=false. The guard is
+    // held across the call (an atomic flag flip) so the player cannot be swapped
+    // between the lock and the unpause.
+    let player = lock_player(&state);
+    if let Some(player) = &*player {
+        player.play();
+    }
 }
 
 pub fn pause(state: State<'_, AudioState>) {
-    if let Ok(player) = state.player.try_lock()
-        && let Some(ref player) = *player {
-            player.pause();
-        }
+    let player = lock_player(&state);
+    if let Some(player) = &*player {
+        player.pause();
+    }
 }
 
 pub fn stop(state: State<'_, AudioState>) {
@@ -691,13 +712,16 @@ pub fn stop(state: State<'_, AudioState>) {
         stream.cancel();
     }
     state.streaming.store(false, Ordering::Relaxed);
-    if let Ok(mut player) = state.player.try_lock()
-        && let Some(old) = player.take() {
-            old.stop();
-        }
-    if let Ok(mut bytes) = state.source_bytes.try_lock() {
-        *bytes = None;
+    // `stop` must never be lost: `has_track = false` above already makes the tick
+    // thread skip, so a player left behind here keeps playing under a "stopped"
+    // UI until the next track load. Rare, deliberate path: wait for the lock.
+    let old = lock_player(&state).take();
+    if let Some(old) = old {
+        old.stop();
     }
+    // Blocking too: stale bytes would let a later seek rebuild a player and
+    // resume audio after the stop.
+    *state.source_bytes.lock().unwrap() = None;
 }
 
 pub fn seek(position: f64, state: State<'_, AudioState>) -> Result<(), String> {
@@ -720,8 +744,8 @@ pub fn seek_to(state: &AudioState, position: f64) -> Result<(), String> {
 
     // Serialize seeks, but never hold the player lock across `try_seek`: on a
     // network-backed decoder the seek can sit for tens of milliseconds, and while
-    // the lock was held there play/pause (try_lock) silently gave up and the
-    // position readout stalled. The Arc keeps the player alive if a load swaps it.
+    // the lock was held there play/pause and the position readout waited on it.
+    // The Arc keeps the player alive if a load swaps it.
     let _order = state.seek_lock.lock().unwrap();
     let current = state.player.lock().unwrap().clone();
     let was_paused = current.as_ref().map(|p| p.is_paused()).unwrap_or(false);

@@ -85,6 +85,20 @@ pub fn start_tick_emitter(app: &AppHandle) {
                         let rate = engine::current_rate(&state);
                         let raw = player.get_pos().as_secs_f64();
                         let pos = engine::source_pos(&state, player);
+                        let playing = !player.is_paused();
+                        let pos_ms = (raw * 1000.0) as u64;
+                        // Release the player lock before emitting: `handle.emit`
+                        // serializes and posts to the event loop, and play/pause/stop
+                        // (main thread) wait on this lock. Everything below works from
+                        // the values captured above.
+                        drop(player_guard);
+
+                        // A stop landing between the snapshot and the emits below
+                        // resets the UI to 0; reporting the old position then would
+                        // leave a stopped player showing a stale playhead.
+                        if !state.has_track.load(Ordering::Relaxed) {
+                            continue;
+                        }
 
                         // A-B loop: snap back to A as soon as we cross B (source secs).
                         // Route through engine::seek_to (in-place try_seek with a
@@ -94,20 +108,53 @@ pub fn start_tick_emitter(app: &AppHandle) {
                         let ab = *state.ab_loop.lock().unwrap();
                         if let Some((a, b)) = ab
                             && pos >= b {
-                                drop(player_guard);
-                                engine::seek_to(&state, a).ok();
-                                handle.emit("audio:tick", a).ok();
-                                last_pos_ms = ((a / rate).max(0.0) * 1000.0) as u64;
-                                last_progress_at = std::time::Instant::now();
-                                continue;
+                                match engine::seek_to(&state, a) {
+                                    Ok(()) => {
+                                        // A stop may have landed while the seek ran;
+                                        // seek_to then returns Ok without the jump
+                                        // taking effect. Don't report the loop point
+                                        // after the UI already reset to 0.
+                                        if !state.has_track.load(Ordering::Relaxed) {
+                                            continue;
+                                        }
+                                        handle.emit("audio:tick", a).ok();
+                                        last_pos_ms = ((a / rate).max(0.0) * 1000.0) as u64;
+                                        last_progress_at = std::time::Instant::now();
+                                        continue;
+                                    }
+                                    Err(error) => {
+                                        // The jump is impossible (no finished bytes and
+                                        // no advertised length, so the stream cannot
+                                        // seek). Keeping the loop would re-fire a doomed
+                                        // seek on every tick and pin the bar at A while
+                                        // audio runs past B, so drop it and fall through
+                                        // to report the real position below. Only clear
+                                        // the region that failed: a loop the user set
+                                        // while the seek was running must survive.
+                                        let mut current = state.ab_loop.lock().unwrap();
+                                        if *current == Some((a, b)) {
+                                            *current = None;
+                                            drop(current);
+                                            diagnostics::log_native(
+                                                &handle,
+                                                "WARN",
+                                                &format!(
+                                                    "[Audio] A-B loop cleared: seek to loop start failed ({error})"
+                                                ),
+                                            );
+                                            // The markers live in the frontend store;
+                                            // without this they would stay on screen
+                                            // until the next track.
+                                            handle.emit("audio:ab-loop-cleared", ()).ok();
+                                        }
+                                    }
+                                }
                             }
 
                         handle.emit("audio:tick", pos).ok();
                         timing::process_lyrics_timeline(&handle, &state, pos);
                         timing::process_comments_timeline(&handle, &state, pos);
 
-                        let playing = !player.is_paused();
-                        let pos_ms = (raw * 1000.0) as u64;
                         let now = std::time::Instant::now();
 
                         if !playing {
@@ -153,7 +200,6 @@ pub fn start_tick_emitter(app: &AppHandle) {
                         if now.duration_since(last_progress_at).as_millis() as u64
                             > STALL_THRESHOLD_MS
                         {
-                            drop(player_guard);
                             diagnostics::log_native(
                                 &handle,
                                 "WARN",
