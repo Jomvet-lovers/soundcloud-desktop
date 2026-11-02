@@ -1,3 +1,4 @@
+use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
@@ -156,20 +157,88 @@ pub fn init() -> AudioState {
                 }
             };
 
-            let mut device_sink =
-                open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate)
-                    .expect("no audio output device");
-            log_device(
-                "INFO",
-                "[Audio] output opened: system default".to_string(),
-            );
-            let shared_mixer = Arc::new(Mutex::new(device_sink.mixer().clone()));
+            // A machine with no usable output (every endpoint disabled, a dead
+            // exclusive-mode device, a VM without audio) must not panic the audio
+            // thread: that unwound out of `init()`, dropped `cmd_rx`, and every
+            // later command failed with "sending on a closed channel". Start on a
+            // silent placeholder mixer instead and wait for a device below.
+            let mut device_sink = match open_device_sink(
+                None,
+                None,
+                &cmd_tx,
+                &error_flag,
+                &output_rate,
+            ) {
+                Ok(sink) => {
+                    log_device(
+                        "INFO",
+                        "[Audio] output opened: system default".to_string(),
+                    );
+                    Some(sink)
+                }
+                Err(error) => {
+                    log_device(
+                        "WARN",
+                        format!(
+                            "[Audio] no output device ({error}); running silently until one appears"
+                        ),
+                    );
+                    // No sink to report a rate for: decoding/resampling needs a
+                    // usable target until the real device replaces this value.
+                    output_rate.store(48_000, std::sync::atomic::Ordering::Relaxed);
+                    None
+                }
+            };
+            let shared_mixer = Arc::new(Mutex::new(match device_sink.as_ref() {
+                Some(sink) => sink.mixer().clone(),
+                None => {
+                    // A standalone mixer keeps players constructible while there
+                    // is nothing to play through. Its output half is dropped on
+                    // purpose: nothing would pull it without a device, and
+                    // keeping it would retain every queued source forever.
+                    rodio::mixer::mixer(
+                        NonZero::new(2).unwrap(),
+                        NonZero::new(48_000).unwrap(),
+                    )
+                    .0
+                }
+            }));
+            // Hand the mixer over before waiting: `init()` must return so the app
+            // can start (silently) with no output device at all.
             mixer_tx.send(shared_mixer.clone()).ok();
+
+            if device_sink.is_none() {
+                // Same wait as the switch-failure paths below: poll once a second
+                // until the OS exposes an output, then install it like a
+                // reconnect so the tick thread rebuilds the current track on the
+                // fresh mixer.
+                let sink = loop {
+                    match open_device_sink(None, None, &cmd_tx, &error_flag, &output_rate) {
+                        Ok(sink) => break sink,
+                        Err(retry_error) => {
+                            log_device(
+                                "WARN",
+                                format!(
+                                    "[Audio] no output device ({retry_error}); retrying in 1s"
+                                ),
+                            );
+                            std::thread::sleep(Duration::from_millis(1000));
+                        }
+                    }
+                };
+                *shared_mixer.lock().unwrap() = sink.mixer().clone();
+                device_sink = Some(sink);
+                reconnected.store(true, std::sync::atomic::Ordering::Release);
+                log_device(
+                    "INFO",
+                    "[Audio] output opened: system default".to_string(),
+                );
+            }
 
             loop {
                 match cmd_rx.recv() {
                     Ok(AudioThreadCmd::SwitchDevice { name, label, reply }) => {
-                        drop(device_sink);
+                        drop(device_sink.take());
 
                         match open_device_sink(
                             name.as_deref(),
@@ -181,7 +250,7 @@ pub fn init() -> AudioState {
                             Ok(new_sink) => {
                                 let mixer = new_sink.mixer().clone();
                                 *shared_mixer.lock().unwrap() = mixer.clone();
-                                device_sink = new_sink;
+                                device_sink = Some(new_sink);
                                 *manual_output.lock().unwrap() = name.clone().map(|id| OutputChoice {
                                     id,
                                     label: label.clone(),
@@ -208,7 +277,7 @@ pub fn init() -> AudioState {
                                 // wait for a device, so it must not block the reply.
                                 *manual_output.lock().unwrap() = None;
                                 reply.send(Err(error)).ok();
-                                device_sink = loop {
+                                let sink = loop {
                                     match open_device_sink(
                                         None,
                                         None,
@@ -231,7 +300,8 @@ pub fn init() -> AudioState {
                                         }
                                     }
                                 };
-                                *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
+                                *shared_mixer.lock().unwrap() = sink.mixer().clone();
+                                device_sink = Some(sink);
                             }
                         }
                     }
@@ -245,7 +315,7 @@ pub fn init() -> AudioState {
                         // Reopen what the user picked, not the OS default: a
                         // stream error used to reset a manual device silently.
                         let wanted = manual_output.lock().unwrap().clone();
-                        drop(device_sink);
+                        drop(device_sink.take());
                         let (opened, target) = match wanted.as_ref() {
                             Some(choice) => (
                                 open_device_sink(
@@ -265,7 +335,7 @@ pub fn init() -> AudioState {
                         match opened {
                             Ok(new_sink) => {
                                 *shared_mixer.lock().unwrap() = new_sink.mixer().clone();
-                                device_sink = new_sink;
+                                device_sink = Some(new_sink);
                                 reconnected.store(true, std::sync::atomic::Ordering::Release);
                                 log_device("INFO", format!("[Audio] reconnected on {target}"));
                             }
@@ -276,7 +346,7 @@ pub fn init() -> AudioState {
                                 );
                                 std::thread::sleep(Duration::from_secs(1));
                                 *manual_output.lock().unwrap() = None;
-                                device_sink = loop {
+                                let sink = loop {
                                     match open_device_sink(
                                         None,
                                         None,
@@ -298,7 +368,8 @@ pub fn init() -> AudioState {
                                         }
                                     }
                                 };
-                                *shared_mixer.lock().unwrap() = device_sink.mixer().clone();
+                                *shared_mixer.lock().unwrap() = sink.mixer().clone();
+                                device_sink = Some(sink);
                                 reconnected.store(true, std::sync::atomic::Ordering::Release);
                                 log_device(
                                     "INFO",
