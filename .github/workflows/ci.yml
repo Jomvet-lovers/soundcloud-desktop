@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   frontend:
-    name: Frontend (tsc + biome)
+    name: Frontend (tsc + biome + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +42,14 @@ jobs:
         working-directory: desktop
         run: npx biome check src
 
+      # The bundle is what ships; a Tailwind/rollup-only breakage would
+      # otherwise surface for the first time in the release job.
+      - name: Production build
+        working-directory: desktop
+        run: pnpm build
+
   rust:
-    name: Rust (cargo check + tests)
+    name: Rust (check + clippy + tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +61,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -63,8 +71,14 @@ jobs:
 
       - name: Cargo check
         working-directory: desktop/src-tauri
-        run: cargo check
+        run: cargo check --locked
+
+      # Correctness lints only: the tree still carries pre-existing style and
+      # dead-code warnings, so `-D warnings` would never be green.
+      - name: Cargo clippy
+        working-directory: desktop/src-tauri
+        run: cargo clippy --all-targets --locked -- -D clippy::correctness
 
       - name: Cargo tests
         working-directory: desktop/src-tauri
-        run: cargo test
+        run: cargo test --locked
