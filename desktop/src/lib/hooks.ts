@@ -41,6 +41,11 @@ export interface PagedResponse<T> {
   has_more: boolean;
 }
 
+/** Page envelope with an opaque cursor for the next page. */
+export interface CursorPage<T> extends PagedResponse<T> {
+  next_cursor?: string | null;
+}
+
 export interface CatalogArtist {
   id: string;
   name: string;
@@ -325,15 +330,54 @@ export function useHistory(limit = 50) {
 
 /* ── Liked tracks ──────────────────────────────────────────────── */
 
-export function useLikedTracks(limit = 30) {
-  const query = usePagedQuery<Track>({
+/** Page size of the liked-tracks walk. */
+const LIKED_PAGE_SIZE = 30;
+
+/**
+ * One page of the signed-in user's liked tracks.
+ *
+ * SoundCloud's `track_likes` is cursor-paged: a numeric `offset` is rejected
+ * past the first page ("invalid cursor format"), so the next page is addressed
+ * by the `next_cursor` the backend echoes from `next_href` — the same contract
+ * the profile likes tab uses.
+ */
+export function fetchLikedTracksPage(
+  cursor: string | null,
+  limit = LIKED_PAGE_SIZE,
+): Promise<CursorPage<Track>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  return api<CursorPage<Track>>(`/me/likes/tracks?${params.toString()}`);
+}
+
+export function useLikedTracks(limit = LIKED_PAGE_SIZE) {
+  const query = useInfiniteQuery<
+    CursorPage<Track>,
+    DefaultError,
+    InfiniteData<CursorPage<Track>, string | null>,
+    QueryKey,
+    string | null
+  >({
     queryKey: ['me', 'likes', 'tracks', limit],
-    url: (page, l) => pagedUrl('/me/likes/tracks', page, l),
-    limit,
+    queryFn: ({ pageParam }) => fetchLikedTracksPage(pageParam, limit),
+    initialPageParam: null,
+    // SoundCloud keeps a `next_href` on the last page and following it yields an
+    // empty page, so an empty page ends the walk — otherwise the sentinel would
+    // re-request that cursor forever.
+    getNextPageParam: (last) =>
+      (last.collection ?? []).length > 0 ? (last.next_cursor ?? undefined) : undefined,
     staleTime: COLD_CACHE_MS,
+    gcTime: INFINITE_GC_MS,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
   });
 
-  const tracks = query.items;
+  const tracks = useMemo(
+    // A like recorded while the walk runs shifts the cursor's window, so pages
+    // can overlap; the list is keyed by urn and duplicates would double-render.
+    () => dedupeByUrn(query.data?.pages.flatMap((p) => p.collection ?? []) ?? []),
+    [query.data],
+  );
 
   useEffect(() => {
     if (tracks.length > 0) initLikedUrns(tracks);
@@ -350,7 +394,7 @@ export function useLikedTracks(limit = 30) {
 export { invalidateAllLikesCache } from './all-likes-cache';
 
 /**
- * Fetch ALL liked tracks. Page-based pagination, shared promise.
+ * Fetch ALL liked tracks, one cursor page at a time. Shared promise.
  * Optional onPage callback fires per page during the fetch.
  */
 const MAX_ALL_LIKES_PAGES = 200;
@@ -364,15 +408,23 @@ export function fetchAllLikedTracks(
 
   const promise = (async () => {
     const all: Track[] = [];
+    const seen = new Set<string>();
+    let cursor: string | null = null;
     for (let page = 0; page < MAX_ALL_LIKES_PAGES; page++) {
-      const data = await api<TrackPage>(pagedUrl('/me/likes/tracks', page, pageSize));
+      const data = await fetchLikedTracksPage(cursor, pageSize);
       const pageTracks = data.collection ?? [];
-      for (const t of pageTracks) all.push(t);
+      // A like added mid-walk shifts the cursor's window, so pages can overlap.
+      for (const t of pageTracks) {
+        if (seen.has(t.urn)) continue;
+        seen.add(t.urn);
+        all.push(t);
+      }
       void rememberTracks(pageTracks);
       onPage?.(pageTracks);
-      // SoundCloud keeps `next_href` on the last page of some collections, so an
-      // empty page ends the walk, and the cap keeps a stuck cursor from spinning.
-      if (!data.has_more || pageTracks.length === 0) break;
+      // An empty page ends the walk (SoundCloud keeps a cursor on the last
+      // page), and the cap keeps a stuck cursor from spinning forever.
+      cursor = data.next_cursor ?? null;
+      if (!cursor || pageTracks.length === 0) break;
     }
     void rememberLikedTracks(all, { replace: true });
     return all;
@@ -644,11 +696,6 @@ export function useUserPlaylists(userUrn: string | undefined) {
   });
 
   return { playlists: query.items, ...query };
-}
-
-/** Page envelope with an opaque cursor for the next page. */
-export interface CursorPage<T> extends PagedResponse<T> {
-  next_cursor?: string | null;
 }
 
 /**

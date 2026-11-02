@@ -12,7 +12,7 @@
 
 import { shuffleArray, type Track, usePlayerStore } from '../stores/player';
 import { api } from './api';
-import { fetchAllLikedTracks, fetchAllPlaylistTracks } from './hooks';
+import { fetchAllLikedTracks, fetchAllPlaylistTracks, fetchLikedTracksPage } from './hooks';
 
 export interface QueueContinuationSource {
   /** Имя для логов. */
@@ -71,14 +71,32 @@ const PLAYLIST_PAGE_SIZE = 200;
 
 /**
  * Лайки от и до. `alreadyLoaded` — сколько лайков уже в очереди при старте
- * (первая страница списка): пропускаем полностью покрытые страницы, стык
- * добивает дедуп на стороне autopilot'а.
+ * (первая страница списка): их пропускаем, стык добивает дедуп на стороне
+ * autopilot'а.
+ *
+ * Курсор тянется с начала цепочки: track_likes не принимает численный offset
+ * (`invalid cursor format`), и на N-ю страницу можно попасть только пройдя
+ * предыдущие — поэтому страницы-подряд идут, а лишние отсекаются по счётчику.
  */
 export function createLikesContinuationSource(alreadyLoaded = 0): QueueContinuationSource {
-  return createPagedContinuationSource('likes', '/me/likes/tracks', {
-    pageSize: LIKES_PAGE_SIZE,
-    startPage: Math.floor(Math.max(0, alreadyLoaded) / LIKES_PAGE_SIZE),
-  });
+  let cursor: string | null = null;
+  let skip = Math.max(0, alreadyLoaded);
+  let done = false;
+  return {
+    kind: 'likes',
+    async next() {
+      while (!done) {
+        const data = await fetchLikedTracksPage(cursor);
+        cursor = data.next_cursor ?? null;
+        const collection = data.collection ?? [];
+        if (!cursor || collection.length === 0) done = true;
+        const rest = skip > 0 ? collection.slice(Math.min(skip, collection.length)) : collection;
+        skip = Math.max(0, skip - collection.length);
+        if (rest.length > 0) return rest;
+      }
+      return [];
+    },
+  };
 }
 
 /**
