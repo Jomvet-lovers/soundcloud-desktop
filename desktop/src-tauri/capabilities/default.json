@@ -29,8 +29,22 @@
     "opener:default",
     "fs:allow-appcache-read-recursive",
     "fs:allow-appcache-write-recursive",
-    "fs:allow-appdata-read-recursive",
-    "fs:allow-appdata-write-recursive",
+    "fs:allow-appdata-read",
+    "fs:allow-appdata-write",
+    {
+      "identifier": "fs:scope-appdata",
+      "deny": [
+        {
+          "path": "$APPDATA/auth_sessions.json"
+        },
+        {
+          "path": "$APPDATA/auth_session.json"
+        },
+        {
+          "path": "$APPDATA/sc-auth.json"
+        }
+      ]
+    },
     "dialog:default",
     {
       "identifier": "http:default",
@@ -39,7 +53,13 @@
           "url": "https://*:*"
         },
         {
-          "url": "http://*:*"
+          "url": "http://localhost:*"
+        },
+        {
+          "url": "http://127.0.0.1:*"
+        },
+        {
+          "url": "http://*.localhost:*"
         }
       ]
     }
