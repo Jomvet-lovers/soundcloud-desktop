@@ -1001,14 +1001,6 @@ button:active:not(:disabled) {
   --sw-progress: 0%;
 }
 
-.sw-bar {
-  min-height: 2px;
-}
-
-.sw-layer-muted .sw-bar {
-  background: rgba(255, 255, 255, 0.22);
-}
-
 .sw-layer-accent {
   clip-path: inset(0 calc(100% - var(--sw-progress)) 0 0);
   -webkit-clip-path: inset(0 calc(100% - var(--sw-progress)) 0 0);
@@ -1018,8 +1010,29 @@ button:active:not(:disabled) {
   will-change: clip-path;
 }
 
-.sw-layer-accent .sw-bar {
-  background: var(--color-accent);
+/* One drop-shadow for the whole played part, not one per bar. */
+.sw-wave-canvas {
+  filter: drop-shadow(0 0 5px var(--color-accent-glow));
+}
+
+[data-perf="light"] .sw-wave-canvas,
+[data-perf="medium"] .sw-wave-canvas {
+  filter: none;
+}
+
+/* Loading sweep shown over the fallback bars until SC's samples arrive. */
+.sw-shimmer {
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+[data-perf="light"] .sw-shimmer {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-shimmer {
+    animation: none;
+  }
 }
 
 .soundwave-title {
